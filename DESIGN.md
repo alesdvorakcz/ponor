@@ -49,7 +49,7 @@ Both themes ship from M0. The app follows the OS and the choice is overridable i
 
 ### 0.3 The mark
 
-A dive profile: surface line, descent, bottom, the five-metre safety stop, ascent — stroked in the depth gradient. It is the same curve the app draws for an imported dive, so the icon is a sample of the product rather than a badge stuck on it. Flat single-colour below ~32 px.
+A dive profile under a wavy surface: a steep descent, bottom time, then a staged ascent that ends in open water rather than climbing back to the waterline. Both of those are load-bearing, and it took four rounds of rendering to find out why. A profile that closes at the top against a straight surface line reads unmistakably as a **bucket** — two matching diagonal walls over a flat base. Ending the ascent in open space removes the second wall; making the surface a wave says "water" instantly. Stroked in the depth gradient, flat single-colour below ~32 px, and the same shape the app will draw for an imported dive — so the icon is a sample of the product rather than a badge stuck on it.
 
 ### 0.4 Profiles are drawn only from real data
 
