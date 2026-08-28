@@ -37,4 +37,19 @@ const tokens = {
   },
 };
 
-module.exports = { tokens, depthScale, depthBandLimits };
+/**
+ * Native font families. React Native does not synthesise weights, so each
+ * weight is its own family. Names are prefixed to avoid colliding with
+ * Tailwind's font-weight utilities: `--font-bold` would clash with `font-bold`.
+ */
+const fonts = {
+  sans: 'Archivo_400Regular',
+  'sans-medium': 'Archivo_500Medium',
+  'sans-semibold': 'Archivo_600SemiBold',
+  'sans-bold': 'Archivo_700Bold',
+  mono: 'IBMPlexMono_400Regular',
+  'mono-medium': 'IBMPlexMono_500Medium',
+  'mono-semibold': 'IBMPlexMono_600SemiBold',
+};
+
+module.exports = { tokens, depthScale, depthBandLimits, fonts };

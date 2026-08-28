@@ -49,6 +49,16 @@ describe('buildThemeCss', () => {
     expect(css).not.toContain('--color-fgMuted');
   });
 
+  it('declares each font weight as its own prefixed family', () => {
+    expect(css).toContain('--font-sans: Archivo_400Regular;');
+    expect(css).toContain('--font-sans-bold: Archivo_700Bold;');
+    expect(css).toContain('--font-mono-semibold: IBMPlexMono_600SemiBold;');
+  });
+
+  it('does not shadow Tailwind font-weight utilities', () => {
+    expect(css).not.toMatch(/--font-(medium|semibold|bold):/);
+  });
+
   it('matches the checked-in global.css, so the two cannot drift', () => {
     const onDisk = fs.readFileSync(path.join(__dirname, '..', '..', 'global.css'), 'utf8');
     expect(onDisk).toBe(css);

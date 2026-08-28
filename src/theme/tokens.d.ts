@@ -13,3 +13,4 @@ export interface ThemeTokens {
 export declare const tokens: Record<ColorScheme, ThemeTokens>;
 export declare const depthScale: Record<ColorScheme, string[]>;
 export declare const depthBandLimits: number[];
+export declare const fonts: Record<string, string>;

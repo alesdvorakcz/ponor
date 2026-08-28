@@ -16,6 +16,13 @@
   --color-depth-4: #0E9F6E;
   --color-depth-5: #0B76B8;
   --color-depth-6: #3A49C0;
+  --font-sans: Archivo_400Regular;
+  --font-sans-medium: Archivo_500Medium;
+  --font-sans-semibold: Archivo_600SemiBold;
+  --font-sans-bold: Archivo_700Bold;
+  --font-mono: IBMPlexMono_400Regular;
+  --font-mono-medium: IBMPlexMono_500Medium;
+  --font-mono-semibold: IBMPlexMono_600SemiBold;
 }
 
 @media (prefers-color-scheme: dark) {

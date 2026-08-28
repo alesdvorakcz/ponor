@@ -1,4 +1,4 @@
-const { tokens, depthScale } = require('./tokens');
+const { tokens, depthScale, fonts } = require('./tokens');
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -24,6 +24,12 @@ function varsFor(scheme, indent) {
   return lines.join('\n');
 }
 
+function fontVars(indent) {
+  return Object.entries(fonts)
+    .map(([name, family]) => `${indent}--font-${name}: ${family};`)
+    .join('\n');
+}
+
 /**
  * The whole of global.css, derived from tokens.js. Never hand-edit global.css.
  *
@@ -40,6 +46,7 @@ function buildThemeCss() {
 
 @theme {
 ${varsFor('light', '  ')}
+${fontVars('  ')}
 }
 
 @media (prefers-color-scheme: dark) {
