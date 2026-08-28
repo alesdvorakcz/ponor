@@ -1,16 +1,71 @@
-# Logbook — Design Plan
+# Ponor — Design Plan
 
-> **v1 scope · rev 4 · 2026-08-28**
+> **v1 scope · rev 5 · 2026-08-28**
 > Core decisions: **Supabase** backend · **offline-first** · **optional sign-in** · photos in **v1.1**
+> Name and visual identity locked in §0; both themes ship from M0.
 > Styled copy of this document (artifact): https://claude.ai/code/artifact/e4dd99fa-ad16-4b3c-b91c-dfc550f4ed09
+> Visual identity (artifact): https://claude.ai/code/artifact/8721f3d0-2e2c-49e3-ae7b-9dabac7edf77
 
 A free, offline-first dive log for iPhone, Android, and tablets — web to follow — that *fills itself in*: after the first dive of a trip, you only touch what changed.
 
 ---
 
+## 0. Name & visual identity
+
+**The app is called Ponor.** In Czech, *ponor* is the submersion itself — the draft of a vessel, how deep a thing sits; the root of *ponořit se*, to submerge. In English it is a karst term: the opening where a surface stream leaves the daylight and becomes a subterranean river. The same meaning in both languages, the same pronunciation (PO-nor), it declines cleanly in Czech, and it spells itself when heard. **`ponor.app` is registered.**
+
+Checked and rejected on availability: *Slate*, *Bezel*, *Sextant* (crowded on the App Store), *Halocline* (Halocline GmbH holds software-class trademarks), *Atoll* (Forsk's registered software mark), *Manta* (an existing paper dive logbook), *Deco* (TP-Link, plus an existing dive-planning app). Note that every competitor is a dive+log mashup — Dive Log, Diving Log, Divog, Diviac, DiveMate, Diveboard, Depth, Subsurface — so a name in a diver's own vocabulary stands apart by default. Still outstanding: a direct App Store and Play Store search, and a trademark register check.
+
+### 0.1 Colour is depth, and colour is nothing else
+
+Water strips colour out in a fixed order — red is gone by about 5 m, then orange, then yellow, then green; blue is what is left. The depth scale **is** that sequence, so a depth always carries a colour and the colour is physically true.
+
+| Band | Dark | Light |
+|---|---|---|
+| 0–6 m | `#FF6B4A` | `#E04A28` |
+| 6–12 m | `#FF9F43` | `#C2600A` |
+| 12–20 m | `#F5CE3E` | `#8F7000` |
+| 20–30 m | `#3FCB94` | `#0E9F6E` |
+| 30–40 m | `#2E9BE0` | `#0B76B8` |
+| 40 m + | `#6673E4` | `#3A49C0` |
+
+Because colour is spoken for, **every control is monochrome** — the primary button is simply inverted ink. Depth is always redundantly encoded by the number itself, so the scale never carries meaning on its own: colour-blind safe, and legible in glare.
+
+### 0.2 Theme tokens
+
+Both themes ship from M0. The app follows the OS and the choice is overridable in settings; NativeWind reads these as two token sets over identical components.
+
+| Token | Role | Dark | Light |
+|---|---|---|---|
+| `bg` | App ground | `#080B0F` | `#EDEEEA` |
+| `surface` | Cards, fields, charts | `#111820` | `#FFFFFF` |
+| `border` | Hairlines, dividers | `#212D38` | `#CDD3CC` |
+| `fg` | Text and values | `#F0F5F8` | `#0D1216` |
+| `fg-muted` | Labels, units, metadata | `#7C8D9A` | `#5A6670` |
+| `action` / `action-fg` | Primary button — inverted ink | `#F0F5F8` / `#080B0F` | `#0D1216` / `#EDEEEA` |
+| `depth-1…6` | Depth scale — **data only, never chrome** | see §0.1 | see §0.1 |
+
+**Type:** *Archivo* for UI and display, *IBM Plex Mono* for all data — depths, pressures, durations, timestamps — with tabular figures wherever digits align in a column. Both carry Latin Extended, which Czech needs (ě š č ř ž ů). The wordmark is Archivo, uppercase, tracked +0.2 em, following the vernacular of dive-instrument brands.
+
+### 0.3 The mark
+
+A dive profile: surface line, descent, bottom, the five-metre safety stop, ascent — stroked in the depth gradient. It is the same curve the app draws for an imported dive, so the icon is a sample of the product rather than a badge stuck on it. Flat single-colour below ~32 px.
+
+### 0.4 Profiles are drawn only from real data
+
+A dive row shows the **coloured depth number and no graphic**. When a dive has a real sample series — post-v1, from a UDDF / Subsurface / FIT import — that same row grows a profile sparkline and the dive detail gains a profile chart, automatically and without a redesign. The app never draws a schematic curve interpolated from max depth, average depth and duration: an invented shape on a dive log reads as recorded data, and it isn't.
+
+### 0.5 Constraints the design must answer
+
+- **Sunlight.** Dives are logged on an open deck at noon. The light theme exists for this; contrast is a functional requirement, not a taste question.
+- **Wet hands, one thumb.** Tap targets never below 48 dp, and the primary action sits in the bottom third of the screen.
+- **Czech runs 20–30 % longer** than English. Labels wrap to two lines rather than truncate.
+
+---
+
 ## 1. Product & principles
 
-Logbook is a hobby project, published free, for divers who find existing log apps fiddly. It replaces the paper logbook for manual logging: dive count, sites, conditions, gas, gear, and notes. It is not (yet) a dive-computer companion — the schema leaves room for that later. There is deliberately **no trip entity** to create or manage: carry-over prefill covers a trip's shared details, and the dive list groups itself into trips by date and place.
+Ponor is a hobby project, published free, for divers who find existing log apps fiddly. It replaces the paper logbook for manual logging: dive count, sites, conditions, gas, gear, and notes. It is not (yet) a dive-computer companion — the schema leaves room for that later. There is deliberately **no trip entity** to create or manage: carry-over prefill covers a trip's shared details, and the dive list groups itself into trips by date and place.
 
 - **Log a dive in under a minute.** Every new dive is prefilled from the previous one. Logging dive #2 and #3 of a trip means changing the depth, the time, and the pressures — nothing else.
 - **Only the fields you use.** Everything is optional except the date. Field groups collapse, and any group can be hidden permanently in settings.
@@ -50,7 +105,7 @@ Logs can be half-written in advance. On the boat, set up the coming dives — da
 
 ### 2.5 Dive numbering
 
-**Dive numbers are computed, never stored:** chronological position plus your pre-Logbook dive count (`dives_before`, asked once at onboarding, editable in settings any time). Backfilling an old dive slots it into place and renumbers everything after it automatically — on every device, with zero sync churn. Same-day dives order by time in, or by hand when times are missing. No per-dive number override in v1 (layer it on later only if real users ask).
+**Dive numbers are computed, never stored:** chronological position plus your pre-Ponor dive count (`dives_before`, asked once at onboarding, editable in settings any time). Backfilling an old dive slots it into place and renumbers everything after it automatically — on every device, with zero sync churn. Same-day dives order by time in, or by hand when times are missing. No per-dive number override in v1 (layer it on later only if real users ask).
 
 ## 3. Screens
 
@@ -125,7 +180,7 @@ Tanks are one JSON column instead of a child table: they are never queried on th
 - **`profiles`**: `display_name` · `dives_before` · (future `is_supporter`).
 - **Local only:** `settings` (units · locale · hidden groups · `dives_before`, syncs to profile) · `sync_state` (`last_pulled_at` · dirty flags).
 
-**Reserved now** so nothing migrates painfully later: `dive_photos` (storage paths per dive), `dive_samples` (UDDF-shaped depth/time series — the real profile chart on the dive detail, once imports land), and `import_source` / `import_id` on dives so future imports from dive computers or other apps can dedupe safely.
+**Reserved now** so nothing migrates painfully later: `dive_photos` (storage paths per dive), `dive_samples` (UDDF-shaped depth/time series — the real profile chart on the dive detail, once imports land), and `import_source` / `import_id` on dives so future imports from dive computers or other apps can dedupe safely. Until `dive_samples` holds rows for a dive, no curve is drawn for it anywhere — see §0.4.
 
 ## 7. Sync protocol
 
@@ -164,13 +219,13 @@ The first real bill would be Supabase Pro ($25/mo) when the database nears 500 M
 
 ## 9. Milestones
 
-- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running on a real iPhone and Android phone, lint and CI green. A weekend.
-  *Done when: both phones show the empty app built by CI-checked code.*
+- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running on a real iPhone and Android phone, lint and CI green. Plus the §0 identity in code: both token sets wired into NativeWind, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
+  *Done when: both phones show the empty app built by CI-checked code, in the right typeface, and switching the OS between light and dark switches the app with it.*
 - **M1 · The local logbook** — schema and migrations, the dive form with groups + prefill + duplicate + gear presets, prepare-ahead planned dives, list and detail, units, autocomplete from own history. No account, fully offline — already a usable app.
   *Done when: you log a 3-dive trip in under 3 minutes, in airplane mode.*
 - **M2 · Accounts & community** — Supabase project, three sign-in methods, the sync protocol, community sites and centers with fuzzy dedupe, and the Map tab.
   *Done when: a site created offline on "the boat" appears on a second signed-in device's map after sync, and an obvious duplicate gets caught by "did you mean".*
-- **M3 · Surface — release** — stats screen, certification wallet, Czech + English, CSV + JSON export, icon and splash, store listings, Sentry wired, TestFlight and Play internal testing, then public.
+- **M3 · Surface — release** — stats screen, certification wallet, Czech + English, CSV + JSON export, store listings, Sentry wired, TestFlight and Play internal testing, then public.
   *Done when: strangers can install it from both stores for free.*
 
 **After release — v1.1 and beyond, roughly in order:** the web app (same codebase, and home of the admin area) · photos (compressed on-device, per-user caps) · dive-computer & app import (UDDF / Subsurface / Garmin FIT, a PADI migration, plus UDDF export) · site pages with community aggregates · social last, deliberately: linked buddies and site comments bring App Store moderation duties (reporting, blocking), so they wait until the app has earned them.
@@ -190,3 +245,7 @@ Key decisions and the alternatives they beat — don't relitigate without new in
 - **Sign-in optional;** guest → account is just claiming rows (client UUIDs).
 - **Email OTP over magic links;** EU region (Frankfurt); SI units stored, converted at display.
 - **Photos, web, imports, social deferred** past v1 in that order; social last because UGC brings App Store moderation duties.
+- **Named Ponor** (§0): the same word in Czech and English, pronounced identically, and free where it counts — `ponor.app` registered. Beat Slate, Bezel, Sextant, Halocline, Atoll, Manta and Deco, each of which failed an App Store or trademark check.
+- **Colour encodes depth and nothing else;** controls stay monochrome. The scale follows the order in which water removes colour, so it carries meaning rather than decoration, and depth is always shown redundantly as a number.
+- **Dark and light both ship from M0,** not M3: NativeWind needs the token set before the first screen exists, and retro-fitting a theme onto built screens is the expensive path.
+- **No schematic dive profiles** (§0.4): rows show the coloured depth number, and the sparkline and detail chart appear only for dives carrying a real sample series. An interpolated curve would read as recorded data.
