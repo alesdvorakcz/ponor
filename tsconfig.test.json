@@ -1,0 +1,18 @@
+{
+  // Test-only program: adds back the Jest/Node ambient globals (describe/expect, __dirname,
+  // node:fs) that tsconfig.json's app program deliberately doesn't have.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"]
+  },
+  "include": [
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
+  // Un-excludes the test files tsconfig.json excludes ("exclude" replaces rather than merges
+  // across extends); node_modules must still be listed once any "exclude" is set at all,
+  // since the implicit default exclusion only applies when a config has none.
+  "exclude": [
+    "node_modules"
+  ]
+}

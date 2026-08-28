@@ -1,9 +1,13 @@
 {
+  // App-only program: Jest/Node ambient globals live in tsconfig.test.json instead, so a
+  // screen can't reference __dirname or node:fs and still typecheck as if that were fine.
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
     "allowJs": true,
-    "types": ["jest", "node"],
+    // [] — React/Expo/NativeWind types arrive via imports and the triple-slash references
+    // in expo-env.d.ts / nativewind-env.d.ts, not ambient @types, so none need listing here.
+    "types": [],
     "paths": {
       "@/*": [
         "./src/*"
@@ -18,5 +22,17 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  // Setting "exclude" here replaces (not merges with) expo/tsconfig.base's own exclude,
+  // so its entries are repeated below; test files are added since they live in tsconfig.test.json.
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "android",
+    "ios",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }
