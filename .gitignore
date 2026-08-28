@@ -7,3 +7,6 @@
 
 # dependencies & build output (Expo scaffold will extend this in M0)
 node_modules/
+
+# subagent-driven-development scratch
+.superpowers/
