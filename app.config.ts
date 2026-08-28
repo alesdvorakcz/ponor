@@ -1,4 +1,5 @@
 import type { ExpoConfig } from 'expo/config';
+import { tokens } from './src/theme/tokens';
 
 const config: ExpoConfig = {
   name: 'Ponor',
@@ -10,7 +11,14 @@ const config: ExpoConfig = {
   // the M0 done-when cannot pass.
   userInterfaceStyle: 'automatic',
   ios: { supportsTablet: true, bundleIdentifier: 'app.ponor.mobile' },
-  android: { package: 'app.ponor.mobile' },
+  icon: './assets/images/icon.png',
+  android: {
+    package: 'app.ponor.mobile',
+    adaptiveIcon: {
+      foregroundImage: './assets/images/adaptive-icon.png',
+      backgroundColor: tokens.dark.bg,
+    },
+  },
   plugins: [
     'expo-router',
     [
@@ -25,6 +33,16 @@ const config: ExpoConfig = {
           './node_modules/@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf',
           './node_modules/@expo-google-fonts/ibm-plex-mono/600SemiBold/IBMPlexMono_600SemiBold.ttf',
         ],
+      },
+    ],
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/images/splash-icon.png',
+        imageWidth: 200,
+        resizeMode: 'contain',
+        backgroundColor: tokens.dark.bg,
+        dark: { backgroundColor: tokens.dark.bg },
       },
     ],
   ],
