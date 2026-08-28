@@ -7,6 +7,9 @@ describe('resolveScheme', () => {
   });
 
   it('falls back to dark when the system reports no preference', () => {
+    // RN 0.86's useColorScheme() returns 'unspecified'; older versions and
+    // Appearance.getColorScheme() can still give null or undefined.
+    expect(resolveScheme('unspecified')).toBe('dark');
     expect(resolveScheme(null)).toBe('dark');
     expect(resolveScheme(undefined)).toBe('dark');
   });
@@ -18,7 +21,11 @@ describe('resolveScheme', () => {
 
   it('treats the "system" override as no override', () => {
     expect(resolveScheme('light', 'system')).toBe('light');
-    expect(resolveScheme(null, 'system')).toBe('dark');
+    expect(resolveScheme('unspecified', 'system')).toBe('dark');
+  });
+
+  it('lets an override win even when the system is unspecified', () => {
+    expect(resolveScheme('unspecified', 'light')).toBe('light');
   });
 });
 
