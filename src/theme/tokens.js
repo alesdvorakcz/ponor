@@ -1,6 +1,6 @@
 // The single source of truth for Ponor's colour. See DESIGN.md §0.1 and §0.2.
-// Consumed by tailwind.config.js (CommonJS), by the app through tokens.d.ts,
-// and by scripts/build-theme-css.mjs which derives global.css from it.
+// Consumed by the app through tokens.d.ts, by app.config.ts, and by the plain-Node
+// build scripts (build-theme-css.mjs, build-icons.mjs) which cannot require TypeScript.
 
 /** Upper bound in metres for depth bands 1-5. Band 6 is everything deeper. */
 const depthBandLimits = [6, 12, 20, 30, 40];
