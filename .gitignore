@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# secrets
+.env
+.env.*
+
+# dependencies & build output (Expo scaffold will extend this in M0)
+node_modules/
