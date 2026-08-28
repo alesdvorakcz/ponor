@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
   <defs>
-    <linearGradient id="depth" gradientUnits="userSpaceOnUse" x1="0" y1="17" x2="0" y2="47">
+    <linearGradient id="depth" gradientUnits="userSpaceOnUse" x1="0" y1="16" x2="0" y2="45">
       <stop offset="0" stop-color="#FF9F43"/>
       <stop offset="0.45" stop-color="#3FCB94"/>
       <stop offset="1" stop-color="#2E9BE0"/>
     </linearGradient>
   </defs>
-  <line x1="14" y1="17" x2="50" y2="17" stroke="#5A6C78" stroke-width="2.2" stroke-linecap="round"/>
-  <path d="M14 17 L24 45 L35 45 L40 31 L47 31 L50 17"
-        fill="none" stroke="url(#depth)" stroke-width="4.4"
+  <line x1="3" y1="16" x2="61" y2="16" stroke="#5A6C78" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M9 16 L18 45 L34 45 L40 30 L49 30 L55 16"
+        fill="none" stroke="url(#depth)" stroke-width="4.6"
         stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

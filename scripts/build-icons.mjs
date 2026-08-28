@@ -16,9 +16,9 @@ const targets = [
   // Full-bleed store and home-screen icon.
   { file: 'icon.png', size: 1024, pad: 0 },
   // Android masks the outer ~33%, so the mark sits in the safe centre.
-  { file: 'adaptive-icon.png', size: 1024, pad: 224 },
+  { file: 'adaptive-icon.png', size: 1024, pad: 112 },
   // Splash art is composited on a flat background by expo-splash-screen.
-  { file: 'splash-icon.png', size: 512, pad: 128 },
+  { file: 'splash-icon.png', size: 512, pad: 96 },
 ];
 
 for (const { file, size, pad } of targets) {
