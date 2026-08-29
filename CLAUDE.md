@@ -12,6 +12,4 @@ Read [DESIGN.md](DESIGN.md) — it is the authoritative plan (scope, data model,
 - Conventions: SI units stored, converted at display · all dive fields nullable except date · client-generated UUIDv7 ids · synced tables carry `updated_at` + `deleted_at` · dive numbers are computed, never stored.
 - Brand: the app is **Ponor** (`ponor.app`). Colour encodes depth and nothing else — controls stay monochrome, the primary button is inverted ink. Dark and light both ship from M0. No profile curve is ever drawn for a dive without a real sample series (§0.4).
 - Work proceeds milestone by milestone (M0 → M3, DESIGN.md §9).
-- Two Claude artifacts mirror the plan — when it changes, update DESIGN.md and the relevant artifact together:
-  - Design doc: https://claude.ai/code/artifact/e4dd99fa-ad16-4b3c-b91c-dfc550f4ed09
-  - Visual identity: https://claude.ai/code/artifact/8721f3d0-2e2c-49e3-ae7b-9dabac7edf77
+- Two Claude artifacts mirror the plan — a styled design doc and a visual-identity page. Their links are deliberately kept out of this public repo; find them with `/artifacts`. When the plan changes, update DESIGN.md and the relevant artifact together.

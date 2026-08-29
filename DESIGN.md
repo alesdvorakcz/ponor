@@ -3,8 +3,7 @@
 > **v1 scope · rev 5 · 2026-08-28**
 > Core decisions: **Supabase** backend · **offline-first** · **optional sign-in** · photos in **v1.1**
 > Name and visual identity locked in §0; both themes ship from M0.
-> Styled copy of this document (artifact): https://claude.ai/code/artifact/e4dd99fa-ad16-4b3c-b91c-dfc550f4ed09
-> Visual identity (artifact): https://claude.ai/code/artifact/8721f3d0-2e2c-49e3-ae7b-9dabac7edf77
+> Styled copies of this document and of the visual identity live as Claude artifacts; their links are kept out of this public repo.
 
 A free, offline-first dive log for iPhone, Android, and tablets — web to follow — that *fills itself in*: after the first dive of a trip, you only touch what changed.
 
