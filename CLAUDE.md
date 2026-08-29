@@ -1,6 +1,6 @@
 # Ponor — project instructions
 
-Personal hobby project of Aleš (free dive-logging app). **Not an mWork365 repo** — the mWork365 Jira/branch/PR conventions do NOT apply here. Plain branches and commit messages are fine; no Jira keys.
+Personal hobby project of Aleš (free dive-logging app). **Not a work repo** — none of the work Jira/branch/PR conventions apply here. Plain branches and commit messages are fine; no ticket keys.
 
 ## Before implementing anything
 
