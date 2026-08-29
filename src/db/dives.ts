@@ -58,7 +58,11 @@ export const liveDives = isNull(dives.deletedAt);
 const now = () => new Date().toISOString();
 
 function toDive(row: typeof dives.$inferSelect): Dive {
-  return { ...row, tanks: row.tanks ?? [] } as Dive;
+  // tanks is NOT NULL with a '[]' default, so this is normally a no-op; it
+  // only matters if the column ever holds valid-but-wrong-shaped JSON (a
+  // future migration bug, a hand-edited row) — Drizzle's $type<Tank[]>() is
+  // a compile-time label, not a runtime guarantee.
+  return { ...row, tanks: Array.isArray(row.tanks) ? row.tanks : [] } as Dive;
 }
 
 export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
