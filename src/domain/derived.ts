@@ -45,6 +45,29 @@ function tankGas(tank: Tank): TankGas {
 }
 
 /**
+ * COERCION CONTRACT — read this before wiring up any form for tank fields.
+ * M1c (the dive entry form) is the first consumer this applies to.
+ *
+ * The classification above only holds if an empty numeric field reaches
+ * this file as null or NaN, and never as 0: this file treats NaN as absent
+ * (an empty field — parseFloat('') is NaN) and treats 0 as contradictory
+ * for sizeL and count. That split is correct, but it depends entirely on
+ * which coercion produced the number:
+ *   - parseFloat('') -> NaN -> absent -> the cylinder still counts (count
+ *     defaults to 1, sizeL just skips that cylinder). Correct.
+ *   - Number('') -> 0 -> contradictory -> voids the entire dive's gas
+ *     figure.
+ * z.coerce.number() calls Number() internally, so a bare
+ * z.coerce.number() on an optional sizeL or count field will silently
+ * blank a dive's RMV the moment that field is left empty — not reject the
+ * form, not flag the field, just a quietly missing gas figure. Any Zod
+ * schema for these fields needs something that maps an empty string to
+ * null (or leaves it NaN) instead of coercing it to 0 — e.g.
+ * z.coerce.number().or(z.literal('').transform(() => null)) — never a
+ * bare z.coerce.number().
+ */
+
+/**
  * Size and count each get the same three-way classification pressure does
  * above, as their own small functions rather than logic inlined into
  * gasUsedLitres's loop — so that loop can classify every field on a
