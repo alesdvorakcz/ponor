@@ -28,8 +28,13 @@ export interface Tank {
  * A dive as the app sees it. Mirrors the `dives` table; SI units throughout.
  * Everything is nullable except id, date and status — see DESIGN.md §6.
  *
+ * `tanks` is the one further exception, and deliberately so: an empty array
+ * already means "no cylinders recorded", so a nullable field would add a
+ * second way to say the same thing and force every reader to handle both.
+ *
  * Note what is absent: no dive number, no used pressure, no RMV, no MOD, no
- * surface interval. Those are computed from this data, never stored.
+ * time out, no surface interval. Those six are computed from this data, never
+ * stored — the same six DESIGN.md §6 lists under "Computed in the app".
  */
 export interface Dive {
   id: string;

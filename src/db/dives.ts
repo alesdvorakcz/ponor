@@ -65,7 +65,13 @@ export type Mutual = Assert<
  * nothing at the schema level stops a query from forgetting to filter it out.
  * Exported and shared rather than repeated so there is exactly one place this
  * filter is written — a tombstoned dive reaching assignDiveNumbers would shift
- * the number of every dive after it.
+ * the number of every dive after it. Every read of dives must go through
+ * listDives/getDive, never a bare `db.select().from(dives)`.
+ *
+ * Dive-specific on purpose for now, though gear_presets also carries
+ * deleted_at: generalising to a `liveRows(table)` helper with one call site
+ * would be abstraction ahead of the second instance. Extract it when the
+ * gear-presets repository is written (M1e, §2.1) and there are two.
  */
 export const liveDives = isNull(dives.deletedAt);
 

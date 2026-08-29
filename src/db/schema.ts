@@ -93,7 +93,14 @@ export const dives = sqliteTable('dives', {
   current: integer('current'),
   surge: integer('surge'),
 
-  /** JSON array of Tank, first entry = main cylinder. See DESIGN.md §6. */
+  /**
+   * JSON array of Tank, first entry = main cylinder. See DESIGN.md §6.
+   *
+   * NOT NULL, unlike almost everything else here, because an empty array
+   * already means "no cylinders recorded". A nullable column would be a
+   * second encoding of the same fact and would force every reader to handle
+   * both — so the default is `'[]'`, never NULL.
+   */
   tanks: tanksJson('tanks').notNull().default(sql`'[]'`),
 
   suit: text('suit').$type<Suit>(),

@@ -180,6 +180,18 @@ export function rmv(
  * Maximum operating depth for a mix, in metres — the depth at which oxygen
  * partial pressure reaches the ceiling. Returns null for a mix that is not a
  * real one, rather than a number a diver might act on.
+ *
+ * `o2Pct` is bounded to (0, 100] and deliberately has no floor above 0, even
+ * though `mod(0.32, 1.4)` — the realistic typo, an O₂ fraction entered where a
+ * percentage was wanted — returns an absurd 4365 m. Two reasons. Hypoxic
+ * trimix bottom gas is genuinely below 21 % (a 10/70 mix is a real gas and
+ * `mod(10)` → 130 m is its correct MOD), so any floor worth the name would
+ * return null for correct technical input; and this function is monotonically
+ * decreasing in `o2Pct`, so **no input in (0, 100] can return a MOD shallower
+ * than the truth**. Under-reporting is the unsafe direction for a maximum
+ * operating depth and it is unreachable here; every failure mode over-reports,
+ * absurdly. That is the difference between this and `timeOut` above: an absurd
+ * number is reported as a bug, a plausible one is acted on.
  */
 export function mod(
   o2Pct: number | null | undefined,
