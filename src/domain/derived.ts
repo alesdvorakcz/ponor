@@ -25,7 +25,12 @@ function isNumber(v: number | null | undefined): v is number {
  * when it's added: absent if it's null/undefined or not a real number,
  * contradictory if it's a real number that can't describe an actual
  * cylinder. There is no third bucket, and no field is exempt from either
- * check — see gasUsedLitres for how size and count apply this identically.
+ * check — on any cylinder, no matter what else on that same cylinder is
+ * absent. gasUsedLitres classifies every field on a cylinder before it
+ * decides skip-vs-void for that cylinder, specifically so a contradictory
+ * size or count can't hide behind an earlier absent field. See
+ * gasUsedLitres for how size and count apply this identically, and for why
+ * that order is the part that actually matters.
  */
 type TankGas = { kind: 'ok'; usedBar: number } | { kind: 'absent' } | { kind: 'contradictory' };
 
@@ -37,6 +42,27 @@ function tankGas(tank: Tank): TankGas {
   if (tank.startBar < 0 || tank.endBar < 0) return { kind: 'contradictory' };
   const used = tank.startBar - tank.endBar;
   return used >= 0 ? { kind: 'ok', usedBar: used } : { kind: 'contradictory' };
+}
+
+/**
+ * Size and count each get the same three-way classification pressure does
+ * above, as their own small functions rather than logic inlined into
+ * gasUsedLitres's loop — so that loop can classify every field on a
+ * cylinder before it acts on any of them (see gasUsedLitres for why that
+ * order is the point).
+ */
+type FieldGas = { kind: 'ok'; value: number } | { kind: 'absent' } | { kind: 'contradictory' };
+
+function sizeGas(tank: Tank): FieldGas {
+  if (!tank || !isNumber(tank.sizeL)) return { kind: 'absent' };
+  return tank.sizeL > 0 ? { kind: 'ok', value: tank.sizeL } : { kind: 'contradictory' };
+}
+
+function countGas(tank: Tank): FieldGas {
+  if (!tank || !isNumber(tank.count)) return { kind: 'absent' };
+  return tank.count > 0 && Number.isInteger(tank.count)
+    ? { kind: 'ok', value: tank.count }
+    : { kind: 'contradictory' };
 }
 
 /** Pressure consumed from one cylinder, or null if it cannot be known. */
@@ -61,31 +87,34 @@ export function usedBar(tank: Tank): number | null {
  *
  * Count is the one field where "absent" doesn't skip the cylinder — a
  * never-recorded count still means "one cylinder", the brief-tested default.
+ *
+ * Every field on a cylinder is classified before any of them is acted on.
+ * The alternative — decide on pressure, `continue` if it's absent, only
+ * then look at size, only then at count — would let a contradictory size or
+ * count hide behind an earlier absent field on that same cylinder: the loop
+ * would move on before ever examining it, so the identical bad size would
+ * void the total or silently vanish depending on whether its own cylinder's
+ * pressure happened to also be absent, not on what was actually recorded.
+ * Classifying pressure, size, and count up front — then deciding — closes
+ * that gap; a cylinder with any contradictory field voids the whole total
+ * regardless of what else on it is merely unrecorded.
  */
 export function gasUsedLitres(tanks: Tank[]): number | null {
   if (!Array.isArray(tanks)) return null;
   let total = 0;
   let counted = 0;
   for (const tank of tanks) {
-    const gas = tankGas(tank);
-    if (gas.kind === 'contradictory') return null;
-    if (gas.kind === 'absent') continue;
+    const pressure = tankGas(tank);
+    const size = sizeGas(tank);
+    const count = countGas(tank);
 
-    // Size: absent (never recorded, or not a real number) skips this
-    // cylinder; a recorded zero-or-negative size is contradictory and voids
-    // the whole total, exactly like a bad pressure does above.
-    if (!isNumber(tank.sizeL)) continue;
-    if (tank.sizeL <= 0) return null;
+    if (pressure.kind === 'contradictory' || size.kind === 'contradictory' || count.kind === 'contradictory') {
+      return null;
+    }
+    if (pressure.kind === 'absent' || size.kind === 'absent') continue;
 
-    // Count: absent still means "one cylinder" rather than skipping the
-    // cylinder — the one field where "absent" doesn't exclude the entry.
-    // A recorded value must be a positive whole number, or it's
-    // contradictory like everything else here, and voids the whole total.
-    const rawCount = tank.count;
-    if (isNumber(rawCount) && (rawCount <= 0 || !Number.isInteger(rawCount))) return null;
-    const count = isNumber(rawCount) ? rawCount : 1;
-
-    total += gas.usedBar * tank.sizeL * count;
+    const tankCount = count.kind === 'ok' ? count.value : 1;
+    total += pressure.usedBar * size.value * tankCount;
     counted += 1;
   }
   return counted > 0 && Number.isFinite(total) ? total : null;

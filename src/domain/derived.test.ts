@@ -109,6 +109,24 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres([good, badCount])).toBeNull();
   });
 
+  it('voids the total for a contradictory size even when the same cylinder also has an absent pressure', () => {
+    // Before this fix, the loop `continue`d on the absent pressure before
+    // ever looking at sizeL, so this exact cylinder voided the total or not
+    // depending only on which side of the good cylinder it sat on. Checked
+    // both orders to prove that's no longer true.
+    const good = tank();
+    const absentPressureContradictorySize = tank({ startBar: null, sizeL: 0 });
+    expect(gasUsedLitres([absentPressureContradictorySize, good])).toBeNull();
+    expect(gasUsedLitres([good, absentPressureContradictorySize])).toBeNull();
+  });
+
+  it('voids the total for a contradictory count even when the same cylinder also has an absent pressure', () => {
+    const good = tank();
+    const absentPressureContradictoryCount = tank({ startBar: null, count: 0 });
+    expect(gasUsedLitres([absentPressureContradictoryCount, good])).toBeNull();
+    expect(gasUsedLitres([good, absentPressureContradictoryCount])).toBeNull();
+  });
+
   it('voids the whole total for a cylinder with contradictory pressures, rather than skipping it', () => {
     // Unlike an absent pressure, transposed start/end is data the diver did
     // record — dropping it silently would understate gas used with no sign
