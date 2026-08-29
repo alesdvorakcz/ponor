@@ -101,6 +101,63 @@ function manualOrderKey(value: unknown): number {
  *    after it — filtering deleted rows out is the caller's job, before this
  *    function ever sees them, not something it can infer on its own.
  */
+/**
+ * The comparator `assignDiveNumbers` sorts by — date, then entry time, then
+ * hand-assigned order, then creation order, then id, per DESIGN.md §2.5.
+ *
+ * Exported so any other place that needs live dives in the same order (a
+ * dive list, notably) reuses these exact tiers instead of re-deriving them.
+ * Before this export existed there were two independent implementations —
+ * this sort and a hand-written SQL `ORDER BY` in `listDives` — and they had
+ * already drifted: the SQL version was missing the `manualOrder` tier
+ * entirely and got NULL placement backwards for `timeIn`. One implementation
+ * cannot drift from itself.
+ *
+ * Takes raw `DiveOrdering` fields rather than pre-derived keys, so a caller
+ * sorting `Dive` rows straight from the database — a wider type that
+ * structurally satisfies `DiveOrdering` — can pass them in unchanged.
+ */
+export function compareDiveOrder(a: DiveOrdering, b: DiveOrdering): number {
+  const aDate = toComparable(a.date);
+  const bDate = toComparable(b.date);
+  if (aDate !== bDate) return aDate < bDate ? -1 : 1;
+
+  if (a.timeIn !== b.timeIn) {
+    // null and undefined both mean "no time" (a corrupt row might hand
+    // back either), and must tie with each other rather than one of them
+    // slipping past this check and into the string compare below — which
+    // used to test only `=== null`, so an undefined timeIn compared as
+    // toComparable('') = '', sorting *before* every real time instead of
+    // after, unlike a null one.
+    const aUntimed = a.timeIn === null || a.timeIn === undefined;
+    const bUntimed = b.timeIn === null || b.timeIn === undefined;
+    if (aUntimed !== bUntimed) return aUntimed ? 1 : -1;
+    if (!aUntimed) {
+      const aTime = toComparable(a.timeIn);
+      const bTime = toComparable(b.timeIn);
+      if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+    }
+  }
+
+  // Hand order is the tier between timeIn and createdAt: a dive placed
+  // by hand sorts before one that wasn't, on the same "the diver did
+  // this on purpose" reasoning as timed-before-untimed just above. See
+  // `manualOrderKey` for why reducing both sides to a number first,
+  // rather than comparing `a.manualOrder`/`b.manualOrder` directly,
+  // matters here.
+  const aOrder = manualOrderKey(a.manualOrder);
+  const bOrder = manualOrderKey(b.manualOrder);
+  if (aOrder !== bOrder) return aOrder < bOrder ? -1 : 1;
+
+  const aCreated = toComparable(a.createdAt);
+  const bCreated = toComparable(b.createdAt);
+  if (aCreated !== bCreated) return aCreated < bCreated ? -1 : 1;
+
+  const aId = toComparable(a.id);
+  const bId = toComparable(b.id);
+  return aId < bId ? -1 : 1;
+}
+
 export function assignDiveNumbers(
   dives: DiveOrdering[],
   divesBefore: number,
@@ -108,48 +165,7 @@ export function assignDiveNumbers(
   if (!Array.isArray(dives)) return new Map();
   const offset = Number.isInteger(divesBefore) && divesBefore >= 0 ? divesBefore : 0;
 
-  const logged = dives
-    .filter((d) => d && d.status === 'logged')
-    .sort((a, b) => {
-      const aDate = toComparable(a.date);
-      const bDate = toComparable(b.date);
-      if (aDate !== bDate) return aDate < bDate ? -1 : 1;
-
-      if (a.timeIn !== b.timeIn) {
-        // null and undefined both mean "no time" (a corrupt row might hand
-        // back either), and must tie with each other rather than one of them
-        // slipping past this check and into the string compare below — which
-        // used to test only `=== null`, so an undefined timeIn compared as
-        // toComparable('') = '', sorting *before* every real time instead of
-        // after, unlike a null one.
-        const aUntimed = a.timeIn === null || a.timeIn === undefined;
-        const bUntimed = b.timeIn === null || b.timeIn === undefined;
-        if (aUntimed !== bUntimed) return aUntimed ? 1 : -1;
-        if (!aUntimed) {
-          const aTime = toComparable(a.timeIn);
-          const bTime = toComparable(b.timeIn);
-          if (aTime !== bTime) return aTime < bTime ? -1 : 1;
-        }
-      }
-
-      // Hand order is the tier between timeIn and createdAt: a dive placed
-      // by hand sorts before one that wasn't, on the same "the diver did
-      // this on purpose" reasoning as timed-before-untimed just above. See
-      // `manualOrderKey` for why reducing both sides to a number first,
-      // rather than comparing `a.manualOrder`/`b.manualOrder` directly,
-      // matters here.
-      const aOrder = manualOrderKey(a.manualOrder);
-      const bOrder = manualOrderKey(b.manualOrder);
-      if (aOrder !== bOrder) return aOrder < bOrder ? -1 : 1;
-
-      const aCreated = toComparable(a.createdAt);
-      const bCreated = toComparable(b.createdAt);
-      if (aCreated !== bCreated) return aCreated < bCreated ? -1 : 1;
-
-      const aId = toComparable(a.id);
-      const bId = toComparable(b.id);
-      return aId < bId ? -1 : 1;
-    });
+  const logged = dives.filter((d) => d && d.status === 'logged').sort(compareDiveOrder);
 
   // A repeated id is a data-integrity bug — id is the primary key — but it IS
   // reachable from here: a paginated dive list that concatenates overlapping

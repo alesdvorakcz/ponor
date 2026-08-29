@@ -1,4 +1,6 @@
+import { assignDiveNumbers } from '../domain/diveNumber';
 import { createDive, getDive, listDives, softDeleteDive, updateDive } from './dives';
+import { dives } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
 let db: TestDb;
@@ -62,6 +64,56 @@ describe('listDives', () => {
 
   it('is empty on a fresh database', async () => {
     expect(await listDives(db)).toEqual([]);
+  });
+
+  it("orders in lock-step with assignDiveNumbers — the exact reverse, across every tier", async () => {
+    // One fixture exercising every tier assignDiveNumbers sorts by (date,
+    // timeIn, manualOrder, createdAt, id): two timed dives, two hand-ordered
+    // (manualOrder) dives, two dives tied on everything down to id, and a
+    // second date. createDive can't force an identical createdAt or a chosen
+    // id, so these are inserted directly. A drift in any one tier between
+    // this function's order and assignDiveNumbers's — the exact bug this
+    // test exists to catch, since the two used to be two separate,
+    // independently hand-written tier lists — would show up here.
+    const rows: (typeof dives.$inferInsert)[] = [
+      { id: 'd-timed-early', status: 'logged', date: '2026-08-16', timeIn: '08:00', manualOrder: null, createdAt: '2026-08-16T04:00:00.000Z', updatedAt: '2026-08-16T04:00:00.000Z' },
+      { id: 'e-timed-late', status: 'logged', date: '2026-08-16', timeIn: '15:00', manualOrder: null, createdAt: '2026-08-16T05:00:00.000Z', updatedAt: '2026-08-16T05:00:00.000Z' },
+      { id: 'c-hand-1', status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: 1, createdAt: '2026-08-16T03:00:00.000Z', updatedAt: '2026-08-16T03:00:00.000Z' },
+      { id: 'b-hand-2', status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: 2, createdAt: '2026-08-16T02:00:00.000Z', updatedAt: '2026-08-16T02:00:00.000Z' },
+      { id: 'a-untimed-tie', status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: null, createdAt: '2026-08-16T01:00:00.000Z', updatedAt: '2026-08-16T01:00:00.000Z' },
+      { id: 'z-untimed-tie', status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: null, createdAt: '2026-08-16T01:00:00.000Z', updatedAt: '2026-08-16T01:00:00.000Z' },
+      { id: 'f-other-date', status: 'logged', date: '2026-08-17', timeIn: null, manualOrder: null, createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z' },
+    ];
+    for (const row of rows) await db.insert(dives).values(row);
+
+    const listed = await listDives(db);
+    const numbers = assignDiveNumbers(listed, 0);
+
+    // Tier-agnostic: whatever order listDives produces, the dive number
+    // assigned to the dive at each position must count down from length to
+    // 1 — i.e. this function's order is the exact reverse of
+    // assignDiveNumbers's, position for position, regardless of which tier
+    // decided that position.
+    expect(listed).toHaveLength(rows.length);
+    listed.forEach((dive, index) => {
+      expect(numbers.get(dive.id)).toBe(listed.length - index);
+    });
+
+    // And a concrete, human-checkable sequence: newest date on top; within
+    // 2026-08-16, the id-tied pair first (z before a — id descending, the
+    // mirror of assignDiveNumbers's id-ascending tie-break), then
+    // hand-ordered (higher manualOrder first), then timed (latest time
+    // first) — the mirror image of date -> timeIn -> manualOrder ->
+    // createdAt -> id ascending.
+    expect(listed.map((d) => d.id)).toEqual([
+      'f-other-date',
+      'z-untimed-tie',
+      'a-untimed-tie',
+      'b-hand-2',
+      'c-hand-1',
+      'e-timed-late',
+      'd-timed-early',
+    ]);
   });
 });
 

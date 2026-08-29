@@ -1,5 +1,6 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
+import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
@@ -75,14 +76,24 @@ export async function getDive(db: Db, id: string): Promise<Dive | null> {
   return rows.length > 0 ? toDive(rows[0]) : null;
 }
 
-/** Every live dive, newest date first. Planned dives are included; the list pins them itself. */
+/**
+ * Every live dive, newest date first — the exact reverse of the order
+ * assignDiveNumbers numbers them in. Planned dives are included; the list
+ * pins them itself.
+ *
+ * Sorted in JS with compareDiveOrder (reversed), not a SQL ORDER BY: this
+ * function and assignDiveNumbers both need "every live dive, in DESIGN.md
+ * §2.5's order," and a second, hand-written tier list here previously drifted
+ * from the real one — missing the manualOrder tier entirely, and getting
+ * SQL's NULL placement backwards for timeIn, so an untimed dive sorted to
+ * the wrong end of its date. No LIMIT is used here — the numbering pass
+ * already reads every logged dive by definition, and DESIGN.md targets a
+ * few thousand dives — so a SQL-side ordering would only be a second tier
+ * list to keep in sync with the first, for no observable benefit.
+ */
 export async function listDives(db: Db): Promise<Dive[]> {
-  const rows = await db
-    .select()
-    .from(dives)
-    .where(liveDives)
-    .orderBy(desc(dives.date), desc(dives.timeIn), desc(dives.createdAt));
-  return rows.map(toDive);
+  const rows = await db.select().from(dives).where(liveDives);
+  return rows.map(toDive).sort((a, b) => compareDiveOrder(b, a));
 }
 
 /**
