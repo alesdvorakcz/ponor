@@ -101,7 +101,22 @@ export function assignDiveNumbers(
       return aId < bId ? -1 : 1;
     });
 
+  // A repeated id is a data-integrity bug — id is the primary key — but it IS
+  // reachable from here: a paginated dive list that concatenates overlapping
+  // pages (the routine infinite-scroll pattern), or a pre-dedupe import.
+  // Letting a repeat consume a number leaves that number unassigned to
+  // anything and shifts every later dive down by one, which corrupts the
+  // numbering of dives that have nothing to do with the duplicate. Skip it
+  // instead, so the result matches what numbering the same dives without the
+  // repeat would produce.
+  const seenIds = new Set<string>();
+  const deduped = logged.filter((d) => {
+    if (seenIds.has(d.id)) return false;
+    seenIds.add(d.id);
+    return true;
+  });
+
   const numbers = new Map<string, number>();
-  logged.forEach((d, index) => numbers.set(d.id, offset + index + 1));
+  deduped.forEach((d, index) => numbers.set(d.id, offset + index + 1));
   return numbers;
 }

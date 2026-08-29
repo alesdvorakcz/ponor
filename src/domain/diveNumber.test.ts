@@ -249,16 +249,40 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
     expect(backward.get('y')).toBe(2);
   });
 
-  it('does not throw for two dives fully identical, including id', () => {
+  it('skips a repeated id instead of letting it consume a dive number and shift everything after it', () => {
     const shared = {
       id: 'dup', status: 'logged' as const, date: '2026-08-16',
       timeIn: null, createdAt: '2026-08-16T10:00:00.000Z',
     };
     expect(() => assignDiveNumbers([{ ...shared }, { ...shared }], 0)).not.toThrow();
-    // A duplicate id is a data-integrity bug outside this function's remit (id is
-    // the primary key); the two entries collapse to one map entry under that
-    // shared key rather than corrupting the numbering of anything else.
+    // A duplicate id is a data-integrity bug outside this function's remit
+    // (id is the primary key) — but it IS reachable: a paginated dive list
+    // that concatenates overlapping pages (the routine infinite-scroll
+    // pattern), or a pre-dedupe import. The two entries collapse to one map
+    // entry under the shared key either way; what matters is that the repeat
+    // doesn't consume a number that then leaves a gap, shifting every dive
+    // after it down by one.
     const numbers = assignDiveNumbers([{ ...shared }, { ...shared }], 0);
     expect(numbers.size).toBe(1);
+
+    const withDuplicate = assignDiveNumbers(
+      [
+        dive({ id: 'a', date: '2026-01-01' }),
+        { ...shared, date: '2026-02-01' },
+        { ...shared, date: '2026-03-01' },
+        dive({ id: 'z', date: '2026-04-01' }),
+      ],
+      0,
+    );
+    const withoutDuplicate = assignDiveNumbers(
+      [
+        dive({ id: 'a', date: '2026-01-01' }),
+        { ...shared, date: '2026-02-01' },
+        dive({ id: 'z', date: '2026-04-01' }),
+      ],
+      0,
+    );
+    expect(withDuplicate.get('z')).toBe(withoutDuplicate.get('z'));
+    expect(withDuplicate.get('z')).toBe(3);
   });
 });
