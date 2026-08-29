@@ -8,6 +8,26 @@ module.exports = defineConfig([
     ignores: ["dist/*"],
   },
   {
+    // Plain-Node build scripts, not app code: they run under `node`, not Metro,
+    // so Node's globals are legitimately in scope. Without this `npx eslint .`
+    // reports `'Buffer' is not defined` in build-icons.mjs — `expo lint` misses
+    // it only because it does not reach outside the app source. Declaring the
+    // globals for this one directory keeps no-undef enforced everywhere else,
+    // which is the opposite of switching the rule off.
+    files: ["scripts/**/*.mjs", "scripts/**/*.js"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        console: "readonly",
+        process: "readonly",
+        URL: "readonly",
+        fetch: "readonly",
+      },
+    },
+  },
+  {
     // DESIGN.md: components read colour and font-family values from src/theme, never
     // write them as literals. Scoped to component code only, so src/theme/** (where the
     // tokens legitimately live) is untouched, and test files are excluded since they

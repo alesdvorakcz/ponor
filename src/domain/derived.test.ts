@@ -429,8 +429,10 @@ describe('surfaceIntervalMin', () => {
 
   it('is null, not a throw, when either dive is missing entirely', () => {
     // The dive list's natural call is surfaceIntervalMin(dives[i - 1], dive); at
-    // i === 0 that passes undefined for `previous`, and noUncheckedIndexedAccess
-    // is not on, so this typechecks clean — the runtime guard is what saves us.
+    // i === 0 that passes undefined for `previous`. noUncheckedIndexedAccess is
+    // on now, so that call site is a compile error rather than a silent
+    // undefined — but the flag only covers callers this program typechecks, and
+    // the runtime guard is what covers an untyped or cast one.
     const next = { date: '2026-08-16', timeIn: '10:38' };
     const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
     expect(() => surfaceIntervalMin(undefined as unknown as typeof previous, next)).not.toThrow();
