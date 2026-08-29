@@ -104,6 +104,19 @@ describe('mod', () => {
     expect(mod(-5)).toBeNull();
     expect(mod(101)).toBeNull();
   });
+
+  it('is null for a ceiling that would produce a negative depth, not a negative number', () => {
+    // A zero or negative ppO2Max is one way to trigger this, but not the only
+    // one: any ppO2Max below the mix's own surface partial pressure does too.
+    expect(mod(21, 0)).toBeNull();
+    expect(mod(21, -1)).toBeNull();
+    expect(mod(50, 0.4)).toBeNull(); // 0.4 < 0.5 = 50 % at the surface
+    expect(mod(100, 0.9)).toBeNull();
+  });
+
+  it('is zero, not null, when the ceiling exactly matches the mix at the surface', () => {
+    expect(mod(100, 1.0)).toBe(0);
+  });
 });
 
 describe('timeOut', () => {

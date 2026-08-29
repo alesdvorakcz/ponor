@@ -65,11 +65,13 @@ export function mod(
   ppO2Max: number = DEFAULT_PPO2_MAX,
 ): number | null {
   if (!isNumber(o2Pct) || o2Pct <= 0 || o2Pct > 100) return null;
-  // The ceiling is as much a part of "is this a real request" as the mix is —
-  // a zero or negative ppO2Max would otherwise produce a negative depth that
-  // reads as a plausible, and wrong, safety limit.
-  if (!isNumber(ppO2Max) || ppO2Max <= 0) return null;
-  return (ppO2Max / (o2Pct / 100) - 1) * METRES_PER_BAR;
+  if (!isNumber(ppO2Max)) return null;
+  // Guard the result, not just the inputs: a ceiling at or below the mix's own
+  // partial pressure at the surface (ppO2Max <= o2Pct / 100 — not only ppO2Max
+  // <= 0) yields a zero or negative depth, which is not a real operating limit.
+  // >= 0 deliberately keeps the legitimate mod(100, 1.0) -> 0 m.
+  const depth = (ppO2Max / (o2Pct / 100) - 1) * METRES_PER_BAR;
+  return depth >= 0 ? depth : null;
 }
 
 function toMinutes(hhmm: string): number | null {
