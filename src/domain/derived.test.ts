@@ -140,4 +140,10 @@ describe('surfaceIntervalMin', () => {
     const next = { date: '2026-08-16', timeIn: '10:30' };
     expect(surfaceIntervalMin(previous, next)).toBeNull();
   });
+
+  it('is null when the previous dive has no duration, rather than assuming it was instant', () => {
+    const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: null };
+    const next = { date: '2026-08-16', timeIn: '10:38' };
+    expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
 });

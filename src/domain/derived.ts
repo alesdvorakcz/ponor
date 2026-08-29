@@ -97,8 +97,15 @@ export function timeOut(timeIn: string | null, durationMin: number | null): stri
 
 /**
  * Minutes on the surface between one dive surfacing and the next descending.
- * Null when either time is unknown, or when the pair is out of order — an
+ * Null when either time is unknown, when the previous dive's duration is
+ * unknown or not a real number, or when the pair is out of order — an
  * interval that ran backwards means the data is wrong, not that it was zero.
+ *
+ * The previous duration is required rather than defaulted to zero. Defaulting
+ * it would measure the interval from the previous dive's entry time instead
+ * of from when the diver actually surfaced, which overstates the interval —
+ * and for a number that sits next to a diver's own nitrogen-loading judgement
+ * calls, overstating is the unsafe direction. No number beats a wrong number.
  */
 export function surfaceIntervalMin(
   previous: Pick<Dive, 'date' | 'timeIn' | 'durationMin'>,
@@ -108,20 +115,14 @@ export function surfaceIntervalMin(
   const previousStart = toMinutes(previous.timeIn);
   const nextStart = toMinutes(next.timeIn);
   if (previousStart === null || nextStart === null) return null;
-  // An unrecorded previous duration is treated as 0 below — the previous dive's
-  // timeIn is the best surfacing estimate we have. But a duration that is present
-  // and impossible (negative, or not a real number) is corrupt, not merely
-  // unknown, and should not be silently folded into that same default.
-  if (previous.durationMin !== null && (!isNumber(previous.durationMin) || previous.durationMin < 0)) {
-    return null;
-  }
+  if (!isNumber(previous.durationMin) || previous.durationMin < 0) return null;
 
   const previousDay = Date.parse(`${previous.date}T00:00:00Z`);
   const nextDay = Date.parse(`${next.date}T00:00:00Z`);
   if (Number.isNaN(previousDay) || Number.isNaN(nextDay)) return null;
   const dayOffsetMin = (nextDay - previousDay) / 60000;
 
-  const surfaced = previousStart + (previous.durationMin ?? 0);
+  const surfaced = previousStart + previous.durationMin;
   const interval = dayOffsetMin + nextStart - surfaced;
   return interval >= 0 ? interval : null;
 }
