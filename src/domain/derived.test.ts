@@ -70,6 +70,14 @@ describe('rmv', () => {
   it('is null for a zero-length dive rather than dividing by zero', () => {
     expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 0 })).toBeNull();
   });
+
+  it('is null, not a throw, when the dive itself is missing', () => {
+    // The dive list's natural call is rmv(dives[i]) inside a loop or map; a hole
+    // in the data should never take the whole screen down with it.
+    expect(() => rmv(null as unknown as Parameters<typeof rmv>[0])).not.toThrow();
+    expect(rmv(null as unknown as Parameters<typeof rmv>[0])).toBeNull();
+    expect(rmv(undefined as unknown as Parameters<typeof rmv>[0])).toBeNull();
+  });
 });
 
 describe('mod', () => {
@@ -145,5 +153,17 @@ describe('surfaceIntervalMin', () => {
     const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: null };
     const next = { date: '2026-08-16', timeIn: '10:38' };
     expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
+
+  it('is null, not a throw, when either dive is missing entirely', () => {
+    // The dive list's natural call is surfaceIntervalMin(dives[i - 1], dive); at
+    // i === 0 that passes undefined for `previous`, and noUncheckedIndexedAccess
+    // is not on, so this typechecks clean — the runtime guard is what saves us.
+    const next = { date: '2026-08-16', timeIn: '10:38' };
+    const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
+    expect(() => surfaceIntervalMin(undefined as unknown as typeof previous, next)).not.toThrow();
+    expect(surfaceIntervalMin(undefined as unknown as typeof previous, next)).toBeNull();
+    expect(surfaceIntervalMin(null as unknown as typeof previous, next)).toBeNull();
+    expect(surfaceIntervalMin(previous, undefined as unknown as typeof next)).toBeNull();
   });
 });

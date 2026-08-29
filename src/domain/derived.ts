@@ -46,6 +46,7 @@ export function gasUsedLitres(tanks: Tank[]): number | null {
 export function rmv(
   dive: Pick<Dive, 'tanks' | 'avgDepthM' | 'durationMin'>,
 ): number | null {
+  if (!dive) return null;
   const litres = gasUsedLitres(dive.tanks);
   if (litres === null) return null;
   if (!isNumber(dive.avgDepthM) || dive.avgDepthM < 0) return null;
@@ -111,6 +112,7 @@ export function surfaceIntervalMin(
   previous: Pick<Dive, 'date' | 'timeIn' | 'durationMin'>,
   next: Pick<Dive, 'date' | 'timeIn'>,
 ): number | null {
+  if (!previous || !next) return null;
   if (previous.timeIn === null || next.timeIn === null) return null;
   const previousStart = toMinutes(previous.timeIn);
   const nextStart = toMinutes(next.timeIn);
