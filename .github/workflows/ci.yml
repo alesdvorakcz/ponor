@@ -19,6 +19,15 @@ jobs:
       - name: Install
         run: npm ci
 
+      # experiments.typedRoutes (app.config.ts) checks every `href` against
+      # .expo/types/router.d.ts. That file is gitignored and normally appears the first
+      # time a dev server runs, so without this step CI has never seen it and a bad
+      # route (e.g. `<Link href="/nope">`) typechecks clean here while still failing at
+      # runtime. `expo customize tsconfig.json` runs the same route-typegen a dev server
+      # would, one-shot, without starting Metro or a server.
+      - name: Generate typed routes
+        run: npx expo customize tsconfig.json
+
       - name: Typecheck
         run: npm run typecheck
 
