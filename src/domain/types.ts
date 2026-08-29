@@ -38,6 +38,12 @@ export interface Dive {
   date: string;
   /** Local wall-clock `HH:MM`, or null when unknown. */
   timeIn: string | null;
+  /**
+   * Hand-assigned order for same-day dives with no recorded time, set by the
+   * diver. A tie-break within one date only — never read on its own. See
+   * DESIGN.md §2.5 and `diveNumber.ts`.
+   */
+  manualOrder: number | null;
   durationMin: number | null;
   title: string | null;
   notes: string | null;
