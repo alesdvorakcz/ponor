@@ -16,6 +16,14 @@ beforeEach(() => {
   db = createTestDb();
 });
 
+/**
+ * Long enough for `new Date().toISOString()` to produce a different value.
+ * Timestamps here are millisecond-resolution, so two writes in the same tick
+ * are genuinely indistinguishable — a test asserting that one moved has to
+ * make the movement observable rather than hope for it.
+ */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
 describe('createDive', () => {
   it('saves a dive with only a date — the one required field', async () => {
     const dive = await createDive(db, { date: '2026-08-16' });
@@ -242,10 +250,17 @@ describe('updateDive', () => {
   });
 
   it('moves updatedAt forward but leaves createdAt alone', async () => {
+    // The wait and the strict comparison are both load-bearing. This used to
+    // assert toBeGreaterThanOrEqual with no wait, and updatedAt is stamped
+    // with millisecond resolution — measured over 200 fresh databases, 139 of
+    // them produced an *identical* timestamp, so 70% of runs observed no
+    // movement at all while the test's name said it did. It was really
+    // "never moves backwards".
     const created = await createDive(db, { date: '2026-08-16' });
+    await tick();
     const updated = await updateDive(db, created.id, { notes: 'Two oceanic whitetips.' });
     expect(updated.createdAt).toBe(created.createdAt);
-    expect(Date.parse(updated.updatedAt)).toBeGreaterThanOrEqual(Date.parse(created.updatedAt));
+    expect(Date.parse(updated.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
   });
 
   it('can clear a field back to null', async () => {
@@ -342,32 +357,68 @@ describe('updateDive', () => {
     expect(raw.siteName).toBe('Right Reef');
   });
 
-  it('never reports success while the patch failed to land, nor failure while it landed anyway, when racing a delete', async () => {
-    // Fires both concurrently (neither awaited before the other starts) so
-    // they genuinely interleave rather than running one after the other.
-    // Regardless of which one's write reaches the row first, the invariant
-    // that must hold is: updateDive's own reported outcome always matches
-    // what actually ended up in the row. At HEAD (the unscoped write) this
+  describe('racing a delete, updateDive never misreports what landed', () => {
+    // The invariant: updateDive's own reported outcome always matches what
+    // actually ended up in the row. At HEAD (before the write was scoped) it
     // did not hold — the update could report rejected while its patch had
     // already landed on the now-tombstoned row.
-    const created = await createDive(db, { date: '2026-08-16', notes: 'original', siteName: 'Right Reef' });
-    const id = created.id;
+    //
+    // The previous version of this test fired both calls concurrently and
+    // claimed in a comment that they "genuinely interleave". They cannot:
+    // better-sqlite3 is synchronous and Drizzle's thenables resolve in
+    // microtask-queue order, so the update always lands first. Measured over
+    // 200 runs it was 200/200 fulfilled, and the failure branch of its
+    // if/else never executed once — half the test was unreachable code. The
+    // app's own driver (expo-sqlite) is asynchronous and *can* produce the
+    // other ordering, which is why the invariant is worth asserting; so both
+    // orderings are now driven deterministically instead of hoped for.
+    const setup = async () =>
+      createDive(db, { date: '2026-08-16', notes: 'original', siteName: 'Right Reef' });
+    const patch = { notes: 'raced', siteName: 'Wrong Reef' };
+    const rawRow = async (id: string) =>
+      (await db.select().from(dives).where(eq(dives.id, id))).at(0);
 
-    const updatePromise = updateDive(db, id, { notes: 'raced', siteName: 'Wrong Reef' })
-      .then(() => 'fulfilled' as const)
-      .catch(() => 'rejected' as const);
-    const deletePromise = softDeleteDive(db, id).catch(() => {});
-    const [updateOutcome] = await Promise.all([updatePromise, deletePromise]);
+    it('reports success, and the patch is in the row, when the update lands first', async () => {
+      const { id } = await setup();
+      await expect(updateDive(db, id, patch)).resolves.toBeTruthy();
+      await softDeleteDive(db, id);
 
-    const raw = (await db.select().from(dives).where(eq(dives.id, id)))[0];
-    expect(raw.deletedAt).not.toBeNull(); // the delete itself always succeeds either way
-    if (updateOutcome === 'fulfilled') {
-      expect(raw.notes).toBe('raced');
-      expect(raw.siteName).toBe('Wrong Reef');
-    } else {
-      expect(raw.notes).toBe('original');
-      expect(raw.siteName).toBe('Right Reef');
-    }
+      const raw = await rawRow(id);
+      expect(raw?.deletedAt).not.toBeNull();
+      expect({ notes: raw?.notes, siteName: raw?.siteName }).toEqual(patch);
+    });
+
+    it('reports failure, and the row is untouched, when the delete lands first', async () => {
+      const { id } = await setup();
+      await softDeleteDive(db, id);
+      await expect(updateDive(db, id, patch)).rejects.toThrow(/not found/i);
+
+      const raw = await rawRow(id);
+      expect(raw?.deletedAt).not.toBeNull();
+      expect({ notes: raw?.notes, siteName: raw?.siteName }).toEqual({
+        notes: 'original',
+        siteName: 'Right Reef',
+      });
+    });
+
+    it('holds the same invariant when both are fired without awaiting either', async () => {
+      const { id } = await setup();
+      const updatePromise = updateDive(db, id, patch)
+        .then(() => 'fulfilled' as const)
+        .catch(() => 'rejected' as const);
+      const deletePromise = softDeleteDive(db, id).catch(() => {});
+      const [outcome] = await Promise.all([updatePromise, deletePromise]);
+
+      // Computed, not branched: the expectation is derived from the reported
+      // outcome and then asserted unconditionally, so this cannot pass by
+      // taking a branch that asserts nothing. The old if/else left the
+      // rejected half as dead code.
+      const expected =
+        outcome === 'fulfilled' ? patch : { notes: 'original', siteName: 'Right Reef' };
+      const raw = await rawRow(id);
+      expect(raw?.deletedAt).not.toBeNull(); // the delete itself always succeeds either way
+      expect({ notes: raw?.notes, siteName: raw?.siteName }).toEqual(expected);
+    });
   });
 });
 

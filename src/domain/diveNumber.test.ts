@@ -150,6 +150,111 @@ describe('compareDiveOrder', () => {
     expect(compareDiveOrder(x, x)).toBe(0);
     expect(compareDiveOrder(x, { ...x })).toBe(0);
   });
+
+  // The comparator has three non-test call sites — numbering, listing and
+  // reordering all lean on it — and used to have zero direct tests. That
+  // coverage shape is exactly why the reflexivity bug above survived: both
+  // consumers assert on *results*, so a comparator that violates its own laws
+  // on tied inputs passes everything they check. These assert the laws
+  // themselves, over a field grid that ties at every tier.
+  const grid: DiveOrdering[] = [];
+  for (const date of ['2026-08-16', '2026-8-16', '2026-08-17', 'not a date']) {
+    for (const timeIn of [null, undefined, '', '09:15', '9:15', '19:00']) {
+      for (const manualOrder of [null, 1, 2, NaN]) {
+        for (const createdAt of ['2026-08-16T01:00:00.000Z', '2026-08-16T02:00:00.000Z']) {
+          for (const id of ['a', 'b']) {
+            grid.push({
+              status: 'logged',
+              date,
+              timeIn,
+              manualOrder,
+              createdAt,
+              id,
+            } as unknown as DiveOrdering);
+          }
+        }
+      }
+    }
+  }
+  // Deliberately includes values that MUST tie: '2026-8-16' with
+  // '2026-08-16', '9:15' with '09:15', '' with null and undefined, NaN with
+  // NaN — the pairs where a comparator that compares raw values instead of
+  // normalised ones returns the same sign in both directions.
+  const describeRow = (row: DiveOrdering) => JSON.stringify(row);
+
+  it('is reflexive: every row compares equal to itself', () => {
+    const violations = grid.filter((row) => compareDiveOrder(row, row) !== 0);
+    expect(violations.map(describeRow)).toEqual([]);
+  });
+
+  it('is antisymmetric: sign(cmp(a, b)) === -sign(cmp(b, a)) for every pair', () => {
+    const violations: string[] = [];
+    for (const a of grid) {
+      for (const b of grid) {
+        if (Math.sign(compareDiveOrder(a, b)) !== -Math.sign(compareDiveOrder(b, a))) {
+          violations.push(`${describeRow(a)} vs ${describeRow(b)}`);
+        }
+      }
+    }
+    expect(violations.slice(0, 5)).toEqual([]);
+    expect(violations).toHaveLength(0);
+  });
+
+  it('is transitive: a <= b and b <= c implies a <= c', () => {
+    // Every 12th row, so the triple sweep stays exhaustive over a real subset
+    // rather than sampled — sampling is how this file's past order-dependence
+    // bugs escaped review.
+    const subset = grid.filter((_, index) => index % 12 === 0);
+    expect(subset.length).toBeGreaterThan(20);
+
+    const violations: string[] = [];
+    for (const a of subset) {
+      for (const b of subset) {
+        if (compareDiveOrder(a, b) > 0) continue;
+        for (const c of subset) {
+          if (compareDiveOrder(b, c) > 0) continue;
+          if (compareDiveOrder(a, c) > 0) {
+            violations.push(`${describeRow(a)} -> ${describeRow(b)} -> ${describeRow(c)}`);
+          }
+        }
+      }
+    }
+    expect(violations.slice(0, 5)).toEqual([]);
+    expect(violations).toHaveLength(0);
+  });
+
+  it('has transitive equality: a == b and b == c implies a == c', () => {
+    const subset = grid.filter((_, index) => index % 12 === 0);
+    const violations: string[] = [];
+    for (const a of subset) {
+      for (const b of subset) {
+        if (compareDiveOrder(a, b) !== 0) continue;
+        for (const c of subset) {
+          if (compareDiveOrder(b, c) !== 0) continue;
+          if (compareDiveOrder(a, c) !== 0) {
+            violations.push(`${describeRow(a)} == ${describeRow(b)} == ${describeRow(c)}`);
+          }
+        }
+      }
+    }
+    expect(violations).toHaveLength(0);
+  });
+
+  it('actually ties the pairs it is meant to tie, so the laws above are not vacuous', () => {
+    // If nothing in the grid ever tied, reflexivity would be the only law with
+    // any content. These are the specific normalisation ties.
+    const base = { status: 'logged' as const, createdAt: '2026-08-16T01:00:00.000Z', id: 'a' };
+    const tie = (x: Partial<DiveOrdering>, y: Partial<DiveOrdering>) =>
+      compareDiveOrder(
+        { ...base, date: '2026-08-16', timeIn: null, manualOrder: null, ...x } as DiveOrdering,
+        { ...base, date: '2026-08-16', timeIn: null, manualOrder: null, ...y } as DiveOrdering,
+      );
+    expect(tie({ date: '2026-8-16' }, { date: '2026-08-16' })).toBe(0);
+    expect(tie({ timeIn: '9:15' }, { timeIn: '09:15' })).toBe(0);
+    expect(tie({ timeIn: '' }, { timeIn: null })).toBe(0);
+    expect(tie({ timeIn: undefined }, { timeIn: null })).toBe(0);
+    expect(tie({ manualOrder: NaN }, { manualOrder: NaN })).toBe(0);
+  });
 });
 
 describe('assignDiveNumbers with loosely spelled dates and times', () => {
