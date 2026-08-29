@@ -37,9 +37,8 @@ export const dives = sqliteTable('dives', {
   salinity: text('salinity').$type<'salt' | 'fresh' | 'brackish'>(),
   waterBody: text('water_body').$type<'ocean' | 'lake' | 'river' | 'quarry' | 'cave' | 'pool'>(),
   /**
-   * DESIGN.md §6 calls this one `location` (a PostGIS point on the server). SQLite
-   * has no point type, so it is two columns here; the Postgres side composes them
-   * into a point in M2. Update §6 to say so rather than letting the two drift.
+   * Two columns rather than one, because SQLite has no point type. The Postgres
+   * side composes them into a single PostGIS point in M2 — see DESIGN.md §6.
    */
   latitude: real('latitude'),
   longitude: real('longitude'),
