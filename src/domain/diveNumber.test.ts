@@ -1,7 +1,7 @@
 import { assignDiveNumbers, type DiveOrdering } from './diveNumber';
 
 const dive = (over: Partial<DiveOrdering> & { id: string }): DiveOrdering => ({
-  status: 'logged', date: '2026-08-16', timeIn: null,
+  status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: null,
   createdAt: '2026-08-16T10:00:00.000Z', ...over,
 });
 
@@ -48,6 +48,71 @@ describe('assignDiveNumbers', () => {
     );
     expect(numbers.get('timed')).toBe(1);
     expect(numbers.get('untimed')).toBe(2);
+  });
+
+  it('orders same-day, same-time dives by hand when manualOrder is set', () => {
+    // Ids are the reverse of the expected order on purpose: if this tier
+    // were ever dropped, the id tier (the last one) would produce the
+    // opposite result instead of passing by coincidence.
+    const numbers = assignDiveNumbers(
+      [dive({ id: 'a-second', manualOrder: 9 }), dive({ id: 'z-first', manualOrder: 2 })],
+      0,
+    );
+    expect(numbers.get('z-first')).toBe(1);
+    expect(numbers.get('a-second')).toBe(2);
+  });
+
+  it('puts a hand-ordered dive before one with no manualOrder, on the same day and time', () => {
+    // Same adversarial-id trick as above.
+    const numbers = assignDiveNumbers(
+      [dive({ id: 'a-unordered' }), dive({ id: 'z-ordered', manualOrder: 3 })],
+      0,
+    );
+    expect(numbers.get('z-ordered')).toBe(1);
+    expect(numbers.get('a-unordered')).toBe(2);
+  });
+
+  it('falls through to creation order when neither dive has manualOrder set', () => {
+    // Proves the tier is transparent when unset: identical to "falls back
+    // to creation order when times are missing" above, now that every
+    // `dive()` also carries a manualOrder (defaulted to null).
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'later', createdAt: '2026-08-16T12:00:00.000Z' }),
+        dive({ id: 'earlier', createdAt: '2026-08-16T09:00:00.000Z' }),
+      ],
+      0,
+    );
+    expect(numbers.get('earlier')).toBe(1);
+    expect(numbers.get('later')).toBe(2);
+  });
+
+  it('does not let manualOrder override timeIn: an earlier time still wins', () => {
+    // The "worse" (higher) manualOrder is deliberately on the earlier-time
+    // dive, and the "better" (lower) one on the later-time dive, so a bug
+    // that checked manualOrder before (or instead of) timeIn would flip
+    // this result.
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'later-time-low-order', timeIn: '14:30', manualOrder: 1 }),
+        dive({ id: 'earlier-time-high-order', timeIn: '09:15', manualOrder: 9 }),
+      ],
+      0,
+    );
+    expect(numbers.get('earlier-time-high-order')).toBe(1);
+    expect(numbers.get('later-time-low-order')).toBe(2);
+  });
+
+  it('does not let manualOrder cross dates: it only breaks ties within one date', () => {
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'later-date-low-order', date: '2026-08-17', manualOrder: 1 }),
+        dive({ id: 'earlier-date-high-order', date: '2026-08-16', manualOrder: 9 }),
+      ],
+      0,
+    );
+    expect(numbers.get('earlier-date-high-order')).toBe(1);
+    expect(numbers.get('later-date-low-order')).toBe(2);
   });
 
   it('excludes planned dives entirely', () => {
@@ -157,6 +222,92 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
     expect(forward.get('q')).toBe(backward.get('q'));
   });
 
+  it('numbers a dive with an object manualOrder the same way regardless of input order', () => {
+    // Mirrors the numericTimeIn test above, for the manualOrder tier: an
+    // object can't be fed into a numeric `<` the way a number can, so it
+    // must be treated as "not set" rather than compared directly.
+    const objectOrder = {
+      id: 'p', status: 'logged', date: '2026-08-16', timeIn: null,
+      manualOrder: {}, createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const realOrder = dive({ id: 'q', manualOrder: 4 });
+    const forward = assignDiveNumbers([objectOrder, realOrder], 0);
+    const backward = assignDiveNumbers([realOrder, objectOrder], 0);
+    expect(forward.get('p')).toBe(backward.get('p'));
+    expect(forward.get('q')).toBe(backward.get('q'));
+    // And the real, usable value correctly sorts first either way.
+    expect(forward.get('q')).toBe(1);
+    expect(forward.get('p')).toBe(2);
+  });
+
+  it('numbers two NaN-manualOrder dives the same way regardless of input order', () => {
+    // The case this tier's design is built around: NaN !== NaN, so a naive
+    // `value !== other ? value < other ? -1 : 1` tiebreak here would return
+    // the same sign for both (a, b) and (b, a) whenever both sides are NaN
+    // — not antisymmetric, and the chosen sign would depend on which of
+    // (a, b)/(b, a) the sort happened to compare, the exact "two devices
+    // disagree" failure this file exists to prevent.
+    const nanA = {
+      id: 'nan-a', status: 'logged', date: '2026-08-16', timeIn: null,
+      manualOrder: NaN, createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const nanB = { ...nanA, id: 'nan-b' } as unknown as DiveOrdering;
+    const forward = assignDiveNumbers([nanA, nanB], 0);
+    const backward = assignDiveNumbers([nanB, nanA], 0);
+    expect(forward.get('nan-a')).toBe(backward.get('nan-a'));
+    expect(forward.get('nan-b')).toBe(backward.get('nan-b'));
+    // Both NaN -> both "not usable" -> tie -> fall through to id.
+    expect(forward.get('nan-a')).toBe(1);
+    expect(forward.get('nan-b')).toBe(2);
+  });
+
+  it('sweeps every permutation of a mixed-manualOrder list to the identical result', () => {
+    // Exhaustive, not sampled: every one of the 7! orderings of this list
+    // must produce the identical id->number map. This list ties on date,
+    // timeIn and createdAt, and covers every "not usable" shape manualOrder
+    // can corrupt to (null, undefined, NaN, Infinity, a string, an object)
+    // alongside one real value. Sampling a handful of orderings is exactly
+    // how this file's past order-dependence bugs escaped review.
+    const base = {
+      status: 'logged' as const, date: '2026-08-16', timeIn: null,
+      createdAt: '2026-08-16T10:00:00.000Z',
+    };
+    // 'zz-num' is deliberately the alphabetically LAST id, so a tier that
+    // silently stopped being consulted (falling through straight to the id
+    // tier) would rank it last, not first — the assertion below would then
+    // catch it instead of passing by coincidence of id naming.
+    const items = [
+      { ...base, id: 'zz-num', manualOrder: 5 },
+      { ...base, id: 'u-null', manualOrder: null },
+      { ...base, id: 'u-undefined', manualOrder: undefined },
+      { ...base, id: 'u-nan', manualOrder: NaN },
+      { ...base, id: 'u-infinity', manualOrder: Infinity },
+      { ...base, id: 'u-string', manualOrder: 'nine' },
+      { ...base, id: 'u-object', manualOrder: {} },
+    ] as unknown as DiveOrdering[];
+
+    const permute = (arr: DiveOrdering[]): DiveOrdering[][] =>
+      arr.length <= 1
+        ? [arr]
+        : arr.flatMap((item, i) =>
+            permute([...arr.slice(0, i), ...arr.slice(i + 1)]).map((rest) => [item, ...rest]),
+          );
+
+    const allPermutations = permute(items);
+    expect(allPermutations.length).toBe(5040); // 7!
+
+    const reference = assignDiveNumbers(items, 0);
+    expect(reference.get('zz-num')).toBe(1); // the only usable value always sorts first
+
+    let checked = 0;
+    for (const perm of allPermutations) {
+      const numbers = assignDiveNumbers(perm, 0);
+      expect(Object.fromEntries(numbers)).toEqual(Object.fromEntries(reference));
+      checked += 1;
+    }
+    expect(checked).toBe(5040);
+  });
+
   it('numbers dives with distinct non-string ids the same way regardless of input order', () => {
     // The regression this fixes: at HEAD, [{id:1},{id:2}] tied on every
     // other field produced 2 different numberings across its 2
@@ -252,7 +403,7 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
   it('skips a repeated id instead of letting it consume a dive number and shift everything after it', () => {
     const shared = {
       id: 'dup', status: 'logged' as const, date: '2026-08-16',
-      timeIn: null, createdAt: '2026-08-16T10:00:00.000Z',
+      timeIn: null, manualOrder: null, createdAt: '2026-08-16T10:00:00.000Z',
     };
     expect(() => assignDiveNumbers([{ ...shared }, { ...shared }], 0)).not.toThrow();
     // A duplicate id is a data-integrity bug outside this function's remit

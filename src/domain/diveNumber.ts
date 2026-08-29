@@ -1,7 +1,10 @@
 import type { Dive } from './types';
 
 /** The only fields numbering depends on. */
-export type DiveOrdering = Pick<Dive, 'id' | 'status' | 'date' | 'timeIn' | 'createdAt'>;
+export type DiveOrdering = Pick<
+  Dive,
+  'id' | 'status' | 'date' | 'timeIn' | 'manualOrder' | 'createdAt'
+>;
 
 /**
  * Coerces an ordering field to a string safe to compare with `<`, such that
@@ -33,13 +36,43 @@ function toComparable(value: unknown): string {
 }
 
 /**
+ * True only for an actual finite number: false for null, undefined, NaN,
+ * Infinity, and any other type (string, object, ...) alike, so every corrupt
+ * shape a stored `manualOrder` could take collapses to one "not usable" case
+ * rather than each behaving differently. `Number.isFinite` never coerces,
+ * unlike the global `isFinite`, so a numeric-looking string is correctly
+ * rejected too, and it never throws regardless of what `value` holds.
+ */
+function isUsableManualOrder(value: unknown): value is number {
+  return Number.isFinite(value);
+}
+
+/**
+ * Reduces a manualOrder value to a single number safe to compare with `<`:
+ * the value itself when usable, `+Infinity` otherwise. `+Infinity` is a
+ * real, self-equal number — unlike NaN, `Infinity === Infinity` is true —
+ * so two unusable values compare equal by ordinary `<` without needing a
+ * separate "is either side usable" branch, and any usable value sorts
+ * before an unusable one, matching "a dive that has been ordered by hand
+ * sorts before one that has not" (DESIGN.md §2.5). Using NaN or some other
+ * non-self-equal sentinel here instead would reintroduce exactly the
+ * antisymmetry failure `toComparable` above exists to avoid, with numbers
+ * standing in for strings.
+ */
+function manualOrderKey(value: unknown): number {
+  return isUsableManualOrder(value) ? value : Infinity;
+}
+
+/**
  * Dive numbers are position, not data — see DESIGN.md §2.5. Nothing is stored,
  * so backfilling an old dive renumbers every later dive for free, identically on
  * every device, with no sync writes at all.
  *
- * Ordering is date, then entry time, then creation order, then id. A dive with
- * a recorded time sorts before one without on the same day, on the assumption
- * that the untimed dive is the one being added after the fact.
+ * Ordering is date, then entry time, then hand-assigned order, then creation
+ * order, then id. A dive with a recorded time sorts before one without on the
+ * same day, on the assumption that the untimed dive is the one being added
+ * after the fact; a dive the diver has placed by hand sorts before one they
+ * haven't, on the same reasoning, one tier further down.
  *
  * Planned dives are absent from the result: they have no number until completed.
  *
@@ -60,6 +93,9 @@ function toComparable(value: unknown): string {
  *    nullable), but a corrupt row can hand back something else. See
  *    `toComparable` for why that specifically threatens determinism, not just
  *    a wrong-but-stable order.
+ *  - `manualOrder` is typed as a nullable number, but a corrupt row can hand
+ *    back anything. See `manualOrderKey` for why an unusable value must map
+ *    to a stable sentinel rather than being compared as-is.
  *  - `DiveOrdering` carries no `deletedAt`. A soft-deleted dive that reaches
  *    this function is numbered as if it were live and shifts every dive
  *    after it — filtering deleted rows out is the caller's job, before this
@@ -95,6 +131,16 @@ export function assignDiveNumbers(
           if (aTime !== bTime) return aTime < bTime ? -1 : 1;
         }
       }
+
+      // Hand order is the tier between timeIn and createdAt: a dive placed
+      // by hand sorts before one that wasn't, on the same "the diver did
+      // this on purpose" reasoning as timed-before-untimed just above. See
+      // `manualOrderKey` for why reducing both sides to a number first,
+      // rather than comparing `a.manualOrder`/`b.manualOrder` directly,
+      // matters here.
+      const aOrder = manualOrderKey(a.manualOrder);
+      const bOrder = manualOrderKey(b.manualOrder);
+      if (aOrder !== bOrder) return aOrder < bOrder ? -1 : 1;
 
       const aCreated = toComparable(a.createdAt);
       const bCreated = toComparable(b.createdAt);
