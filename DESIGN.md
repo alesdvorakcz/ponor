@@ -32,7 +32,7 @@ Because colour is spoken for, **every control is monochrome** — the primary bu
 
 ### 0.2 Theme tokens
 
-Both themes ship from M0. The app follows the OS and the choice is overridable in settings; NativeWind reads these as two token sets over identical components.
+Both themes ship from M0. The app follows the OS and the choice is overridable in settings; components read whichever token set `resolveScheme` returns, so the same component serves both.
 
 | Token | Role | Dark | Light |
 |---|---|---|---|
@@ -123,7 +123,7 @@ Four tabs plus a full-screen dive form. Onboarding is two steps — pick units a
 | Framework | Expo · React Native · TypeScript · `expo-router` | One codebase for iOS, Android, tablets; free tooling; OTA JS updates |
 | Local database | `expo-sqlite` + Drizzle ORM | Typed schema, migrations, reactive `useLiveQuery`; the device is the source of truth |
 | Forms | `react-hook-form` + Zod | Forms are the heart of the app; validation shared with sync payloads |
-| UI | NativeWind + small custom kit · `@gorhom/bottom-sheet` · FlashList | Fast styling, native-feel pickers, smooth long lists |
+| UI | `StyleSheet` driven by the §0.2 tokens · small custom kit · `@gorhom/bottom-sheet` · FlashList | No styling framework: NativeWind was tried and removed in M0 (§10). Native-feel pickers, smooth long lists |
 | Maps | `react-native-maps` + `supercluster` | Apple Maps on iOS, Google Maps on Android — both free on mobile |
 | State | Zustand (UI) · TanStack Query (remote search) | Persistent state lives in SQLite, not in a JS store |
 | i18n | `i18next` + `expo-localization` | English + Czech from day one |
@@ -218,7 +218,7 @@ The first real bill would be Supabase Pro ($25/mo) when the database nears 500 M
 
 ## 9. Milestones
 
-- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running on a real iPhone and Android phone, lint and CI green. Plus the §0 identity in code: both token sets wired into NativeWind, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
+- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running on a real iPhone and Android phone, lint and CI green. Plus the §0 identity in code: both token sets driving a `StyleSheet` theme, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
   *Done when: both phones show the empty app built by CI-checked code, in the right typeface, and switching the OS between light and dark switches the app with it.*
 - **M1 · The local logbook** — schema and migrations, the dive form with groups + prefill + duplicate + gear presets, prepare-ahead planned dives, list and detail, units, autocomplete from own history. No account, fully offline — already a usable app.
   *Done when: you log a 3-dive trip in under 3 minutes, in airplane mode.*
@@ -246,5 +246,6 @@ Key decisions and the alternatives they beat — don't relitigate without new in
 - **Photos, web, imports, social deferred** past v1 in that order; social last because UGC brings App Store moderation duties.
 - **Named Ponor** (§0): the same word in Czech and English, pronounced identically, and free where it counts — `ponor.app` registered. Beat Slate, Bezel, Sextant, Halocline, Atoll, Manta and Deco, each of which failed an App Store or trademark check.
 - **Colour encodes depth and nothing else;** controls stay monochrome. The scale follows the order in which water removes colour, so it carries meaning rather than decoration, and depth is always shown redundantly as a number.
-- **Dark and light both ship from M0,** not M3: NativeWind needs the token set before the first screen exists, and retro-fitting a theme onto built screens is the expensive path.
+- **Dark and light both ship from M0,** not M3: the token set has to exist before the first screen does, and retro-fitting a theme onto built screens is the expensive path.
+- **No styling framework — `StyleSheet` built from the tokens** (revised in M0, replacing NativeWind in §4). NativeWind v5 is the only line supporting React Native 0.86 and it is a preview that does not work: Tailwind's `@theme` needs a PostCSS setup Expo does not run by default, and once wired up `react-native-css` fails to deserialize its own compiled output — the same error breaks Expo's own bundled `@expo/log-box` stylesheet. Verified on a simulator, not inferred. A `makeStyles(scheme)` helper over `tokens.js` costs little and keeps the single-source-of-truth property; revisit when NativeWind v5 is stable.
 - **No schematic dive profiles** (§0.4): rows show the coloured depth number, and the sparkline and detail chart appear only for dives carrying a real sample series. An interpolated curve would read as recorded data.

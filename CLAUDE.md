@@ -8,7 +8,7 @@ Read [DESIGN.md](DESIGN.md) — it is the authoritative plan (scope, data model,
 
 ## Quick facts
 
-- Stack: Expo + TypeScript + `expo-router` (dev builds, not Expo Go) · `expo-sqlite` + Drizzle (source of truth, offline-first) · react-hook-form + Zod · NativeWind · react-native-maps · i18next (en + cs) · Supabase (auth, Postgres, sync RPCs).
+- Stack: Expo + TypeScript + `expo-router` (dev builds, not Expo Go) · `expo-sqlite` + Drizzle (source of truth, offline-first) · react-hook-form + Zod · `StyleSheet` from the §0.2 tokens (no NativeWind — see §10) · react-native-maps · i18next (en + cs) · Supabase (auth, Postgres, sync RPCs).
 - Conventions: SI units stored, converted at display · all dive fields nullable except date · client-generated UUIDv7 ids · synced tables carry `updated_at` + `deleted_at` · dive numbers are computed, never stored.
 - Brand: the app is **Ponor** (`ponor.app`). Colour encodes depth and nothing else — controls stay monochrome, the primary button is inverted ink. Dark and light both ship from M0. No profile curve is ever drawn for a dive without a real sample series (§0.4).
 - Work proceeds milestone by milestone (M0 → M3, DESIGN.md §9).
