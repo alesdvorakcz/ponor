@@ -139,7 +139,15 @@ export function rmv(
   if (!isNumber(dive.durationMin) || dive.durationMin <= 0) return null;
   const ata = dive.avgDepthM / METRES_PER_BAR + 1;
   const value = litres / ata / dive.durationMin;
-  return Number.isFinite(value) ? value : null;
+  // Number.isFinite(0) is true, so finiteness alone doesn't reject a zero
+  // RMV here any more than it did before litres <= 0 was guarded above: a
+  // denormal litres divided by a large enough durationMin can underflow all
+  // the way down to exactly 0, the same unreal-RMV shape as that guard, just
+  // reached by underflow instead of a literal zero going in. value > 0
+  // catches that; Number.isFinite is kept alongside it, not replaced by it —
+  // value > 0 alone would accept Infinity too (Infinity > 0 is true), which
+  // is the overflow this file already rejects a few lines up.
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 /**

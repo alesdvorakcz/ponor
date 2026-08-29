@@ -208,6 +208,15 @@ describe('rmv', () => {
     // overflows a normally well-behaved litres/ata figure.
     expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: Number.MIN_VALUE })).toBeNull();
   });
+
+  it('is null rather than an underflowed zero, the overflow guard\'s opposite edge', () => {
+    // Number.isFinite(0) is true, so a finiteness-only guard misses this: a
+    // denormal litres value divided by a large enough durationMin rounds all
+    // the way down to exactly 0 (verified: Number.MIN_VALUE / 1 / 2 === 0),
+    // which is the same unreal-RMV shape the litres <= 0 guard above rejects.
+    const denormal = tank({ startBar: Number.MIN_VALUE, endBar: 0, sizeL: 1, count: 1 });
+    expect(rmv({ tanks: [denormal], avgDepthM: 0, durationMin: 2 })).toBeNull();
+  });
 });
 
 describe('mod', () => {
