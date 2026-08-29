@@ -74,3 +74,120 @@ describe('assignDiveNumbers', () => {
     expect(assignDiveNumbers([], 10).size).toBe(0);
   });
 });
+
+describe('assignDiveNumbers against malformed input and non-determinism', () => {
+  it('does not throw when dives is not an array', () => {
+    expect(() => assignDiveNumbers(null as unknown as DiveOrdering[], 0)).not.toThrow();
+    expect(() => assignDiveNumbers(undefined as unknown as DiveOrdering[], 0)).not.toThrow();
+    expect(assignDiveNumbers(null as unknown as DiveOrdering[], 0).size).toBe(0);
+    expect(assignDiveNumbers(undefined as unknown as DiveOrdering[], 0).size).toBe(0);
+  });
+
+  it('does not throw on a null or undefined entry, and still numbers the real dives around it', () => {
+    const withHoles = [
+      null as unknown as DiveOrdering,
+      dive({ id: 'a' }),
+      undefined as unknown as DiveOrdering,
+    ];
+    expect(() => assignDiveNumbers(withHoles, 0)).not.toThrow();
+    const numbers = assignDiveNumbers(withHoles, 0);
+    expect(numbers.size).toBe(1);
+    expect(numbers.get('a')).toBe(1);
+  });
+
+  it('excludes an entry with no recognizable status instead of throwing', () => {
+    const malformed = {} as unknown as DiveOrdering;
+    expect(() => assignDiveNumbers([malformed], 0)).not.toThrow();
+    expect(assignDiveNumbers([malformed], 0).size).toBe(0);
+  });
+
+  it('falls back to a zero offset for a divesBefore that is not a real non-negative integer', () => {
+    const badOffsets = [NaN, Infinity, -Infinity, -5, 2.5, null, undefined];
+    for (const bad of badOffsets) {
+      const numbers = assignDiveNumbers([dive({ id: 'a' })], bad as unknown as number);
+      expect(numbers.get('a')).toBe(1);
+    }
+  });
+
+  it('never lets a wrong-typed divesBefore turn a dive number into a string', () => {
+    // '247' + 0 + 1 is not a type error under plain +, it's the STRING "24701" —
+    // the one case here that doesn't just look wrong, it silently breaks the
+    // Map<string, number> contract for every consumer downstream.
+    const numbers = assignDiveNumbers([dive({ id: 'a' })], '247' as unknown as number);
+    expect(numbers.get('a')).toBe(1);
+    expect(typeof numbers.get('a')).toBe('number');
+  });
+
+  it('numbers a dive with a missing createdAt or date the same way regardless of input order', () => {
+    // Before toComparable: a.createdAt < b.createdAt and b.createdAt < a.createdAt
+    // were BOTH false whenever one side was undefined (each side coerces toward
+    // NaN), so the tiebreak's chosen sign depended on which of (a,b)/(b,a) the
+    // sort happened to compare — the exact "two devices disagree" failure this
+    // function exists to prevent.
+    const noCreatedAt = { id: 'a', status: 'logged', date: '2026-08-16', timeIn: null } as unknown as DiveOrdering;
+    const real = dive({ id: 'b' });
+    const forward = assignDiveNumbers([noCreatedAt, real], 0);
+    const backward = assignDiveNumbers([real, noCreatedAt], 0);
+    expect(forward.get('a')).toBe(backward.get('a'));
+    expect(forward.get('b')).toBe(backward.get('b'));
+
+    const noDate = {
+      id: 'c', status: 'logged', timeIn: null, createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const real2 = dive({ id: 'd' });
+    const forward2 = assignDiveNumbers([noDate, real2], 0);
+    const backward2 = assignDiveNumbers([real2, noDate], 0);
+    expect(forward2.get('c')).toBe(backward2.get('c'));
+    expect(forward2.get('d')).toBe(backward2.get('d'));
+  });
+
+  it('numbers a large list identically no matter how the input is ordered', () => {
+    const n = 500;
+    const dives: DiveOrdering[] = [];
+    for (let i = 0; i < n; i++) {
+      const date = new Date(Date.UTC(2015, 0, 1) + i * 86400000).toISOString().slice(0, 10);
+      dives.push(dive({ id: `id-${i}`, date, createdAt: `${date}T00:00:00.000Z` }));
+    }
+    const reversed = [...dives].reverse();
+    // A fixed, non-random permutation distinct from both forward and reverse order.
+    const interleaved = dives.filter((_, i) => i % 2 === 0).concat(dives.filter((_, i) => i % 2 === 1));
+
+    const forward = assignDiveNumbers(dives, 0);
+    const backward = assignDiveNumbers(reversed, 0);
+    const mixed = assignDiveNumbers(interleaved, 0);
+    const repeat = assignDiveNumbers(dives, 0);
+
+    dives.forEach((d, i) => {
+      expect(forward.get(d.id)).toBe(i + 1);
+      expect(backward.get(d.id)).toBe(i + 1);
+      expect(mixed.get(d.id)).toBe(i + 1);
+      expect(repeat.get(d.id)).toBe(i + 1);
+    });
+  });
+
+  it('breaks a tie on every other field using id, the same way regardless of input order', () => {
+    const x = dive({ id: 'x', timeIn: '10:00' });
+    const y = dive({ id: 'y', timeIn: '10:00' });
+    const forward = assignDiveNumbers([x, y], 0);
+    const backward = assignDiveNumbers([y, x], 0);
+    // 'x' and 'y' tie on date, timeIn and createdAt; 'x' < 'y' lexicographically
+    // decides it, independent of which one came first in the input array.
+    expect(forward.get('x')).toBe(1);
+    expect(forward.get('y')).toBe(2);
+    expect(backward.get('x')).toBe(1);
+    expect(backward.get('y')).toBe(2);
+  });
+
+  it('does not throw for two dives fully identical, including id', () => {
+    const shared = {
+      id: 'dup', status: 'logged' as const, date: '2026-08-16',
+      timeIn: null, createdAt: '2026-08-16T10:00:00.000Z',
+    };
+    expect(() => assignDiveNumbers([{ ...shared }, { ...shared }], 0)).not.toThrow();
+    // A duplicate id is a data-integrity bug outside this function's remit (id is
+    // the primary key); the two entries collapse to one map entry under that
+    // shared key rather than corrupting the numbering of anything else.
+    const numbers = assignDiveNumbers([{ ...shared }, { ...shared }], 0);
+    expect(numbers.size).toBe(1);
+  });
+});
