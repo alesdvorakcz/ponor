@@ -1,4 +1,9 @@
-import { assignDiveNumbers, compareDiveOrder, type DiveOrdering } from './diveNumber';
+import {
+  assignDiveNumbers,
+  compareDiveOrder,
+  isDiveCount,
+  type DiveOrdering,
+} from './diveNumber';
 
 const dive = (over: Partial<DiveOrdering> & { id: string }): DiveOrdering => ({
   status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: null,
@@ -625,5 +630,42 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
     );
     expect(withDuplicate.get('z')).toBe(withoutDuplicate.get('z'));
     expect(withDuplicate.get('z')).toBe(3);
+  });
+});
+
+describe('isDiveCount — the one owner of the "valid dives_before" rule', () => {
+  // Three places need this predicate and each acts differently on the answer:
+  // settings.getDivesBefore throws, settings.setDivesBefore throws, and
+  // assignDiveNumbers falls back to 0 because it runs during render. The
+  // differing actions are deliberate; three copies of the predicate were the
+  // same one-rule-written-several-times shape this milestone spent itself
+  // closing, one tier smaller.
+  it('accepts a non-negative integer', () => {
+    for (const good of [0, 1, 247, Number.MAX_SAFE_INTEGER]) {
+      expect(isDiveCount(good)).toBe(true);
+    }
+  });
+
+  it('rejects everything that cannot be a count of dives', () => {
+    for (const bad of [-1, -0.5, 2.5, NaN, Infinity, -Infinity, null, undefined, '247', {}, []]) {
+      expect(isDiveCount(bad)).toBe(false);
+    }
+  });
+
+  it('never coerces: a numeric-looking string is not a count', () => {
+    // The bug this whole path exists for — settings is a text column, so '247'
+    // is exactly what a careless caller holds.
+    expect(isDiveCount('247')).toBe(false);
+    expect(isDiveCount('')).toBe(false);
+  });
+
+  it('is the same rule assignDiveNumbers applies to its offset', () => {
+    // Ties the predicate to the behaviour, so the two cannot drift apart the
+    // way three hand-written copies could.
+    const one = dive({ id: 'a' });
+    for (const value of [247, 0, -1, 2.5, NaN, '247' as unknown as number]) {
+      const numbers = assignDiveNumbers([one], value);
+      expect(numbers.get('a')).toBe(isDiveCount(value) ? value + 1 : 1);
+    }
   });
 });

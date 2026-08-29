@@ -40,6 +40,19 @@ describe('getDivesBefore', () => {
     expect(await getDivesBefore(db)).toBe(12);
   });
 
+  it('refuses JS numeric literal forms, which Number() would happily accept', async () => {
+    // Number('0x10') is 16, Number('1e3') is 1000, Number('0b101') is 5 and
+    // Number('+5') is 5 — every one an integer afterwards, so an isInteger
+    // check alone lets a corrupted '0x10' become a pre-Ponor count of 16.
+    // Nothing the app writes takes these forms (setDivesBefore writes
+    // String(count)), which is exactly why anything that does is corruption.
+    for (const bad of ['0x10', '1e3', '0b101', '0o17', '+5', '1_000']) {
+      const fresh = createTestDb();
+      await fresh.insert(settings).values({ key: 'dives_before', value: bad });
+      await expect(getDivesBefore(fresh)).rejects.toThrow(/non-negative integer/i);
+    }
+  });
+
   it('ignores unrelated settings keys', async () => {
     await db.insert(settings).values({ key: 'units', value: 'metric' });
     expect(await getDivesBefore(db)).toBe(0);

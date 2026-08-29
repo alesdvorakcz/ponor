@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { isDiveCount } from '../domain/diveNumber';
 import { settings } from './schema';
 import type { Db } from './types';
 
@@ -45,12 +46,17 @@ export async function getDivesBefore(db: Db): Promise<number> {
   const row = rows.at(0);
   if (row === undefined) return 0;
 
-  // Number('') is 0 and Number(' 12 ') is 12, so an empty or blank stored
-  // value would coerce to a plausible count rather than being caught. Reject
-  // it explicitly before coercing.
+  // Decimal digits only, checked before coercing. `Number` is far more
+  // permissive than "an integer written out": Number('') is 0, and
+  // Number('0x10') is 16, Number('1e3') is 1000, Number('0b101') is 5 and
+  // Number('+5') is 5 — every one of which passes an isInteger check
+  // afterwards, so a hand-edited or corrupted '0x10' would silently become a
+  // pre-Ponor count of 16. Nothing the app writes can take those forms
+  // (setDivesBefore writes String(count)), which is exactly why anything that
+  // does is corruption and must be reported rather than interpreted.
   const raw = row.value.trim();
-  const parsed = raw === '' ? NaN : Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  const parsed = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!isDiveCount(parsed)) {
     throw new Error(
       `settings.${DIVES_BEFORE_KEY} is not a non-negative integer: ${JSON.stringify(row.value)}`,
     );
@@ -68,7 +74,7 @@ export async function getDivesBefore(db: Db): Promise<number> {
  * negative one would produce dive numbers that cannot exist.
  */
 export async function setDivesBefore(db: Db, count: number): Promise<void> {
-  if (!Number.isInteger(count) || count < 0) {
+  if (!isDiveCount(count)) {
     throw new Error(`setDivesBefore: expected a non-negative integer, got ${String(count)}`);
   }
   const value = String(count);

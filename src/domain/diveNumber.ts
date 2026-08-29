@@ -95,6 +95,28 @@ export function storedManualOrder(value: unknown): number | null {
 }
 
 /**
+ * True for a value that can be a count of dives — the diver's pre-Ponor total
+ * (`dives_before`, §2.5), and nothing else in the app so far.
+ *
+ * One owner for the *predicate*, deliberately not for the *action*. Three
+ * places need to know what a valid count is and each does something different
+ * with the answer: `settings.getDivesBefore` throws (a stored value it cannot
+ * read must not become a silent 0), `settings.setDivesBefore` throws (keeping
+ * that unreadable case unreachable through the app's own writes), and
+ * `assignDiveNumbers` below falls back to 0 (it is called during render and
+ * may not throw). The differing actions are right; three copies of
+ * `Number.isInteger(x) && x >= 0` were not — that is the same
+ * one-rule-written-several-times shape the datetime module exists to close,
+ * one tier smaller.
+ *
+ * `typeof value === 'number'` first so this narrows, and so the check never
+ * coerces: `Number.isInteger` alone does not narrow `unknown`.
+ */
+export function isDiveCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+/**
  * Dive numbers are position, not data — see DESIGN.md §2.5. Nothing is stored,
  * so backfilling an old dive renumbers every later dive for free, identically on
  * every device, with no sync writes at all.
@@ -207,7 +229,7 @@ export function assignDiveNumbers(
   divesBefore: number,
 ): Map<string, number> {
   if (!Array.isArray(dives)) return new Map();
-  const offset = Number.isInteger(divesBefore) && divesBefore >= 0 ? divesBefore : 0;
+  const offset = isDiveCount(divesBefore) ? divesBefore : 0;
 
   const logged = dives.filter((d) => d && d.status === 'logged').sort(compareDiveOrder);
 

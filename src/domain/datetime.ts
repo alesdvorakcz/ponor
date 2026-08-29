@@ -136,10 +136,19 @@ export function timeOfDayToMinutes(value: unknown): number | null {
  * The write-boundary policy for a stored `date`, applied by `db/dives.ts`.
  * Canonicalises a real date however it was spelled, and otherwise returns the
  * value untouched — never null, since the column is NOT NULL, and never a
- * rejection, per §1. A value this cannot canonicalise still sorts
- * deterministically: `compareDiveOrder` falls back to comparing it as a raw
- * string, which places it where the diver typed it rather than nowhere.
+ * rejection, per §1.
+ *
+ * A value this cannot canonicalise still sorts deterministically:
+ * `compareDiveOrder` falls back to comparing it as a raw string, which places
+ * it where the diver typed it rather than nowhere.
+ *
+ * Overloaded so a caller holding a `string` gets a `string` back rather than
+ * `unknown`. That is not sugar: without it every typed call site needs an
+ * `as string`, and such a cast would go on silently satisfying the compiler if
+ * the fallback here ever stopped returning the input unchanged.
  */
+export function storedCalendarDate(value: string): string;
+export function storedCalendarDate(value: unknown): unknown;
 export function storedCalendarDate(value: unknown): unknown {
   return normaliseCalendarDate(value) ?? value;
 }
@@ -158,6 +167,8 @@ export function storedCalendarDate(value: unknown): unknown {
  * function's to throw away, and the comparator treats an uninterpretable time
  * as no time rather than mis-sorting it.
  */
+export function storedTimeOfDay(value: string | null): string | null;
+export function storedTimeOfDay(value: unknown): unknown;
 export function storedTimeOfDay(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
