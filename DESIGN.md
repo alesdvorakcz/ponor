@@ -156,7 +156,7 @@ One Supabase project (EU region, Frankfurt) provides everything server-side; we 
 
 ## 6. Data model
 
-The same schema lives in SQLite (Drizzle) and Postgres. Conventions: **SI units stored**, converted at display · IDs are **client-generated UUIDv7**, so offline creation never needs re-mapping · every column nullable except `id`, `user_id`, `date` · all synced tables carry `updated_at` (server-set) and `deleted_at` (tombstone).
+The same schema lives in SQLite (Drizzle) and Postgres. Conventions: **SI units stored**, converted at display · IDs are **client-generated UUIDv7**, so offline creation never needs re-mapping · every column nullable except `id`, `user_id`, `date` · all synced tables carry `created_at`, `updated_at` (server-set) and `deleted_at` (tombstone). `created_at` is not bookkeeping: dive numbering uses it as an ordering tier for same-day dives with neither a time nor a hand-set order (§2.5), so it must be preserved across sync rather than regenerated.
 
 ### `dives` — private, one row per dive
 
@@ -165,10 +165,12 @@ The same schema lives in SQLite (Drizzle) and Postgres. Conventions: **SI units 
 | Identity | `status` (logged·planned) · `date` · `time_in` · `manual_order` · `duration_min` · `title` · `notes` · `rating` (1–5) |
 | Where | `site_id` + `site_name` snapshot · `center_id` + `center_name` snapshot · `entry` (shore·boat·other) · `salinity` (salt·fresh·brackish) · `water_body` (ocean·lake·river·quarry·cave·pool) · `latitude` + `longitude` (optional exact GPS point) |
 | Profile & conditions | `max_depth_m` · `avg_depth_m` · `water_temp_c` · `air_temp_c` · `visibility_m` · `waves` (0–3) · `current` (0–3) · `surge` (0–3) |
-| Gas & cylinders | `tanks` — JSON array, one entry per cylinder, first = main: `{ material (steel·alu), size_l, count (twinset = 2), working_bar, o2_pct (21 = air), he_pct, start_bar, end_bar }` |
+| Gas & cylinders | `tanks` — JSON array, one entry per cylinder, first = main: `{ material (steel·alu), sizeL, count (twinset = 2), workingBar, o2Pct (21 = air), hePct, startBar, endBar }` |
 | Equipment & people | `suit` (none·shorty·wet·semidry·dry) · `hood` · `gloves` · `boots` · `weights_kg` · `buddy` · `guide` |
 
 **On the GPS point:** SQLite has no point type, so a dive's optional exact position is two nullable columns on the device. Postgres composes them into a PostGIS point in M2 — the sync payload carries the pair, and the server owns the geometry. `dive_sites` keeps a single PostGIS `location` because that table is server-authoritative.
+
+**The keys inside `tanks` are camelCase, unlike every column name.** That is deliberate. Column names get a mapping layer — camelCase in TypeScript, snake_case in SQL — but a JSON blob's interior gets none: whatever the app writes is what is stored, and changing it later means rewriting every row *and* re-agreeing with Postgres `jsonb` in M2. camelCase is the lower-friction end, since the app reads these keys directly.
 
 Tanks are one JSON column instead of a child table: they are never queried on their own, and whole-row sync stays trivial. The form shows a single cylinder until "+ add cylinder" is tapped — multi-gas ready without multi-gas clutter.
 
@@ -254,4 +256,6 @@ Key decisions and the alternatives they beat — don't relitigate without new in
 - **Colour encodes depth and nothing else;** controls stay monochrome. The scale follows the order in which water removes colour, so it carries meaning rather than decoration, and depth is always shown redundantly as a number.
 - **Dark and light both ship from M0,** not M3: the token set has to exist before the first screen does, and retro-fitting a theme onto built screens is the expensive path.
 - **No styling framework — `StyleSheet` built from the tokens** (revised in M0, replacing NativeWind in §4). NativeWind v5 is the only line supporting React Native 0.86 and it is a preview that does not work: Tailwind's `@theme` needs a PostCSS setup Expo does not run by default, and once wired up `react-native-css` fails to deserialize its own compiled output — the same error breaks Expo's own bundled `@expo/log-box` stylesheet. Verified on a simulator, not inferred. A `makeStyles(scheme)` helper over `tokens.js` costs little and keeps the single-source-of-truth property; revisit when NativeWind v5 is stable.
+- **`tanks` JSON keys are camelCase** while every column is snake_case: a JSON interior has no mapping layer, so the casing the app writes is permanent, and changing it after users have rows means rewriting every blob and re-agreeing with Postgres in M2.
+- **No CHECK constraints on `rating` or the 0–3 condition scales:** §1's "never block a save" argues against hard database rejections, and a CHECK would also reject a row synced from a future client with a widened range. SQLite CHECKs need a table rebuild to add, so this is recorded rather than left to be re-derived.
 - **No schematic dive profiles** (§0.4): rows show the coloured depth number, and the sparkline and detail chart appear only for dives carrying a real sample series. An interpolated curve would read as recorded data.
