@@ -83,6 +83,13 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres(undefined as unknown as Tank[])).toBeNull();
     expect(gasUsedLitres([null as unknown as Tank])).toBeNull();
   });
+
+  it('is null rather than Infinity when the total overflows', () => {
+    // Each input is individually finite (Number.MAX_VALUE passes isNumber),
+    // but the product isn't - the per-input finiteness checks alone miss this.
+    const huge = tank({ startBar: Number.MAX_VALUE, endBar: 0, sizeL: Number.MAX_VALUE, count: 1 });
+    expect(gasUsedLitres([huge])).toBeNull();
+  });
 });
 
 describe('rmv', () => {
@@ -122,6 +129,12 @@ describe('rmv', () => {
     expect(() => rmv(null as unknown as Parameters<typeof rmv>[0])).not.toThrow();
     expect(rmv(null as unknown as Parameters<typeof rmv>[0])).toBeNull();
     expect(rmv(undefined as unknown as Parameters<typeof rmv>[0])).toBeNull();
+  });
+
+  it('is null rather than Infinity when the result overflows', () => {
+    // durationMin > 0 passes the guard but is tiny enough that dividing by it
+    // overflows a normally well-behaved litres/ata figure.
+    expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: Number.MIN_VALUE })).toBeNull();
   });
 });
 

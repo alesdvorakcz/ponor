@@ -64,7 +64,7 @@ export function gasUsedLitres(tanks: Tank[]): number | null {
     total += gas.usedBar * tank.sizeL * count;
     counted += 1;
   }
-  return counted > 0 ? total : null;
+  return counted > 0 && Number.isFinite(total) ? total : null;
 }
 
 /**
@@ -85,7 +85,8 @@ export function rmv(
   if (!isNumber(dive.avgDepthM) || dive.avgDepthM < 0) return null;
   if (!isNumber(dive.durationMin) || dive.durationMin <= 0) return null;
   const ata = dive.avgDepthM / METRES_PER_BAR + 1;
-  return litres / ata / dive.durationMin;
+  const value = litres / ata / dive.durationMin;
+  return Number.isFinite(value) ? value : null;
 }
 
 /**
