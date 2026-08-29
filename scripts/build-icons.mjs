@@ -34,7 +34,10 @@ fs.mkdirSync(out, { recursive: true });
 const targets = [
   // Full-bleed store and home-screen icon.
   { file: 'icon.png', size: 1024, pad: 0 },
-  // Android masks the outer ~33%, so the mark sits in the safe centre.
+  // 112 is empirical, not derived from Android's safe-zone spec: at the
+  // original pad of 224 the mark rendered as an illegible dot, and 112 is
+  // the value that keeps it inside the safe zone while still reading
+  // clearly at adaptive-icon size.
   { file: 'adaptive-icon.png', size: 1024, pad: 112 },
   // Splash art is composited on a flat background by expo-splash-screen.
   { file: 'splash-icon.png', size: 512, pad: 96 },
