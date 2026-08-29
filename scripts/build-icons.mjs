@@ -5,10 +5,29 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 const require = createRequire(import.meta.url);
-const { tokens } = require('../src/theme/tokens.js');
+const { tokens, depthScale } = require('../src/theme/tokens.js');
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const svg = fs.readFileSync(path.join(root, 'assets', 'mark.svg'));
+const svgTemplate = fs.readFileSync(path.join(root, 'assets', 'mark.svg'), 'utf8');
+
+// mark.svg's gradient stops are {{depth-N}} placeholders standing in for
+// depthScale.dark[N - 1] (N = 1-based band number, matching the band
+// numbering documented in tokens.js), so tokens.js stays the one source of
+// colour. Fail loudly on a bad placeholder rather than let "{{...}}" reach
+// an icon as a literal, silently-broken paint value.
+const svgText = svgTemplate.replace(/\{\{depth-(\d+)\}\}/g, (placeholder, band) => {
+  const value = depthScale.dark[Number(band) - 1];
+  if (value === undefined) {
+    throw new Error(`${placeholder} in assets/mark.svg has no matching depthScale.dark token`);
+  }
+  return value;
+});
+const stray = svgText.match(/\{\{[^}]*\}\}/);
+if (stray) {
+  throw new Error(`assets/mark.svg has an unresolved placeholder: ${stray[0]}`);
+}
+const svg = Buffer.from(svgText);
+
 const out = path.join(root, 'assets', 'images');
 fs.mkdirSync(out, { recursive: true });
 

@@ -1,11 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="1024" height="1024">
   <defs>
+    <!-- The stop-color values below are template placeholders, substituted
+         by build-icons.mjs from depthScale.dark[N-1] in src/theme/tokens.js
+         (N = the 1-based band number in the placeholder name), so tokens.js
+         stays the single source of colour. -->
     <linearGradient id="depth" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="46">
-      <stop offset="0" stop-color="#FF9F43"/>
-      <stop offset="0.45" stop-color="#3FCB94"/>
-      <stop offset="1" stop-color="#2E9BE0"/>
+      <stop offset="0" stop-color="{{depth-2}}"/>
+      <stop offset="0.45" stop-color="{{depth-4}}"/>
+      <stop offset="1" stop-color="{{depth-5}}"/>
     </linearGradient>
   </defs>
+  <!-- #5A6C78 is a brand-asset colour for the wave stroke, documented
+       separately in DESIGN.md - it is not a depthScale/tokens.js colour, so
+       leave it as a literal. Do not tokenise it. -->
   <path d="M2 15 q 5 -3.6 10 0 t 10 0 t 10 0 t 10 0 t 10 0 t 10 0"
         fill="none" stroke="#5A6C78" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M12 15 L19 46 L28 46 L34 34 L44 34 L50 24 L54 24"
