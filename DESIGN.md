@@ -218,8 +218,8 @@ The first real bill would be Supabase Pro ($25/mo) when the database nears 500 M
 
 ## 9. Milestones
 
-- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running on a real iPhone and Android phone, lint and CI green. Plus the §0 identity in code: both token sets driving a `StyleSheet` theme, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
-  *Done when: both phones show the empty app built by CI-checked code, in the right typeface, and switching the OS between light and dark switches the app with it.*
+- **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running in a simulator or on a device, lint and CI green. Plus the §0 identity in code: both token sets driving a `StyleSheet` theme, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
+  *Done when: the app runs from CI-checked code, in the right typeface with Czech diacritics intact, and switching the OS between light and dark switches the app with it. **Met 2026-08-29** on the iOS 26.3 simulator; a physical-device pass is worth doing before release but is not an M0 gate.*
 - **M1 · The local logbook** — schema and migrations, the dive form with groups + prefill + duplicate + gear presets, prepare-ahead planned dives, list and detail, units, autocomplete from own history. No account, fully offline — already a usable app.
   *Done when: you log a 3-dive trip in under 3 minutes, in airplane mode.*
 - **M2 · Accounts & community** — Supabase project, three sign-in methods, the sync protocol, community sites and centers with fuzzy dedupe, and the Map tab.
