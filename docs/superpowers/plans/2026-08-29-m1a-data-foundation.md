@@ -739,6 +739,12 @@ export const dives = sqliteTable('dives', {
 
   date: text('date').notNull(),
   timeIn: text('time_in'),
+  /**
+   * Hand-set order within a single date, used only when times are missing (§2.5).
+   * A tie-break, not a position: it is compared between dives sharing a date and
+   * never read on its own.
+   */
+  manualOrder: integer('manual_order'),
   durationMin: integer('duration_min'),
   title: text('title'),
   notes: text('notes'),

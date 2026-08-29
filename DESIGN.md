@@ -106,7 +106,7 @@ Logs can be half-written in advance. On the boat, set up the coming dives — da
 
 ### 2.5 Dive numbering
 
-**Dive numbers are computed, never stored:** chronological position plus your pre-Ponor dive count (`dives_before`, asked once at onboarding, editable in settings any time). Backfilling an old dive slots it into place and renumbers everything after it automatically — on every device, with zero sync churn. Same-day dives order by time in, or by hand when times are missing. No per-dive number override in v1 (layer it on later only if real users ask).
+**Dive numbers are computed, never stored:** chronological position plus your pre-Ponor dive count (`dives_before`, asked once at onboarding, editable in settings any time). Backfilling an old dive slots it into place and renumbers everything after it automatically — on every device, with zero sync churn. Same-day dives order by time in. When times are missing the diver can order them by hand, which is what `manual_order` stores — a nullable integer used only as a tie-break within one date. A dive that has been ordered by hand sorts before one that has not, on the same reasoning as timed-before-untimed; dives with neither fall back to creation order, which is deterministic across devices and is almost always already correct. No per-dive number override in v1 (layer it on later only if real users ask).
 
 ## 3. Screens
 
@@ -162,7 +162,7 @@ The same schema lives in SQLite (Drizzle) and Postgres. Conventions: **SI units 
 
 | Cluster | Fields |
 |---|---|
-| Identity | `status` (logged·planned) · `date` · `time_in` · `duration_min` · `title` · `notes` · `rating` (1–5) |
+| Identity | `status` (logged·planned) · `date` · `time_in` · `manual_order` · `duration_min` · `title` · `notes` · `rating` (1–5) |
 | Where | `site_id` + `site_name` snapshot · `center_id` + `center_name` snapshot · `entry` (shore·boat·other) · `salinity` (salt·fresh·brackish) · `water_body` (ocean·lake·river·quarry·cave·pool) · `latitude` + `longitude` (optional exact GPS point) |
 | Profile & conditions | `max_depth_m` · `avg_depth_m` · `water_temp_c` · `air_temp_c` · `visibility_m` · `waves` (0–3) · `current` (0–3) · `surge` (0–3) |
 | Gas & cylinders | `tanks` — JSON array, one entry per cylinder, first = main: `{ material (steel·alu), size_l, count (twinset = 2), working_bar, o2_pct (21 = air), he_pct, start_bar, end_bar }` |
