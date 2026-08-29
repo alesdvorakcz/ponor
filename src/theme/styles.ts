@@ -1,18 +1,19 @@
 import { StyleSheet } from 'react-native';
 
+import { fonts } from './fonts';
 import { themeFor } from './resolve';
-import { fonts, type ColorScheme } from './tokens';
+import { type ColorScheme } from './tokens';
 
 /**
  * Builds this scheme's StyleSheet from the design tokens.
  *
  * A screen calls `makeStyles(scheme)` once per render and reads named styles off the
  * result — it never writes a colour or font-family literal itself. Every value in here
- * traces back to `theme` (from tokens.js by way of resolve.ts) or `fonts` (tokens.js),
- * so this module is the single place those two things are allowed to meet a style
- * property. That indirection is what makes the design system's delivery mechanism
- * swappable — StyleSheet today, something else tomorrow — without ever touching a
- * screen or its colours.
+ * traces back to `theme` (from tokens.js by way of resolve.ts) or `fonts` (tokens.js's
+ * font map, by way of fonts.ts's per-platform naming), so this module is the single
+ * place those two things are allowed to meet a style property. That indirection is
+ * what makes the design system's delivery mechanism swappable — StyleSheet today,
+ * something else tomorrow — without ever touching a screen or its colours.
  *
  * A colour that depends on more than the theme (the depth scale, which also depends on
  * the depth value) does not live here — see `depthColor` in ./depth. It still only
