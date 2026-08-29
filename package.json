@@ -2,6 +2,9 @@
   "name": "ponor",
   "main": "expo-router/entry",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@expo-google-fonts/archivo": "^0.4.2",
     "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
@@ -30,7 +33,7 @@
   },
   "devDependencies": {
     "@types/jest": "~29.5.14",
-    "@types/node": "^26.4.0",
+    "@types/node": "~22",
     "@types/react": "~19.2.2",
     "eslint-config-expo": "~57.0.2",
     "jest": "^29.7.0",
