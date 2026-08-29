@@ -1,4 +1,4 @@
-import { depthBand, depthColor } from './depth';
+import { depthBand, depthColor, depthColorOrNull } from './depth';
 
 describe('depthBand', () => {
   it('puts a surface dive in band 1', () => {
@@ -43,5 +43,38 @@ describe('depthColor', () => {
   it('colours a quarry dive differently from a deep reef dive', () => {
     expect(depthColor(14.8, 'dark')).toBe('#F5CE3E');
     expect(depthColor(41.0, 'dark')).toBe('#6673E4');
+  });
+});
+
+// M1's dive fields are all nullable except the date, and an empty numeric form field
+// parses to NaN (`parseFloat('') === NaN`). A list row cannot let that reach
+// `depthColor` and throw during render, but `depthColor`/`depthBand`'s throw-on-invalid
+// contract is correct and stays as-is (see the `depthColor`/`depthBand` suites above) —
+// this is the null-safe entry point a render path should call instead.
+describe('depthColorOrNull', () => {
+  it('returns null for a null depth', () => {
+    expect(depthColorOrNull(null, 'dark')).toBeNull();
+  });
+
+  it('returns null for an undefined depth', () => {
+    expect(depthColorOrNull(undefined, 'dark')).toBeNull();
+  });
+
+  it('returns null for NaN, as parseFloat gives an empty numeric field', () => {
+    expect(depthColorOrNull(Number.NaN, 'dark')).toBeNull();
+  });
+
+  it('returns null for a negative depth', () => {
+    expect(depthColorOrNull(-1, 'dark')).toBeNull();
+  });
+
+  it('returns null for a non-finite depth', () => {
+    expect(depthColorOrNull(Number.POSITIVE_INFINITY, 'dark')).toBeNull();
+    expect(depthColorOrNull(Number.NEGATIVE_INFINITY, 'dark')).toBeNull();
+  });
+
+  it('returns the same colour depthColor would for a valid depth, in both schemes', () => {
+    expect(depthColorOrNull(32.4, 'dark')).toBe(depthColor(32.4, 'dark'));
+    expect(depthColorOrNull(32.4, 'light')).toBe(depthColor(32.4, 'light'));
   });
 });
