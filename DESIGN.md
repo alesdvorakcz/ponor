@@ -219,7 +219,9 @@ The first real bill would be Supabase Pro ($25/mo) when the database nears 500 M
 ## 9. Milestones
 
 - **M0 · Skeleton** — repo, Expo + TypeScript app, dev builds running in a simulator or on a device, lint and CI green. Plus the §0 identity in code: both token sets driving a `StyleSheet` theme, the depth scale, Archivo + IBM Plex Mono loaded, app icon and splash. A weekend.
-  *Done when: the app runs from CI-checked code, in the right typeface with Czech diacritics intact, and switching the OS between light and dark switches the app with it. **Met 2026-08-29** on the iOS 26.3 simulator; a physical-device pass is worth doing before release but is not an M0 gate.*
+  *Done when: the app runs from CI-checked code; **the four Archivo weights render visibly different from each other and the IBM Plex Mono rows render monospaced**; and switching the OS between light and dark switches the app with it. **Met 2026-08-29** on the iOS 26.3 simulator. A physical-device pass is worth doing before release but is not an M0 gate.*
+
+  > The typeface criterion is worded that way deliberately. It first read "Czech diacritics intact", which San Francisco renders perfectly — so the check passed while **no embedded font resolved on iOS at all**, and M0 was briefly marked met on evidence that could not fail. Weight difference and monospacing are falsifiable; diacritics are not. Apply the same test to future done-whens: ask what result would *disprove* the claim.
 - **M1 · The local logbook** — schema and migrations, the dive form with groups + prefill + duplicate + gear presets, prepare-ahead planned dives, list and detail, units, autocomplete from own history. No account, fully offline — already a usable app.
   *Done when: you log a 3-dive trip in under 3 minutes, in airplane mode.*
 - **M2 · Accounts & community** — Supabase project, three sign-in methods, the sync protocol, community sites and centers with fuzzy dedupe, and the Map tab.
