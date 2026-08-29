@@ -1,6 +1,47 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { customType, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import type { Suit, Tank } from '../domain/types';
+
+/**
+ * The `tanks` column: a JSON array of Tank, stored as text.
+ *
+ * A custom type rather than `text(..., { mode: 'json' })` for one reason —
+ * `mode: 'json'` decodes with a bare `JSON.parse`, and that runs inside
+ * Drizzle's row mapper, before any repository code sees the value. A single
+ * unparseable blob therefore threw out of `listDives` and took the entire dive
+ * list down with it, not just its own row (executed: a truncated
+ * `[{"sizeL":12` made both `getDive` and `listDives` throw a SyntaxError while
+ * the other rows were perfectly healthy).
+ *
+ * Reachability is low today — the column is NOT NULL with a `'[]'` default and
+ * every write goes through `JSON.stringify` — and it stops being low the
+ * moment M2's `pull_changes` starts writing this column from a network
+ * payload. Degrading one bad row to `[]` here fixes every read path at once,
+ * including `RETURNING`, because there is no read path that does not go
+ * through this decoder.
+ *
+ * Emits `text`, exactly as `mode: 'json'` did, so the migration and the
+ * drizzle-kit snapshot are unchanged.
+ */
+const tanksJson = customType<{ data: Tank[]; driverData: string }>({
+  dataType() {
+    return 'text';
+  },
+  toDriver(value: Tank[]): string {
+    return JSON.stringify(value);
+  },
+  fromDriver(value: string): Tank[] {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as Tank[]) : [];
+    } catch {
+      // Valid-JSON-of-the-wrong-shape and unparseable-garbage now degrade the
+      // same way, which is the point: one corrupt row loses its cylinders,
+      // and the logbook still opens.
+      return [];
+    }
+  },
+});
 
 /**
  * One row per dive. SI units throughout (DESIGN.md §6): metres, bar, °C, kg, litres.
@@ -53,7 +94,7 @@ export const dives = sqliteTable('dives', {
   surge: integer('surge'),
 
   /** JSON array of Tank, first entry = main cylinder. See DESIGN.md §6. */
-  tanks: text('tanks', { mode: 'json' }).$type<Tank[]>().notNull().default(sql`'[]'`),
+  tanks: tanksJson('tanks').notNull().default(sql`'[]'`),
 
   suit: text('suit').$type<Suit>(),
   hood: integer('hood', { mode: 'boolean' }),
@@ -77,7 +118,7 @@ export const dives = sqliteTable('dives', {
 export const gearPresets = sqliteTable('gear_presets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  tanks: text('tanks', { mode: 'json' }).$type<Tank[]>().notNull().default(sql`'[]'`),
+  tanks: tanksJson('tanks').notNull().default(sql`'[]'`),
   suit: text('suit').$type<Suit>(),
   hood: integer('hood', { mode: 'boolean' }),
   gloves: integer('gloves', { mode: 'boolean' }),

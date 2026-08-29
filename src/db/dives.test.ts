@@ -118,6 +118,52 @@ describe('getDive', () => {
   });
 });
 
+describe('a corrupt tanks blob costs that row its cylinders, not the whole list', () => {
+  // JSON.parse runs inside Drizzle's row mapper, so before schema.ts decoded
+  // this column defensively, ONE bad row threw a SyntaxError out of listDives
+  // and blanked the entire dive list. Reachability is low today and stops
+  // being low when M2's pull_changes writes this column from a network payload.
+  const corruptions = [
+    ['truncated', '[{"sizeL":12'],
+    ['empty', ''],
+    ['not JSON at all', 'steel 12L'],
+    ['valid JSON, wrong shape', '{"a":1}'],
+    ['valid JSON, a string', '"[]"'],
+  ] as const;
+
+  it.each(corruptions)('survives a %s blob', async (_label, blob) => {
+    const good = await createDive(db, { date: '2026-08-16', title: 'healthy' });
+    const bad = await createDive(db, { date: '2026-08-17', title: 'corrupt' });
+    await db.run(sql`update dives set tanks = ${blob} where id = ${bad.id}`);
+
+    const listed = await listDives(db);
+    expect(listed.map((d) => d.title).sort()).toEqual(['corrupt', 'healthy']);
+    expect(listed.find((d) => d.title === 'corrupt')?.tanks).toEqual([]);
+    // The healthy row is untouched by its neighbour's corruption.
+    expect(await getDive(db, good.id)).not.toBeNull();
+    expect((await getDive(db, bad.id))?.tanks).toEqual([]);
+  });
+
+  it('cannot hold a SQL NULL in the first place — the column rejects it', async () => {
+    // Recorded because the review listed a null blob among the corruptions to
+    // survive. It is not reachable: the column is NOT NULL, so this is caught
+    // by the schema rather than by the decoder, and needs no defending.
+    const created = await createDive(db, { date: '2026-08-16' });
+    // Wrapped in an async IIFE because the better-sqlite3 driver throws
+    // synchronously rather than returning a rejected promise; this shape
+    // catches either. Drizzle wraps the driver error, so the constraint name
+    // is on `cause` — asserted specifically, so this cannot pass on some
+    // unrelated SQL failure.
+    const failure = await (async () =>
+      db.run(sql`update dives set tanks = NULL where id = ${created.id}`))().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).not.toBeNull();
+    expect(String((failure as { cause?: unknown }).cause)).toMatch(/NOT NULL constraint failed/i);
+  });
+});
+
 describe('listDives', () => {
   it('returns every dive, newest date first', async () => {
     await createDive(db, { date: '2026-08-16' });
@@ -210,6 +256,49 @@ describe('updateDive', () => {
 
   it('rejects an unknown id rather than silently doing nothing', async () => {
     await expect(updateDive(db, 'nope', { notes: 'x' })).rejects.toThrow(/not found/i);
+  });
+
+  it('refuses a patch key that names no column, instead of writing nothing and bumping updatedAt', async () => {
+    // The real damage was not the missing write. §7 is whole-row
+    // last-write-wins keyed on updated_at, so a patch that changed nothing but
+    // advanced the clock produces a row that WINS a sync conflict against a
+    // genuine edit made on another device.
+    const created = await createDive(db, { date: '2026-08-16', maxDepthM: 10 });
+    await expect(
+      updateDive(db, created.id, { maxDepth: 30 } as unknown as Parameters<typeof updateDive>[2]),
+    ).rejects.toThrow(/unknown field\(s\): maxDepth/);
+
+    const after = await getDive(db, created.id);
+    expect(after?.maxDepthM).toBe(10);
+    expect(after?.updatedAt).toBe(created.updatedAt); // the clock did NOT move
+  });
+
+  it('names every unknown key, not just the first', async () => {
+    const created = await createDive(db, { date: '2026-08-16' });
+    await expect(
+      updateDive(db, created.id, {
+        maxDepth: 30,
+        siteTitle: 'x',
+      } as unknown as Parameters<typeof updateDive>[2]),
+    ).rejects.toThrow(/maxDepth, siteTitle/);
+  });
+
+  it('refuses an empty patch rather than bumping updatedAt for nothing', async () => {
+    const created = await createDive(db, { date: '2026-08-16' });
+    await expect(updateDive(db, created.id, {})).rejects.toThrow(/empty patch/i);
+    expect((await getDive(db, created.id))?.updatedAt).toBe(created.updatedAt);
+  });
+
+  it('refuses a patch made empty by stripping forged immutable fields', async () => {
+    // Nothing left to write once id/createdAt/updatedAt/deletedAt are stripped.
+    const created = await createDive(db, { date: '2026-08-16' });
+    await expect(
+      updateDive(db, created.id, {
+        id: 'forged',
+        updatedAt: '2000-01-01T00:00:00.000Z',
+      } as unknown as Parameters<typeof updateDive>[2]),
+    ).rejects.toThrow(/empty patch/i);
+    expect((await getDive(db, created.id))?.updatedAt).toBe(created.updatedAt);
   });
 
   it('refuses to set manualOrder on one dive, naming the function that does it right', async () => {

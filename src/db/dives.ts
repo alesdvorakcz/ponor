@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder, storedManualOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
@@ -72,10 +72,13 @@ export const liveDives = isNull(dives.deletedAt);
 const now = () => new Date().toISOString();
 
 function toDive(row: typeof dives.$inferSelect): Dive {
-  // tanks is NOT NULL with a '[]' default, so this is normally a no-op; it
-  // only matters if the column ever holds valid-but-wrong-shaped JSON (a
-  // future migration bug, a hand-edited row) — Drizzle's $type<Tank[]>() is
-  // a compile-time label, not a runtime guarantee.
+  // Belt to the schema's braces. The real guard is `tanksJson`'s decoder in
+  // schema.ts, which is the only thing that can catch an *unparseable* blob:
+  // JSON.parse runs inside Drizzle's row mapper, before this function is ever
+  // called, so a try/catch here would never have run. This shape check still
+  // costs nothing and keeps the invariant stated where the type is asserted —
+  // Drizzle's $type<Tank[]>() is a compile-time label, not a runtime
+  // guarantee.
   return { ...row, tanks: Array.isArray(row.tanks) ? row.tanks : [] } as Dive;
 }
 
@@ -91,13 +94,23 @@ export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
     updatedAt: timestamp,
     deletedAt: null,
   };
-  await db.insert(dives).values(row);
   // Read back rather than returning `row` as-is: fields NewDiveInput left unset
   // are absent keys on this in-memory object (undefined), but a real column read
   // back from SQLite is null — the shape the rest of the app is typed against.
-  const created = await getDive(db, id);
-  if (created === null) throw new Error(`createDive: dive vanished immediately after insert: ${id}`);
-  return created;
+  //
+  // RETURNING rather than a trailing getDive, so that read-back is part of the
+  // same atomic statement as the INSERT rather than a second one that a
+  // concurrent write could land between. Verified byte-identical to the old
+  // read-back, including the undefined-vs-null normalisation it exists for.
+  // This also makes createDive structurally identical to updateDive and
+  // softDeleteDive, which both already use RETURNING, and avoids nesting when
+  // M2's push_changes wraps batches in transactions of its own.
+  const rows = await db.insert(dives).values(row).returning();
+  const created = rows.at(0);
+  if (created === undefined) {
+    throw new Error(`createDive: insert returned no row: ${id}`);
+  }
+  return toDive(created);
 }
 
 export async function getDive(db: Db, id: string): Promise<Dive | null> {
@@ -192,7 +205,7 @@ function withNormalisedFields<T extends object>(input: T): T {
  * for anything else to land in between the write and reading its result.
  */
 export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<Dive> {
-  const safe = withNormalisedFields(withoutImmutableFields(patch));
+  const safe = withNormalisedFields(withoutImmutableFields(patch)) as Record<string, unknown>;
   // DivePatch already makes this a compile error; this catches the cast or
   // untyped payload that got past it. A throw rather than a silent strip,
   // because a dropped hand order looks exactly like a successful reorder.
@@ -200,6 +213,30 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
     throw new Error(
       `updateDive: manualOrder is not settable on one dive — use reorderDivesForDate (${id})`,
     );
+  }
+
+  // A key that names no column used to be dropped by Drizzle's SET builder and
+  // the update ran anyway — so a patch of entirely mistyped keys did not merely
+  // fail to write, it *succeeded and bumped updated_at*. Executed:
+  // `{ maxDepth: 30 }` left max_depth_m at 10, returned a row, and advanced the
+  // clock. §7 is whole-row last-write-wins keyed on updated_at, so that row
+  // then **wins** a sync conflict against a genuine edit made on another
+  // device: the device that did nothing overwrites the device that did
+  // something. A silent non-write that also destroys a good write.
+  //
+  // TypeScript's excess-property check already catches a fresh object literal;
+  // the hole is the untyped or cast payload — an M1c form submission handed
+  // through as Record<string, unknown>, or an M2 sync payload — which is
+  // exactly what the next two milestones produce. §1's "never block a save" is
+  // about the diver's data, not about a malformed patch object: this throw is
+  // unreachable for well-formed input.
+  const columns = getTableColumns(dives);
+  const unknown = Object.keys(safe).filter((key) => !(key in columns));
+  if (unknown.length > 0) {
+    throw new Error(`updateDive: unknown field(s): ${unknown.join(', ')} (${id})`);
+  }
+  if (Object.keys(safe).length === 0) {
+    throw new Error(`updateDive: empty patch for ${id} — nothing to write`);
   }
 
   const rows = await db
