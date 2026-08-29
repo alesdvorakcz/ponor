@@ -18,8 +18,16 @@ import { type ColorScheme } from './tokens';
  * A colour that depends on more than the theme (the depth scale, which also depends on
  * the depth value) does not live here — see `depthColor` in ./depth. It still only
  * reads from tokens, so the same rule holds; it just cannot be precomputed per-scheme.
+ *
+ * Only two schemes exist, so both sheets are built once at module scope (below) and
+ * `makeStyles` just selects between them. Building fresh on every call would hand out a
+ * new object identity each render — harmless with two screens, but it would defeat
+ * `React.memo` on every styled row once a long list depends on this, since a new
+ * `styles` prop reference looks like a change even when nothing did. Callers still get
+ * to treat `makeStyles(scheme)` as a per-render call; only this module needs to know it
+ * is actually a cache lookup.
  */
-export function makeStyles(scheme: ColorScheme) {
+function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
   return StyleSheet.create({
@@ -133,6 +141,12 @@ export function makeStyles(scheme: ColorScheme) {
       color: theme.actionFg,
     },
   });
+}
+
+const sheets = { light: build('light'), dark: build('dark') };
+
+export function makeStyles(scheme: ColorScheme) {
+  return sheets[scheme];
 }
 
 export type Styles = ReturnType<typeof makeStyles>;
