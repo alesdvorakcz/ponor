@@ -4,18 +4,32 @@ import type { Dive } from './types';
 export type DiveOrdering = Pick<Dive, 'id' | 'status' | 'date' | 'timeIn' | 'createdAt'>;
 
 /**
- * Coerces an ordering field to a string safe to compare with `<`. A value that
- * isn't actually a string — missing entirely, or the wrong type — becomes '',
- * sorting lowest rather than corrupting the comparison: relational `<` between
- * a non-string and a string evaluates false in BOTH directions (each side
- * converts toward NaN), which makes a `x !== y ? x < y ? -1 : 1` tiebreak
- * return the same sign for both (a, b) and (b, a) — an asymmetric comparator
- * whose result depends on which order the sort happens to compare them in,
- * not on the data. Real strings pass through unchanged, so this changes
- * nothing for well-formed input.
+ * Coerces an ordering field to a string safe to compare with `<`, such that
+ * two *different* values never collapse onto the same comparable
+ * representation. An earlier version fell back to `''` for anything not
+ * already a string, which gets this backwards: two distinct non-string
+ * values both became `''`, so relational `<` was false in both directions
+ * (each side converts toward NaN), which made a `x !== y ? x < y ? -1 : 1`
+ * tiebreak return the same sign for both (a, b) and (b, a) — not a valid
+ * comparator (it isn't antisymmetric), and the sort result depended on which
+ * order values happened to get compared in, not on the data. That's safe
+ * only when a strictly lower tier still breaks the tie — it isn't safe at
+ * the `id` tier, the last one, where two distinct non-string ids colliding
+ * on `''` is the whole bug again. `String(value)` keeps distinct values
+ * distinct at every tier instead. Real strings pass through unchanged, so
+ * this changes nothing for well-formed input.
+ *
+ * Symbols get their own branch. `String(aSymbol)` is actually safe — verified
+ * by execution, not assumed: it's a documented special case of the `String`
+ * function, unlike implicit coercion (a template literal or `aSymbol + ''`),
+ * which really does throw — but nothing here should depend on which
+ * coercion form is used, so the symbol case is made explicit rather than
+ * resting on that carve-out.
  */
 function toComparable(value: unknown): string {
-  return typeof value === 'string' ? value : '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'symbol') return value.toString();
+  return String(value);
 }
 
 /**

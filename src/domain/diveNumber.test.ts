@@ -141,6 +141,54 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
     expect(forward2.get('d')).toBe(backward2.get('d'));
   });
 
+  it('numbers a dive with a non-string timeIn the same way regardless of input order', () => {
+    // Mirrors the missing-createdAt/date test above, for the timeIn tier's
+    // own toComparable call: without it, comparing a number against a
+    // string via `<` converts both operands toward Number, the same
+    // false-in-both-directions failure that broke createdAt and date.
+    const numericTimeIn = {
+      id: 'p', status: 'logged', date: '2026-08-16', timeIn: 99,
+      createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const realTime = dive({ id: 'q', timeIn: '09:15' });
+    const forward = assignDiveNumbers([numericTimeIn, realTime], 0);
+    const backward = assignDiveNumbers([realTime, numericTimeIn], 0);
+    expect(forward.get('p')).toBe(backward.get('p'));
+    expect(forward.get('q')).toBe(backward.get('q'));
+  });
+
+  it('numbers dives with distinct non-string ids the same way regardless of input order', () => {
+    // The regression this fixes: at HEAD, [{id:1},{id:2}] tied on every
+    // other field produced 2 different numberings across its 2
+    // permutations, because both ids collapsed to the same '' fallback —
+    // id is the last tier, so nothing below it could break the tie.
+    // Numbers specifically, because the pre-hardening code (`aId < bId` on
+    // the raw ids) got this exact case right via numeric `<`, making a
+    // regression here easy to miss.
+    const one = {
+      id: 1, status: 'logged', date: '2026-08-16', timeIn: null,
+      createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const two = { ...one, id: 2 } as unknown as DiveOrdering;
+    const forward = assignDiveNumbers([one, two], 0);
+    const backward = assignDiveNumbers([two, one], 0);
+    expect(forward.get(one.id)).toBe(backward.get(one.id));
+    expect(forward.get(two.id)).toBe(backward.get(two.id));
+  });
+
+  it('does not throw for a Symbol id, and orders it deterministically regardless of input order', () => {
+    const symA = {
+      id: Symbol('a'), status: 'logged', date: '2026-08-16', timeIn: null,
+      createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering;
+    const symB = { ...symA, id: Symbol('b') } as unknown as DiveOrdering;
+    expect(() => assignDiveNumbers([symA, symB], 0)).not.toThrow();
+    const forward = assignDiveNumbers([symA, symB], 0);
+    const backward = assignDiveNumbers([symB, symA], 0);
+    expect(forward.get(symA.id)).toBe(backward.get(symA.id));
+    expect(forward.get(symB.id)).toBe(backward.get(symB.id));
+  });
+
   it('numbers a large list identically no matter how the input is ordered', () => {
     const n = 500;
     const dives: DiveOrdering[] = [];
