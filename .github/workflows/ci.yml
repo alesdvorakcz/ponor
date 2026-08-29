@@ -27,8 +27,3 @@ jobs:
 
       - name: Test
         run: npm test -- --ci
-
-      - name: global.css is in sync with the tokens
-        run: |
-          npm run theme:build
-          git diff --exit-code global.css

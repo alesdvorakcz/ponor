@@ -5,8 +5,8 @@
   "compilerOptions": {
     "strict": true,
     "allowJs": true,
-    // [] — React/Expo/NativeWind types arrive via imports and the triple-slash references
-    // in expo-env.d.ts / nativewind-env.d.ts, not ambient @types, so none need listing here.
+    // [] — React/Expo types arrive via imports and the triple-slash reference in
+    // expo-env.d.ts, not ambient @types, so none need listing here.
     "types": [],
     "paths": {
       "@/*": [
@@ -21,8 +21,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "expo-env.d.ts",
-    "nativewind-env.d.ts"
+    "expo-env.d.ts"
   ],
   // Setting "exclude" here replaces (not merges with) expo/tsconfig.base's own exclude,
   // so its entries are repeated below; test files are added since they live in tsconfig.test.json.
