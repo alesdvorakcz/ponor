@@ -67,6 +67,18 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres([tank({ sizeL: -5 })])).toBeNull();
   });
 
+  it('skips a cylinder with an absent size rather than voiding the total', () => {
+    // A single-tank case can't tell "skipped, then nothing left to count"
+    // apart from "voided" — both read as null. This needs a second, good
+    // cylinder so the two mechanisms show visibly different totals: if the
+    // `!isNumber(tank.sizeL)` absent-check were ever deleted, sizeL: null
+    // would fall through to the contradictory branch instead (null > 0 is
+    // false) and this would come back null, not 1800.
+    const good = tank();
+    const absentSize = tank({ sizeL: null });
+    expect(gasUsedLitres([absentSize, good])).toBe(1800);
+  });
+
   it('voids the whole total for a cylinder with an impossible size, just like contradictory pressure', () => {
     // sizeL <= 0 is data the diver did record, not data that's missing —
     // dropping just this cylinder would understate the total the same way a
@@ -147,6 +159,13 @@ describe('rmv', () => {
     expect(rmv({ tanks: [tank({ sizeL: null })], avgDepthM: 20, durationMin: 45 })).toBeNull();
   });
 
+  it('is null for a negative average depth, not a negative RMV', () => {
+    // avgDepthM < 0 makes ata < 1; dividing surface-equivalent litres by
+    // less than one whole atmosphere here would produce a negative RMV
+    // instead of a larger positive one.
+    expect(rmv({ tanks: [tank()], avgDepthM: -15, durationMin: 45 })).toBeNull();
+  });
+
   it('is null for a zero-length dive rather than dividing by zero', () => {
     expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 0 })).toBeNull();
   });
@@ -207,6 +226,12 @@ describe('mod', () => {
     expect(mod(100, 0.9)).toBeNull();
   });
 
+  it('is null for a non-finite ppO2Max, not an infinite depth', () => {
+    // depth >= 0 alone doesn't catch this: Infinity >= 0 is true, so without
+    // a separate finiteness check this would return Infinity, not null.
+    expect(mod(21, Infinity)).toBeNull();
+  });
+
   it('is zero, not null, when the ceiling exactly matches the mix at the surface', () => {
     expect(mod(100, 1.0)).toBe(0);
   });
@@ -232,6 +257,12 @@ describe('timeOut', () => {
 
   it('is null for a negative duration rather than surfacing before entry', () => {
     expect(timeOut('08:12', -10)).toBeNull();
+  });
+
+  it('is null for a non-numeric duration, not the literal string "NaN:NaN"', () => {
+    // durationMin < 0 alone doesn't catch this: NaN < 0 is false, so without
+    // the isNumber guard this reaches toClock and stringifies NaN directly.
+    expect(timeOut('08:12', NaN)).toBeNull();
   });
 
   it('rounds a fractional duration to a real clock time', () => {
@@ -276,6 +307,27 @@ describe('surfaceIntervalMin', () => {
 
   it('is null when the previous dive has no duration, rather than assuming it was instant', () => {
     const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: null };
+    const next = { date: '2026-08-16', timeIn: '10:38' };
+    expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
+
+  it('is null for a malformed time on either side, not a number computed from a zeroed-out start', () => {
+    // toMinutes returns null for a non-HH:MM string. Without the guard that
+    // catches that null, it gets used as if it were 0 in the arithmetic
+    // below (null + n coerces to n in JS) instead of stopping the function.
+    const good = { date: '2026-08-16', timeIn: '10:38' };
+    const malformedPrevious = { date: '2026-08-16', timeIn: '8:12', durationMin: 44 }; // missing leading zero
+    expect(surfaceIntervalMin(malformedPrevious, good)).toBeNull();
+
+    const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
+    const malformedNext = { date: '2026-08-16', timeIn: '8:12' }; // same typo, other side
+    expect(surfaceIntervalMin(previous, malformedNext)).toBeNull();
+  });
+
+  it('is null for a negative previous duration, not an overstated interval', () => {
+    // isNumber(-1000) is true, so the isNumber half of the guard alone
+    // doesn't catch this — it takes the explicit < 0 check.
+    const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: -1000 };
     const next = { date: '2026-08-16', timeIn: '10:38' };
     expect(surfaceIntervalMin(previous, next)).toBeNull();
   });
