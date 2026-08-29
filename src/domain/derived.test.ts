@@ -67,24 +67,34 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres([tank({ sizeL: -5 })])).toBeNull();
   });
 
-  it('skips a cylinder with an impossible count instead of defaulting or scaling', () => {
+  it('voids the whole total for a cylinder with an impossible size, just like contradictory pressure', () => {
+    // sizeL <= 0 is data the diver did record, not data that's missing —
+    // dropping just this cylinder would understate the total the same way a
+    // transposed pressure would, so it voids the whole figure instead.
+    const good = tank();
+    const badSize = tank({ startBar: 200, endBar: 100, sizeL: 0 });
+    expect(gasUsedLitres([good, badSize])).toBeNull();
+  });
+
+  it('voids the whole total for an impossible count instead of defaulting or scaling', () => {
     // count: 0 and count: -3 used to silently fall back to 1 (treating a
     // recorded "zero cylinders" as one), and count: 2.5 scaled the figure by
-    // a fractional cylinder. All three now void just that cylinder, the same
-    // way an invalid sizeL does — count: null is the only thing that still
-    // means "one cylinder".
+    // a fractional cylinder. All three are contradictory, the same way an
+    // invalid sizeL is — count: null is the only thing that still means
+    // "one cylinder".
     expect(gasUsedLitres([tank({ count: 0 })])).toBeNull();
     expect(gasUsedLitres([tank({ count: -3 })])).toBeNull();
     expect(gasUsedLitres([tank({ count: 2.5 })])).toBeNull();
   });
 
-  it('an impossible count skips only that cylinder, unlike contradictory pressure', () => {
-    // This is the deliberate difference from the pressure case above: a bad
-    // count is excluded like an invalid size, not voided like a
-    // contradiction, so the other cylinder still counts.
+  it('voids the whole total for an impossible count, just like contradictory pressure', () => {
+    // Count used to be the deliberate exception (skip just that cylinder,
+    // keep the rest) — it no longer is. A bad count voids the whole total
+    // exactly like a bad size or a bad pressure does, so the good cylinder's
+    // contribution disappears too.
     const good = tank();
     const badCount = tank({ sizeL: 7, startBar: 200, endBar: 100, count: 0 });
-    expect(gasUsedLitres([good, badCount])).toBe(1800);
+    expect(gasUsedLitres([good, badCount])).toBeNull();
   });
 
   it('voids the whole total for a cylinder with contradictory pressures, rather than skipping it', () => {

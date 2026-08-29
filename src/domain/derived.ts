@@ -10,15 +10,22 @@ function isNumber(v: number | null | undefined): v is number {
 }
 
 /**
- * A cylinder's pressure data falls into one of three buckets:
- *  - 'ok': both pressures are present, physically real, and end <= start.
- *  - 'absent': a pressure was never recorded — the diver simply didn't log it.
- *  - 'contradictory': pressures were recorded but describe something physically
- *    impossible (negative, or the cylinder ending fuller than it started) — a
- *    transcription slip, not a missing measurement.
- * The distinction matters to gasUsedLitres: absent data for one cylinder
- * shouldn't stop the others from being counted, but contradictory data must
- * not be silently dropped as if it were merely unrecorded.
+ * This is the pressure half of a two-way policy gasUsedLitres applies to
+ * every per-cylinder field it reads (pressures here; size and count below):
+ *  - 'absent': the value was never recorded — null/undefined, or not a real
+ *    number at all (NaN, Infinity, wrong type). Nothing a diver could have
+ *    deliberately entered. That cylinder is skipped; the rest still count.
+ *  - 'contradictory': the value is a real, finite number, but not one that
+ *    describes a physically possible cylinder (a negative pressure, the
+ *    cylinder ending fuller than it started). This is data the diver did
+ *    record, so silently dropping just that cylinder would understate gas
+ *    used — the unsafe direction for gas planning — so it voids the whole
+ *    total instead of just that cylinder.
+ * A field this file doesn't validate yet should be classified the same way
+ * when it's added: absent if it's null/undefined or not a real number,
+ * contradictory if it's a real number that can't describe an actual
+ * cylinder. There is no third bucket, and no field is exempt from either
+ * check — see gasUsedLitres for how size and count apply this identically.
  */
 type TankGas = { kind: 'ok'; usedBar: number } | { kind: 'absent' } | { kind: 'contradictory' };
 
@@ -41,13 +48,19 @@ export function usedBar(tank: Tank): number | null {
 /**
  * Free gas consumed across every cylinder, in litres at surface pressure.
  *
- * A cylinder with absent pressure data (never recorded) is skipped rather
- * than voiding the dive — a diver who recorded the main cylinder but not the
- * stage should still get a figure. A cylinder with contradictory pressure
- * data (recorded, but physically impossible — e.g. transposed start/end) is
- * different: silently discarding a cylinder the diver did record would
- * understate the total, which is the unsafe direction for gas planning, so
- * that voids the whole figure instead of just that cylinder.
+ * Pressure, size, and count all follow the same absent/contradictory policy
+ * (see TankGas above): a field that was never recorded — or isn't a real
+ * number at all — skips just that cylinder, so a diver who logged the main
+ * cylinder but not the stage still gets a figure. A field that was recorded
+ * with a value that can't describe a real cylinder (negative or transposed
+ * pressure, a zero-or-negative size, a zero/negative/fractional count)
+ * voids the whole total instead. Silently dropping a cylinder the diver did
+ * record would understate gas used — the unsafe direction for gas planning:
+ * a diver who sees no figure at all goes back and fixes the typo; one who
+ * sees a plausible, quietly-wrong figure does not.
+ *
+ * Count is the one field where "absent" doesn't skip the cylinder — a
+ * never-recorded count still means "one cylinder", the brief-tested default.
  */
 export function gasUsedLitres(tanks: Tank[]): number | null {
   if (!Array.isArray(tanks)) return null;
@@ -57,15 +70,21 @@ export function gasUsedLitres(tanks: Tank[]): number | null {
     const gas = tankGas(tank);
     if (gas.kind === 'contradictory') return null;
     if (gas.kind === 'absent') continue;
-    // A cylinder can't hold zero or negative litres — treat that entry the same
-    // way as one whose size was never recorded, rather than as valid data.
-    if (!isNumber(tank.sizeL) || tank.sizeL <= 0) continue;
-    // Same policy for count: it can't be zero, negative, or a fraction of a
-    // cylinder. A never-recorded count still means "one cylinder" (the
-    // brief-tested default) — only a recorded-but-impossible value skips the
-    // entry, the same way an invalid size does.
-    const count = tank.count === null || tank.count === undefined ? 1 : tank.count;
-    if (!isNumber(count) || count <= 0 || !Number.isInteger(count)) continue;
+
+    // Size: absent (never recorded, or not a real number) skips this
+    // cylinder; a recorded zero-or-negative size is contradictory and voids
+    // the whole total, exactly like a bad pressure does above.
+    if (!isNumber(tank.sizeL)) continue;
+    if (tank.sizeL <= 0) return null;
+
+    // Count: absent still means "one cylinder" rather than skipping the
+    // cylinder — the one field where "absent" doesn't exclude the entry.
+    // A recorded value must be a positive whole number, or it's
+    // contradictory like everything else here, and voids the whole total.
+    const rawCount = tank.count;
+    if (isNumber(rawCount) && (rawCount <= 0 || !Number.isInteger(rawCount))) return null;
+    const count = isNumber(rawCount) ? rawCount : 1;
+
     total += gas.usedBar * tank.sizeL * count;
     counted += 1;
   }
