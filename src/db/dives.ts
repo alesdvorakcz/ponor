@@ -125,7 +125,12 @@ export async function getDive(db: Db, id: string): Promise<Dive | null> {
     .from(dives)
     .where(and(eq(dives.id, id), liveDives))
     .limit(1);
-  return rows.length > 0 ? toDive(rows[0]) : null;
+  // `rows.at(0)` plus an explicit undefined check rather than a length check
+  // and `rows[0]`: TypeScript cannot narrow an element type from `.length`, so
+  // the length form was safe but unprovable, and provable is what
+  // noUncheckedIndexedAccess is on for.
+  const row = rows.at(0);
+  return row === undefined ? null : toDive(row);
 }
 
 /**
@@ -250,8 +255,9 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
     .set({ ...safe, updatedAt: now() })
     .where(and(eq(dives.id, id), liveDives))
     .returning();
-  if (rows.length === 0) throw new Error(`updateDive: dive not found: ${id}`);
-  return toDive(rows[0]);
+  const row = rows.at(0);
+  if (row === undefined) throw new Error(`updateDive: dive not found: ${id}`);
+  return toDive(row);
 }
 
 /**

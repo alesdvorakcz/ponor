@@ -1,4 +1,33 @@
 import { depthBand, depthColor, depthColorOrNull } from './depth';
+import { depthBandLimits, depthScale } from './tokens';
+
+describe('the band/colour pairing depthColor depends on', () => {
+  // depth.ts proves at compile time that the scale is one longer than the
+  // limits, but it proves it against tokens.d.ts — a hand-written declaration
+  // for a plain-JS module. Only a runtime check can catch tokens.js drifting
+  // from its own declaration, and the failure mode is silent: React Native
+  // renders `color: undefined` as the default text colour without throwing, so
+  // a short palette would break DESIGN.md §0.1 with no crash anywhere.
+  it('gives every band exactly one colour, in both schemes', () => {
+    expect(depthBandLimits).toHaveLength(5);
+    for (const scheme of ['dark', 'light'] as const) {
+      expect(depthScale[scheme]).toHaveLength(depthBandLimits.length + 1);
+    }
+  });
+
+  it('returns a real colour for every band, never undefined', () => {
+    // One depth per band, taken from the limits themselves so this follows a
+    // palette change rather than hard-coding today's boundaries.
+    const [, , , , deepestLimit] = depthBandLimits;
+    const perBand = [...depthBandLimits, deepestLimit + 1];
+    for (const scheme of ['dark', 'light'] as const) {
+      const colours = perBand.map((metres) => depthColor(metres, scheme));
+      expect(colours).toHaveLength(6);
+      expect(colours.every((colour) => /^#[0-9A-Fa-f]{6}$/.test(colour))).toBe(true);
+      expect(new Set(colours).size).toBe(6); // and each band is distinguishable
+    }
+  });
+});
 
 describe('depthBand', () => {
   it('puts a surface dive in band 1', () => {

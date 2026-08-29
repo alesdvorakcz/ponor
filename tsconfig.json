@@ -4,6 +4,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // strict alone still lets `array[i]` claim a non-undefined element, which is
+    // exactly the read M1b's dive list and drag-to-reorder are built out of
+    // (items[i - 1], items[i + 1], splice-and-reinsert). An index-0 access that
+    // threw already got through this branch once and was found by executing the
+    // code, not by the compiler. Turned on before M1b writes that code rather
+    // than after. No suppression comments: if a read is safe, make the safety
+    // visible in the types or narrow it explicitly.
+    "noUncheckedIndexedAccess": true,
     "allowJs": true,
     // [] — React/Expo types arrive via imports and the triple-slash reference in
     // expo-env.d.ts, not ambient @types, so none need listing here.

@@ -352,9 +352,10 @@ describe('updateDive', () => {
 
     // Not just rejected — the tombstoned row must be byte-for-byte
     // untouched by the failed update, not merely "still tombstoned".
-    const raw = (await db.select().from(dives).where(eq(dives.id, created.id)))[0];
-    expect(raw.notes).toBe('original');
-    expect(raw.siteName).toBe('Right Reef');
+    const raw = (await db.select().from(dives).where(eq(dives.id, created.id))).at(0);
+    expect(raw).toBeDefined();
+    expect(raw?.notes).toBe('original');
+    expect(raw?.siteName).toBe('Right Reef');
   });
 
   describe('racing a delete, updateDive never misreports what landed', () => {
