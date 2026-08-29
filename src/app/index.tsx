@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 
+import { createDive, listDives } from '../db/dives';
+import { db } from '../db/client';
 import { depthBand, depthColor } from '../theme/depth';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -9,6 +12,10 @@ const SAMPLE_DEPTHS = [4.5, 9.2, 14.8, 24.6, 32.4, 44.0];
 export default function Index() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
+
+  const [count, setCount] = useState<number | null>(null);
+  const refresh = () => listDives(db).then((d) => setCount(d.length));
+  useEffect(() => { refresh(); }, []);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -41,8 +48,13 @@ export default function Index() {
         <Text style={styles.typeMonoSemibold}>IBM Plex Mono SemiBold 26 °C</Text>
       </View>
 
-      <Pressable style={styles.action}>
-        <Text style={styles.actionLabel}>Log a dive</Text>
+      <Pressable
+        style={styles.action}
+        onPress={() => createDive(db, { date: new Date().toISOString().slice(0, 10) }).then(refresh)}
+      >
+        <Text style={styles.actionLabel}>
+          {count === null ? 'Log a dive' : `Log a dive · ${count} saved`}
+        </Text>
       </Pressable>
     </ScrollView>
   );
