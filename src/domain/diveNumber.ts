@@ -60,6 +60,10 @@ function toComparable(value: unknown): string {
  *    nullable), but a corrupt row can hand back something else. See
  *    `toComparable` for why that specifically threatens determinism, not just
  *    a wrong-but-stable order.
+ *  - `DiveOrdering` carries no `deletedAt`. A soft-deleted dive that reaches
+ *    this function is numbered as if it were live and shifts every dive
+ *    after it — filtering deleted rows out is the caller's job, before this
+ *    function ever sees them, not something it can infer on its own.
  */
 export function assignDiveNumbers(
   dives: DiveOrdering[],
