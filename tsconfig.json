@@ -25,6 +25,7 @@
   ],
   // Setting "exclude" here replaces (not merges with) expo/tsconfig.base's own exclude,
   // so its entries are repeated below; test files are added since they live in tsconfig.test.json.
+  // testDb.ts is excluded too: it imports better-sqlite3, which has no place in the app program.
   "exclude": [
     "node_modules",
     "babel.config.js",
@@ -32,6 +33,7 @@
     "jest.config.js",
     "android",
     "ios",
+    "src/db/testDb.ts",
     "**/*.test.ts",
     "**/*.test.tsx"
   ]
