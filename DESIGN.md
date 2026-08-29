@@ -50,6 +50,8 @@ Both themes ship from M0. The app follows the OS and the choice is overridable i
 
 A dive profile under a wavy surface: a steep descent, bottom time, then a staged ascent that ends in open water rather than climbing back to the waterline. Both of those are load-bearing, and it took four rounds of rendering to find out why. A profile that closes at the top against a straight surface line reads unmistakably as a **bucket** — two matching diagonal walls over a flat base. Ending the ascent in open space removes the second wall; making the surface a wave says "water" instantly. Stroked in the depth gradient, flat single-colour below ~32 px, and the same shape the app will draw for an imported dive — so the icon is a sample of the product rather than a badge stuck on it.
 
+The gradient stops are read from `depthScale.dark` at build time, so the mark cannot drift from the palette. The wave itself is stroked `#5A6C78` — deliberately **not** a theme token. It is a brand-asset colour belonging to the mark alone, chosen to sit quietly behind the profile on the icon's dark ground; it is never used in the interface, where `fg-muted` serves that role.
+
 ### 0.4 Profiles are drawn only from real data
 
 A dive row shows the **coloured depth number and no graphic**. When a dive has a real sample series — post-v1, from a UDDF / Subsurface / FIT import — that same row grows a profile sparkline and the dive detail gains a profile chart, automatically and without a redesign. The app never draws a schematic curve interpolated from max depth, average depth and duration: an invented shape on a dive log reads as recorded data, and it isn't.
