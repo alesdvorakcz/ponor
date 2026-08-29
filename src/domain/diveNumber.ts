@@ -188,8 +188,17 @@ export function compareDiveOrder(a: DiveOrdering, b: DiveOrdering): number {
   const bCreated = toComparable(b.createdAt);
   if (aCreated !== bCreated) return aCreated < bCreated ? -1 : 1;
 
+  // Returning 0 for a genuine tie is not cosmetic. Without it this comparator
+  // is not a valid one: cmp(x, x) was 1, so it violated reflexivity on all 240
+  // rows of a swept field grid and antisymmetry on 1008 pairs. Array.sort with
+  // an inconsistent comparator is implementation-defined, and the app runs on
+  // Hermes, not the V8 the tests run on — so "it happens to be stable today"
+  // is not evidence that transfers. Tied pairs really do reach the sort:
+  // assignDiveNumbers deliberately tolerates repeated ids (overlapping
+  // paginated pages, a pre-dedupe import) and dedupes *after* sorting.
   const aId = toComparable(a.id);
   const bId = toComparable(b.id);
+  if (aId === bId) return 0;
   return aId < bId ? -1 : 1;
 }
 

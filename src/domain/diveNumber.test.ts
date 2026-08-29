@@ -1,4 +1,4 @@
-import { assignDiveNumbers, type DiveOrdering } from './diveNumber';
+import { assignDiveNumbers, compareDiveOrder, type DiveOrdering } from './diveNumber';
 
 const dive = (over: Partial<DiveOrdering> & { id: string }): DiveOrdering => ({
   status: 'logged', date: '2026-08-16', timeIn: null, manualOrder: null,
@@ -137,6 +137,18 @@ describe('assignDiveNumbers', () => {
 
   it('returns an empty map for no dives', () => {
     expect(assignDiveNumbers([], 10).size).toBe(0);
+  });
+});
+
+describe('compareDiveOrder', () => {
+  it('returns 0 for a genuine tie, so it is a valid comparator at all', () => {
+    // At HEAD the last tier was `return aId < bId ? -1 : 1`, so equal ids fell
+    // into the `1` branch: cmp(x, x) was 1. Array.sort with an inconsistent
+    // comparator is implementation-defined, and the app runs on Hermes rather
+    // than the V8 these tests run on.
+    const x = dive({ id: 'x', timeIn: '10:00', manualOrder: 3 });
+    expect(compareDiveOrder(x, x)).toBe(0);
+    expect(compareDiveOrder(x, { ...x })).toBe(0);
   });
 });
 

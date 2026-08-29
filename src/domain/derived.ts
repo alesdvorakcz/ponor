@@ -3,6 +3,8 @@ import type { Dive, Tank } from './types';
 
 /** Metres of sea water per bar of ambient pressure. */
 const METRES_PER_BAR = 10;
+/** The clock's own period, and the whole legitimate domain of a dive duration. */
+const MINUTES_PER_DAY = 1440;
 /** The conservative oxygen partial-pressure ceiling most agencies teach. */
 const DEFAULT_PPO2_MAX = 1.4;
 
@@ -193,23 +195,43 @@ export function mod(
   return depth >= 0 ? depth : null;
 }
 
-function toClock(minutes: number): string {
-  // durationMin is a diver-entered number and may carry a fraction (44.5 min);
-  // round to the nearest whole minute on entry so the result is always a real
-  // HH:MM and never "08:56.5".
-  const rounded = Math.round(minutes);
-  const wrapped = ((rounded % 1440) + 1440) % 1440;
+function toClock(wholeMinutes: number): string {
+  const wrapped = ((wholeMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const h = Math.floor(wrapped / 60);
   const m = wrapped % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-/** Wall-clock time the diver surfaced, wrapping past midnight. */
+/**
+ * Wall-clock time the diver surfaced, wrapping past midnight.
+ *
+ * The wrap in `toClock` is deliberate and its legitimate domain is exactly one
+ * day: a dive entered at 23:30 running 60 minutes surfaces at 00:30. Beyond a
+ * day the same wrap silently folds a typo into a plausible clock time —
+ * `timeOut('09:00', 2000)` used to read "18:20" and `timeOut('09:00', 4500)`
+ * "12:00", while `timeOut('00:00', Number.MAX_VALUE)` read "02:08". A duration
+ * of a day or more cannot describe one dive, so it gets the same refusal every
+ * other function in this file gives data it cannot stand behind. This was the
+ * only derived value that emitted a plausible wrong number instead of none,
+ * and the file's own argument against that is a few lines up: a diver who sees
+ * no figure goes back and fixes the typo; one who sees a plausible,
+ * quietly-wrong figure does not.
+ *
+ * §1's "never block a save" is not in tension — this returns null from a
+ * *derived* value, it does not reject anything the diver entered.
+ */
 export function timeOut(timeIn: string | null, durationMin: number | null): string | null {
   if (timeIn === null || !isNumber(durationMin) || durationMin < 0) return null;
+  // durationMin is diver-entered and may carry a fraction (44.5 min). Round to
+  // whole minutes here rather than inside toClock, so the bound below is
+  // checked against the same value the clock arithmetic actually uses —
+  // otherwise 1439.6 slips past a raw `< 1440` test and then rounds up into a
+  // full day's wrap, which is the exact failure being closed.
+  const minutes = Math.round(durationMin);
+  if (minutes >= MINUTES_PER_DAY) return null;
   const start = timeOfDayToMinutes(timeIn);
   if (start === null) return null;
-  return toClock(start + durationMin);
+  return toClock(start + minutes);
 }
 
 /**

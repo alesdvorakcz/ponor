@@ -300,6 +300,24 @@ describe('timeOut', () => {
     expect(timeOut('08:12', 44.5)).toBe('08:57');
   });
 
+  it('is null for a duration that cannot describe one dive, not a plausible wrong clock', () => {
+    // The wrap's legitimate domain is exactly one day. Above it, the same
+    // modulo that correctly turns 23:30 + 60 min into 00:20 folds a typo into
+    // a time that looks entirely real. These are the values it used to return.
+    expect(timeOut('09:00', 1439)).toBe('08:59'); // still wraps: a real, if long, dive
+    expect(timeOut('09:00', 1440)).toBeNull(); // was '09:00' — "surfaced when you entered"
+    expect(timeOut('09:00', 2000)).toBeNull(); // was '18:20'
+    expect(timeOut('09:00', 4500)).toBeNull(); // was '12:00'
+    expect(timeOut('00:00', Number.MAX_VALUE)).toBeNull(); // was '02:08'
+  });
+
+  it('checks the bound against the rounded duration, closing the last half-minute of it', () => {
+    // 1439.6 is below 1440 but rounds to it, so a bound checked before
+    // rounding would let it through and wrap a full day to '09:00'.
+    expect(timeOut('09:00', 1439.6)).toBeNull();
+    expect(timeOut('09:00', 1439.4)).toBe('08:59');
+  });
+
   it('is null for a malformed time string, but not for a merely unpadded one', () => {
     // Changed deliberately in the datetime.ts unification: '8:12' names
     // exactly one time and now reads as 08:12 here, the same way the dive
@@ -375,6 +393,38 @@ describe('surfaceIntervalMin', () => {
     const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: -1000 };
     const next = { date: '2026-08-16', timeIn: '10:38' };
     expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
+
+  it('is null for an impossible calendar date on EITHER side, not an interval overstated by a day', () => {
+    // Date.parse range-checks the month but rolls the day, so '2026-02-30'
+    // parses as 2026-03-02. On the NEXT dive that roll silently added 24 h to
+    // the interval and returned a completely plausible number — 2895 where
+    // the truth is 1455. Overstating is the direction this function's own
+    // docblock names as unsafe next to a diver's nitrogen-loading judgement.
+    const previous = { date: '2026-02-28', timeIn: '09:00', durationMin: 45 };
+    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '10:00' })).toBe(1455);
+    expect(surfaceIntervalMin(previous, { date: '2026-02-30', timeIn: '10:00' })).toBeNull();
+
+    // The mirror case was already caught, but only by accident: the previous
+    // dive rolling *forward* made the interval negative, and the `>= 0` guard
+    // below picked it up. Asserted so it stays closed on purpose.
+    expect(
+      surfaceIntervalMin(
+        { date: '2026-02-30', timeIn: '09:00', durationMin: 45 },
+        { date: '2026-03-01', timeIn: '10:00' },
+      ),
+    ).toBeNull();
+
+    // 2026 is not a leap year, so this one is impossible too.
+    expect(surfaceIntervalMin(previous, { date: '2026-02-29', timeIn: '10:00' })).toBeNull();
+  });
+
+  it('reads an unpadded date, which used to be refused outright', () => {
+    // Date.parse('2026-2-28T00:00:00Z') is NaN, so this returned null while
+    // the dive list happily numbered the same row — the same value, two
+    // verdicts. One parser now, so one verdict.
+    const previous = { date: '2026-2-28', timeIn: '09:00', durationMin: 45 };
+    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '10:00' })).toBe(1455);
   });
 
   it('is null, not a throw, when either dive is missing entirely', () => {
