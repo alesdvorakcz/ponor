@@ -48,7 +48,11 @@ export function rmv(
 ): number | null {
   if (!dive) return null;
   const litres = gasUsedLitres(dive.tanks);
-  if (litres === null) return null;
+  // A breathing diver cannot have an RMV of zero. gasUsedLitres legitimately
+  // returns 0 for a stage bottle that was carried but never opened, but that
+  // is not a real RMV — and understating RMV is the unsafe direction for gas
+  // planning, so this is null, not 0.
+  if (litres === null || litres <= 0) return null;
   if (!isNumber(dive.avgDepthM) || dive.avgDepthM < 0) return null;
   if (!isNumber(dive.durationMin) || dive.durationMin <= 0) return null;
   const ata = dive.avgDepthM / METRES_PER_BAR + 1;

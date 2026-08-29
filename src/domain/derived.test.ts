@@ -55,7 +55,9 @@ describe('rmv', () => {
     expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 45 })).toBeCloseTo(13.33, 2);
   });
 
-  it('gives a higher figure for the same gas used deeper', () => {
+  it('gives a lower figure for the same gas used deeper', () => {
+    // Deeper means dividing by a larger ambient pressure, so surface-equivalent
+    // RMV goes down, not up — this is the only test guarding that term.
     const shallow = rmv({ tanks: [tank()], avgDepthM: 10, durationMin: 45 })!;
     const deep = rmv({ tanks: [tank()], avgDepthM: 30, durationMin: 45 })!;
     expect(shallow).toBeGreaterThan(deep);
@@ -69,6 +71,13 @@ describe('rmv', () => {
 
   it('is null for a zero-length dive rather than dividing by zero', () => {
     expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 0 })).toBeNull();
+  });
+
+  it('is null, not zero, for a dive where no gas was used', () => {
+    // A cylinder with startBar === endBar gives gasUsedLitres a legitimate 0,
+    // but a breathing diver cannot have an RMV of zero for a 45-minute dive.
+    const untouched = tank({ startBar: 200, endBar: 200 });
+    expect(rmv({ tanks: [untouched], avgDepthM: 20, durationMin: 45 })).toBeNull();
   });
 
   it('is null, not a throw, when the dive itself is missing', () => {
