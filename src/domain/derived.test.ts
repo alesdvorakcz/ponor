@@ -1,0 +1,143 @@
+import type { Tank } from './types';
+import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from './derived';
+
+const tank = (over: Partial<Tank> = {}): Tank => ({
+  material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+  o2Pct: 21, hePct: null, startBar: 200, endBar: 50, ...over,
+});
+
+describe('usedBar', () => {
+  it('is start minus end', () => {
+    expect(usedBar(tank())).toBe(150);
+  });
+
+  it('is null when either pressure is missing', () => {
+    expect(usedBar(tank({ startBar: null }))).toBeNull();
+    expect(usedBar(tank({ endBar: null }))).toBeNull();
+  });
+
+  it('is null when the cylinder ends fuller than it started', () => {
+    // A transcription slip, not a real dive. Better no number than a negative one.
+    expect(usedBar(tank({ startBar: 50, endBar: 200 }))).toBeNull();
+  });
+});
+
+describe('gasUsedLitres', () => {
+  it('multiplies used pressure by water capacity', () => {
+    expect(gasUsedLitres([tank()])).toBe(1800); // 150 bar x 12 l
+  });
+
+  it('counts both cylinders of a twinset', () => {
+    expect(gasUsedLitres([tank({ count: 2 })])).toBe(3600);
+  });
+
+  it('sums across independent cylinders', () => {
+    expect(gasUsedLitres([tank(), tank({ sizeL: 7, startBar: 200, endBar: 100 })])).toBe(2500);
+  });
+
+  it('treats a missing count as one cylinder', () => {
+    expect(gasUsedLitres([tank({ count: null })])).toBe(1800);
+  });
+
+  it('ignores cylinders it cannot compute, rather than discarding the dive', () => {
+    expect(gasUsedLitres([tank(), tank({ startBar: null })])).toBe(1800);
+  });
+
+  it('is null when no cylinder yields a figure', () => {
+    expect(gasUsedLitres([tank({ sizeL: null })])).toBeNull();
+    expect(gasUsedLitres([])).toBeNull();
+  });
+});
+
+describe('rmv', () => {
+  it('converts consumption to surface-equivalent litres per minute', () => {
+    // 1800 l used, 20 m average => 3 ata, 45 min => 1800 / 3 / 45 = 13.33
+    expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 45 })).toBeCloseTo(13.33, 2);
+  });
+
+  it('gives a higher figure for the same gas used deeper', () => {
+    const shallow = rmv({ tanks: [tank()], avgDepthM: 10, durationMin: 45 })!;
+    const deep = rmv({ tanks: [tank()], avgDepthM: 30, durationMin: 45 })!;
+    expect(shallow).toBeGreaterThan(deep);
+  });
+
+  it('is null when any input it needs is missing', () => {
+    expect(rmv({ tanks: [tank()], avgDepthM: null, durationMin: 45 })).toBeNull();
+    expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: null })).toBeNull();
+    expect(rmv({ tanks: [tank({ sizeL: null })], avgDepthM: 20, durationMin: 45 })).toBeNull();
+  });
+
+  it('is null for a zero-length dive rather than dividing by zero', () => {
+    expect(rmv({ tanks: [tank()], avgDepthM: 20, durationMin: 0 })).toBeNull();
+  });
+});
+
+describe('mod', () => {
+  it('gives the familiar figure for air at 1.4 bar', () => {
+    expect(mod(21)).toBeCloseTo(56.67, 2);
+  });
+
+  it('gives a shallower limit for a richer mix', () => {
+    expect(mod(32)).toBeCloseTo(33.75, 2);
+    expect(mod(36)).toBeCloseTo(28.89, 2);
+  });
+
+  it('accepts a different oxygen partial pressure', () => {
+    expect(mod(32, 1.6)).toBeCloseTo(40, 2);
+  });
+
+  it('is null without a mix', () => {
+    expect(mod(null)).toBeNull();
+    expect(mod(undefined)).toBeNull();
+  });
+
+  it('is null for a nonsensical mix rather than returning a hazardous number', () => {
+    expect(mod(0)).toBeNull();
+    expect(mod(-5)).toBeNull();
+    expect(mod(101)).toBeNull();
+  });
+});
+
+describe('timeOut', () => {
+  it('adds the duration to the entry time', () => {
+    expect(timeOut('08:12', 44)).toBe('08:56');
+  });
+
+  it('rolls past the hour', () => {
+    expect(timeOut('08:45', 30)).toBe('09:15');
+  });
+
+  it('wraps past midnight', () => {
+    expect(timeOut('23:50', 30)).toBe('00:20');
+  });
+
+  it('is null without both parts', () => {
+    expect(timeOut(null, 44)).toBeNull();
+    expect(timeOut('08:12', null)).toBeNull();
+  });
+});
+
+describe('surfaceIntervalMin', () => {
+  it('measures from the previous dive surfacing to the next entry', () => {
+    const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
+    const next = { date: '2026-08-16', timeIn: '10:38' };
+    expect(surfaceIntervalMin(previous, next)).toBe(102); // out at 08:56
+  });
+
+  it('spans midnight between consecutive days', () => {
+    const previous = { date: '2026-08-16', timeIn: '23:00', durationMin: 30 };
+    const next = { date: '2026-08-17', timeIn: '00:30' };
+    expect(surfaceIntervalMin(previous, next)).toBe(60);
+  });
+
+  it('is null when either dive lacks a time', () => {
+    expect(surfaceIntervalMin({ date: '2026-08-16', timeIn: null, durationMin: 44 }, { date: '2026-08-16', timeIn: '10:38' })).toBeNull();
+    expect(surfaceIntervalMin({ date: '2026-08-16', timeIn: '08:12', durationMin: 44 }, { date: '2026-08-16', timeIn: null })).toBeNull();
+  });
+
+  it('is null when the next dive precedes the previous one surfacing', () => {
+    const previous = { date: '2026-08-16', timeIn: '10:00', durationMin: 60 };
+    const next = { date: '2026-08-16', timeIn: '10:30' };
+    expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
+});
