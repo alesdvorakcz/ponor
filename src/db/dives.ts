@@ -1,10 +1,10 @@
 import { and, eq, isNull } from 'drizzle-orm';
-import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
+import type { Db } from './types';
 
 /**
  * Fields nothing may set after the row is created: id is the primary key,
@@ -24,14 +24,6 @@ type ImmutableField = (typeof IMMUTABLE_FIELDS)[number];
 
 /** Anything a caller may set. Only the date is required — DESIGN.md §6. */
 export type NewDiveInput = Partial<Omit<Dive, ImmutableField>> & Pick<Dive, 'date'>;
-
-/**
- * Any Drizzle SQLite database. Left generic rather than tied to one driver so the
- * app can pass expo-sqlite while tests pass better-sqlite3 — see testDb.ts. The
- * schema generics are unconstrained because the two drivers instantiate them
- * differently; the table references below are still fully typed.
- */
-type Db = BaseSQLiteDatabase<'sync' | 'async', unknown, Record<string, unknown>>;
 
 /**
  * Type-level proof that the `dives` row and the `Dive` domain type describe the
