@@ -181,6 +181,25 @@ describe('timeOut', () => {
     expect(timeOut(null, 44)).toBeNull();
     expect(timeOut('08:12', null)).toBeNull();
   });
+
+  it('is null for a negative duration rather than surfacing before entry', () => {
+    expect(timeOut('08:12', -10)).toBeNull();
+  });
+
+  it('rounds a fractional duration to a real clock time', () => {
+    // Before rounding was added, this returned "08:56.5" - a string that
+    // isn't a time at all.
+    expect(timeOut('08:12', 44.5)).toBe('08:57');
+  });
+
+  it('is null for a malformed time string, in either direction of the regex', () => {
+    expect(timeOut('8:12', 10)).toBeNull(); // missing leading zero
+    expect(timeOut('25:00', 10)).toBeNull(); // hour out of range
+    expect(timeOut('08:60', 10)).toBeNull(); // minute out of range
+    // and the boundary values the same regex must still accept:
+    expect(timeOut('00:00', 0)).toBe('00:00');
+    expect(timeOut('23:59', 0)).toBe('23:59');
+  });
 });
 
 describe('surfaceIntervalMin', () => {

@@ -117,7 +117,11 @@ function toMinutes(hhmm: string): number | null {
 }
 
 function toClock(minutes: number): string {
-  const wrapped = ((minutes % 1440) + 1440) % 1440;
+  // durationMin is a diver-entered number and may carry a fraction (44.5 min);
+  // round to the nearest whole minute on entry so the result is always a real
+  // HH:MM and never "08:56.5".
+  const rounded = Math.round(minutes);
+  const wrapped = ((rounded % 1440) + 1440) % 1440;
   const h = Math.floor(wrapped / 60);
   const m = wrapped % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
