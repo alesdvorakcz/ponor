@@ -5,9 +5,24 @@ import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
 
+/**
+ * Fields nothing may set after the row is created: id is the primary key,
+ * createdAt is the audit trail, updatedAt is stamped by createDive and
+ * updateDive themselves, and deletedAt only ever moves through
+ * softDeleteDive. The single source for NewDiveInput's Omit below and the
+ * runtime strip in withoutImmutableFields, so the two cannot drift apart —
+ * updatedAt used to be excluded from NewDiveInput's type but not stripped at
+ * runtime, protected only by its position after a spread in an object
+ * literal in createDive and updateDive. Reorder either literal for
+ * readability and forging it silently reopens, with nothing to catch it.
+ * M2 adds user_id to every synced table; with this in place that is one
+ * edit here, not three.
+ */
+const IMMUTABLE_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt'] as const;
+type ImmutableField = (typeof IMMUTABLE_FIELDS)[number];
+
 /** Anything a caller may set. Only the date is required — DESIGN.md §6. */
-export type NewDiveInput = Partial<Omit<Dive, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>> &
-  Pick<Dive, 'date'>;
+export type NewDiveInput = Partial<Omit<Dive, ImmutableField>> & Pick<Dive, 'date'>;
 
 /**
  * Any Drizzle SQLite database. Left generic rather than tied to one driver so the
@@ -50,7 +65,7 @@ export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
   const timestamp = now();
   const id = newId();
   const row = {
-    ...input,
+    ...withoutImmutableFields(input),
     id,
     status: input.status ?? 'logged',
     tanks: input.tanks ?? [],
@@ -97,20 +112,22 @@ export async function listDives(db: Db): Promise<Dive[]> {
 }
 
 /**
- * NewDiveInput's Omit keeps id, createdAt and deletedAt out of patch at the type
- * level, but that guarantee is compile-time only. A caller that has bypassed it
- * — a cast, an untyped form payload — could still hand one through, and a bare
+ * NewDiveInput's Omit keeps IMMUTABLE_FIELDS out of patch at the type level,
+ * but that guarantee is compile-time only. A caller that has bypassed it —
+ * a cast, an untyped form payload — could still hand one through, and a bare
  * `{ ...patch }` would spread it straight into the SET clause: id would rename
  * the primary key out from under the very WHERE clause meant to target it,
- * createdAt would forge the audit trail, and deletedAt would tombstone the row
- * as a side effect of what looks like an ordinary field edit. Strip them so the
- * guarantee holds even when the type system has been overridden.
+ * createdAt would forge the audit trail, updatedAt would forge the sync clock,
+ * and deletedAt would tombstone the row as a side effect of what looks like an
+ * ordinary field edit. Strip all of IMMUTABLE_FIELDS so the guarantee holds
+ * even when the type system has been overridden — and even if a caller later
+ * reorders the object literal that sets the real values, since this no longer
+ * depends on that order the way updatedAt alone used to.
  */
-function withoutImmutableFields(
-  patch: Partial<NewDiveInput> & { id?: unknown; createdAt?: unknown; deletedAt?: unknown },
-): Partial<NewDiveInput> {
-  const { id: _id, createdAt: _createdAt, deletedAt: _deletedAt, ...safe } = patch;
-  return safe;
+function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableField> {
+  const safe = { ...patch } as Record<string, unknown>;
+  for (const field of IMMUTABLE_FIELDS) delete safe[field];
+  return safe as Omit<T, ImmutableField>;
 }
 
 /**

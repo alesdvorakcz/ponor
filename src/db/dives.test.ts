@@ -41,6 +41,21 @@ describe('createDive', () => {
     expect(dive.updatedAt).toBe(dive.createdAt);
     expect(dive.deletedAt).toBeNull();
   });
+
+  it('ignores a forged id/createdAt/updatedAt/deletedAt in the input, same as updateDive does for a patch', async () => {
+    const forged = {
+      date: '2026-08-16',
+      id: 'forged-id',
+      createdAt: '2000-01-01T00:00:00.000Z',
+      updatedAt: '2000-01-01T00:00:00.000Z',
+      deletedAt: '2000-01-01T00:00:00.000Z',
+    } as unknown as Parameters<typeof createDive>[1];
+    const created = await createDive(db, forged);
+    expect(created.id).not.toBe('forged-id');
+    expect(created.createdAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(created.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(created.deletedAt).toBeNull();
+  });
 });
 
 describe('getDive', () => {
@@ -141,6 +156,23 @@ describe('updateDive', () => {
 
   it('rejects an unknown id rather than silently doing nothing', async () => {
     await expect(updateDive(db, 'nope', { notes: 'x' })).rejects.toThrow(/not found/i);
+  });
+
+  it('ignores a forged id/createdAt/updatedAt/deletedAt in the patch', async () => {
+    const created = await createDive(db, { date: '2026-08-16', notes: 'original' });
+    const forged = {
+      id: 'forged-id',
+      createdAt: '2000-01-01T00:00:00.000Z',
+      updatedAt: '2000-01-01T00:00:00.000Z',
+      deletedAt: '2000-01-01T00:00:00.000Z',
+      notes: 'updated for real',
+    } as unknown as Parameters<typeof updateDive>[2];
+    const updated = await updateDive(db, created.id, forged);
+    expect(updated.id).toBe(created.id);
+    expect(updated.createdAt).toBe(created.createdAt);
+    expect(updated.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(updated.deletedAt).toBeNull();
+    expect(updated.notes).toBe('updated for real');
   });
 
   it('never touches a row a concurrent delete already tombstoned — the write itself is scoped, not just a pre-check', async () => {
