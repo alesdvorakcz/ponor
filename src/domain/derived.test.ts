@@ -177,11 +177,13 @@ describe('rmv', () => {
     expect(rmv({ tanks: [tank({ sizeL: null })], avgDepthM: 20, durationMin: 45 })).toBeNull();
   });
 
-  it('is null for a negative average depth, not a negative RMV', () => {
-    // avgDepthM < 0 makes ata < 1; dividing surface-equivalent litres by
-    // less than one whole atmosphere here would produce a negative RMV
-    // instead of a larger positive one.
-    expect(rmv({ tanks: [tank()], avgDepthM: -15, durationMin: 45 })).toBeNull();
+  it('is null for a negative average depth, not a positive-looking RMV', () => {
+    // -10 < avgDepthM < 0 keeps 0 < ata < 1, so litres / ata / durationMin
+    // comes out positive, not negative — value > 0 alone can't tell this
+    // apart from a real RMV. It takes the explicit avgDepthM < 0 check
+    // (avgDepthM -15 would additionally trip value > 0 via a negative ata,
+    // which would mask this guard rather than test it).
+    expect(rmv({ tanks: [tank()], avgDepthM: -5, durationMin: 45 })).toBeNull();
   });
 
   it('is null for a zero-length dive rather than dividing by zero', () => {
