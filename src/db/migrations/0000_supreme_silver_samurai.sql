@@ -1,0 +1,60 @@
+CREATE TABLE `dives` (
+	`id` text PRIMARY KEY NOT NULL,
+	`status` text DEFAULT 'logged' NOT NULL,
+	`date` text NOT NULL,
+	`time_in` text,
+	`manual_order` integer,
+	`duration_min` integer,
+	`title` text,
+	`notes` text,
+	`rating` integer,
+	`site_id` text,
+	`site_name` text,
+	`center_id` text,
+	`center_name` text,
+	`entry` text,
+	`salinity` text,
+	`water_body` text,
+	`latitude` real,
+	`longitude` real,
+	`max_depth_m` real,
+	`avg_depth_m` real,
+	`water_temp_c` real,
+	`air_temp_c` real,
+	`visibility_m` real,
+	`waves` integer,
+	`current` integer,
+	`surge` integer,
+	`tanks` text DEFAULT '[]' NOT NULL,
+	`suit` text,
+	`hood` integer,
+	`gloves` integer,
+	`boots` integer,
+	`weights_kg` real,
+	`buddy` text,
+	`guide` text,
+	`import_source` text,
+	`import_id` text,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL,
+	`deleted_at` text
+);
+--> statement-breakpoint
+CREATE TABLE `gear_presets` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`tanks` text DEFAULT '[]' NOT NULL,
+	`suit` text,
+	`hood` integer,
+	`gloves` integer,
+	`boots` integer,
+	`weights_kg` real,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL,
+	`deleted_at` text
+);
+--> statement-breakpoint
+CREATE TABLE `settings` (
+	`key` text PRIMARY KEY NOT NULL,
+	`value` text NOT NULL
+);

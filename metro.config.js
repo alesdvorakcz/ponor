@@ -14,4 +14,8 @@ const config = getDefaultConfig(__dirname);
 // `taskpolicy -d default`, so this is about priority, not a broken install.
 config.resolver.useWatchman = false;
 
+// Drizzle ships migrations as .sql files that must be bundled, not read from disk —
+// there is no filesystem to read them from on a device.
+config.resolver.sourceExts.push('sql');
+
 module.exports = config;
