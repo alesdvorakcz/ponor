@@ -189,6 +189,29 @@ describe('assignDiveNumbers against malformed input and non-determinism', () => 
     expect(forward.get(symB.id)).toBe(backward.get(symB.id));
   });
 
+  it('treats a missing (undefined) timeIn the same as a null one, not as an early time', () => {
+    // At HEAD these disagreed: null correctly sorted after a real time, but
+    // undefined sorted BEFORE it (toComparable(undefined) === '', and ''
+    // sorts before any real "HH:MM" string) — the `=== null` check ran
+    // before toComparable could normalise the two to the same thing.
+    const withNull = assignDiveNumbers(
+      [dive({ id: 'timed', timeIn: '09:15' }), dive({ id: 'untimed', timeIn: null })],
+      0,
+    );
+    const undefinedTimeIn = {
+      id: 'untimed', status: 'logged', date: '2026-08-16',
+      createdAt: '2026-08-16T10:00:00.000Z',
+    } as unknown as DiveOrdering; // timeIn omitted entirely -> undefined
+    const withUndefined = assignDiveNumbers(
+      [dive({ id: 'timed', timeIn: '09:15' }), undefinedTimeIn],
+      0,
+    );
+    expect(withUndefined.get('timed')).toBe(withNull.get('timed'));
+    expect(withUndefined.get('untimed')).toBe(withNull.get('untimed'));
+    expect(withNull.get('timed')).toBe(1);
+    expect(withNull.get('untimed')).toBe(2);
+  });
+
   it('numbers a large list identically no matter how the input is ordered', () => {
     const n = 500;
     const dives: DiveOrdering[] = [];

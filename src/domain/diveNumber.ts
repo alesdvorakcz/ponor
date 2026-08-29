@@ -76,11 +76,20 @@ export function assignDiveNumbers(
       if (aDate !== bDate) return aDate < bDate ? -1 : 1;
 
       if (a.timeIn !== b.timeIn) {
-        if (a.timeIn === null) return 1;
-        if (b.timeIn === null) return -1;
-        const aTime = toComparable(a.timeIn);
-        const bTime = toComparable(b.timeIn);
-        if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+        // null and undefined both mean "no time" (a corrupt row might hand
+        // back either), and must tie with each other rather than one of them
+        // slipping past this check and into the string compare below — which
+        // used to test only `=== null`, so an undefined timeIn compared as
+        // toComparable('') = '', sorting *before* every real time instead of
+        // after, unlike a null one.
+        const aUntimed = a.timeIn === null || a.timeIn === undefined;
+        const bUntimed = b.timeIn === null || b.timeIn === undefined;
+        if (aUntimed !== bUntimed) return aUntimed ? 1 : -1;
+        if (!aUntimed) {
+          const aTime = toComparable(a.timeIn);
+          const bTime = toComparable(b.timeIn);
+          if (aTime !== bTime) return aTime < bTime ? -1 : 1;
+        }
       }
 
       const aCreated = toComparable(a.createdAt);
