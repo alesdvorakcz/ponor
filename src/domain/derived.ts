@@ -9,30 +9,59 @@ function isNumber(v: number | null | undefined): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+/**
+ * A cylinder's pressure data falls into one of three buckets:
+ *  - 'ok': both pressures are present, physically real, and end <= start.
+ *  - 'absent': a pressure was never recorded — the diver simply didn't log it.
+ *  - 'contradictory': pressures were recorded but describe something physically
+ *    impossible (negative, or the cylinder ending fuller than it started) — a
+ *    transcription slip, not a missing measurement.
+ * The distinction matters to gasUsedLitres: absent data for one cylinder
+ * shouldn't stop the others from being counted, but contradictory data must
+ * not be silently dropped as if it were merely unrecorded.
+ */
+type TankGas = { kind: 'ok'; usedBar: number } | { kind: 'absent' } | { kind: 'contradictory' };
+
+function tankGas(tank: Tank): TankGas {
+  if (!tank) return { kind: 'absent' };
+  if (!isNumber(tank.startBar) || !isNumber(tank.endBar)) return { kind: 'absent' };
+  // A cylinder gauge bottoms out at 0; a negative absolute pressure is not a
+  // real reading, regardless of which way round it's negative.
+  if (tank.startBar < 0 || tank.endBar < 0) return { kind: 'contradictory' };
+  const used = tank.startBar - tank.endBar;
+  return used >= 0 ? { kind: 'ok', usedBar: used } : { kind: 'contradictory' };
+}
+
 /** Pressure consumed from one cylinder, or null if it cannot be known. */
 export function usedBar(tank: Tank): number | null {
-  if (!tank || !isNumber(tank.startBar) || !isNumber(tank.endBar)) return null;
-  const used = tank.startBar - tank.endBar;
-  return used >= 0 ? used : null;
+  const gas = tankGas(tank);
+  return gas.kind === 'ok' ? gas.usedBar : null;
 }
 
 /**
  * Free gas consumed across every cylinder, in litres at surface pressure.
- * Cylinders that cannot be computed are skipped rather than voiding the dive —
- * a diver who recorded pressures for the main cylinder but not the stage should
- * still get a figure.
+ *
+ * A cylinder with absent pressure data (never recorded) is skipped rather
+ * than voiding the dive — a diver who recorded the main cylinder but not the
+ * stage should still get a figure. A cylinder with contradictory pressure
+ * data (recorded, but physically impossible — e.g. transposed start/end) is
+ * different: silently discarding a cylinder the diver did record would
+ * understate the total, which is the unsafe direction for gas planning, so
+ * that voids the whole figure instead of just that cylinder.
  */
 export function gasUsedLitres(tanks: Tank[]): number | null {
   if (!Array.isArray(tanks)) return null;
   let total = 0;
   let counted = 0;
   for (const tank of tanks) {
-    const used = usedBar(tank);
+    const gas = tankGas(tank);
+    if (gas.kind === 'contradictory') return null;
+    if (gas.kind === 'absent') continue;
     // A cylinder can't hold zero or negative litres — treat that entry the same
     // way as one whose size was never recorded, rather than as valid data.
-    if (used === null || !isNumber(tank.sizeL) || tank.sizeL <= 0) continue;
+    if (!isNumber(tank.sizeL) || tank.sizeL <= 0) continue;
     const count = isNumber(tank.count) && tank.count > 0 ? tank.count : 1;
-    total += used * tank.sizeL * count;
+    total += gas.usedBar * tank.sizeL * count;
     counted += 1;
   }
   return counted > 0 ? total : null;

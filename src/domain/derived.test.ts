@@ -20,6 +20,20 @@ describe('usedBar', () => {
     // A transcription slip, not a real dive. Better no number than a negative one.
     expect(usedBar(tank({ startBar: 50, endBar: 200 }))).toBeNull();
   });
+
+  it('is null for a negative absolute pressure, not the arithmetic difference', () => {
+    // used >= 0 alone would accept this: -100 - (-200) = 100. But a negative
+    // absolute pressure isn't a real reading in either field.
+    expect(usedBar(tank({ startBar: -100, endBar: -200 }))).toBeNull();
+    expect(usedBar(tank({ startBar: -10, endBar: 50 }))).toBeNull();
+    expect(usedBar(tank({ startBar: 200, endBar: -10 }))).toBeNull();
+  });
+
+  it('is null, not a throw, when the tank itself is missing', () => {
+    expect(() => usedBar(null as unknown as Tank)).not.toThrow();
+    expect(usedBar(null as unknown as Tank)).toBeNull();
+    expect(usedBar(undefined as unknown as Tank)).toBeNull();
+  });
 });
 
 describe('gasUsedLitres', () => {
@@ -46,6 +60,28 @@ describe('gasUsedLitres', () => {
   it('is null when no cylinder yields a figure', () => {
     expect(gasUsedLitres([tank({ sizeL: null })])).toBeNull();
     expect(gasUsedLitres([])).toBeNull();
+  });
+
+  it('voids the whole total for a cylinder with contradictory pressures, rather than skipping it', () => {
+    // Unlike an absent pressure, transposed start/end is data the diver did
+    // record — dropping it silently would understate gas used with no sign
+    // anything was discarded, which is worse than showing nothing at all.
+    const main = tank({ sizeL: 12, startBar: 200, endBar: 50 });
+    const stageTransposed = tank({ sizeL: 7, startBar: 50, endBar: 200 });
+    expect(gasUsedLitres([main, stageTransposed])).toBeNull();
+  });
+
+  it('voids the whole total for a cylinder with a negative absolute pressure', () => {
+    const main = tank({ sizeL: 12, startBar: 200, endBar: 50 });
+    const negative = tank({ sizeL: 7, startBar: -50, endBar: -200 });
+    expect(gasUsedLitres([main, negative])).toBeNull();
+  });
+
+  it('is null, not a throw, for a missing array or a missing cylinder in it', () => {
+    expect(() => gasUsedLitres(null as unknown as Tank[])).not.toThrow();
+    expect(gasUsedLitres(null as unknown as Tank[])).toBeNull();
+    expect(gasUsedLitres(undefined as unknown as Tank[])).toBeNull();
+    expect(gasUsedLitres([null as unknown as Tank])).toBeNull();
   });
 });
 
