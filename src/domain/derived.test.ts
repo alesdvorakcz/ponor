@@ -300,11 +300,18 @@ describe('timeOut', () => {
     expect(timeOut('08:12', 44.5)).toBe('08:57');
   });
 
-  it('is null for a malformed time string, in either direction of the regex', () => {
-    expect(timeOut('8:12', 10)).toBeNull(); // missing leading zero
+  it('is null for a malformed time string, but not for a merely unpadded one', () => {
+    // Changed deliberately in the datetime.ts unification: '8:12' names
+    // exactly one time and now reads as 08:12 here, the same way the dive
+    // list sorts it. It used to be null here while diveNumber.ts sorted it
+    // after '19:00' — the same value with two different verdicts, which is
+    // the defect that module exists to close.
+    expect(timeOut('8:12', 10)).toBe('08:22');
     expect(timeOut('25:00', 10)).toBeNull(); // hour out of range
     expect(timeOut('08:60', 10)).toBeNull(); // minute out of range
-    // and the boundary values the same regex must still accept:
+    expect(timeOut('8:1', 10)).toBeNull(); // ambiguous minute: never guessed
+    expect(timeOut('', 10)).toBeNull();
+    // and the boundary values the same parser must still accept:
     expect(timeOut('00:00', 0)).toBe('00:00');
     expect(timeOut('23:59', 0)).toBe('23:59');
   });
@@ -341,16 +348,25 @@ describe('surfaceIntervalMin', () => {
   });
 
   it('is null for a malformed time on either side, not a number computed from a zeroed-out start', () => {
-    // toMinutes returns null for a non-HH:MM string. Without the guard that
-    // catches that null, it gets used as if it were 0 in the arithmetic
-    // below (null + n coerces to n in JS) instead of stopping the function.
+    // timeOfDayToMinutes returns null for a string that names no real time.
+    // Without the guard that catches that null, it gets used as if it were 0
+    // in the arithmetic below (null + n coerces to n in JS) instead of
+    // stopping the function.
     const good = { date: '2026-08-16', timeIn: '10:38' };
-    const malformedPrevious = { date: '2026-08-16', timeIn: '8:12', durationMin: 44 }; // missing leading zero
+    const malformedPrevious = { date: '2026-08-16', timeIn: '25:00', durationMin: 44 };
     expect(surfaceIntervalMin(malformedPrevious, good)).toBeNull();
 
     const previous = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
-    const malformedNext = { date: '2026-08-16', timeIn: '8:12' }; // same typo, other side
+    const malformedNext = { date: '2026-08-16', timeIn: '8:1' }; // ambiguous minute, other side
     expect(surfaceIntervalMin(previous, malformedNext)).toBeNull();
+  });
+
+  it('reads an unpadded time the same way the dive list sorts it', () => {
+    // Same deliberate change as timeOut's: one parser, one verdict. '8:12'
+    // is 08:12 everywhere or nowhere.
+    const previous = { date: '2026-08-16', timeIn: '8:12', durationMin: 44 };
+    const next = { date: '2026-08-16', timeIn: '10:38' };
+    expect(surfaceIntervalMin(previous, next)).toBe(102);
   });
 
   it('is null for a negative previous duration, not an overstated interval', () => {

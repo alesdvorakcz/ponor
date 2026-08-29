@@ -1,5 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
+import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
@@ -69,7 +70,7 @@ export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
   const timestamp = now();
   const id = newId();
   const row = {
-    ...withoutImmutableFields(input),
+    ...withNormalisedDateTime(withoutImmutableFields(input)),
     id,
     status: input.status ?? 'logged',
     tanks: input.tanks ?? [],
@@ -135,6 +136,31 @@ function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableFi
 }
 
 /**
+ * The write boundary for the two fields whose string form the rest of the app
+ * relies on. `date` and `timeIn` are plain `text` columns, so nothing at the
+ * schema level makes DESIGN.md §6's `YYYY-MM-DD` / `HH:MM` contract true; this
+ * is the one place that does, and `domain/datetime.ts` is the one place that
+ * knows what those forms are.
+ *
+ * It canonicalises rather than validates, because §1 says logging a dive is
+ * never blocked: a real date or time spelled loosely ('2026-8-17', '7:30') is
+ * rewritten to the canonical form, an empty timeIn becomes the null the column
+ * already uses for "no time", and anything else is stored exactly as given.
+ * Only keys actually present are touched, so a patch that does not mention
+ * timeIn does not acquire one.
+ *
+ * The cast back to T is sound because this only ever replaces a date/time
+ * value with another string (or, for a blank timeIn, the null the type already
+ * permits) and never adds or removes a key.
+ */
+function withNormalisedDateTime<T extends object>(input: T): T {
+  const out = { ...input } as Record<string, unknown>;
+  if ('date' in out) out.date = storedCalendarDate(out.date);
+  if ('timeIn' in out) out.timeIn = storedTimeOfDay(out.timeIn);
+  return out as T;
+}
+
+/**
  * Scoped to liveDives, and the write itself — not a separate pre-check ahead
  * of an unscoped write — rejects when nothing matched, the same "nothing may
  * silently do nothing" rule softDeleteDive follows. A pre-check-then-write
@@ -158,7 +184,7 @@ export async function updateDive(
 ): Promise<Dive> {
   const rows = await db
     .update(dives)
-    .set({ ...withoutImmutableFields(patch), updatedAt: now() })
+    .set({ ...withNormalisedDateTime(withoutImmutableFields(patch)), updatedAt: now() })
     .where(and(eq(dives.id, id), liveDives))
     .returning();
   if (rows.length === 0) throw new Error(`updateDive: dive not found: ${id}`);

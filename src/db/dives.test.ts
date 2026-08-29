@@ -58,6 +58,53 @@ describe('createDive', () => {
   });
 });
 
+describe('the date/time write boundary', () => {
+  it('canonicalises a loosely spelled date and time on create', async () => {
+    const dive = await createDive(db, { date: '2026-8-7', timeIn: '7:30' });
+    expect(dive.date).toBe('2026-08-07');
+    expect(dive.timeIn).toBe('07:30');
+  });
+
+  it('stores an empty timeIn as null, the value the column already means by "no time"', async () => {
+    // An untouched react-hook-form TextInput hands back ''. Stored as-is it
+    // sorted before every real time, putting the dive at the head of its day.
+    const dive = await createDive(db, { date: '2026-08-16', timeIn: '' });
+    expect(dive.timeIn).toBeNull();
+  });
+
+  it('canonicalises on update too, and only for keys the patch actually carries', async () => {
+    const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15' });
+    const updated = await updateDive(db, created.id, { date: '2026-9-1' });
+    expect(updated.date).toBe('2026-09-01');
+    expect(updated.timeIn).toBe('09:15'); // untouched, not nulled by absence
+    expect((await updateDive(db, created.id, { timeIn: '7:05' })).timeIn).toBe('07:05');
+  });
+
+  it('never blocks a save: a value it cannot read is stored exactly as given', async () => {
+    // DESIGN.md §1. The point is that a malformed value cannot silently
+    // mis-sort or mis-compute, not that the diver is turned away.
+    const dive = await createDive(db, { date: '2026-02-30', timeIn: 'after lunch' });
+    expect(dive.date).toBe('2026-02-30');
+    expect(dive.timeIn).toBe('after lunch');
+  });
+
+  it('orders a day chronologically once the times are canonicalised end to end', async () => {
+    // The exact fixture the review used to demonstrate the bug: at HEAD this
+    // listed as ['', '19:00', '7:30', null].
+    await createDive(db, { date: '2026-08-16', timeIn: '19:00', title: 'evening' });
+    await createDive(db, { date: '2026-08-16', timeIn: '7:30', title: 'morning' });
+    await createDive(db, { date: '2026-08-16', timeIn: '', title: 'blank' });
+    await createDive(db, { date: '2026-08-16', timeIn: null, title: 'untimed' });
+
+    const chronological = (await listDives(db)).reverse();
+    expect(chronological.map((d) => d.timeIn)).toEqual(['07:30', '19:00', null, null]);
+    expect(chronological.slice(0, 2).map((d) => d.title)).toEqual(['morning', 'evening']);
+    // The two untimed dives tie down to createdAt; which of them wins is not
+    // what this test is about, so it is not asserted.
+    expect(chronological.slice(2).map((d) => d.title).sort()).toEqual(['blank', 'untimed']);
+  });
+});
+
 describe('getDive', () => {
   it('returns null for an unknown id', async () => {
     expect(await getDive(db, 'nope')).toBeNull();

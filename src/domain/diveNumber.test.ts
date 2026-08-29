@@ -140,6 +140,79 @@ describe('assignDiveNumbers', () => {
   });
 });
 
+describe('assignDiveNumbers with loosely spelled dates and times', () => {
+  it('orders an unpadded time chronologically, not lexicographically', () => {
+    // At HEAD this produced the opposite result: '19:00' < '7:30' as raw
+    // strings, so the half-past-seven-in-the-morning dive was numbered after
+    // the seven-in-the-evening one.
+    const numbers = assignDiveNumbers(
+      [dive({ id: 'evening', timeIn: '19:00' }), dive({ id: 'morning', timeIn: '7:30' })],
+      0,
+    );
+    expect(numbers.get('morning')).toBe(1);
+    expect(numbers.get('evening')).toBe(2);
+  });
+
+  it('treats an empty-string timeIn as no time, not as the earliest time', () => {
+    // '' < '08:00' as raw strings, so an untouched text field used to put its
+    // dive at the head of the day instead of the tail (DESIGN.md §2.5 puts an
+    // untimed dive after a timed one).
+    const numbers = assignDiveNumbers(
+      [dive({ id: 'blank', timeIn: '' }), dive({ id: 'timed', timeIn: '08:00' })],
+      0,
+    );
+    expect(numbers.get('timed')).toBe(1);
+    expect(numbers.get('blank')).toBe(2);
+  });
+
+  it('ties an unpadded time with its canonical spelling, falling through to the next tier', () => {
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'z-unpadded', timeIn: '9:15', manualOrder: 2 }),
+        dive({ id: 'a-padded', timeIn: '09:15', manualOrder: 1 }),
+      ],
+      0,
+    );
+    // Same time -> manualOrder decides, not the raw string compare (which
+    // would have put '09:15' first regardless of hand order).
+    expect(numbers.get('a-padded')).toBe(1);
+    expect(numbers.get('z-unpadded')).toBe(2);
+  });
+
+  it('orders an unpadded date chronologically, not lexicographically', () => {
+    // At HEAD: '2026-08-18' < '2026-8-17', so the 17th was numbered #3.
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'c', date: '2026-08-18' }),
+        dive({ id: 'b', date: '2026-8-17' }),
+        dive({ id: 'a', date: '2026-08-16' }),
+      ],
+      0,
+    );
+    expect(numbers.get('a')).toBe(1);
+    expect(numbers.get('b')).toBe(2);
+    expect(numbers.get('c')).toBe(3);
+  });
+
+  it('still numbers a date it cannot read at all, where the diver typed it', () => {
+    // '2026-02-30' is not a real day, so datetime.ts refuses it and the raw
+    // string fallback places it between the 28th and 1 March. Numbering never
+    // refuses to number a dive; the arithmetic in derived.ts is what declines
+    // to compute on it.
+    const numbers = assignDiveNumbers(
+      [
+        dive({ id: 'c', date: '2026-03-01' }),
+        dive({ id: 'b', date: '2026-02-30' }),
+        dive({ id: 'a', date: '2026-02-28' }),
+      ],
+      0,
+    );
+    expect(numbers.get('a')).toBe(1);
+    expect(numbers.get('b')).toBe(2);
+    expect(numbers.get('c')).toBe(3);
+  });
+});
+
 describe('assignDiveNumbers against malformed input and non-determinism', () => {
   it('does not throw when dives is not an array', () => {
     expect(() => assignDiveNumbers(null as unknown as DiveOrdering[], 0)).not.toThrow();

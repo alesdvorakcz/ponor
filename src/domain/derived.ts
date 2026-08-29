@@ -1,3 +1,4 @@
+import { calendarDateToUtcMs, timeOfDayToMinutes } from './datetime';
 import type { Dive, Tank } from './types';
 
 /** Metres of sea water per bar of ambient pressure. */
@@ -192,15 +193,6 @@ export function mod(
   return depth >= 0 ? depth : null;
 }
 
-function toMinutes(hhmm: string): number | null {
-  const match = /^(\d{2}):(\d{2})$/.exec(hhmm);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (hours > 23 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
 function toClock(minutes: number): string {
   // durationMin is a diver-entered number and may carry a fraction (44.5 min);
   // round to the nearest whole minute on entry so the result is always a real
@@ -215,7 +207,7 @@ function toClock(minutes: number): string {
 /** Wall-clock time the diver surfaced, wrapping past midnight. */
 export function timeOut(timeIn: string | null, durationMin: number | null): string | null {
   if (timeIn === null || !isNumber(durationMin) || durationMin < 0) return null;
-  const start = toMinutes(timeIn);
+  const start = timeOfDayToMinutes(timeIn);
   if (start === null) return null;
   return toClock(start + durationMin);
 }
@@ -238,14 +230,22 @@ export function surfaceIntervalMin(
 ): number | null {
   if (!previous || !next) return null;
   if (previous.timeIn === null || next.timeIn === null) return null;
-  const previousStart = toMinutes(previous.timeIn);
-  const nextStart = toMinutes(next.timeIn);
+  const previousStart = timeOfDayToMinutes(previous.timeIn);
+  const nextStart = timeOfDayToMinutes(next.timeIn);
   if (previousStart === null || nextStart === null) return null;
   if (!isNumber(previous.durationMin) || previous.durationMin < 0) return null;
 
-  const previousDay = Date.parse(`${previous.date}T00:00:00Z`);
-  const nextDay = Date.parse(`${next.date}T00:00:00Z`);
-  if (Number.isNaN(previousDay) || Number.isNaN(nextDay)) return null;
+  // Both dates go through datetime.ts, which requires each to round-trip
+  // rather than merely parse. Date.parse alone rolls an impossible day
+  // forward instead of rejecting it ('2026-02-30' becomes 2026-03-02), and
+  // when it is the *next* dive carrying that date the roll silently
+  // overstates this interval by a full 24 hours — the direction the docblock
+  // above names as the unsafe one. The mirror case was already caught by the
+  // `interval >= 0` guard below, which is why only half of it was ever
+  // visible.
+  const previousDay = calendarDateToUtcMs(previous.date);
+  const nextDay = calendarDateToUtcMs(next.date);
+  if (previousDay === null || nextDay === null) return null;
   const dayOffsetMin = (nextDay - previousDay) / 60000;
 
   const surfaced = previousStart + previous.durationMin;

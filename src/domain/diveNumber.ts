@@ -1,3 +1,4 @@
+import { normaliseCalendarDate, normaliseTimeOfDay } from './datetime';
 import type { Dive } from './types';
 
 /** The only fields numbering depends on. */
@@ -118,26 +119,30 @@ function manualOrderKey(value: unknown): number {
  * structurally satisfies `DiveOrdering` — can pass them in unchanged.
  */
 export function compareDiveOrder(a: DiveOrdering, b: DiveOrdering): number {
-  const aDate = toComparable(a.date);
-  const bDate = toComparable(b.date);
+  // Both string tiers below compare *normalised* values, from the one module
+  // that owns what these strings look like (datetime.ts). Comparing the raw
+  // strings is what let '2026-8-17' sort after '2026-08-18' and '7:30' after
+  // '19:00': lexicographic order on an unpadded field is not chronological
+  // order. Falling back to toComparable keeps a value datetime.ts cannot read
+  // at all — a genuinely corrupt date — sorting where the diver typed it,
+  // deterministically, rather than collapsing every unreadable date into one
+  // bucket at the top tier.
+  const aDate = normaliseCalendarDate(a.date) ?? toComparable(a.date);
+  const bDate = normaliseCalendarDate(b.date) ?? toComparable(b.date);
   if (aDate !== bDate) return aDate < bDate ? -1 : 1;
 
-  if (a.timeIn !== b.timeIn) {
-    // null and undefined both mean "no time" (a corrupt row might hand
-    // back either), and must tie with each other rather than one of them
-    // slipping past this check and into the string compare below — which
-    // used to test only `=== null`, so an undefined timeIn compared as
-    // toComparable('') = '', sorting *before* every real time instead of
-    // after, unlike a null one.
-    const aUntimed = a.timeIn === null || a.timeIn === undefined;
-    const bUntimed = b.timeIn === null || b.timeIn === undefined;
-    if (aUntimed !== bUntimed) return aUntimed ? 1 : -1;
-    if (!aUntimed) {
-      const aTime = toComparable(a.timeIn);
-      const bTime = toComparable(b.timeIn);
-      if (aTime !== bTime) return aTime < bTime ? -1 : 1;
-    }
-  }
+  // null, undefined, '' and anything else that names no real time all mean
+  // "no time" and must tie with each other rather than one of them slipping
+  // into the string compare below — this used to test only `=== null`, so an
+  // undefined timeIn compared as toComparable('') = '', sorting *before*
+  // every real time instead of after, unlike a null one. Collapsing distinct
+  // unreadable values into one bucket is safe at this tier, unlike at the id
+  // tier, because manualOrder, createdAt and id still break the tie beneath
+  // it — see toComparable for why that distinction matters.
+  const aTime = normaliseTimeOfDay(a.timeIn);
+  const bTime = normaliseTimeOfDay(b.timeIn);
+  if ((aTime === null) !== (bTime === null)) return aTime === null ? 1 : -1;
+  if (aTime !== null && bTime !== null && aTime !== bTime) return aTime < bTime ? -1 : 1;
 
   // Hand order is the tier between timeIn and createdAt: a dive placed
   // by hand sorts before one that wasn't, on the same "the diver did
