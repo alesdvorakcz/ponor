@@ -62,6 +62,31 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres([])).toBeNull();
   });
 
+  it('is null for a cylinder with an impossible size, not a negative gas figure', () => {
+    expect(gasUsedLitres([tank({ sizeL: 0 })])).toBeNull();
+    expect(gasUsedLitres([tank({ sizeL: -5 })])).toBeNull();
+  });
+
+  it('skips a cylinder with an impossible count instead of defaulting or scaling', () => {
+    // count: 0 and count: -3 used to silently fall back to 1 (treating a
+    // recorded "zero cylinders" as one), and count: 2.5 scaled the figure by
+    // a fractional cylinder. All three now void just that cylinder, the same
+    // way an invalid sizeL does — count: null is the only thing that still
+    // means "one cylinder".
+    expect(gasUsedLitres([tank({ count: 0 })])).toBeNull();
+    expect(gasUsedLitres([tank({ count: -3 })])).toBeNull();
+    expect(gasUsedLitres([tank({ count: 2.5 })])).toBeNull();
+  });
+
+  it('an impossible count skips only that cylinder, unlike contradictory pressure', () => {
+    // This is the deliberate difference from the pressure case above: a bad
+    // count is excluded like an invalid size, not voided like a
+    // contradiction, so the other cylinder still counts.
+    const good = tank();
+    const badCount = tank({ sizeL: 7, startBar: 200, endBar: 100, count: 0 });
+    expect(gasUsedLitres([good, badCount])).toBe(1800);
+  });
+
   it('voids the whole total for a cylinder with contradictory pressures, rather than skipping it', () => {
     // Unlike an absent pressure, transposed start/end is data the diver did
     // record — dropping it silently would understate gas used with no sign

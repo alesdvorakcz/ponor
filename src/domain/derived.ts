@@ -60,7 +60,12 @@ export function gasUsedLitres(tanks: Tank[]): number | null {
     // A cylinder can't hold zero or negative litres — treat that entry the same
     // way as one whose size was never recorded, rather than as valid data.
     if (!isNumber(tank.sizeL) || tank.sizeL <= 0) continue;
-    const count = isNumber(tank.count) && tank.count > 0 ? tank.count : 1;
+    // Same policy for count: it can't be zero, negative, or a fraction of a
+    // cylinder. A never-recorded count still means "one cylinder" (the
+    // brief-tested default) — only a recorded-but-impossible value skips the
+    // entry, the same way an invalid size does.
+    const count = tank.count === null || tank.count === undefined ? 1 : tank.count;
+    if (!isNumber(count) || count <= 0 || !Number.isInteger(count)) continue;
     total += gas.usedBar * tank.sizeL * count;
     counted += 1;
   }
