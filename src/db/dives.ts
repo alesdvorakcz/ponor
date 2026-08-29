@@ -1,6 +1,6 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
-import { compareDiveOrder } from '../domain/diveNumber';
+import { compareDiveOrder, storedManualOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
@@ -24,6 +24,27 @@ type ImmutableField = (typeof IMMUTABLE_FIELDS)[number];
 
 /** Anything a caller may set. Only the date is required — DESIGN.md §6. */
 export type NewDiveInput = Partial<Omit<Dive, ImmutableField>> & Pick<Dive, 'date'>;
+
+/**
+ * What `updateDive` accepts: everything a dive has except `manualOrder`.
+ *
+ * Hand order is excluded on purpose, and it is the one field a patch may not
+ * carry. DESIGN.md §2.5 makes `manual_order` a *tie-break within a date*, not
+ * a position, and hand-ordered dives sort before non-hand-ordered ones — so
+ * setting it on the dragged row alone, which is exactly what a
+ * `<DraggableFlatList onDragEnd>` hands you, moves that row to the **top** of
+ * its group rather than to the slot it was dropped in. Executed on three
+ * untimed dives: dragging the third into slot two produced `3, 1, 2` instead
+ * of `1, 3, 2`. Renumbering the whole day produces the right answer, and
+ * `reorderDivesForDate` is the only way to do it.
+ *
+ * A patch that names `manualOrder` is therefore a compile error, and a cast
+ * past that is a runtime throw naming the right function — not a silent strip,
+ * which would be its own "silently does nothing" bug. `createDive` still
+ * accepts it: a new row cannot express a reordering of existing ones, and an
+ * importer legitimately carries an initial order.
+ */
+export type DivePatch = Partial<Omit<NewDiveInput, 'manualOrder'>>;
 
 /**
  * Type-level proof that the `dives` row and the `Dive` domain type describe the
@@ -62,7 +83,7 @@ export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
   const timestamp = now();
   const id = newId();
   const row = {
-    ...withNormalisedDateTime(withoutImmutableFields(input)),
+    ...withNormalisedFields(withoutImmutableFields(input)),
     id,
     status: input.status ?? 'logged',
     tanks: input.tanks ?? [],
@@ -128,27 +149,28 @@ function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableFi
 }
 
 /**
- * The write boundary for the two fields whose string form the rest of the app
- * relies on. `date` and `timeIn` are plain `text` columns, so nothing at the
- * schema level makes DESIGN.md §6's `YYYY-MM-DD` / `HH:MM` contract true; this
- * is the one place that does, and `domain/datetime.ts` is the one place that
- * knows what those forms are.
+ * The write boundary for the three fields whose stored form the rest of the
+ * app relies on. `date` and `timeIn` are plain `text` columns and
+ * `manual_order` is an INTEGER *affinity*, so nothing at the schema level makes
+ * DESIGN.md §6's `YYYY-MM-DD` / `HH:MM` contract or §2.5's "nullable integer"
+ * true; this is the one place that does. `domain/datetime.ts` owns what the
+ * string forms are and `domain/diveNumber.ts` owns what a hand order is.
  *
  * It canonicalises rather than validates, because §1 says logging a dive is
  * never blocked: a real date or time spelled loosely ('2026-8-17', '7:30') is
  * rewritten to the canonical form, an empty timeIn becomes the null the column
- * already uses for "no time", and anything else is stored exactly as given.
- * Only keys actually present are touched, so a patch that does not mention
- * timeIn does not acquire one.
+ * already uses for "no time", a fractional hand order is rounded, and anything
+ * else is stored exactly as given. Only keys actually present are touched, so
+ * a patch that does not mention timeIn does not acquire one.
  *
- * The cast back to T is sound because this only ever replaces a date/time
- * value with another string (or, for a blank timeIn, the null the type already
- * permits) and never adds or removes a key.
+ * The cast back to T is sound because this only ever replaces a value with
+ * another of a type the field already permits, and never adds or removes a key.
  */
-function withNormalisedDateTime<T extends object>(input: T): T {
+function withNormalisedFields<T extends object>(input: T): T {
   const out = { ...input } as Record<string, unknown>;
   if ('date' in out) out.date = storedCalendarDate(out.date);
   if ('timeIn' in out) out.timeIn = storedTimeOfDay(out.timeIn);
+  if ('manualOrder' in out) out.manualOrder = storedManualOrder(out.manualOrder);
   return out as T;
 }
 
@@ -169,18 +191,91 @@ function withNormalisedDateTime<T extends object>(input: T): T {
  * part of the same atomic statement as the write, so there is no gap left
  * for anything else to land in between the write and reading its result.
  */
-export async function updateDive(
-  db: Db,
-  id: string,
-  patch: Partial<NewDiveInput>,
-): Promise<Dive> {
+export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<Dive> {
+  const safe = withNormalisedFields(withoutImmutableFields(patch));
+  // DivePatch already makes this a compile error; this catches the cast or
+  // untyped payload that got past it. A throw rather than a silent strip,
+  // because a dropped hand order looks exactly like a successful reorder.
+  if ('manualOrder' in safe) {
+    throw new Error(
+      `updateDive: manualOrder is not settable on one dive — use reorderDivesForDate (${id})`,
+    );
+  }
+
   const rows = await db
     .update(dives)
-    .set({ ...withNormalisedDateTime(withoutImmutableFields(patch)), updatedAt: now() })
+    .set({ ...safe, updatedAt: now() })
     .where(and(eq(dives.id, id), liveDives))
     .returning();
   if (rows.length === 0) throw new Error(`updateDive: dive not found: ${id}`);
   return toDive(rows[0]);
+}
+
+/**
+ * Rewrites the hand order of every live dive sharing one date as 1..n, in the
+ * order given. The only way `manual_order` ever changes after a dive is
+ * created, and the affordance M1b's drag-to-reorder should reach for.
+ *
+ * It takes the *whole day* rather than the moved dive because §2.5's
+ * `manual_order` is a tie-break, not a position: a dive that has been ordered
+ * by hand sorts before one that has not, so writing an order onto the dragged
+ * row alone lifts it to the top of its group instead of dropping it where the
+ * diver let go, and dragging two *timed* dives does nothing at all, since
+ * `timeIn` outranks hand order. Neither failure raises an error — both just
+ * produce a plausible, wrong logbook. Renumbering the whole date is the write
+ * that is actually correct, so it is the one the repository offers.
+ *
+ * `orderedIds` must name exactly the live dives on that date, once each. A
+ * subset would leave stale orders on the dives it omitted, which is the same
+ * half-applied-ordering bug one tier down; an unknown or duplicated id is a
+ * caller bug. All three throw rather than writing something partly right.
+ *
+ * One statement, not a transaction: the whole renumber is a single UPDATE with
+ * a CASE over the ids, so it is atomic on both drivers by construction, needs
+ * no nested-transaction handling when M2's `push_changes` wraps batches in
+ * transactions of its own, and cannot half-apply. `updated_at` moves on every
+ * row it touches, because `manual_order` is a synced column and §7's whole-row
+ * last-write-wins has to see the change.
+ */
+export async function reorderDivesForDate(
+  db: Db,
+  date: string,
+  orderedIds: string[],
+): Promise<void> {
+  // Same normalisation the write boundary applies, so a caller holding
+  // '2026-8-17' matches rows stored as '2026-08-17'.
+  const day = storedCalendarDate(date) as string;
+
+  const unique = new Set(orderedIds);
+  if (unique.size !== orderedIds.length) {
+    throw new Error(`reorderDivesForDate: duplicate id in the order for ${day}`);
+  }
+
+  const live = await db
+    .select({ id: dives.id })
+    .from(dives)
+    .where(and(eq(dives.date, day), liveDives));
+  const liveIds = new Set(live.map((row) => row.id));
+
+  const missing = live.filter((row) => !unique.has(row.id)).map((row) => row.id);
+  const unknown = orderedIds.filter((id) => !liveIds.has(id));
+  if (missing.length > 0 || unknown.length > 0) {
+    throw new Error(
+      `reorderDivesForDate: the order must name every live dive on ${day}, once each` +
+        (missing.length > 0 ? ` — missing: ${missing.join(', ')}` : '') +
+        (unknown.length > 0 ? ` — not on that date: ${unknown.join(', ')}` : ''),
+    );
+  }
+  if (orderedIds.length === 0) return;
+
+  const branches: SQL[] = [sql`(case ${dives.id}`];
+  orderedIds.forEach((id, index) => branches.push(sql`when ${id} then ${index + 1}`));
+  branches.push(sql`end)`);
+
+  await db
+    .update(dives)
+    .set({ manualOrder: sql.join(branches, sql` `), updatedAt: now() })
+    .where(and(eq(dives.date, day), liveDives, inArray(dives.id, orderedIds)));
 }
 
 /**

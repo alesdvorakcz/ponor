@@ -1,6 +1,13 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { assignDiveNumbers } from '../domain/diveNumber';
-import { createDive, getDive, listDives, softDeleteDive, updateDive } from './dives';
+import {
+  createDive,
+  getDive,
+  listDives,
+  reorderDivesForDate,
+  softDeleteDive,
+  updateDive,
+} from './dives';
 import { dives } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
@@ -205,6 +212,17 @@ describe('updateDive', () => {
     await expect(updateDive(db, 'nope', { notes: 'x' })).rejects.toThrow(/not found/i);
   });
 
+  it('refuses to set manualOrder on one dive, naming the function that does it right', async () => {
+    // A compile error already (DivePatch omits it); this is the cast or
+    // untyped payload that gets past that. A throw, not a silent strip — a
+    // dropped hand order looks exactly like a successful reorder.
+    const created = await createDive(db, { date: '2026-08-16' });
+    await expect(
+      updateDive(db, created.id, { manualOrder: 2 } as unknown as Parameters<typeof updateDive>[2]),
+    ).rejects.toThrow(/reorderDivesForDate/);
+    expect((await getDive(db, created.id))?.manualOrder).toBeNull();
+  });
+
   it('ignores a forged id/createdAt/updatedAt/deletedAt in the patch', async () => {
     const created = await createDive(db, { date: '2026-08-16', notes: 'original' });
     const forged = {
@@ -261,6 +279,151 @@ describe('updateDive', () => {
       expect(raw.notes).toBe('original');
       expect(raw.siteName).toBe('Right Reef');
     }
+  });
+});
+
+describe('manual order is a real integer at rest', () => {
+  const storageClass = async (id: string) =>
+    (
+      (await db.all(
+        sql`select typeof(manual_order) as t from dives where id = ${id}`,
+      )) as { t: string }[]
+    )[0]?.t;
+
+  it('rounds a fractional hand order instead of storing a REAL', async () => {
+    // SQLite's INTEGER is an affinity, not a constraint: it only converts a
+    // REAL when the conversion is lossless, so 1.5 used to read back as 1.5
+    // with storage class 'real'. DESIGN.md §2.5 says nullable integer, and
+    // M2's Postgres integer column will not be as forgiving.
+    const created = await createDive(db, { date: '2026-08-16', manualOrder: 1.5 });
+    expect(created.manualOrder).toBe(2);
+    expect(await storageClass(created.id)).toBe('integer');
+
+    const down = await createDive(db, { date: '2026-08-16', manualOrder: 1.4 });
+    expect(down.manualOrder).toBe(1);
+  });
+
+  it('keeps a whole hand order exactly, including a negative one', async () => {
+    expect((await createDive(db, { date: '2026-08-16', manualOrder: 3 })).manualOrder).toBe(3);
+    // Negative sorts before 1, which is coherent; clamping would invent a rule
+    // DESIGN.md does not state.
+    expect((await createDive(db, { date: '2026-08-16', manualOrder: -3 })).manualOrder).toBe(-3);
+  });
+
+  it('stores an unroundable hand order as null — "no hand order", how the comparator already reads it', async () => {
+    for (const bad of [NaN, Infinity, -Infinity, 'nine', {}, true]) {
+      const created = await createDive(db, {
+        date: '2026-08-16',
+        manualOrder: bad as unknown as number,
+      });
+      expect(created.manualOrder).toBeNull();
+    }
+  });
+
+  it('never blocks the save for any of them — §1', async () => {
+    await expect(
+      createDive(db, { date: '2026-08-16', manualOrder: 'nine' as unknown as number }),
+    ).resolves.toBeTruthy();
+  });
+});
+
+describe('reorderDivesForDate', () => {
+  // Three untimed dives on one day, in creation order.
+  const threeUntimed = async () => [
+    (await createDive(db, { date: '2026-08-16', title: 'one' })).id,
+    (await createDive(db, { date: '2026-08-16', title: 'two' })).id,
+    (await createDive(db, { date: '2026-08-16', title: 'three' })).id,
+  ];
+  const chronological = async () => (await listDives(db)).reverse().map((d) => d.title);
+
+  it('puts a dragged dive in the slot it was dropped in, not at the top of the day', async () => {
+    // The failure this function exists to prevent: writing manualOrder on the
+    // dragged row alone produced 'three', 'one', 'two' — hand-ordered sorts
+    // before not-hand-ordered, so the row jumps to the top of its group.
+    const [one, two, three] = await threeUntimed();
+    expect(await chronological()).toEqual(['one', 'two', 'three']);
+
+    await reorderDivesForDate(db, '2026-08-16', [one!, three!, two!]);
+    expect(await chronological()).toEqual(['one', 'three', 'two']);
+  });
+
+  it('reorders timed dives, which a single-row write cannot do at all', async () => {
+    // manualOrder sits below timeIn, so dragging two timed dives with a
+    // single-row write is a complete no-op. Renumbering does not help either
+    // — the tier order is deliberate — so this asserts what actually happens:
+    // the day's order is unchanged and the write reports success rather than
+    // pretending.
+    const early = await createDive(db, { date: '2026-08-16', timeIn: '09:00', title: 'early' });
+    const late = await createDive(db, { date: '2026-08-16', timeIn: '14:00', title: 'late' });
+    await reorderDivesForDate(db, '2026-08-16', [late.id, early.id]);
+    expect(await chronological()).toEqual(['early', 'late']);
+    expect((await getDive(db, late.id))?.manualOrder).toBe(1);
+  });
+
+  it('writes 1..n and bumps updatedAt on every row it touches', async () => {
+    const [one, two, three] = await threeUntimed();
+    const before = (await getDive(db, one!))!.updatedAt;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await reorderDivesForDate(db, '2026-08-16', [three!, one!, two!]);
+    expect((await getDive(db, three!))?.manualOrder).toBe(1);
+    expect((await getDive(db, one!))?.manualOrder).toBe(2);
+    expect((await getDive(db, two!))?.manualOrder).toBe(3);
+    // manual_order is a synced column and §7 is whole-row LWW, so the change
+    // has to be visible to sync.
+    expect(Date.parse((await getDive(db, one!))!.updatedAt)).toBeGreaterThan(Date.parse(before));
+  });
+
+  it('leaves other dates alone', async () => {
+    const [one, two, three] = await threeUntimed();
+    const elsewhere = await createDive(db, { date: '2026-08-17', title: 'other day' });
+    await reorderDivesForDate(db, '2026-08-16', [three!, two!, one!]);
+    expect((await getDive(db, elsewhere.id))?.manualOrder).toBeNull();
+  });
+
+  it('accepts a loosely spelled date, matching the write boundary', async () => {
+    const [one, two, three] = await threeUntimed();
+    await reorderDivesForDate(db, '2026-8-16', [three!, two!, one!]);
+    expect((await getDive(db, three!))?.manualOrder).toBe(1);
+  });
+
+  it('refuses a partial order rather than leaving stale hand orders behind', async () => {
+    const [one, , three] = await threeUntimed();
+    await expect(reorderDivesForDate(db, '2026-08-16', [three!, one!])).rejects.toThrow(
+      /every live dive/i,
+    );
+    // and nothing was written
+    expect((await getDive(db, three!))?.manualOrder).toBeNull();
+  });
+
+  it('refuses an id that is not a live dive on that date', async () => {
+    const [one, two, three] = await threeUntimed();
+    await expect(
+      reorderDivesForDate(db, '2026-08-16', [one!, two!, three!, 'nope']),
+    ).rejects.toThrow(/not on that date/i);
+
+    const elsewhere = await createDive(db, { date: '2026-08-17' });
+    await expect(
+      reorderDivesForDate(db, '2026-08-16', [one!, two!, three!, elsewhere.id]),
+    ).rejects.toThrow(/not on that date/i);
+  });
+
+  it('refuses a duplicated id', async () => {
+    const [one, two, three] = await threeUntimed();
+    await expect(
+      reorderDivesForDate(db, '2026-08-16', [one!, one!, two!, three!]),
+    ).rejects.toThrow(/duplicate id/i);
+  });
+
+  it('ignores tombstoned dives, which are no longer part of the day', async () => {
+    const [one, two, three] = await threeUntimed();
+    await softDeleteDive(db, two!);
+    await reorderDivesForDate(db, '2026-08-16', [three!, one!]);
+    expect(await chronological()).toEqual(['three', 'one']);
+  });
+
+  it('is a no-op on a date with no dives', async () => {
+    await expect(reorderDivesForDate(db, '2026-08-16', [])).resolves.toBeUndefined();
   });
 });
 
