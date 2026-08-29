@@ -163,10 +163,12 @@ The same schema lives in SQLite (Drizzle) and Postgres. Conventions: **SI units 
 | Cluster | Fields |
 |---|---|
 | Identity | `status` (logged·planned) · `date` · `time_in` · `duration_min` · `title` · `notes` · `rating` (1–5) |
-| Where | `site_id` + `site_name` snapshot · `center_id` + `center_name` snapshot · `entry` (shore·boat·other) · `salinity` (salt·fresh·brackish) · `water_body` (ocean·lake·river·quarry·cave·pool) · `location` (optional exact GPS point) |
+| Where | `site_id` + `site_name` snapshot · `center_id` + `center_name` snapshot · `entry` (shore·boat·other) · `salinity` (salt·fresh·brackish) · `water_body` (ocean·lake·river·quarry·cave·pool) · `latitude` + `longitude` (optional exact GPS point) |
 | Profile & conditions | `max_depth_m` · `avg_depth_m` · `water_temp_c` · `air_temp_c` · `visibility_m` · `waves` (0–3) · `current` (0–3) · `surge` (0–3) |
 | Gas & cylinders | `tanks` — JSON array, one entry per cylinder, first = main: `{ material (steel·alu), size_l, count (twinset = 2), working_bar, o2_pct (21 = air), he_pct, start_bar, end_bar }` |
-| Equipment & people | `suit` (none…dry) · `hood` · `gloves` · `boots` · `weights_kg` · `buddy` · `guide` |
+| Equipment & people | `suit` (none·shorty·wet·semidry·dry) · `hood` · `gloves` · `boots` · `weights_kg` · `buddy` · `guide` |
+
+**On the GPS point:** SQLite has no point type, so a dive's optional exact position is two nullable columns on the device. Postgres composes them into a PostGIS point in M2 — the sync payload carries the pair, and the server owns the geometry. `dive_sites` keeps a single PostGIS `location` because that table is server-authoritative.
 
 Tanks are one JSON column instead of a child table: they are never queried on their own, and whole-row sync stays trivial. The form shows a single cylinder until "+ add cylinder" is tapped — multi-gas ready without multi-gas clutter.
 
