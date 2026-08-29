@@ -11,7 +11,7 @@ function isNumber(v: number | null | undefined): v is number {
 
 /** Pressure consumed from one cylinder, or null if it cannot be known. */
 export function usedBar(tank: Tank): number | null {
-  if (!isNumber(tank.startBar) || !isNumber(tank.endBar)) return null;
+  if (!tank || !isNumber(tank.startBar) || !isNumber(tank.endBar)) return null;
   const used = tank.startBar - tank.endBar;
   return used >= 0 ? used : null;
 }
@@ -23,11 +23,14 @@ export function usedBar(tank: Tank): number | null {
  * still get a figure.
  */
 export function gasUsedLitres(tanks: Tank[]): number | null {
+  if (!Array.isArray(tanks)) return null;
   let total = 0;
   let counted = 0;
   for (const tank of tanks) {
     const used = usedBar(tank);
-    if (used === null || !isNumber(tank.sizeL)) continue;
+    // A cylinder can't hold zero or negative litres — treat that entry the same
+    // way as one whose size was never recorded, rather than as valid data.
+    if (used === null || !isNumber(tank.sizeL) || tank.sizeL <= 0) continue;
     const count = isNumber(tank.count) && tank.count > 0 ? tank.count : 1;
     total += used * tank.sizeL * count;
     counted += 1;
@@ -61,6 +64,10 @@ export function mod(
   ppO2Max: number = DEFAULT_PPO2_MAX,
 ): number | null {
   if (!isNumber(o2Pct) || o2Pct <= 0 || o2Pct > 100) return null;
+  // The ceiling is as much a part of "is this a real request" as the mix is —
+  // a zero or negative ppO2Max would otherwise produce a negative depth that
+  // reads as a plausible, and wrong, safety limit.
+  if (!isNumber(ppO2Max) || ppO2Max <= 0) return null;
   return (ppO2Max / (o2Pct / 100) - 1) * METRES_PER_BAR;
 }
 
@@ -82,7 +89,7 @@ function toClock(minutes: number): string {
 
 /** Wall-clock time the diver surfaced, wrapping past midnight. */
 export function timeOut(timeIn: string | null, durationMin: number | null): string | null {
-  if (timeIn === null || !isNumber(durationMin)) return null;
+  if (timeIn === null || !isNumber(durationMin) || durationMin < 0) return null;
   const start = toMinutes(timeIn);
   if (start === null) return null;
   return toClock(start + durationMin);
@@ -101,13 +108,20 @@ export function surfaceIntervalMin(
   const previousStart = toMinutes(previous.timeIn);
   const nextStart = toMinutes(next.timeIn);
   if (previousStart === null || nextStart === null) return null;
+  // An unrecorded previous duration is treated as 0 below — the previous dive's
+  // timeIn is the best surfacing estimate we have. But a duration that is present
+  // and impossible (negative, or not a real number) is corrupt, not merely
+  // unknown, and should not be silently folded into that same default.
+  if (previous.durationMin !== null && (!isNumber(previous.durationMin) || previous.durationMin < 0)) {
+    return null;
+  }
 
   const previousDay = Date.parse(`${previous.date}T00:00:00Z`);
   const nextDay = Date.parse(`${next.date}T00:00:00Z`);
   if (Number.isNaN(previousDay) || Number.isNaN(nextDay)) return null;
   const dayOffsetMin = (nextDay - previousDay) / 60000;
 
-  const surfaced = previousStart + (isNumber(previous.durationMin) ? previous.durationMin : 0);
+  const surfaced = previousStart + (previous.durationMin ?? 0);
   const interval = dayOffsetMin + nextStart - surfaced;
   return interval >= 0 ? interval : null;
 }
