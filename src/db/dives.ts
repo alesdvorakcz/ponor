@@ -113,20 +113,35 @@ function withoutImmutableFields(
   return safe;
 }
 
+/**
+ * Scoped to liveDives, and the write itself — not a separate pre-check ahead
+ * of an unscoped write — rejects when nothing matched, the same "nothing may
+ * silently do nothing" rule softDeleteDive follows. A pre-check-then-write
+ * split leaves a window between the two where a concurrent softDeleteDive can
+ * land: the pre-check already passed, so the old unscoped write went ahead
+ * regardless of the row's liveness by the time it ran, landing an edit on an
+ * already-tombstoned row while telling the caller the update had failed.
+ *
+ * Reads the result back from the UPDATE's own RETURNING clause rather than a
+ * separate trailing getDive. A second, later SELECT would reopen a race of
+ * its own: a delete landing between a successful scoped write and that
+ * SELECT would make a genuinely-applied edit report as rejected, even though
+ * this function's own write was valid at the moment it ran. RETURNING is
+ * part of the same atomic statement as the write, so there is no gap left
+ * for anything else to land in between the write and reading its result.
+ */
 export async function updateDive(
   db: Db,
   id: string,
   patch: Partial<NewDiveInput>,
 ): Promise<Dive> {
-  const existing = await getDive(db, id);
-  if (existing === null) throw new Error(`updateDive: dive not found: ${id}`);
-  await db
+  const rows = await db
     .update(dives)
     .set({ ...withoutImmutableFields(patch), updatedAt: now() })
-    .where(eq(dives.id, id));
-  const updated = await getDive(db, id);
-  if (updated === null) throw new Error(`updateDive: dive vanished during update: ${id}`);
-  return updated;
+    .where(and(eq(dives.id, id), liveDives))
+    .returning();
+  if (rows.length === 0) throw new Error(`updateDive: dive not found: ${id}`);
+  return toDive(rows[0]);
 }
 
 /**

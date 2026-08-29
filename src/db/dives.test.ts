@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { createDive, getDive, listDives, softDeleteDive, updateDive } from './dives';
 import { dives } from './schema';
@@ -140,6 +141,47 @@ describe('updateDive', () => {
 
   it('rejects an unknown id rather than silently doing nothing', async () => {
     await expect(updateDive(db, 'nope', { notes: 'x' })).rejects.toThrow(/not found/i);
+  });
+
+  it('never touches a row a concurrent delete already tombstoned — the write itself is scoped, not just a pre-check', async () => {
+    const created = await createDive(db, { date: '2026-08-16', notes: 'original', siteName: 'Right Reef' });
+    await softDeleteDive(db, created.id);
+
+    await expect(updateDive(db, created.id, { notes: 'raced', siteName: 'Wrong Reef' })).rejects.toThrow(/not found/i);
+
+    // Not just rejected — the tombstoned row must be byte-for-byte
+    // untouched by the failed update, not merely "still tombstoned".
+    const raw = (await db.select().from(dives).where(eq(dives.id, created.id)))[0];
+    expect(raw.notes).toBe('original');
+    expect(raw.siteName).toBe('Right Reef');
+  });
+
+  it('never reports success while the patch failed to land, nor failure while it landed anyway, when racing a delete', async () => {
+    // Fires both concurrently (neither awaited before the other starts) so
+    // they genuinely interleave rather than running one after the other.
+    // Regardless of which one's write reaches the row first, the invariant
+    // that must hold is: updateDive's own reported outcome always matches
+    // what actually ended up in the row. At HEAD (the unscoped write) this
+    // did not hold — the update could report rejected while its patch had
+    // already landed on the now-tombstoned row.
+    const created = await createDive(db, { date: '2026-08-16', notes: 'original', siteName: 'Right Reef' });
+    const id = created.id;
+
+    const updatePromise = updateDive(db, id, { notes: 'raced', siteName: 'Wrong Reef' })
+      .then(() => 'fulfilled' as const)
+      .catch(() => 'rejected' as const);
+    const deletePromise = softDeleteDive(db, id).catch(() => {});
+    const [updateOutcome] = await Promise.all([updatePromise, deletePromise]);
+
+    const raw = (await db.select().from(dives).where(eq(dives.id, id)))[0];
+    expect(raw.deletedAt).not.toBeNull(); // the delete itself always succeeds either way
+    if (updateOutcome === 'fulfilled') {
+      expect(raw.notes).toBe('raced');
+      expect(raw.siteName).toBe('Wrong Reef');
+    } else {
+      expect(raw.notes).toBe('original');
+      expect(raw.siteName).toBe('Right Reef');
+    }
   });
 });
 
