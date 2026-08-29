@@ -273,6 +273,152 @@ describe('updateDive', () => {
     await expect(updateDive(db, 'nope', { notes: 'x' })).rejects.toThrow(/not found/i);
   });
 
+  describe('a key carried with undefined means "don\'t touch"', () => {
+    // The rule, decided once: `undefined` is "leave this alone", `null` is the
+    // one explicit "clear this field". Before it, `'timeIn' in out` was true
+    // for `{ timeIn: undefined }` and storedTimeOfDay(undefined) returned null,
+    // so updateDive SILENTLY ERASED an entry time — while undefined on every
+    // other field was correctly dropped from the SET clause.
+
+    it('does not erase timeIn — the field that used to be uniquely broken', async () => {
+      const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15' });
+      const updated = await updateDive(db, created.id, {
+        timeIn: undefined,
+      } as unknown as Parameters<typeof updateDive>[2]);
+      expect(updated.timeIn).toBe('09:15');
+    });
+
+    it('does not erase timeIn alongside a real edit either', async () => {
+      const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15' });
+      const updated = await updateDive(db, created.id, {
+        notes: 'edited',
+        timeIn: undefined,
+      } as unknown as Parameters<typeof updateDive>[2]);
+      expect(updated.timeIn).toBe('09:15');
+      expect(updated.notes).toBe('edited');
+    });
+
+    it('survives the exact shape M1c will produce', async () => {
+      // `{ notes: form.notes, timeIn: form.timeIn }` where the form never had a
+      // timeIn key. This typechecks with no cast, which is why it was Critical.
+      const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15' });
+      const form: { notes?: string; timeIn?: string } = { notes: 'from the form' };
+      const updated = await updateDive(db, created.id, {
+        notes: form.notes,
+        timeIn: form.timeIn,
+      });
+      expect(updated.timeIn).toBe('09:15');
+      expect(updated.notes).toBe('from the form');
+    });
+
+    it('treats every field the same way, not just timeIn', async () => {
+      const created = await createDive(db, {
+        date: '2026-08-16',
+        timeIn: '09:15',
+        notes: 'keep',
+        maxDepthM: 10,
+        buddy: 'Petr',
+      });
+      const updated = await updateDive(db, created.id, {
+        notes: undefined,
+        maxDepthM: undefined,
+        buddy: undefined,
+        date: undefined,
+        timeIn: undefined,
+        title: 'only this',
+      });
+      expect(updated.notes).toBe('keep');
+      expect(updated.maxDepthM).toBe(10);
+      expect(updated.buddy).toBe('Petr');
+      expect(updated.date).toBe('2026-08-16');
+      expect(updated.timeIn).toBe('09:15');
+      expect(updated.title).toBe('only this');
+    });
+
+    it('still lets null clear a field — the explicit signal is unaffected', async () => {
+      const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15', buddy: 'Petr' });
+      const updated = await updateDive(db, created.id, { timeIn: null, buddy: null });
+      expect(updated.timeIn).toBeNull();
+      expect(updated.buddy).toBeNull();
+    });
+
+    it('does not bump updatedAt for a patch that is all undefined', async () => {
+      // §7 is whole-row last-write-wins keyed on updated_at: a call that wrote
+      // nothing but advanced the clock makes the device that did nothing win a
+      // sync conflict against the device that did something. Group 5 closed two
+      // doors onto that; this was the third.
+      const created = await createDive(db, { date: '2026-08-16', notes: 'original' });
+      await tick();
+      const updated = await updateDive(db, created.id, {
+        notes: undefined,
+        maxDepthM: undefined,
+        title: undefined,
+      });
+      expect(updated.notes).toBe('original');
+      expect(updated.updatedAt).toBe(created.updatedAt);
+    });
+
+    it('carrying manualOrder as undefined is not an attempt to set it', async () => {
+      // The rule has to mean the same thing for every field: manualOrder names
+      // a real column, so `undefined` there is "don't touch", not a forbidden
+      // write. A real value still throws (see the test below).
+      const created = await createDive(db, { date: '2026-08-16', manualOrder: 3 });
+      const updated = await updateDive(db, created.id, {
+        manualOrder: undefined,
+        notes: 'x',
+      } as unknown as Parameters<typeof updateDive>[2]);
+      expect(updated.manualOrder).toBe(3);
+      expect(updated.notes).toBe('x');
+    });
+
+    it('still reports a typo whatever its value — an unknown key is not a "don\'t touch"', async () => {
+      // Checked before undefined keys are dropped, deliberately: `maxDepth`
+      // names no column at all, so dropping it first would hide the typo
+      // forever, which is the silence the guard exists to end.
+      const created = await createDive(db, { date: '2026-08-16' });
+      await expect(
+        updateDive(db, created.id, {
+          maxDepth: undefined,
+        } as unknown as Parameters<typeof updateDive>[2]),
+      ).rejects.toThrow(/unknown field\(s\): maxDepth/);
+    });
+  });
+
+  describe('an empty patch is a successful no-op, not an error', () => {
+    // A diff-based edit form where the diver changed nothing is an ordinary
+    // M1c flow, not a failure. It must not write — see the updatedAt assertions
+    // — but it must not throw either.
+
+    it('resolves and returns the unchanged dive', async () => {
+      const created = await createDive(db, { date: '2026-08-16', notes: 'original' });
+      await tick();
+      const updated = await updateDive(db, created.id, {});
+      expect(updated).toEqual(created);
+      expect(updated.updatedAt).toBe(created.updatedAt);
+    });
+
+    it('resolves for a patch made empty by stripping forged immutable fields', async () => {
+      const created = await createDive(db, { date: '2026-08-16' });
+      await tick();
+      const updated = await updateDive(db, created.id, {
+        id: 'forged',
+        updatedAt: '2000-01-01T00:00:00.000Z',
+      } as unknown as Parameters<typeof updateDive>[2]);
+      expect(updated.id).toBe(created.id);
+      expect(updated.updatedAt).toBe(created.updatedAt);
+    });
+
+    it('still gives the caller the same accepted/rejected answer a real edit would', async () => {
+      // It must not skip the existence check just because there is nothing to
+      // write, or a no-change save on a deleted dive would look like success.
+      await expect(updateDive(db, 'nope', {})).rejects.toThrow(/not found/i);
+
+      const created = await createDive(db, { date: '2026-08-16' });
+      await softDeleteDive(db, created.id);
+      await expect(updateDive(db, created.id, {})).rejects.toThrow(/not found/i);
+    });
+  });
+
   it('refuses a patch key that names no column, instead of writing nothing and bumping updatedAt', async () => {
     // The real damage was not the missing write. §7 is whole-row
     // last-write-wins keyed on updated_at, so a patch that changed nothing but
@@ -296,24 +442,6 @@ describe('updateDive', () => {
         siteTitle: 'x',
       } as unknown as Parameters<typeof updateDive>[2]),
     ).rejects.toThrow(/maxDepth, siteTitle/);
-  });
-
-  it('refuses an empty patch rather than bumping updatedAt for nothing', async () => {
-    const created = await createDive(db, { date: '2026-08-16' });
-    await expect(updateDive(db, created.id, {})).rejects.toThrow(/empty patch/i);
-    expect((await getDive(db, created.id))?.updatedAt).toBe(created.updatedAt);
-  });
-
-  it('refuses a patch made empty by stripping forged immutable fields', async () => {
-    // Nothing left to write once id/createdAt/updatedAt/deletedAt are stripped.
-    const created = await createDive(db, { date: '2026-08-16' });
-    await expect(
-      updateDive(db, created.id, {
-        id: 'forged',
-        updatedAt: '2000-01-01T00:00:00.000Z',
-      } as unknown as Parameters<typeof updateDive>[2]),
-    ).rejects.toThrow(/empty patch/i);
-    expect((await getDive(db, created.id))?.updatedAt).toBe(created.updatedAt);
   });
 
   it('refuses to set manualOrder on one dive, naming the function that does it right', async () => {
@@ -470,12 +598,22 @@ describe('manual order is a real integer at rest', () => {
 
 describe('reorderDivesForDate', () => {
   // Three untimed dives on one day, in creation order.
-  const threeUntimed = async () => [
+  // Tuple-typed, not `string[]`: under noUncheckedIndexedAccess a plain array
+  // return makes every destructured id `string | undefined`, which is what
+  // sprinkled 17 `!` assertions through this block. The tuple is the honest
+  // type — the helper returns exactly three ids — and it removes all of them.
+  const threeUntimed = async (): Promise<[string, string, string]> => [
     (await createDive(db, { date: '2026-08-16', title: 'one' })).id,
     (await createDive(db, { date: '2026-08-16', title: 'two' })).id,
     (await createDive(db, { date: '2026-08-16', title: 'three' })).id,
   ];
   const chronological = async () => (await listDives(db)).reverse().map((d) => d.title);
+  /** getDive plus the assertion that it found something, so callers get a Dive. */
+  const mustGet = async (id: string) => {
+    const dive = await getDive(db, id);
+    if (dive === null) throw new Error(`mustGet: no live dive ${id}`);
+    return dive;
+  };
 
   it('puts a dragged dive in the slot it was dropped in, not at the top of the day', async () => {
     // The failure this function exists to prevent: writing manualOrder on the
@@ -484,87 +622,121 @@ describe('reorderDivesForDate', () => {
     const [one, two, three] = await threeUntimed();
     expect(await chronological()).toEqual(['one', 'two', 'three']);
 
-    await reorderDivesForDate(db, '2026-08-16', [one!, three!, two!]);
+    await reorderDivesForDate(db, '2026-08-16', [one, three, two]);
     expect(await chronological()).toEqual(['one', 'three', 'two']);
   });
 
-  it('reorders timed dives, which a single-row write cannot do at all', async () => {
-    // manualOrder sits below timeIn, so dragging two timed dives with a
-    // single-row write is a complete no-op. Renumbering does not help either
-    // — the tier order is deliberate — so this asserts what actually happens:
-    // the day's order is unchanged and the write reports success rather than
-    // pretending.
+  it('reports applied:false for timed dives, whose order §2.5 will not let it change', async () => {
+    // Renamed: the old name claimed it "reorders timed dives", which is the
+    // opposite of what it proves. manualOrder sits below timeIn in §2.5's
+    // tiers — frozen, and correct — so the write lands but the day sorts
+    // exactly as before. What matters is that the caller can SEE that, rather
+    // than wiring onDragEnd to a call that resolves and springs back.
     const early = await createDive(db, { date: '2026-08-16', timeIn: '09:00', title: 'early' });
     const late = await createDive(db, { date: '2026-08-16', timeIn: '14:00', title: 'late' });
-    await reorderDivesForDate(db, '2026-08-16', [late.id, early.id]);
+
+    const outcome = await reorderDivesForDate(db, '2026-08-16', [late.id, early.id]);
+    expect(outcome.applied).toBe(false);
+    expect(outcome.effectiveOrder).toEqual([early.id, late.id]);
+    expect(outcome.overriddenIds).toEqual([late.id, early.id]);
+
+    // and the day really does sort the way effectiveOrder said it would
     expect(await chronological()).toEqual(['early', 'late']);
-    expect((await getDive(db, late.id))?.manualOrder).toBe(1);
+    expect((await mustGet(late.id)).manualOrder).toBe(1);
+  });
+
+  it('reports applied:true when the order can actually take effect', async () => {
+    const [one, two, three] = await threeUntimed();
+    const outcome = await reorderDivesForDate(db, '2026-08-16', [three, one, two]);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.effectiveOrder).toEqual([three, one, two]);
+    expect(outcome.overriddenIds).toEqual([]);
   });
 
   it('writes 1..n and bumps updatedAt on every row it touches', async () => {
     const [one, two, three] = await threeUntimed();
-    const before = (await getDive(db, one!))!.updatedAt;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    const before = (await mustGet(one)).updatedAt;
+    await tick();
 
-    await reorderDivesForDate(db, '2026-08-16', [three!, one!, two!]);
-    expect((await getDive(db, three!))?.manualOrder).toBe(1);
-    expect((await getDive(db, one!))?.manualOrder).toBe(2);
-    expect((await getDive(db, two!))?.manualOrder).toBe(3);
+    await reorderDivesForDate(db, '2026-08-16', [three, one, two]);
+    expect((await mustGet(three)).manualOrder).toBe(1);
+    expect((await mustGet(one)).manualOrder).toBe(2);
+    expect((await mustGet(two)).manualOrder).toBe(3);
     // manual_order is a synced column and §7 is whole-row LWW, so the change
     // has to be visible to sync.
-    expect(Date.parse((await getDive(db, one!))!.updatedAt)).toBeGreaterThan(Date.parse(before));
+    expect(Date.parse((await mustGet(one)).updatedAt)).toBeGreaterThan(Date.parse(before));
   });
 
   it('leaves other dates alone', async () => {
     const [one, two, three] = await threeUntimed();
     const elsewhere = await createDive(db, { date: '2026-08-17', title: 'other day' });
-    await reorderDivesForDate(db, '2026-08-16', [three!, two!, one!]);
+    await reorderDivesForDate(db, '2026-08-16', [three, two, one]);
     expect((await getDive(db, elsewhere.id))?.manualOrder).toBeNull();
   });
 
   it('accepts a loosely spelled date, matching the write boundary', async () => {
     const [one, two, three] = await threeUntimed();
-    await reorderDivesForDate(db, '2026-8-16', [three!, two!, one!]);
-    expect((await getDive(db, three!))?.manualOrder).toBe(1);
+    await reorderDivesForDate(db, '2026-8-16', [three, two, one]);
+    expect((await getDive(db, three))?.manualOrder).toBe(1);
   });
 
   it('refuses a partial order rather than leaving stale hand orders behind', async () => {
     const [one, , three] = await threeUntimed();
-    await expect(reorderDivesForDate(db, '2026-08-16', [three!, one!])).rejects.toThrow(
+    await expect(reorderDivesForDate(db, '2026-08-16', [three, one])).rejects.toThrow(
       /every live dive/i,
     );
     // and nothing was written
-    expect((await getDive(db, three!))?.manualOrder).toBeNull();
+    expect((await getDive(db, three))?.manualOrder).toBeNull();
   });
 
   it('refuses an id that is not a live dive on that date', async () => {
     const [one, two, three] = await threeUntimed();
     await expect(
-      reorderDivesForDate(db, '2026-08-16', [one!, two!, three!, 'nope']),
+      reorderDivesForDate(db, '2026-08-16', [one, two, three, 'nope']),
     ).rejects.toThrow(/not on that date/i);
 
     const elsewhere = await createDive(db, { date: '2026-08-17' });
     await expect(
-      reorderDivesForDate(db, '2026-08-16', [one!, two!, three!, elsewhere.id]),
+      reorderDivesForDate(db, '2026-08-16', [one, two, three, elsewhere.id]),
     ).rejects.toThrow(/not on that date/i);
   });
 
   it('refuses a duplicated id', async () => {
     const [one, two, three] = await threeUntimed();
     await expect(
-      reorderDivesForDate(db, '2026-08-16', [one!, one!, two!, three!]),
+      reorderDivesForDate(db, '2026-08-16', [one, one, two, three]),
     ).rejects.toThrow(/duplicate id/i);
   });
 
   it('ignores tombstoned dives, which are no longer part of the day', async () => {
     const [one, two, three] = await threeUntimed();
-    await softDeleteDive(db, two!);
-    await reorderDivesForDate(db, '2026-08-16', [three!, one!]);
+    await softDeleteDive(db, two);
+    await reorderDivesForDate(db, '2026-08-16', [three, one]);
     expect(await chronological()).toEqual(['three', 'one']);
   });
 
   it('is a no-op on a date with no dives', async () => {
-    await expect(reorderDivesForDate(db, '2026-08-16', [])).resolves.toBeUndefined();
+    expect(await reorderDivesForDate(db, '2026-08-16', [])).toEqual({
+      applied: true,
+      effectiveOrder: [],
+      overriddenIds: [],
+    });
+  });
+
+  it('reports the partial truth on a mixed day, rather than a flat success', async () => {
+    // One timed dive and two untimed. §2.5 puts the timed one first whatever
+    // the hand order says, so a drag that tries to sink it below the others
+    // partly takes effect and partly does not — and the caller is told which.
+    const timed = await createDive(db, { date: '2026-08-16', timeIn: '09:00', title: 'timed' });
+    const a = await createDive(db, { date: '2026-08-16', title: 'a' });
+    const b = await createDive(db, { date: '2026-08-16', title: 'b' });
+
+    const outcome = await reorderDivesForDate(db, '2026-08-16', [b.id, a.id, timed.id]);
+    expect(outcome.applied).toBe(false);
+    expect(outcome.effectiveOrder).toEqual([timed.id, b.id, a.id]);
+    expect(await chronological()).toEqual(['timed', 'b', 'a']);
+    // The two untimed dives DID swap; only the timed one's slot was overridden.
+    expect(outcome.overriddenIds).toEqual([b.id, a.id, timed.id]);
   });
 });
 

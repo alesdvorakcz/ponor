@@ -92,7 +92,7 @@ export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
   const timestamp = now();
   const id = newId();
   const row = {
-    ...withNormalisedFields(withoutImmutableFields(input)),
+    ...withNormalisedFields(withoutUndefinedFields(withoutImmutableFields(input))),
     id,
     status: input.status ?? 'logged',
     tanks: input.tanks ?? [],
@@ -173,6 +173,32 @@ function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableFi
 }
 
 /**
+ * Drops keys carried with the value `undefined`, keeping keys set to `null`.
+ *
+ * A JS object literal produces a carried `undefined` constantly — `{ timeIn:
+ * form.timeIn }` where the form has no `timeIn` key is the single most ordinary
+ * shape M1c will write — and `'timeIn' in out` cannot tell that apart from a
+ * key the caller meant. Deciding it once, here, is the whole fix: **a carried
+ * `undefined` means "don't touch", and `null` is the one explicit "clear this
+ * field" signal.**
+ *
+ * Without this, `storedTimeOfDay(undefined)` returned `null` and Drizzle wrote
+ * a real NULL, so `updateDive(id, { timeIn: undefined })` silently ERASED a
+ * dive's entry time — while `undefined` on every other field was correctly
+ * dropped from the SET clause and left the value alone. `date` escaped only by
+ * the accident of a different fallback shape. Silently deleting a
+ * diver-entered field, with no error and a resolved promise, is the dangerous
+ * direction.
+ */
+function withoutUndefinedFields<T extends object>(patch: T): T {
+  const out = { ...patch } as Record<string, unknown>;
+  for (const key of Object.keys(out)) {
+    if (out[key] === undefined) delete out[key];
+  }
+  return out as T;
+}
+
+/**
  * The write boundary for the three fields whose stored form the rest of the
  * app relies on. `date` and `timeIn` are plain `text` columns and
  * `manual_order` is an INTEGER *affinity*, so nothing at the schema level makes
@@ -184,17 +210,21 @@ function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableFi
  * never blocked: a real date or time spelled loosely ('2026-8-17', '7:30') is
  * rewritten to the canonical form, an empty timeIn becomes the null the column
  * already uses for "no time", a fractional hand order is rounded, and anything
- * else is stored exactly as given. Only keys actually present are touched, so
- * a patch that does not mention timeIn does not acquire one.
+ * else is stored exactly as given.
+ *
+ * Only keys carrying a real value are touched. `undefined` is checked as well
+ * as `in`, so this holds for a key present with `undefined` and not merely for
+ * an absent one — callers pass this through `withoutUndefinedFields` first, and
+ * this repeats the condition rather than depending on that having happened.
  *
  * The cast back to T is sound because this only ever replaces a value with
  * another of a type the field already permits, and never adds or removes a key.
  */
 function withNormalisedFields<T extends object>(input: T): T {
   const out = { ...input } as Record<string, unknown>;
-  if ('date' in out) out.date = storedCalendarDate(out.date);
-  if ('timeIn' in out) out.timeIn = storedTimeOfDay(out.timeIn);
-  if ('manualOrder' in out) out.manualOrder = storedManualOrder(out.manualOrder);
+  if (out.date !== undefined) out.date = storedCalendarDate(out.date);
+  if (out.timeIn !== undefined) out.timeIn = storedTimeOfDay(out.timeIn);
+  if (out.manualOrder !== undefined) out.manualOrder = storedManualOrder(out.manualOrder);
   return out as T;
 }
 
@@ -216,15 +246,7 @@ function withNormalisedFields<T extends object>(input: T): T {
  * for anything else to land in between the write and reading its result.
  */
 export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<Dive> {
-  const safe = withNormalisedFields(withoutImmutableFields(patch)) as Record<string, unknown>;
-  // DivePatch already makes this a compile error; this catches the cast or
-  // untyped payload that got past it. A throw rather than a silent strip,
-  // because a dropped hand order looks exactly like a successful reorder.
-  if ('manualOrder' in safe) {
-    throw new Error(
-      `updateDive: manualOrder is not settable on one dive — use reorderDivesForDate (${id})`,
-    );
-  }
+  const named = withoutImmutableFields(patch) as Record<string, unknown>;
 
   // A key that names no column used to be dropped by Drizzle's SET builder and
   // the update ran anyway — so a patch of entirely mistyped keys did not merely
@@ -241,13 +263,48 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
   // exactly what the next two milestones produce. §1's "never block a save" is
   // about the diver's data, not about a malformed patch object: this throw is
   // unreachable for well-formed input.
+  //
+  // Checked BEFORE undefined keys are dropped, and deliberately so: a key that
+  // names no column is malformed whatever its value, so `{ maxDepth: undefined }`
+  // is still a typo worth reporting rather than a "don't touch maxDepth"
+  // instruction about a field that does not exist. Dropping it first would
+  // hide the typo forever, which is the very silence this guard exists to end.
   const columns = getTableColumns(dives);
-  const unknown = Object.keys(safe).filter((key) => !(key in columns));
+  const unknown = Object.keys(named).filter((key) => !(key in columns));
   if (unknown.length > 0) {
     throw new Error(`updateDive: unknown field(s): ${unknown.join(', ')} (${id})`);
   }
+
+  const safe = withNormalisedFields(withoutUndefinedFields(named));
+
+  // DivePatch already makes this a compile error; this catches the cast or
+  // untyped payload that got past it. A throw rather than a silent strip,
+  // because a dropped hand order looks exactly like a successful reorder.
+  //
+  // Checked AFTER undefined keys are dropped, unlike the unknown-key guard
+  // above: manualOrder names a real column, so carrying it as `undefined` is
+  // not an attempt to set it — it is the ordinary "don't touch" case, and the
+  // rule has to mean the same thing for every field.
+  if ('manualOrder' in safe) {
+    throw new Error(
+      `updateDive: manualOrder is not settable on one dive — use reorderDivesForDate (${id})`,
+    );
+  }
+
+  // A patch with nothing left to write is a successful no-op, not an error.
+  // It must not reach the UPDATE below, because `updatedAt: now()` would keep
+  // the statement alive and advance the clock over an unchanged row — the same
+  // §7 last-write-wins hazard the unknown-key guard exists to close, arriving
+  // through a different door. It still reads the row rather than returning
+  // early, so the caller gets exactly the accepted/rejected answer a real edit
+  // would have given for the same id.
+  //
+  // Throwing here instead would fail an ordinary "Save" on a form the diver
+  // opened and changed nothing in — a real M1c flow, and not an error.
   if (Object.keys(safe).length === 0) {
-    throw new Error(`updateDive: empty patch for ${id} — nothing to write`);
+    const unchanged = await getDive(db, id);
+    if (unchanged === null) throw new Error(`updateDive: dive not found: ${id}`);
+    return unchanged;
   }
 
   const rows = await db
@@ -285,23 +342,60 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
  * transactions of its own, and cannot half-apply. `updated_at` moves on every
  * row it touches, because `manual_order` is a synced column and §7's whole-row
  * last-write-wins has to see the change.
+ *
+ * **It returns whether the requested order can actually take effect**, and a
+ * caller that ignores that is the one thing this function cannot protect you
+ * from. Hand order is only the *third* tier: `timeIn` outranks it, so on a day
+ * of timed dives the write lands, the promise resolves, and the day sorts
+ * exactly as it did before. That is correct per §2.5 and the tiers are frozen —
+ * but a drag that reports success and springs back is the worst possible
+ * feedback, so the outcome says so instead of leaving M1b to discover it on a
+ * device. Offer the drag only where `applied` can be true; `effectiveOrder` is
+ * what the day will actually show.
  */
+export interface ReorderOutcome {
+  /** True when the day now sorts exactly as `orderedIds` asked. */
+  applied: boolean;
+  /**
+   * The order the day actually sorts in after the write — identical to
+   * `orderedIds` when `applied`. Derived by sorting the day's rows through
+   * `compareDiveOrder` with the new hand orders applied, so it reflects
+   * §2.5's real tiers rather than re-deriving them here.
+   */
+  effectiveOrder: string[];
+  /**
+   * The ids whose requested position a higher tier overrides. Empty when
+   * `applied`; on a day of timed dives, every id whose slot moved.
+   */
+  overriddenIds: string[];
+}
+
 export async function reorderDivesForDate(
   db: Db,
   date: string,
   orderedIds: string[],
-): Promise<void> {
+): Promise<ReorderOutcome> {
   // Same normalisation the write boundary applies, so a caller holding
   // '2026-8-17' matches rows stored as '2026-08-17'.
-  const day = storedCalendarDate(date) as string;
+  const day = storedCalendarDate(date);
 
   const unique = new Set(orderedIds);
   if (unique.size !== orderedIds.length) {
     throw new Error(`reorderDivesForDate: duplicate id in the order for ${day}`);
   }
 
+  // The ordering fields, not just the id, so the outcome below can be computed
+  // from compareDiveOrder itself rather than from a second copy of §2.5's tier
+  // rules — and without a second round trip.
   const live = await db
-    .select({ id: dives.id })
+    .select({
+      id: dives.id,
+      status: dives.status,
+      date: dives.date,
+      timeIn: dives.timeIn,
+      manualOrder: dives.manualOrder,
+      createdAt: dives.createdAt,
+    })
     .from(dives)
     .where(and(eq(dives.date, day), liveDives));
   const liveIds = new Set(live.map((row) => row.id));
@@ -315,7 +409,9 @@ export async function reorderDivesForDate(
         (unknown.length > 0 ? ` — not on that date: ${unknown.join(', ')}` : ''),
     );
   }
-  if (orderedIds.length === 0) return;
+  if (orderedIds.length === 0) {
+    return { applied: true, effectiveOrder: [], overriddenIds: [] };
+  }
 
   const branches: SQL[] = [sql`(case ${dives.id}`];
   orderedIds.forEach((id, index) => branches.push(sql`when ${id} then ${index + 1}`));
@@ -325,6 +421,19 @@ export async function reorderDivesForDate(
     .update(dives)
     .set({ manualOrder: sql.join(branches, sql` `), updatedAt: now() })
     .where(and(eq(dives.date, day), liveDives, inArray(dives.id, orderedIds)));
+
+  // What the day will actually show, computed by putting the hand orders this
+  // call just wrote through compareDiveOrder — the same comparator listDives
+  // and assignDiveNumbers use. Deriving it rather than re-stating "timeIn wins
+  // over manualOrder" here is the point: a second copy of the tier rules is
+  // precisely the drift this milestone spent itself closing.
+  const reordered = live.map((row) => ({
+    ...row,
+    manualOrder: orderedIds.indexOf(row.id) + 1,
+  }));
+  const effectiveOrder = [...reordered].sort(compareDiveOrder).map((row) => row.id);
+  const overriddenIds = orderedIds.filter((id, index) => effectiveOrder[index] !== id);
+  return { applied: overriddenIds.length === 0, effectiveOrder, overriddenIds };
 }
 
 /**
