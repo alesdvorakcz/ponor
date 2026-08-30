@@ -14,6 +14,7 @@ import { useDives } from '../db/useDives';
 import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
+import { formatDiveCount } from '../format/display';
 import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { resolveScheme } from '../theme/resolve';
@@ -292,11 +293,14 @@ export default function DivesScreen() {
           {
             key: 'up-next',
             title: 'Up next',
-            // Stays empty rather than e.g. the soonest/furthest date: a batch of planned
-            // dives has no single trip date range the way a logged trip does, and each
-            // row already states its own date (§3 — DiveRow.tsx's `plannedDate`), so
-            // there is nothing this header needs to add.
-            dateRange: '',
+            variant: 'upNext' as const,
+            // How many dives are queued — NOT a date range. A batch of planned dives has
+            // no single trip date range the way a logged trip does (each row states its
+            // own date, §3 — DiveRow.tsx's `plannedDate`), and this slot used to be left
+            // empty for that reason, which read as a trip whose date range failed to load
+            // rather than as a section that has none. The count is the fact this header
+            // actually has to add.
+            trailing: formatDiveCount(upNext.length),
             data: upNext.map((dive): ListEntry => ({ kind: 'dive', dive })),
           },
         ]
@@ -304,7 +308,8 @@ export default function DivesScreen() {
     ...groupIntoTrips(logged).map((trip) => ({
       key: trip.key,
       title: trip.title,
-      dateRange: trip.dateRange,
+      variant: 'trip' as const,
+      trailing: trip.dateRange,
       data: toListEntries(trip.dives, activeReorderDate),
     })),
   ];
@@ -395,7 +400,12 @@ export default function DivesScreen() {
           keyExtractor={entryKey}
           renderItem={({ item }) => renderListEntry(item)}
           renderSectionHeader={({ section }) => (
-            <TripHeader title={section.title} dateRange={section.dateRange} scheme={scheme} />
+            <TripHeader
+              title={section.title}
+              trailing={section.trailing}
+              variant={section.variant}
+              scheme={scheme}
+            />
           )}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.listContent}

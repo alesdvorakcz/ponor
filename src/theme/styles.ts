@@ -237,9 +237,21 @@ function build(scheme: ColorScheme) {
       textTransform: 'uppercase',
       letterSpacing: 1.5,
     },
+    // "Up next" only (M1d), applied ON TOP of `tripTitle` above rather than replacing it:
+    // the size, case and tracking are the same header treatment, and only the ink changes.
+    // A trip is an archive heading — everything under it already happened — where "Up next"
+    // is a live queue of dives still to come (§2.4), and rendering the two identically said
+    // they were the same kind of object. Muted ink is what reads as filed away, so the queue
+    // takes full `fg`. Ink versus muted ink is the only lever available: §0.1 rules out a
+    // hue, and a new shape here would be new visual vocabulary for one header.
+    tripTitleUpNext: {
+      color: theme.fg,
+    },
     // The trailing half of the same §0.6 row: "date range in mono, trailing" — mono
     // because a date range is the "timestamps" §0.2 reserves the face for, 11px (down
-    // from 12) to sit closer to tripTitle's new, much smaller 11.5.
+    // from 12) to sit closer to tripTitle's new, much smaller 11.5. Shared by both
+    // variants: "Up next" puts its dive count in this same slot, in this same face, so the
+    // header stops looking like a trip whose date range failed to load.
     tripDateRange: {
       fontFamily: fonts.mono,
       fontSize: 11,

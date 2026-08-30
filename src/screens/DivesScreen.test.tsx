@@ -253,6 +253,39 @@ it('pins planned dives above logged ones under "Up next"', async () => {
   expect(text.indexOf('Up next')).toBeLessThan(text.indexOf('12'));
 });
 
+// TripHeader.test.tsx already pins what each variant looks like; this is the proof that
+// THIS screen hands "Up next" the upNext variant and its own count, rather than dressing a
+// forward-looking queue as one more logged trip. Two planned dives and a logged one, so the
+// count is a number the section actually had to work out (not `dives.length`, and not a
+// constant that would read right for one dive).
+it('heads "Up next" with its dive count in full ink, not as another trip', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [
+      dive({ id: 'p1', date: '2026-09-05', status: 'planned' }),
+      dive({ id: 'p2', date: '2026-09-01', status: 'planned' }),
+      dive({ id: 'l', date: '2026-08-16', siteName: 'Blue Hole' }),
+    ],
+    numbers: new Map([['l', 12]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const styles = makeStyles('light'); // the scheme useColorScheme() reports under Jest
+  const texts = t.root ? t.root.queryAll((n) => n.type === 'Text') : [];
+
+  const upNext = texts.find((n) => n.children[0] === 'Up next');
+  const trip = texts.find((n) => n.children[0] === 'Blue Hole');
+  if (!upNext || !trip) throw new Error('expected both an "Up next" and a trip header');
+  const inkOf = (n: typeof upNext) =>
+    [n.props.style].flat(3).filter(Boolean).reduce((a: unknown, s: any) => s?.color ?? a, undefined);
+  expect(inkOf(upNext)).toBe(themeFor('light').fg);
+  expect(inkOf(trip)).toBe(themeFor('light').fgMuted);
+
+  // The count sits in the same trailing slot, and same style, a trip's date range uses.
+  const count = texts.find((n) => n.children[0] === '2 dives');
+  if (!count) throw new Error('"Up next" did not state how many dives are queued');
+  expect([count.props.style].flat(3).filter(Boolean)).toContain(styles.tripDateRange);
+});
+
 // useDives() hands back one order, newest-date-first (compareDiveOrder,
 // reversed) — correct for logged trips, but backwards within "Up next":
 // a planned dive further in the future sorts as "newest", so the mock

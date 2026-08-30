@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 
-import { formatDiveDate } from '../format/display';
+import { formatDiveCount, formatDiveDate } from '../format/display';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -45,12 +45,15 @@ interface DayStripProps {
 export function DayStrip({ date, count, active, scheme, onToggle }: DayStripProps) {
   const styles = makeStyles(scheme);
   const formattedDate = formatDiveDate(date);
-  const diveWord = count === 1 ? 'dive' : 'dives';
 
   return (
     <View style={[styles.dayStrip, active && styles.dayStripActive]}>
+      {/* The count phrase comes from `formatDiveCount` (format/display.ts), not from an
+          inline singular/plural choice here: the "Up next" header needs the same phrase,
+          and Czech (i18next, en + cs) does not pluralise on `=== 1`, so a second copy would
+          be a second place to find and fix. */}
       <Text style={styles.dayStripText}>
-        {formattedDate} · {count} {diveWord}, no times
+        {formattedDate} · {formatDiveCount(count)}, no times
       </Text>
       <Pressable
         style={styles.dayStripAction}

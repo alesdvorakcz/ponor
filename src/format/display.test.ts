@@ -4,6 +4,7 @@ import {
   formatCount,
   formatDepth,
   formatDepthParts,
+  formatDiveCount,
   formatDuration,
   formatDiveDate,
   formatDiveStatus,
@@ -190,6 +191,26 @@ describe('formatDiveStatus', () => {
   });
   it('capitalises a planned dive', () => {
     expect(formatDiveStatus('planned')).toBe('Planned');
+  });
+});
+
+// One owner for "N dives" — the "Up next" header's trailing slot (TripHeader.tsx) and the
+// day strip's own sentence (DayStrip.tsx) both need it, and the strip already carried its
+// own inline copy of the singular/plural choice. Czech (i18next, en + cs) does not pluralise
+// on `=== 1`, so the second copy would have had to be found and fixed too.
+describe('formatDiveCount', () => {
+  it('uses the singular for exactly one dive', () => {
+    expect(formatDiveCount(1)).toBe('1 dive');
+  });
+  it('uses the plural for more than one', () => {
+    expect(formatDiveCount(3)).toBe('3 dives');
+  });
+  // Not reachable from either caller today (the up-next section only renders with dives in
+  // it, and a day strip's floor is `canReorder`'s two) — pinned because English pluralises
+  // zero like the plural, not like the singular, which is the mistake a bare `count > 1`
+  // would make in the other direction.
+  it('uses the plural for none', () => {
+    expect(formatDiveCount(0)).toBe('0 dives');
   });
 });
 

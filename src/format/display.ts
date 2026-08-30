@@ -196,6 +196,23 @@ export function formatSurfaceInterval(minutes: number | null): string | null {
   return mins === 0 ? `${hours} h` : `${hours} h ${mins} min`;
 }
 
+/**
+ * How many dives, as a phrase: "1 dive", "3 dives". The single owner of that singular/plural
+ * choice, because there are two callers for it — the "Up next" header's trailing slot
+ * (TripHeader.tsx) and a day strip's own sentence (DayStrip.tsx, "18 Aug 2026 · 2 dives, no
+ * times") — and the strip previously carried an inline copy. English needs one comparison;
+ * Czech (i18next, en + cs, a later milestone) needs three forms and does not split on
+ * `=== 1`, so a second copy would be a second place to find and fix.
+ *
+ * Takes and returns non-null, unlike every formatter above: `count` is something the app
+ * counts (an array length), never a nullable field read back out of the database, so there
+ * is no absent case to thread through. The guards above exist for stored values; this has
+ * none.
+ */
+export function formatDiveCount(count: number): string {
+  return `${count} ${count === 1 ? 'dive' : 'dives'}`;
+}
+
 const MONTH_NAMES: readonly string[] = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
