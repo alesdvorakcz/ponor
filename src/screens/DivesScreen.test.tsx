@@ -570,6 +570,12 @@ it('gives the day strip no border of its own, so its boundary with the first row
   const stripStyle = [strip.props.style].flat(3).filter(Boolean);
   expect(stripStyle.some((s: any) => typeof s?.borderTopWidth === 'number' && s.borderTopWidth > 0)).toBe(false);
   expect(stripStyle.some((s: any) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(false);
+  // M1c closing fixes, Important #6: the two longhand checks above would both stay false
+  // for a border applied via the `borderWidth` SHORTHAND instead — RN honours it exactly
+  // like `borderTopWidth`/`borderBottomWidth` set individually, so a strip styled with
+  // `borderWidth: 1` would slip through this test having grown the exact doubled-line
+  // border this test exists to catch.
+  expect(stripStyle.some((s: any) => typeof s?.borderWidth === 'number' && s.borderWidth > 0)).toBe(false);
 
   const rows = t.root.queryAll((n) => n.props?.style === styles.diveRow);
   expect(rows).toHaveLength(2); // both of the strip's own dives, no reorder mode engaged
