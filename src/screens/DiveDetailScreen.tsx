@@ -10,6 +10,7 @@ import { type Dive, type Tank } from '../domain/types';
 import {
   formatDepth,
   formatDiveDate,
+  formatDiveStatus,
   formatDuration,
   formatEntry,
   formatPressure,
@@ -36,11 +37,13 @@ import { type ColorScheme } from '../theme/tokens';
  * this codebase has already paid for that class of mistake three times (diveNumber.ts's
  * docblock: "a logbook rendering dives numbered #2, #1, #3").
  *
- * Every field below is nullable except `date` (DESIGN.md §6), and a dive carrying only a
- * date is a normal, expected case (§1 — no form-shaming), not a broken one: a field that
- * is `null` is omitted outright, and a cluster whose every field is `null` is omitted
- * entirely, rather than either rendering as a placeholder dash or a heading with nothing
- * under it.
+ * Every field below is nullable except `date` and `status` (DESIGN.md §6), and a dive
+ * carrying only a date is a normal, expected case (§1 — no form-shaming), not a broken
+ * one: a field that is `null` is omitted outright, and a cluster whose every field is
+ * `null` is omitted entirely, rather than either rendering as a placeholder dash or a
+ * heading with nothing under it. `status` is shown unconditionally for the same reason
+ * `date` is — there is always a real value to show, so there is nothing to omit — and is
+ * what tells a planned dive's otherwise-sparse fields apart from a logged dive's.
  *
  * The six values `src/domain/derived.ts` computes (used pressure, gas used, RMV, MOD,
  * time out, surface interval) are never recomputed here — each is read from that module
@@ -297,6 +300,7 @@ export default function DiveDetailScreen() {
       <BackButton styles={styles} />
       <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
         <Cluster title="Date & time" styles={styles}>
+          <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
           <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
           {timeRange !== null && <Row label="Time" value={timeRange} mono styles={styles} />}
           {surfaceInterval !== null && (

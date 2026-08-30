@@ -163,10 +163,24 @@ it('omits a cluster heading entirely when every field in it is absent, not just 
   expect(text).not.toContain('Notes');
 });
 
-it('shows nothing but the date for a dive with only a date', async () => {
+// Status now renders unconditionally (Minor #5 below), so a dive with only a date recorded
+// shows the date AND the status — never nothing else, since status is never null.
+it('shows nothing but the date and status for a dive with only a date', async () => {
   const text = (await renderDetail(dive({ date: '2026-08-16' }))).join(' ');
   expect(text).toContain('16 Aug 2026');
+  expect(text).toContain('Logged');
   expect(text).not.toContain('null');
+});
+
+// Review task 7, Minor #5: a planned dive was indistinguishable from a logged one on this
+// screen — nothing showed `status` at all, so an otherwise-sparse planned dive (only date,
+// maybe a site) looked identical to a logged dive missing most of its fields. Quiet and
+// monochrome on purpose (§0.1: colour is depth and nothing else) — this is a plain Row like
+// any other, not a badge.
+it("shows a planned dive's status, distinctly from a logged one", async () => {
+  const text = (await renderDetail(dive({ date: '2026-09-01', status: 'planned' }))).join(' ');
+  expect(text).toContain('Planned');
+  expect(text).not.toContain('Logged');
 });
 
 it('draws no profile chart, because no dive carries a sample series', async () => {

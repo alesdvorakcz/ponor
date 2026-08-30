@@ -2,6 +2,7 @@ import {
   formatDepth,
   formatDuration,
   formatDiveDate,
+  formatDiveStatus,
   formatEntry,
   formatPressure,
   formatSalinity,
@@ -120,5 +121,17 @@ describe('formatSuit', () => {
   });
   it('returns null for an unrecorded suit', () => {
     expect(formatSuit(null)).toBeNull();
+  });
+});
+
+// `status` is never null (domain/types.ts — the one exception alongside id and date), so
+// unlike the four formatters above this one has no null case to return: every dive has one
+// to show.
+describe('formatDiveStatus', () => {
+  it('capitalises a logged dive', () => {
+    expect(formatDiveStatus('logged')).toBe('Logged');
+  });
+  it('capitalises a planned dive', () => {
+    expect(formatDiveStatus('planned')).toBe('Planned');
   });
 });

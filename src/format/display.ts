@@ -1,6 +1,6 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
-import { type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
+import { type DiveStatus, type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -143,4 +143,13 @@ export function formatWaterBody(waterBody: WaterBody | null): string | null {
 /** The exposure suit worn, e.g. "Semidry". */
 export function formatSuit(suit: Suit | null): string | null {
   return suit === null ? null : capitalize(suit);
+}
+
+/**
+ * A dive's status, "Logged" or "Planned". Unlike the four formatters above, `status` is
+ * never null (domain/types.ts: the one exception alongside `id` and `date`), so this takes
+ * and returns a plain string rather than threading a null case that can't occur.
+ */
+export function formatDiveStatus(status: DiveStatus): string {
+  return capitalize(status);
 }
