@@ -240,9 +240,14 @@ it('omits the surface interval row for two logged dives a year apart, rather tha
 // two ways: the populated cluster proves rendering does reach past Date & time, and each
 // omitted cluster's absence is then attributable to its OWN guard, not to a broken render.
 it('omits a cluster heading entirely when every field in it is absent, not just its rows', async () => {
+  // `.join('')`, not `.join(' ')`: DepthValue (M1c task 1) now splits "25.0 m" across two
+  // sibling Text nodes (value, then a quieter nested unit carrying its own leading space),
+  // so a join(' ') would insert a second space nothing on screen shows ("25.0  m") and
+  // break the 'toContain' below. join('') reconstructs exactly what's rendered, since
+  // sibling Text nodes never gain a space RN didn't put there itself.
   const text = (
     await renderDetail(dive({ date: '2026-08-16', maxDepthM: 25, avgDepthM: 20, durationMin: 40 }))
-  ).join(' ');
+  ).join('');
   expect(text).toContain('Depth & duration');
   expect(text).toContain('25.0 m');
   expect(text).not.toContain('Site & centre');

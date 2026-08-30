@@ -76,10 +76,12 @@ function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
       accessibilityLabel={accessibilityLabelFor(number, site, depth)}
     >
       <View style={styles.diveRowTop}>
-        {number !== undefined && <Text style={styles.diveNumber}>{`#${number}`}</Text>}
-        <Text style={styles.diveSite} numberOfLines={2}>
-          {site}
-        </Text>
+        <View style={styles.diveRowMain}>
+          {number !== undefined && <Text style={styles.diveNumber}>{`#${number}`}</Text>}
+          <Text style={styles.diveSite} numberOfLines={2}>
+            {site}
+          </Text>
+        </View>
         <DepthValue metres={dive.maxDepthM} scheme={scheme} />
       </View>
       {hasMeta && (

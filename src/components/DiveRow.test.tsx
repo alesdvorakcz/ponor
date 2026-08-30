@@ -30,7 +30,14 @@ it('shows the dive number, site and depth', async () => {
   const t = await render(
     <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" onPress={() => {}} />,
   );
-  const text = textIn(t).join(' ');
+  // `.join('')`, not `.join(' ')`: DepthValue (this task) now splits "32.4 m" across two
+  // sibling Text nodes — the value and a nested, quieter unit — so the two arrive here as
+  // separate array entries, "32.4" then " m" (the unit carries its own leading space, the
+  // way RN renders adjacent Text with no separator of its own). `join(' ')` would insert a
+  // second space that nothing on screen actually shows ("32.4  m") and break the
+  // `toContain` below; `join('')` reconstructs exactly what's rendered, since sibling Text
+  // nodes never gain a space RN didn't put there.
+  const text = textIn(t).join('');
   expect(text).toContain('248');
   expect(text).toContain('Blue Hole');
   expect(text).toContain('32.4 m');
@@ -107,4 +114,36 @@ it('passes the dive id to onPress', async () => {
   if (!t.root) throw new Error('DiveRow did not render a root element');
   await fireEvent.press(t.root);
   expect(onPress).toHaveBeenCalledWith('abc');
+});
+
+// DESIGN.md §0.6: depth is the anchor of a dive row — the value that actually differs
+// dive to dive, set larger than everything else so a column of dives reads as a column
+// of aligned, colour-coded numbers rather than every element competing at one size.
+it('sets the depth larger than the site name, so the row has an anchor', async () => {
+  const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const sizeOf = (s: string) => {
+    const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes(s));
+    return [node?.props.style].flat(3).filter(Boolean)
+      .reduce((acc: number, st) => st?.fontSize ?? acc, 0);
+  };
+  expect(sizeOf('32.4')).toBe(20);
+  expect(sizeOf('Blue Hole')).toBe(16);
+  expect(sizeOf('32.4')).toBeGreaterThan(sizeOf('Blue Hole'));
+});
+
+it('gives the depth tabular figures so a column of dives aligns', async () => {
+  const d = dive({ maxDepthM: 9.2 });
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('9.2'));
+  const style = [node?.props.style].flat(3).filter(Boolean);
+  expect(style.some((s) => s?.fontVariant?.includes('tabular-nums'))).toBe(true);
+});
+
+it('lets a long site name wrap rather than truncate', async () => {
+  const d = dive({ siteName: 'Šenkýřův lom u Zbraslavi nad Vltavou' });
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Šenkýřův'));
+  expect(node?.props.numberOfLines).toBe(2);
+  expect(node?.props.ellipsizeMode).not.toBe('head');
 });

@@ -146,12 +146,42 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.fgMuted,
     },
-    // Colour is intentionally absent: depth colour depends on the depth, not just the
-    // scheme, so the caller composes this with `{ color: depthColor(metres, scheme) }`.
+    // depthValue is the anchor of a dive row (§0.6): the value that actually differs
+    // dive to dive, set apart from every other row element by size, weight and colour so
+    // a column of dives reads as a column of aligned, colour-coded numbers. Colour is
+    // intentionally absent here: depth colour depends on the depth, not just the
+    // scheme, so the caller composes this with `{ color: depthColorOrNull(metres, scheme) }`.
+    // `textAlign: 'right'` plus tabular figures is what lines a column of these up.
     depthValue: {
-      fontFamily: fonts['mono-semibold'],
-      fontSize: 18,
+      fontFamily: fonts['mono-medium'],
+      fontSize: 20,
+      lineHeight: 22,
       fontVariant: ['tabular-nums'],
+      letterSpacing: -0.4,
+      textAlign: 'right',
+    },
+    // depthValue's counterpart on dive detail (§0.6: "20 px in a row, 34 px on dive
+    // detail") — DepthValue's `variant="hero"` selects this instead.
+    depthValueHero: {
+      fontFamily: fonts['mono-medium'],
+      fontSize: 34,
+      lineHeight: 36,
+      fontVariant: ['tabular-nums'],
+      letterSpacing: -1,
+    },
+    // The " m" split off `formatDepth`'s string (DepthValue.tsx) so the unit can sit
+    // quieter than the number it qualifies, without a second call into the formatter.
+    // No colour of its own: nested inside depthValue/depthValueHero's Text, it inherits
+    // the band colour those carry and only opacity sets it apart.
+    depthUnit: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      opacity: 0.62,
+    },
+    depthUnitHero: {
+      fontFamily: fonts.mono,
+      fontSize: 13,
+      opacity: 0.62,
     },
     // The app's one button treatment (§0.1): inverted ink, monochrome. Used
     // both full-width (EmptyState's primary action) and, via `fab` below,
@@ -199,34 +229,47 @@ function build(scheme: ColorScheme) {
       paddingVertical: 10,
       paddingHorizontal: 16,
     },
+    // `alignItems: 'flex-end'` is what lines depthValue up against the site name's own
+    // baseline (§0.6) rather than the row's midline — diveRowMain's last line is the
+    // site, so aligning both children's trailing edge puts the depth beside it rather
+    // than beside the smaller dive-number label above it.
     diveRowTop: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
+      alignItems: 'flex-end',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    // Holds the dive number and site name stacked (§0.6: "above the site name"),
+    // `flex: 1` so it takes the row's full width apart from what depthValue needs.
+    diveRowMain: {
+      flex: 1,
+      gap: 2,
     },
     diveRowBottom: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
     },
+    // A label above the site name, not a headline (§0.6) — muted and small, so it
+    // never competes with depthValue below for the row's one moment of emphasis.
     diveNumber: {
       fontFamily: fonts.mono,
-      fontSize: 14,
+      fontSize: 11,
       color: theme.fgMuted,
-      fontVariant: ['tabular-nums'],
+      letterSpacing: 0.4,
     },
     diveSite: {
       flex: 1,
-      fontFamily: fonts.sans,
+      fontFamily: fonts['sans-medium'],
       fontSize: 16,
       color: theme.fg,
+      lineHeight: 20,
     },
     // Shared by the time-range chip and the duration chip.
     diveChip: {
       fontFamily: fonts.mono,
-      fontSize: 13,
+      fontSize: 11.5,
       color: theme.fgMuted,
-      fontVariant: ['tabular-nums'],
     },
     diveRating: {
       fontFamily: fonts.sans,
