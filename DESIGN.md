@@ -80,7 +80,7 @@ Designed after M1b, once the built screens showed the tokens being *obeyed* with
 | Cluster label | Plex Mono | 10.5 | Uppercase, +0.14 em, muted |
 | Computed value | Plex Mono | 13.5 | Muted ink, plus a 6 px outlined marker on its label |
 
-**Computed values are marked as computed.** Time out, surface interval, gas used, RMV and MOD are derived, and a diver should never have to wonder which numbers came off their computer and which the app worked out. They carry a small outlined square on the label and sit in muted ink.
+**Computed values are marked as computed.** Every value the app derives rather than the diver enters — time out, surface interval, used pressure, gas used, RMV and MOD — carries a small outlined square on the label and sits in muted ink. A diver should never have to wonder which numbers came off their computer and which the app worked out. The rule is *derived or entered*, with no exception for arithmetic simple enough to do in your head: used pressure is start minus end, and it is marked for the same reason RMV is. Anything in `src/domain/derived.ts` is marked.
 
 **Carry-over marks what it inherited.** A prefilled field shows a `carried ×` chip. Accepting costs nothing — no confirmation, no tap; overwriting is just typing, and drops the chip; the `×` clears the field to a real blank, never a zero (§10). The form header's "from #6" is tappable and starts the dive blank, for the dive that has nothing in common with the last.
 
