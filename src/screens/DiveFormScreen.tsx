@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
@@ -457,14 +457,22 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
  * else behind six collapsible `FormGroup`s. **Only the date is required** (§2.2); every
  * other field, including a wholly untouched one, is a legitimate save.
  *
- * The save control (`formFooter` below) is never disabled — no `disabled` prop, no
- * `accessibilityState.disabled`, nothing computed from form validity — because §1's
- * "never block a save" binds the CONTROL itself, not just what happens after it is
- * pressed. `handleSubmit(onValid)` still runs `zodResolver(diveFormSchema)` underneath,
- * so a diver can always tap Save; a rejected `createDive` says so (`SAVE_ERROR_MESSAGE`)
- * instead of pretending it worked, and never touches the diver's typed values — §1's
- * "never block a save" cuts both ways, and losing what a diver already entered because
- * the disk was full is the other direction of the same failure.
+ * The save control (`formFooter` below) is **never disabled for validity** — nothing about
+ * what the diver has or has not filled in, or what the resolver makes of it, ever reaches
+ * its `disabled` prop — because §1's "never block a save" binds the CONTROL itself, not
+ * just what happens after it is pressed. `handleSubmit(onValid)` still runs
+ * `zodResolver(diveFormSchema)` underneath, so a diver can always tap Save; a rejected
+ * `createDive` says so (`SAVE_ERROR_MESSAGE`) instead of pretending it worked, and never
+ * touches the diver's typed values — §1's "never block a save" cuts both ways, and losing
+ * what a diver already entered because the disk was full is the other direction of the same
+ * failure.
+ *
+ * It **is** disabled while a write is in flight, and only then (§10: "the save control also
+ * needs an in-flight disabled state, since the repository is safe under concurrency but a
+ * double-tap would create two dives"). That is not validity blocking a save — it is one
+ * save already under way. `handleSubmit` has no re-entrancy latch of its own, so `onValid`
+ * below carries one; `disabled` is the visible half of it, not the enforcing half, because
+ * the two taps of a double-tap can both land before any state update has rendered.
  *
  * Creating a dive (`createDive`, `useDives()`, `carryOverFrom` applied to the diver's own
  * most recent LOGGED dive, and returning to the list on success — Task 6) is wired below
@@ -550,6 +558,15 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   // reads as "still true" for exactly as long as it still is.
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // DESIGN.md §10's in-flight save guard, in two halves that must not be confused with each
+  // other. `savingRef` is the guard: written and read synchronously inside `onValid`, so the
+  // second tap of a double-tap is turned away before it can reach `createDive`. `saving` is
+  // only how that state is SHOWN — a render-visible flag for the control's `disabled` and
+  // `accessibilityState`, which by definition lags at least one render behind the ref and
+  // therefore could never have enforced anything on its own.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
   // Same "no history to pop" guard `DiveDetailScreen.tsx`'s own `BackButton` uses
   // (`router.canGoBack()`), and for the same reason: this screen is reachable directly by
   // URL (a future share link or notification), where `router.back()` would have nothing
@@ -567,12 +584,25 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   // this handler for it, but writes nothing yet, matching the shell's own docblock above.
   const onValid = async (values: DiveFormValues) => {
     if (mode !== 'create') return;
+    // The latch, not `saving` below: both taps of a double-tap reach here through
+    // `handleSubmit`'s own async resolver before React has rendered anything, so a state
+    // flag read at render time is still `false` for the second one. A ref is written and
+    // read synchronously, which is the only thing fast enough to turn the second tap away.
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     setSaveError(null);
     try {
       await createDive(db, toNewDiveInput(values));
       returnToList();
     } catch {
       setSaveError(SAVE_ERROR_MESSAGE);
+    } finally {
+      // Released on both paths. A failed save that left the control latched shut would
+      // strand the diver on a form they cannot resubmit — the same "told nothing, can do
+      // nothing" dead end §1 exists to prevent, arrived at from the opposite direction.
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -822,7 +852,25 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
           DivesScreen.tsx's own floating row gives for composing it in locally rather
           than guessing it in a scheme-only stylesheet. */}
       <View style={[styles.formFooter, { paddingBottom: insets.bottom + 24 }]}>
-        <Pressable style={styles.action} onPress={handleSubmit(onValid)} accessibilityRole="button" accessibilityLabel="Save dive">
+        {/* `disabled`/`accessibilityState` from `saving`, never from form validity (§1;
+            see this screen's own docblock above). Both are set, not just one: `disabled`
+            is what stops the press, `accessibilityState.disabled` is what tells a screen
+            reader the same thing — a control that silently ignores a tap it still
+            announces as available is its own kind of dead button. */}
+        <Pressable
+          style={styles.action}
+          // `handleSubmit(onValid)` is built inside the press handler rather than during
+          // render: `onValid` reads `savingRef.current`, and handing a ref-reading function
+          // to another function during render is exactly what `react-hooks/refs` rejects —
+          // rightly, since a ref read at render time is a value React makes no promises
+          // about. Built on the press, it is read in an event handler, which is the only
+          // place a ref's `current` means anything.
+          onPress={() => handleSubmit(onValid)()}
+          disabled={saving}
+          accessibilityRole="button"
+          accessibilityLabel="Save dive"
+          accessibilityState={{ disabled: saving }}
+        >
           <Text style={styles.actionLabel}>Save dive</Text>
         </Pressable>
       </View>

@@ -399,7 +399,128 @@ it('prefills and marks a carried cylinder field too, not just top-level ones', a
   expect(findClearCarried(t, 'He %')).toBeUndefined();
 });
 
+// --- C2: a double-tapped Save must not log the dive twice ---
+//
+// DESIGN.md §10 names this in as many words: "the save control also needs an in-flight
+// disabled state, since the repository is safe under concurrency but a double-tap would
+// create two dives." `handleSubmit` has no re-entrancy latch of its own, so the screen
+// needs one — and the two halves of that guard are tested separately below, because a test
+// that only ever exercised one of them would go green with the other deleted.
+
+/**
+ * A `createDive` that hangs until the test lets it finish. `releaseWrite` is assigned
+ * synchronously by the `Promise` constructor, so it is callable before `createDive` has
+ * been called even once — which matters, because these tests hold one write open across a
+ * second press that has not happened yet.
+ */
+function hangingCreate(created: Dive): () => void {
+  let releaseWrite!: () => void;
+  const inFlight = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  mockCreate.mockImplementation(async () => {
+    await inFlight;
+    return created;
+  });
+  return releaseWrite;
+}
+
+/**
+ * A second activation of the save control dispatched straight at the committed host node,
+ * rather than through `fireEvent.press`.
+ *
+ * Two reasons, both load-bearing. `fireEvent.press` opens an `act` scope of its own, and
+ * the first press's scope is still open here (its write is deliberately held), which React
+ * rejects outright — "You seem to have overlapping act() calls" — and which leaves the NEXT
+ * test rendering against a corrupted tree, the exact cross-test damage `pressSave`'s comment
+ * above documents. And `onClick` is the activation path that does NOT consult the control's
+ * `disabled` prop, which is what makes this test pin the re-entrancy LATCH specifically:
+ * verified by mutation in both directions — deleting `savingRef`'s check makes this test
+ * report two writes even with `disabled` still wired, and deleting the `disabled` prop
+ * leaves it reporting one.
+ */
+function tapSaveAgain(t: RenderResult) {
+  const save = findButton(t, 'Save');
+  if (!save) throw new Error('no Save control found');
+  save.props.onClick({ nativeEvent: {}, stopPropagation() {}, preventDefault() {}, persist() {} });
+}
+
+/** Lets already-scheduled microtasks and timers run — enough for a press's own async
+ * resolver chain to reach (or be turned away at) the latch. */
+async function settle(times = 5) {
+  for (let i = 0; i < times; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+it('creates one dive, not two, when Save is double-tapped while the write is in flight', async () => {
+  const releaseWrite = hangingCreate(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+
+  // Deliberately not awaited: `fireEvent.press` only settles once the handler's whole
+  // chain has, and this write is held open on purpose — awaiting here would rule out the
+  // very overlap this test exists to create.
+  const first = fireEvent.press(findButton(t, 'Save')!);
+  // The second tap in the SAME frame, before React has re-rendered the control as disabled
+  // — which is what a double-tap actually is, and what leaves the re-entrancy latch as the
+  // only thing that can turn it away. Dispatched even a tick later and the `disabled` prop
+  // alone would swallow it, and this test would pass with the latch deleted.
+  tapSaveAgain(t);
+  await settle();
+
+  // Recorded before the write is released, so this is genuinely "while in flight" and not
+  // "after the latch had already let go".
+  const writesInFlight = mockCreate.mock.calls.length;
+
+  releaseWrite();
+  await first;
+
+  expect(writesInFlight).toBe(1);
+  expect(mockCreate).toHaveBeenCalledTimes(1);
+  // One dive logged, one return to the list — not two of either.
+  expect(router.back).toHaveBeenCalledTimes(1);
+});
+
+it('lets the diver try again after a failed save, rather than latching the control shut', async () => {
+  mockCreate.mockRejectedValue(new Error('disk full'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+
+  // A guard that never released would strand the diver on a form they cannot resubmit —
+  // the same "told nothing, can do nothing" dead end §1 exists to prevent, reached from the
+  // opposite direction.
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+});
+
+it('marks the save control disabled while a write is in flight, and only then', async () => {
+  const releaseWrite = hangingCreate(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  // §1 binds the control itself: nothing about form validity may disable it.
+  expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).not.toBe(true);
+
+  // `accessibilityState.disabled` is the half a screen reader announces, and the only half
+  // observable from here: `Pressable` consumes the `disabled` prop itself rather than
+  // forwarding it to the host `View` these queries reach. Both are set on the control; a
+  // control that silently ignores a tap it still announces as available is its own kind of
+  // dead button, and this is the one of the two a test can actually see.
+  const press = fireEvent.press(findButton(t, 'Save')!);
+  await waitFor(() => expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).toBe(true));
+
+  releaseWrite();
+  await press;
+  await waitFor(() => expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).not.toBe(true));
+});
+
 // --- C1: the screen the `+` button opens must actually mount ---
+//
+// Deliberately placed AFTER the in-flight save tests above: those hold a write open across
+// an un-awaited press, and the cheapest proof that they leave nothing settling into the
+// next test is a block of fresh mounts that would fail loudly against a corrupted tree.
 //
 // `useDives()` returns a fresh object and a fresh `dives` array every render (see
 // `stubDives` at the top of this file). This screen's render-phase `setState` used to be
