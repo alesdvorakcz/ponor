@@ -261,9 +261,22 @@ interface ControlledTextFieldProps {
   onDropCarried?: (name: FieldPath<DiveFormInput>) => void;
 }
 
-/** A free-text or numeric field, wired straight to `FormField` — `optionalNumber` and
+/**
+ * A free-text or numeric field, wired straight to `FormField` — `optionalNumber` and
  * `optionalText` (diveFormSchema.ts) both accept a bare string, so nothing here has to
- * pre-parse what the diver types. */
+ * pre-parse what the diver types.
+ *
+ * `fieldState.error` is rendered under the field when there is one. Almost every field on
+ * this form accepts anything (§1), so almost none of them can ever produce one — but `date`
+ * can, and when it does `handleSubmit` refuses to call `onValid` for the WHOLE form. Before
+ * this, that refusal was completely silent: type `31.8.2026`, the Czech spelling of a real
+ * date in an app that ships `cs`, tap Save, and nothing happened — no dive, no navigation,
+ * no message, nothing to tell the app apart from a dead button. Read from the `Controller`'s
+ * own `fieldState` rather than from `formState.errors` at the call site, so a field that
+ * grows a blocking rule later is covered without this screen keeping a second list of which
+ * fields can fail. Note this does NOT change whether the schema accepts or rejects anything;
+ * it only makes the existing rejection visible.
+ */
 function ControlledTextField({
   control,
   name,
@@ -275,11 +288,13 @@ function ControlledTextField({
   carriedPaths,
   onDropCarried,
 }: ControlledTextFieldProps) {
+  const styles = makeStyles(scheme);
   return (
     <Controller
       control={control}
       name={name}
-      render={({ field }) => (
+      render={({ field, fieldState }) => (
+      <>
         <FormField
           ref={field.ref}
           label={label}
@@ -308,6 +323,15 @@ function ControlledTextField({
             field.onChange(text);
           }}
         />
+        {fieldState.error?.message !== undefined && (
+          <View style={styles.formFieldError}>
+            {/* The schema's own message (`diveFormSchema.ts`), not a second sentence
+                written here: what makes a date unreadable is that file's rule to state,
+                and a copy here would drift the first time the rule changed. */}
+            <Text style={styles.formFieldErrorText}>{fieldState.error.message}</Text>
+          </View>
+        )}
+      </>
       )}
     />
   );

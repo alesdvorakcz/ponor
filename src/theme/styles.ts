@@ -1076,6 +1076,23 @@ function build(scheme: ColorScheme) {
     // attempt is done" moment to dismiss — the next Save attempt clears it either way.
     formSaveError: noticeBanner,
     formSaveErrorText: noticeBannerText,
+    // The blocking-field notice (M1d task 6 fix wave): shown under the one field whose
+    // value stopped a save, so a diver who typed a date the schema cannot read is told
+    // that, rather than tapping Save and watching nothing happen at all. Same banner
+    // vocabulary as `formSaveError` above and the two notices at the top of this function —
+    // one shape for "something is wrong and here is what" — spread from `noticeBanner`
+    // rather than retyped, with three properties overridden: no horizontal margin, because
+    // this one sits INSIDE `formScrollContent`'s own 20 px padding rather than spanning the
+    // screen; no bottom margin, because the field group it sits in already owns the gap
+    // below it; and no 48 dp floor, because that floor is a TAP TARGET rule (§0.5) and this
+    // is a line of text under a field, not something to tap.
+    formFieldError: {
+      ...noticeBanner,
+      marginHorizontal: 0,
+      marginBottom: 0,
+      minHeight: 0,
+    },
+    formFieldErrorText: noticeBannerText,
   });
 }
 

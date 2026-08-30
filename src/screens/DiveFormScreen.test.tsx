@@ -360,6 +360,62 @@ it('replaces to the dives list after a save reached by a deep link, with no hist
   expect(router.back).not.toHaveBeenCalled();
 });
 
+// I3: a date the schema cannot read used to make Save do nothing at all — no dive, no
+// navigation, no message. `31.8.2026` is the Czech spelling of a real date, and this app
+// ships `cs`, so this is not a contrived input. What the schema ACCEPTS is unchanged and
+// deliberately out of scope here (the owner's call, DESIGN.md §1 vs §2.2); the only claim
+// below is that a refusal is visible.
+
+it('says why Save did nothing when the date cannot be read, instead of refusing silently', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '31.8.2026');
+  await pressSave(t);
+
+  // The schema's own message (diveFormSchema.ts: "Enter a real date (YYYY-MM-DD)."), not a
+  // second sentence written in the screen — asserted on its distinctive half so this fails
+  // if the screen ever starts inventing its own wording.
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
+  expect(mockCreate).not.toHaveBeenCalled();
+  expect(router.back).not.toHaveBeenCalled();
+  expect(router.replace).not.toHaveBeenCalled();
+  // And §1's other direction: the diver's typing survives being told it is unreadable.
+  expect(findTextInput(t, 'Date')?.props?.value).toBe('31.8.2026');
+});
+
+it('clears the date message once the diver corrects it, rather than leaving a stale warning', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-31' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '31.8.2026');
+  await pressSave(t);
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
+
+  await typeInto(t, 'Date', '2026-08-31');
+  await waitFor(() => expect(textIn(t).join(' ')).not.toContain('Enter a real date'));
+
+  // And the save the message was blocking now goes through, so this proves a corrected
+  // form recovers rather than merely that one string disappeared.
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+});
+
+it('shows a blocking field message under the field it belongs to, not somewhere else', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '31.8.2026');
+  await pressSave(t);
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
+
+  // The message is a sibling of the Date field's own `FormField` root, not a screen-level
+  // banner that happens to mention a date — "near the control that caused it" is the whole
+  // point, and a top-of-screen notice would satisfy a bare text assertion just as well.
+  const message = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Enter a real date'));
+  const dateInput = findTextInput(t, 'Date');
+  expect(message).toBeDefined();
+  expect(dateInput).toBeDefined();
+  // FormField.tsx renders `formField` > TextInput; the message sits next to that
+  // `formField`, so the two share a grandparent-level container.
+  expect(message?.parent?.parent).toBe(dateInput?.parent?.parent);
+});
+
 it('tells the diver when a save fails instead of pretending it worked', async () => {
   mockCreate.mockRejectedValue(new Error('disk full'));
   const t = await render(<DiveFormScreen mode="create" />);
