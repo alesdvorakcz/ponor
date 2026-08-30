@@ -167,9 +167,12 @@ export type ReorderGate = ReturnType<typeof createReorderGate>;
  * doc, above) is always one `sameDateGroups` run, and `sameDateGroups` only
  * ever splits up ONE `groupIntoTrips` trip's dives (DivesScreen.tsx's
  * `toListEntries`) — and `groupIntoTrips`'s own `sameTrip` requires
- * `placeOf(a) === placeOf(b)` between every adjacent pair, which (string
- * equality being transitive) makes every dive in a trip share the identical
- * place. So in the one case this task exists for — two or more untimed
+ * `tripKeyOf(a) === tripKeyOf(b)` between every adjacent pair, which (string
+ * equality being transitive) makes every dive in a trip share one identical
+ * grouping key. Since M1d that key is the CENTRE, so a trip's dives can now
+ * carry several different site names — which weakens this argument without
+ * defeating it: a boat day out of one centre still commonly repeats a site,
+ * and position within the day is what distinguishes a row in every case. So in the one case this task exists for — two or more untimed
  * dives sharing a day, which is also the common case for sharing a site —
  * a label built from site name alone would read the same on every row all
  * over again and not fix anything. Position within the day always

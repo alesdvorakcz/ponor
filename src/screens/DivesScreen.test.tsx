@@ -195,8 +195,8 @@ async function scrollAndSettle(node: NonNullable<RenderResult['root']>, y: numbe
 }
 
 /** A DiveRow, found by its own number badge ("#<n>") rather than its site name: a
- * single-site trip's TripHeader is titled after that same site name (domain/trips.ts's
- * `placeOf`), so matching on the name would find the header FIRST — and pressing it would
+ * centre-less trip's TripHeader is titled after that same site name (domain/trips.ts's
+ * `tripKeyOf`), so matching on the name would find the header FIRST — and pressing it would
  * silently do nothing, since it carries no press handler for `fireEvent.press` to climb to
  * (see fire-event.js's own `findEventHandler`: no handler found up the tree just returns,
  * it doesn't throw). "#<n>" is unique to DiveRow. Presses any Text node inside the row;
