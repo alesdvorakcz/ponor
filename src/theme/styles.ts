@@ -302,21 +302,33 @@ function build(scheme: ColorScheme) {
     // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
     // floor applies to the row as a whole, not just its icon-sized controls, hence
     // minHeight here rather than on some inner element.
-    // `borderBottomWidth`/`borderBottomColor` (M1c task 7, §0.6: "Chrome the type scale
-    // does not cover") are what stop a list of these from reading as "one undifferentiated
-    // column" — the hairline sits below EVERY row, so it doubles as the separator between
-    // one row and the next AND as the edge that closes a trip group: the group's own last
-    // row supplies that closing edge for free, with nothing extra needed from
-    // DivesScreen.tsx, which renders every row (plain or mid-reorder) through this one
-    // style either way.
+    // `borderTopWidth`/`borderTopColor` (§0.6: "Chrome the type scale does not cover" —
+    // "set on each row's top edge, not its bottom") are what stop a list of these from
+    // reading as "one undifferentiated column." The edge is not interchangeable, and M1c
+    // task 7 originally shipped this on the BOTTOM edge — the owner caught it in the
+    // running app (M1c closing fixes) as a missing hairline under every trip header, with
+    // a stray one appearing a row later than it should: a bottom edge draws row N's line
+    // AFTER row N, so the header touched its first row with nothing under it, and the
+    // line that should have read as "under the header" instead showed up between that
+    // first row and whatever came next. Top fixes that: row N's own top edge draws the
+    // line BEFORE it, so the hairline sits directly under whatever precedes the row — a
+    // TripHeader, or (DayStrip.tsx) a DayStrip on a hand-orderable day, since that strip
+    // carries no border of its own and the first row after it supplies the seam instead.
+    // Every row still carries this same style regardless of position (this is one shared
+    // StyleSheet entry, not computed per-row), so the group's LAST row draws a line above
+    // itself exactly like every other row — there is simply nothing below it to draw one
+    // against, and the next group's header/strip has no border either. That is what
+    // closes a trip group on whitespace rather than a rule, per §0.6's own account, with
+    // nothing extra needed from DivesScreen.tsx, which renders every row (plain or
+    // mid-reorder) through this one style either way.
     diveRow: {
       minHeight: 48,
       justifyContent: 'center',
       gap: 6,
       paddingVertical: 10,
       paddingHorizontal: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.border,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
     // `alignItems: 'flex-end'` is what lines depthValue up against the site name's own
     // baseline (§0.6) rather than the row's midline — diveRowMain's last line is the

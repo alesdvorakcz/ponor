@@ -6,6 +6,7 @@ import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { themeFor } from '../theme/resolve';
+import { makeStyles } from '../theme/styles';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -539,6 +540,43 @@ it('shows no arrows until the day strip is switched on', async () => {
   expect(text).toContain('12.2'); // depth still visible in the resting state
   expect(findAllMoveButtons(t, 'up')).toHaveLength(0);
   expect(findAllMoveButtons(t, 'down')).toHaveLength(0);
+});
+
+// M1c closing fixes: `diveRow`'s hairline (theme/styles.ts) moved from the row's bottom
+// edge to its top, so it now reads as the line under whatever precedes a row — normally a
+// TripHeader, but `toListEntries` (this file's own top docblock) puts a DayStrip in
+// between for a qualifying day, so the seam that actually matters here is
+// "TripHeader -> DayStrip -> first row", not the plainer "TripHeader -> first row" every
+// other trip gets. Two things could go wrong at that seam and neither would be caught by
+// DiveRow.test.tsx alone, since that file renders a DiveRow in isolation with nothing
+// above it: DayStrip could grow a border of its own (doubling the line beside the row's
+// own top edge), or the row's edge could somehow fail to reach the DOM in this real,
+// composed screen even though it does in isolation. This proves both didn't happen: the
+// strip itself carries no border-bearing style, and both rows of the governed day still
+// carry their own top hairline.
+it('gives the day strip no border of its own, so its boundary with the first row it governs is a single line, not a doubled one', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 9.2 });
+  mockUseDives.mockReturnValue({ dives: [a, b], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+  if (!t.root) throw new Error('DivesScreen did not render a root element');
+  // DivesScreen resolves its own scheme via useColorScheme(), which is 'light' under Jest.
+  const styles = makeStyles('light');
+
+  const strips = t.root.queryAll((n) => [n.props?.style].flat(3).filter(Boolean).includes(styles.dayStrip));
+  expect(strips).toHaveLength(1);
+  const [strip] = strips;
+  if (!strip) throw new Error('expected a DayStrip node');
+  const stripStyle = [strip.props.style].flat(3).filter(Boolean);
+  expect(stripStyle.some((s: any) => typeof s?.borderTopWidth === 'number' && s.borderTopWidth > 0)).toBe(false);
+  expect(stripStyle.some((s: any) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(false);
+
+  const rows = t.root.queryAll((n) => n.props?.style === styles.diveRow);
+  expect(rows).toHaveLength(2); // both of the strip's own dives, no reorder mode engaged
+  for (const row of rows) {
+    expect(row.props.style.borderTopWidth).toBeGreaterThan(0);
+    expect(row.props.style.borderTopColor).toBe(themeFor('light').border);
+  }
 });
 
 // The distinguishing pair the task brief specifically calls for: a qualifying day and a

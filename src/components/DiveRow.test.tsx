@@ -214,24 +214,34 @@ it("keeps the row's own container style identical with or without a depthSlot ov
 
 // DESIGN.md §0.6 ("Chrome the type scale does not cover"): dive rows had no borders at
 // all, so a list of them read as "one undifferentiated column." A hairline on
-// `theme.border` beneath every row gives the eye an edge to stop at — between one row and
-// the next, and at the close of a trip group too, since a group's own last row supplies
-// that same border as its closing edge with nothing extra needed from DivesScreen.tsx (it
-// renders every row, plain or reorder-mode, through this exact component).
-it('gives the row a hairline border on theme.border, so consecutive rows have an edge to stop at', async () => {
+// `theme.border` gives the eye an edge to stop at — between one row and the next, and
+// under a trip group's own first row too, since that is where the group's header (or, for
+// a hand-orderable day, its DayStrip) closes off against the data beneath it.
+//
+// M1c closing fixes: this used to assert `borderBottomWidth`, which is exactly the "an
+// assertion that a border exists would pass on either edge" trap — the row briefly shipped
+// the hairline on the BOTTOM edge (M1c task 7) and this test kept passing throughout,
+// because it only ever checked "some border, some colour", never which edge. It now also
+// asserts `borderBottomWidth` is ABSENT, so reverting to the bottom edge reddens this test
+// directly instead of leaving it silently correct on the wrong property.
+it('gives the row a hairline border on theme.border, on its TOP edge specifically', async () => {
   const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" onPress={() => {}} />);
   if (!t.root) throw new Error('DiveRow did not render a root element');
   const style = [t.root.props.style].flat(3).filter(Boolean);
-  expect(style.some((s) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(true);
-  expect(style.some((s) => s?.borderBottomColor === themeFor('dark').border)).toBe(true);
+  expect(style.some((s) => typeof s?.borderTopWidth === 'number' && s.borderTopWidth > 0)).toBe(true);
+  expect(style.some((s) => s?.borderTopColor === themeFor('dark').border)).toBe(true);
+  // Not just "no OTHER edge happens to be set" — the bottom-edge properties specifically,
+  // the ones this row carried before the fix, must be gone.
+  expect(style.some((s) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(false);
+  expect(style.some((s) => s?.borderBottomColor !== undefined)).toBe(false);
 });
 
-it("recolours the row's hairline for the light scheme rather than carrying a fixed colour", async () => {
+it("recolours the row's top hairline for the light scheme rather than carrying a fixed colour", async () => {
   const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="light" onPress={() => {}} />);
   if (!t.root) throw new Error('DiveRow did not render a root element');
   const style = [t.root.props.style].flat(3).filter(Boolean);
-  expect(style.some((s) => s?.borderBottomColor === themeFor('light').border)).toBe(true);
-  expect(style.some((s) => s?.borderBottomColor === themeFor('dark').border)).toBe(false);
+  expect(style.some((s) => s?.borderTopColor === themeFor('light').border)).toBe(true);
+  expect(style.some((s) => s?.borderTopColor === themeFor('dark').border)).toBe(false);
 });
 
 // DESIGN.md §0.6 ("Chrome the type scale does not cover" / M1c task 7): '●' and '○' render
