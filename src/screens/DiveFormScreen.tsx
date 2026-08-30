@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
@@ -14,6 +13,7 @@ import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { diveFormSchema, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
+import { backToDives } from '../navigation/backToDives';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -567,18 +567,6 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
 
-  // Same "no history to pop" guard `DiveDetailScreen.tsx`'s own `BackButton` uses
-  // (`router.canGoBack()`), and for the same reason: this screen is reachable directly by
-  // URL (a future share link or notification), where `router.back()` would have nothing
-  // to do. `router.replace`, not `router.push`, so that fallback does not grow the stack.
-  const returnToList = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/');
-    }
-  };
-
   // `mode === 'edit'` is Task 7's job — completing/editing a specific dive via
   // `updateDive` — not this one's; this screen shell still runs `zodResolver` and reaches
   // this handler for it, but writes nothing yet, matching the shell's own docblock above.
@@ -594,7 +582,11 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
     setSaveError(null);
     try {
       await createDive(db, toNewDiveInput(values));
-      returnToList();
+      // `backToDives` (navigation/backToDives.ts), not a private copy of its guard: this
+      // screen is reachable directly by URL exactly as DiveDetailScreen is, and a diver who
+      // deep-linked into the form and saved must land on the list rather than sitting on a
+      // form that has already been written.
+      backToDives();
     } catch {
       setSaveError(SAVE_ERROR_MESSAGE);
     } finally {

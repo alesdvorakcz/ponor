@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 
 import { DepthValue } from '../components/DepthValue';
@@ -7,6 +7,7 @@ import { useDives } from '../db/useDives';
 import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
+import { backToDives } from '../navigation/backToDives';
 import {
   diveSiteLabel,
   formatConditionScale,
@@ -208,26 +209,17 @@ function Cluster({
  * a dive reached by an unknown id is exactly as much a dead end without this as a real
  * one would be, maybe more so since there's no content to scroll through either.
  *
- * `router.canGoBack()` guards which navigation actually happens: this screen is reachable
- * directly by URL (a future share link or notification), where there is no history to pop
- * and `router.back()` would have nothing to do. `router.replace` rather than `router.push`
- * for that fallback, so a cold deep-link launch doesn't grow the stack by one — landing
- * back on `/` should behave like arriving there fresh, not like a second Dives screen
- * pushed on top of a first.
+ * Which navigation that actually performs — pop the stack, or replace to `/` when a deep
+ * link left nothing to pop — belongs to `backToDives` (navigation/backToDives.ts), not to
+ * this component. DiveFormScreen needs the identical rule on a successful save and used to
+ * hold a character-for-character copy of it, under its own paragraph of the same reasoning;
+ * that copy is gone and both screens call the one owner.
  */
 function BackButton({ styles }: { styles: Styles }) {
-  const goBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/');
-    }
-  };
-
   return (
     <Pressable
       style={styles.detailBack}
-      onPress={goBack}
+      onPress={backToDives}
       accessibilityRole="button"
       accessibilityLabel="Back to dives"
     >

@@ -67,6 +67,10 @@ function stubDives(state: { dives?: Dive[]; numbers?: Map<string, number>; error
 beforeEach(() => {
   jest.clearAllMocks();
   stubDives();
+  // Set explicitly rather than left to the module factory's own `jest.fn(() => true)`:
+  // `clearAllMocks` clears calls but not return values, so one test overriding this would
+  // otherwise leak its `false` into every test declared after it.
+  (router.canGoBack as jest.Mock).mockReturnValue(true);
 });
 
 // Same RTL adaptation every screen test in this codebase uses (DivesScreen.test.tsx,
@@ -327,6 +331,33 @@ it('sends no zeros for fields the diver left empty, cylinders included', async (
   expect(Array.isArray((input as { tanks?: unknown[] }).tanks)).toBe(true);
   expect((input as { tanks: unknown[] }).tanks.length).toBeGreaterThan(0);
   expect(zeroPaths(input)).toEqual([]);
+});
+
+// I2: a successful save leaves this screen the same way DiveDetailScreen's back control
+// leaves that one — `backToDives` (navigation/backToDives.ts) owns the rule for both. The
+// two tests below are DiveDetailScreen.test.tsx's own pair of branch tests, applied to this
+// screen's own exit, because the `router.replace('/')` half had no coverage anywhere near
+// this screen: `canGoBack` was mocked true everywhere, so deleting the fallback left every
+// test green while a deep-linked diver saved and then sat on the form with no feedback.
+
+it('pops the navigation stack after a save, when there is history to go back to', async () => {
+  (router.canGoBack as jest.Mock).mockReturnValue(true);
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
+  expect(router.replace).not.toHaveBeenCalled();
+});
+
+it('replaces to the dives list after a save reached by a deep link, with no history to pop', async () => {
+  (router.canGoBack as jest.Mock).mockReturnValue(false);
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/'));
+  expect(router.back).not.toHaveBeenCalled();
 });
 
 it('tells the diver when a save fails instead of pretending it worked', async () => {
