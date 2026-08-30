@@ -1,5 +1,5 @@
 import { formatDiveDate } from '../format/display';
-import { calendarDateToUtcMs } from './datetime';
+import { calendarDateToUtcMs, normaliseTimeOfDay } from './datetime';
 import { type Dive } from './types';
 
 const MS_PER_DAY = 86_400_000;
@@ -170,4 +170,63 @@ export function groupIntoTrips(dives: Dive[]): Trip[] {
   flushCurrent();
 
   return trips;
+}
+
+/**
+ * Splits `dives` into consecutive runs sharing one exact calendar date — the
+ * unit hand-ordering (`canReorder` below, `reorderDivesForDate` in
+ * db/dives.ts) operates on. DESIGN.md §2.5: "same-day dives order by time
+ * in; when times are missing the diver can order them by hand" — a *day*,
+ * not a `Trip`, since one trip can span several dates (`groupIntoTrips`
+ * merges consecutive days at the same place) and `manual_order` is only ever
+ * a tie-break within a single `date`.
+ *
+ * Same single-pass, compare-only-to-the-immediately-previous-entry shape as
+ * `groupIntoTrips`, and for the same reason: `dives` must already be in the
+ * order `toDives` produces (any order is fine here, actually — unlike
+ * `sameTrip`, exact-date equality does not depend on which direction the
+ * list runs — but this still never re-sorts, so a caller's order, whichever
+ * way it runs, comes back unchanged within each group).
+ */
+export function sameDateGroups(dives: Dive[]): Dive[][] {
+  const groups: Dive[][] = [];
+  let current: Dive[] = [];
+
+  for (const d of dives) {
+    const previous = current.at(-1);
+    if (previous !== undefined && previous.date !== d.date) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(d);
+  }
+  if (current.length > 0) groups.push(current);
+
+  return groups;
+}
+
+/**
+ * True only when a group of same-date dives can actually be moved by hand.
+ * §2.5's tiers (owned by `compareDiveOrder`, diveNumber.ts — never restated
+ * here) rank `timeIn` above `manualOrder`, so on a day where every dive
+ * already carries an entry time, `reorderDivesForDate` still writes the
+ * requested order but the day sorts exactly as it did before (see that
+ * function's own docblock: `applied` is how it reports that). A control that
+ * offers reordering there looks like it works and silently does not — this
+ * is the one gate the UI needs to avoid that, checked with `applied` as the
+ * backstop it cannot rely on alone (see `ReorderControls.tsx`).
+ *
+ * "Has a time" is read through `normaliseTimeOfDay` — the same predicate
+ * `compareDiveOrder` itself uses for its timeIn tier — rather than a bare
+ * `!== null` check, so a `timeIn` value that could not sort by time either
+ * (an empty string, something unparseable) does not block reordering here
+ * when it would not have outranked `manualOrder` there.
+ *
+ * A single dive has no sibling to move relative to, so the floor is two.
+ * This does not check that every dive actually shares one date — callers
+ * pass it one `sameDateGroups` entry, the same "trust the caller's grouping"
+ * contract `groupIntoTrips` documents for `sameTrip`.
+ */
+export function canReorder(dives: Dive[]): boolean {
+  return dives.length >= 2 && dives.every((d) => normaliseTimeOfDay(d.timeIn) === null);
 }

@@ -4,12 +4,57 @@ import { Pressable, SectionList, Text, TextInput, View, useColorScheme } from 'r
 
 import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
+import { applyReorder, ReorderControls } from '../components/ReorderControls';
 import { TripHeader } from '../components/TripHeader';
+import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { searchDives } from '../domain/search';
-import { groupIntoTrips, splitPlanned, type Trip } from '../domain/trips';
+import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
+import { type Dive } from '../domain/types';
 import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+
+/**
+ * One row of a section's `data`, after `toListEntries` below has decided
+ * which same-date dives (`sameDateGroups`, domain/trips.ts) get plain
+ * `DiveRow`s and which get `ReorderControls` instead. A discriminated union
+ * rather than two parallel arrays, so `renderItem` can never pair a
+ * `ReorderControls` block with the wrong group's dives.
+ */
+type ListEntry =
+  | { kind: 'dive'; dive: Dive }
+  | { kind: 'reorderGroup'; date: string; dives: Dive[] };
+
+/**
+ * Splits `dives` (one section's worth, already in the screen's own order)
+ * into `ListEntry` rows: a `sameDateGroups` run becomes one `reorderGroup`
+ * entry when `canReorder` says hand-ordering could actually change
+ * something, and plain `dive` entries — rendered exactly as before this
+ * task — otherwise. This is the ONE place that decision is made; `DiveRow`
+ * and `ReorderControls` both just render whatever entry they are handed.
+ */
+function toListEntries(dives: Dive[]): ListEntry[] {
+  return sameDateGroups(dives).flatMap((group): ListEntry[] => {
+    const date = group.at(0)?.date;
+    // sameDateGroups never returns an empty group, and canReorder already
+    // requires at least two dives to return true, so `date === undefined`
+    // here is unreachable — but typed defensively (falls back to plain rows)
+    // rather than asserted past, the same choice `dateRangeOf` (trips.ts)
+    // makes for the same shape of "can't actually happen" gap.
+    if (date !== undefined && canReorder(group)) {
+      return [{ kind: 'reorderGroup', date, dives: group }];
+    }
+    return group.map((dive): ListEntry => ({ kind: 'dive', dive }));
+  });
+}
+
+/** Stable across a reorder: keyed by the group's full, sorted id set rather
+ * than e.g. its first dive's id, which can itself change after a move. */
+function entryKey(entry: ListEntry): string {
+  return entry.kind === 'dive'
+    ? entry.dive.id
+    : `reorder:${entry.date}:${[...entry.dives].map((d) => d.id).sort().join(',')}`;
+}
 
 /**
  * The Dives screen (DESIGN.md §3) — the app's front door. Rendered at route
@@ -31,6 +76,13 @@ import { makeStyles } from '../theme/styles';
  * first dive" prompt; and a non-empty logbook whose *search* matches
  * nothing says so on its own, with the search box left in place so a diver
  * who mistyped can fix it rather than being told they have no dives.
+ *
+ * This screen's one write (M1b's hand-ordering, §2.5) still goes through the
+ * same read-back-through-`useDives()` discipline: `handleReorder` calls
+ * `reorderDivesForDate` but never touches its result to decide what this
+ * screen shows next — the day's actual new order arrives back through
+ * `useDives()`'s live query re-running, the one path everything else here
+ * already uses. See `ReorderControls.tsx` for the rest of that mechanism.
  */
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
@@ -38,6 +90,12 @@ export default function DivesScreen() {
   const theme = themeFor(scheme);
   const { dives, numbers, error } = useDives();
   const [query, setQuery] = useState('');
+  // Set only when a reorder request could not fully take effect
+  // (`applyReorder`'s ApplyReorderResult) — canReorder is meant to keep that
+  // unreachable, but it is still handled: see ReorderControls.tsx's
+  // NOT_APPLIED_MESSAGE docblock for why an unreachable branch that fails
+  // silently is worth guarding anyway.
+  const [reorderMessage, setReorderMessage] = useState<string | null>(null);
 
   const openDive = (id: string) => router.push(`./dive/${id}`);
   // M1c builds the dive form this points at (DESIGN.md §9); the route does
@@ -51,6 +109,20 @@ export default function DivesScreen() {
   // that list. Verified: an absolute `router.push('/dive/new')` here does
   // not typecheck today; the relative form does.
   const logDive = () => router.push('./dive/new');
+
+  // Bound per date-group at the JSX call site below (`handleReorder(entry.date)`),
+  // since `ReorderControls`'s `onReorder` is `(orderedIds: string[]) => void` and
+  // has no other way to say which day it's for. Clears any previous message
+  // before each attempt rather than leaving a stale one showing through a
+  // successful retry, and never awaited by the caller — the day's actual
+  // resulting order comes back through `useDives()`'s own live query, not
+  // through this promise.
+  const handleReorder = (date: string) => (orderedIds: string[]) => {
+    setReorderMessage(null);
+    applyReorder(date, orderedIds, reorderDivesForDate)
+      .then((result) => setReorderMessage(result.message))
+      .catch(() => setReorderMessage("Couldn't reorder that day. Try again."));
+  };
 
   if (error) {
     return (
@@ -82,9 +154,30 @@ export default function DivesScreen() {
   // splitPlanned, groupIntoTrips and compareDiveOrder stay the single owners
   // of order everywhere else.
   const upNext = [...planned].reverse();
-  const sections: Trip[] = [
-    ...(upNext.length ? [{ key: 'up-next', title: 'Up next', dateRange: '', dives: upNext }] : []),
-    ...groupIntoTrips(logged),
+  // Hand-ordering is scoped to logged trips only, not "Up next": a planned
+  // dive has no number to reorder for (assignDiveNumbers only numbers
+  // `status: 'logged'` dives — diveNumber.ts), and `upNext`'s reversed
+  // display order runs the opposite direction from `toDives`'s newest-first
+  // order that ReorderControls/moveDown assume — mixing the two would need a
+  // second, differently-signed reversal here, exactly the kind of "which way
+  // does this go" mistake this milestone's review already flagged once.
+  const sections = [
+    ...(upNext.length
+      ? [
+          {
+            key: 'up-next',
+            title: 'Up next',
+            dateRange: '',
+            data: upNext.map((dive): ListEntry => ({ kind: 'dive', dive })),
+          },
+        ]
+      : []),
+    ...groupIntoTrips(logged).map((trip) => ({
+      key: trip.key,
+      title: trip.title,
+      dateRange: trip.dateRange,
+      data: toListEntries(trip.dives),
+    })),
   ];
 
   return (
@@ -99,22 +192,41 @@ export default function DivesScreen() {
         autoCorrect={false}
         accessibilityLabel="Search dives"
       />
+      {reorderMessage !== null && (
+        <Pressable
+          style={styles.reorderNotice}
+          onPress={() => setReorderMessage(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss message"
+        >
+          <Text style={styles.reorderNoticeText}>{reorderMessage}</Text>
+        </Pressable>
+      )}
       {sections.length === 0 ? (
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>No dives match your search.</Text>
         </View>
       ) : (
-        // SectionList needs each section's items under `data`; Trip (domain/trips.ts)
-        // names that field `dives`, since a trip is not SectionList-specific. Mapping
-        // here only renames the field for the one caller that needs the other name — it
-        // does not touch order, grouping, or filtering, all of which already happened
-        // above via searchDives/splitPlanned/groupIntoTrips.
+        // Order, grouping and filtering all already happened above
+        // (searchDives/splitPlanned/groupIntoTrips/toListEntries); this just
+        // renders whatever ListEntry each section ended up with — a plain
+        // DiveRow, or a ReorderControls block for one hand-orderable day.
         <SectionList
-          sections={sections.map((section) => ({ ...section, data: section.dives }))}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <DiveRow dive={item} number={numbers.get(item.id)} scheme={scheme} onPress={openDive} />
-          )}
+          sections={sections}
+          keyExtractor={entryKey}
+          renderItem={({ item }) =>
+            item.kind === 'dive' ? (
+              <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} onPress={openDive} />
+            ) : (
+              <ReorderControls
+                dives={item.dives}
+                numbers={numbers}
+                scheme={scheme}
+                onPress={openDive}
+                onReorder={handleReorder(item.date)}
+              />
+            )
+          }
           renderSectionHeader={({ section }) => (
             <TripHeader title={section.title} dateRange={section.dateRange} scheme={scheme} />
           )}

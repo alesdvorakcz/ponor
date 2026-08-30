@@ -1,12 +1,18 @@
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 
 import { dive } from '../domain/diveFixture';
+import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// DivesScreen calls this one directly (via ReorderControls.tsx's applyReorder), unlike
+// every read, which goes through the mocked useDives() above — mocked separately so a
+// reorder test can control exactly what ReorderOutcome it resolves with, without a real
+// database.
+jest.mock('../db/dives', () => ({ reorderDivesForDate: jest.fn() }));
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
 // @testing-library/react-native@14 actually exposes — the same adaptation already used in
@@ -33,10 +39,18 @@ function findSearchInput(t: RenderResult) {
   return input;
 }
 
+/** Every node carrying a given `accessibilityLabel`, in tree order — top to
+ * bottom, the same order as the dives they belong to. */
+function findAllByLabel(t: RenderResult, label: string) {
+  return t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
+}
+
 const mockUseDives = useDives as jest.Mock;
+const mockReorderDivesForDate = reorderDivesForDate as jest.Mock;
 
 afterEach(() => {
   mockUseDives.mockReset();
+  mockReorderDivesForDate.mockReset();
 });
 
 it('shows the empty state when there are no dives', async () => {
@@ -129,4 +143,84 @@ it('narrows the list to dives matching the search text', async () => {
   const text = textIn(t).join(' ');
   expect(text).toContain('Blue Hole');
   expect(text).not.toContain('Shark Reef');
+});
+
+// DESIGN.md §2.5's UI-facing half: hand-ordering is offered only where it can
+// actually change something, and a reorder that cannot take effect must say
+// so rather than silently spring back. domain/trips.test.ts and
+// ReorderControls.test.tsx already cover canReorder/moveDown/applyReorder in
+// isolation; these three exercise the real wiring end to end.
+
+it('offers move controls for an untimed same-day pair, and asks reorderDivesForDate for the chronological order', async () => {
+  // Same siteName on both — groupIntoTrips groups by place first, so two
+  // dives with DIFFERENT names would land in two separate one-dive trips and
+  // never even reach sameDateGroups/canReorder, passing this test (or the
+  // "does not offer" one below) for the wrong reason.
+  const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
+  const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
+  mockUseDives.mockReturnValue({
+    dives: [x, y],
+    numbers: new Map([
+      ['x', 2],
+      ['y', 1],
+    ]),
+    error: undefined,
+  });
+  mockReorderDivesForDate.mockResolvedValue({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
+
+  const t = await render(<DivesScreen />);
+  const [firstDown] = findAllByLabel(t, 'Move dive down');
+  if (!firstDown) throw new Error('expected a move-down control');
+  await fireEvent.press(firstDown);
+
+  // display order [x,y] -> swap(0,1) -> [y,x] -> chronological (reversed) -> [x,y]
+  await waitFor(() => {
+    expect(mockReorderDivesForDate).toHaveBeenCalledWith(expect.anything(), '2026-08-16', ['x', 'y']);
+  });
+});
+
+it('does not offer move controls for a same-day pair that already has entry times', async () => {
+  // Same siteName on both, for the same reason noted in the test above —
+  // otherwise this would pass because groupIntoTrips split them apart, not
+  // because canReorder's timeIn check actually fired.
+  mockUseDives.mockReturnValue({
+    dives: [
+      dive({ id: 'x', date: '2026-08-16', timeIn: '09:00', siteName: 'Blue Hole' }),
+      dive({ id: 'y', date: '2026-08-16', timeIn: '14:00', siteName: 'Blue Hole' }),
+    ],
+    numbers: new Map([
+      ['x', 1],
+      ['y', 2],
+    ]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(findAllByLabel(t, 'Move dive down')).toHaveLength(0);
+  expect(findAllByLabel(t, 'Move dive up')).toHaveLength(0);
+});
+
+// The exact failure this task's brief names: canReorder is meant to make
+// applied:false unreachable from here, but a diver must never see a reorder
+// silently spring back with no explanation if that gate is ever wrong.
+it('shows a message rather than silently springing back when a reorder does not take effect', async () => {
+  const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
+  const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
+  mockUseDives.mockReturnValue({
+    dives: [x, y],
+    numbers: new Map([
+      ['x', 2],
+      ['y', 1],
+    ]),
+    error: undefined,
+  });
+  mockReorderDivesForDate.mockResolvedValue({ applied: false, effectiveOrder: ['y', 'x'], overriddenIds: ['x'] });
+
+  const t = await render(<DivesScreen />);
+  const [firstDown] = findAllByLabel(t, 'Move dive down');
+  if (!firstDown) throw new Error('expected a move-down control');
+  await fireEvent.press(firstDown);
+
+  await waitFor(() => {
+    expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't reorder");
+  });
 });

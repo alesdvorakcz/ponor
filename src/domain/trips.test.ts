@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { groupIntoTrips, splitPlanned } from './trips';
+import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from './trips';
 
 describe('splitPlanned', () => {
   it('separates planned from logged, preserving order within each', () => {
@@ -101,5 +101,79 @@ describe('groupIntoTrips', () => {
 
   it('returns nothing for no dives', () => {
     expect(groupIntoTrips([])).toEqual([]);
+  });
+});
+
+describe('sameDateGroups', () => {
+  // Three dives, two of them sharing a date, so a comparator that merged
+  // everything (or nothing) can't pass this by coincidence — the middle
+  // group boundary has to land in the right place.
+  it('groups consecutive dives sharing one date, separately from the rest', () => {
+    const a = dive({ id: 'a', date: '2026-08-16' });
+    const b = dive({ id: 'b', date: '2026-08-16' });
+    const c = dive({ id: 'c', date: '2026-08-17' });
+    expect(sameDateGroups([a, b, c])).toEqual([[a, b], [c]]);
+  });
+
+  // Same date, but not adjacent in the input — mirrors groupIntoTrips's own
+  // "an out-of-order input produces a grouping with no defined meaning"
+  // contract: this never re-sorts, so the two 16ths land in separate groups
+  // rather than being reunited across the 17th between them.
+  it('does not reunite a date that reappears after a different one', () => {
+    const a = dive({ id: 'a', date: '2026-08-16' });
+    const b = dive({ id: 'b', date: '2026-08-17' });
+    const c = dive({ id: 'c', date: '2026-08-16' });
+    expect(sameDateGroups([a, b, c])).toEqual([[a], [b], [c]]);
+  });
+
+  it('returns nothing for no dives', () => {
+    expect(sameDateGroups([])).toEqual([]);
+  });
+});
+
+describe('canReorder', () => {
+  it('offers reordering for a day of untimed dives', () => {
+    expect(
+      canReorder([dive({ date: '2026-08-16' }), dive({ date: '2026-08-16' })]),
+    ).toBe(true);
+  });
+
+  it('does not offer reordering when the day has entry times, because it could not take effect', () => {
+    expect(
+      canReorder([
+        dive({ date: '2026-08-16', timeIn: '09:00' }),
+        dive({ date: '2026-08-16', timeIn: '14:00' }),
+      ]),
+    ).toBe(false);
+  });
+
+  // Only one of the two carries a time. reorderDivesForDate's own "mixed day"
+  // coverage (db/dives.test.ts) proves the write still only partly takes
+  // effect here — canReorder has to refuse the whole group, not just the
+  // timed dive within it.
+  it('does not offer reordering when only one dive of the day has a time', () => {
+    expect(
+      canReorder([dive({ date: '2026-08-16', timeIn: '09:00' }), dive({ date: '2026-08-16' })]),
+    ).toBe(false);
+  });
+
+  it('does not offer reordering for a single dive', () => {
+    expect(canReorder([dive({ date: '2026-08-16' })])).toBe(false);
+  });
+
+  it('does not offer reordering for no dives', () => {
+    expect(canReorder([])).toBe(false);
+  });
+
+  // normaliseTimeOfDay, not a bare `timeIn !== null` check: an unparseable
+  // time doesn't win compareDiveOrder's timeIn tier either, so it must not
+  // block reordering here — the same predicate, not a second copy of it.
+  it('offers reordering when timeIn is set but not a real time', () => {
+    expect(
+      canReorder([
+        dive({ date: '2026-08-16', timeIn: 'not-a-time' }),
+        dive({ date: '2026-08-16', timeIn: '' }),
+      ]),
+    ).toBe(true);
   });
 });

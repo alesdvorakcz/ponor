@@ -200,6 +200,70 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       letterSpacing: 1,
     },
+    // ReorderControls (§2.5: hand-order same-day dives with no entry time).
+    // `alignItems: 'center'` is what lets the shorter DiveRow centre
+    // vertically next to the taller two-button column beside it.
+    reorderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    reorderRowContent: {
+      flex: 1,
+    },
+    reorderButtonColumn: {
+      flexDirection: 'column',
+      gap: 4,
+      paddingRight: 12,
+      paddingLeft: 4,
+    },
+    // 48 dp floor (§0.5) on EACH button, not the pair together — a diver
+    // with wet hands gets the same target moving a dive as tapping anything
+    // else, even though the two stacked make this column taller than the
+    // DiveRow it sits beside.
+    reorderButton: {
+      minWidth: 48,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+    },
+    // Dimmed via opacity rather than a second colour token: the button at
+    // the top/bottom edge of its day is genuinely disabled, not merely
+    // de-emphasised, and opacity says so without inventing a new colour
+    // meaning for `depthValue`'s "colour is depth, and depth alone" rule to
+    // have to make an exception for.
+    reorderButtonDisabled: {
+      opacity: 0.35,
+    },
+    reorderButtonLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fg,
+    },
+    // The banner DivesScreen shows when a reorder request could not fully
+    // take effect (db/dives.ts's `applied: false` — see ReorderControls.tsx's
+    // `applyReorder`). Pressable so a diver can dismiss it before the next
+    // attempt; §0.5's floor still applies since it is itself a tap target.
+    reorderNotice: {
+      minHeight: 48,
+      justifyContent: 'center',
+      marginHorizontal: 20,
+      marginBottom: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    reorderNoticeText: {
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fgMuted,
+    },
     // DiveDetailScreen (§3's clusters: date & time, site & centre, depth & duration,
     // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
     // SectionList: unlike the Dives list this is one fixed dive's worth of content, not
