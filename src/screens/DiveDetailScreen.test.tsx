@@ -137,6 +137,95 @@ it('omits RMV specifically when depth or duration is missing, even though its cl
   expect(text).not.toContain('RMV');
 });
 
+// Review task 7, Important #1: seven fields (GPS, waves/current/surge, tank size/count/O2/He,
+// weight, rating) used to build their own `${x} unit` strings inline, bypassing
+// format/display.ts, and rendered the literal string "NaN" for exactly the input DESIGN.md
+// §10's COERCION CONTRACT requires M1c's form to produce — an empty numeric field reaching
+// the domain as NaN, never 0. The review verified 8 literal "NaN" strings reaching this
+// screen from a dive shaped like this one.
+it('never renders the literal string "NaN", for any of the fields that used to leak it', async () => {
+  const text = (
+    await renderDetail(
+      dive({
+        date: '2026-08-16',
+        latitude: Number.NaN,
+        longitude: Number.NaN,
+        waves: Number.NaN,
+        current: Number.NaN,
+        surge: Number.NaN,
+        weightsKg: Number.NaN,
+        rating: Number.NaN,
+        tanks: [
+          tank({
+            material: null,
+            sizeL: Number.NaN,
+            count: Number.NaN,
+            workingBar: null,
+            o2Pct: Number.NaN,
+            hePct: Number.NaN,
+            startBar: null,
+            endBar: null,
+          }),
+        ],
+      }),
+    )
+  ).join(' ');
+  expect(text).not.toContain('NaN');
+});
+
+// The mirror of the test above: the same fields with real readings still reach the screen,
+// so the fix routing them through format/display.ts didn't just make them disappear.
+it('shows GPS, condition scale, weight and rating fields when they are real readings', async () => {
+  const text = (
+    await renderDetail(
+      dive({ date: '2026-08-16', latitude: 50.12345, longitude: 14.56789, waves: 2, weightsKg: 6.5, rating: 4 }),
+    )
+  ).join(' ');
+  expect(text).toContain('50.12345, 14.56789');
+  expect(text).toContain('6.5 kg');
+  expect(text).toContain('4 / 5');
+});
+
+// Important #1 fallout: "Gas & cylinders" used to gate on raw `dive.tanks.length > 0`, the
+// one cluster on this screen not gated on computed presence. That was safe only while every
+// tank field rendered unconditionally (including as "NaN") — now that non-finite fields
+// correctly disappear, a tank whose only recorded fields were non-finite would otherwise
+// leave this heading standing over zero rows, same shape the Important #2 test below pins
+// for this screen's other clusters.
+it('omits the Gas & cylinders heading when every tank field is non-finite, not just when tanks is empty', async () => {
+  const text = (
+    await renderDetail(
+      dive({
+        date: '2026-08-16',
+        tanks: [
+          tank({
+            material: null,
+            sizeL: Number.NaN,
+            count: Number.NaN,
+            workingBar: null,
+            o2Pct: Number.NaN,
+            hePct: Number.NaN,
+            startBar: null,
+            endBar: null,
+          }),
+        ],
+      }),
+    )
+  ).join(' ');
+  expect(text).not.toContain('Gas & cylinders');
+});
+
+// Review task 7, Important #2: surfaceIntervalMin now refuses an interval of a day or more
+// (derived.test.ts pins the bound itself); this is the screen-level proof that a refused
+// interval renders as an absent row, not as the "525555 min" the review found on screen.
+it('omits the surface interval row for two logged dives a year apart, rather than showing an unbounded number', async () => {
+  const earlier = dive({ id: 'earlier', date: '2025-08-16', timeIn: '09:00', durationMin: 44 });
+  const target = dive({ id: 'target', date: '2026-08-16', timeIn: '09:00' });
+  const text = (await renderDetailIn([target, earlier], target)).join(' ');
+  expect(text).not.toContain('Surface interval');
+  expect(text).not.toContain('525555');
+});
+
 // Review task 7, Important #2: every cluster is gated the same way (`{X.length > 0 && ...}`,
 // `{showDepthDuration && ...}`, `{dive.tanks.length > 0 && ...}`, `{hasNotes && ...}`), and
 // nothing previously checked that a cluster's HEADING disappears along with its rows — only
@@ -198,15 +287,26 @@ it('says the dive is gone rather than crashing when the id is unknown', async ()
 // brief names, and none of the tests above actually exercise it. useDives() hands back every
 // live dive newest-date-first, so the dive that happened BEFORE `target` sits at the NEXT
 // array index, not the previous one — this pins that direction with a real, checkable number
-// (the same 08:12 + 44 min -> 102 min example derived.test.ts's own surfaceIntervalMin suite
-// uses), not just presence-of-a-label. Getting the index direction backwards would either
-// omit this row entirely or pair `target` with the wrong dive.
+// (the same 08:12 + 44 min -> 102 min -> "1 h 42 min" example derived.test.ts's own
+// surfaceIntervalMin suite and display.test.ts's formatSurfaceInterval suite use), not just
+// presence-of-a-label. Getting the index direction backwards would either omit this row
+// entirely or pair `target` with the wrong dive.
+//
+// Review task 7, cannot-fail #4: the LOGGED in this test's own name used to be untested — both
+// fixtures were logged (dive()'s own default), so mutating previousLoggedDive to search the
+// WHOLE list instead of splitPlanned's logged half survived every test in the suite. `between`
+// is a PLANNED dive sitting between target and earlier in raw list order (09:30, between
+// target's 10:38 and earlier's 08:12): if the logged-only filter were ever dropped, `between`
+// would be `earlier`'s neighbour instead, pairing target with a 09:30/44 min dive and reading
+// "24 min" — a different, wrong, but equally plausible-looking number — rather than 102.
 it('computes surface interval from the previous LOGGED dive, in list order newest-first', async () => {
   const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
+  const between = dive({ id: 'between', date: '2026-08-16', timeIn: '09:30', durationMin: 44, status: 'planned' });
   const target = dive({ id: 'target', date: '2026-08-16', timeIn: '10:38' });
-  // newest-first: target (10:38) sorts before earlier (08:12) on the same date.
-  const text = (await renderDetailIn([target, earlier], target)).join(' ');
-  expect(text).toContain('102 min');
+  // newest-first: target (10:38), then the planned dive (09:30), then earlier (08:12).
+  const text = (await renderDetailIn([target, between, earlier], target)).join(' ');
+  expect(text).toContain('1 h 42 min');
+  expect(text).not.toContain('24 min');
 });
 
 // Not in the brief's sample, but the same class of bug this milestone has hit repeatedly

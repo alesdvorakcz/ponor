@@ -1,15 +1,25 @@
 import {
+  formatConditionScale,
+  formatCoordinates,
+  formatCount,
   formatDepth,
   formatDuration,
   formatDiveDate,
   formatDiveStatus,
   formatEntry,
+  formatGasUsed,
+  formatPercent,
   formatPressure,
+  formatRating,
+  formatRmv,
   formatSalinity,
   formatSuit,
+  formatSurfaceInterval,
   formatTemperature,
   formatTimeRange,
+  formatVolume,
   formatWaterBody,
+  formatWeight,
 } from './display';
 
 describe('formatDepth', () => {
@@ -28,6 +38,13 @@ describe('formatDepth', () => {
 describe('formatDuration', () => {
   it('renders whole minutes', () => {
     expect(formatDuration(44)).toBe('44 min');
+  });
+  // Review task 7, cannot-fail #2: a whole-number fixture in, a whole-number string out —
+  // deleting the `Math.round` call survived every test in the suite, even though the name
+  // promises rounding. derived.ts's own comment on durationMin: "diver-entered and may
+  // carry a fraction (44.5 min)" — that fraction is the boundary this needs to reach.
+  it('rounds a fractional duration to the whole minute', () => {
+    expect(formatDuration(44.6)).toBe('45 min');
   });
   it('renders an hour-plus dive in minutes, which is how divers log it', () => {
     expect(formatDuration(72)).toBe('72 min');
@@ -67,6 +84,14 @@ describe('formatDiveDate', () => {
   });
   it('hands back an uninterpretable value unchanged rather than inventing a date', () => {
     expect(formatDiveDate('not a date')).toBe('not a date');
+  });
+  // Review task 7, cannot-fail #3: 'not a date' never reaches the documented
+  // `isCalendarDate` guard this test claims to cover — it's caught by the
+  // `Number.isInteger(year)` backstop a few lines down regardless, so deleting the guard
+  // survived every test in the suite. The guard's real job is a well-formed-but-impossible
+  // date: with it removed this would return the invented "30 Feb 2026" instead.
+  it('hands back a well-formed but impossible calendar date unchanged, rather than inventing one', () => {
+    expect(formatDiveDate('2026-02-30')).toBe('2026-02-30');
   });
 });
 
@@ -133,5 +158,147 @@ describe('formatDiveStatus', () => {
   });
   it('capitalises a planned dive', () => {
     expect(formatDiveStatus('planned')).toBe('Planned');
+  });
+});
+
+// Review task 7, Important #1: the eight formatters below are new — they close the seven
+// fields that used to build their own `${x} unit` strings inline in DiveDetailScreen.tsx,
+// bypassing this module and rendering the literal string "NaN" for exactly the input
+// DESIGN.md §10's COERCION CONTRACT requires M1c's form to produce. Each gets the same two
+// cases every formatter above does (a real reading, and the absent/non-finite cases this
+// module exists to swallow), plus whatever is specific to its own unit.
+
+describe('formatWeight', () => {
+  it('renders kilograms unrounded — weighting is often set in half-kilos', () => {
+    expect(formatWeight(6.5)).toBe('6.5 kg');
+  });
+  it('returns null for an unrecorded weight rather than a zero', () => {
+    expect(formatWeight(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatWeight(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatVolume', () => {
+  it('renders litres unrounded, since a real cylinder size can be fractional', () => {
+    expect(formatVolume(11.1)).toBe('11.1 l');
+  });
+  it('returns null for an unrecorded size', () => {
+    expect(formatVolume(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatVolume(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatGasUsed', () => {
+  it('rounds a computed total to the whole litre, unlike formatVolume', () => {
+    expect(formatGasUsed(2381.7)).toBe('2382 l');
+  });
+  it('returns null when the total could not be computed', () => {
+    expect(formatGasUsed(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatGasUsed(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatRmv', () => {
+  it('renders to one decimal place', () => {
+    expect(formatRmv(18.42)).toBe('18.4 l/min');
+  });
+  it('returns null when RMV could not be computed', () => {
+    expect(formatRmv(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatRmv(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatPercent', () => {
+  it('renders a gas fraction unrounded', () => {
+    expect(formatPercent(32)).toBe('32 %');
+  });
+  it('returns null for an unrecorded fraction', () => {
+    expect(formatPercent(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatPercent(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatCount', () => {
+  it('renders a plain cylinder count', () => {
+    expect(formatCount(2)).toBe('2');
+  });
+  it('returns null for an unrecorded count', () => {
+    expect(formatCount(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatCount(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatConditionScale', () => {
+  it('renders the bare 0–3 scale as recorded', () => {
+    expect(formatConditionScale(2)).toBe('2');
+  });
+  it('returns null for an unrecorded reading', () => {
+    expect(formatConditionScale(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatConditionScale(Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatCoordinates', () => {
+  it('renders both coordinates to five decimal places', () => {
+    expect(formatCoordinates(50.123456, 14.567891)).toBe('50.12346, 14.56789');
+  });
+  it('returns null when either coordinate alone is missing — a lone one is not a point', () => {
+    expect(formatCoordinates(null, 14.5)).toBeNull();
+    expect(formatCoordinates(50.1, null)).toBeNull();
+  });
+  it('returns null rather than rendering half a NaN pair', () => {
+    expect(formatCoordinates(Number.NaN, 14.5)).toBeNull();
+    expect(formatCoordinates(50.1, Number.NaN)).toBeNull();
+  });
+});
+
+describe('formatRating', () => {
+  it('renders out of five', () => {
+    expect(formatRating(4)).toBe('4 / 5');
+  });
+  it('returns null for an unrecorded rating', () => {
+    expect(formatRating(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatRating(Number.NaN)).toBeNull();
+  });
+});
+
+// Review task 7, Important #2: surfaceIntervalMin used to reach the screen through
+// formatDuration, unbounded — two logged dives a year apart rendered "525555 min".
+// derived.ts now refuses anything a day or over, so this only ever has to present a value
+// under 24 h — but even well inside that bound, a raw minute count stops being readable
+// long before it stops being real: "1340 min" does not read as "almost a day" the way
+// "22 h 20 min" does.
+describe('formatSurfaceInterval', () => {
+  it('renders under an hour in plain minutes, like a short dive duration', () => {
+    expect(formatSurfaceInterval(44)).toBe('44 min');
+  });
+  it('switches to hours and minutes at an hour and above', () => {
+    expect(formatSurfaceInterval(102)).toBe('1 h 42 min');
+    expect(formatSurfaceInterval(1340)).toBe('22 h 20 min');
+  });
+  it('drops the minutes when they are exactly zero', () => {
+    expect(formatSurfaceInterval(120)).toBe('2 h');
+  });
+  it('returns null for no previous dive to measure from', () => {
+    expect(formatSurfaceInterval(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatSurfaceInterval(Number.NaN)).toBeNull();
   });
 });

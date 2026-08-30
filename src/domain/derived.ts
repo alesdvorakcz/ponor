@@ -249,8 +249,20 @@ export function timeOut(timeIn: string | null, durationMin: number | null): stri
 /**
  * Minutes on the surface between one dive surfacing and the next descending.
  * Null when either time is unknown, when the previous dive's duration is
- * unknown or not a real number, or when the pair is out of order — an
- * interval that ran backwards means the data is wrong, not that it was zero.
+ * unknown or not a real number, when the pair is out of order — an interval
+ * that ran backwards means the data is wrong, not that it was zero — or when
+ * the interval is a day or more.
+ *
+ * That upper bound is new, and mirrors `timeOut`'s own a few functions up.
+ * Without it, two logged dives a year apart produced "525555 min" — a number
+ * that describes nothing a diver plans around, only a fully off-gassed diver
+ * a year later. Surface interval is a repetitive-dive concept: it feeds a
+ * diver's sense of residual nitrogen, and that stops applying long before a
+ * gap reaches a day, let alone a year. Rejecting it here, rather than merely
+ * formatting it more kindly at display, keeps the same "no number beats a
+ * wrong (or meaningless) one" stance every other guard in this file takes,
+ * and stops a screen from having to reinvent this file's own judgement about
+ * what a surface interval is for.
  *
  * The previous duration is required rather than defaulted to zero. Defaulting
  * it would measure the interval from the previous dive's entry time instead
@@ -284,5 +296,5 @@ export function surfaceIntervalMin(
 
   const surfaced = previousStart + previous.durationMin;
   const interval = dayOffsetMin + nextStart - surfaced;
-  return interval >= 0 ? interval : null;
+  return interval >= 0 && interval < MINUTES_PER_DAY ? interval : null;
 }

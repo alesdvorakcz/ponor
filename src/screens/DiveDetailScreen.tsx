@@ -8,17 +8,27 @@ import { gasUsedLitres, mod, rmv, surfaceIntervalMin, usedBar } from '../domain/
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import {
+  formatConditionScale,
+  formatCoordinates,
+  formatCount,
   formatDepth,
   formatDiveDate,
   formatDiveStatus,
   formatDuration,
   formatEntry,
+  formatGasUsed,
+  formatPercent,
   formatPressure,
+  formatRating,
+  formatRmv,
   formatSalinity,
   formatSuit,
+  formatSurfaceInterval,
   formatTemperature,
   formatTimeRange,
+  formatVolume,
   formatWaterBody,
+  formatWeight,
 } from '../format/display';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, type Styles } from '../theme/styles';
@@ -166,24 +176,18 @@ function whereFields(dive: Dive): Field[] {
   if (salinity !== null) fields.push({ label: 'Salinity', value: salinity, mono: false });
   const waterBody = formatWaterBody(dive.waterBody);
   if (waterBody !== null) fields.push({ label: 'Water body', value: waterBody, mono: false });
-  if (dive.latitude !== null && dive.longitude !== null) {
-    fields.push({
-      label: 'GPS',
-      value: `${dive.latitude.toFixed(5)}, ${dive.longitude.toFixed(5)}`,
-      mono: true,
-    });
-  }
+  const coordinates = formatCoordinates(dive.latitude, dive.longitude);
+  if (coordinates !== null) fields.push({ label: 'GPS', value: coordinates, mono: true });
   return fields;
 }
 
 /**
  * DESIGN.md §6's "Profile & conditions" fields, minus max/avg depth and duration, which
  * this screen groups into its own "Depth & duration" cluster instead. Water temp, air
- * temp and visibility all go through the same formatters this module reuses elsewhere
- * (`formatTemperature`, `formatDepth` — visibility is a metres reading at the same
- * one-decimal precision a depth is, and `format/display.ts` has no separate formatter for
- * it); waves/current/surge have no formatter of their own (a plain 0–3 rating) and are
- * shown as the bare number the diver recorded.
+ * temp and visibility go through `formatTemperature`/`formatDepth` (visibility is a metres
+ * reading at the same one-decimal precision a depth is); waves/current/surge go through
+ * `formatConditionScale`, the bare 0–3 rating DESIGN.md §10 keeps unclamped, shown as the
+ * diver recorded it rather than a formatted scale.
  */
 function conditionsFields(dive: Dive): Field[] {
   const fields: Field[] = [];
@@ -193,9 +197,12 @@ function conditionsFields(dive: Dive): Field[] {
   if (airTemp !== null) fields.push({ label: 'Air temp', value: airTemp, mono: true });
   const visibility = formatDepth(dive.visibilityM);
   if (visibility !== null) fields.push({ label: 'Visibility', value: visibility, mono: true });
-  if (dive.waves !== null) fields.push({ label: 'Waves', value: String(dive.waves), mono: true });
-  if (dive.current !== null) fields.push({ label: 'Current', value: String(dive.current), mono: true });
-  if (dive.surge !== null) fields.push({ label: 'Surge', value: String(dive.surge), mono: true });
+  const waves = formatConditionScale(dive.waves);
+  if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: true });
+  const current = formatConditionScale(dive.current);
+  if (current !== null) fields.push({ label: 'Current', value: current, mono: true });
+  const surge = formatConditionScale(dive.surge);
+  if (surge !== null) fields.push({ label: 'Surge', value: surge, mono: true });
   return fields;
 }
 
@@ -214,7 +221,8 @@ function equipmentFields(dive: Dive): Field[] {
   if (dive.hood !== null) fields.push({ label: 'Hood', value: dive.hood ? 'Yes' : 'No', mono: false });
   if (dive.gloves !== null) fields.push({ label: 'Gloves', value: dive.gloves ? 'Yes' : 'No', mono: false });
   if (dive.boots !== null) fields.push({ label: 'Boots', value: dive.boots ? 'Yes' : 'No', mono: false });
-  if (dive.weightsKg !== null) fields.push({ label: 'Weights', value: `${dive.weightsKg} kg`, mono: true });
+  const weights = formatWeight(dive.weightsKg);
+  if (weights !== null) fields.push({ label: 'Weights', value: weights, mono: true });
   if (dive.buddy !== null) fields.push({ label: 'Buddy', value: dive.buddy, mono: false });
   if (dive.guide !== null) fields.push({ label: 'Guide', value: dive.guide, mono: false });
   return fields;
@@ -224,19 +232,26 @@ function equipmentFields(dive: Dive): Field[] {
  * One cylinder's own fields, plus the pressure it used. `usedBar` is read from
  * derived.ts, never recomputed here as `startBar - endBar`: that arithmetic already
  * lives there, along with the guards that make it refuse a transposed or negative
- * reading rather than report a false figure. `sizeL`, `count`, `o2Pct` and `hePct` have
- * no dedicated formatter in `format/display.ts`, so they render as the plain recorded
- * number with a literal unit.
+ * reading rather than report a false figure. `sizeL`, `count`, `o2Pct` and `hePct` go
+ * through `format/display.ts`'s `formatVolume`/`formatCount`/`formatPercent` like every
+ * other field on this screen — the module's own docblock is the single owner of turning an
+ * SI value into a string, and a dedicated formatter per field is what closes that even for
+ * a field with no unit conversion coming (§10's kg/lb, m/ft, bar/psi list is depth,
+ * temperature, pressure and weight — not these).
  */
 function tankFields(tank: Tank): Field[] {
   const fields: Field[] = [];
   if (tank.material !== null) fields.push({ label: 'Material', value: tank.material, mono: false });
-  if (tank.sizeL !== null) fields.push({ label: 'Size', value: `${tank.sizeL} l`, mono: true });
-  if (tank.count !== null) fields.push({ label: 'Count', value: String(tank.count), mono: true });
+  const size = formatVolume(tank.sizeL);
+  if (size !== null) fields.push({ label: 'Size', value: size, mono: true });
+  const count = formatCount(tank.count);
+  if (count !== null) fields.push({ label: 'Count', value: count, mono: true });
   const working = formatPressure(tank.workingBar);
   if (working !== null) fields.push({ label: 'Working pressure', value: working, mono: true });
-  if (tank.o2Pct !== null) fields.push({ label: 'O₂', value: `${tank.o2Pct} %`, mono: true });
-  if (tank.hePct !== null) fields.push({ label: 'He', value: `${tank.hePct} %`, mono: true });
+  const o2 = formatPercent(tank.o2Pct);
+  if (o2 !== null) fields.push({ label: 'O₂', value: o2, mono: true });
+  const he = formatPercent(tank.hePct);
+  if (he !== null) fields.push({ label: 'He', value: he, mono: true });
   const start = formatPressure(tank.startBar);
   if (start !== null) fields.push({ label: 'Start pressure', value: start, mono: true });
   const end = formatPressure(tank.endBar);
@@ -263,12 +278,18 @@ function tankFields(tank: Tank): Field[] {
  * If the index direction above were ever wrong regardless, `surfaceIntervalMin`'s own
  * `interval >= 0` guard (derived.ts) is a second, independent line of defence: a reversed
  * index here can only ever hand it a "previous" dive that is chronologically AFTER
- * `dive`, and that guard rejects exactly that shape on every date/time combination (see
- * derived.test.ts's "transposed pair" case for a pinned example) — so the failure mode
- * stays a silently ABSENT surface-interval row, never a wrong-but-plausible number. This
- * function's own correctness doesn't lean on that happening to hold; it's named here so a
- * future change to either guard is something a reader can find, not something that has to
- * be re-derived from scratch.
+ * `dive`, and the guard rejects that for every pair whose date or time actually orders
+ * them (see derived.test.ts's "transposed pair" case for a pinned example) — so the
+ * failure mode stays a silently ABSENT surface-interval row, never a wrong-but-plausible
+ * number.
+ *
+ * It does NOT reject a same-date, same-time pair — that is not a gap in the guard, it is
+ * the guard being right. `compareDiveOrder`'s date and time tiers tie in that case, which
+ * means the two dives carry no recorded chronology for any index direction to get right or
+ * wrong; the 0-minute interval `surfaceIntervalMin` then returns is the truthful reading of
+ * that, not a mis-pairing let through. (An earlier version of this comment claimed the
+ * guard rejects "on every date/time combination" — that overstated it; this tie is the one
+ * combination it was never meant to reject.)
  */
 function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
   const { logged } = splitPlanned(dives);
@@ -310,7 +331,7 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
 
   const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
   const previous = previousLoggedDive(dives, dive);
-  const surfaceInterval = previous === undefined ? null : formatDuration(surfaceIntervalMin(previous, dive));
+  const surfaceInterval = previous === undefined ? null : formatSurfaceInterval(surfaceIntervalMin(previous, dive));
 
   const maxDepth = formatDepth(dive.maxDepthM);
   const avgDepth = formatDepth(dive.avgDepthM);
@@ -321,11 +342,24 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
   const conditions = conditionsFields(dive);
   const equipment = equipmentFields(dive);
 
-  const gasUsed = gasUsedLitres(dive.tanks);
-  const rmvValue = rmv(dive);
+  const gasUsed = formatGasUsed(gasUsedLitres(dive.tanks));
+  const rmvValue = formatRmv(rmv(dive));
   const modValue = formatDepth(mod(dive.tanks[0]?.o2Pct));
+  // Tank rows and the three summary rows above are all formatted before this decides
+  // whether the cluster shows at all. Every other cluster on this screen already gates on
+  // computed presence (where.length, showDepthDuration, conditions.length, hasNotes below);
+  // this one used to be the exception, gating on raw `dive.tanks.length > 0` instead — safe
+  // only while every tank field rendered unconditionally. Now that non-finite fields
+  // correctly disappear (Important #1), a tank whose only recorded fields were non-finite
+  // would otherwise leave this heading standing over zero rows, the same "heading with
+  // nothing under it" shape this screen's own "omits a cluster heading entirely..." test
+  // already guards for its siblings.
+  const tankGroups = dive.tanks.map((tank, index) => ({ index, fields: tankFields(tank) }));
+  const showGasCluster =
+    gasUsed !== null || rmvValue !== null || modValue !== null || tankGroups.some((t) => t.fields.length > 0);
 
-  const hasNotes = dive.title !== null || dive.notes !== null || dive.rating !== null;
+  const rating = formatRating(dive.rating);
+  const hasNotes = dive.title !== null || dive.notes !== null || rating !== null;
 
   return (
     <View style={styles.screen}>
@@ -374,13 +408,12 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
           </Cluster>
         )}
 
-        {dive.tanks.length > 0 && (
+        {showGasCluster && (
           <Cluster title="Gas & cylinders" styles={styles}>
-            {gasUsed !== null && <Row label="Gas used" value={`${Math.round(gasUsed)} l`} mono styles={styles} />}
-            {rmvValue !== null && <Row label="RMV" value={`${rmvValue.toFixed(1)} l/min`} mono styles={styles} />}
+            {gasUsed !== null && <Row label="Gas used" value={gasUsed} mono styles={styles} />}
+            {rmvValue !== null && <Row label="RMV" value={rmvValue} mono styles={styles} />}
             {modValue !== null && <Row label="MOD" value={modValue} mono styles={styles} />}
-            {dive.tanks.map((tank, index) => {
-              const fields = tankFields(tank);
+            {tankGroups.map(({ index, fields }) => {
               if (fields.length === 0) return null;
               return (
                 <View key={index} style={styles.detailTank}>
@@ -407,7 +440,7 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
         {hasNotes && (
           <Cluster title="Notes" styles={styles}>
             {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
-            {dive.rating !== null && <Row label="Rating" value={`${dive.rating} / 5`} mono styles={styles} />}
+            {rating !== null && <Row label="Rating" value={rating} mono styles={styles} />}
             {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
           </Cluster>
         )}

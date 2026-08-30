@@ -414,11 +414,15 @@ describe('surfaceIntervalMin', () => {
   it('is null for an impossible calendar date on EITHER side, not an interval overstated by a day', () => {
     // Date.parse range-checks the month but rolls the day, so '2026-02-30'
     // parses as 2026-03-02. On the NEXT dive that roll silently added 24 h to
-    // the interval and returned a completely plausible number — 2895 where
-    // the truth is 1455. Overstating is the direction this function's own
-    // docblock names as unsafe next to a diver's nitrogen-loading judgement.
+    // the interval and returned a completely plausible number — 2835 where
+    // the truth is 1395 (next.timeIn is deliberately earlier than
+    // previous.timeIn, 09:00 rather than 10:00, so the true one-day gap
+    // stays under the day-or-more bound just below rather than colliding
+    // with it — a second, unrelated guard this test isn't about). Overstating
+    // is the direction this function's own docblock names as unsafe next to
+    // a diver's nitrogen-loading judgement.
     const previous = { date: '2026-02-28', timeIn: '09:00', durationMin: 45 };
-    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '10:00' })).toBe(1455);
+    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '09:00' })).toBe(1395);
     expect(surfaceIntervalMin(previous, { date: '2026-02-30', timeIn: '10:00' })).toBeNull();
 
     // The mirror case was already caught, but only by accident: the previous
@@ -440,7 +444,22 @@ describe('surfaceIntervalMin', () => {
     // the dive list happily numbered the same row — the same value, two
     // verdicts. One parser now, so one verdict.
     const previous = { date: '2026-2-28', timeIn: '09:00', durationMin: 45 };
-    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '10:00' })).toBe(1455);
+    expect(surfaceIntervalMin(previous, { date: '2026-03-01', timeIn: '09:00' })).toBe(1395);
+  });
+
+  // Review task 7, Important #2: two logged dives a year apart rendered
+  // "525555 min" with no bound at all. Bounded the same way timeOut bounds a
+  // dive's own duration, a few functions up in this file.
+  it('is null when the interval is a day or more, not a number a diver would act on', () => {
+    const previous = { date: '2025-08-16', timeIn: '09:00', durationMin: 44 };
+    const next = { date: '2026-08-16', timeIn: '09:00' }; // a year later
+    expect(surfaceIntervalMin(previous, next)).toBeNull();
+  });
+
+  it('stays a real number just under the day bound, and goes null exactly at it', () => {
+    const previous = { date: '2026-08-16', timeIn: '00:00', durationMin: 0 };
+    expect(surfaceIntervalMin(previous, { date: '2026-08-16', timeIn: '23:59' })).toBe(1439);
+    expect(surfaceIntervalMin(previous, { date: '2026-08-17', timeIn: '00:00' })).toBeNull();
   });
 
   it('is null, not a throw, when either dive is missing entirely', () => {

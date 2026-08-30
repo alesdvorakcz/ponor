@@ -52,6 +52,115 @@ export function formatPressure(bar: number | null): string | null {
   return `${Math.round(bar)} bar`;
 }
 
+/**
+ * Review task 7, Important #1: the formatters below close the gap that let
+ * `DiveDetailScreen.tsx` build seven fields' worth of unit-suffixed strings
+ * itself, inline, bypassing every guard above — and rendering the literal
+ * string "NaN" for exactly the input DESIGN.md §10's COERCION CONTRACT
+ * requires M1c's form to produce (an empty numeric field reaching the domain
+ * as `NaN`, never `0`). Each one is the same `isFiniteNumber` guard the
+ * formatters above already use, so a `NaN`, `Infinity`, or wrong-typed value
+ * disappears the same way an absent one does, rather than reaching the
+ * screen as text. None of these round or clamp beyond what the screen was
+ * already doing — this closes WHERE the string is built, not what precision
+ * it's built at; that is a separate decision for whoever adds the M1c/M3
+ * unit-conversion setting this module's own top docblock already earmarks
+ * this file for.
+ */
+
+/** A weight belt's load, e.g. "6.5 kg" — unrounded, since weighting is often set in half-kilos. */
+export function formatWeight(kg: number | null): string | null {
+  if (!isFiniteNumber(kg)) return null;
+  return `${kg} kg`;
+}
+
+/** A cylinder's water capacity, e.g. "12 l" or "11.1 l" — unrounded, since a real cylinder size can be fractional. */
+export function formatVolume(litres: number | null): string | null {
+  if (!isFiniteNumber(litres)) return null;
+  return `${litres} l`;
+}
+
+/**
+ * Total gas used across every cylinder (derived.ts's `gasUsedLitres`), to the whole litre —
+ * unlike `formatVolume` above, this is a computed aggregate rather than a diver-recorded
+ * spec, so it gets the same whole-unit treatment `formatPressure` gives an aggregate
+ * reading. `gasUsedLitres` itself already guards its own `Number.isFinite`, so this guard
+ * is a second, independent line of defence rather than the only one — the same belt-and-
+ * braces stance every other formatter in this file takes toward its input.
+ */
+export function formatGasUsed(litres: number | null): string | null {
+  if (!isFiniteNumber(litres)) return null;
+  return `${Math.round(litres)} l`;
+}
+
+/** Respiratory minute volume, e.g. "18.4 l/min". */
+export function formatRmv(litresPerMin: number | null): string | null {
+  if (!isFiniteNumber(litresPerMin)) return null;
+  return `${litresPerMin.toFixed(1)} l/min`;
+}
+
+/** A gas fraction, e.g. "32 %" — O₂ or He content, unrounded. */
+export function formatPercent(pct: number | null): string | null {
+  if (!isFiniteNumber(pct)) return null;
+  return `${pct} %`;
+}
+
+/** How many cylinders of one kind, e.g. "2" — a plain count, no unit. */
+export function formatCount(count: number | null): string | null {
+  if (!isFiniteNumber(count)) return null;
+  return `${count}`;
+}
+
+/** A waves/current/surge reading, e.g. "1" — the bare 0–3 scale DESIGN.md §10 keeps
+ * unclamped (a future client's out-of-range value is a runtime reality, same as `rating`
+ * below), shown as the diver recorded it rather than a formatted scale. */
+export function formatConditionScale(value: number | null): string | null {
+  if (!isFiniteNumber(value)) return null;
+  return `${value}`;
+}
+
+/** A dive site's GPS position, e.g. "50.12345, 14.56789". Null unless BOTH coordinates are
+ * real — a lone latitude or longitude isn't a point a diver could read, so a finite
+ * latitude paired with a non-finite longitude (or vice versa) omits the row entirely
+ * rather than rendering half of it. */
+export function formatCoordinates(latitude: number | null, longitude: number | null): string | null {
+  if (!isFiniteNumber(latitude) || !isFiniteNumber(longitude)) return null;
+  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+}
+
+/** A dive's star rating, e.g. "4 / 5". DESIGN.md §10 keeps `rating` as `number | null`
+ * rather than a `1|2|3|4|5` literal union — a future client can still deliver an
+ * out-of-range value — so this only guards finiteness; clamping the *displayed marks* to a
+ * legal range is `DiveRow.tsx`'s `ratingMarks`, not this module's job. */
+export function formatRating(rating: number | null): string | null {
+  if (!isFiniteNumber(rating)) return null;
+  return `${rating} / 5`;
+}
+
+/**
+ * Minutes on the surface, in a shape a diver would actually read (review task 7, Important
+ * #2). Below an hour, a plain minute count is the natural reading — the same judgement
+ * `formatDuration` makes for a dive itself. At or above an hour it switches to hours (and,
+ * unless they're exactly zero, minutes): "22 h 20 min" reads as roughly a day; "1340 min"
+ * does not, even though it is the same number. `derived.ts`'s `surfaceIntervalMin` already
+ * refuses anything a day or over, so this never has to decide what a multi-day gap should
+ * look like — by the time a value reaches here it is always under 24 h.
+ *
+ * Deliberately its own formatter rather than a call to `formatDuration`: that function's
+ * own docblock records the opposite decision for a dive's own duration ("renders an
+ * hour-plus dive in minutes, which is how divers log it") — a 72-minute dive is not the
+ * same kind of number as a 1340-minute gap between two dives, and conflating them would
+ * make one of the two read wrong.
+ */
+export function formatSurfaceInterval(minutes: number | null): string | null {
+  if (!isFiniteNumber(minutes) || minutes < 0) return null;
+  const total = Math.round(minutes);
+  if (total < 60) return `${total} min`;
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return mins === 0 ? `${hours} h` : `${hours} h ${mins} min`;
+}
+
 const MONTH_NAMES: readonly string[] = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
