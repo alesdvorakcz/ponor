@@ -1,61 +1,119 @@
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { useState } from 'react';
+import { router } from 'expo-router';
+import { Pressable, SectionList, Text, TextInput, View, useColorScheme } from 'react-native';
 
-import { createDive, listDives } from '../db/dives';
-import { db } from '../db/client';
-import { depthBand, depthColor } from '../theme/depth';
-import { resolveScheme } from '../theme/resolve';
+import { DiveRow } from '../components/DiveRow';
+import { EmptyState } from '../components/EmptyState';
+import { TripHeader } from '../components/TripHeader';
+import { useDives } from '../db/useDives';
+import { searchDives } from '../domain/search';
+import { groupIntoTrips, splitPlanned, type Trip } from '../domain/trips';
+import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 
-const SAMPLE_DEPTHS = [4.5, 9.2, 14.8, 24.6, 32.4, 44.0];
-
-export default function Index() {
+/**
+ * The Dives screen (DESIGN.md §3) — the app's front door, and route `/`.
+ *
+ * The read is `useDives()` and nothing else: no `db.select()` here, and no
+ * re-sorting of what it returns. Task 1 split the dive read into
+ * `useDives()`/`composeDives()` specifically so that no screen would ever
+ * need its own query or comparator; `groupIntoTrips`, `splitPlanned` and
+ * `searchDives` below all operate on the order `useDives()` already hands
+ * back rather than re-deriving it.
+ *
+ * Three states can look identical to a diver unless they're kept visibly
+ * distinct, so each gets its own branch below: a failed read (`error` set)
+ * is reported as a failure and must never fall through to "empty logbook";
+ * a genuinely empty logbook (`dives.length === 0`) shows the "log your
+ * first dive" prompt; and a non-empty logbook whose *search* matches
+ * nothing says so on its own, with the search box left in place so a diver
+ * who mistyped can fix it rather than being told they have no dives.
+ */
+export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
+  const theme = themeFor(scheme);
+  const { dives, numbers, error } = useDives();
+  const [query, setQuery] = useState('');
 
-  const [count, setCount] = useState<number | null>(null);
-  const refresh = () => listDives(db).then((d) => setCount(d.length));
-  useEffect(() => { refresh(); }, []);
+  const openDive = (id: string) => router.push(`./dive/${id}`);
+  // M1c builds the dive form this points at (DESIGN.md §9); the route does
+  // not exist yet, and this deliberately does not build a stub for it. A
+  // relative href, rather than an absolute one, is what lets this compile
+  // under expo-router's typed routes (app.config.js's
+  // experiments.typedRoutes) without a type-check suppression: typed
+  // routes validates an absolute path against the routes that actually
+  // exist on disk, but a relative path is resolved at runtime against
+  // whatever screen is current, so it deliberately isn't checked against
+  // that list. Verified: an absolute `router.push('/dive/new')` here does
+  // not typecheck today; the relative form does.
+  const logDive = () => router.push('./dive/new');
+
+  if (error) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.centerFill}>
+          <Text style={styles.messageText}>
+            Couldn&apos;t open your logbook. Try closing and reopening the app.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (dives.length === 0) {
+    return (
+      <View style={styles.screen}>
+        <EmptyState scheme={scheme} onPress={logDive} />
+      </View>
+    );
+  }
+
+  const matching = searchDives(dives, query);
+  const { planned, logged } = splitPlanned(matching);
+  const sections: Trip[] = [
+    ...(planned.length ? [{ key: 'up-next', title: 'Up next', dateRange: '', dives: planned }] : []),
+    ...groupIntoTrips(logged),
+  ];
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>M0 · SKELETON</Text>
-        <Text style={styles.wordmark}>PONOR</Text>
-        <Text style={styles.subtitle}>Following the system: {scheme}</Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>DEPTH SCALE</Text>
-        {SAMPLE_DEPTHS.map((metres) => (
-          <View key={metres} style={styles.depthRow}>
-            <Text style={styles.depthBandLabel}>Band {depthBand(metres)}</Text>
-            <Text style={[styles.depthValue, { color: depthColor(metres, scheme) }]}>
-              {metres.toFixed(1)} m
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>TYPE</Text>
-        <Text style={styles.typeSans}>Archivo Regular — Příliš žluťoučký kůň</Text>
-        <Text style={styles.typeSansMedium}>Archivo Medium — Příliš žluťoučký kůň</Text>
-        <Text style={styles.typeSansSemibold}>Archivo SemiBold — Příliš žluťoučký kůň</Text>
-        <Text style={styles.typeSansBold}>Archivo Bold — Příliš žluťoučký kůň</Text>
-        <Text style={styles.typeMono}>IBM Plex Mono 32.4 m · 200 bar</Text>
-        <Text style={styles.typeMonoMedium}>IBM Plex Mono Medium 44 min</Text>
-        <Text style={styles.typeMonoSemibold}>IBM Plex Mono SemiBold 26 °C</Text>
-      </View>
-
-      <Pressable
-        style={styles.action}
-        onPress={() => createDive(db, { date: new Date().toISOString().slice(0, 10) }).then(refresh)}
-      >
-        <Text style={styles.actionLabel}>
-          {count === null ? 'Log a dive' : `Log a dive · ${count} saved`}
-        </Text>
+    <View style={styles.screen}>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search dives"
+        placeholderTextColor={theme.fgMuted}
+        value={query}
+        onChangeText={setQuery}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Search dives"
+      />
+      {sections.length === 0 ? (
+        <View style={styles.centerFill}>
+          <Text style={styles.messageText}>No dives match your search.</Text>
+        </View>
+      ) : (
+        // SectionList needs each section's items under `data`; Trip (domain/trips.ts)
+        // names that field `dives`, since a trip is not SectionList-specific. Mapping
+        // here only renames the field for the one caller that needs the other name — it
+        // does not touch order, grouping, or filtering, all of which already happened
+        // above via searchDives/splitPlanned/groupIntoTrips.
+        <SectionList
+          sections={sections.map((section) => ({ ...section, data: section.dives }))}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <DiveRow dive={item} number={numbers.get(item.id)} scheme={scheme} onPress={openDive} />
+          )}
+          renderSectionHeader={({ section }) => (
+            <TripHeader title={section.title} dateRange={section.dateRange} scheme={scheme} />
+          )}
+          stickySectionHeadersEnabled
+          contentContainerStyle={styles.listContent}
+        />
+      )}
+      <Pressable style={styles.fab} onPress={logDive} accessibilityLabel="Log a dive" accessibilityRole="button">
+        <Text style={styles.fabLabel}>+</Text>
       </Pressable>
-    </ScrollView>
+    </View>
   );
 }

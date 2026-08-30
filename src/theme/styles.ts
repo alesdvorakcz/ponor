@@ -34,56 +34,83 @@ function build(scheme: ColorScheme) {
     screen: {
       flex: 1,
       backgroundColor: theme.bg,
-    },
-    content: {
-      padding: 20,
-      gap: 24,
-    },
-    header: {
-      gap: 4,
       paddingTop: 48,
     },
-    eyebrow: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      letterSpacing: 3,
-      color: theme.fgMuted,
-    },
-    wordmark: {
-      fontFamily: fonts['sans-bold'],
-      fontSize: 36,
-      letterSpacing: 6,
-      color: theme.fg,
-    },
-    subtitle: {
-      fontFamily: fonts.sans,
-      fontSize: 16,
-      color: theme.fgMuted,
-    },
-    section: {
-      gap: 8,
-    },
-    sectionLabel: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      letterSpacing: 2,
-      color: theme.fgMuted,
-    },
-    depthRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
+    // The Dives screen's search box (DESIGN.md §3). §0.5's 48 dp tap-target
+    // floor applies to it too — a diver focusing search with wet hands
+    // benefits from the same generous target as any button.
+    searchInput: {
+      minHeight: 48,
+      marginHorizontal: 20,
+      marginBottom: 12,
       borderRadius: 12,
       borderWidth: 1,
       borderColor: theme.border,
       backgroundColor: theme.surface,
       paddingHorizontal: 16,
-      paddingVertical: 12,
-    },
-    depthBandLabel: {
-      fontFamily: fonts['sans-semibold'],
+      fontFamily: fonts.sans,
       fontSize: 16,
       color: theme.fg,
+    },
+    // SectionList's contentContainerStyle. The bottom padding keeps the last
+    // row from ever sitting behind the floating `fab` button.
+    listContent: {
+      paddingBottom: 96,
+    },
+    // Shared by every full-screen message state: the read error, and a
+    // search that matched nothing.
+    centerFill: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 32,
+      gap: 12,
+    },
+    messageText: {
+      fontFamily: fonts.sans,
+      fontSize: 16,
+      color: theme.fgMuted,
+      textAlign: 'center',
+    },
+    // TripHeader — the Dives list's sticky section header (§3). Opaque and
+    // scheme-background-coloured so scrolled content doesn't show through
+    // while it sticks.
+    tripHeader: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+      backgroundColor: theme.bg,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    tripTitle: {
+      flex: 1,
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 15,
+      color: theme.fg,
+    },
+    tripDateRange: {
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      color: theme.fgMuted,
+      fontVariant: ['tabular-nums'],
+    },
+    // EmptyState. `justifyContent: 'flex-end'` is what puts the message and
+    // the primary action in the bottom third of the screen (§0.5).
+    emptyStateWrap: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      paddingHorizontal: 20,
+      paddingBottom: 48,
+      gap: 16,
+    },
+    emptyStateText: {
+      fontFamily: fonts.sans,
+      fontSize: 16,
+      color: theme.fgMuted,
     },
     // Colour is intentionally absent: depth colour depends on the depth, not just the
     // scheme, so the caller composes this with `{ color: depthColor(metres, scheme) }`.
@@ -92,41 +119,9 @@ function build(scheme: ColorScheme) {
       fontSize: 18,
       fontVariant: ['tabular-nums'],
     },
-    typeSans: {
-      fontFamily: fonts.sans,
-      fontSize: 18,
-      color: theme.fg,
-    },
-    typeSansMedium: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 18,
-      color: theme.fg,
-    },
-    typeSansSemibold: {
-      fontFamily: fonts['sans-semibold'],
-      fontSize: 18,
-      color: theme.fg,
-    },
-    typeSansBold: {
-      fontFamily: fonts['sans-bold'],
-      fontSize: 18,
-      color: theme.fg,
-    },
-    typeMono: {
-      fontFamily: fonts.mono,
-      fontSize: 16,
-      color: theme.fg,
-    },
-    typeMonoMedium: {
-      fontFamily: fonts['mono-medium'],
-      fontSize: 16,
-      color: theme.fg,
-    },
-    typeMonoSemibold: {
-      fontFamily: fonts['mono-semibold'],
-      fontSize: 16,
-      color: theme.fg,
-    },
+    // The app's one button treatment (§0.1): inverted ink, monochrome. Used
+    // both full-width (EmptyState's primary action) and, via `fab` below,
+    // as the Dives screen's floating "+".
     action: {
       minHeight: 48,
       alignItems: 'center',
@@ -138,6 +133,26 @@ function build(scheme: ColorScheme) {
     actionLabel: {
       fontFamily: fonts['sans-bold'],
       fontSize: 16,
+      color: theme.actionFg,
+    },
+    // The Dives screen's floating "+" (§3: "big + button as the app's main
+    // gesture"), positioned in the bottom third (§0.5). Same action/action-fg
+    // tokens as `action` above — laid out as a circle rather than a bar.
+    fab: {
+      position: 'absolute',
+      right: 20,
+      bottom: 32,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.action,
+    },
+    fabLabel: {
+      fontFamily: fonts['sans-bold'],
+      fontSize: 30,
+      lineHeight: 34,
       color: theme.actionFg,
     },
     // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
