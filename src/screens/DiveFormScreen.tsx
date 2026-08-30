@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
@@ -6,6 +7,7 @@ import { z } from 'zod';
 
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
+import { CARRIED_FIELDS } from '../domain/carryOver';
 import { diveFormSchema, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
@@ -95,6 +97,59 @@ function blankFormValues(): DiveFormInput {
   };
 }
 
+/**
+ * Whether a starting value counts as something DESIGN.md §0.6's `carried ×` chip
+ * should mark, as opposed to a field that merely was not touched. `0` and `false` are
+ * real, meaningful carried values (a diver who dove with zero weight, or without a
+ * hood, still had that as their last dive's actual answer) and must count — only
+ * `null`/`undefined`/a whitespace-only string mean "carry-over had nothing to say
+ * here," the same "empty means absent, not a value" line `diveFormSchema.ts`'s own
+ * `optionalNumber`/`optionalText` already draw for the opposite direction (a value
+ * reaching the schema, not leaving it).
+ */
+function hasCarriedValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
+}
+
+/**
+ * Every `FieldPath<DiveFormInput>` this form's starting values actually carried
+ * something into, so `ControlledTextField` below can show DESIGN.md §0.6's chip
+ * without either this screen or `FormField.tsx` guessing at WHY a field is carried.
+ *
+ * Built from `CARRIED_FIELDS` (Task 3, `domain/carryOver.ts`) alone, never a second
+ * hand-typed field list — the exact defect that module's own docblock already warns
+ * against for `FRESH_FIELDS`. `tanks` is the one entry that is an array rather than a
+ * leaf value ("tanks is named here, but carries only *most* of itself," per
+ * `CARRIED_FIELDS`'s own docblock); its own keys are read off whatever tank object is
+ * actually there rather than a hand-typed second copy of `tankFormSchema`'s shape, so
+ * a cylinder field added later is covered automatically. Every other `CARRIED_FIELDS`
+ * entry without a `ControlledTextField` anywhere on this screen (`siteId`/`centerId`,
+ * which have no input of their own yet; `entry`/`salinity`/`waterBody`/`suit`/tank
+ * `material`, which render as `OptionChips`; `hood`/`gloves`/`boots`, which render as
+ * `BooleanField`) still gets a correct entry in the returned set — simply one nothing
+ * currently reads — rather than being silently skipped here and needing this function
+ * revisited the day one of those fields grows a chip of its own.
+ */
+function computeCarriedPaths(values: DiveFormInput): Set<string> {
+  const paths = new Set<string>();
+  for (const field of CARRIED_FIELDS) {
+    if (field === 'tanks') {
+      values.tanks?.forEach((tank, index) => {
+        for (const key of Object.keys(tank)) {
+          if (hasCarriedValue((tank as Record<string, unknown>)[key])) {
+            paths.add(`tanks.${index}.${key}`);
+          }
+        }
+      });
+    } else if (hasCarriedValue(values[field])) {
+      paths.add(field);
+    }
+  }
+  return paths;
+}
+
 const ENTRY_OPTIONS: readonly Entry[] = ['shore', 'boat', 'other'];
 const SALINITY_OPTIONS: readonly Salinity[] = ['salt', 'fresh', 'brackish'];
 const WATER_BODY_OPTIONS: readonly WaterBody[] = ['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'];
@@ -115,12 +170,35 @@ interface ControlledTextFieldProps {
   keyboardType?: 'default' | 'decimal-pad';
   multiline?: boolean;
   placeholder?: string;
+  /**
+   * DESIGN.md §0.6's `carried ×` chip (M1d task 5). Both omitted at every call site
+   * whose `name` is not one of `computeCarriedPaths`' own paths — `FormField` then
+   * simply shows no chip, which is correct for the 18 of this screen's 28
+   * `ControlledTextField`s that DESIGN §2.1 marks fresh. Reads `carried` out of
+   * `carriedPaths` and hands `onDropCarried` this field's own `name` internally
+   * (below) rather than asking each call site to repeat its own field name a second
+   * time as a plain string next to the `name` prop it already has — the exact
+   * "hand-maintained second list" shape `carryOver.ts`'s own docblock warns against,
+   * just one call site over from where that module draws the line.
+   */
+  carriedPaths?: ReadonlySet<string>;
+  onDropCarried?: (name: FieldPath<DiveFormInput>) => void;
 }
 
 /** A free-text or numeric field, wired straight to `FormField` — `optionalNumber` and
  * `optionalText` (diveFormSchema.ts) both accept a bare string, so nothing here has to
  * pre-parse what the diver types. */
-function ControlledTextField({ control, name, label, scheme, keyboardType, multiline, placeholder }: ControlledTextFieldProps) {
+function ControlledTextField({
+  control,
+  name,
+  label,
+  scheme,
+  keyboardType,
+  multiline,
+  placeholder,
+  carriedPaths,
+  onDropCarried,
+}: ControlledTextFieldProps) {
   return (
     <Controller
       control={control}
@@ -130,12 +208,29 @@ function ControlledTextField({ control, name, label, scheme, keyboardType, multi
           ref={field.ref}
           label={label}
           value={toInputString(field.value)}
-          onChange={field.onChange}
+          // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
+          // drops the chip") — dropping first, then forwarding, so a field currently
+          // showing `carried` never renders even one frame of the new text next to a
+          // chip that no longer describes it.
+          onChange={(text) => {
+            onDropCarried?.(name);
+            field.onChange(text);
+          }}
           onBlur={field.onBlur}
           scheme={scheme}
           keyboardType={keyboardType}
           multiline={multiline}
           placeholder={placeholder}
+          carried={carriedPaths?.has(name)}
+          // The `×`: same drop, same forward, but with FormField's own `''` — never
+          // this field's current (possibly numeric-looking) value — so a cleared
+          // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
+          // coercion contract) as the same empty string `optionalNumber` turns into
+          // `null`, not a derived `0`.
+          onClear={(text) => {
+            onDropCarried?.(name);
+            field.onChange(text);
+          }}
         />
       )}
     />
@@ -300,10 +395,39 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
 
+  const initialValues = blankFormValues();
+
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
-    defaultValues: blankFormValues(),
+    defaultValues: initialValues,
   });
+
+  // DESIGN.md §0.6's chip means "this came from your LAST DIVE" — that only applies to
+  // a fresh entry. `mode="edit"` shows a dive's OWN stored data (Task 7), never
+  // carry-over, so it starts (and, since nothing here ever adds to the set in edit
+  // mode, stays) with nothing marked, regardless of what Task 7 later points
+  // `defaultValues` at. Computed once from THIS render's `initialValues` — react-hook-
+  // form's own `defaultValues` is likewise only ever read on mount, so both stay in
+  // step with "the values this form STARTED with," never today's live, edited ones.
+  const [carriedPaths, setCarriedPaths] = useState<ReadonlySet<string>>(() =>
+    mode === 'create' ? computeCarriedPaths(initialValues) : new Set<string>(),
+  );
+
+  // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
+  // alike) rather than one closure per field, so there is exactly one place that can
+  // get a field's own drop logic wrong. Bails out via the setter's own no-op-on-same-
+  // reference return when `name` was never in the set, rather than checking first and
+  // conditionally calling `setCarriedPaths` — the same "read the LATEST state, don't
+  // trust a value captured at render time" reasoning `ReorderControls.tsx` documents
+  // for staying stateless, applied to a functional updater instead of a prop.
+  const dropCarried = useCallback((name: FieldPath<DiveFormInput>) => {
+    setCarriedPaths((prev) => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+  }, []);
 
   // Intentionally empty: wiring `createDive`/`updateDive` and navigating away on success
   // is Task 6 ("Creating a dive") and Task 7 ("Editing, and completing a planned dive"),
@@ -320,8 +444,22 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
         {/* Core strip (§2.2) — date, site, centre, max depth, duration, always visible. */}
         <View style={styles.formCoreStrip}>
           <ControlledTextField control={control} name="date" label="Date" scheme={scheme} placeholder="YYYY-MM-DD" />
-          <ControlledTextField control={control} name="siteName" label="Site" scheme={scheme} />
-          <ControlledTextField control={control} name="centerName" label="Centre" scheme={scheme} />
+          <ControlledTextField
+            control={control}
+            name="siteName"
+            label="Site"
+            scheme={scheme}
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
+          <ControlledTextField
+            control={control}
+            name="centerName"
+            label="Centre"
+            scheme={scheme}
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
           <ControlledTextField
             control={control}
             name="maxDepthM"
@@ -411,8 +549,25 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
             displayLabel={materialLabel}
             scheme={scheme}
           />
-          <ControlledTextField control={control} name="tanks.0.sizeL" label="Size" scheme={scheme} keyboardType="decimal-pad" placeholder="L" />
-          <ControlledTextField control={control} name="tanks.0.count" label="Count" scheme={scheme} keyboardType="decimal-pad" />
+          <ControlledTextField
+            control={control}
+            name="tanks.0.sizeL"
+            label="Size"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            placeholder="L"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
+          <ControlledTextField
+            control={control}
+            name="tanks.0.count"
+            label="Count"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
           <ControlledTextField
             control={control}
             name="tanks.0.workingBar"
@@ -420,9 +575,27 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
             scheme={scheme}
             keyboardType="decimal-pad"
             placeholder="bar"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
           />
-          <ControlledTextField control={control} name="tanks.0.o2Pct" label="O2 %" scheme={scheme} keyboardType="decimal-pad" />
-          <ControlledTextField control={control} name="tanks.0.hePct" label="He %" scheme={scheme} keyboardType="decimal-pad" />
+          <ControlledTextField
+            control={control}
+            name="tanks.0.o2Pct"
+            label="O2 %"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
+          <ControlledTextField
+            control={control}
+            name="tanks.0.hePct"
+            label="He %"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
           <ControlledTextField
             control={control}
             name="tanks.0.startBar"
@@ -453,12 +626,35 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
           <ControlledBooleanField control={control} name="hood" label="Hood" scheme={scheme} />
           <ControlledBooleanField control={control} name="gloves" label="Gloves" scheme={scheme} />
           <ControlledBooleanField control={control} name="boots" label="Boots" scheme={scheme} />
-          <ControlledTextField control={control} name="weightsKg" label="Weights" scheme={scheme} keyboardType="decimal-pad" placeholder="kg" />
+          <ControlledTextField
+            control={control}
+            name="weightsKg"
+            label="Weights"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            placeholder="kg"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
         </FormGroup>
 
         <FormGroup title="People" scheme={scheme}>
-          <ControlledTextField control={control} name="buddy" label="Buddy" scheme={scheme} />
-          <ControlledTextField control={control} name="guide" label="Guide" scheme={scheme} />
+          <ControlledTextField
+            control={control}
+            name="buddy"
+            label="Buddy"
+            scheme={scheme}
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
+          <ControlledTextField
+            control={control}
+            name="guide"
+            label="Guide"
+            scheme={scheme}
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+          />
         </FormGroup>
 
         <FormGroup title="Notes & rating" scheme={scheme}>

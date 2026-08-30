@@ -842,13 +842,52 @@ function build(scheme: ColorScheme) {
     formField: {
       gap: 6,
     },
-    // Holds the label with room at its trailing edge for the `carried ×` chip Task 5
-    // adds (§0.6) — `justifyContent: 'space-between'` is what reserves that space.
+    // Holds the label with room at its trailing edge for the `carried ×` chip below
+    // (§0.6) — `justifyContent: 'space-between'` is what reserves that space.
     formFieldHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 8,
+    },
+    // The `carried ×` chip (§0.6, M1d task 5): "muted mono on `border`... gains no
+    // colour" — the same monochrome rule `depthValue` exists to be the one exception to
+    // (§0.1: colour encodes depth and nothing else). `theme.border` as a FILL, not just
+    // the 1 px hairline it draws everywhere else in this file, is what "on border" means
+    // here; `overflow: 'hidden'` clips the clear zone's own corner and any Android press
+    // ripple to the chip's rounded shape rather than a square peeking out of it.
+    formFieldCarried: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 6,
+      backgroundColor: theme.border,
+      overflow: 'hidden',
+    },
+    formFieldCarriedLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: theme.fgMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    // The `×`'s own zone — `borderLeftWidth` draws the divider the brief calls for
+    // ("the `×` behind a divider inside the chip so it is visibly a button rather than a
+    // label"), in `fgMuted` rather than `border` because a `border`-coloured line on a
+    // `border`-filled chip would be invisible, defeating the one thing this line exists
+    // to do. The 48 dp tap-target floor (§0.5) lives in `FormField.tsx`'s own
+    // `CLEAR_HIT_SLOP`, not a bigger box here — same "small visible control, generous
+    // hidden target" split `reorderButton`/`dayStripActionPill` above already use, so
+    // this compact chip does not blow out the label row it sits inline with.
+    formFieldCarriedClear: {
+      borderLeftWidth: 1,
+      borderLeftColor: theme.fgMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    formFieldCarriedClearLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: theme.fgMuted,
     },
     // `flex: 1`, not a fixed width: the same wrapping requirement `tripTitle` above
     // documents (Czech runs 20-30% longer than English) applies to every field label on
