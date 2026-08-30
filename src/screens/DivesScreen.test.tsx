@@ -2,7 +2,7 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 
 import { dive } from '../domain/diveFixture';
 import { useDives } from '../db/useDives';
-import DivesScreen from './index';
+import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.

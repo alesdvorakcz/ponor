@@ -1,6 +1,6 @@
 import { makeStyles } from './styles';
 
-// makeStyles(scheme) is called on every render (see src/app/index.tsx). If it built a
+// makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
 // fresh StyleSheet each time, `styles` would get a new object identity on every render,
 // defeating React.memo on any component that receives it as a prop — invisible with two
 // screens, a real cost once a FlashList of dive rows depends on it. The sheets must be

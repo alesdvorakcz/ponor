@@ -12,7 +12,10 @@ import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 
 /**
- * The Dives screen (DESIGN.md §3) — the app's front door, and route `/`.
+ * The Dives screen (DESIGN.md §3) — the app's front door. Rendered at route
+ * `/` via a thin re-export in `src/app/index.tsx`; this file itself lives
+ * outside expo-router's swept `src/app/` tree on purpose, so that this
+ * module's colocated test isn't swept into the app bundle too.
  *
  * The read is `useDives()` and nothing else: no `db.select()` here, and no
  * re-sorting of what it returns. Task 1 split the dive read into

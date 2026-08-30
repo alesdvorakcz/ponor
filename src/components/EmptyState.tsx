@@ -12,10 +12,10 @@ interface EmptyStateProps {
  * Shown only when the logbook genuinely has no dives (`useDives()` returned
  * an empty list with no error) — never for a search that matched nothing,
  * and never for a failed read. Those three read the same to a diver unless
- * index.tsx tells them apart, and this component is only ever the first of
- * them: a failed read is a lie this component would tell if it were reused
- * for that case, which is why index.tsx checks `error` before it ever gets
- * here (see its own comment).
+ * DivesScreen.tsx tells them apart, and this component is only ever the
+ * first of them: a failed read is a lie this component would tell if it
+ * were reused for that case, which is why DivesScreen.tsx checks `error`
+ * before it ever gets here (see its own comment).
  *
  * The primary action sits in the bottom third of the screen (DESIGN.md
  * §0.5: wet hands, one thumb) and is styled from the `action`/`action-fg`

@@ -5,7 +5,7 @@ import { type ColorScheme } from '../theme/tokens';
 
 interface TripHeaderProps {
   /** The trip's place (`Trip.title` from domain/trips.ts), or `'Up next'` for
-   * the planned-dives section index.tsx pins above the trips. */
+   * the planned-dives section DivesScreen.tsx pins above the trips. */
   title: string;
   /** `Trip.dateRange`, e.g. `'16 Aug 2026'` or `'16–18 Aug 2026'` — empty for
    * the "Up next" section, which has no single date range to show. */

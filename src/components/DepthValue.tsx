@@ -16,9 +16,10 @@ interface DepthValueProps {
  * This is where the depth scale belongs: a component renders a depth through
  * `DepthValue`, not by calling `depthColor`/`depthColorOrNull` itself. Colour is
  * depth's alone, and a second caller reaching for the scale to tint something else
- * would break the rule that keeps it readable at a glance. `src/app/index.tsx` used
- * to be the one exception (the M0 scaffold screen, left alone until the task that
- * replaced it landed) — that task has landed, so no exception remains.
+ * would break the rule that keeps it readable at a glance. `src/app/index.tsx`
+ * (now `src/screens/DivesScreen.tsx`) used to be the one exception (the M0
+ * scaffold screen, left alone until the task that replaced it landed) — that
+ * task has landed, so no exception remains.
  *
  * Renders nothing at all for a depth it can't show — unrecorded, non-finite, or
  * negative — rather than let a bad value throw mid-render; see `depthColorOrNull`
