@@ -654,13 +654,18 @@ function build(scheme: ColorScheme) {
     // `alignItems: 'flex-end'` mirrors `diveRowTop`/`diveRowMain` exactly: the depth value
     // bottom-aligns against the sub-line, the same way a row's depth bottom-aligns against
     // its site name.
+    // `paddingTop: 4`, not 16 (M1d): `detailBack` above it carries §0.5's 48 dp tap-target
+    // floor around a 13 px label, which centres that label and leaves roughly 17 px of
+    // slack below it — the hero's own 16 then stacked on top, so the gap between "‹ Dives"
+    // and the title read as about double the spec's figure. The 48 stays (it is a wet-hands
+    // tap target, not spacing); this is the half that was actually redundant.
     detailHero: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-end',
       gap: 12,
       paddingHorizontal: 16,
-      paddingTop: 16,
+      paddingTop: 4,
       paddingBottom: 14,
       borderBottomWidth: 1,
       borderBottomColor: theme.border,
@@ -842,11 +847,15 @@ function build(scheme: ColorScheme) {
     // content. 48 dp minHeight matches the `action`/`fab` tap-target floor above, but this
     // is deliberately NOT filled ink like those: it's wayfinding, not the screen's primary
     // action, so it stays a plain label rather than competing with one.
+    // `paddingHorizontal: 16` matches `detailHero`'s own 16 (M1d). At 20 the back label sat
+    // 4 px further in than the title directly beneath it, which is visible precisely
+    // because they are stacked and left-aligned. `minHeight: 48` is §0.5's tap-target floor
+    // and is not spacing — it stays exactly as it is.
     detailBack: {
       minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
+      paddingHorizontal: 16,
     },
     // M1c task 7 (§0.6: "Chrome the type scale does not cover"): this used to be
     // sans-medium 16 in full ink — the exact size/weight/colour family a heading uses on
