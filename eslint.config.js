@@ -32,11 +32,18 @@ module.exports = defineConfig([
     // write them as literals. Scoped to component code only, so src/theme/** (where the
     // tokens legitimately live) is untouched, and test files are excluded since they
     // correctly pin literal values to assert against.
+    //
+    // src/screens/** is listed alongside src/app/** and src/components/**: screens render
+    // UI just as directly as components do, and src/app/** itself now holds nothing but
+    // thin route re-exports (see src/app/index.tsx) — without this, moving a screen out of
+    // the swept routes directory would silently drop it out of this rule's coverage too.
     files: [
       "src/app/**/*.ts",
       "src/app/**/*.tsx",
       "src/components/**/*.ts",
       "src/components/**/*.tsx",
+      "src/screens/**/*.ts",
+      "src/screens/**/*.tsx",
     ],
     ignores: ["**/*.test.ts", "**/*.test.tsx"],
     rules: {
