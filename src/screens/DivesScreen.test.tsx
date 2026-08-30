@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { dive } from '../domain/diveFixture';
@@ -69,6 +69,49 @@ function findAllMoveButtons(t: RenderResult, direction: 'up' | 'down') {
           n.props.accessibilityLabel.endsWith(` ${direction}`),
       )
     : [];
+}
+
+/** Every DayStrip action currently reading "Reorder" (mode off) or "Done" (mode on), in
+ * tree order — DayStrip.tsx always labels its one Pressable `Reorder ${date}` or
+ * `Done reordering ${date}`, so matching that prefix finds the button regardless of
+ * which day it belongs to (tests that care which day use the count/order instead, the
+ * same way findAllMoveButtons's own callers do). M1c task 6: hand-ordering now goes
+ * through this toggle first — no test below can reach a day's arrows without pressing it. */
+function findDayStripAction(t: RenderResult, mode: 'Reorder' | 'Done') {
+  const prefix = mode === 'Reorder' ? 'Reorder ' : 'Done reordering ';
+  return t.root
+    ? t.root.queryAll(
+        (n) => n.props?.accessibilityRole === 'button' && typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith(prefix),
+      )
+    : [];
+}
+
+/** Every node currently dimmed by DivesScreen.tsx's `reorderDimmed` style (opacity
+ * 0.32) — styles.ts's own comment on that key: applied to every row that is not part of
+ * the one active reorder day, once some day is active. */
+function dimmedNodes(t: RenderResult) {
+  return t.root
+    ? t.root.queryAll((n) => {
+        const style = [n.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+        return style.some((s) => s.opacity === 0.32);
+      })
+    : [];
+}
+
+/** Toggling a DayStrip changes the SectionList's own `data` length (a `reorderGroup`
+ * entry replaces N separate `dive` entries, or back), which is enough of a reshape that
+ * VirtualizedList schedules its own internal, low-priority cell-range update up to
+ * `updateCellsBatchingPeriod` (default 50 ms) later. A test that toggles more than one
+ * strip needs this flushed, inside act(), before the NEXT interaction — otherwise that
+ * timer can fire between two un-act()-wrapped steps and log a "not wrapped in act(...)"
+ * warning, or worse, bleed into whichever test runs next (this file already flags that
+ * exact risk, for a different cause, in the concurrency test below). Every test that
+ * presses at most one DayStrip toggle never reaches this path and does not need it. */
+async function pressToggleAndSettle(node: NonNullable<RenderResult['root']>) {
+  await fireEvent.press(node);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
 }
 
 /** A DiveRow, found by its own number badge ("#<n>") rather than its site name: a
@@ -293,9 +336,52 @@ it('sets trip headers apart from row text rather than merely bolding them', asyn
 // actually change something, and a reorder that cannot take effect must say
 // so rather than silently spring back. domain/trips.test.ts and
 // ReorderControls.test.tsx already cover canReorder/moveDown/applyReorder in
-// isolation; these three exercise the real wiring end to end.
+// isolation; these exercise the real wiring end to end.
+//
+// M1c task 6, DESIGN.md §0.6: hand-ordering now sits behind a DayStrip toggle rather
+// than showing arrows unconditionally — every test below that needs arrows presses
+// "Reorder" first, the same way a diver would.
 
-it('offers move controls for an untimed same-day pair, and asks reorderDivesForDate for the chronological order', async () => {
+// The task brief's own required test: in the resting state (before the strip is
+// switched on) the day shows its "Reorder" strip, but the depth value still occupies
+// its normal slot in each row — no arrows yet. This is the one assertion that actually
+// proves the fix: an implementation that never removed the old, always-on arrows would
+// fail the "no arrows" half, and one that hid the depth value for every reorderable day
+// (active or not) would fail the "12.2 still visible" half.
+it('shows no arrows until the day strip is switched on', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 9.2 });
+  mockUseDives.mockReturnValue({ dives: [a, b], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+  const text = textIn(t).join(' ');
+  expect(text).toContain('Reorder');
+  expect(text).toContain('12.2'); // depth still visible in the resting state
+  expect(findAllMoveButtons(t, 'up')).toHaveLength(0);
+  expect(findAllMoveButtons(t, 'down')).toHaveLength(0);
+});
+
+// The distinguishing pair the task brief specifically calls for: a qualifying day and a
+// non-qualifying day in the SAME trip, so a strip that rendered for every day
+// (including timed ones) — not just the one canReorder actually allows — would be
+// caught rather than coincidentally passing. Mirrors DESIGN.md §0.6's own example
+// ("Blue Hole, 16–18 Aug is three days and only the 18th qualifies") one day short.
+it('gates the day strip itself on canReorder — a day with entry times gets none, a day without one does', async () => {
+  const timedA = dive({ id: 't1', date: '2026-08-16', siteName: 'Reef', timeIn: '09:00' });
+  const timedB = dive({ id: 't2', date: '2026-08-16', siteName: 'Reef', timeIn: '14:00' });
+  const untimedA = dive({ id: 'u1', date: '2026-08-17', siteName: 'Reef', maxDepthM: 12.2 });
+  const untimedB = dive({ id: 'u2', date: '2026-08-17', siteName: 'Reef', maxDepthM: 9.2 });
+  // Newest-first, matching useDives()'s own order (this file's top docblock note) — the
+  // 17th (untimed) is more recent than the 16th (timed).
+  mockUseDives.mockReturnValue({ dives: [untimedB, untimedA, timedB, timedA], numbers: new Map(), error: undefined });
+
+  const t = await render(<DivesScreen />);
+  expect(findDayStripAction(t, 'Reorder')).toHaveLength(1); // only the 17th qualifies
+  const text = textIn(t).join(' ');
+  expect(text).toContain('17 Aug 2026');
+  expect(text).toContain('no times');
+});
+
+it('offers move controls for an untimed same-day pair, once its strip is switched on, and asks reorderDivesForDate for the chronological order', async () => {
   // Same siteName on both — groupIntoTrips groups by place first, so two
   // dives with DIFFERENT names would land in two separate one-dive trips and
   // never even reach sameDateGroups/canReorder, passing this test (or the
@@ -313,8 +399,12 @@ it('offers move controls for an untimed same-day pair, and asks reorderDivesForD
   mockReorderDivesForDate.mockResolvedValue({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
 
   const t = await render(<DivesScreen />);
+  const [toggle] = findDayStripAction(t, 'Reorder');
+  if (!toggle) throw new Error('expected a Reorder strip for the untimed pair');
+  await fireEvent.press(toggle);
+
   const [firstDown] = findAllMoveButtons(t, 'down');
-  if (!firstDown) throw new Error('expected a move-down control');
+  if (!firstDown) throw new Error('expected a move-down control once the strip is active');
   await fireEvent.press(firstDown);
 
   // display order [x,y] -> swap(0,1) -> [y,x] -> chronological (reversed) -> [x,y]
@@ -323,7 +413,7 @@ it('offers move controls for an untimed same-day pair, and asks reorderDivesForD
   });
 });
 
-it('does not offer move controls for a same-day pair that already has entry times', async () => {
+it('does not offer move controls — or a day strip at all — for a same-day pair that already has entry times', async () => {
   // Same siteName on both, for the same reason noted in the test above —
   // otherwise this would pass because groupIntoTrips split them apart, not
   // because canReorder's timeIn check actually fired.
@@ -341,6 +431,11 @@ it('does not offer move controls for a same-day pair that already has entry time
   const t = await render(<DivesScreen />);
   expect(findAllMoveButtons(t, 'down')).toHaveLength(0);
   expect(findAllMoveButtons(t, 'up')).toHaveLength(0);
+  // canReorder gates the STRIP itself, not just the arrows (toListEntries.tsx's own
+  // docblock) — a control that could never actually reorder this day would be a control
+  // that lies.
+  expect(findDayStripAction(t, 'Reorder')).toHaveLength(0);
+  expect(textIn(t).join(' ')).not.toContain('Reorder');
 });
 
 // The exact failure this task's brief names: canReorder is meant to make
@@ -360,6 +455,10 @@ it('shows a message rather than silently springing back when a reorder does not 
   mockReorderDivesForDate.mockResolvedValue({ applied: false, effectiveOrder: ['y', 'x'], overriddenIds: ['x'] });
 
   const t = await render(<DivesScreen />);
+  const [toggle] = findDayStripAction(t, 'Reorder');
+  if (!toggle) throw new Error('expected a Reorder strip for the untimed pair');
+  await fireEvent.press(toggle);
+
   const [firstDown] = findAllMoveButtons(t, 'down');
   if (!firstDown) throw new Error('expected a move-down control');
   await fireEvent.press(firstDown);
@@ -388,8 +487,14 @@ it('shows a message rather than silently springing back when a reorder does not 
 // still has to prove instead is the WIRING: a diver who presses a control,
 // sees it go disabled, and (whether by intent or by a press landing just
 // before the disabled state renders) presses it again gets exactly one
-// write, and the day recovers once that write settles.
-it('does not fire a second reorder write for a day whose controls are already disabled by an in-flight one, and recovers once it settles — leaving a different day untouched throughout', async () => {
+// write — and that a DIFFERENT day's gate is untouched throughout.
+//
+// M1c task 6 changed how that second half has to be shown: only one day can be
+// "active" (showing arrows) at a time now (DivesScreen.tsx's single
+// `activeReorderDate`), so this switches to Shark Reef's OWN strip midway through,
+// while Blue Hole's write is still in flight, rather than expecting both days' arrows
+// on screen at once the way the pre-task version of this test did.
+it('does not fire a second reorder write for a day whose controls are already disabled by an in-flight one, lets a different day start its own write in the meantime, and recovers once the first settles', async () => {
   const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
   const p = dive({ id: 'p', date: '2026-08-10', siteName: 'Shark Reef' });
@@ -404,25 +509,27 @@ it('does not fire a second reorder write for a day whose controls are already di
     ]),
     error: undefined,
   });
-  let resolveReorder: ((outcome: ReorderOutcome) => void) | undefined;
-  mockReorderDivesForDate.mockReturnValue(
-    new Promise<ReorderOutcome>((resolve) => {
-      resolveReorder = resolve;
-    }),
-  );
+  let resolveBlueHole: ((outcome: ReorderOutcome) => void) | undefined;
+  mockReorderDivesForDate
+    .mockReturnValueOnce(
+      new Promise<ReorderOutcome>((resolve) => {
+        resolveBlueHole = resolve;
+      }),
+    )
+    .mockResolvedValueOnce({ applied: true, effectiveOrder: ['p', 'q'], overriddenIds: [] });
 
   const t = await render(<DivesScreen />);
-  // Blue Hole's pair renders first, then Shark Reef's (groupIntoTrips
-  // preserves the input's own order): x's down (enabled), y's (disabled,
-  // last row), p's down (enabled), q's (disabled, last row).
-  const [xDown, , pDown] = findAllMoveButtons(t, 'down');
-  if (!xDown || !pDown) throw new Error('expected both days to offer a move-down control');
+  // Blue Hole's strip renders first, then Shark Reef's (groupIntoTrips preserves the
+  // input's own order).
+  const [blueHoleReorder] = findDayStripAction(t, 'Reorder');
+  if (!blueHoleReorder) throw new Error('expected a Reorder strip for Blue Hole');
+  await pressToggleAndSettle(blueHoleReorder);
 
+  const [xDown] = findAllMoveButtons(t, 'down');
+  if (!xDown) throw new Error('expected a move-down control for Blue Hole');
   fireEvent.press(xDown); // deliberately not awaited: the write is left in flight until resolved below
   await waitFor(() => {
-    const downs = findAllMoveButtons(t, 'down');
-    expect(downs[0]?.props.accessibilityState?.disabled).toBe(true); // Blue Hole (2026-08-16): in flight
-    expect(downs[2]?.props.accessibilityState?.disabled).toBe(false); // Shark Reef (2026-08-10): untouched
+    expect(findAllMoveButtons(t, 'down')[0]?.props.accessibilityState?.disabled).toBe(true);
   });
 
   // A repeat press on the now-disabled control must not reach
@@ -430,7 +537,26 @@ it('does not fire a second reorder write for a day whose controls are already di
   await fireEvent.press(findAllMoveButtons(t, 'down')[0]!);
   expect(mockReorderDivesForDate).toHaveBeenCalledTimes(1);
 
-  resolveReorder?.({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
+  // Switch to Shark Reef WHILE Blue Hole's write is still in flight — createReorderGate
+  // is scoped per date, so a different day's controls must still be fully live, not
+  // blocked by Blue Hole's own in-flight write.
+  const [sharkReefReorder] = findDayStripAction(t, 'Reorder'); // Blue Hole's own now reads "Done"
+  if (!sharkReefReorder) throw new Error('expected a Reorder strip for Shark Reef');
+  await pressToggleAndSettle(sharkReefReorder);
+  const [pDown] = findAllMoveButtons(t, 'down');
+  if (!pDown) throw new Error('expected a move-down control for Shark Reef');
+  expect(pDown.props.accessibilityState?.disabled).toBe(false);
+  await fireEvent.press(pDown);
+  await waitFor(() => {
+    expect(mockReorderDivesForDate).toHaveBeenCalledTimes(2);
+    expect(mockReorderDivesForDate).toHaveBeenNthCalledWith(2, expect.anything(), '2026-08-10', expect.anything());
+  });
+
+  // Resolve Blue Hole's original write and switch back to see it recover.
+  resolveBlueHole?.({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
+  const [blueHoleReorderAgain] = findDayStripAction(t, 'Reorder'); // Shark Reef now reads "Done"
+  if (!blueHoleReorderAgain) throw new Error('expected Blue Hole to offer Reorder again');
+  await pressToggleAndSettle(blueHoleReorderAgain);
   await waitFor(() => {
     expect(findAllMoveButtons(t, 'down')[0]?.props.accessibilityState?.disabled).toBe(false);
   });
@@ -453,6 +579,10 @@ it('releases the in-flight guard after a failed write, so a later reorder for th
   mockReorderDivesForDate.mockResolvedValueOnce({ applied: true, effectiveOrder: ['x', 'y'], overriddenIds: [] });
 
   const t = await render(<DivesScreen />);
+  const [toggle] = findDayStripAction(t, 'Reorder');
+  if (!toggle) throw new Error('expected a Reorder strip for the untimed pair');
+  await fireEvent.press(toggle);
+
   const [firstDown] = findAllMoveButtons(t, 'down');
   if (!firstDown) throw new Error('expected a move-down control');
 
@@ -469,6 +599,39 @@ it('releases the in-flight guard after a failed write, so a later reorder for th
   await waitFor(() => {
     expect(mockReorderDivesForDate).toHaveBeenCalledTimes(2);
   });
+});
+
+// §0.6: "Entering the mode dims the rest ... so row heights do not change." Opacity,
+// not a layout change — proven directly below via ReorderControls.test.tsx/DiveRow's
+// own container-style tests; this is the DivesScreen-level wiring: dimming turns on
+// with the strip and off again once the diver is done.
+it('dims every other row to 32% opacity once a day is active, and restores full opacity once it is done', async () => {
+  const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
+  const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
+  const other = dive({ id: 'o', date: '2026-08-10', siteName: 'Shark Reef' });
+  mockUseDives.mockReturnValue({
+    dives: [x, y, other],
+    numbers: new Map([
+      ['x', 3],
+      ['y', 2],
+      ['o', 1],
+    ]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(dimmedNodes(t)).toHaveLength(0); // nothing dimmed before any day is active
+
+  const [blueHoleReorder] = findDayStripAction(t, 'Reorder');
+  if (!blueHoleReorder) throw new Error('expected a Reorder strip for Blue Hole');
+  await fireEvent.press(blueHoleReorder);
+  // Exactly the one row outside the active day — Shark Reef's single, unrelated dive —
+  // dims; Blue Hole's own two rows (now showing arrows) do not.
+  expect(dimmedNodes(t)).toHaveLength(1);
+
+  const [blueHoleDone] = findDayStripAction(t, 'Done');
+  if (!blueHoleDone) throw new Error('expected Blue Hole to read Done once active');
+  await fireEvent.press(blueHoleDone);
+  expect(dimmedNodes(t)).toHaveLength(0); // restored once the mode is off
 });
 
 // M1b Task 9: the tablet layout (DESIGN.md §3, useWideLayout.ts's own boundary tests cover

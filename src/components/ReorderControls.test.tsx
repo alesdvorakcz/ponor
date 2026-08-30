@@ -1,6 +1,8 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
 import { dive } from '../domain/diveFixture';
+import { makeStyles } from '../theme/styles';
+import { DiveRow } from './DiveRow';
 import { applyReorder, createReorderGate, moveDown, moveUp, ReorderControls } from './ReorderControls';
 
 // Same adaptation DiveRow.test.tsx and DivesScreen.test.tsx already note: `render`
@@ -377,6 +379,161 @@ describe('ReorderControls', () => {
       const downs = findAllMoveButtons(t, 'down');
       expect(ups.map((n) => n.props.accessibilityState?.disabled)).toEqual([true, false, false]);
       expect(downs.map((n) => n.props.accessibilityState?.disabled)).toEqual([false, false, true]);
+    });
+  });
+
+  // M1c task 6 (DESIGN.md §0.6): the arrows used to sit in a separate column BESIDE the
+  // row (a `reorderRow` wrapping `reorderRowContent` + `reorderButtonColumn`), and two
+  // 48 x 48 buttons stacked there made that column taller than the row it sat next to —
+  // the whole row grew to fit it, roughly 1.5x, the exact bug this task exists to fix.
+  // The fix moves the arrows INTO the row, in the slot DepthValue occupies
+  // (DiveRow.tsx's `depthSlot`), rather than beside it. This test environment has no
+  // real layout engine (react-test-renderer never runs Yoga), so a pixel height can't be
+  // asserted directly — what these tests pin instead is the actual mechanism a pixel
+  // height would depend on: the row's own container style, the arrows' box size, and
+  // where in the tree the arrows actually live.
+  describe('keeps the row from growing (M1c task 6)', () => {
+    const d1 = dive({ id: 'd1', date: '2026-08-16', siteName: 'Site D', maxDepthM: 12.2 });
+    const d2 = dive({ id: 'd2', date: '2026-08-16', siteName: 'Site D', maxDepthM: 9.2 });
+
+    function flatStyle(node: { props: { style?: unknown } } | undefined) {
+      return [node?.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    }
+
+    // Every dive this component is given still gets exactly one row, and that row's own
+    // top-level style is byte-identical to a plain (non-reorder) DiveRow's — proving no
+    // extra sizing wrapper was reintroduced around it. Matched by accessibilityRole
+    // "button" with a label that is NOT one of the arrow labels (those start with
+    // "Move "), which is exactly how a screen reader would tell the two kinds of button
+    // apart too.
+    it("renders one row per dive, each with DiveRow's own unmodified container style", async () => {
+      const plain = await render(<DiveRow dive={d1} number={1} scheme="dark" onPress={() => {}} />);
+      if (!plain.root) throw new Error('expected DiveRow to render a root element');
+      const plainRowStyle = flatStyle(plain.root);
+
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const rowRoots = t.root
+        ? t.root.queryAll(
+            (n) =>
+              n.props?.accessibilityRole === 'button' &&
+              typeof n.props?.accessibilityLabel === 'string' &&
+              !n.props.accessibilityLabel.startsWith('Move '),
+          )
+        : [];
+      expect(rowRoots).toHaveLength(2);
+      for (const row of rowRoots) {
+        expect(flatStyle(row)).toEqual(plainRowStyle);
+      }
+    });
+
+    // The arrows must be DESCENDANTS of the row they belong to (inside `diveRowTop`,
+    // where DepthValue used to be), not a sibling column next to it — a sibling is
+    // exactly what forced the old row to grow to match its height, since a flex row's
+    // own cross-axis size is the tallest of its children.
+    it('nests each arrow inside its own row rather than beside it in a separate column', async () => {
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const rowRoots = t.root
+        ? t.root.queryAll(
+            (n) =>
+              n.props?.accessibilityRole === 'button' &&
+              typeof n.props?.accessibilityLabel === 'string' &&
+              !n.props.accessibilityLabel.startsWith('Move '),
+          )
+        : [];
+      const ups = findAllMoveButtons(t, 'up');
+      expect(ups.length).toBeGreaterThan(0);
+      for (const up of ups) {
+        let node = up.parent;
+        let foundRow = false;
+        while (node) {
+          if (rowRoots.includes(node)) {
+            foundRow = true;
+            break;
+          }
+          node = node.parent;
+        }
+        expect(foundRow).toBe(true);
+      }
+    });
+
+    // 34 x 26 (task brief's Constraints), not the old 48 x 48 — the dimension change that
+    // actually stops the row from growing. `minHeight`/`minWidth` (the old, row-inflating
+    // shape) must be gone from the visible box; the 48 dp touch target is proven
+    // separately below, via hitSlop rather than the box itself.
+    it('draws each arrow at 34 x 26, not the old 48 x 48 box that used to inflate the row', async () => {
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const [firstUp] = findAllMoveButtons(t, 'up');
+      if (!firstUp) throw new Error('expected a move-up control');
+      const style = flatStyle(firstUp);
+      const merged = Object.assign({}, ...style) as Record<string, number | undefined>;
+      expect(merged.width).toBe(34);
+      expect(merged.height).toBe(26);
+      expect(merged.minHeight).not.toBe(48);
+      expect(merged.minWidth).not.toBe(48);
+    });
+
+    // §0.5's 48 dp tap-target floor still applies to a 34 x 26 button — just via
+    // `hitSlop`, which (unlike the box's own width/height) has no effect on layout, so
+    // the touch target can stay generous without the row growing to fit it.
+    it('still reaches a 48 dp touch target via hitSlop, even though the visible box is smaller', async () => {
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const [firstUp] = findAllMoveButtons(t, 'up');
+      if (!firstUp) throw new Error('expected a move-up control');
+      const hitSlop = firstUp.props.hitSlop as
+        | number
+        | { top?: number; bottom?: number; left?: number; right?: number }
+        | undefined;
+      if (typeof hitSlop !== 'object' || hitSlop === null) {
+        throw new Error('expected the arrow to declare a hitSlop object');
+      }
+      const boxWidth = 34;
+      const boxHeight = 26;
+      expect(boxWidth + (hitSlop.left ?? 0) + (hitSlop.right ?? 0)).toBeGreaterThanOrEqual(48);
+      expect(boxHeight + (hitSlop.top ?? 0) + (hitSlop.bottom ?? 0)).toBeGreaterThanOrEqual(48);
+    });
+
+    // The trap the task brief names by name: an assertion that arrows are PRESENT would
+    // also pass an implementation that renders them ALONGSIDE the depth value rather
+    // than in place of it. This is the other half — the depth value must actually be
+    // GONE from a row that is showing arrows.
+    it('hides the depth value on a row that is showing arrows, rather than showing both', async () => {
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const text = t.root
+        ? t.root
+            .queryAll((n) => n.type === 'Text')
+            .flatMap((n) => n.children)
+            .filter((c): c is string => typeof c === 'string')
+            .join(' ')
+        : '';
+      expect(text).toContain('▲');
+      expect(text).not.toContain('12.2');
+      expect(text).not.toContain('9.2');
+    });
+
+    // Sanity check that the style objects this whole describe block compares are
+    // actually the theme's real, cached `diveRow`/`reorderButton` styles and not two
+    // coincidentally-equal literals — makeStyles(scheme) is a stable-by-reference cache
+    // (styles.test.ts), so if DiveRow or ReorderControls ever stopped reading from it,
+    // this would be the test to notice.
+    it('reads its row and arrow styles from the theme, not from ad hoc literals', async () => {
+      const styles = makeStyles('dark');
+      const t = await render(
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      );
+      const rowRoots = t.root
+        ? t.root.queryAll((n) => n.props?.style === styles.diveRow)
+        : [];
+      expect(rowRoots).toHaveLength(2);
     });
   });
 });

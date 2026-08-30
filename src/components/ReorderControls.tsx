@@ -222,6 +222,15 @@ interface ReorderControlsProps {
 }
 
 /**
+ * 48 dp (§0.5's own floor) minus the arrow's visible 34 x 26 box (this task's brief,
+ * "Constraints"), split per edge: `(48 - 34) / 2 = 7` horizontally, `(48 - 26) / 2 = 11`
+ * vertically. `hitSlop` only ever extends where a PRESS is *recognised* — unlike
+ * width/height, it has no effect on layout — so the touch target can stay generous
+ * without the visible box, and therefore the row it sits in, growing to fit it.
+ */
+const ARROW_HIT_SLOP = { top: 11, bottom: 11, left: 7, right: 7 };
+
+/**
  * Move-up/move-down controls for one day of untimed dives (DESIGN.md §2.5).
  *
  * Arrows, not drag — chosen deliberately, not for lack of a drag library:
@@ -242,7 +251,13 @@ interface ReorderControlsProps {
  * Reuses `DiveRow` for each row's content rather than re-drawing a dive's
  * site/depth/rating a second way — that rendering has exactly one owner
  * already, and duplicating it here is exactly the kind of drift this
- * codebase's other docblocks keep naming as the recurring mistake.
+ * codebase's other docblocks keep naming as the recurring mistake. M1c task 6
+ * (DESIGN.md §0.6) changed WHERE the arrows sit, not that principle: they used to be a
+ * separate column beside `<DiveRow>` (a `reorderButtonColumn` sibling, each of its two
+ * buttons a 48 x 48 box — stacked, taller than the row itself, which forced the row to
+ * grow to match). They now go through DiveRow's own `depthSlot` prop, landing in the
+ * exact spot `<DepthValue />` normally occupies, so the row's height is dictated by the
+ * same thing it always was — the number/site block above — never by the arrows.
  */
 export function ReorderControls({
   dives,
@@ -262,34 +277,41 @@ export function ReorderControls({
         const isLast = index === dives.length - 1;
         const upDisabled = isFirst || disabled;
         const downDisabled = isLast || disabled;
-        return (
-          <View key={dive.id} style={styles.reorderRow}>
-            <View style={styles.reorderRowContent}>
-              <DiveRow dive={dive} number={numbers.get(dive.id)} scheme={scheme} onPress={onPress} />
-            </View>
-            <View style={styles.reorderButtonColumn}>
-              <Pressable
-                style={[styles.reorderButton, upDisabled && styles.reorderButtonDisabled]}
-                disabled={upDisabled}
-                onPress={() => onReorder(moveUp(listOrder, index))}
-                accessibilityRole="button"
-                accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} up`}
-                accessibilityState={{ disabled: upDisabled }}
-              >
-                <Text style={styles.reorderButtonLabel}>{'▲'}</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.reorderButton, downDisabled && styles.reorderButtonDisabled]}
-                disabled={downDisabled}
-                onPress={() => onReorder(moveDown(listOrder, index))}
-                accessibilityRole="button"
-                accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} down`}
-                accessibilityState={{ disabled: downDisabled }}
-              >
-                <Text style={styles.reorderButtonLabel}>{'▼'}</Text>
-              </Pressable>
-            </View>
+        const arrows = (
+          <View style={styles.reorderArrows}>
+            <Pressable
+              style={[styles.reorderButton, upDisabled && styles.reorderButtonDisabled]}
+              disabled={upDisabled}
+              onPress={() => onReorder(moveUp(listOrder, index))}
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} up`}
+              accessibilityState={{ disabled: upDisabled }}
+              hitSlop={ARROW_HIT_SLOP}
+            >
+              <Text style={styles.reorderButtonLabel}>{'▲'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.reorderButton, downDisabled && styles.reorderButtonDisabled]}
+              disabled={downDisabled}
+              onPress={() => onReorder(moveDown(listOrder, index))}
+              accessibilityRole="button"
+              accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} down`}
+              accessibilityState={{ disabled: downDisabled }}
+              hitSlop={ARROW_HIT_SLOP}
+            >
+              <Text style={styles.reorderButtonLabel}>{'▼'}</Text>
+            </Pressable>
           </View>
+        );
+        return (
+          <DiveRow
+            key={dive.id}
+            dive={dive}
+            number={numbers.get(dive.id)}
+            scheme={scheme}
+            onPress={onPress}
+            depthSlot={arrows}
+          />
         );
       })}
     </View>

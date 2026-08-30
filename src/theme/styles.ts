@@ -330,32 +330,29 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       letterSpacing: 1,
     },
-    // ReorderControls (§2.5: hand-order same-day dives with no entry time).
-    // `alignItems: 'center'` is what lets the shorter DiveRow centre
-    // vertically next to the taller two-button column beside it.
-    reorderRow: {
+    // ReorderControls (§2.5: hand-order same-day dives with no entry time). M1c task 6
+    // (DESIGN.md §0.6) moved the arrows OUT of a separate column beside the row — the
+    // old `reorderRow`/`reorderRowContent`/`reorderButtonColumn` trio this replaces,
+    // whose taller two-button stack forced the whole row to grow to fit it — and INTO
+    // the exact slot DepthValue occupies (DiveRow.tsx's `depthSlot` prop). `reorderArrows`
+    // is that slot's content: just the two buttons side by side, sized to fit beside a
+    // site name rather than to dictate the row's own height.
+    reorderArrows: {
       flexDirection: 'row',
-      alignItems: 'center',
+      gap: 8,
     },
-    reorderRowContent: {
-      flex: 1,
-    },
-    reorderButtonColumn: {
-      flexDirection: 'column',
-      gap: 4,
-      paddingRight: 12,
-      paddingLeft: 4,
-    },
-    // 48 dp floor (§0.5) on EACH button, not the pair together — a diver
-    // with wet hands gets the same target moving a dive as tapping anything
-    // else, even though the two stacked make this column taller than the
-    // DiveRow it sits beside.
+    // 34 x 26 (task brief's Constraints), not the 48 x 48 box this used to be: at 48 x 48
+    // PER button, two of them beside a row made that row roughly 1.5x taller than its
+    // untimed-free neighbours — the exact problem this task exists to fix. The 48 dp
+    // tap-target floor (§0.5) still applies, but via `hitSlop` (ReorderControls.tsx's
+    // `ARROW_HIT_SLOP`) rather than the visible box, so the touch target can stay
+    // generous without the row growing to fit it.
     reorderButton: {
-      minWidth: 48,
-      minHeight: 48,
+      width: 34,
+      height: 26,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 8,
+      borderRadius: 6,
       borderWidth: 1,
       borderColor: theme.border,
       backgroundColor: theme.surface,
@@ -370,6 +367,59 @@ function build(scheme: ColorScheme) {
     },
     reorderButtonLabel: {
       fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fg,
+    },
+    // DivesScreen.tsx applies this to every row that is NOT part of the one active
+    // reorder day, once some day is active — §0.6: "Entering the mode dims the rest ...
+    // so row heights do not change." Opacity again, not a second colour token: dimming
+    // everything else is what makes the one interactive day read as the thing currently
+    // being edited, the same "state via presence, not another colour" idea
+    // `reorderButtonDisabled` above already uses.
+    reorderDimmed: {
+      opacity: 0.32,
+    },
+    // DayStrip (§0.6: "Hand-ordering lives on a day strip, not a row") — see that
+    // component's own docblock for why a trip header can't carry this instead. A row of
+    // its own, above the day's dives it belongs to. No background at rest:
+    // `dayStripActive` below adds `theme.surface` only once the mode is on, so the strip
+    // stays quiet until it actually matters — mirroring how `reorderButtonDisabled`
+    // shows its own state through presence rather than a second colour.
+    dayStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 6,
+    },
+    dayStripActive: {
+      backgroundColor: theme.surface,
+    },
+    // The rule from §2.5, stated so a diver who later adds a time and watches the
+    // control vanish knows why (DayStrip.tsx's own docblock has the full account).
+    // Mono, not sans: §0.2 reserves Plex Mono for data figures, and a
+    // count-and-condition sentence like "2 dives, no times" is exactly that — the same
+    // call `tripDateRange`/`diveChip` above already make for a date range or a duration.
+    dayStripText: {
+      flex: 1,
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+    },
+    // This component's own 48 dp floor (§0.5) sits on the action alone, not on
+    // `dayStrip` above: the strip's overall height stays compact (`paddingVertical: 6`,
+    // mirroring `tripHeader`'s own asymmetric, whitespace-led spacing) without shrinking
+    // the one thing on it a diver actually taps.
+    dayStripAction: {
+      minHeight: 48,
+      minWidth: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    dayStripActionLabel: {
+      fontFamily: fonts['sans-medium'],
       fontSize: 14,
       color: theme.fg,
     },

@@ -1,4 +1,5 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { Text } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
 import { depthColor } from '../theme/depth';
@@ -172,4 +173,39 @@ it('does not put the date on a logged dive row, where the trip header carries it
   const t = await render(<DiveRow dive={d} number={7} scheme="dark" onPress={() => {}} />);
   const text = textIn(t).join(' ');
   expect(text).not.toContain('5 Sep 2026');
+});
+
+// M1c task 6 (DESIGN.md §0.6): ReorderControls puts its arrows in the exact slot
+// DepthValue occupies, rather than beside the row, so entering reorder mode does not
+// change the row's height. `depthSlot` is the seam that makes that possible without
+// ReorderControls re-drawing a dive's number/site/metadata a second way — every test
+// above this one already proves the DEFAULT (no `depthSlot`) path still renders
+// DepthValue exactly as before; this is the other half: given an override, the depth
+// value must actually be GONE, not merely joined by the override, or a row in reorder
+// mode would show both and read as broken.
+it('lets a caller override the depth slot, hiding the depth value rather than adding beside it', async () => {
+  const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
+  const t = await render(
+    <DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
+  );
+  const text = textIn(t).join(' ');
+  expect(text).toContain('ARROWS');
+  expect(text).not.toContain('32.4');
+});
+
+// The main point of this task: row height must not change entering reorder mode. This
+// test environment has no real layout engine (react-test-renderer never runs Yoga), so a
+// pixel height can't be measured directly — what CAN be pinned is the fact this height
+// actually depends on: the row's own top-level container style. `depthSlot` only ever
+// swaps ONE child inside `diveRowTop`; if it ever grew to also swap in a taller
+// container around the whole row, this — not a pixel measurement — is what would catch
+// it.
+it("keeps the row's own container style identical with or without a depthSlot override", async () => {
+  const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
+  const plain = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const withSlot = await render(
+    <DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
+  );
+  if (!plain.root || !withSlot.root) throw new Error('DiveRow did not render a root element');
+  expect(withSlot.root.props.style).toEqual(plain.root.props.style);
 });

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, SectionList, Text, TextInput, View, useColorScheme } from 'react-native';
 
+import { DayStrip } from '../components/DayStrip';
 import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
@@ -17,25 +18,33 @@ import { makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
 /**
- * One row of a section's `data`, after `toListEntries` below has decided
- * which same-date dives (`sameDateGroups`, domain/trips.ts) get plain
- * `DiveRow`s and which get `ReorderControls` instead. A discriminated union
- * rather than two parallel arrays, so `renderItem` can never pair a
- * `ReorderControls` block with the wrong group's dives.
+ * One row of a section's `data`, after `toListEntries` below has decided which same-date
+ * dives (`sameDateGroups`, domain/trips.ts) get a `DayStrip` (M1c task 6, DESIGN.md
+ * §0.6), which of those get `ReorderControls` instead of plain `DiveRow`s, and which get
+ * neither. A discriminated union rather than parallel arrays, so `renderItem` can never
+ * pair a `strip` or a `reorderGroup` with the wrong group's dives.
  */
 type ListEntry =
   | { kind: 'dive'; dive: Dive }
-  | { kind: 'reorderGroup'; date: string; dives: Dive[] };
+  | { kind: 'reorderGroup'; date: string; dives: Dive[] }
+  | { kind: 'strip'; date: string; count: number };
 
 /**
- * Splits `dives` (one section's worth, already in the screen's own order)
- * into `ListEntry` rows: a `sameDateGroups` run becomes one `reorderGroup`
- * entry when `canReorder` says hand-ordering could actually change
- * something, and plain `dive` entries — rendered exactly as before this
- * task — otherwise. This is the ONE place that decision is made; `DiveRow`
- * and `ReorderControls` both just render whatever entry they are handed.
+ * Splits `dives` (one section's worth, already in the screen's own order) into
+ * `ListEntry` rows. A `sameDateGroups` run that `canReorder` (domain/trips.ts) says could
+ * actually be hand-ordered gets a `strip` entry (DayStrip) ahead of its dives — §0.6:
+ * "Hand-ordering lives on a day strip, not a row" — followed by either a `reorderGroup`
+ * (when that run's date IS the screen's one `activeReorderDate`, so its rows show
+ * arrows) or plain `dive` entries (when it is not, so the strip offers to switch modes
+ * but the rows beneath still read exactly as any other day's do — depth visible, no
+ * arrows). A run that fails `canReorder` gets plain `dive` entries and no strip at all:
+ * `canReorder` gates the STRIP as much as the arrows, since offering a control on a day
+ * that cannot actually reorder (`reorderDivesForDate` would report success while
+ * changing nothing — ReorderControls.tsx's own `NOT_APPLIED_MESSAGE`) would be a control
+ * that lies. This is the ONE place any of that is decided; `DayStrip`, `DiveRow` and
+ * `ReorderControls` all just render whatever entry they are handed.
  */
-function toListEntries(dives: Dive[]): ListEntry[] {
+function toListEntries(dives: Dive[], activeReorderDate: string | null): ListEntry[] {
   return sameDateGroups(dives).flatMap((group): ListEntry[] => {
     const date = group.at(0)?.date;
     // sameDateGroups never returns an empty group, and canReorder already
@@ -43,19 +52,29 @@ function toListEntries(dives: Dive[]): ListEntry[] {
     // here is unreachable — but typed defensively (falls back to plain rows)
     // rather than asserted past, the same choice `dateRangeOf` (trips.ts)
     // makes for the same shape of "can't actually happen" gap.
-    if (date !== undefined && canReorder(group)) {
-      return [{ kind: 'reorderGroup', date, dives: group }];
+    if (date === undefined || !canReorder(group)) {
+      return group.map((dive): ListEntry => ({ kind: 'dive', dive }));
     }
-    return group.map((dive): ListEntry => ({ kind: 'dive', dive }));
+    const strip: ListEntry = { kind: 'strip', date, count: group.length };
+    const rows: ListEntry[] =
+      date === activeReorderDate
+        ? [{ kind: 'reorderGroup', date, dives: group }]
+        : group.map((dive): ListEntry => ({ kind: 'dive', dive }));
+    return [strip, ...rows];
   });
 }
 
 /** Stable across a reorder: keyed by the group's full, sorted id set rather
  * than e.g. its first dive's id, which can itself change after a move. */
 function entryKey(entry: ListEntry): string {
-  return entry.kind === 'dive'
-    ? entry.dive.id
-    : `reorder:${entry.date}:${[...entry.dives].map((d) => d.id).sort().join(',')}`;
+  switch (entry.kind) {
+    case 'dive':
+      return entry.dive.id;
+    case 'reorderGroup':
+      return `reorder:${entry.date}:${[...entry.dives].map((d) => d.id).sort().join(',')}`;
+    case 'strip':
+      return `strip:${entry.date}`;
+  }
 }
 
 /**
@@ -127,6 +146,14 @@ export default function DivesScreen() {
   // NOT_APPLIED_MESSAGE docblock for why an unreachable branch that fails
   // silently is worth guarding anyway.
   const [reorderMessage, setReorderMessage] = useState<string | null>(null);
+  // M1c task 6, DESIGN.md §0.6: which day (if any) is currently in hand-ordering mode —
+  // a single date, not a Set, since only one `DayStrip` can be "on" at a time (toggling
+  // a different day's strip just moves this to that day's date instead of adding a
+  // second active one; toggling the active day's own strip sets this back to `null`).
+  // `toListEntries` reads this to decide which qualifying date (if any) gets
+  // `reorderGroup` rows instead of plain ones; `renderItem` below reads it a second time
+  // to dim every row that is not part of that one active date.
+  const [activeReorderDate, setActiveReorderDate] = useState<string | null>(null);
 
   // Wide: stay on this screen and just show the pick in the detail pane — there is no
   // route to push to that would put both list and detail on screen at once. Narrow:
@@ -248,9 +275,53 @@ export default function DivesScreen() {
       key: trip.key,
       title: trip.title,
       dateRange: trip.dateRange,
-      data: toListEntries(trip.dives),
+      data: toListEntries(trip.dives, activeReorderDate),
     })),
   ];
+
+  // Renders one row of the SectionList's flat `data`, dispatching on `ListEntry`'s own
+  // discriminant — `toListEntries`'s own docblock explains what put each kind there.
+  // Pulled out of the JSX below as its own function only because a three-way dispatch
+  // reads better than nested ternaries; it still closes over this render's own
+  // `activeReorderDate`/`numbers`/etc. exactly as inline JSX would.
+  const renderListEntry = (item: ListEntry) => {
+    if (item.kind === 'strip') {
+      return (
+        <DayStrip
+          date={item.date}
+          count={item.count}
+          active={item.date === activeReorderDate}
+          scheme={scheme}
+          onToggle={() => setActiveReorderDate((current) => (current === item.date ? null : item.date))}
+        />
+      );
+    }
+    if (item.kind === 'reorderGroup') {
+      return (
+        <ReorderControls
+          dives={item.dives}
+          numbers={numbers}
+          scheme={scheme}
+          onPress={openDive}
+          onReorder={handleReorder(item.date)}
+          disabled={pendingReorderDates.has(item.date)}
+        />
+      );
+    }
+    // `item.kind === 'dive'`: every row that is not part of the one active reorder
+    // day's own `reorderGroup` — every row of every OTHER day, whether or not that day
+    // qualifies for its own strip — dims to 32% opacity while any day is active (§0.6:
+    // "Entering the mode dims the rest ... so row heights do not change" — opacity,
+    // like the arrows moving into `depthSlot`, never touches layout). The common case,
+    // `activeReorderDate === null`, skips the wrapper's style entirely rather than
+    // applying an explicit `opacity: 1`, so an ordinary day's rows stay exactly as
+    // unaffected as they were before this task.
+    return (
+      <View style={activeReorderDate !== null ? styles.reorderDimmed : undefined}>
+        <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} onPress={openDive} />
+      </View>
+    );
+  };
 
   // Everything the narrow layout has always rendered inside `styles.screen`, unchanged —
   // written once and reused by both branches below, rather than kept as two copies of the
@@ -295,26 +366,14 @@ export default function DivesScreen() {
         </View>
       ) : (
         // Order, grouping and filtering all already happened above
-        // (searchDives/splitPlanned/groupIntoTrips/toListEntries); this just
-        // renders whatever ListEntry each section ended up with — a plain
-        // DiveRow, or a ReorderControls block for one hand-orderable day.
+        // (searchDives/splitPlanned/groupIntoTrips/toListEntries); renderListEntry above
+        // just renders whatever ListEntry each section ended up with — a DayStrip, a
+        // plain DiveRow (dimmed while another day is active), or a ReorderControls block
+        // for the one active hand-orderable day.
         <SectionList
           sections={sections}
           keyExtractor={entryKey}
-          renderItem={({ item }) =>
-            item.kind === 'dive' ? (
-              <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} onPress={openDive} />
-            ) : (
-              <ReorderControls
-                dives={item.dives}
-                numbers={numbers}
-                scheme={scheme}
-                onPress={openDive}
-                onReorder={handleReorder(item.date)}
-                disabled={pendingReorderDates.has(item.date)}
-              />
-            )
-          }
+          renderItem={({ item }) => renderListEntry(item)}
           renderSectionHeader={({ section }) => (
             <TripHeader title={section.title} dateRange={section.dateRange} scheme={scheme} />
           )}

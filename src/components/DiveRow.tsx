@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
@@ -13,6 +13,19 @@ interface DiveRowProps {
   number: number | undefined;
   scheme: ColorScheme;
   onPress: (id: string) => void;
+  /**
+   * Overrides the depth value's own slot at the row's trailing edge, in place of
+   * rendering `<DepthValue />` there — the seam ReorderControls uses (M1c task 6,
+   * DESIGN.md §0.6) to put its arrows exactly where the depth value normally sits, so
+   * entering hand-ordering mode does not change the row's height. `undefined` (every
+   * caller but ReorderControls) renders `<DepthValue />` exactly as this row always has;
+   * this stays optional so it defaults to that unchanged behaviour rather than asking
+   * every other call site to pass it. Kept on `DiveRow` itself, rather than duplicated as
+   * a second copy of this row's number/site/metadata layout inside ReorderControls —
+   * this rendering has exactly one owner, the same reasoning `DepthValue`'s own docblock
+   * already gives for why colour lives there and nowhere else.
+   */
+  depthSlot?: ReactNode;
 }
 
 const RATING_MAX = 5;
@@ -62,7 +75,7 @@ function accessibilityLabelFor(number: number | undefined, site: string, depth: 
  * one), so it carries `accessibilityRole="button"` and a composed `accessibilityLabel`
  * (see `accessibilityLabelFor` above) rather than relying on `Pressable`'s default.
  */
-function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
+function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowProps) {
   const styles = makeStyles(scheme);
   const site = dive.siteName ?? dive.centerName ?? 'Unnamed site';
   const depth = formatDepth(dive.maxDepthM);
@@ -97,7 +110,7 @@ function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
             {site}
           </Text>
         </View>
-        <DepthValue metres={dive.maxDepthM} scheme={scheme} />
+        {depthSlot !== undefined ? depthSlot : <DepthValue metres={dive.maxDepthM} scheme={scheme} />}
       </View>
       {hasMeta && (
         <View style={styles.diveRowBottom}>
