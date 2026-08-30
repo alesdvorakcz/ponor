@@ -1,0 +1,77 @@
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { SymbolView } from 'expo-symbols';
+import { TextInput, View } from 'react-native';
+
+import { themeFor } from '../theme/resolve';
+import { makeStyles } from '../theme/styles';
+import { type ColorScheme } from '../theme/tokens';
+
+interface SearchCapsuleProps {
+  scheme: ColorScheme;
+  value: string;
+  onChangeText: (text: string) => void;
+}
+
+/**
+ * DESIGN.md §0.6 — the Dives screen's search field, moved off the top of the screen (M1c
+ * task 11) into a floating capsule at the bottom, beside the "+". This component owns only
+ * the capsule's own shape and material; DivesScreen.tsx owns where it sits (the floating
+ * row beside the fab, positioned off `useSafeAreaInsets`) and whether it is currently
+ * hidden (`useHideOnScroll`) — this component has no opinion on either, so it renders the
+ * same way regardless of where its caller puts it.
+ *
+ * Measured off iOS 26 Messages rather than recalled, per the task brief: no bar, no top
+ * rule, no border — separation from the list comes entirely from `floatingShadow`
+ * (theme/styles.ts), shared with the "+" beside it. Two materials, chosen at render time by
+ * `isLiquidGlassAvailable()` (expo-glass-effect) rather than a static platform check, since
+ * that is the one function this device's own OS actually answers: real Liquid Glass where
+ * it exists (iOS 26+ only), and — "the common case, [which] must look deliberate rather
+ * than degraded" — the exact same shape in a plain, opaque `surface` fill everywhere else.
+ * SearchCapsule.test.tsx pins that the two are shape-for-shape identical, not just each
+ * individually plausible.
+ */
+export function SearchCapsule({ scheme, value, onChangeText }: SearchCapsuleProps) {
+  const styles = makeStyles(scheme);
+  const theme = themeFor(scheme);
+
+  // An SF Symbol, not a drawn/imported approximation (expo-symbols, DESIGN.md §0.6) — real
+  // enough that SearchCapsule.test.tsx can pin the exact native module it resolves to.
+  // `name`'s object form supplies Material Symbols' own "search" on Android (expo-symbols
+  // falls back to `fallback` — here, nothing — when a platform's key is missing), which
+  // this suite cannot itself observe (Jest's one platform is iOS — see
+  // SearchCapsule.test.tsx's own note) but `AndroidSymbol` types at compile time regardless.
+  const icon = (
+    <SymbolView
+      name={{ ios: 'magnifyingglass', android: 'search' }}
+      size={18}
+      tintColor={theme.fg}
+    />
+  );
+  const input = (
+    <TextInput
+      style={styles.searchCapsuleInput}
+      placeholder="Search dives"
+      placeholderTextColor={theme.fgMuted}
+      value={value}
+      onChangeText={onChangeText}
+      autoCapitalize="none"
+      autoCorrect={false}
+      accessibilityLabel="Search dives"
+    />
+  );
+
+  if (isLiquidGlassAvailable()) {
+    return (
+      <GlassView style={styles.searchCapsuleGlass} glassEffectStyle="regular">
+        {icon}
+        {input}
+      </GlassView>
+    );
+  }
+  return (
+    <View style={styles.searchCapsulePlain}>
+      {icon}
+      {input}
+    </View>
+  );
+}

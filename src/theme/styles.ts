@@ -58,86 +58,92 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // M1c task 11, DESIGN.md §0.6: the Dives screen's floating bottom row — the search
+  // capsule and the "+" — is "separated by a soft shadow, not a line," and the "+" shares
+  // that exact treatment ("its own floating button beside the capsule ... sharing the same
+  // shadow"). One definition, spread into both `searchCapsuleGlass`/`searchCapsulePlain`
+  // and `fab` below, for the same reason `noticeBanner` above is one definition shared by
+  // two call sites: so the two floating pieces cannot quietly drift to different shadows.
+  // Colour-independent of scheme on purpose — iOS's own floating chrome (tab bars, the
+  // Messages search capsule this was measured from) shadows in plain black at low opacity
+  // in both appearances, rather than switching to a lighter shadow colour in dark mode.
+  const floatingShadow: ViewStyle = {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 6,
+  };
+  // The capsule's shape only — no fill. DESIGN.md §0.6, measured off iOS 26 Messages: "no
+  // bar, no border, no top rule — a fully rounded capsule" ("fully rounded" = radius =
+  // height / 2, not a merely-rounded rectangle — SearchCapsule.test.tsx pins that relation
+  // directly). `height` rather than `minHeight`: the radius/2 relationship above needs a
+  // FIXED height to hold exactly, and §0.5's 48 dp tap-target floor is met with nothing to
+  // spare either way. `flex: 1` so the capsule fills whatever room `floatingRow` below
+  // leaves it beside the fixed-size `fab`. No `overflow: 'hidden'`: that would clip
+  // `floatingShadow` above, which draws OUTSIDE this shape's own bounds.
+  const capsuleShape: ViewStyle = {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 8,
+    ...floatingShadow,
+  };
+
   return StyleSheet.create({
     screen: {
       flex: 1,
       backgroundColor: theme.bg,
       paddingTop: 48,
     },
-    // The Dives screen's search box (DESIGN.md §3, M1c task 2). It used to carry a
-    // 1px `border` on top of its `surface` fill, making it the heaviest object at
-    // the top of the screen while being the one a diver touches least — task 2 first
-    // dropped the border outright, fill only. Review found that overshot: `surface`
-    // on `bg` alone measures ~1.1–1.2:1 contrast in both themes, well under WCAG's
-    // 3:1 guideline for identifying a non-text UI component, and §0.5 states plainly
-    // that contrast here is "a functional requirement, not a taste question" — this
-    // field is used in exactly the noon-deck glare that requirement names. The
-    // border is back below, but as a hairline rather than the original box-defining
-    // 1px: still `theme.border`, which itself only reaches ~1.3–1.4:1 against `bg`
-    // (the token palette is deliberately low-contrast — DESIGN.md §0 calls the brand
-    // a calm precision instrument — so this is what the system offers without
-    // inventing a new colour for this one field); the placeholder text below makes
-    // up the rest, clearing AA at ~5:1. Fill plus hairline is quieter than the
-    // original bordered box without being the boundary-less field task 2's first
-    // pass left behind. §0.5's 48 dp tap-target floor still applies to it exactly as
-    // much as to any button: `fontSize: 12.5` plus 9+9 vertical padding alone lands
-    // well under 48, so `minHeight: 48` stays explicit rather than hoping text +
-    // padding gets there on its own.
-    //
-    // `fontFamily: fonts.sans`, not mono, despite this box quieting down: §0.2 draws
-    // the type split on content, not on volume — "Archivo for UI and display, IBM
-    // Plex Mono for all data — depths, pressures, durations, timestamps". A search
-    // query is typed UI text, the same category as a site name (`diveSite`, sans) or
-    // a button label, not a measurement; every other quiet/muted style in this file
-    // (`messageText`, `emptyStateText`, `reorderNoticeText`) stays sans too; only
-    // fields showing an actual number (chips, depth, the trip date range below) earn
-    // mono. Smaller size does the rest of the "quieter" work.
-    searchInput: {
-      minHeight: 48,
-      marginHorizontal: 12,
-      marginBottom: 8,
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: theme.border,
+    // M1c task 11, DESIGN.md §0.6 rev 5: the Dives screen's search field used to live here
+    // — a bordered/filled box at the TOP of the screen (`searchInput`, `searchBarCollapse`,
+    // `searchBarHidden`; `git log` has them) — until it moved to a floating capsule at the
+    // BOTTOM, beside the "+". Its replacement is `searchCapsuleGlass`/`searchCapsulePlain`/
+    // `searchCapsuleInput` below, plus `floatingRow`/`floatingRowHidden` further down for
+    // the positioning/collapse the old wrapper styles used to own. Removed rather than kept
+    // alongside the new ones: nothing references them any more, and the top-of-screen shape
+    // they describe (hairline border, no shadow) is the opposite of what rev 5 actually
+    // asks for now.
+    // SearchCapsule.tsx's own root when the device has Liquid Glass
+    // (`isLiquidGlassAvailable()` — expo-glass-effect) — `capsuleShape` above, undecorated:
+    // GlassView supplies its own translucent material natively, so adding a
+    // `backgroundColor` here would paint over it.
+    searchCapsuleGlass: {
+      ...capsuleShape,
+    },
+    // SearchCapsule.tsx's root everywhere else — every pre-26 iPhone and all of Android,
+    // "the common case, [which] must look deliberate rather than degraded" (DESIGN.md
+    // §0.6). Same `capsuleShape` as the glass version above, plus the one thing GlassView
+    // was supplying natively: an opaque fill, so this reads as a deliberate flat capsule
+    // rather than a glass capsule that failed to render.
+    searchCapsulePlain: {
+      ...capsuleShape,
       backgroundColor: theme.surface,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
+    },
+    // The capsule's TextInput. No border, background, or minHeight of its own — unlike the
+    // old top-of-screen `searchInput` this replaces, all three now belong to whichever of
+    // `searchCapsuleGlass`/`searchCapsulePlain` above contains it. `fontFamily: fonts.sans`
+    // and `color`/size carried over unchanged from that field's own (already
+    // review-settled) text treatment: DESIGN.md §0.2 draws the type split on content, not
+    // on the box around it, and this is still typed UI text, not data.
+    searchCapsuleInput: {
+      flex: 1,
+      padding: 0,
       fontFamily: fonts.sans,
       fontSize: 12.5,
       color: theme.fg,
     },
-    // The collapsing wrapper around searchInput above (M1c task 8, §0.6: "The search
-    // field yields to the list ... hides as the list scrolls down and returns on the
-    // way back up"). `overflow: 'hidden'` clips the collapse; DivesScreen.tsx composes
-    // `searchBarHidden` below onto this one, conditionally, rather than either living
-    // here permanently (searchInput would never be visible) or searchBarHidden
-    // duplicating overflow itself (only one of the two states needs it to look right,
-    // but keeping it on the wrapper unconditionally means neither style has to know
-    // about the other). Deliberately just a wrapper, not a change to `searchInput`
-    // itself: minHeight/border/margin above stay exactly as review already settled them.
-    searchBarCollapse: {
-      overflow: 'hidden',
-    },
-    // Composed onto searchBarCollapse above exactly while useHideOnScroll.ts's `hidden`
-    // is true (DivesScreen.tsx) — see that hook's own docblock for why this is driven by
-    // `LayoutAnimation.configureNext` rather than an Animated value: RN animates the
-    // transition between whatever Yoga resolves for "no override" (searchInput's own
-    // minHeight: 48 plus its margin) and this, so no measured pixel height needs to be
-    // kept in sync with searchInput's own styles by hand. `opacity: 0` alongside
-    // `height: 0` rather than either alone: height-only would leave the fully-collapsed
-    // sliver of a still-opaque box visible for the first few frames of the collapse
-    // (nothing left to clip crisply at sub-pixel heights); opacity-only would leave the
-    // field's full 48+8px footprint reserved even while invisible, which is the exact
-    // "reserved blank space instead of the list actually gaining it" outcome §0.6's "the
-    // field earns its space only when reached for" rules out.
-    searchBarHidden: {
-      height: 0,
-      opacity: 0,
-    },
-    // SectionList's contentContainerStyle. The bottom padding keeps the last
-    // row from ever sitting behind the floating `fab` button.
+    // SectionList's contentContainerStyle. The bottom padding keeps the last row from
+    // ever sitting behind the floating bottom row — the search capsule and the `fab`
+    // beside it (DESIGN.md §0.6) — sized generously rather than exactly, since how much
+    // room that row actually needs varies per device (`useSafeAreaInsets`, DivesScreen.tsx)
+    // in a way this static sheet cannot read.
     listContent: {
-      paddingBottom: 96,
+      paddingBottom: 120,
     },
     // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
     // `screen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the one
@@ -193,10 +199,10 @@ function build(scheme: ColorScheme) {
     // while it sticks. No divider line or `gap` of its own any more: §0.6 doesn't call
     // for one, and the asymmetric padding below (a bigger gap above than below) plus
     // tripTitle's own small/uppercase/tracked/muted treatment is what now separates one
-    // trip from the last trip's rows — the same de-emphasis-over-a-heavy-rule idea
-    // searchInput's own comment describes just above, though that field kept a
-    // hairline `border` after review; this row drops its border/gap entirely, since
-    // §0.6 never asked for one back.
+    // trip from the last trip's rows — de-emphasis over a heavy rule, the same idea
+    // `capsuleShape` above leans on for the search field's own boundary (a shadow, not a
+    // line); this row drops its border/gap entirely instead, since §0.6 never asked for
+    // one back here.
     // `alignItems: 'baseline'` (was `flex-start`): tripTitle and tripDateRange are now
     // close enough in size (11.5 / 11) that aligning their text baselines reads as one
     // line, where flex-start's top-alignment used to leave dateRange looking to float
@@ -307,19 +313,49 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.actionFg,
     },
-    // The Dives screen's floating "+" (§3: "big + button as the app's main
-    // gesture"), positioned in the bottom third (§0.5). Same action/action-fg
-    // tokens as `action` above — laid out as a circle rather than a bar.
-    fab: {
+    // M1c task 11, DESIGN.md §0.6: the floating row at the bottom of the Dives screen —
+    // the search capsule and the "+" beside it. `position: 'absolute'` with `left`/`right`
+    // (not a fixed `width`) is what gives "roughly 24 dp clear either side" — the row spans
+    // the full width minus 24 on each edge, and `searchCapsuleShape`'s own `flex: 1` fills
+    // whatever of that width `fab` below doesn't take. `bottom` is NOT set here: it mixes a
+    // static margin with `useSafeAreaInsets()`'s own per-device `bottom` (DivesScreen.tsx),
+    // which this scheme-only stylesheet has no way to read, so DivesScreen.tsx composes it
+    // in as a `{ bottom }` override alongside this style rather than this trying to guess
+    // it. `alignItems: 'center'` copes with the capsule (48) and the fab (60) not sharing a
+    // height — DESIGN.md §0.6 asks for the same shadow on both, never the same size.
+    floatingRow: {
       position: 'absolute',
-      right: 20,
-      bottom: 32,
+      left: 24,
+      right: 24,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    // Composed onto floatingRow above exactly while useHideOnScroll's `hidden` is true
+    // (DivesScreen.tsx) — opacity only, unlike the old top `searchBarHidden` this replaces
+    // (still just above), which also zeroed `height` to reclaim the space a document-flow
+    // element was taking. `floatingRow` is already `position: 'absolute'` — out of flow,
+    // nothing to reclaim — and animating its height to 0 would visibly squash the capsule
+    // and the fab inside it as they faded, rather than the two simply receding in place.
+    floatingRowHidden: {
+      opacity: 0,
+    },
+    // The Dives screen's floating "+" (§3: "big + button as the app's main gesture"), in
+    // the bottom third (§0.5) via `floatingRow` above, which now positions it — no
+    // `position`/`right`/`bottom` of its own any more, since a sibling absolutely
+    // positioned against the SAME ancestor `floatingRow` already is would just fight it
+    // for placement. Same action/action-fg tokens as `action` above — laid out as a circle
+    // rather than a bar — plus `floatingShadow`, shared with `searchCapsuleGlass`/
+    // `searchCapsulePlain` above so the two floating pieces cannot drift to different
+    // shadows (this function's own top comment on `floatingShadow`).
+    fab: {
       width: 60,
       height: 60,
       borderRadius: 30,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.action,
+      ...floatingShadow,
     },
     fabLabel: {
       fontFamily: fonts['sans-bold'],
@@ -728,10 +764,9 @@ function build(scheme: ColorScheme) {
       color: theme.fgMuted,
     },
     // One cylinder's block within Gas & cylinders — hairline-separated from the one
-    // above it via `theme.border`, DESIGN.md §0.2's hairlines/dividers token (the
-    // same token searchInput uses for its own hairline). Not TripHeader's divider —
-    // M1c task 2 removed that one in favour of typography and whitespace; see the
-    // comment on `tripHeader` above.
+    // above it via `theme.border`, DESIGN.md §0.2's hairlines/dividers token. Not
+    // TripHeader's divider — M1c task 2 removed that one in favour of typography and
+    // whitespace; see the comment on `tripHeader` above.
     detailTank: {
       gap: 10,
       paddingTop: 12,

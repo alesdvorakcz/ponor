@@ -86,8 +86,11 @@ export function nextScrollVisibility(state: ScrollVisibilityState, y: number): S
  * `LayoutAnimation.configureNext`, called immediately before the `setHidden` below, asks
  * the platform to animate whatever layout/opacity difference that state change produces on
  * the NEXT commit — no `Animated.Value`, no interpolation, no measured height to keep in
- * sync with styles.ts, just a plain boolean and the two styles DivesScreen.tsx composes
- * from it (`searchBarCollapse`/`searchBarHidden`, theme/styles.ts).
+ * sync with styles.ts, just a plain boolean and the style DivesScreen.tsx composes from it
+ * (`floatingRow`/`floatingRowHidden`, theme/styles.ts — M1c task 11 renamed these from
+ * `searchBarCollapse`/`searchBarHidden` when the field they collapsed moved off the top of
+ * the screen into a floating row it now shares with the "+"; this hook's own mechanism
+ * below is unchanged by that move).
  * `isLayoutAnimationEnabled` (RN's own `ReactNativeFeatureFlags.js`) defaults `true` and
  * nothing in this app overrides it.
  */

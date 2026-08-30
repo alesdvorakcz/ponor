@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
 import { router } from 'expo-router';
-import { Pressable, SectionList, Text, TextInput, View, useColorScheme } from 'react-native';
+import { Pressable, SectionList, Text, View, useColorScheme } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DayStrip } from '../components/DayStrip';
 import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
+import { SearchCapsule } from '../components/SearchCapsule';
 import { TripHeader } from '../components/TripHeader';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
@@ -14,7 +16,7 @@ import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../dom
 import { type Dive } from '../domain/types';
 import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
-import { resolveScheme, themeFor } from '../theme/resolve';
+import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
@@ -131,10 +133,17 @@ function entryKey(entry: ListEntry): string {
  * `selectedId`; every caller — `DiveRow` and `ReorderControls` alike — already goes through
  * it, so neither had to learn about wide layouts at all.
  */
+
+/** Clearance ABOVE the safe-area inset (`insets.bottom` below) the floating row keeps —
+ * so the capsule/fab sit a deliberate distance off the home indicator (or the physical
+ * bottom edge, on a device with none) rather than flush against it. Not itself the
+ * "clears the home indicator" mechanism — `insets.bottom` is — just the fixed margin added
+ * on top of whatever that turns out to be on the device this actually runs on. */
+const FLOATING_ROW_BOTTOM_MARGIN = 12;
+
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
-  const theme = themeFor(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
   const [query, setQuery] = useState('');
@@ -145,11 +154,19 @@ export default function DivesScreen() {
   // empty-logbook branch below makes `matching` trivially `[]` too, which is harmless:
   // that branch returns before `listPane` — and everything below it — is ever reached.
   const matching = searchDives(dives, query);
-  // M1c task 8, DESIGN.md §0.6: "The search field yields to the list." See
-  // useHideOnScroll.ts's own docblock for the mechanism and for why a search that has
-  // just narrowed to zero results (`matching.length === 0`) forces the field back
-  // rather than leaving it wherever the scroll position last put it.
+  // M1c task 8, DESIGN.md §0.6: the floating row (search capsule + "+") recedes as the
+  // list scrolls down and returns on the way up. See useHideOnScroll.ts's own docblock for
+  // the mechanism and for why a search that has just narrowed to zero results
+  // (`matching.length === 0`) forces the row back rather than leaving it wherever the
+  // scroll position last put it.
   const hideOnScroll = useHideOnScroll(matching.length === 0);
+  // M1c task 11, DESIGN.md §0.6: "the capsule must clear the home indicator" — read off the
+  // real device rather than a guessed constant, since how much clearance that needs varies
+  // by device (an iPhone with a home button needs none of this; one with a Dynamic Island
+  // needs 34pt). Real usage gets a SafeAreaProvider ancestor for free from expo-router's
+  // own root layout; DivesScreen.test.tsx supplies the package's own official Jest mock for
+  // the same hook, which is what lets it exercise this with a chosen inset instead.
+  const insets = useSafeAreaInsets();
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -342,29 +359,6 @@ export default function DivesScreen() {
   // same list that could quietly drift apart (this file's own top docblock).
   const listPane = (
     <>
-      {/* M1c task 8, DESIGN.md §0.6: "The search field yields to the list." The
-          collapse itself is `searchBarHidden` (theme/styles.ts), composed on only while
-          `hidden`, animated by `LayoutAnimation.configureNext` (useHideOnScroll.ts) —
-          `hidden` (not e.g. a measured height) also gates pointerEvents/accessibility
-          directly, so a diver can never tap into, or have a screen reader land on, a
-          field that has, or is mid-collapsing to, zero height. */}
-      <View
-        style={[styles.searchBarCollapse, hideOnScroll.hidden ? styles.searchBarHidden : undefined]}
-        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
-        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
-        accessibilityElementsHidden={hideOnScroll.hidden}
-      >
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search dives"
-          placeholderTextColor={theme.fgMuted}
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-          accessibilityLabel="Search dives"
-        />
-      </View>
       {reorderMessage !== null && (
         <Pressable
           style={styles.reorderNotice}
@@ -413,9 +407,31 @@ export default function DivesScreen() {
           scrollEventThrottle={16}
         />
       )}
-      <Pressable style={styles.fab} onPress={logDive} accessibilityLabel="Log a dive" accessibilityRole="button">
-        <Text style={styles.fabLabel}>+</Text>
-      </Pressable>
+      {/* M1c task 11, DESIGN.md §0.6: "Search is a floating capsule at the bottom, beside
+          the +" — both float here as one row, on top of the list (this element comes
+          AFTER the SectionList above in sibling order deliberately: React Native stacks
+          siblings by render order regardless of `position: absolute`, so a floating row
+          placed before an in-flow SectionList would paint UNDER its rows, not over them,
+          as soon as any scrolled past it). `insets.bottom` (useSafeAreaInsets, above)
+          clears the home indicator; `FLOATING_ROW_BOTTOM_MARGIN` is the fixed clearance
+          kept above that. `hidden` gates pointerEvents/accessibility directly, exactly as
+          the old top search wrapper's collapse did, so a diver can never tap into, or have
+          a screen reader land on, a row that has faded to nothing. */}
+      <View
+        style={[
+          styles.floatingRow,
+          { bottom: insets.bottom + FLOATING_ROW_BOTTOM_MARGIN },
+          hideOnScroll.hidden ? styles.floatingRowHidden : undefined,
+        ]}
+        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
+        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={hideOnScroll.hidden}
+      >
+        <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} />
+        <Pressable style={styles.fab} onPress={logDive} accessibilityLabel="Log a dive" accessibilityRole="button">
+          <Text style={styles.fabLabel}>+</Text>
+        </Pressable>
+      </View>
     </>
   );
 
