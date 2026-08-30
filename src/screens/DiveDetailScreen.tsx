@@ -72,12 +72,12 @@ import { type ColorScheme } from '../theme/tokens';
  * "HH:MM", no formatter needed, the same way `whereFields` below renders `siteName`
  * straight — while "Time out" reads `timeOut()`'s own return.
  *
- * Only FIVE of the six derived values carry the computed-value marker (§0.6): time out,
- * surface interval, gas used, RMV, MOD. Used pressure does not, even though `usedBar` is
- * built exactly the same way — DESIGN.md §0.6's table names only the five, and the table
- * is the authority a plausible-looking implementation doesn't get to extend by analogy.
- * `Row`'s `computed` prop (see below) is what turns the marker on; it is independent of
- * `mono` even though, on this screen today, every computed field also happens to be one.
+ * Every one of the six derived values carries the computed-value marker (§0.6): the rule
+ * is *derived or entered*, with no exception for arithmetic simple enough to do in your
+ * head — anything read from `src/domain/derived.ts` is marked, used pressure included,
+ * for the same reason RMV is. `Row`'s `computed` prop (see below) is what turns the marker
+ * on; it is independent of `mono` even though, on this screen today, every computed field
+ * also happens to be one.
  *
  * The hero at the top of the screen (also M1c task 5, §0.6) is the same anchor idea
  * DiveRow.tsx's row gives a dive — depth, in its band colour, is the value that actually
@@ -124,12 +124,12 @@ import { type ColorScheme } from '../theme/tokens';
  * buddy's name) — decided explicitly at each call site below rather than inferred from
  * the value's type, so a new field can't silently pick up the wrong one.
  *
- * `computed` (M1c task 5, default falsy) marks exactly the five values DESIGN.md §0.6
- * names as derived rather than diver-entered — time out, surface interval, gas used, RMV,
- * MOD — and nothing else; see this file's top docblock for why Used pressure is not among
- * them despite being built the same way. Set explicitly at each call site, the same
- * reasoning `mono` above already uses, rather than inferred from anything about the field
- * itself.
+ * `computed` (M1c task 5, default falsy) marks a value DESIGN.md §0.6 calls derived rather
+ * than diver-entered: the rule is anything read from `src/domain/derived.ts`, with no
+ * exception for arithmetic simple enough to do in your head — named here as the module,
+ * not as a list of the values it currently exports, so this docblock can't go stale the
+ * next time one is added. Set explicitly at each call site, the same reasoning `mono`
+ * above already uses, rather than inferred from anything about the field itself.
  */
 interface Field {
   label: string;
@@ -299,9 +299,9 @@ function equipmentFields(dive: Dive): Field[] {
  * silently. It sits right after O₂/He — the mix that produces it — and before the
  * pressure fields, which describe consumption, not the mix's own limit.
  *
- * MOD carries `computed: true` (M1c task 5, §0.6) — the diver typed the mix, not the
- * limit. `Used` a few lines down does not, despite being built by derived.ts's `usedBar`
- * exactly the same way: see this file's top docblock for why the table's five stay five.
+ * MOD and `Used` (a few lines down) both carry `computed: true` (M1c task 5, §0.6): both
+ * are read from derived.ts (`mod`, `usedBar`) rather than typed by the diver, and §0.6
+ * draws no exception for either — anything in derived.ts is marked, full stop.
  */
 function tankFields(tank: Tank): Field[] {
   const fields: Field[] = [];
@@ -323,7 +323,7 @@ function tankFields(tank: Tank): Field[] {
   const end = formatPressure(tank.endBar);
   if (end !== null) fields.push({ label: 'End pressure', value: end, mono: true });
   const used = formatPressure(usedBar(tank));
-  if (used !== null) fields.push({ label: 'Used', value: used, mono: true });
+  if (used !== null) fields.push({ label: 'Used', value: used, mono: true, computed: true });
   return fields;
 }
 

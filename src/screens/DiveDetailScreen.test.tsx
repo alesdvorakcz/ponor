@@ -3,6 +3,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { dive } from '../domain/diveFixture';
 import { useDives } from '../db/useDives';
+// Namespace import, not the usual named one: the completeness test below (`marks every
+// value this screen reads from derived.ts as computed`) needs the module's own export list
+// at runtime, via `Object.keys`, rather than a set of names typed into this file — see that
+// test's own comment for why.
+import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import DiveDetailScreen from './DiveDetailScreen';
 
@@ -207,16 +212,17 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
   expect(modLabels).toHaveLength(2);
 });
 
-// M1c task 5 (DESIGN.md §0.6): exactly five values on this screen are marked as computed
-// — time out, surface interval, gas used, RMV, MOD — with a 6 px outlined marker on the
-// label (surfaced here as `detailLabelComputed`'s `paddingLeft`, since the marker itself is
-// a decorative sibling View a Text-only query can't see) and muted ink on the value. Task
-// 4's own report (MOD-per-cylinder) named the exact failure mode to avoid: a test that only
-// checks a value is present "somewhere" would pass a broken implementation that marks every
-// row, or none of the right ones. Every test below instead compares a marked row against an
-// unmarked one IN THE SAME ASSERTION, so a mutation that removes the marker from the real
-// row, or adds it to a row that shouldn't have one, changes which side of the comparison
-// wins rather than just removing a value both sides could live without.
+// M1c task 5 (DESIGN.md §0.6): every value this screen reads from `src/domain/derived.ts`
+// is marked as computed — no exceptions, not even for arithmetic simple enough to do in
+// your head — with a 6 px outlined marker on the label (surfaced here as
+// `detailLabelComputed`'s `paddingLeft`, since the marker itself is a decorative sibling
+// View a Text-only query can't see) and muted ink on the value. Task 4's own report
+// (MOD-per-cylinder) named the exact failure mode to avoid: a test that only checks a value
+// is present "somewhere" would pass a broken implementation that marks every row, or none
+// of the right ones. Every test below instead compares a marked row against an unmarked one
+// IN THE SAME ASSERTION, so a mutation that removes the marker from the real row, or adds
+// it to a row that shouldn't have one, changes which side of the comparison wins rather
+// than just removing a value both sides could live without.
 //
 // This first one is the brief's own Step 1 example, adapted the same way every other
 // `id`-prop test in this file already is (see task 4's report): its own render otherwise
@@ -261,20 +267,65 @@ it('marks Gas used and RMV as computed, distinctly from an entered field like O�
   expect(paddingLeftOf(textNode(t, 'O₂'))).toBe(0);
 });
 
-// The one field most likely to be mismarked "by analogy": `usedBar` (the "Used" pressure
-// row) is built by derived.ts exactly the way the real five are, but DESIGN.md §0.6's table
-// names only time out, surface interval, gas used, RMV and MOD — Used pressure is diver
-// start-minus-end, not a row a diver could wonder about the provenance of, and the brief
-// this task shipped from is explicit: "Exactly those five are computed. Nothing else on the
-// screen is." A reasonable-looking implementation that marked every derived.ts output would
-// pass every test above and still be wrong; this is the test that catches it.
-it('marks MOD as computed but not Used pressure, even though usedBar is derived too', async () => {
+// The one field most likely to be mismarked "by analogy" the wrong way: `usedBar` (the
+// "Used" pressure row) looks like arithmetic simple enough to do in your head — start minus
+// end — but DESIGN.md §0.6 draws no exception for that: the rule is derived or entered,
+// full stop, and anything read from derived.ts is marked, `usedBar` included, for the same
+// reason MOD beside it is. An implementation that reasoned "this one's too simple to bother
+// marking" would pass every other test in this file and still be wrong; this is the test
+// that catches it. (An earlier version of this test asserted the opposite — that Used
+// pressure stayed unmarked — matching §0.6 as it read before it was amended to fold Used
+// pressure into the marked set; a test whose name asserted the rule its own body no longer
+// checks would have been the same defect as a comment that drifted from the code.)
+it('marks Used pressure as computed, the same as MOD beside it', async () => {
   const d = dive({ date: '2026-06-04', tanks: [tank()] });
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   expect(paddingLeftOf(textNode(t, 'MOD'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'Used'))).toBe(0);
+  expect(paddingLeftOf(textNode(t, 'Used'))).toBeGreaterThan(0);
+  // Keeps this test's own marked-vs-unmarked contrast (see the block comment above) even
+  // though Used flipped sides: Start pressure sits in the same per-tank block and stays
+  // diver-entered, so it is the unmarked half of the same-assertion comparison now.
+  expect(paddingLeftOf(textNode(t, 'Start pressure'))).toBe(0);
+});
+
+// Structural counterpart to every test above: rather than naming which values are
+// computed, this counts them. `detailLabelComputed` (`paddingLeft: 13`, src/theme/styles.ts)
+// is the only style anywhere in this screen's component tree that ever puts a `paddingLeft`
+// on a Text node — confirmed by grep, and the reason `paddingLeftOf` above can use 0 as its
+// "unmarked" reading rather than "unmeasured" — so counting Text nodes with a positive
+// `paddingLeftOf` counts marked rows with no list of field names to fall out of date.
+// `Object.keys(derived)` is the other half: `derived.ts`'s own export list, read at runtime
+// rather than retyped here, so a value added to that module is counted automatically too.
+//
+// The fixture below is built so all six of today's exports return non-null and each renders
+// as exactly one row: one tank (not two) keeps MOD and Used from doubling up the way task
+// 4's "shows every cylinder its own MOD" test deliberately exercises elsewhere, and the
+// earlier/target pair is the same shape "marks the surface interval..." above already
+// proves resolves to a non-null interval. Marked-count and export-count coincide at 6 today
+// only because every current export is both non-null for this fixture AND wired into this
+// screen; a derived value added for some other screen entirely (not rendered here at all)
+// would desync the two sides without this screen having done anything wrong — a limit worth
+// naming rather than a defect this test can see around, since nothing short of re-deriving
+// each value from its own inputs (i.e. hardcoding the six again, just as function calls
+// instead of as strings) could rule it out.
+it('marks every value this screen reads from derived.ts as computed, not just five of six', async () => {
+  const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
+  const target = dive({
+    id: 'target',
+    date: '2026-08-16',
+    timeIn: '10:38',
+    durationMin: 45,
+    avgDepthM: 20,
+    maxDepthM: 25,
+    tanks: [tank()],
+  });
+  mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: target.id });
+  const t = await render(<DiveDetailScreen id={target.id} />);
+  const markedLabelCount = textNodesOf(t).filter((n) => paddingLeftOf(n) > 0).length;
+  expect(markedLabelCount).toBe(Object.keys(derived).length);
 });
 
 // The label's padding proves the marker; this proves the OTHER half of §0.6's rule ("...and

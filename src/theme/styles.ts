@@ -516,15 +516,15 @@ function build(scheme: ColorScheme) {
       fontSize: 15,
       color: theme.fg,
     },
-    // Computed-value marking (§0.6: "Computed values are marked as computed" — exactly
-    // time out, surface interval, gas used, RMV and MOD; nothing else on this screen, not
-    // even Used pressure, which is built from derived.ts's usedBar the same way but isn't
-    // named in the table). `detailLabelComputed` reserves room for the marker View below
-    // via `paddingLeft` rather than a wrapping element: DiveDetailScreen.tsx's `Row`
-    // composes it onto `detailLabel` (`[detailLabel, detailLabelComputed]`) only when the
-    // field is computed, so an entered field's label keeps zero padding — the exact
-    // difference its own test ("marks a computed value so it reads differently from one
-    // the diver entered") checks for.
+    // Computed-value marking (§0.6: "the rule is derived or entered, with no exception for
+    // arithmetic simple enough to do in your head ... anything in src/domain/derived.ts is
+    // marked" — used pressure included, same as every other value that module computes).
+    // `detailLabelComputed` reserves room for the marker View below via `paddingLeft`
+    // rather than a wrapping element: DiveDetailScreen.tsx's `Row` composes it onto
+    // `detailLabel` (`[detailLabel, detailLabelComputed]`) only when the field is computed,
+    // so an entered field's label keeps zero padding — the exact difference its own test
+    // ("marks a computed value so it reads differently from one the diver entered") checks
+    // for.
     detailLabelComputed: {
       paddingLeft: 13,
     },
@@ -547,9 +547,9 @@ function build(scheme: ColorScheme) {
     },
     // DESIGN.md §0.6 table's "Computed value" row: Plex Mono 13.5 (down from detailValue's
     // 15), muted ink. Composed onto `detailValue` (`[detailValue, detailValueComputed]`),
-    // never standalone: every one of the five computed fields is a mono data figure, so
-    // this only ever needs to override size and colour, not the mono family, tabular
-    // figures, or right alignment `detailValue` already supplies.
+    // never standalone: every computed field on this screen is a mono data figure, so this
+    // only ever needs to override size and colour, not the mono family, tabular figures, or
+    // right alignment `detailValue` already supplies.
     detailValueComputed: {
       fontSize: 13.5,
       color: theme.fgMuted,
