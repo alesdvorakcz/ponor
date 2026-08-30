@@ -146,7 +146,7 @@ Logs can be half-written in advance. On the boat, set up the coming dives — da
 
 Four tabs plus a full-screen dive form. Onboarding is two steps — pick units and, for switchers, how many dives you already have; optionally sign in — then straight to "Log your first dive".
 
-- **Dives** — auto-grouped into trips (same dive centre, gaps up to 3 days — §10); planned dives pinned on top as "Up next" **with their date**; search; row = number, site, metadata, and the depth value as the row's anchor (§0.6); hand-ordering behind a day strip; big "+" button as the app's main gesture.
+- **Dives** — auto-grouped into trips (same dive centre, gaps up to 3 days — §10); planned dives pinned on top as "Up next" **with their date**; search; row = number, site, metadata, and the depth value as the row's anchor (§0.6); hand-ordering behind a day strip; logging a dive is the screen's primary action — a bottom-right "+" while Ponor is tab-less, moving into the top-right capsule when the tab bar lands (see below).
 - **Map** — clustered pins of your dives (badge = count per site); tapping a site shows your dives there with a depth/temp summary; toggle to explore all community sites.
 - **Stats** — total dives, hours underwater, deepest dive; countries and sites visited; RMV trend; currency (days since your last dive, refresher nudge after 6 months); charts later, counters first.
 - **Settings** — units (m/ft, bar/psi, °C/°F, kg/lb), language; "Fields I use", gear presets; certification wallet (agency, level, card number); account & sync, data export (CSV + JSON), delete account.
