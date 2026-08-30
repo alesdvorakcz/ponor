@@ -61,20 +61,35 @@ export function nextScrollVisibility(state: ScrollVisibilityState, y: number): S
 }
 
 /**
- * DESIGN.md §0.6's collapse, via `LayoutAnimation` rather than `react-native-reanimated`
- * (in package.json, but its babel plugin — `react-native-worklets/plugin` as of the
- * installed 4.x — is not registered in babel.config.js, so its worklets never actually
- * compile) or the core `Animated` API (whose idiomatic form here — a `useRef`-held
- * `Animated.Value`, read during render to build the collapsing style — is exactly what
- * this repo's `react-hooks/refs` lint rule rejects: "Cannot access ref value during
- * render"; verified by writing that version first and running `npx eslint .` against
- * it before switching). `LayoutAnimation.configureNext`, called immediately before the
- * `setHidden` below, asks the platform to animate whatever layout/opacity difference
- * that state change produces on the NEXT commit — no `Animated.Value`, no interpolation,
- * no measured height to keep in sync with styles.ts, just a plain boolean and the two
- * styles DivesScreen.tsx composes from it (`searchBarCollapse`/`searchBarHidden`,
- * theme/styles.ts). `isLayoutAnimationEnabled` (RN's own
- * `ReactNativeFeatureFlags.js`) defaults `true` and nothing in this app overrides it.
+ * DESIGN.md §0.6's collapse, via `LayoutAnimation` rather than the core `Animated` API,
+ * whose idiomatic form here — a `useRef`-held `Animated.Value`, read during render to
+ * build the collapsing style — is exactly what this repo's `react-hooks/refs` lint rule
+ * (`eslint-plugin-react-hooks@7`, pulled in by `eslint-config-expo`) rejects: "Cannot
+ * access ref value during render"; verified by writing that version first and running
+ * `npx eslint .` against it before switching.
+ *
+ * M1c closing fixes: an earlier version of this comment also gave `react-native-reanimated`
+ * as a rejected alternative, on the claim that its Babel plugin was "not registered in
+ * babel.config.js, so its worklets never actually compile." That was false, and worth
+ * recording precisely because three separate checks agreed on it without anyone actually
+ * running a transform: `babel.config.js`'s own `plugins` array does only list
+ * `inline-import` — but `babel-preset-expo` auto-adds `react-native-worklets/plugin`
+ * whenever the `react-native-worklets` package resolves (it is reanimated's non-optional
+ * peer, so it always does here), regardless of what's spelled out explicitly. Proven
+ * directly: transforming a `'worklet'`-directive function through this project's own
+ * `babel.config.js` (via `@babel/core`, not just reading the config) emits
+ * `__workletHash`, `__closure`, `__initData` and `__pluginVersion: "0.10.1"` — markers only
+ * a running worklets plugin produces. Worklets compile here. The `react-hooks/refs` point
+ * above is the reason this hook uses `LayoutAnimation`, and it stands on its own regardless
+ * of reanimated's compile status.
+ *
+ * `LayoutAnimation.configureNext`, called immediately before the `setHidden` below, asks
+ * the platform to animate whatever layout/opacity difference that state change produces on
+ * the NEXT commit — no `Animated.Value`, no interpolation, no measured height to keep in
+ * sync with styles.ts, just a plain boolean and the two styles DivesScreen.tsx composes
+ * from it (`searchBarCollapse`/`searchBarHidden`, theme/styles.ts).
+ * `isLayoutAnimationEnabled` (RN's own `ReactNativeFeatureFlags.js`) defaults `true` and
+ * nothing in this app overrides it.
  */
 const COLLAPSE_ANIMATION_DURATION_MS = 200;
 const COLLAPSE_ANIMATION = LayoutAnimation.create(
@@ -83,7 +98,10 @@ const COLLAPSE_ANIMATION = LayoutAnimation.create(
   LayoutAnimation.Properties.opacity,
 );
 
-export interface HideOnScroll {
+// M1c closing fixes: not exported. Nothing outside this file ever named `HideOnScroll` —
+// `useHideOnScroll`'s return type is inferred at every call site — so the export was dead
+// surface, not a real public contract.
+interface HideOnScroll {
   /** Gates both the collapsing style (DivesScreen.tsx) and interaction: pointerEvents
    * and the accessibility-hidden props, so a diver can never tap into, or have a
    * screen reader land on, a field that has (or is mid-collapsing to) zero height. */
