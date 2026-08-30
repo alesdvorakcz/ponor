@@ -113,7 +113,9 @@ The core of the product. Four mechanisms work together.
 
 **Carried over from the last dive:** dive center and site · entry (shore/boat) · salinity and water body · cylinders (material, size, count, working pressure) · gas mixture per cylinder (O₂/He %) · weights · suit, hood, gloves, boots · buddy and guide.
 
-**Fresh every dive:** max and average depth · duration · time in · starting **and** ending pressure · visibility · temperatures · waves/current/surge · rating · title · notes.
+**Fresh every dive:** max and average depth · duration · time in · starting **and** ending pressure · visibility · temperatures · waves/current/surge · rating · title · notes · the exact GPS point (`latitude`/`longitude`).
+
+The GPS point is fresh for the same reason the pressures are: the *site* carries, which is the right granularity, but the exact entry position is a claim of precision that a stale value would make falsely. A carried-over pressure or pin looks like data and is not.
 
 - **Derived automatically:** the dive number (§2.5); the date stays on the previous dive's date when it is less than 48 h old, otherwise today; used pressure = start − end; surface interval from the previous dive; RMV in l/min when average depth, time, and cylinder size are present.
 - **Site defaults:** picking a site prefills entry, salinity, and water body from the site's own defaults — and those win over carry-over when you switch sites.
