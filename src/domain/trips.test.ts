@@ -74,6 +74,15 @@ describe('groupIntoTrips', () => {
     expect(trips[0]?.title).toBe('Unnamed site');
   });
 
+  it('falls back to centerName when siteName is absent', () => {
+    const trips = groupIntoTrips([
+      dive({ date: '2026-08-17', centerName: 'Reef Divers' }),
+      dive({ date: '2026-08-16', centerName: 'Reef Divers' }),
+    ]);
+    expect(trips).toHaveLength(1);
+    expect(trips[0]?.title).toBe('Reef Divers');
+  });
+
   it('does not merge a named site with an unnamed one', () => {
     const trips = groupIntoTrips([
       dive({ date: '2026-08-17', siteName: 'Blue Hole' }),

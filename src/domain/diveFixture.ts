@@ -18,8 +18,12 @@ let seq = 0;
  * Ids sort in creation order, matching UUIDv7's ordering property, so the
  * last tier of `compareDiveOrder` behaves here as it does in the app.
  */
-export const dive = (over: Partial<Dive> = {}): Dive =>
-  ({
+export const dive = (over: Partial<Dive> = {}): Dive => {
+  // `base` is annotated as `Dive`, not cast — that's what makes a field
+  // missing from this literal a compile error (TS2741/TS2322) rather than a
+  // silently incomplete fixture. Only the merge below, whose `...over` spread
+  // widens overridden keys to include `undefined`, needs the cast.
+  const base: Dive = {
     id: `fixture-${String(seq++).padStart(6, '0')}`,
     status: 'logged',
     date: '2026-08-16',
@@ -32,5 +36,6 @@ export const dive = (over: Partial<Dive> = {}): Dive =>
     buddy: null, guide: null, importSource: null, importId: null,
     createdAt: '2026-08-16T00:00:00.000Z', updatedAt: '2026-08-16T00:00:00.000Z',
     deletedAt: null,
-    ...over,
-  }) as Dive;
+  };
+  return { ...base, ...over } as Dive;
+};
