@@ -232,6 +232,77 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
   expect(modLabels).toHaveLength(2);
 });
 
+// M1c closing fixes, carried from task 4's review as a Minor: every MOD test above pairs
+// MOD's presence/absence with a tank that is either fully usable or (the "never renders the
+// literal string NaN" fixture, further down this file) has every field non-finite at once —
+// neither isolates the guard `tankFields` puts on MOD alone (`if (tankMod !== null)`,
+// DiveDetailScreen.tsx) from the guards on every other field. `o2Pct: 0` is the case that
+// does: a real, finite, diver-recorded percentage — `formatPercent` has no bounds check, so
+// the O₂ row itself still renders "0 %" — but `mod()`'s own domain guard (`o2Pct <= 0`,
+// derived.ts) refuses it as a MOD input, same as it refuses `mod(-5)` or `mod(101)`
+// (derived.test.ts). Pressures and sizes are the fixture's untouched, fully usable defaults,
+// and `hePct` is given a real reading too, so this proves the OMISSION IS SCOPED to MOD
+// alone, not a symptom of the tank being sparse.
+it('omits MOD alone on an otherwise fully-populated cylinder, when only its O₂ % is unusable', async () => {
+  const d = dive({
+    date: '2026-06-04',
+    tanks: [tank({ o2Pct: 0, hePct: 21 })],
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const text = textIn(t).join(' ');
+  // Every other tank field the fixture recorded is still on screen...
+  expect(text).toContain('steel'); // Material
+  expect(text).toContain('12 l'); // Size
+  expect(text).toContain('232 bar'); // Working pressure
+  expect(text).toContain('0 %'); // O₂ — recorded, not absent, even though unusable for MOD
+  expect(text).toContain('21 %'); // He
+  expect(text).toContain('200 bar'); // Start pressure
+  expect(text).toContain('50 bar'); // End pressure
+  expect(text).toContain('150 bar'); // Used (computed: 200 - 50)
+  // ...only MOD is gone.
+  expect(textIn(t).filter((s) => s === 'MOD')).toHaveLength(0);
+});
+
+// The other half of the same Minor: a multi-tank dive where only SOME cylinders have a
+// usable O₂ % — one shows its own MOD, the other omits it, in the same render. The task 4
+// tests above ("shows every cylinder its own MOD") always give every tank a valid mix, so a
+// version of tankFields that dropped the per-tank guard entirely (always show, or never show)
+// would still pass them. Cylinder 2's `o2Pct: null` (never recorded, the ordinary case for a
+// stage bottle nobody analysed) still leaves its OTHER fields — proven via `Size` below —
+// fully populated, isolating this from the "whole tank is sparse" shape too.
+it('shows MOD on the cylinder with a usable O₂ %, and omits it on the other, in the same dive', async () => {
+  const d = dive({
+    date: '2026-06-04',
+    tanks: [tank({ o2Pct: 32 }), tank({ material: 'alu', o2Pct: null })],
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const texts = textIn(t);
+  expect(texts.filter((s) => s === 'MOD')).toHaveLength(1);
+
+  // Split the flat, tree-ordered text by each cylinder's own heading (`Cylinder 1`/
+  // `Cylinder 2`, DiveDetailScreen.tsx — used once `dive.tanks.length > 1`) rather than
+  // matching styles by reference, so this needs no assumption about which colour scheme
+  // the screen resolved under Jest.
+  const cylinder1 = texts.indexOf('Cylinder 1');
+  const cylinder2 = texts.indexOf('Cylinder 2');
+  expect(cylinder1).toBeGreaterThanOrEqual(0);
+  expect(cylinder2).toBeGreaterThan(cylinder1);
+  const firstTank = texts.slice(cylinder1, cylinder2);
+  const secondTank = texts.slice(cylinder2);
+  // mod(32) = (1.4 / 0.32 - 1) * 10 = 33.75 -> "33.8 m".
+  expect(firstTank).toContain('MOD');
+  expect(firstTank.join(' ')).toContain('33.8 m');
+  expect(secondTank).not.toContain('MOD');
+  // The second cylinder's own other fields still render — this is a selective MOD
+  // omission, not the whole tank silently dropping out.
+  expect(secondTank).toContain('Size');
+  expect(secondTank.join(' ')).toContain('12 l');
+});
+
 // M1c task 5 (DESIGN.md §0.6): every value this screen reads from `src/domain/derived.ts`
 // is marked as computed — no exceptions, not even for arithmetic simple enough to do in
 // your head — with a muted `=` immediately before the value (task 7 replaced the original
