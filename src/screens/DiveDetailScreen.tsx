@@ -62,6 +62,9 @@ import { type ColorScheme } from '../theme/tokens';
  * `null` precisely when their inputs were absent or contradictory; inventing a displayed
  * value in that case would defeat the safety reasoning they carry, so this screen shows
  * nothing there instead — never a NaN, never a dash standing in for the real number.
+ * MOD is the one exception to "one row per value": `mod()` is called once per tank, not
+ * once for the dive (DESIGN.md §10, "MOD is per cylinder, and there is no single 'dive
+ * MOD'"), so it is read inside `tankFields` below rather than alongside gas-used/RMV.
  *
  * No profile chart, sparkline, or other graphic is drawn (§0.4): no dive in this version
  * carries a real sample series, and this screen does not import anything that could draw
@@ -229,15 +232,23 @@ function equipmentFields(dive: Dive): Field[] {
 }
 
 /**
- * One cylinder's own fields, plus the pressure it used. `usedBar` is read from
- * derived.ts, never recomputed here as `startBar - endBar`: that arithmetic already
- * lives there, along with the guards that make it refuse a transposed or negative
- * reading rather than report a false figure. `sizeL`, `count`, `o2Pct` and `hePct` go
- * through `format/display.ts`'s `formatVolume`/`formatCount`/`formatPercent` like every
- * other field on this screen — the module's own docblock is the single owner of turning an
- * SI value into a string, and a dedicated formatter per field is what closes that even for
- * a field with no unit conversion coming (§10's kg/lb, m/ft, bar/psi list is depth,
- * temperature, pressure and weight — not these).
+ * One cylinder's own fields, plus the pressure it used and that mix's own MOD.
+ * `usedBar` is read from derived.ts, never recomputed here as `startBar - endBar`:
+ * that arithmetic already lives there, along with the guards that make it refuse a
+ * transposed or negative reading rather than report a false figure. `sizeL`, `count`,
+ * `o2Pct` and `hePct` go through `format/display.ts`'s
+ * `formatVolume`/`formatCount`/`formatPercent` like every other field on this screen —
+ * the module's own docblock is the single owner of turning an SI value into a string,
+ * and a dedicated formatter per field is what closes that even for a field with no unit
+ * conversion coming (§10's kg/lb, m/ft, bar/psi list is depth, temperature, pressure and
+ * weight — not these).
+ *
+ * MOD is computed here, per tank, from that tank's own `o2Pct` — never once for the
+ * dive. DESIGN.md §10: "MOD is per cylinder, and there is no single 'dive MOD'." A
+ * bottom mix and a deco gas carry two different limits, both true at once; showing one
+ * of them above the tank list (as M1b did, reading `tanks[0]` only) hid the other
+ * silently. It sits right after O₂/He — the mix that produces it — and before the
+ * pressure fields, which describe consumption, not the mix's own limit.
  */
 function tankFields(tank: Tank): Field[] {
   const fields: Field[] = [];
@@ -252,6 +263,8 @@ function tankFields(tank: Tank): Field[] {
   if (o2 !== null) fields.push({ label: 'O₂', value: o2, mono: true });
   const he = formatPercent(tank.hePct);
   if (he !== null) fields.push({ label: 'He', value: he, mono: true });
+  const tankMod = formatDepth(mod(tank.o2Pct));
+  if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true });
   const start = formatPressure(tank.startBar);
   if (start !== null) fields.push({ label: 'Start pressure', value: start, mono: true });
   const end = formatPressure(tank.endBar);
@@ -344,19 +357,22 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
 
   const gasUsed = formatGasUsed(gasUsedLitres(dive.tanks));
   const rmvValue = formatRmv(rmv(dive));
-  const modValue = formatDepth(mod(dive.tanks[0]?.o2Pct));
-  // Tank rows and the three summary rows above are all formatted before this decides
-  // whether the cluster shows at all. Every other cluster on this screen already gates on
-  // computed presence (where.length, showDepthDuration, conditions.length, hasNotes below);
-  // this one used to be the exception, gating on raw `dive.tanks.length > 0` instead — safe
-  // only while every tank field rendered unconditionally. Now that non-finite fields
-  // correctly disappear (Important #1), a tank whose only recorded fields were non-finite
-  // would otherwise leave this heading standing over zero rows, the same "heading with
-  // nothing under it" shape this screen's own "omits a cluster heading entirely..." test
-  // already guards for its siblings.
+  // No dive-level MOD here — DESIGN.md §10: "MOD is per cylinder, and there is no single
+  // 'dive MOD'." Each tank computes its own inside tankFields below, from that tank's own
+  // o2Pct; a multi-gas dive has as many MODs as it has distinct mixes, and picking one
+  // (M1b read tanks[0] only) silently hid the rest.
+  //
+  // Tank rows and the two summary rows above are all formatted before this decides whether
+  // the cluster shows at all. Every other cluster on this screen already gates on computed
+  // presence (where.length, showDepthDuration, conditions.length, hasNotes below); this one
+  // used to be the exception, gating on raw `dive.tanks.length > 0` instead — safe only
+  // while every tank field rendered unconditionally. Now that non-finite fields correctly
+  // disappear (Important #1), a tank whose only recorded fields were non-finite would
+  // otherwise leave this heading standing over zero rows, the same "heading with nothing
+  // under it" shape this screen's own "omits a cluster heading entirely..." test already
+  // guards for its siblings.
   const tankGroups = dive.tanks.map((tank, index) => ({ index, fields: tankFields(tank) }));
-  const showGasCluster =
-    gasUsed !== null || rmvValue !== null || modValue !== null || tankGroups.some((t) => t.fields.length > 0);
+  const showGasCluster = gasUsed !== null || rmvValue !== null || tankGroups.some((t) => t.fields.length > 0);
 
   const rating = formatRating(dive.rating);
   const hasNotes = dive.title !== null || dive.notes !== null || rating !== null;
@@ -412,7 +428,6 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
           <Cluster title="Gas & cylinders" styles={styles}>
             {gasUsed !== null && <Row label="Gas used" value={gasUsed} mono styles={styles} />}
             {rmvValue !== null && <Row label="RMV" value={rmvValue} mono styles={styles} />}
-            {modValue !== null && <Row label="MOD" value={modValue} mono styles={styles} />}
             {tankGroups.map(({ index, fields }) => {
               if (fields.length === 0) return null;
               return (

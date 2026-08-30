@@ -118,6 +118,64 @@ it('shows the computed values a diver cannot see in the raw fields', async () =>
   expect(text).toContain('MOD');
 });
 
+it('shows every cylinder its own MOD, because there is no single dive MOD', async () => {
+  const d = dive({
+    date: '2026-06-04',
+    tanks: [
+      { material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+    ],
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 212]]), error: undefined });
+  // Every render unconditionally calls useLocalSearchParams (it's a hook, not
+  // conditionally invoked), so this needs a return value even though the `id`
+  // prop below is what the screen actually uses — same pattern as "uses the id
+  // prop instead of the route param" further down this file.
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' | ');
+  // 18 % at 1.4 ppO2 -> 67.8 m; 50 % -> 18.0 m
+  expect(text).toContain('67.8');
+  expect(text).toContain('18.0');
+});
+
+it('does not present one cylinder’s MOD as though it were the dive’s', async () => {
+  const d = dive({
+    date: '2026-06-04',
+    tanks: [
+      { material: 'steel', sizeL: 12, count: 1, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+    ],
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const mods = textIn(t).filter((s) => s.includes('67.8') || s.includes('18.0'));
+  expect(mods.length).toBeGreaterThanOrEqual(2);
+});
+
+// The two tests above check that both cylinders' MOD VALUES appear somewhere in the tree,
+// but neither counts MOD ROWS — so both would still pass if a leftover dive-level MOD sat
+// above the two per-cylinder ones (three "MOD" rows instead of two, the exact regression
+// the brief calls out: "Remove the dive-level MOD entirely... do not leave it alongside").
+// Verified live: reintroducing `modValue = formatDepth(mod(dive.tanks[0]?.o2Pct))` as a
+// third row above the tank list, alongside the two per-cylinder ones, left every other test
+// in this file green. This test counts "MOD" LABEL occurrences instead of value strings —
+// one per cylinder, never a dive-level extra — which is exactly what that mutation breaks.
+it('renders exactly one MOD row per cylinder, and no extra dive-level one', async () => {
+  const d = dive({
+    date: '2026-06-04',
+    tanks: [
+      { material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+    ],
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const modLabels = textIn(t).filter((s) => s === 'MOD');
+  expect(modLabels).toHaveLength(2);
+});
+
 it('omits a computed value entirely when its inputs are missing', async () => {
   const text = (await renderDetail(dive({ date: '2026-08-16' }))).join(' ');
   expect(text).not.toContain('RMV');
