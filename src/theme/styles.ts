@@ -140,6 +140,51 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.actionFg,
     },
+    // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
+    // floor applies to the row as a whole, not just its icon-sized controls, hence
+    // minHeight here rather than on some inner element.
+    diveRow: {
+      minHeight: 48,
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+    },
+    diveRowTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    diveRowBottom: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    diveNumber: {
+      fontFamily: fonts.mono,
+      fontSize: 14,
+      color: theme.fgMuted,
+      fontVariant: ['tabular-nums'],
+    },
+    diveSite: {
+      flex: 1,
+      fontFamily: fonts.sans,
+      fontSize: 16,
+      color: theme.fg,
+    },
+    // Shared by the time-range chip and the duration chip.
+    diveChip: {
+      fontFamily: fonts.mono,
+      fontSize: 13,
+      color: theme.fgMuted,
+      fontVariant: ['tabular-nums'],
+    },
+    diveRating: {
+      fontFamily: fonts.sans,
+      fontSize: 13,
+      color: theme.fg,
+      letterSpacing: 1,
+    },
   });
 }
 
