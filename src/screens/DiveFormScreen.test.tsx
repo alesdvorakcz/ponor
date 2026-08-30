@@ -296,14 +296,37 @@ it('creates a dive and returns to the list', async () => {
   await waitFor(() => expect(router.back).toHaveBeenCalled());
 });
 
-it('sends no zeros for fields the diver left empty', async () => {
+/**
+ * Every path in `value` that holds the literal `0`, however deeply nested.
+ *
+ * `Object.entries(input)` walks exactly one level, and the payload `createDive` receives is
+ * `{ date, tanks: [{ ... }] }` — so applied to `{ date, tanks: [{ sizeL: 0, count: 0 }] }` a
+ * one-level walk finds nothing to check and stays green, missing the one case DESIGN.md §10
+ * calls *contradictory*: a `0` size or count voids the dive's whole gas figure, where an
+ * absent one merely skips that cylinder. Returning the paths rather than a count is what
+ * makes a failure name the offending field instead of just asserting a number.
+ */
+function zeroPaths(value: unknown, path = ''): string[] {
+  if (typeof value === 'number' && value === 0) return [path || '(root)'];
+  if (Array.isArray(value)) return value.flatMap((item, index) => zeroPaths(item, `${path}[${index}]`));
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).flatMap(([key, item]) => zeroPaths(item, path === '' ? key : `${path}.${key}`));
+  }
+  return [];
+}
+
+it('sends no zeros for fields the diver left empty, cylinders included', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await typeInto(t, 'Date', '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   const input = mockCreate.mock.calls[0]?.[1] ?? {};
-  expect(Object.entries(input).filter(([, v]) => v === 0)).toHaveLength(0);
+  // The blank cylinder is actually in there to be checked — otherwise this walks a payload
+  // with no nested object in it and proves nothing about nesting.
+  expect(Array.isArray((input as { tanks?: unknown[] }).tanks)).toBe(true);
+  expect((input as { tanks: unknown[] }).tanks.length).toBeGreaterThan(0);
+  expect(zeroPaths(input)).toEqual([]);
 });
 
 it('tells the diver when a save fails instead of pretending it worked', async () => {
