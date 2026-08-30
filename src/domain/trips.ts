@@ -4,17 +4,18 @@ import { type Dive } from './types';
 
 const MS_PER_DAY = 86_400_000;
 
-/** The title (and place-equality value) for a dive with neither `siteName`
- * nor `centerName` set. DESIGN.md §1's no-form-shaming stance means an
- * unnamed dive is a normal, expected case — never dropped, never blocked —
- * so it needs a real label, not an empty string a list row would render as
- * a blank line. */
+/** The title for a trip whose dives have neither `centerName` nor `siteName`
+ * set — `tripKeyOf` returns null for those, and this is what that null renders
+ * as. Never used for the grouping comparison itself (see `tripKeyOf`).
+ * DESIGN.md §1's no-form-shaming stance means an unnamed dive is a normal,
+ * expected case — never dropped, never blocked — so it needs a real label, not
+ * an empty string a list row would render as a blank line. */
 const UNNAMED_SITE = 'Unnamed site';
 
 /**
  * A trip as the Dives list shows it — DESIGN.md §3: "auto-grouped into trips
- * (consecutive days, same place)". There is deliberately no trip entity in
- * the data model (§9, §10): this is a view recomputed from a dive list on
+ * (same dive centre, gaps up to 3 days)". There is deliberately no trip entity
+ * in the data model (§9, §10): this is a view recomputed from a dive list on
  * every render, never persisted, and `key` is not a database id — see
  * `groupIntoTrips`.
  */
@@ -22,7 +23,8 @@ export interface Trip {
   /** Unique among the trips one `groupIntoTrips` call returns; stable enough
    * to use as a list key, not a stored id. */
   key: string;
-  /** The place name, or `'Unnamed site'` when the trip's dives have none. */
+  /** `tripKeyOf`'s value for this trip's dives — the centre, or the site for
+   * dives with no centre — or `'Unnamed site'` when they have neither. */
   title: string;
   /** `'16 Aug 2026'` for a single day, `'16–18 Aug 2026'` (en dash) for a span. */
   dateRange: string;
@@ -31,16 +33,43 @@ export interface Trip {
 }
 
 /**
- * The place a dive groups by. `siteName` wins when set; `centerName` is the
- * fallback for a dive logged against a dive center with no specific site
- * recorded. `null` means genuinely unnamed — distinct from any string value,
- * including `UNNAMED_SITE` itself, so two unnamed dives group with each other
+ * The value a dive groups by — DESIGN.md §10, "A trip is one dive centre, with
+ * gaps of up to 3 days". `centerName` wins when set, because the centre is what
+ * stays CONSTANT across a trip whose dives are at several different sites: a
+ * boat day out of Subic visits two to four wrecks, and keying on the site
+ * fragmented one week into a dozen one-dive "trips". `siteName` is the fallback
+ * for a dive with no centre recorded, so shore diving groups exactly as it did
+ * before. `null` means genuinely unplaced — distinct from any string value,
+ * including `UNNAMED_SITE` itself, so two unplaced dives group with each other
  * (`null === null`) but a named dive can never accidentally match one by
  * sharing that display text.
+ *
+ * This is the GROUPING KEY, and deliberately NOT the same rule as
+ * `diveSiteLabel` (format/display.ts), the display label a dive row and the
+ * detail hero show: that one is site-first and always produces text, because a
+ * row with no heading is a blank line. This one is centre-first and may be
+ * null, because "no place recorded" has to stay distinguishable from every
+ * real place — a key that fell back to the words "Unnamed site" would merge
+ * unplaced dives with any dive someone actually named that. The two rules look
+ * similar and answer different questions; do not "unify" them.
+ *
+ * Because the key IS the place, every dive in a trip shares it by construction,
+ * so `groupIntoTrips` titles a trip with the key and nothing more. There is no
+ * most-dived-site heuristic and no "5 sites" fallback to add here — §10 rejects
+ * both explicitly.
  */
-function placeOf(dive: Dive): string | null {
-  return dive.siteName ?? dive.centerName ?? null;
+function tripKeyOf(dive: Dive): string | null {
+  return dive.centerName ?? dive.siteName ?? null;
 }
+
+/**
+ * The largest gap, in whole days, that still leaves two dives in one trip
+ * (DESIGN.md §10). Three, not one: a rest day mid-week is an ordinary part of a
+ * diving holiday, and at one day a single day off split whatever the old
+ * site-based key had not already fragmented. Named rather than inlined into
+ * `sameTrip` below so the number carries its reason with it.
+ */
+const MAX_TRIP_GAP_DAYS = 3;
 
 /**
  * Whole days between two calendar dates, via `calendarDateToUtcMs` — never by
@@ -59,7 +88,7 @@ function placeOf(dive: Dive): string | null {
  * `0`, means an uninterpretable date simply never merges — the same
  * unusable-value-becomes-a-sentinel shape `manualOrderKey` in diveNumber.ts
  * uses, for the same reason: a real, self-equal number that can never
- * accidentally satisfy `<= 1`.
+ * accidentally satisfy `<= MAX_TRIP_GAP_DAYS`.
  */
 function daysApart(a: string, b: string): number {
   const aMs = calendarDateToUtcMs(a);
@@ -69,13 +98,14 @@ function daysApart(a: string, b: string): number {
 }
 
 /**
- * DESIGN.md §3's whole grouping rule: two dives belong to the same trip when
- * their place matches and their dates are the same day or one day apart. This
- * one comparison, applied to each dive and its immediate predecessor down a
- * sorted list, is the entire feature — see `groupIntoTrips`.
+ * DESIGN.md §3/§10's whole grouping rule: two dives belong to the same trip when
+ * their `tripKeyOf` matches and their dates are no more than
+ * `MAX_TRIP_GAP_DAYS` apart. This one comparison, applied to each dive and its
+ * immediate predecessor down a sorted list, is the entire feature — see
+ * `groupIntoTrips`.
  */
 function sameTrip(a: Dive, b: Dive): boolean {
-  return placeOf(a) === placeOf(b) && daysApart(a.date, b.date) <= 1;
+  return tripKeyOf(a) === tripKeyOf(b) && daysApart(a.date, b.date) <= MAX_TRIP_GAP_DAYS;
 }
 
 /**
@@ -130,17 +160,23 @@ export function splitPlanned(dives: Dive[]): { planned: Dive[]; logged: Dive[] }
 }
 
 /**
- * DESIGN.md §3: the Dives list auto-groups into trips — consecutive days at
- * the same place — with no trip entity anywhere in the data model (§9, §10).
- * A trip is therefore computed fresh from a dive list on every render, and
- * this is the one place that computes it.
+ * DESIGN.md §3: the Dives list auto-groups into trips — one dive centre, with
+ * gaps of up to `MAX_TRIP_GAP_DAYS` — with no trip entity anywhere in the data
+ * model (§9, §10). A trip is therefore computed fresh from a dive list on every
+ * render, and this is the one place that computes it.
+ *
+ * A trip's `title` is simply `tripKeyOf`'s value for its first dive: every dive
+ * in the trip shares that key by construction, since it is what put them in one
+ * trip. §10 rejects the two things that might otherwise look like improvements
+ * here — a most-dived-site heuristic and an "N sites" fallback — so neither
+ * belongs in this function.
  *
  * `dives` MUST already be sorted newest-first, the order `toDives` produces.
  * This never re-sorts: doing so here would be a second, competing place that
  * decides dive order, and `compareDiveOrder` (via `toDives`) is already the
  * single owner of that. Each dive is compared only to the one immediately
- * before it in the given order — so three same-place dives one day apart
- * each still form one trip even though the first and last are two days
+ * before it in the given order — so four dives at one centre spaced three days
+ * apart each still form one trip even though the first and last are nine days
  * apart, and an out-of-order input produces a grouping with no defined
  * meaning rather than being silently corrected.
  */
@@ -153,7 +189,7 @@ export function groupIntoTrips(dives: Dive[]): Trip[] {
     if (first === undefined) return; // current is empty; nothing to flush.
     trips.push({
       key: first.id,
-      title: placeOf(first) ?? UNNAMED_SITE,
+      title: tripKeyOf(first) ?? UNNAMED_SITE,
       dateRange: dateRangeOf(current),
       dives: current,
     });
@@ -178,7 +214,7 @@ export function groupIntoTrips(dives: Dive[]): Trip[] {
  * db/dives.ts) operates on. DESIGN.md §2.5: "same-day dives order by time
  * in; when times are missing the diver can order them by hand" — a *day*,
  * not a `Trip`, since one trip can span several dates (`groupIntoTrips`
- * merges consecutive days at the same place) and `manual_order` is only ever
+ * merges nearby days at one centre) and `manual_order` is only ever
  * a tie-break within a single `date`.
  *
  * Same single-pass, compare-only-to-the-immediately-previous-entry shape as

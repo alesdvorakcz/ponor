@@ -27,32 +27,48 @@ describe('groupIntoTrips', () => {
     expect(trips[0]?.dateRange).toBe('16–18 Aug 2026');
   });
 
-  it('starts a new trip when a day is skipped', () => {
+  // DESIGN.md §10 ("A trip is one dive centre, with gaps of up to 3 days"): a boat day
+  // out of one centre visits several wrecks, so the SITE changing mid-trip must not
+  // split it. This is the precedence test — both dives carry a siteName as well, so it
+  // fails against the old `siteName ?? centerName` key, which would see two different
+  // places and cut the trip in half.
+  it('keeps one centre’s dives together even when each is at a different site', () => {
     const trips = groupIntoTrips([
-      dive({ date: '2026-08-20', siteName: 'Blue Hole' }),
-      dive({ date: '2026-08-16', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-16', centerName: 'Subic Divers', siteName: 'USS New York' }),
+      dive({ date: '2026-08-16', centerName: 'Subic Divers', siteName: 'El Capitan' }),
     ]);
-    expect(trips).toHaveLength(2);
+    expect(trips).toHaveLength(1);
+    expect(trips[0]?.dives).toHaveLength(2);
+    expect(trips[0]?.title).toBe('Subic Divers');
   });
 
-  // The case above is 4 days apart — well past the boundary, so it cannot tell
-  // "one day apart" from "two days apart" (or three). This pins the exact
-  // threshold: two days apart must NOT merge, only one day (or same day) may.
-  it('does not merge dives exactly two days apart', () => {
+  it('starts a new trip when the centre changes, even on the same day', () => {
     const trips = groupIntoTrips([
-      dive({ date: '2026-08-18', siteName: 'Blue Hole' }),
-      dive({ date: '2026-08-16', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-16', centerName: 'Subic Divers', siteName: 'USS New York' }),
+      dive({ date: '2026-08-16', centerName: 'Reef Divers', siteName: 'USS New York' }),
     ]);
     expect(trips).toHaveLength(2);
+    expect(trips.map((t) => t.title)).toEqual(['Subic Divers', 'Reef Divers']);
   });
 
-  it('starts a new trip when the place changes on consecutive days', () => {
+  // The gap boundary, pinned on both sides of the same threshold rather than at some
+  // value far past it: 3 days is the last gap that still merges (a rest day mid-week
+  // must not split a trip), 4 is the first that does not.
+  it('merges dives three days apart, so a rest day does not split a trip', () => {
     const trips = groupIntoTrips([
-      dive({ date: '2026-08-17', siteName: 'Shark Reef' }),
-      dive({ date: '2026-08-16', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-19', centerName: 'Reef Divers' }),
+      dive({ date: '2026-08-16', centerName: 'Reef Divers' }),
+    ]);
+    expect(trips).toHaveLength(1);
+    expect(trips[0]?.dives).toHaveLength(2);
+  });
+
+  it('starts a new trip once the gap reaches four days', () => {
+    const trips = groupIntoTrips([
+      dive({ date: '2026-08-20', centerName: 'Reef Divers' }),
+      dive({ date: '2026-08-16', centerName: 'Reef Divers' }),
     ]);
     expect(trips).toHaveLength(2);
-    expect(trips.map((t) => t.title)).toEqual(['Shark Reef', 'Blue Hole']);
   });
 
   it('keeps several dives on one day in one trip', () => {
@@ -74,13 +90,27 @@ describe('groupIntoTrips', () => {
     expect(trips[0]?.title).toBe('Unnamed site');
   });
 
-  it('falls back to centerName when siteName is absent', () => {
+  // The other half of the key rule: a dive with no centre still groups by its site, so
+  // shore diving — where nobody records a centre — groups exactly as it did before §10's
+  // revision. Both halves need pinning, because a key that simply ignored `siteName`
+  // would pass every centre-based test above and merge every unnamed shore dive here.
+  it('falls back to the site for a dive with no centre', () => {
     const trips = groupIntoTrips([
-      dive({ date: '2026-08-17', centerName: 'Reef Divers' }),
-      dive({ date: '2026-08-16', centerName: 'Reef Divers' }),
+      dive({ date: '2026-08-17', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-16', siteName: 'Blue Hole' }),
     ]);
     expect(trips).toHaveLength(1);
-    expect(trips[0]?.title).toBe('Reef Divers');
+    expect(trips[0]?.dives).toHaveLength(2);
+    expect(trips[0]?.title).toBe('Blue Hole');
+  });
+
+  it('starts a new trip for two centre-less dives at different sites', () => {
+    const trips = groupIntoTrips([
+      dive({ date: '2026-08-17', siteName: 'Shark Reef' }),
+      dive({ date: '2026-08-16', siteName: 'Blue Hole' }),
+    ]);
+    expect(trips).toHaveLength(2);
+    expect(trips.map((t) => t.title)).toEqual(['Shark Reef', 'Blue Hole']);
   });
 
   it('does not merge a named site with an unnamed one', () => {
