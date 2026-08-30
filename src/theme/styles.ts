@@ -814,6 +814,164 @@ function build(scheme: ColorScheme) {
       fontSize: 13,
       color: theme.fgMuted,
     },
+    // The dive-entry form (DESIGN.md §2.2, M1d task 4) — DiveFormScreen.tsx's own
+    // ScrollView content. `gap` separates the core strip from the six collapsible groups
+    // below it; `paddingBottom` keeps the last group clear of `formFooter`'s own fixed
+    // height, the same reasoning `listContent`'s own `paddingBottom` above gives for the
+    // floating row it sits above.
+    formScroll: {
+      flex: 1,
+    },
+    formScrollContent: {
+      padding: 20,
+      paddingBottom: 40,
+      gap: 20,
+    },
+    // The core strip (§2.2: "date, site, center, max depth, duration" — always visible,
+    // never behind a group).
+    formCoreStrip: {
+      gap: 4,
+    },
+    formHeading: {
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 20,
+      color: theme.fg,
+    },
+    // FormField.tsx's own root — one label-and-input row, repeated for every field on
+    // this screen regardless of group.
+    formField: {
+      gap: 6,
+    },
+    // Holds the label with room at its trailing edge for the `carried ×` chip Task 5
+    // adds (§0.6) — `justifyContent: 'space-between'` is what reserves that space.
+    formFieldHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    // `flex: 1`, not a fixed width: the same wrapping requirement `tripTitle` above
+    // documents (Czech runs 20-30% longer than English) applies to every field label on
+    // this screen, not just a trip's own heading.
+    formFieldLabel: {
+      flex: 1,
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fgMuted,
+    },
+    // The one text-input treatment every field on this form shares, numeric or not —
+    // `keyboardType` is the only thing that varies per field (FormField.tsx's own prop).
+    // `minHeight: 48` is this screen's own tap-target floor (§0.5) for the input itself,
+    // not just the buttons around it.
+    formFieldInput: {
+      minHeight: 48,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: theme.surface,
+      color: theme.fg,
+      fontFamily: fonts.sans,
+      fontSize: 15,
+    },
+    // Notes gets more room and top-aligned text, rather than centring a growing
+    // paragraph vertically inside a single-line-sized box.
+    formFieldInputMultiline: {
+      minHeight: 96,
+      textAlignVertical: 'top',
+    },
+    // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
+    // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
+    // above documents at length: a top edge draws the seam under whatever precedes this
+    // group, so groups read as separated by a hairline plus whitespace, never doubled up
+    // between two adjacent groups the way a bottom edge would.
+    formGroup: {
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      paddingTop: 4,
+    },
+    // The disclosure control — §0.5's own "48 dp minimum tap targets, including each
+    // group's header."
+    formGroupHeader: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    formGroupTitle: {
+      flex: 1,
+      fontFamily: fonts['sans-medium'],
+      fontSize: 15,
+      color: theme.fg,
+    },
+    // "Show"/"Hide" (FormGroup.tsx's own docblock: text, not a chevron glyph — this
+    // codebase's bundled fonts have no triangle/chevron code point, the same gap
+    // `reorderArrowUp`/`reorderArrowDown` above already found and fixed for the reorder
+    // arrows). Same uppercase/tracked/muted formula as `dayStripActionLabel`.
+    formGroupState: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    formGroupBody: {
+      gap: 14,
+      paddingBottom: 16,
+    },
+    // A fixed-choice field (entry, salinity, water body, suit, cylinder material) —
+    // diveFormSchema.ts's own docblock on `optionalPicked` is explicit that these values
+    // are "never something a diver could type... rejecting one is catching a real bug
+    // upstream": that guarantee only holds if the UI actually restricts input to the
+    // fixed list, so these render as tappable chips rather than a FormField the diver
+    // could mistype — a mistyped enum would fail zodResolver's per-field validation and
+    // block the WHOLE form's `handleSubmit`, exactly the "never block a save" (§1)
+    // failure this screen exists to avoid.
+    formChipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    formChip: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      backgroundColor: theme.surface,
+    },
+    // Same `action`/`action-fg` inverted-ink pair the app's one button treatment already
+    // uses (§0.1) — reused here for "this option is currently selected" rather than
+    // inventing a second colour meaning, the same reasoning `ratingDotFilled` above
+    // gives for marking state through fill rather than a new token.
+    formChipSelected: {
+      backgroundColor: theme.action,
+      borderColor: theme.action,
+    },
+    formChipText: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 13.5,
+      color: theme.fg,
+    },
+    formChipTextSelected: {
+      color: theme.actionFg,
+    },
+    // The save action's fixed footer (§0.5: "the primary action sits in the bottom
+    // third"; brief step 4: never disabled). Sits OUTSIDE `formScroll` above as a
+    // sibling, not inside it, so it stays reachable without scrolling to the end of a
+    // long form — "one scroll view" (brief) describes the form's OWN fields, not this
+    // persistent action bar.
+    formFooter: {
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      paddingBottom: 24,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      backgroundColor: theme.bg,
+    },
   });
 }
 
