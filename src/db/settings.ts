@@ -26,6 +26,42 @@ import type { Db } from './types';
 const DIVES_BEFORE_KEY = 'dives_before';
 
 /**
+ * The `dives_before` row as a builder, for `useLiveQuery`. `getDivesBefore`
+ * remains the one place that *rejects* a stored value it cannot read; this
+ * only fetches the row.
+ */
+export function divesBeforeQuery(db: Db) {
+  return db.select().from(settings).where(eq(settings.key, DIVES_BEFORE_KEY));
+}
+
+/**
+ * The column's text, coerced toward a number wherever it plausibly could be
+ * one. Never throws and never applies any policy about what counts as a
+ * *valid* dive count (negative, fractional, ...) — that judgment belongs to
+ * `isDiveCount` alone.
+ *
+ * Decimal digits only, checked before coercing. `Number` is far more
+ * permissive than "an integer written out": Number('') is 0, and
+ * Number('0x10') is 16, Number('1e3') is 1000, Number('0b101') is 5 and
+ * Number('+5') is 5 — every one of which passes an isInteger check
+ * afterwards, so a hand-edited or corrupted '0x10' would silently become a
+ * pre-Ponor count of 16. Nothing the app writes can take those forms
+ * (setDivesBefore writes String(count)), which is exactly why anything that
+ * does is corruption and must come back NaN rather than a plausible-looking
+ * wrong number.
+ *
+ * Shared by `getDivesBefore` (which turns a NaN/negative/fractional result
+ * into a thrown error) and `readDivesBefore` (which leaves it for
+ * `isDiveCount` to reject during a render) — one copy of the coercion rule
+ * for both, rather than a second hand-written regex behind the one
+ * `getDivesBefore` already had.
+ */
+function coerceStoredCount(value: string): number {
+  const raw = value.trim();
+  return /^\d+$/.test(raw) ? Number(raw) : NaN;
+}
+
+/**
  * The diver's pre-Ponor dive count, as a real number.
  *
  * Absent means 0 — a diver who has never answered the onboarding question has
@@ -37,31 +73,44 @@ const DIVES_BEFORE_KEY = 'dives_before';
  * rule `updateDive` and `softDeleteDive` already apply to a missing row.
  */
 export async function getDivesBefore(db: Db): Promise<number> {
-  const rows = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, DIVES_BEFORE_KEY))
-    .limit(1);
-
+  const rows = await divesBeforeQuery(db);
   const row = rows.at(0);
   if (row === undefined) return 0;
 
-  // Decimal digits only, checked before coercing. `Number` is far more
-  // permissive than "an integer written out": Number('') is 0, and
-  // Number('0x10') is 16, Number('1e3') is 1000, Number('0b101') is 5 and
-  // Number('+5') is 5 — every one of which passes an isInteger check
-  // afterwards, so a hand-edited or corrupted '0x10' would silently become a
-  // pre-Ponor count of 16. Nothing the app writes can take those forms
-  // (setDivesBefore writes String(count)), which is exactly why anything that
-  // does is corruption and must be reported rather than interpreted.
-  const raw = row.value.trim();
-  const parsed = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  const parsed = coerceStoredCount(row.value);
   if (!isDiveCount(parsed)) {
     throw new Error(
       `settings.${DIVES_BEFORE_KEY} is not a non-negative integer: ${JSON.stringify(row.value)}`,
     );
   }
   return parsed;
+}
+
+/**
+ * The raw `dives_before` value out of `divesBeforeQuery`'s rows: `null` when
+ * the row is absent or unreadable, otherwise the stored text coerced toward
+ * a number the same way `getDivesBefore` is (see `coerceStoredCount`).
+ *
+ * "Coerced" and "interpreted" are deliberately different steps. This only
+ * turns the column's *text* representation into a candidate number — it does
+ * not decide whether that candidate is an acceptable count, which is
+ * `isDiveCount`'s job alone. Skipping this step and handing the raw string
+ * straight to `isDiveCount` would make it reject every real stored value:
+ * `isDiveCount` requires `typeof value === 'number'`, and the `settings`
+ * table is `text`/`text`, so a genuinely-valid `'247'` would silently read as
+ * "no offset" on every render — the exact bug `getDivesBefore`'s own
+ * doc-comment describes, reappearing one function over. Never throws,
+ * because a hook composing this during a render must degrade a corrupt row,
+ * not crash the screen.
+ *
+ * `rows` is `unknown[]`, not `divesBeforeQuery`'s real return type, because
+ * `useLiveQuery`'s `.data` is typed that loosely — see `useDives`.
+ */
+export function readDivesBefore(rows: unknown[]): unknown {
+  const row = Array.isArray(rows) ? rows.at(0) : undefined;
+  const value =
+    row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
+  return typeof value === 'string' ? coerceStoredCount(value) : null;
 }
 
 /**

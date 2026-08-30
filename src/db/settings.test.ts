@@ -1,7 +1,7 @@
-import { assignDiveNumbers } from '../domain/diveNumber';
+import { assignDiveNumbers, isDiveCount } from '../domain/diveNumber';
 import { createDive, listDives } from './dives';
 import { settings } from './schema';
-import { getDivesBefore, setDivesBefore } from './settings';
+import { divesBeforeQuery, getDivesBefore, readDivesBefore, setDivesBefore } from './settings';
 import { createTestDb, type TestDb } from './testDb';
 
 let db: TestDb;
@@ -82,6 +82,43 @@ describe('setDivesBefore', () => {
       await expect(setDivesBefore(db, bad)).rejects.toThrow(/non-negative integer/i);
     }
     expect(await db.select().from(settings)).toHaveLength(0);
+  });
+});
+
+describe('readDivesBefore', () => {
+  it('is null when the row is absent — no answer yet, same as getDivesBefore treats it', () => {
+    expect(readDivesBefore([])).toBeNull();
+  });
+
+  it('reads a genuinely stored count back as a real number, not the string the column stores', async () => {
+    // The failure mode this function exists to not reintroduce: isDiveCount
+    // requires typeof value === 'number', and the settings table is
+    // text/text, so handing the raw '247' straight to isDiveCount would
+    // silently read as "no offset" on every render of useDives — the exact
+    // bug getDivesBefore's own module doc-comment describes, one function
+    // over.
+    await setDivesBefore(db, 247);
+    const raw = readDivesBefore(await divesBeforeQuery(db));
+    expect(raw).toBe(247);
+    expect(isDiveCount(raw)).toBe(true);
+  });
+
+  it('coerces a value stored with surrounding whitespace, matching getDivesBefore', async () => {
+    await db.insert(settings).values({ key: 'dives_before', value: ' 12 ' });
+    expect(readDivesBefore(await divesBeforeQuery(db))).toBe(12);
+  });
+
+  it('degrades an uninterpretable stored value to something isDiveCount rejects, rather than throwing', async () => {
+    await db.insert(settings).values({ key: 'dives_before', value: 'not a number' });
+    const raw = readDivesBefore(await divesBeforeQuery(db));
+    expect(isDiveCount(raw)).toBe(false);
+  });
+
+  it('never throws on a malformed rows argument — it runs during a render, which may not throw', () => {
+    const malformed = [null, undefined, 'nope', 42, [{}], [{ value: 42 }], [null]] as unknown[];
+    for (const bad of malformed) {
+      expect(() => readDivesBefore(bad as unknown[])).not.toThrow();
+    }
   });
 });
 

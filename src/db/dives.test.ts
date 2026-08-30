@@ -2,10 +2,12 @@ import { eq, sql } from 'drizzle-orm';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import {
   createDive,
+  diveRowsQuery,
   getDive,
   listDives,
   reorderDivesForDate,
   softDeleteDive,
+  toDives,
   updateDive,
 } from './dives';
 import { dives } from './schema';
@@ -238,6 +240,43 @@ describe('listDives', () => {
       'e-timed-late',
       'd-timed-early',
     ]);
+  });
+});
+
+describe('diveRowsQuery / toDives', () => {
+  it('together reproduce listDives exactly', async () => {
+    await createDive(db, { date: '2026-08-16', timeIn: '09:00' });
+    await createDive(db, { date: '2026-08-18' });
+    await createDive(db, { date: '2026-08-16', timeIn: '14:00' });
+
+    const viaHalves = toDives(await diveRowsQuery(db));
+    const viaListDives = await listDives(db);
+
+    expect(viaHalves.map((d) => d.id)).toEqual(viaListDives.map((d) => d.id));
+    expect(viaHalves).toEqual(viaListDives);
+  });
+
+  it('diveRowsQuery excludes tombstoned dives', async () => {
+    const kept = await createDive(db, { date: '2026-08-16' });
+    const gone = await createDive(db, { date: '2026-08-17' });
+    await softDeleteDive(db, gone.id);
+
+    const ids = (await diveRowsQuery(db)).map((r) => r.id);
+    expect(ids).toContain(kept.id);
+    expect(ids).not.toContain(gone.id);
+  });
+
+  it('toDives sorts an already-shuffled array, so it does not depend on SQL order', async () => {
+    await createDive(db, { date: '2026-08-16' });
+    await createDive(db, { date: '2026-08-18' });
+    await createDive(db, { date: '2026-08-17' });
+
+    const rows = await diveRowsQuery(db);
+    const shuffled = [...rows].reverse();
+
+    expect(toDives(shuffled).map((d) => d.date)).toEqual(
+      toDives(rows).map((d) => d.date),
+    );
   });
 });
 

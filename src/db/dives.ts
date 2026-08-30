@@ -134,23 +134,62 @@ export async function getDive(db: Db, id: string): Promise<Dive | null> {
 }
 
 /**
+ * The dive read, tombstone-filtered and deliberately UNSORTED.
+ *
+ * Returned as a builder rather than a Promise so it can serve both callers:
+ * `listDives` awaits it, and `useDives` hands it to drizzle's `useLiveQuery`,
+ * which needs a synchronous query it can re-run on every database change.
+ *
+ * Ordering is not applied here on purpose. SQL cannot express §2.5's tiers
+ * (NULL placement differs, and `manual_order` sorts hand-ordered before
+ * not-hand-ordered), so ordering belongs to `compareDiveOrder` alone. An
+ * ORDER BY here would be a second, disagreeing copy of those rules — which is
+ * exactly the bug that once made the logbook render #2, #1, #3.
+ */
+export function diveRowsQuery(db: Db) {
+  return db.select().from(dives).where(liveDives);
+}
+
+/**
+ * Raw rows to sorted domain dives, newest first.
+ *
+ * Sorts what it is given rather than trusting the caller's order: `useLiveQuery`
+ * makes no ordering promise at all.
+ *
+ * Takes `unknown[]`, not `(typeof dives.$inferSelect)[]`, because `useLiveQuery`'s
+ * `.data` is typed that loosely — the whole reason this function exists rather
+ * than every caller writing its own `.map(toDive)`. The cast below is the one
+ * place that bridges back to the row shape `toDive` expects; it is sound
+ * because both callers (`listDives`, awaiting `diveRowsQuery` directly, and
+ * `useDives`, via `useLiveQuery(diveRowsQuery(db))`) only ever hand this rows
+ * that `diveRowsQuery` itself produced. The same "the type is a label, not a
+ * runtime guarantee" gap `toDive` already has for `tanksJson` — not a new one.
+ */
+export function toDives(rows: unknown[]): Dive[] {
+  return (rows as (typeof dives.$inferSelect)[]).map(toDive).sort((a, b) => compareDiveOrder(b, a));
+}
+
+/**
  * Every live dive, newest date first — the exact reverse of the order
  * assignDiveNumbers numbers them in. Planned dives are included; the list
  * pins them itself.
  *
- * Sorted in JS with compareDiveOrder (reversed), not a SQL ORDER BY: this
- * function and assignDiveNumbers both need "every live dive, in DESIGN.md
- * §2.5's order," and a second, hand-written tier list here previously drifted
- * from the real one — missing the manualOrder tier entirely, and getting
- * SQL's NULL placement backwards for timeIn, so an untimed dive sorted to
- * the wrong end of its date. No LIMIT is used here — the numbering pass
- * already reads every logged dive by definition, and DESIGN.md targets a
- * few thousand dives — so a SQL-side ordering would only be a second tier
- * list to keep in sync with the first, for no observable benefit.
+ * Sorted with compareDiveOrder (reversed), not a SQL ORDER BY: this function
+ * and assignDiveNumbers both need "every live dive, in DESIGN.md §2.5's
+ * order," and a second, hand-written tier list here previously drifted from
+ * the real one — missing the manualOrder tier entirely, and getting SQL's
+ * NULL placement backwards for timeIn, so an untimed dive sorted to the
+ * wrong end of its date. No LIMIT is used here — the numbering pass already
+ * reads every logged dive by definition, and DESIGN.md targets a few
+ * thousand dives — so a SQL-side ordering would only be a second tier list
+ * to keep in sync with the first, for no observable benefit.
+ *
+ * A thin wrapper over `diveRowsQuery` and `toDives` so that this async read
+ * and `useDives`'s reactive read are built from the same two parts and
+ * cannot diverge.
  */
 export async function listDives(db: Db): Promise<Dive[]> {
-  const rows = await db.select().from(dives).where(liveDives);
-  return rows.map(toDive).sort((a, b) => compareDiveOrder(b, a));
+  return toDives(await diveRowsQuery(db));
 }
 
 /**
