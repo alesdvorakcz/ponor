@@ -169,10 +169,11 @@ function build(scheme: ColorScheme) {
       fontVariant: ['tabular-nums'],
       letterSpacing: -1,
     },
-    // The " m" split off `formatDepth`'s string (DepthValue.tsx) so the unit can sit
-    // quieter than the number it qualifies, without a second call into the formatter.
-    // No colour of its own: nested inside depthValue/depthValueHero's Text, it inherits
-    // the band colour those carry and only opacity sets it apart.
+    // The unit from `formatDepthParts` (display.ts, DepthValue.tsx) styled quieter than
+    // the number it qualifies — DepthValue reads `value`/`unit` as separate fields, never
+    // by parsing a formatted string. No colour of its own: nested inside
+    // depthValue/depthValueHero's Text, it inherits the band colour those carry and only
+    // opacity sets it apart.
     depthUnit: {
       fontFamily: fonts.mono,
       fontSize: 11,

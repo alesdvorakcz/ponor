@@ -3,6 +3,7 @@ import {
   formatCoordinates,
   formatCount,
   formatDepth,
+  formatDepthParts,
   formatDuration,
   formatDiveDate,
   formatDiveStatus,
@@ -32,6 +33,23 @@ describe('formatDepth', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatDepth(Number.NaN)).toBeNull();
+  });
+});
+
+// M1c task 1 review, Important: DepthValue.tsx used to get its value/unit split by
+// parsing formatDepth's string on the space it happened to always contain — a parse with
+// no fallback. formatDepthParts is the structured form it reads instead, and formatDepth
+// above is now defined in terms of it, so this pins the one contract both of them share.
+describe('formatDepthParts', () => {
+  it('splits the numeral and unit apart, matching what formatDepth joins back together', () => {
+    expect(formatDepthParts(32.44)).toEqual({ value: '32.4', unit: 'm' });
+    expect(formatDepthParts(18)).toEqual({ value: '18.0', unit: 'm' });
+  });
+  it('returns null for an unrecorded depth rather than a zero', () => {
+    expect(formatDepthParts(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatDepthParts(Number.NaN)).toBeNull();
   });
 });
 

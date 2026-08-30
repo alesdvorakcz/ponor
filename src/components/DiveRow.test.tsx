@@ -140,10 +140,15 @@ it('gives the depth tabular figures so a column of dives aligns', async () => {
   expect(style.some((s) => s?.fontVariant?.includes('tabular-nums'))).toBe(true);
 });
 
+// M1c task 1 review, Minor: this used to also assert `ellipsizeMode` is not `'head'`.
+// diveSite's Text never sets ellipsizeMode at all, so that read undefined and the
+// assertion passed unconditionally — it would only have failed had someone later written
+// literally `ellipsizeMode="head"`, which says nothing about whether the name actually
+// wraps. `numberOfLines` below is the real mechanism (RN wraps up to that many lines and
+// only then truncates) and is the one assertion this test needs to isolate the guarantee.
 it('lets a long site name wrap rather than truncate', async () => {
   const d = dive({ siteName: 'Šenkýřův lom u Zbraslavi nad Vltavou' });
   const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
   const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Šenkýřův'));
   expect(node?.props.numberOfLines).toBe(2);
-  expect(node?.props.ellipsizeMode).not.toBe('head');
 });

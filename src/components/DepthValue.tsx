@@ -1,6 +1,6 @@
 import { Text } from 'react-native';
 
-import { formatDepth } from '../format/display';
+import { formatDepthParts } from '../format/display';
 import { depthColorOrNull } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -34,22 +34,23 @@ interface DepthValueProps {
  * value the diver failed to enter — which §1 explicitly refuses to do.
  *
  * §0.6 makes depth the anchor of a row: larger, tabular, right-aligned, in its band
- * colour, with the unit set quieter than the number. `formatDepth` stays the only
- * thing that decides the string ("32.4 m") — splitting it here on the space it
- * always contains is a presentation detail, not a second formatter, so the unit can
- * carry its own (dimmer) style without formatDepth knowing anything about display.
+ * colour, with the unit set quieter than the number. `formatDepthParts` (display.ts)
+ * stays the only thing that decides the numeral and unit — this reads its `value`/`unit`
+ * fields directly rather than parsing a formatted string, so the unit can carry its own
+ * (dimmer) style without ever risking a re-parse that display.ts's own shape could break
+ * (M1c task 1 review, Important: an earlier version split `formatDepth`'s string on its
+ * one space, which had no fallback if that space were ever absent).
  */
 export function DepthValue({ metres, scheme, variant = 'row' }: DepthValueProps) {
   const colour = depthColorOrNull(metres, scheme);
-  const text = formatDepth(metres);
-  if (colour === null || text === null) return null;
+  const parts = formatDepthParts(metres);
+  if (colour === null || parts === null) return null;
 
   const styles = makeStyles(scheme);
-  const [value, unit] = text.split(' ');
   return (
     <Text style={[variant === 'hero' ? styles.depthValueHero : styles.depthValue, { color: colour }]}>
-      {value}
-      <Text style={variant === 'hero' ? styles.depthUnitHero : styles.depthUnit}>{` ${unit}`}</Text>
+      {parts.value}
+      <Text style={variant === 'hero' ? styles.depthUnitHero : styles.depthUnit}>{` ${parts.unit}`}</Text>
     </Text>
   );
 }

@@ -28,10 +28,30 @@ function isFiniteNumber(value: number | null): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+/**
+ * Depth split into its numeral and unit, e.g. `{ value: '32.4', unit: 'm' }`.
+ *
+ * M1c task 1 review, Important: `DepthValue` needs the unit styled more quietly than the
+ * number, and used to get there by taking `formatDepth`'s string and splitting it on the
+ * space it happened to always contain — a parse with no fallback, so a future formatDepth
+ * change (this file's own top docblock names the m/ft unit setting arriving "in M1c" —
+ * this exact function, this same milestone) could silently turn a missing unit into the
+ * literal text "undefined" on screen. This is the structured form instead: a caller that
+ * wants the two pieces separately takes them from here, never by re-parsing a formatted
+ * string. `formatDepth` below is now defined in terms of this, not the other way round, so
+ * there remains exactly one place — this one — that decides a depth's numeral and unit;
+ * whatever formatDepth ends up being ("32.4 m", "106.3 ft", ...) is only ever this value
+ * and this unit joined with a space.
+ */
+export function formatDepthParts(metres: number | null): { value: string; unit: string } | null {
+  if (!isFiniteNumber(metres)) return null;
+  return { value: metres.toFixed(1), unit: 'm' };
+}
+
 /** Depth to one decimal place, e.g. "32.4 m" — the precision a gauge reads to. */
 export function formatDepth(metres: number | null): string | null {
-  if (!isFiniteNumber(metres)) return null;
-  return `${metres.toFixed(1)} m`;
+  const parts = formatDepthParts(metres);
+  return parts === null ? null : `${parts.value} ${parts.unit}`;
 }
 
 /** Duration to the whole minute, e.g. "72 min" — how divers log it, never h:mm. */

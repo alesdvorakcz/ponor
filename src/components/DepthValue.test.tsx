@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react-native';
 
+import * as display from '../format/display';
 import { DepthValue } from './DepthValue';
 
 // DESIGN.md §10: no CHECK constraint on any numeric dive field, so a negative
@@ -30,4 +31,34 @@ it('sets the hero variant larger than the default row variant', async () => {
   expect(sizeOf(rowResult)).toBe(20);
   expect(sizeOf(heroResult)).toBe(34);
   expect(sizeOf(heroResult)).toBeGreaterThan(sizeOf(rowResult));
+});
+
+// M1c task 1 review, Important: the old implementation read formatDepth's string and
+// split it on its one space to style the unit more quietly than the number. Nothing
+// validated that a space was actually there — a spaceless formatDepth output made `unit`
+// `undefined`, which the nested Text rendered as the literal text " undefined" next to
+// the number. That was inert only because formatDepth always emitted exactly one space;
+// display.ts's own module docblock says the m/ft unit-conversion setting "arrives in M1c
+// and will live here", i.e. in this exact function, this same milestone.
+//
+// Only `formatDepth` is spied on here, not the module's other exports — DepthValue is
+// meant to get the value and unit from `formatDepthParts` instead, a structured sibling
+// that never needs parsing, so a real (unmocked) `formatDepthParts` is what should make
+// this pass. That's what proves the fix isn't a fallback tolerating today's one-space
+// shape, but the removal of the parse entirely.
+it('never lets a malformed formatDepth output leak the literal "undefined" onto the screen', async () => {
+  const spy = jest.spyOn(display, 'formatDepth').mockReturnValue('32.4');
+  try {
+    const t = await render(<DepthValue metres={32.4} scheme="dark" />);
+    const rendered = t.root
+      ? t.root
+          .queryAll((n) => n.type === 'Text', { includeSelf: true })
+          .flatMap((n) => n.children)
+          .filter((c): c is string => typeof c === 'string')
+          .join('')
+      : '';
+    expect(rendered).not.toContain('undefined');
+  } finally {
+    spy.mockRestore();
+  }
 });
