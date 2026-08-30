@@ -238,6 +238,29 @@ it('narrows the list to dives matching the search text', async () => {
   expect(text).not.toContain('Shark Reef');
 });
 
+// M1c task 2, DESIGN.md §0.6's "Trip header" row: Archivo SemiBold 11.5, uppercase,
+// +0.13 em tracked, muted — set apart from diveSite (16px sans-medium, full ink)
+// beneath it by every one of size/case/tracking/colour at once, where before both
+// were roughly body-sized and bolded and read as the same visual class. Matched
+// against BOTH 'BLUE HOLE' and 'Blue Hole' on purpose: RN's `textTransform:
+// 'uppercase'` is a paint-time transform of a Text node, not a rewrite of its actual
+// string content, so which one this renderer reports for `n.children[0]` is an
+// implementation detail this test has no business pinning down.
+it('sets trip headers apart from row text rather than merely bolding them', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ date: '2026-08-16', siteName: 'Blue Hole', maxDepthM: 32.4 })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const header = textNodesOf(t).find(
+    (n) => String(n.children[0] ?? '') === 'BLUE HOLE' || String(n.children[0] ?? '') === 'Blue Hole',
+  );
+  const style = [header?.props.style].flat(3).filter(Boolean);
+  expect(style.some((s) => s?.textTransform === 'uppercase')).toBe(true);
+  expect(style.some((s) => (s?.letterSpacing ?? 0) >= 1)).toBe(true);
+});
+
 // DESIGN.md §2.5's UI-facing half: hand-ordering is offered only where it can
 // actually change something, and a reorder that cannot take effect must say
 // so rather than silently spring back. domain/trips.test.ts and
