@@ -61,6 +61,26 @@ import { type ColorScheme } from '../theme/tokens';
  * native header: `_layout.tsx` sets `headerShown: false` for the whole app, and flipping
  * that globally would also put a header on the Dives list, which the design does not call
  * for. See BackButton's own docblock for the rest of the reasoning.
+ *
+ * **Two optional props, added for M1b's wide (tablet) layout, DivesScreen.tsx's own job to
+ * use — every other caller, i.e. the real `/dive/[id]` route, passes neither and gets
+ * exactly today's behaviour:**
+ *
+ * - `id` overrides the route's own `id` param. On a wide layout the diver never navigates
+ *   to `/dive/[id]` at all — DivesScreen.tsx renders this component directly, beside the
+ *   list, for whichever row is selected — so there is no route match to read an `id` from.
+ *   This is the ONLY change that reuse needed: the search (`useDives()`, unchanged), the
+ *   formatting and every cluster below are exactly the same code either way. The
+ *   alternative — a second, list-aware detail view that duplicates this file's rendering —
+ *   is exactly what this task's own brief rules out, and what this codebase's docblocks
+ *   elsewhere already name as a repeat mistake.
+ * - `showBackButton` (default `true`, so the routed case is unaffected) hides BackButton
+ *   when `false`. Side by side, there is nothing to go back TO — the list is still on
+ *   screen the entire time — and BackButton's `router.back()`/`canGoBack()` read the
+ *   app's real navigation stack, which embedding never pushed anything onto; showing it
+ *   would either do nothing a diver could make sense of or, worse, leave the Dives screen
+ *   entirely, since `canGoBack()` reports on whatever brought the app to `/`, not on
+ *   whether a detail pane happens to be open next to it.
  */
 
 /**
@@ -256,11 +276,23 @@ function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
   return index === -1 ? undefined : logged[index + 1];
 }
 
-export default function DiveDetailScreen() {
+interface DiveDetailScreenProps {
+  /** Overrides the route's own `id` param — see this file's top docblock. Absent (the real
+   * `/dive/[id]` route) falls back to `useLocalSearchParams()`, exactly as before this prop
+   * existed. */
+  id?: string;
+  /** Hides BackButton when `false`. Defaults to `true`, so the routed case is unaffected;
+   * DivesScreen.tsx passes `false` for its embedded, side-by-side instance. See this file's
+   * top docblock for why that instance has nothing for the control to go back to. */
+  showBackButton?: boolean;
+}
+
+export default function DiveDetailScreen({ id: idProp, showBackButton = true }: DiveDetailScreenProps = {}) {
   const scheme: ColorScheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const params = useLocalSearchParams<{ id?: string | string[] }>();
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const id = idProp ?? routeId;
   const { dives } = useDives();
 
   const dive = dives.find((d) => d.id === id);
@@ -268,7 +300,7 @@ export default function DiveDetailScreen() {
   if (dive === undefined) {
     return (
       <View style={styles.screen}>
-        <BackButton styles={styles} />
+        {showBackButton && <BackButton styles={styles} />}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>Dive not found.</Text>
         </View>
@@ -297,7 +329,7 @@ export default function DiveDetailScreen() {
 
   return (
     <View style={styles.screen}>
-      <BackButton styles={styles} />
+      {showBackButton && <BackButton styles={styles} />}
       <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
         <Cluster title="Date & time" styles={styles}>
           <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />

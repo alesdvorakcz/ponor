@@ -1,8 +1,10 @@
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { dive } from '../domain/diveFixture';
 import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useWideLayout } from '../hooks/useWideLayout';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -13,6 +15,19 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // reorder test can control exactly what ReorderOutcome it resolves with, without a real
 // database.
 jest.mock('../db/dives', () => ({ reorderDivesForDate: jest.fn() }));
+// A bare jest.fn() returns undefined, which is falsy — every pre-existing test below, none
+// of which mentions wide layouts, is unaffected and keeps exercising the narrow layout.
+// Only the wide-layout tests near the bottom of this file set this to true.
+jest.mock('../hooks/useWideLayout', () => ({ useWideLayout: jest.fn() }));
+// Needed once this screen can embed DiveDetailScreen.tsx (the wide layout, below): that
+// component imports both of these names from expo-router itself (see its own test file),
+// and Jest mocks a module once per test FILE regardless of which file under test does the
+// importing. `router` doubles as this screen's own real navigation call for the narrow
+// layout (`openDive`/`logDive`).
+jest.mock('expo-router', () => ({
+  router: { push: jest.fn(), back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn() },
+  useLocalSearchParams: jest.fn(),
+}));
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
 // @testing-library/react-native@14 actually exposes — the same adaptation already used in
@@ -55,12 +70,34 @@ function findAllMoveButtons(t: RenderResult, direction: 'up' | 'down') {
     : [];
 }
 
+/** A DiveRow, found by its own number badge ("#<n>") rather than its site name: a
+ * single-site trip's TripHeader is titled after that same site name (domain/trips.ts's
+ * `placeOf`), so matching on the name would find the header FIRST — and pressing it would
+ * silently do nothing, since it carries no press handler for `fireEvent.press` to climb to
+ * (see fire-event.js's own `findEventHandler`: no handler found up the tree just returns,
+ * it doesn't throw). "#<n>" is unique to DiveRow. Presses any Text node inside the row;
+ * `fireEvent.press` climbs to the nearest ancestor with a press handler regardless of which
+ * descendant it's called on (the same mechanism DiveRow.test.tsx's own top note relies on
+ * for `fireEvent.press(t.root)`). Throws rather than returning undefined, matching
+ * findSearchInput's contract above. */
+function findRow(t: RenderResult, number: number) {
+  const [node] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(`#${number}`)) : [];
+  if (!node) throw new Error(`DivesScreen did not render a row numbered #${number}`);
+  return node;
+}
+
 const mockUseDives = useDives as jest.Mock;
 const mockReorderDivesForDate = reorderDivesForDate as jest.Mock;
+const mockUseWideLayout = useWideLayout as jest.Mock;
+const mockRouterPush = router.push as jest.Mock;
+const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
 
 afterEach(() => {
   mockUseDives.mockReset();
   mockReorderDivesForDate.mockReset();
+  mockUseWideLayout.mockReset();
+  mockRouterPush.mockReset();
+  mockUseLocalSearchParams.mockReset();
 });
 
 it('shows the empty state when there are no dives', async () => {
@@ -335,4 +372,68 @@ it('releases the in-flight guard after a failed write, so a later reorder for th
   await waitFor(() => {
     expect(mockReorderDivesForDate).toHaveBeenCalledTimes(2);
   });
+});
+
+// M1b Task 9: the tablet layout (DESIGN.md §3, useWideLayout.ts's own boundary tests cover
+// the threshold itself — these four are about the WIRING: what a tap on a row does, and
+// what the detail pane shows, on each side of `wide`). All four stub useWideLayout()
+// directly rather than a real window width, the same way every other external read in this
+// file is stubbed at its own hook.
+
+it('navigates to the dive detail route on a narrow layout, without embedding it inline', async () => {
+  mockUseWideLayout.mockReturnValue(false);
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  await fireEvent.press(findRow(t, 1));
+  expect(mockRouterPush).toHaveBeenCalledWith('./dive/a');
+  // DiveDetailScreen is never embedded on a narrow layout — "Date & time" is one of its own
+  // cluster titles (DiveDetailScreen.tsx), never something DivesScreen renders itself.
+  expect(textIn(t).join(' ')).not.toContain('Date & time');
+});
+
+it('shows the selected dive beside the list instead of navigating, on a wide layout', async () => {
+  mockUseWideLayout.mockReturnValue(true);
+  mockUseLocalSearchParams.mockReturnValue({}); // DiveDetailScreen calls this unconditionally; the id prop overrides it either way
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  await fireEvent.press(findRow(t, 1));
+  expect(mockRouterPush).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('Date & time'); // DiveDetailScreen's own cluster title
+});
+
+it('shows a placeholder in the detail pane until a dive is selected, on a wide layout', async () => {
+  mockUseWideLayout.mockReturnValue(true);
+  mockUseLocalSearchParams.mockReturnValue({});
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(textIn(t).join(' ').toLowerCase()).toContain('select a dive');
+});
+
+// DiveDetailScreen.test.tsx already pins showBackButton's own effect in isolation; this is
+// the wiring proof that DivesScreen actually passes false for its embedded instance, not
+// just that the prop works when someone remembers to pass it.
+it("does not render the detail screen's own back control when embedded beside the list", async () => {
+  mockUseWideLayout.mockReturnValue(true);
+  mockUseLocalSearchParams.mockReturnValue({});
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  await fireEvent.press(findRow(t, 1));
+  const backButtons = t.root ? t.root.queryAll((n) => n.props.accessibilityLabel === 'Back to dives') : [];
+  expect(backButtons).toHaveLength(0);
 });

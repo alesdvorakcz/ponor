@@ -11,8 +11,10 @@ import { useDives } from '../db/useDives';
 import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
+import { useWideLayout } from '../hooks/useWideLayout';
 import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import DiveDetailScreen from './DiveDetailScreen';
 
 /**
  * One row of a section's `data`, after `toListEntries` below has decided
@@ -83,13 +85,29 @@ function entryKey(entry: ListEntry): string {
  * screen shows next — the day's actual new order arrives back through
  * `useDives()`'s live query re-running, the one path everything else here
  * already uses. See `ReorderControls.tsx` for the rest of that mechanism.
+ *
+ * **Wide (tablet) layout** (DESIGN.md §3, `useWideLayout.ts`): `wide` splits the render
+ * into a fixed-width list column plus a detail pane for whichever dive is `selectedId`.
+ * The list column's own JSX — search box, notice, the section list, the "+" fab — is
+ * identical to the narrow layout's; it is written ONCE (`listPane`, below) and reused in
+ * both branches, rather than kept as two copies that could quietly drift apart. The detail
+ * pane reuses `DiveDetailScreen` itself, the exact component `/dive/[id]` renders, rather
+ * than a second view that redraws a dive's fields a second way — see that file's own
+ * docblock for the two props (`id`, `showBackButton`) this needed and why. `openDive`
+ * (below) is the one place that decides whether selecting a row navigates or just updates
+ * `selectedId`; every caller — `DiveRow` and `ReorderControls` alike — already goes through
+ * it, so neither had to learn about wide layouts at all.
  */
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
   const { dives, numbers, error } = useDives();
+  const wide = useWideLayout();
   const [query, setQuery] = useState('');
+  // Wide layout only: which dive's detail shows beside the list (this screen's own
+  // docblock, above). Narrow layout never reads this — openDive navigates instead.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Set only when a reorder request could not fully take effect
   // (`applyReorder`'s ApplyReorderResult) — canReorder is meant to keep that
   // unreachable, but it is still handled: see ReorderControls.tsx's
@@ -97,7 +115,17 @@ export default function DivesScreen() {
   // silently is worth guarding anyway.
   const [reorderMessage, setReorderMessage] = useState<string | null>(null);
 
-  const openDive = (id: string) => router.push(`./dive/${id}`);
+  // Wide: stay on this screen and just show the pick in the detail pane — there is no
+  // route to push to that would put both list and detail on screen at once. Narrow:
+  // unchanged, a real push to /dive/[id]. Both DiveRow and ReorderControls call this
+  // same function for a tap, so neither needed to learn about `wide` itself.
+  const openDive = (id: string) => {
+    if (wide) {
+      setSelectedId(id);
+    } else {
+      router.push(`./dive/${id}`);
+    }
+  };
   // M1c builds the dive form this points at (DESIGN.md §9); the route does
   // not exist yet, and this deliberately does not build a stub for it. A
   // relative href, rather than an absolute one, is what lets this compile
@@ -207,8 +235,11 @@ export default function DivesScreen() {
     })),
   ];
 
-  return (
-    <View style={styles.screen}>
+  // Everything the narrow layout has always rendered inside `styles.screen`, unchanged —
+  // written once and reused by both branches below, rather than kept as two copies of the
+  // same list that could quietly drift apart (this file's own top docblock).
+  const listPane = (
+    <>
       <TextInput
         style={styles.searchInput}
         placeholder="Search dives"
@@ -265,6 +296,31 @@ export default function DivesScreen() {
       <Pressable style={styles.fab} onPress={logDive} accessibilityLabel="Log a dive" accessibilityRole="button">
         <Text style={styles.fabLabel}>+</Text>
       </Pressable>
+    </>
+  );
+
+  if (!wide) {
+    return <View style={styles.screen}>{listPane}</View>;
+  }
+
+  return (
+    <View style={styles.wideScreen}>
+      <View style={styles.wideListColumn}>{listPane}</View>
+      <View style={styles.wideDetailColumn}>
+        {selectedId === null ? (
+          // Composes screen + centerFill itself (rather than wideDetailColumn supplying
+          // the padding) so this placeholder lines up with DiveDetailScreen's own root
+          // exactly the way a selected dive's detail does — see wideDetailColumn's style
+          // comment (theme/styles.ts) for why that padding belongs here, not the column.
+          <View style={styles.screen}>
+            <View style={styles.centerFill}>
+              <Text style={styles.messageText}>Select a dive to see its details.</Text>
+            </View>
+          </View>
+        ) : (
+          <DiveDetailScreen id={selectedId} showBackButton={false} />
+        )}
+      </View>
     </View>
   );
 }

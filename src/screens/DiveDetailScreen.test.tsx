@@ -279,3 +279,40 @@ it('still offers a way back when the dive id is unknown, not just a dead end', a
   // back()/replace() the press dispatches to, for either branch.
   expect(() => findBackButton(t)).not.toThrow();
 });
+
+// M1b's wide (tablet) layout (DESIGN.md §3): DivesScreen.tsx embeds this exact component
+// beside the list, for whichever dive is selected, rather than duplicating its markup. It
+// never navigates to /dive/[id] to do that, so there is no route param to read an id from —
+// an `id` prop overrides it instead. useLocalSearchParams is stubbed to a DIFFERENT id here
+// on purpose, so this proves the prop actually wins rather than merely working when the two
+// happen to agree.
+it('uses the id prop instead of the route param, for embedded (wide-layout) use', async () => {
+  const target = dive({ id: 'target', siteName: 'Shark Reef' });
+  const other = dive({ id: 'other', siteName: 'Blue Hole' });
+  mockUseDives.mockReturnValue({ dives: [other, target], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: 'other' });
+  const text = textIn(await render(<DiveDetailScreen id="target" />)).join(' ');
+  expect(text).toContain('Shark Reef');
+  expect(text).not.toContain('Blue Hole');
+});
+
+// DivesScreen.tsx passes showBackButton={false} for that same embedded instance: side by
+// side, the list stays on screen the whole time, so there is nothing for BackButton to go
+// back TO, and its router.back()/canGoBack() describe the app's real navigation stack,
+// which embedding never touched.
+it('renders no back control when showBackButton is false', async () => {
+  mockUseDives.mockReturnValue({ dives: [diveWithGas], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({});
+  const t = await render(<DiveDetailScreen id={diveWithGas.id} showBackButton={false} />);
+  expect(() => findBackButton(t)).toThrow();
+});
+
+// The not-found branch renders BackButton too (the three tests above pin it as a real
+// exit, not a dead end) — showBackButton={false} has to suppress it there as well, not
+// only in the common, dive-found branch.
+it('renders no back control in the not-found branch either, when showBackButton is false', async () => {
+  mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({});
+  const t = await render(<DiveDetailScreen id="no-such-id" showBackButton={false} />);
+  expect(() => findBackButton(t)).toThrow();
+});

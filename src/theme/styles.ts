@@ -57,6 +57,40 @@ function build(scheme: ColorScheme) {
     listContent: {
       paddingBottom: 96,
     },
+    // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
+    // `screen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the one
+    // thing `screen` doesn't already give it, and `screen`'s own `paddingTop` moves down
+    // onto `wideListColumn` below instead of living here, so it applies once per column
+    // rather than twice over the detail pane (see wideListColumn's own note).
+    wideScreen: {
+      flex: 1,
+      flexDirection: 'row',
+      backgroundColor: theme.bg,
+    },
+    // Fixed-width list column (task brief: "the list sits at a fixed column width"). Wide
+    // enough for a row's number/site/depth to read comfortably without crowding the detail
+    // pane out — the same width iPad split views commonly give a master column. Carries its
+    // own `paddingTop: 48`, the exact value `screen` applies, because `wideScreen` above
+    // deliberately doesn't: this column's content (search box, list, fab) is otherwise
+    // identical to the narrow layout's, so it needs the same top clearance `screen` would
+    // have given it, just supplied locally instead of by a shared ancestor.
+    wideListColumn: {
+      width: 360,
+      paddingTop: 48,
+      borderRightWidth: 1,
+      borderRightColor: theme.border,
+    },
+    // The detail pane beside it. No padding of its own: the embedded DiveDetailScreen
+    // supplies its own `screen` style (flex, background, the same paddingTop: 48) as ITS
+    // root view regardless of whether it's routed to full-screen or embedded here, so this
+    // column just has to get out of the way and let that happen — adding padding here too
+    // would stack a second 48pt under the first and misalign the detail content against the
+    // list beside it. The "nothing selected yet" placeholder (DivesScreen.tsx) composes
+    // `screen` + `centerFill` itself for the same reason, rather than this column supplying
+    // it.
+    wideDetailColumn: {
+      flex: 1,
+    },
     // Shared by every full-screen message state: the read error, and a
     // search that matched nothing.
     centerFill: {
