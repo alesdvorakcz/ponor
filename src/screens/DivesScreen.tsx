@@ -12,6 +12,7 @@ import { useDives } from '../db/useDives';
 import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
+import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -137,6 +138,18 @@ export default function DivesScreen() {
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
   const [query, setQuery] = useState('');
+  // Computed here rather than just below, where `sections` actually needs it, because
+  // useHideOnScroll's `forceVisible` argument depends on it and a hook call can never
+  // follow the early returns below (Rules of Hooks) — this is the single call `sections`
+  // used to make on its own, relocated, not a second one. `dives.length === 0` on the
+  // empty-logbook branch below makes `matching` trivially `[]` too, which is harmless:
+  // that branch returns before `listPane` — and everything below it — is ever reached.
+  const matching = searchDives(dives, query);
+  // M1c task 8, DESIGN.md §0.6: "The search field yields to the list." See
+  // useHideOnScroll.ts's own docblock for the mechanism and for why a search that has
+  // just narrowed to zero results (`matching.length === 0`) forces the field back
+  // rather than leaving it wherever the scroll position last put it.
+  const hideOnScroll = useHideOnScroll(matching.length === 0);
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -239,7 +252,8 @@ export default function DivesScreen() {
     );
   }
 
-  const matching = searchDives(dives, query);
+  // `matching` itself is computed above, before the early returns (this file's own note
+  // there explains why).
   const { planned, logged } = splitPlanned(matching);
   // `planned` inherits useDives()'s one order (newest-date-first, via
   // compareDiveOrder) unchanged — correct for the logged trips below, but
@@ -328,16 +342,29 @@ export default function DivesScreen() {
   // same list that could quietly drift apart (this file's own top docblock).
   const listPane = (
     <>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search dives"
-        placeholderTextColor={theme.fgMuted}
-        value={query}
-        onChangeText={setQuery}
-        autoCapitalize="none"
-        autoCorrect={false}
-        accessibilityLabel="Search dives"
-      />
+      {/* M1c task 8, DESIGN.md §0.6: "The search field yields to the list." The
+          collapse itself is `searchBarHidden` (theme/styles.ts), composed on only while
+          `hidden`, animated by `LayoutAnimation.configureNext` (useHideOnScroll.ts) —
+          `hidden` (not e.g. a measured height) also gates pointerEvents/accessibility
+          directly, so a diver can never tap into, or have a screen reader land on, a
+          field that has, or is mid-collapsing to, zero height. */}
+      <View
+        style={[styles.searchBarCollapse, hideOnScroll.hidden ? styles.searchBarHidden : undefined]}
+        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
+        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={hideOnScroll.hidden}
+      >
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search dives"
+          placeholderTextColor={theme.fgMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="Search dives"
+        />
+      </View>
       {reorderMessage !== null && (
         <Pressable
           style={styles.reorderNotice}
@@ -379,6 +406,11 @@ export default function DivesScreen() {
           )}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.listContent}
+          onScroll={hideOnScroll.onScroll}
+          // RN's own default (0) sends only one scroll event per gesture — far too
+          // coarse for hideOnScroll's accumulator to track direction against. 16ms
+          // matches the screen's refresh rate (RN's docs note no benefit below it).
+          scrollEventThrottle={16}
         />
       )}
       <Pressable style={styles.fab} onPress={logDive} accessibilityLabel="Log a dive" accessibilityRole="button">

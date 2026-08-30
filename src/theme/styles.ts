@@ -78,6 +78,34 @@ function build(scheme: ColorScheme) {
       fontSize: 12.5,
       color: theme.fg,
     },
+    // The collapsing wrapper around searchInput above (M1c task 8, §0.6: "The search
+    // field yields to the list ... hides as the list scrolls down and returns on the
+    // way back up"). `overflow: 'hidden'` clips the collapse; DivesScreen.tsx composes
+    // `searchBarHidden` below onto this one, conditionally, rather than either living
+    // here permanently (searchInput would never be visible) or searchBarHidden
+    // duplicating overflow itself (only one of the two states needs it to look right,
+    // but keeping it on the wrapper unconditionally means neither style has to know
+    // about the other). Deliberately just a wrapper, not a change to `searchInput`
+    // itself: minHeight/border/margin above stay exactly as review already settled them.
+    searchBarCollapse: {
+      overflow: 'hidden',
+    },
+    // Composed onto searchBarCollapse above exactly while useHideOnScroll.ts's `hidden`
+    // is true (DivesScreen.tsx) — see that hook's own docblock for why this is driven by
+    // `LayoutAnimation.configureNext` rather than an Animated value: RN animates the
+    // transition between whatever Yoga resolves for "no override" (searchInput's own
+    // minHeight: 48 plus its margin) and this, so no measured pixel height needs to be
+    // kept in sync with searchInput's own styles by hand. `opacity: 0` alongside
+    // `height: 0` rather than either alone: height-only would leave the fully-collapsed
+    // sliver of a still-opaque box visible for the first few frames of the collapse
+    // (nothing left to clip crisply at sub-pixel heights); opacity-only would leave the
+    // field's full 48+8px footprint reserved even while invisible, which is the exact
+    // "reserved blank space instead of the list actually gaining it" outcome §0.6's "the
+    // field earns its space only when reached for" rules out.
+    searchBarHidden: {
+      height: 0,
+      opacity: 0,
+    },
     // SectionList's contentContainerStyle. The bottom padding keeps the last
     // row from ever sitting behind the floating `fab` button.
     listContent: {

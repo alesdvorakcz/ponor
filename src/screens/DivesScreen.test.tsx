@@ -114,6 +114,47 @@ async function pressToggleAndSettle(node: NonNullable<RenderResult['root']>) {
   });
 }
 
+/** M1c task 8, DESIGN.md §0.6 ("The search field yields to the list"). The SectionList's
+ * own scrollable host node, located by the one prop DivesScreen.tsx sets directly on it
+ * (`onScroll`, wired to useHideOnScroll) rather than by any row's content — fireEvent.scroll
+ * climbs from whatever node it is given looking for a matching handler (the same climbing
+ * behaviour findRow below already relies on for press), so this just names the target
+ * directly instead of reusing an unrelated row lookup that would break if row content
+ * changed. Throws rather than returning undefined, matching findSearchInput's contract. */
+function findScrollable(t: RenderResult) {
+  const [node] = t.root ? t.root.queryAll((n) => typeof n.props?.onScroll === 'function') : [];
+  if (!node) throw new Error('DivesScreen did not render a scrollable node with onScroll');
+  return node;
+}
+
+/** The collapsing wrapper `View` around the search TextInput (DivesScreen.tsx,
+ * useHideOnScroll.ts) — located by the one prop only that wrapper sets
+ * (`accessibilityElementsHidden`), so a test can read its hidden/visible state without
+ * caring how many levels separate it from the TextInput itself. */
+function findSearchFieldWrapper(t: RenderResult) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityElementsHidden !== undefined) : [];
+  if (!node) throw new Error('DivesScreen did not render the search field collapsing wrapper');
+  return node;
+}
+
+/** Fires a scroll event and, like pressToggleAndSettle above, flushes inside act()
+ * afterward. Crossing useHideOnScroll's threshold calls `LayoutAnimation.configureNext`
+ * (useHideOnScroll.ts), which — per its own source
+ * (Libraries/LayoutAnimation/LayoutAnimation.js) — always arms a real `setTimeout` racing
+ * the native animation callback, regardless of whether a native layer is even listening.
+ * The same risk pressToggleAndSettle's own comment describes applies here: a test that
+ * fires another interaction, or simply ends, before that settles can log an act() warning
+ * or leak into whichever test runs next. 300ms comfortably clears the configured 200ms
+ * duration plus that race's own +17ms. Only needed for a scroll expected to actually
+ * cross the threshold; a sub-threshold scroll never calls configureNext and is fired with
+ * a plain `fireEvent.scroll` instead. */
+async function scrollAndSettle(node: NonNullable<RenderResult['root']>, y: number) {
+  await fireEvent.scroll(node, { nativeEvent: { contentOffset: { y } } });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 /** A DiveRow, found by its own number badge ("#<n>") rather than its site name: a
  * single-site trip's TripHeader is titled after that same site name (domain/trips.ts's
  * `placeOf`), so matching on the name would find the header FIRST — and pressing it would
@@ -307,6 +348,146 @@ it('keeps a hairline border on the search field so it has a visible boundary', a
       (s) => s?.borderColor === themeFor('dark').border || s?.borderColor === themeFor('light').border,
     ),
   ).toBe(true);
+});
+
+// M1c task 8, DESIGN.md §0.6: "The search field yields to the list. It hides as the
+// list scrolls down and returns on the way back up." nextScrollVisibility itself is
+// unit-tested exhaustively, at exact threshold boundaries, in useHideOnScroll.test.ts;
+// these four prove the WIRING into this screen — that a real scroll on the real
+// SectionList actually drives the real field.
+//
+// The task brief's own trap, named directly: "an assertion that the field is present
+// after scrolling up would also pass if the field never hid at all." The test below
+// asserts HIDDEN first, as an explicit precondition the test would already fail at if
+// hiding were broken, before ever asserting SHOWN again — so the second half can only
+// pass by genuinely recovering from a real hidden state, not by the field having sat
+// untouched the whole time.
+it('hides the search field on a sustained downward scroll and shows it again on a sustained upward one', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const scrollable = findScrollable(t);
+
+  await scrollAndSettle(scrollable, 100); // well past the 24px threshold, downward
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(true);
+  expect(findSearchFieldWrapper(t).props.pointerEvents).toBe('none');
+
+  await scrollAndSettle(scrollable, 50); // well past the threshold again, upward from 100
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(false);
+  expect(findSearchFieldWrapper(t).props.pointerEvents).toBe('auto');
+});
+
+// Brief's #1, "no jitter": pinned here too, not just in useHideOnScroll.test.ts, since
+// this is what actually ships — a screen that wired the hook up with, say, its own
+// lower threshold would pass every unit test in that file while still jittering here.
+//
+// The small scroll alone is not, on its own, a test that could fail for the reason it
+// claims: the field starts visible, so "still visible after a small scroll" would pass
+// even if onScroll were never wired to the SectionList at all (confirmed by deliberately
+// disconnecting it and re-running — the earlier, single-assertion version of this test
+// kept passing). The second scroll below closes that gap: it continues from the same
+// tracked position to a total well past the threshold, so the field can only end up
+// hidden there if the small scroll first actually reached the handler and was
+// genuinely counted, not ignored by a broken/absent wiring.
+it('does not hide the search field for a scroll well under the jitter threshold, but does hide it once a real scroll follows', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const scrollable = findScrollable(t);
+
+  // No scrollAndSettle: a sub-threshold scroll never calls
+  // LayoutAnimation.configureNext, so there is nothing to flush before asserting.
+  await fireEvent.scroll(scrollable, { nativeEvent: { contentOffset: { y: 10 } } }); // well under the 24px threshold
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(false);
+  expect(findSearchFieldWrapper(t).props.pointerEvents).toBe('auto');
+
+  await scrollAndSettle(scrollable, 40); // +30 from here — past the threshold, so wiring is live
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(true);
+});
+
+// Brief's #2, "always reachable" — the one case the scroll accumulator alone cannot
+// cover on its own: once a query narrows results to zero, DivesScreen swaps the
+// SectionList out for a static message, so there is no list left to scroll back up on.
+// useHideOnScroll.ts's own docblock has the full account of why (the keyboard does not
+// blur on scroll, so a diver can keep narrowing their query while scrolled away). This
+// proves useHideOnScroll's `forceVisible` argument is actually wired to `matching`
+// here, not just implemented and unused: without it, this test's last two assertions
+// would see the field still stranded hidden from the scroll above.
+it('brings the search field back once a query narrows results to zero, even if it was hidden by scrolling', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  await scrollAndSettle(findScrollable(t), 100);
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(true); // hidden first — the precondition this test is actually about
+
+  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere');
+
+  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match'); // the pre-existing zero-results state still fires
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(false); // ...and the field is reachable again, not stranded hidden
+  expect(findSearchFieldWrapper(t).props.pointerEvents).toBe('auto');
+});
+
+// useHideOnScroll.ts's own docblock names the risk this covers: `forceVisible`
+// resets the RENDERED `hidden`, but the tracked accumulator (a ref, deliberately not
+// touched during render — see that docblock's account of what react-hooks/refs
+// rejected) is only reset lazily, the next time onScroll actually runs, via a
+// `pendingReset` flag. This proves that flag is actually consumed, not just set: a
+// scroll fired against the freshly-reappeared list must judge distance from a genuinely
+// clean baseline, not from wherever the OLD list's tracking was last left.
+//
+// A single scroll before the round trip is NOT enough to tell a clean reset from a
+// stale one apart: nextScrollVisibility's `accum` and `lastY` both measure distance
+// from the SAME start (0), so one continuous, never-reset run from the top always
+// leaves accum === lastY — a bug that used the stale tracked state instead of a fresh
+// one would compute the exact same result by coincidence (caught in the process of
+// writing this test: an earlier version scrolled to 15 then straight to 35, and could
+// not tell a reset from no reset at all). Crossing the threshold at least once first
+// (40, then a further 50) is what actually decouples them: after that, accum (10) and
+// lastY (50) diverge, so a follow-up scroll to 30 gives a genuinely different answer
+// depending on which one onScroll measures from — 30 clears the 24px threshold from a
+// clean (0, 0) baseline, but from the stale (50, 10) one nets only a 20px move (accum
+// 10 + (30 - 50) = -10), leaving `hidden` exactly where the forced-visible reset left
+// it: unrecomputed, and so still visible.
+it('judges the first scroll after a narrow-to-zero-and-back round trip from a clean baseline, not the old list’s stale one', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const scrollable = findScrollable(t);
+
+  await scrollAndSettle(scrollable, 40); // crosses the threshold once, so the tracked reference point is no longer 0
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(true);
+  await fireEvent.scroll(scrollable, { nativeEvent: { contentOffset: { y: 50 } } }); // under the threshold from here; leaves accum (10) != lastY (50)
+
+  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere'); // narrows to zero...
+  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match');
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(false); // forced visible — the RENDERED half of the reset, already proven above
+  await fireEvent.changeText(findSearchInput(t), ''); // ...and back — a fresh SectionList remounts at the top
+  expect(textIn(t).join(' ')).toContain('Blue Hole');
+
+  // Re-found, not the same `scrollable` reference from above: the zero-results round
+  // trip above unmounts the old SectionList and mounts a genuinely new one (the
+  // ternary in DivesScreen.tsx's listPane), so the pre-round-trip node is now detached
+  // — fireEvent silently no-ops on a detached instance (@testing-library/react-native's
+  // own fire-event.js: `if (!isInstanceMounted(instance)) return;`), which would make
+  // this assertion pass VACUOUSLY (the scroll simply never reaching onScroll at all)
+  // rather than for the reason this test claims. Caught the same way as the
+  // coincidental-numbers issue above: by first writing this test against the stale
+  // reference, watching it fail even against the correct implementation, and tracing
+  // why rather than adjusting the expectation to match.
+  await scrollAndSettle(findScrollable(t), 30); // clears 24 from a clean baseline; from the stale one, nets only 20 and never recomputes hidden at all
+  expect(findSearchFieldWrapper(t).props.accessibilityElementsHidden).toBe(true);
 });
 
 // M1c task 2, DESIGN.md §0.6's "Trip header" row: Archivo SemiBold 11.5, uppercase,
