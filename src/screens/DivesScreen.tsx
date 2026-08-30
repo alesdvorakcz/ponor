@@ -196,16 +196,15 @@ export default function DivesScreen() {
       router.push(`./dive/${id}`);
     }
   };
-  // M1c builds the dive form this points at (DESIGN.md §9); the route does
-  // not exist yet, and this deliberately does not build a stub for it. A
-  // relative href, rather than an absolute one, is what lets this compile
-  // under expo-router's typed routes (app.config.js's
-  // experiments.typedRoutes) without a type-check suppression: typed
-  // routes validates an absolute path against the routes that actually
-  // exist on disk, but a relative path is resolved at runtime against
-  // whatever screen is current, so it deliberately isn't checked against
-  // that list. Verified: an absolute `router.push('/dive/new')` here does
-  // not typecheck today; the relative form does.
+  // `src/app/dive/new.tsx` (M1d task 6) is a thin route onto DiveFormScreen.tsx's
+  // `mode="create"`, the same relationship `openDive` above has with `/dive/[id]`. A
+  // relative href, rather than an absolute one, is what lets this compile under
+  // expo-router's typed routes (app.config.js's experiments.typedRoutes) without a
+  // type-check suppression: typed routes validates an absolute path against the routes
+  // that actually exist on disk, but a relative path is resolved at runtime against
+  // whatever screen is current, so it deliberately isn't checked against that list.
+  // Verified: an absolute `router.push('/dive/new')` here did not typecheck before that
+  // route file existed; the relative form did, and still does now that it does.
   const logDive = () => router.push('./dive/new');
 
   // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a

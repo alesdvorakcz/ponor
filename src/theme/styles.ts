@@ -1011,6 +1011,17 @@ function build(scheme: ColorScheme) {
       borderTopColor: theme.border,
       backgroundColor: theme.bg,
     },
+    // M1d task 6: shown when createDive's own write rejects — §1's "never block a save"
+    // cuts both ways, and this is the other one: a diver who thinks a dive logged and
+    // later finds it missing is worse off than one told immediately. Sits between
+    // formScroll and formFooter, a sibling of both (like reorderNotice is of DivesScreen's
+    // SectionList below), so it is visible without scrolling — formFooter itself never
+    // scrolls either. Shares noticeBanner/noticeBannerText's shape with reorderNotice and
+    // settingsNotice above (this function's own top) rather than a third copy of the same
+    // ten properties; not a Pressable, like settingsNotice, since it has no single "this
+    // attempt is done" moment to dismiss — the next Save attempt clears it either way.
+    formSaveError: noticeBanner,
+    formSaveErrorText: noticeBannerText,
   });
 }
 

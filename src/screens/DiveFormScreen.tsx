@@ -1,15 +1,19 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
-import { CARRIED_FIELDS } from '../domain/carryOver';
-import { diveFormSchema, type DiveFormValues } from '../domain/diveFormSchema';
-import { type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
+import { db } from '../db/client';
+import { createDive } from '../db/dives';
+import { useDives } from '../db/useDives';
+import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
+import { diveFormSchema, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
+import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -57,9 +61,9 @@ const EMPTY_TANK: TankFormInput = {
  * not overwrite whatever default the form already holds for every field" (its own
  * docblock) — and this is that default: every field `null` except `date` (today; the one
  * field §2.2 requires) and `tanks` (one blank cylinder — "the form shows a single
- * cylinder until '+ add cylinder' is tapped," DESIGN.md §6). Task 6 layers
- * `carryOverFrom(mostRecentLoggedDive)` on top of this for a real diver's second dive
- * onward; this screen does not read `useDives()` itself.
+ * cylinder until '+ add cylinder' is tapped," DESIGN.md §6). `initialFormValues` below
+ * layers `carryOverFrom(mostRecentLoggedDive)` on top of this for a real diver's second
+ * dive onward (Task 6).
  */
 function blankFormValues(): DiveFormInput {
   return {
@@ -95,6 +99,33 @@ function blankFormValues(): DiveFormInput {
     notes: null,
     rating: null,
   };
+}
+
+/**
+ * A fresh entry's starting values (Task 6): `blankFormValues()` for `mode="edit"` — a
+ * dive's OWN stored data is Task 7's job, not carry-over, see `blankFormValues`'s own
+ * docblock — merged with whatever `carryOverFrom` (domain/carryOver.ts) carries forward
+ * from `mostRecentLoggedDive`, the diver's own most recently logged dive.
+ *
+ * `dives` is `useDives()`'s own list — "the one read every screen uses" (useDives.ts's own
+ * docblock) — passed in rather than read here, so this stays a plain function the render
+ * body below can memoise; finding the most recent LOGGED dive is nothing more than the
+ * first `status: 'logged'` entry in it, because `useDives()` already hands back every live
+ * dive newest-first (db/dives.ts's `toDives`) and a planned (future-dated) dive would
+ * otherwise sort ahead of a real logged one in that same order. No second sort: reusing
+ * the one order `useDives()` already establishes is the whole point (this screen's own
+ * "Consumes" line, and the brief's own "do not add a second read path").
+ *
+ * Callers must not treat this as a one-shot read: `useDives()` starts empty and resolves
+ * asynchronously (`useLiveQuery`'s own initial state, well after this screen's first
+ * render), so `dives` — and therefore this function's result — can change after mount. See
+ * the render body below for how that reaches the live form via `useForm`'s `values`
+ * option rather than `defaultValues` alone.
+ */
+function initialFormValues(mode: 'create' | 'edit', dives: Dive[]): DiveFormInput {
+  if (mode !== 'create') return blankFormValues();
+  const mostRecentLoggedDive = dives.find((d) => d.status === 'logged') ?? null;
+  return { ...blankFormValues(), ...carryOverFrom(mostRecentLoggedDive) };
 }
 
 /**
@@ -371,6 +402,10 @@ export interface DiveFormScreenProps {
   diveId?: string;
 }
 
+/** Shown when `createDive`'s write rejects (`onValid` below) — see `formSaveError`
+ * (theme/styles.ts) for why this is not silent, and not a `disabled` save control either. */
+const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
+
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
  * always-visible core strip — date, site, centre, max depth, duration — and everything
@@ -381,37 +416,74 @@ export interface DiveFormScreenProps {
  * `accessibilityState.disabled`, nothing computed from form validity — because §1's
  * "never block a save" binds the CONTROL itself, not just what happens after it is
  * pressed. `handleSubmit(onValid)` still runs `zodResolver(diveFormSchema)` underneath,
- * so a diver can always tap Save; what happens next depends on whether a real date has
- * been entered, exactly as it would once Task 6/7 wire persistence.
+ * so a diver can always tap Save; a rejected `createDive` says so (`SAVE_ERROR_MESSAGE`)
+ * instead of pretending it worked, and never touches the diver's typed values — §1's
+ * "never block a save" cuts both ways, and losing what a diver already entered because
+ * the disk was full is the other direction of the same failure.
  *
- * Creating vs editing a specific dive (`createDive`/`updateDive`, `useDives()`,
- * `carryOverFrom` applied to a real previous dive, and navigating away after a save) are
- * Task 6 and Task 7's job, not this one's — see their own briefs. This screen shell
- * builds the form itself: the fields, the groups, and a save control that can always be
- * reached.
+ * Creating a dive (`createDive`, `useDives()`, `carryOverFrom` applied to the diver's own
+ * most recent LOGGED dive, and returning to the list on success — Task 6) is wired below
+ * for `mode="create"`. `mode="edit"` (Task 7: editing, and completing a planned dive) is
+ * still shell-only — `onValid` below does not write anything for it yet.
  */
 export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
 
-  const initialValues = blankFormValues();
+  // The one read this screen needs for carry-over (useDives.ts's own "the one read every
+  // screen uses") — never a second query, per this task's own brief. See
+  // `initialFormValues`'s docblock for why `dives` (and therefore this) can change after
+  // mount, and why that is handled below rather than assumed away.
+  const { dives } = useDives();
+  const initialValues = useMemo(() => initialFormValues(mode, dives), [mode, dives]);
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
     defaultValues: initialValues,
+    // `values`, not a second `defaultValues`: react-hook-form only ever reads
+    // `defaultValues` once, at construction, so a create-mode carry-over that resolves
+    // AFTER this component's first render (`useDives()` starts empty — see
+    // `initialFormValues`) would otherwise never reach the form at all. `values` is
+    // react-hook-form's own mechanism for exactly this "the real default arrives
+    // asynchronously" case: it re-syncs whenever this reference changes (deep-equal
+    // checked internally, so the fresh object `useMemo` returns each render is a no-op
+    // once `dives` stops changing). `undefined` in edit mode leaves this exactly as inert
+    // as it was before this task — Task 7's job, not this one's.
+    values: mode === 'create' ? initialValues : undefined,
+    // A field the diver has already typed into keeps what they typed rather than being
+    // silently overwritten the moment the real carry-over data lands — only a field
+    // nothing has touched yet is safe to re-sync.
+    resetOptions: { keepDirtyValues: true },
   });
 
   // DESIGN.md §0.6's chip means "this came from your LAST DIVE" — that only applies to
   // a fresh entry. `mode="edit"` shows a dive's OWN stored data (Task 7), never
   // carry-over, so it starts (and, since nothing here ever adds to the set in edit
   // mode, stays) with nothing marked, regardless of what Task 7 later points
-  // `defaultValues` at. Computed once from THIS render's `initialValues` — react-hook-
-  // form's own `defaultValues` is likewise only ever read on mount, so both stay in
-  // step with "the values this form STARTED with," never today's live, edited ones.
+  // `defaultValues` at. Computed from THIS render's `initialValues`, exactly like
+  // `useForm`'s own `values` above and for the same reason: `dives` (and so
+  // `initialValues`) can still be the pre-load empty case the first time this runs.
   const [carriedPaths, setCarriedPaths] = useState<ReadonlySet<string>>(() =>
     mode === 'create' ? computeCarriedPaths(initialValues) : new Set<string>(),
   );
+  // Which `initialValues` the `carriedPaths` state above was last derived from — lets the
+  // block below tell "`useDives()`'s async read just resolved, re-derive" from "an ordinary
+  // re-render" (a diver's own keystroke) without a `useEffect`. This is React's own
+  // documented "Adjusting some state when a prop changes" pattern
+  // (https://react.dev/learn/you-might-not-need-an-effect), not the effect-plus-setState
+  // round trip it exists to replace: an ESLint rule in this repo's config
+  // (react-hooks/set-state-in-effect) already rejects that shape outright, and the pattern
+  // below is the React team's own prescribed fix for it, not a workaround for the lint rule
+  // alone. Calling `setState` here, during render rather than inside an effect, is safe
+  // specifically because it is gated behind the reference check immediately below: React
+  // discards this render and re-runs the component with the new state before anything
+  // commits, rather than ever painting a stale frame.
+  const [carriedPathsSource, setCarriedPathsSource] = useState(initialValues);
+  if (initialValues !== carriedPathsSource) {
+    setCarriedPathsSource(initialValues);
+    setCarriedPaths(mode === 'create' ? computeCarriedPaths(initialValues) : new Set<string>());
+  }
 
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
   // alike) rather than one closure per field, so there is exactly one place that can
@@ -429,12 +501,36 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
     });
   }, []);
 
-  // Intentionally empty: wiring `createDive`/`updateDive` and navigating away on success
-  // is Task 6 ("Creating a dive") and Task 7 ("Editing, and completing a planned dive"),
-  // not this screen shell's job — see those briefs' own "Consumes" lines. What matters
-  // here is that `handleSubmit` runs `zodResolver(diveFormSchema)` cleanly and the
-  // control that triggers it is always reachable.
-  const onValid = (_values: DiveFormValues) => {};
+  // Non-null only while a save attempt has failed and not yet been retried — cleared at
+  // the START of the next attempt (below), never on a timer or a dismiss tap, so it
+  // reads as "still true" for exactly as long as it still is.
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Same "no history to pop" guard `DiveDetailScreen.tsx`'s own `BackButton` uses
+  // (`router.canGoBack()`), and for the same reason: this screen is reachable directly by
+  // URL (a future share link or notification), where `router.back()` would have nothing
+  // to do. `router.replace`, not `router.push`, so that fallback does not grow the stack.
+  const returnToList = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
+  };
+
+  // `mode === 'edit'` is Task 7's job — completing/editing a specific dive via
+  // `updateDive` — not this one's; this screen shell still runs `zodResolver` and reaches
+  // this handler for it, but writes nothing yet, matching the shell's own docblock above.
+  const onValid = async (values: DiveFormValues) => {
+    if (mode !== 'create') return;
+    setSaveError(null);
+    try {
+      await createDive(db, toNewDiveInput(values));
+      returnToList();
+    } catch {
+      setSaveError(SAVE_ERROR_MESSAGE);
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -663,6 +759,17 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
           <ControlledTextField control={control} name="rating" label="Rating" scheme={scheme} keyboardType="decimal-pad" placeholder="1-5" />
         </FormGroup>
       </ScrollView>
+
+      {/* Task 6: a failed `createDive` says so, plainly, rather than pretending the save
+          worked (§1's "never block a save" cutting the other way — see `SAVE_ERROR_MESSAGE`
+          above). A sibling of `formFooter` below, not nested inside it or `formScroll`
+          above, so it is visible without scrolling exactly as the save control itself
+          always is. */}
+      {saveError !== null && (
+        <View style={styles.formSaveError}>
+          <Text style={styles.formSaveErrorText}>{saveError}</Text>
+        </View>
+      )}
 
       {/* §0.5: the primary action sits in the bottom third — a fixed footer outside
           `formScroll` above, not the scrolling content, so it never needs to be scrolled

@@ -9,12 +9,40 @@
 // hoisted above every import regardless of where it sits textually.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { router } from 'expo-router';
 
+import { createDive } from '../db/dives';
+import { useDives } from '../db/useDives';
+import { dive } from '../domain/diveFixture';
+import { type Tank } from '../domain/types';
 import { makeStyles } from '../theme/styles';
 import DiveFormScreen from './DiveFormScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
+// Task 6: DiveFormScreen.tsx now reads useDives() for carry-over and calls createDive on
+// save, so this screen's test needs the same per-module mock split DivesScreen.test.tsx
+// already established: the one read mocked here, the write mocked separately (below) so a
+// save test can control exactly what it resolves or rejects with, without a real database.
+// updateDive is mocked alongside createDive only because both live in the one module this
+// screen imports from — mode="edit" does not call it yet (Task 7's job).
+jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
+// A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
+// the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
+// canGoBack()-guarded pattern in that screen's BackButton.
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: jest.fn(() => ({})),
+}));
+
+const mockUseDives = useDives as jest.Mock;
+const mockCreate = createDive as jest.Mock;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: undefined });
+});
 
 // Same RTL adaptation every screen test in this codebase uses (DivesScreen.test.tsx,
 // DiveDetailScreen.test.tsx): `render` is async and its `root` is a test-renderer
@@ -38,6 +66,57 @@ function buttonsOf(t: RenderResult) {
 
 function findButton(t: RenderResult, labelIncludes: string) {
   return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').includes(labelIncludes));
+}
+
+// Task 6 brief, Step 1: presses the one Save control via the query above rather than
+// reimplementing it — `findButton(t, 'Save')` already matches "Save dive"'s own
+// accessibilityLabel.
+//
+// `async`/awaited, unlike the brief's own un-awaited sample. `@testing-library/react-native`
+// v14 makes `fireEvent.press` itself `async` — its returned promise chains all the way
+// through `handleSubmit(onValid)` — and firing it without awaiting left a promise (`onValid`
+// is async now, Task 6: it awaits `createDive`) still settling once the test that pressed
+// Save had already returned. Confirmed by bisecting: with only `typeInto` below also fixed,
+// this file's full suite still reproduced `console.error`'s "You seem to have overlapping
+// act() calls" plus a demonstrably corrupted render on the NEXT test — a fresh
+// `<DiveFormScreen>` whose core-strip fields, rendered unconditionally by that screen's own
+// shell, `t.root`'s query helpers could no longer find. Awaiting both this and `typeInto`
+// together is what made the leftover work settle before the test that started it returns,
+// rather than bleeding into whichever test happens to run next.
+const pressSave = async (t: RenderResult) => {
+  const save = findButton(t, 'Save');
+  if (!save) throw new Error('no Save control found');
+  await fireEvent.press(save);
+};
+
+// Task 6 brief, Step 1, adapted two ways: this file's own null-safe `t.root` convention
+// (textNodesOf/buttonsOf above) rather than the brief's un-guarded `t.root.queryAll`, and
+// awaited — `fireEvent.changeText` is exactly as `async` as `fireEvent.press` is, and left
+// un-awaited it reproduces the same cross-test corruption `pressSave`'s own comment above
+// documents, via the same mechanism one control earlier.
+const typeInto = async (t: RenderResult, label: string, value: string) => {
+  const input = (t.root ? t.root.queryAll((n) => n.type === 'TextInput') : []).find(
+    (n) => String(n.props?.accessibilityLabel ?? '') === label,
+  );
+  if (!input) throw new Error(`no field labelled ${label}`);
+  await fireEvent.changeText(input, value);
+};
+
+/** A field's own `TextInput`, by its exact accessibilityLabel (FormField.tsx) — unlike
+ * `textIn`, which only ever sees `Text` children and so can never read a TextInput's
+ * current `value`. */
+function findTextInput(t: RenderResult, label: string) {
+  return (t.root ? t.root.queryAll((n) => n.type === 'TextInput') : []).find(
+    (n) => String(n.props?.accessibilityLabel ?? '') === label,
+  );
+}
+
+/** The DESIGN.md §0.6 `carried ×` control for one field, by FormField.tsx's own
+ * `` `Clear carried ${label}` `` accessibilityLabel — present only while that exact field
+ * is in DiveFormScreen.tsx's own `carriedPaths`, which is what makes this the one query
+ * that can tell "this field is marked carried" from "this field merely has a value." */
+function findClearCarried(t: RenderResult, label: string) {
+  return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear carried ${label}`);
 }
 
 // Same guard DiveRow.test.tsx and DiveDetailScreen.test.tsx already carry (§0.4/§0.1),
@@ -170,4 +249,141 @@ it('shows an edit heading in edit mode, and a new-dive heading in create mode', 
 
   const edited = await render(<DiveFormScreen mode="edit" diveId="some-id" />);
   expect(textIn(edited).join(' ')).toContain('Edit dive');
+});
+
+// --- Task 6 brief, Step 1, verbatim — plus one positive assertion per test where the
+// brief's own sample checked less than its test name claims. Every addition below is
+// called out in its own comment; nothing the brief wrote is removed or weakened. ---
+
+it('creates a dive and returns to the list', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ date: '2026-08-16' }));
+  // Added: this test's own name says "...and returns to the list", but nothing above
+  // actually checks that — only that createDive was called. canGoBack() is mocked true
+  // (this file's own expo-router mock), so a real returnToList() calls router.back(), not
+  // router.replace(). Without this, an onValid that called createDive and stopped there
+  // would still pass the whole test — the same "passes for everything but the one value
+  // it names" gap a bare `.not.toHaveBeenCalled()` on the failure test below would leave.
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+});
+
+it('sends no zeros for fields the diver left empty', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const input = mockCreate.mock.calls[0]?.[1] ?? {};
+  expect(Object.entries(input).filter(([, v]) => v === 0)).toHaveLength(0);
+});
+
+it('tells the diver when a save fails instead of pretending it worked', async () => {
+  mockCreate.mockRejectedValue(new Error('disk full'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  // §1's "never block a save" does not mean "never admit a save failed"
+  await waitFor(() => expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't"));
+  expect(router.back).not.toHaveBeenCalled();
+  // Added: "the form keeps its values on failure" (this task's own brief) is not actually
+  // checked above — router.back() not firing only proves the screen didn't navigate away,
+  // not that the diver's typing survived. Verified by mutation: a catch branch that clears
+  // the date via `reset({ date: '' }, { keepDirtyValues: false })` still passes both
+  // assertions above (a bare `reset()` alone does not — this screen's own `resetOptions:
+  // { keepDirtyValues: true }`, DiveFormScreen.tsx, already protects a dirty field from
+  // that simpler case) — only reading the field back catches the explicit-override one.
+  expect(findTextInput(t, 'Date')?.props?.value).toBe('2026-08-16');
+});
+
+// --- Task 6 coverage: computeCarriedPaths and its ten ControlledTextField call sites
+// (DiveFormScreen.tsx) had no committed test before this task supplied the real carry-over
+// data (`useDives()` + `carryOverFrom`) needed to exercise them. Every check below is a
+// positive assertion of one exact field's value or marker, or a marker checked absent on a
+// field proven wired to the same mechanism — never a blanket "nothing looks wrong," which
+// this project's own review history keeps finding passes for the wrong reason (a
+// permanently collapsed group, an always-false flag) as readily as the right one.
+
+const tank = (over: Partial<Tank> = {}): Tank => ({
+  material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+  o2Pct: 32, hePct: null, startBar: 200, endBar: 50, ...over,
+});
+
+it('prefills a carried field from the most recent logged dive, and marks it carried', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ date: '2026-08-10', buddy: 'Petr' })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const peopleHeader = findButton(t, 'People');
+  if (!peopleHeader) throw new Error('no People header found');
+  await fireEvent.press(peopleHeader);
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+  expect(findClearCarried(t, 'Buddy')).toBeDefined();
+  // Guide is the People group's other carried-capable field (DiveFormScreen.tsx), left
+  // null on this same previous dive — must not be marked, proving the chip is per-field
+  // rather than "something on this dive carried, so mark every field."
+  expect(findClearCarried(t, 'Guide')).toBeUndefined();
+});
+
+it('only a LOGGED dive counts as "most recent" — a newer planned one is skipped', async () => {
+  mockUseDives.mockReturnValue({
+    // The order a real useDives() call actually hands back: newest first, and a
+    // future-dated planned dive sorts ahead of a past logged one in that same order —
+    // DivesScreen.tsx's own "Up next" section relies on the identical fact.
+    dives: [
+      dive({ status: 'planned', date: '2026-09-15', buddy: 'Alice' }),
+      dive({ status: 'logged', date: '2026-08-01', buddy: 'Petr' }),
+    ],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const peopleHeader = findButton(t, 'People');
+  if (!peopleHeader) throw new Error('no People header found');
+  await fireEvent.press(peopleHeader);
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+});
+
+it('drops the carried chip the moment the diver types over it', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ date: '2026-08-10', buddy: 'Petr' })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const peopleHeader = findButton(t, 'People');
+  if (!peopleHeader) throw new Error('no People header found');
+  await fireEvent.press(peopleHeader);
+  expect(findClearCarried(t, 'Buddy')).toBeDefined();
+
+  await typeInto(t, 'Buddy', 'Jana');
+
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Jana');
+});
+
+it('prefills and marks a carried cylinder field too, not just top-level ones', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12 })] })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const gasHeader = findButton(t, 'Gas & cylinders');
+  if (!gasHeader) throw new Error('no Gas & cylinders header found');
+  await fireEvent.press(gasHeader);
+
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
+  expect(findClearCarried(t, 'Size')).toBeDefined();
+  // He % is the same cylinder's own null field — must not be marked, the tanks-array
+  // analogue of the Buddy/Guide check above: it proves computeCarriedPaths' per-key
+  // iteration over one cylinder, not an all-or-nothing flag for the whole tank.
+  expect(findClearCarried(t, 'He %')).toBeUndefined();
 });
