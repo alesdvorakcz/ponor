@@ -298,6 +298,29 @@ function build(scheme: ColorScheme) {
       fontSize: 14,
       color: theme.fgMuted,
     },
+    // The banner DivesScreen shows when useDives()'s settings read fails (Review task 7,
+    // Important #3) — a display-preference failure that must not blank the logbook, but
+    // must not fail silently either. Visually identical to reorderNotice above (same
+    // banner shape, same tokens) but not a Pressable: it tracks a live query's error state
+    // rather than a one-off action outcome, so it has no natural "this attempt is done"
+    // moment to dismiss — it clears itself once the settings read next succeeds.
+    settingsNotice: {
+      minHeight: 48,
+      justifyContent: 'center',
+      marginHorizontal: 20,
+      marginBottom: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    settingsNoticeText: {
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fgMuted,
+    },
     // DiveDetailScreen (§3's clusters: date & time, site & centre, depth & duration,
     // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
     // SectionList: unlike the Dives list this is one fixed dive's worth of content, not

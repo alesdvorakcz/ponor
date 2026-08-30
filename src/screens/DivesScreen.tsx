@@ -79,6 +79,19 @@ function entryKey(entry: ListEntry): string {
  * nothing says so on its own, with the search box left in place so a diver
  * who mistyped can fix it rather than being told they have no dives.
  *
+ * A fourth, non-blocking state: `settingsError` (useDives.ts) means only the
+ * `dives_before` *offset* — a display preference, not the dives themselves —
+ * failed to load. Review task 7, Important #3: an earlier version folded this
+ * into the same `error` as a failed dives read, so a diver's two perfectly
+ * good logged dives rendered as nothing but the fatal failure message below —
+ * "an empty logbook and a failed read must not look the same" failing again,
+ * through a third door, and directly contradicting `composeDives`'s own
+ * stated intent about degrading a corrupt offset gracefully rather than
+ * hiding the dives over it. The dives still render; a banner in `listPane`
+ * says the numbers may be off instead, so the diver is told something is
+ * wrong rather than shown a plausible lie (numbering quietly restarting
+ * from 1 with no signal anything failed).
+ *
  * This screen's one write (M1b's hand-ordering, §2.5) still goes through the
  * same read-back-through-`useDives()` discipline: `handleReorder` calls
  * `reorderDivesForDate` but never touches its result to decide what this
@@ -102,7 +115,7 @@ export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
-  const { dives, numbers, error } = useDives();
+  const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
   const [query, setQuery] = useState('');
   // Wide layout only: which dive's detail shows beside the list (this screen's own
@@ -259,6 +272,18 @@ export default function DivesScreen() {
         >
           <Text style={styles.reorderNoticeText}>{reorderMessage}</Text>
         </Pressable>
+      )}
+      {settingsError !== undefined && (
+        // Not a Pressable, unlike reorderMessage above: this tracks useDives()'s live
+        // settingsError, not a one-off action outcome, so there is no single attempt to
+        // dismiss — it clears itself once the settings read next succeeds. See this file's
+        // own top docblock (Important #3) for why a failed settings read must not blank
+        // the dives below, and must not fail silently either.
+        <View style={styles.settingsNotice}>
+          <Text style={styles.settingsNoticeText}>
+            Couldn&apos;t read your settings — dive numbers may be missing your pre-Ponor count.
+          </Text>
+        </View>
       )}
       {sections.length === 0 ? (
         <View style={styles.centerFill}>

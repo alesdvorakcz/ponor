@@ -135,13 +135,18 @@ export function isDiveCount(value: unknown): value is number {
  *    join, a partially-hydrated row) — either is treated as "no dive there"
  *    rather than dereferenced.
  *  - `divesBefore` comes from a settings field, not from this data, and may be
- *    anything a free-text or corrupt-storage value can be. Only a real
- *    non-negative integer is used as an offset; anything else falls back to 0
- *    instead of poisoning every dive number — NaN or ±Infinity propagate
+ *    anything a free-text or corrupt-storage value can be — typed `unknown`
+ *    below for exactly that reason, rather than `number` claiming a guarantee
+ *    the caller (`useDives.ts`'s `composeDives`) cannot actually make. Only a
+ *    real non-negative integer is used as an offset; anything else falls back
+ *    to 0 instead of poisoning every dive number — NaN or ±Infinity propagate
  *    through the arithmetic, a negative or fractional value produces a dive
  *    number that can't exist, and a leftover string silently turns every
  *    number in the result into a concatenated string via `+`, breaking the
- *    `Map<string, number>` contract for whatever reads it next.
+ *    `Map<string, number>` contract for whatever reads it next. This is the
+ *    one legitimate action site `isDiveCount`'s own docblock names for this
+ *    rule — callers forward whatever they were handed rather than
+ *    re-checking it themselves.
  *  - `date`, `timeIn`, `createdAt` and `id` are typed as strings (`timeIn`
  *    nullable), but a corrupt row can hand back something else. See
  *    `toComparable` for why that specifically threatens determinism, not just
@@ -226,7 +231,7 @@ export function compareDiveOrder(a: DiveOrdering, b: DiveOrdering): number {
 
 export function assignDiveNumbers(
   dives: DiveOrdering[],
-  divesBefore: number,
+  divesBefore: unknown,
 ): Map<string, number> {
   if (!Array.isArray(dives)) return new Map();
   const offset = isDiveCount(divesBefore) ? divesBefore : 0;

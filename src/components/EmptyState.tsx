@@ -21,13 +21,19 @@ interface EmptyStateProps {
  * §0.5: wet hands, one thumb) and is styled from the `action`/`action-fg`
  * tokens — the app's one button treatment (§0.1: colour is depth and
  * nothing else, so every control, including this one, is monochrome).
+ *
+ * Review task 7, Important #4: this is the entire first-run experience, so its `Pressable`
+ * carries `accessibilityRole="button"` rather than relying on the default — `Pressable`
+ * does not supply one on its own. No separate `accessibilityLabel`: unlike `DiveRow`'s
+ * fragmented number/site/depth, this button's own visible text already says exactly what
+ * it does.
  */
 export function EmptyState({ scheme, onPress }: EmptyStateProps) {
   const styles = makeStyles(scheme);
   return (
     <View style={styles.emptyStateWrap}>
       <Text style={styles.emptyStateText}>Your logbook is empty.</Text>
-      <Pressable style={styles.action} onPress={onPress}>
+      <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
         <Text style={styles.actionLabel}>Log your first dive</Text>
       </Pressable>
     </View>

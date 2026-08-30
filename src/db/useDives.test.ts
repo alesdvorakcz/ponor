@@ -1,3 +1,4 @@
+import { assignDiveNumbers } from '../domain/diveNumber';
 import { createDive, diveRowsQuery, toDives } from './dives';
 import { createTestDb, type TestDb } from './testDb';
 import { divesBeforeQuery, readDivesBefore, setDivesBefore } from './settings';
@@ -22,10 +23,28 @@ describe('composeDives', () => {
     expect(numbers.has(planned.id)).toBe(false);
   });
 
-  it('treats an uninterpretable offset as no offset rather than throwing at render', async () => {
-    const dive = await createDive(db, { date: '2026-08-16' });
-    const { numbers } = composeDives(await diveRowsQuery(db), Number.NaN);
-    expect(numbers.get(dive.id)).toBe(1);
+  // Review task 7, Minor #1 / cannot-fail #5: composeDives used to re-check
+  // `isDiveCount(divesBefore) ? divesBefore : 0` itself before handing the result to
+  // `assignDiveNumbers`, which applies the identical predicate with the identical fallback
+  // — a fourth copy of a rule diveNumber.ts already owns (its own docblock names
+  // `assignDiveNumbers` as the one legitimate site for exactly this fallback). Proven dead
+  // by mutation: replacing composeDives's guard with a bare cast changed nothing, because
+  // `assignDiveNumbers` re-derives the identical answer regardless. Removed, so composeDives
+  // now forwards `divesBefore` unchanged — the assertion below pins THAT (delegation),
+  // rather than re-testing the coercion rule itself, which diveNumber.test.ts already pins
+  // with a mutation-resistant assertion tied directly to `isDiveCount`
+  // ("is the same rule assignDiveNumbers applies to its offset").
+  it('forwards an uninterpretable offset to assignDiveNumbers unchanged, rather than throwing at render', async () => {
+    await createDive(db, { date: '2026-08-16' });
+    const rows = await diveRowsQuery(db);
+    expect(() => composeDives(rows, Number.NaN)).not.toThrow();
+    // Not just "returns 1" (NaN and a hardcoded 0 would look identical that way) — compared
+    // against calling assignDiveNumbers directly with the SAME uninterpretable value, so a
+    // future composeDives that stopped forwarding divesBefore at all (e.g. hardcoded 0)
+    // would diverge from this the moment the two are compared against a real offset too.
+    const dives = toDives(rows);
+    expect(composeDives(rows, Number.NaN).numbers).toEqual(assignDiveNumbers(dives, Number.NaN));
+    expect(composeDives(rows, 247).numbers).toEqual(assignDiveNumbers(dives, 247));
   });
 
   it('agrees with toDives on ordering — composeDives must not re-sort or re-filter on its own', async () => {

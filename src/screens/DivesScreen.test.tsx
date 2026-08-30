@@ -106,6 +106,18 @@ it('shows the empty state when there are no dives', async () => {
   expect(textIn(t).join(' ')).toContain('Log your first dive');
 });
 
+// Review task 7, Important #4: EmptyState's primary action is the entire first-run
+// experience, and a Pressable carries no accessibilityRole on its own — a screen reader
+// user was never told this text was actionable. The empty-logbook branch renders nothing
+// else (no fab, no search box — DivesScreen.tsx's early return), so any
+// accessibilityRole="button" node found here is unambiguously EmptyState's own action.
+it("announces the empty state's primary action as a button", async () => {
+  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+  const buttons = t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
+  expect(buttons).toHaveLength(1);
+});
+
 it('pins planned dives above logged ones under "Up next"', async () => {
   mockUseDives.mockReturnValue({
     dives: [dive({ id: 'p', date: '2026-09-01', status: 'planned' }), dive({ id: 'l', date: '2026-08-16' })],
@@ -150,6 +162,40 @@ it('surfaces a read error instead of rendering an empty logbook', async () => {
   const text = textIn(await render(<DivesScreen />)).join(' ');
   expect(text).not.toContain('Log your first dive');
   expect(text.toLowerCase()).toContain("couldn't");
+});
+
+// Review task 7, Important #3: a failed useDives() settings read used to be folded into
+// the same fatal `error` as a failed dives read, blanking the entire logbook over what is
+// only a display-preference failure — dive numbering, not the dives themselves. The dives
+// must still render, and the diver must still be told something is wrong rather than shown
+// a silently-reset dive count.
+it('shows the dives and a settings notice, rather than blanking the logbook, when only the settings read fails', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+    settingsError: new Error('settings unreadable'),
+  });
+  const text = textIn(await render(<DivesScreen />)).join(' ');
+  expect(text).toContain('Blue Hole');
+  expect(text).not.toContain("Couldn't open your logbook");
+  expect(text.toLowerCase()).toContain("couldn't read your settings");
+});
+
+// The two failure modes are independent switches, not one accidentally standing in for the
+// other: a failed DIVES read still blanks the logbook even when the settings read also
+// failed alongside it — the fatal branch takes priority rather than the two colliding into
+// some third, unspecified state.
+it('still blanks the logbook for a failed dives read even when the settings read also failed', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [],
+    numbers: new Map(),
+    error: new Error('disk'),
+    settingsError: new Error('settings unreadable'),
+  });
+  const text = textIn(await render(<DivesScreen />)).join(' ');
+  expect(text.toLowerCase()).toContain("couldn't open your logbook");
+  expect(text.toLowerCase()).not.toContain("couldn't read your settings");
 });
 
 // Not in the brief's sample, but the brief's own text calls this out as the third state a

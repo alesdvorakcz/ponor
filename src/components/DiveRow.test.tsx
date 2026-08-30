@@ -36,6 +36,34 @@ it('shows the dive number, site and depth', async () => {
   expect(text).toContain('32.4 m');
 });
 
+// Review task 7, Important #4: this row is the only route into a dive, and a Pressable
+// carries no accessibilityRole on its own — a screen reader user heard the number, site
+// and depth as three disconnected text fragments and was never told the row was
+// actionable at all.
+it('announces itself as a button, with a label composed from number, site and depth', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" onPress={() => {}} />,
+  );
+  // DiveRow's own top-level element IS the Pressable's rendered host view here (this file's
+  // own top comment) — read its props directly, the same way the "passes the dive id to
+  // onPress" test below fires directly on `t.root` rather than searching for it.
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(t.root.props.accessibilityRole).toBe('button');
+  expect(t.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 32.4 m');
+});
+
+// The number is omitted for a planned dive (§2.4: no number until completed) and depth is
+// omitted for a dive that never recorded one (§1 — no form-shaming) — the label degrades
+// the same way the row's own visible text does, rather than reading "Dive undefined" or
+// leaving a trailing ", " where the missing piece would have been.
+it("omits whichever label piece the row itself omits, for a planned dive with no depth", async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: 'Shore entry', status: 'planned' })} number={undefined} scheme="dark" onPress={() => {}} />,
+  );
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(t.root.props.accessibilityLabel).toBe('Shore entry');
+});
+
 it('colours the depth by its band, not by the theme', async () => {
   const t = await render(
     <DiveRow dive={dive({ maxDepthM: 32.4 })} number={1} scheme="dark" onPress={() => {}} />,
