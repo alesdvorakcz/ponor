@@ -74,8 +74,16 @@ export default function DivesScreen() {
 
   const matching = searchDives(dives, query);
   const { planned, logged } = splitPlanned(matching);
+  // `planned` inherits useDives()'s one order (newest-date-first, via
+  // compareDiveOrder) unchanged — correct for the logged trips below, but
+  // backwards for a section titled "Up next": a future date sorts as
+  // "newest", so without this the furthest-out dive would render first.
+  // Reversed here, for display only, so the soonest planned dive is on top;
+  // splitPlanned, groupIntoTrips and compareDiveOrder stay the single owners
+  // of order everywhere else.
+  const upNext = [...planned].reverse();
   const sections: Trip[] = [
-    ...(planned.length ? [{ key: 'up-next', title: 'Up next', dateRange: '', dives: planned }] : []),
+    ...(upNext.length ? [{ key: 'up-next', title: 'Up next', dateRange: '', dives: upNext }] : []),
     ...groupIntoTrips(logged),
   ];
 

@@ -56,6 +56,34 @@ it('pins planned dives above logged ones under "Up next"', async () => {
   expect(text.indexOf('Up next')).toBeLessThan(text.indexOf('12'));
 });
 
+// useDives() hands back one order, newest-date-first (compareDiveOrder,
+// reversed) — correct for logged trips, but backwards within "Up next":
+// a planned dive further in the future sorts as "newest", so the mock
+// below is deliberately furthest-future-first, exactly what the real hook
+// would return. Three dives, not two, so a partial or coincidentally-right
+// reorder can't pass this by luck — only a genuine full reversal puts all
+// three in soonest-first order.
+it('orders "Up next" soonest-first, not newest-date-first', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [
+      dive({ id: 'far', date: '2026-12-25', status: 'planned', siteName: 'Far Reef' }),
+      dive({ id: 'mid', date: '2026-10-10', status: 'planned', siteName: 'Mid Wall' }),
+      dive({ id: 'soon', date: '2026-09-05', status: 'planned', siteName: 'Soon Cave' }),
+    ],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const text = textIn(await render(<DivesScreen />)).join(' ');
+  const soonIndex = text.indexOf('Soon Cave');
+  const midIndex = text.indexOf('Mid Wall');
+  const farIndex = text.indexOf('Far Reef');
+  expect(soonIndex).toBeGreaterThan(-1);
+  expect(midIndex).toBeGreaterThan(-1);
+  expect(farIndex).toBeGreaterThan(-1);
+  expect(soonIndex).toBeLessThan(midIndex);
+  expect(midIndex).toBeLessThan(farIndex);
+});
+
 it('surfaces a read error instead of rendering an empty logbook', async () => {
   mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: new Error('disk') });
   const text = textIn(await render(<DivesScreen />)).join(' ');
