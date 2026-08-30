@@ -274,12 +274,21 @@ function build(scheme: ColorScheme) {
     // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
     // floor applies to the row as a whole, not just its icon-sized controls, hence
     // minHeight here rather than on some inner element.
+    // `borderBottomWidth`/`borderBottomColor` (M1c task 7, §0.6: "Chrome the type scale
+    // does not cover") are what stop a list of these from reading as "one undifferentiated
+    // column" — the hairline sits below EVERY row, so it doubles as the separator between
+    // one row and the next AND as the edge that closes a trip group: the group's own last
+    // row supplies that closing edge for free, with nothing extra needed from
+    // DivesScreen.tsx, which renders every row (plain or mid-reorder) through this one
+    // style either way.
     diveRow: {
       minHeight: 48,
       justifyContent: 'center',
       gap: 6,
       paddingVertical: 10,
       paddingHorizontal: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
     },
     // `alignItems: 'flex-end'` is what lines depthValue up against the site name's own
     // baseline (§0.6) rather than the row's midline — diveRowMain's last line is the
@@ -324,11 +333,30 @@ function build(scheme: ColorScheme) {
       fontSize: 11.5,
       color: theme.fgMuted,
     },
+    // The row of rating dots (M1c task 7, §0.6: "Rating marks are drawn, not typed") — a
+    // container now, not a Text style, since a rating is RATING_MAX small `View` circles
+    // rather than a glyph string. `gap` alone spaces them; the dots supply their own size.
     diveRating: {
-      fontFamily: fonts.sans,
-      fontSize: 13,
-      color: theme.fg,
-      letterSpacing: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    // One rating mark, filled or outlined — always this exact size, which is the whole
+    // point: `●`/`○` render at different sizes in almost every typeface (DESIGN.md §0.6),
+    // so a rating built from those glyphs looks broken. Every dot, filled or not, carries
+    // this style; `ratingDotFilled` below only ever adds a fill on top of it, never
+    // changing width/height, so a "3 of 5" rating can never read as anything but five
+    // identical circles. `theme.fg`, not a depth colour (§0.1: colour encodes depth and
+    // nothing else — this is chrome, not data).
+    ratingDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 3.5,
+      borderWidth: 1,
+      borderColor: theme.fg,
+    },
+    ratingDotFilled: {
+      backgroundColor: theme.fg,
     },
     // ReorderControls (§2.5: hand-order same-day dives with no entry time). M1c task 6
     // (DESIGN.md §0.6) moved the arrows OUT of a separate column beside the row — the
@@ -418,10 +446,29 @@ function build(scheme: ColorScheme) {
       justifyContent: 'center',
       paddingHorizontal: 4,
     },
+    // The pill itself (M1c task 7, §0.6: "Chrome the type scale does not cover" — "a
+    // bordered pill in tracked uppercase... small, quiet, unmistakably pressable"), nested
+    // INSIDE `dayStripAction` above rather than replacing it: the 48 dp touch target stays
+    // on the Pressable, centred (`dayStripAction`'s own `alignItems`/`justifyContent`)
+    // around this visually smaller box, the same "small visible control, generous hidden
+    // target" split `reorderButton`'s own hitSlop already uses elsewhere in this file.
+    dayStripActionPill: {
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    // Archivo, not mono: §0.2 draws the type split on content, not on volume — this is a
+    // UI control label ("Reorder"/"Done"), the same category as `actionLabel`/
+    // `reorderButtonLabel`, not a data figure. Small, muted and uppercase+tracked is what
+    // reads as "quiet control" rather than the plain, full-ink 14 px label this used to be.
     dayStripActionLabel: {
       fontFamily: fonts['sans-medium'],
-      fontSize: 14,
-      color: theme.fg,
+      fontSize: 11,
+      color: theme.fgMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
     },
     // The banner DivesScreen shows when a reorder request could not fully
     // take effect (db/dives.ts's `applied: false` — see ReorderControls.tsx's

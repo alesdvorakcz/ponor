@@ -3,6 +3,8 @@ import { Text } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
 import { depthColor } from '../theme/depth';
+import { themeFor } from '../theme/resolve';
+import { makeStyles } from '../theme/styles';
 import { DiveRow } from './DiveRow';
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
@@ -208,4 +210,97 @@ it("keeps the row's own container style identical with or without a depthSlot ov
   );
   if (!plain.root || !withSlot.root) throw new Error('DiveRow did not render a root element');
   expect(withSlot.root.props.style).toEqual(plain.root.props.style);
+});
+
+// DESIGN.md §0.6 ("Chrome the type scale does not cover"): dive rows had no borders at
+// all, so a list of them read as "one undifferentiated column." A hairline on
+// `theme.border` beneath every row gives the eye an edge to stop at — between one row and
+// the next, and at the close of a trip group too, since a group's own last row supplies
+// that same border as its closing edge with nothing extra needed from DivesScreen.tsx (it
+// renders every row, plain or reorder-mode, through this exact component).
+it('gives the row a hairline border on theme.border, so consecutive rows have an edge to stop at', async () => {
+  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" onPress={() => {}} />);
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  const style = [t.root.props.style].flat(3).filter(Boolean);
+  expect(style.some((s) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(true);
+  expect(style.some((s) => s?.borderBottomColor === themeFor('dark').border)).toBe(true);
+});
+
+it("recolours the row's hairline for the light scheme rather than carrying a fixed colour", async () => {
+  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="light" onPress={() => {}} />);
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  const style = [t.root.props.style].flat(3).filter(Boolean);
+  expect(style.some((s) => s?.borderBottomColor === themeFor('light').border)).toBe(true);
+  expect(style.some((s) => s?.borderBottomColor === themeFor('dark').border)).toBe(false);
+});
+
+// DESIGN.md §0.6 ("Chrome the type scale does not cover" / M1c task 7): '●' and '○' render
+// at different sizes in almost every typeface — exactly what the owner saw in the running
+// app — so a rating is now drawn as RATING_MAX small circles, filled or outlined, rather
+// than typed. `styles.ratingDot` is the one style every dot (filled or not) carries, so
+// matching on it (rather than e.g. guessing at borderRadius) finds exactly the five dots
+// regardless of which are filled.
+describe('rating, drawn as circles rather than typed glyphs', () => {
+  function findDots(t: RenderResult, scheme: 'dark' | 'light' = 'dark') {
+    const styles = makeStyles(scheme);
+    if (!t.root) throw new Error('DiveRow did not render a root element');
+    return t.root.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.ratingDot));
+  }
+
+  function isFilled(t: RenderResult, node: ReturnType<typeof findDots>[number], scheme: 'dark' | 'light' = 'dark') {
+    const styles = makeStyles(scheme);
+    return [node.props.style].flat(3).includes(styles.ratingDotFilled);
+  }
+
+  it('renders no rating dots when the dive has no rating', async () => {
+    const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" onPress={() => {}} />);
+    expect(findDots(t)).toHaveLength(0);
+  });
+
+  it('draws exactly RATING_MAX dots, filling only up to the rating', async () => {
+    const t = await render(<DiveRow dive={dive({ rating: 3 })} number={1} scheme="dark" onPress={() => {}} />);
+    const dots = findDots(t);
+    expect(dots).toHaveLength(5);
+    expect(dots.filter((d) => isFilled(t, d))).toHaveLength(3);
+  });
+
+  // The trap this task's own brief names: a test that only counts "5 marks rendered" would
+  // pass whether or not the two states are the same size, since a typed '●'/'○' pair would
+  // also produce 5 marks — it's the SIZE difference between those two glyphs that broke,
+  // not their count. This asserts the actual property that broke: a filled dot and an
+  // empty dot must report the identical width and height, not merely both be "some size".
+  it('gives filled and empty marks identical dimensions, the property the two glyphs broke', async () => {
+    const t = await render(<DiveRow dive={dive({ rating: 2 })} number={1} scheme="dark" onPress={() => {}} />);
+    const dots = findDots(t);
+    const filled = dots.find((d) => isFilled(t, d));
+    const empty = dots.find((d) => !isFilled(t, d));
+    if (!filled || !empty) throw new Error('expected both a filled and an empty dot at rating 2');
+
+    const dims = (n: (typeof dots)[number]) => {
+      const style = [n.props.style].flat(3).filter(Boolean);
+      return {
+        width: style.reduce((a: unknown, s: any) => s?.width ?? a, undefined),
+        height: style.reduce((a: unknown, s: any) => s?.height ?? a, undefined),
+      };
+    };
+    expect(dims(filled).width).toBeGreaterThan(0);
+    expect(dims(filled).height).toBeGreaterThan(0);
+    expect(dims(filled)).toEqual(dims(empty));
+  });
+
+  // §0.1: colour encodes depth and nothing else — controls (and this row-metadata chip)
+  // stay monochrome. Proven the same relative way DayStrip.test.tsx proves it: every dot's
+  // own ink is the theme's plain `fg`, never a depth-band hue.
+  it('keeps rating marks monochrome, in the theme ink rather than any depth colour', async () => {
+    const theme = themeFor('dark');
+    const t = await render(<DiveRow dive={dive({ rating: 5 })} number={1} scheme="dark" onPress={() => {}} />);
+    const dots = findDots(t);
+    expect(dots).toHaveLength(5);
+    for (const d of dots) {
+      const style = [d.props.style].flat(3).filter(Boolean);
+      const bg = style.reduce((a: unknown, s: any) => s?.backgroundColor ?? a, undefined);
+      const border = style.reduce((a: unknown, s: any) => s?.borderColor ?? a, undefined);
+      expect(bg === theme.fg || border === theme.fg).toBe(true);
+    }
+  });
 });

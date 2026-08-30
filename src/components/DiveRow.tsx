@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
 import { formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
-import { makeStyles } from '../theme/styles';
+import { makeStyles, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DepthValue } from './DepthValue';
 
@@ -29,18 +29,35 @@ interface DiveRowProps {
 }
 
 const RATING_MAX = 5;
-const RATING_FILLED = '●';
-const RATING_EMPTY = '○';
 
 /**
  * `rating` is `number | null` rather than `1|2|3|4|5` on purpose (DESIGN.md §10: no DB
  * CHECK constraint, so a future client's out-of-range value is a runtime reality this
  * type cannot rule out). Clamped and rounded here so that reality can never turn into a
- * negative `repeat()` count and crash a render.
+ * negative or out-of-range dot count.
  */
-function ratingMarks(rating: number): string {
-  const filled = Math.min(RATING_MAX, Math.max(0, Math.round(rating)));
-  return RATING_FILLED.repeat(filled) + RATING_EMPTY.repeat(RATING_MAX - filled);
+function filledDotCount(rating: number): number {
+  return Math.min(RATING_MAX, Math.max(0, Math.round(rating)));
+}
+
+/**
+ * A rating as RATING_MAX small circles, filled up to the rating and outlined beyond it —
+ * DESIGN.md §0.6: "Rating marks are drawn, not typed... `●` and `○` are different sizes in
+ * almost every typeface, so a rating rendered from glyphs looks broken." `ratingDot` is the
+ * one style every dot carries, filled or not, and `ratingDotFilled` only ever adds a fill
+ * on top of it — never a different width/height — so five marks always read as five
+ * identical circles, only some of them filled in. Monochrome throughout (`theme.fg`, via
+ * `ratingDot`/`ratingDotFilled` themselves): §0.1, colour encodes depth and nothing else.
+ */
+function RatingDots({ rating, styles }: { rating: number; styles: Styles }) {
+  const filled = filledDotCount(rating);
+  return (
+    <View style={styles.diveRating}>
+      {Array.from({ length: RATING_MAX }, (_, i) => (
+        <View key={i} style={[styles.ratingDot, i < filled && styles.ratingDotFilled]} />
+      ))}
+    </View>
+  );
 }
 
 /**
@@ -119,7 +136,7 @@ function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowP
           {plannedDate !== null && <Text style={styles.diveChip}>{plannedDate}</Text>}
           {timeRange !== null && <Text style={styles.diveChip}>{timeRange}</Text>}
           {duration !== null && <Text style={styles.diveChip}>{duration}</Text>}
-          {dive.rating !== null && <Text style={styles.diveRating}>{ratingMarks(dive.rating)}</Text>}
+          {dive.rating !== null && <RatingDots rating={dive.rating} styles={styles} />}
         </View>
       )}
     </Pressable>

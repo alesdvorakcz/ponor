@@ -88,3 +88,28 @@ it('recolours for the light scheme rather than carrying a fixed colour', async (
   expect(style.some((s) => s.backgroundColor === themeFor('light').surface)).toBe(true);
   expect(style.some((s) => s.backgroundColor === themeFor('dark').surface)).toBe(false);
 });
+
+// DESIGN.md §0.6 ("Chrome the type scale does not cover"): the action used to render as
+// plain sans-medium text — a label, not a control. It must read as a bordered pill in
+// tracked uppercase instead: small, quiet, unmistakably pressable. The 48 dp touch target
+// pinned above stays on the Pressable itself, unaffected — the pill is a smaller visual
+// element nested inside it, not a replacement for it.
+it('renders its action as a bordered pill in tracked uppercase, not plain text', async () => {
+  const t = await render(<DayStrip date="2026-08-18" count={2} active={false} scheme="dark" onToggle={() => {}} />);
+  const [action] = t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
+  if (!action) throw new Error('DayStrip did not render its action as a button');
+
+  const borderedBoxes = action
+    .queryAll((n) => n.type === 'View')
+    .map((n) => flatStyle(n))
+    .filter((style) => style.some((s) => typeof s.borderWidth === 'number' && s.borderWidth > 0));
+  const [pillStyle] = borderedBoxes;
+  if (!pillStyle) throw new Error('DayStrip did not render a bordered pill around its action label');
+  expect(pillStyle.some((s) => s.borderColor === themeFor('dark').border)).toBe(true);
+
+  const label = action.queryAll((n) => n.type === 'Text').find((n) => n.children[0] === 'Reorder');
+  if (!label) throw new Error('DayStrip did not render its "Reorder" label');
+  const labelStyle = flatStyle(label);
+  expect(labelStyle.some((s) => s.textTransform === 'uppercase')).toBe(true);
+  expect(labelStyle.some((s) => typeof s.letterSpacing === 'number' && s.letterSpacing > 0)).toBe(true);
+});

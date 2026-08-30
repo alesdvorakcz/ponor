@@ -58,7 +58,13 @@ export function DayStrip({ date, count, active, scheme, onToggle }: DayStripProp
         accessibilityRole="button"
         accessibilityLabel={active ? `Done reordering ${formattedDate}` : `Reorder ${formattedDate}`}
       >
-        <Text style={styles.dayStripActionLabel}>{active ? 'Done' : 'Reorder'}</Text>
+        {/* §0.6: "a bordered pill in tracked uppercase... small, quiet, unmistakably
+            pressable" — nested inside the Pressable above rather than replacing it, so the
+            48 dp touch target (`dayStripAction`'s own minHeight/minWidth) stays exactly as
+            it was; this pill is only the smaller visual mark centred inside it. */}
+        <View style={styles.dayStripActionPill}>
+          <Text style={styles.dayStripActionLabel}>{active ? 'Done' : 'Reorder'}</Text>
+        </View>
       </Pressable>
     </View>
   );

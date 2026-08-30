@@ -151,7 +151,7 @@ export function formatCoordinates(latitude: number | null, longitude: number | n
 /** A dive's star rating, e.g. "4 / 5". DESIGN.md §10 keeps `rating` as `number | null`
  * rather than a `1|2|3|4|5` literal union — a future client can still deliver an
  * out-of-range value — so this only guards finiteness; clamping the *displayed marks* to a
- * legal range is `DiveRow.tsx`'s `ratingMarks`, not this module's job. */
+ * legal range is `DiveRow.tsx`'s `filledDotCount`, not this module's job. */
 export function formatRating(rating: number | null): string | null {
   if (!isFiniteNumber(rating)) return null;
   return `${rating} / 5`;
