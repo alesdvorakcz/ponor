@@ -876,10 +876,11 @@ git commit -m "Add the dive row and the depth value that carries the app's only 
 Replaces the M0 proof screen. This is the app's front door.
 
 **Files:**
-- Modify: `src/app/index.tsx` (full replacement)
+- Create: `src/screens/DivesScreen.tsx` (the screen itself)
+- Modify: `src/app/index.tsx` (reduced to a thin route re-exporting the screen)
 - Create: `src/components/TripHeader.tsx`, `src/components/EmptyState.tsx`
 - Modify: `src/theme/styles.ts`
-- Test: `src/app/index.test.tsx`
+- Test: `src/screens/DivesScreen.test.tsx` (**not** under `src/app/` — see Global Constraints)
 
 **Interfaces:**
 - Consumes: `useDives()`, `groupIntoTrips`, `splitPlanned`, `searchDives`, `DiveRow`, `makeStyles`, `resolveScheme`.
@@ -887,7 +888,7 @@ Replaces the M0 proof screen. This is the app's front door.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `src/app/index.test.tsx`. Mock `useDives` so the screen is tested without a database — the hook has its own tests from Task 1:
+Create `src/screens/DivesScreen.test.tsx`. Mock `useDives` so the screen is tested without a database — the hook has its own tests from Task 1:
 
 ```tsx
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
@@ -965,7 +966,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/app/index.tsx src/app/index.test.tsx src/components/TripHeader.tsx src/components/EmptyState.tsx src/theme/styles.ts
+git add src/screens/DivesScreen.tsx src/screens/DivesScreen.test.tsx src/app/index.tsx src/components/TripHeader.tsx src/components/EmptyState.tsx src/theme/styles.ts
 git commit -m "Replace the proof screen with the Dives list"
 ```
 
@@ -1056,9 +1057,9 @@ git commit -m "Add the dive detail screen"
 Note also: `effectiveOrder` runs in the **opposite direction** to the list — `listDives`/`toDives` are newest-first, `effectiveOrder` is chronological. Reverse it before comparing against what is on screen. Getting this wrong silently inverts the day.
 
 **Files:**
-- Modify: `src/app/index.tsx`
+- Modify: `src/screens/DivesScreen.tsx` (**not** `src/app/index.tsx`, which is now only a thin route)
 - Create: `src/components/ReorderControls.tsx`
-- Test: `src/app/reorder.test.tsx`
+- Test: `src/components/ReorderControls.test.tsx` and `src/screens/DivesScreen.test.tsx` — **never** under `src/app/`, see Global Constraints
 
 **Interfaces:**
 - Consumes: `reorderDivesForDate(db, date, orderedIds)`, `ReorderOutcome`.
@@ -1117,7 +1118,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/ReorderControls.tsx src/app/index.tsx src/app/reorder.test.tsx src/domain/trips.ts src/domain/trips.test.ts
+git add src/components/ReorderControls.tsx src/components/ReorderControls.test.tsx src/screens/DivesScreen.tsx src/screens/DivesScreen.test.tsx src/domain/trips.ts src/domain/trips.test.ts
 git commit -m "Let a diver hand-order same-day dives, where the tiers allow it"
 ```
 
@@ -1129,7 +1130,7 @@ git commit -m "Let a diver hand-order same-day dives, where the tiers allow it"
 
 **Files:**
 - Create: `src/hooks/useWideLayout.ts`
-- Modify: `src/app/index.tsx`
+- Modify: `src/screens/DivesScreen.tsx` (**not** `src/app/index.tsx`, which is now only a thin route)
 - Modify: `DESIGN.md` (§10)
 - Test: `src/hooks/useWideLayout.test.ts`
 
@@ -1171,7 +1172,7 @@ Expected: all clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/hooks/useWideLayout.ts src/hooks/useWideLayout.test.ts src/app/index.tsx DESIGN.md
+git add src/hooks/useWideLayout.ts src/hooks/useWideLayout.test.ts src/screens/DivesScreen.tsx src/screens/DivesScreen.test.tsx DESIGN.md
 git commit -m "Lay the logbook out side by side on tablets, and record M1b's two deviations"
 ```
 
