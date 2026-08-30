@@ -19,7 +19,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { dive } from '../domain/diveFixture';
 import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
-import { useDives } from '../db/useDives';
+import { useDives, type DiveListState } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -211,6 +211,26 @@ function findRow(t: RenderResult, number: number) {
 }
 
 const mockUseDives = useDives as jest.Mock;
+/**
+ * The one place this file stubs `useDives()`, and deliberately `mockImplementation` rather
+ * than `mockReturnValue`.
+ *
+ * The real hook hands back a **brand-new object holding a brand-new array on every render**:
+ * `composeDives`'s `toDives` is `rows.map(toDive).sort(...)` (db/dives.ts), and the wrapper
+ * object is an object literal in `useDives`'s own return statement. A `mockReturnValue` stub
+ * models the opposite contract — one object, referentially stable forever — and a screen
+ * written against that fiction can loop infinitely in the real app while every test here
+ * stays green (DiveFormScreen did exactly that). Spreading into a fresh array and a fresh
+ * `Map` per call is what makes this stub model the hook's real worst case.
+ */
+function stubDives(state: Partial<DiveListState>) {
+  mockUseDives.mockImplementation(() => ({
+    ...state,
+    dives: [...(state.dives ?? [])],
+    numbers: new Map(state.numbers ?? []),
+  }));
+}
+
 const mockReorderDivesForDate = reorderDivesForDate as jest.Mock;
 const mockUseWideLayout = useWideLayout as jest.Mock;
 const mockRouterPush = router.push as jest.Mock;
@@ -225,7 +245,7 @@ afterEach(() => {
 });
 
 it('shows the empty state when there are no dives', async () => {
-  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: undefined });
+  stubDives({ dives: [], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   expect(textIn(t).join(' ')).toContain('Log your first dive');
 });
@@ -236,14 +256,14 @@ it('shows the empty state when there are no dives', async () => {
 // else (no fab, no search box — DivesScreen.tsx's early return), so any
 // accessibilityRole="button" node found here is unambiguously EmptyState's own action.
 it("announces the empty state's primary action as a button", async () => {
-  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: undefined });
+  stubDives({ dives: [], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   const buttons = t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
   expect(buttons).toHaveLength(1);
 });
 
 it('pins planned dives above logged ones under "Up next"', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'p', date: '2026-09-01', status: 'planned' }), dive({ id: 'l', date: '2026-08-16' })],
     numbers: new Map([['l', 12]]),
     error: undefined,
@@ -259,7 +279,7 @@ it('pins planned dives above logged ones under "Up next"', async () => {
 // count is a number the section actually had to work out (not `dives.length`, and not a
 // constant that would read right for one dive).
 it('heads "Up next" with its dive count in full ink, not as another trip', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [
       dive({ id: 'p1', date: '2026-09-05', status: 'planned' }),
       dive({ id: 'p2', date: '2026-09-01', status: 'planned' }),
@@ -294,7 +314,7 @@ it('heads "Up next" with its dive count in full ink, not as another trip', async
 // reorder can't pass this by luck — only a genuine full reversal puts all
 // three in soonest-first order.
 it('orders "Up next" soonest-first, not newest-date-first', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [
       dive({ id: 'far', date: '2026-12-25', status: 'planned', siteName: 'Far Reef' }),
       dive({ id: 'mid', date: '2026-10-10', status: 'planned', siteName: 'Mid Wall' }),
@@ -315,7 +335,7 @@ it('orders "Up next" soonest-first, not newest-date-first', async () => {
 });
 
 it('surfaces a read error instead of rendering an empty logbook', async () => {
-  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: new Error('disk') });
+  stubDives({ dives: [], numbers: new Map(), error: new Error('disk') });
   const text = textIn(await render(<DivesScreen />)).join(' ');
   expect(text).not.toContain('Log your first dive');
   expect(text.toLowerCase()).toContain("couldn't");
@@ -327,7 +347,7 @@ it('surfaces a read error instead of rendering an empty logbook', async () => {
 // must still render, and the diver must still be told something is wrong rather than shown
 // a silently-reset dive count.
 it('shows the dives and a settings notice, rather than blanking the logbook, when only the settings read fails', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -344,7 +364,7 @@ it('shows the dives and a settings notice, rather than blanking the logbook, whe
 // failed alongside it — the fatal branch takes priority rather than the two colliding into
 // some third, unspecified state.
 it('still blanks the logbook for a failed dives read even when the settings read also failed', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [],
     numbers: new Map(),
     error: new Error('disk'),
@@ -362,7 +382,7 @@ it('still blanks the logbook for a failed dives read even when the settings read
 // resting on the assumption that the "no results" branch and the "empty logbook" branch
 // can't be confused for each other.
 it('tells a diver their search matched nothing, distinctly from an empty logbook', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -380,7 +400,7 @@ it('tells a diver their search matched nothing, distinctly from an empty logbook
 // unit-tested in domain/search.test.ts; what is unproven without this is that the screen
 // actually wires the TextInput's value into it rather than, say, leaving it inert.
 it('narrows the list to dives matching the search text', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Shark Reef' })],
     numbers: new Map([
       ['a', 1],
@@ -412,7 +432,7 @@ it('narrows the list to dives matching the search text', async () => {
 // would give the same wrong answer both times; only a genuine `insets.bottom + margin`
 // computation can pass this for both.
 it('floats the search row at the bottom of the screen, offset by the real safe-area inset rather than a fixed number', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -449,7 +469,7 @@ it('floats the search row at the bottom of the screen, offset by the real safe-a
 // the fab must be a genuine DESCENDANT of the exact node findFloatingRow reads
 // accessibilityElementsHidden/pointerEvents off, not a sibling that merely mirrors it.
 it('nests the + inside the same floating row as the search field, so both hide and reappear together', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -465,7 +485,7 @@ it('nests the + inside the same floating row as the search field, so both hide a
 // carried some other, merely-similar-looking shadow of its own would fail this even though
 // ">  0" alone would have missed it.
 it('gives the + the exact same shadow treatment as the search capsule beside it', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -482,7 +502,7 @@ it('gives the + the exact same shadow treatment as the search capsule beside it'
 // "so does the +." The search field's own floor is SearchCapsule.test.tsx's concern now;
 // this is the one part of it DivesScreen.tsx itself still owns.
 it('keeps the + at a 48 dp touch target, same floor as the search field beside it', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -508,7 +528,7 @@ it('keeps the + at a 48 dp touch target, same floor as the search field beside i
 // pass by genuinely recovering from a real hidden state, not by the field having sat
 // untouched the whole time.
 it('hides the search field on a sustained downward scroll and shows it again on a sustained upward one', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -538,7 +558,7 @@ it('hides the search field on a sustained downward scroll and shows it again on 
 // hidden there if the small scroll first actually reached the handler and was
 // genuinely counted, not ignored by a broken/absent wiring.
 it('does not hide the search field for a scroll well under the jitter threshold, but does hide it once a real scroll follows', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -565,7 +585,7 @@ it('does not hide the search field for a scroll well under the jitter threshold,
 // here, not just implemented and unused: without it, this test's last two assertions
 // would see the field still stranded hidden from the scroll above.
 it('brings the search field back once a query narrows results to zero, even if it was hidden by scrolling', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -603,7 +623,7 @@ it('brings the search field back once a query narrows results to zero, even if i
 // 10 + (30 - 50) = -10), leaving `hidden` exactly where the forced-visible reset left
 // it: unrecomputed, and so still visible.
 it('judges the first scroll after a narrow-to-zero-and-back round trip from a clean baseline, not the old list’s stale one', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -644,7 +664,7 @@ it('judges the first scroll after a narrow-to-zero-and-back round trip from a cl
 // string content, so which one this renderer reports for `n.children[0]` is an
 // implementation detail this test has no business pinning down.
 it('sets trip headers apart from row text rather than merely bolding them', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ date: '2026-08-16', siteName: 'Blue Hole', maxDepthM: 32.4 })],
     numbers: new Map(),
     error: undefined,
@@ -677,7 +697,7 @@ it('sets trip headers apart from row text rather than merely bolding them', asyn
 it('shows no arrows until the day strip is switched on', async () => {
   const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
   const b = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 9.2 });
-  mockUseDives.mockReturnValue({ dives: [a, b], numbers: new Map(), error: undefined });
+  stubDives({ dives: [a, b], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   const text = textIn(t).join(' ');
   expect(text).toContain('Reorder');
@@ -705,7 +725,7 @@ it('shows no arrows until the day strip is switched on', async () => {
 it('rules the day strip on its top edge only, so its boundary with the first row it governs is a single line', async () => {
   const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
   const b = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 9.2 });
-  mockUseDives.mockReturnValue({ dives: [a, b], numbers: new Map(), error: undefined });
+  stubDives({ dives: [a, b], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   if (!t.root) throw new Error('DivesScreen did not render a root element');
   // DivesScreen resolves its own scheme via useColorScheme(), which is 'light' under Jest.
@@ -749,7 +769,7 @@ it('gates the day strip itself on canReorder — a day with entry times gets non
   const untimedB = dive({ id: 'u2', date: '2026-08-17', siteName: 'Reef', maxDepthM: 9.2 });
   // Newest-first, matching useDives()'s own order (this file's top docblock note) — the
   // 17th (untimed) is more recent than the 16th (timed).
-  mockUseDives.mockReturnValue({ dives: [untimedB, untimedA, timedB, timedA], numbers: new Map(), error: undefined });
+  stubDives({ dives: [untimedB, untimedA, timedB, timedA], numbers: new Map(), error: undefined });
 
   const t = await render(<DivesScreen />);
   expect(findDayStripAction(t, 'Reorder')).toHaveLength(1); // only the 17th qualifies
@@ -765,7 +785,7 @@ it('offers move controls for an untimed same-day pair, once its strip is switche
   // "does not offer" one below) for the wrong reason.
   const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [x, y],
     numbers: new Map([
       ['x', 2],
@@ -794,7 +814,7 @@ it('does not offer move controls — or a day strip at all — for a same-day pa
   // Same siteName on both, for the same reason noted in the test above —
   // otherwise this would pass because groupIntoTrips split them apart, not
   // because canReorder's timeIn check actually fired.
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [
       dive({ id: 'x', date: '2026-08-16', timeIn: '09:00', siteName: 'Blue Hole' }),
       dive({ id: 'y', date: '2026-08-16', timeIn: '14:00', siteName: 'Blue Hole' }),
@@ -821,7 +841,7 @@ it('does not offer move controls — or a day strip at all — for a same-day pa
 it('shows a message rather than silently springing back when a reorder does not take effect', async () => {
   const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [x, y],
     numbers: new Map([
       ['x', 2],
@@ -876,7 +896,7 @@ it('does not fire a second reorder write for a day whose controls are already di
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
   const p = dive({ id: 'p', date: '2026-08-10', siteName: 'Shark Reef' });
   const q = dive({ id: 'q', date: '2026-08-10', siteName: 'Shark Reef' });
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [x, y, p, q],
     numbers: new Map([
       ['x', 4],
@@ -944,7 +964,7 @@ it('does not fire a second reorder write for a day whose controls are already di
 it('releases the in-flight guard after a failed write, so a later reorder for the same day still runs', async () => {
   const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [x, y],
     numbers: new Map([
       ['x', 2],
@@ -986,7 +1006,7 @@ it('dims every other row to 32% opacity once a day is active, and restores full 
   const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
   const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
   const other = dive({ id: 'o', date: '2026-08-10', siteName: 'Shark Reef' });
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [x, y, other],
     numbers: new Map([
       ['x', 3],
@@ -1019,7 +1039,7 @@ it('dims every other row to 32% opacity once a day is active, and restores full 
 
 it('navigates to the dive detail route on a narrow layout, without embedding it inline', async () => {
   mockUseWideLayout.mockReturnValue(false);
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -1035,7 +1055,7 @@ it('navigates to the dive detail route on a narrow layout, without embedding it 
 it('shows the selected dive beside the list instead of navigating, on a wide layout', async () => {
   mockUseWideLayout.mockReturnValue(true);
   mockUseLocalSearchParams.mockReturnValue({}); // DiveDetailScreen calls this unconditionally; the id prop overrides it either way
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -1049,7 +1069,7 @@ it('shows the selected dive beside the list instead of navigating, on a wide lay
 it('shows a placeholder in the detail pane until a dive is selected, on a wide layout', async () => {
   mockUseWideLayout.mockReturnValue(true);
   mockUseLocalSearchParams.mockReturnValue({});
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
@@ -1064,7 +1084,7 @@ it('shows a placeholder in the detail pane until a dive is selected, on a wide l
 it("does not render the detail screen's own back control when embedded beside the list", async () => {
   mockUseWideLayout.mockReturnValue(true);
   mockUseLocalSearchParams.mockReturnValue({});
-  mockUseDives.mockReturnValue({
+  stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,

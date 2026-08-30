@@ -2,7 +2,7 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { dive } from '../domain/diveFixture';
-import { useDives } from '../db/useDives';
+import { useDives, type DiveListState } from '../db/useDives';
 // Namespace import, not the usual named one: the completeness test below (`marks every
 // value this screen reads from derived.ts as computed`) needs the module's own export list
 // at runtime, via `Object.keys`, rather than a set of names typed into this file — see that
@@ -122,6 +122,26 @@ function isMarked(t: RenderResult, value: string): boolean {
 }
 
 const mockUseDives = useDives as jest.Mock;
+/**
+ * The one place this file stubs `useDives()`, and deliberately `mockImplementation` rather
+ * than `mockReturnValue`.
+ *
+ * The real hook hands back a **brand-new object holding a brand-new array on every render**:
+ * `composeDives`'s `toDives` is `rows.map(toDive).sort(...)` (db/dives.ts), and the wrapper
+ * object is an object literal in `useDives`'s own return statement. A `mockReturnValue` stub
+ * models the opposite contract — one object, referentially stable forever — and a screen
+ * written against that fiction can loop infinitely in the real app while every test here
+ * stays green (DiveFormScreen did exactly that). Spreading into a fresh array and a fresh
+ * `Map` per call is what makes this stub model the hook's real worst case.
+ */
+function stubDives(state: Partial<DiveListState>) {
+  mockUseDives.mockImplementation(() => ({
+    ...state,
+    dives: [...(state.dives ?? [])],
+    numbers: new Map(state.numbers ?? []),
+  }));
+}
+
 const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
 const mockCanGoBack = router.canGoBack as jest.Mock;
 const mockBack = router.back as jest.Mock;
@@ -150,7 +170,7 @@ function findBackButton(t: RenderResult) {
 /** Renders the screen for `target` with `dives` as the full list `useDives()` returns —
  * the shape the screen must search itself, per db/useDives.ts's "the one read" contract. */
 async function renderDetailIn(dives: Dive[], target: Dive): Promise<string[]> {
-  mockUseDives.mockReturnValue({ dives, numbers: new Map(), error: undefined });
+  stubDives({ dives, numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   return textIn(await render(<DiveDetailScreen />));
 }
@@ -161,7 +181,7 @@ async function renderDetail(target: Dive): Promise<string[]> {
 }
 
 async function renderDetailTree(target: Dive): Promise<RenderResult> {
-  mockUseDives.mockReturnValue({ dives: [target], numbers: new Map(), error: undefined });
+  stubDives({ dives: [target], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   return render(<DiveDetailScreen />);
 }
@@ -169,7 +189,7 @@ async function renderDetailTree(target: Dive): Promise<RenderResult> {
 async function renderDetailFor(id: string): Promise<string[]> {
   // A non-empty list that does NOT contain `id`, so this actually proves the screen matches
   // on the id rather than merely reacting to an empty logbook.
-  mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  stubDives({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id });
   return textIn(await render(<DiveDetailScreen />));
 }
@@ -177,7 +197,7 @@ async function renderDetailFor(id: string): Promise<string[]> {
 /** Same not-found setup as renderDetailFor, but keeps the tree instead of flattening it to
  * text — for assertions that need to find and press a control, not just read strings. */
 async function renderDetailTreeFor(id: string): Promise<RenderResult> {
-  mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  stubDives({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id });
   return render(<DiveDetailScreen />);
 }
@@ -208,7 +228,7 @@ it('shows every cylinder its own MOD, because there is no single dive MOD', asyn
       { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 212]]), error: undefined });
+  stubDives({ dives: [d], numbers: new Map([[d.id, 212]]), error: undefined });
   // Every render unconditionally calls useLocalSearchParams (it's a hook, not
   // conditionally invoked), so this needs a return value even though the `id`
   // prop below is what the screen actually uses — same pattern as "uses the id
@@ -228,7 +248,7 @@ it('does not present one cylinder’s MOD as though it were the dive’s', async
       { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const mods = textIn(t).filter((s) => s.includes('67.8') || s.includes('18.0'));
@@ -251,7 +271,7 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
       { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const modLabels = textIn(t).filter((s) => s === 'MOD');
@@ -274,7 +294,7 @@ it('omits MOD alone on an otherwise fully-populated cylinder, when only its O₂
     date: '2026-06-04',
     tanks: [tank({ o2Pct: 0, hePct: 21 })],
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const text = textIn(t).join(' ');
@@ -303,7 +323,7 @@ it('shows MOD on the cylinder with a usable O₂ %, and omits it on the other, i
     date: '2026-06-04',
     tanks: [tank({ o2Pct: 32 }), tank({ material: 'alu', o2Pct: null })],
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const texts = textIn(t);
@@ -347,7 +367,7 @@ it('shows MOD on the cylinder with a usable O₂ %, and omits it on the other, i
 // crashes on `reading 'id'` with no `mockUseLocalSearchParams` return value wired up.
 it('marks a computed value so it reads differently from one the diver entered', async () => {
   const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44, maxDepthM: 32.4 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   // timeOut('09:15', 44) = '09:59'; formatDuration(44) = '44 min'.
@@ -360,7 +380,7 @@ it('marks a computed value so it reads differently from one the diver entered', 
 // leak the marker onto the wrong side, or leave both bare.
 it('marks time out as computed but leaves the entered time in beside it alone', async () => {
   const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   expect(isMarked(t, '09:59')).toBe(true);
@@ -370,7 +390,7 @@ it('marks time out as computed but leaves the entered time in beside it alone', 
 it('marks the surface interval as computed, distinctly from the entered date above it', async () => {
   const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
   const target = dive({ id: 'target', date: '2026-08-16', timeIn: '10:38' });
-  mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
+  stubDives({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
   // 08:12 + 44 min surfaces at 08:56; the gap to 10:38 is 102 min -> "1 h 42 min".
@@ -380,7 +400,7 @@ it('marks the surface interval as computed, distinctly from the entered date abo
 
 it('marks Gas used and RMV as computed, distinctly from an entered field like O₂', async () => {
   const d = dive({ date: '2026-06-04', avgDepthM: 20, durationMin: 45, tanks: [tank()] });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   // gasUsedLitres: (200 - 50) bar * 12 l * 1 = 1800 l; rmv: 1800 / (20/10 + 1) / 45 = 13.3 l/min.
@@ -401,7 +421,7 @@ it('marks Gas used and RMV as computed, distinctly from an entered field like O�
 // checks would have been the same defect as a comment that drifted from the code.)
 it('marks Used pressure as computed, the same as MOD beside it', async () => {
   const d = dive({ date: '2026-06-04', tanks: [tank()] });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   // mod(32) = (1.4 / 0.32 - 1) * 10 = 33.75 -> "33.8 m"; usedBar = 200 - 50 = 150 -> "150 bar".
@@ -444,7 +464,7 @@ it('marks every value this screen reads from derived.ts as computed, not just fi
     maxDepthM: 25,
     tanks: [tank()],
   });
-  mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
+  stubDives({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
   const markCount = textNodesOf(t).filter((n) => n.children[0] === '=').length;
@@ -458,7 +478,7 @@ it('marks every value this screen reads from derived.ts as computed, not just fi
 // the entered 15 — checked here too, since nothing above touches font size either.
 it("mutes a computed value's own ink and shrinks it, not just its label", async () => {
   const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   // timeOut('09:15', 44) = '09:59'; formatDuration(44) = '44 min'.
@@ -482,7 +502,7 @@ it("mutes a computed value's own ink and shrinks it, not just its label", async 
 // happens to render in a given font.
 it('gives the mark a fixed width, rather than sizing it to the glyph', async () => {
   const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const marks = textNodesOf(t).filter((n) => n.children[0] === '=');
@@ -500,7 +520,7 @@ it('gives the mark a fixed width, rather than sizing it to the glyph', async () 
 // give this dive one, the same way the "shows every cylinder its own MOD" test above does.
 it('opens with a hero — site name heading, then number · date · centre in mono', async () => {
   const d = dive({ date: '2026-08-22', siteName: 'Blue Hole', centerName: 'Ponorka', maxDepthM: 18 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  stubDives({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' ');
   expect(text).toContain('Blue Hole');
@@ -516,7 +536,7 @@ it('opens with a hero — site name heading, then number · date · centre in mo
 // 34 is one of them, not that 20 is absent).
 it('renders the hero depth at the 34 px detail-scale variant', async () => {
   const d = dive({ date: '2026-08-16', maxDepthM: 18 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const sizesOf18 = textNodesOf(t)
@@ -539,7 +559,7 @@ it('renders the hero depth at the 34 px detail-scale variant', async () => {
 // all".
 it('omits the Max depth row entirely for a negative reading, rather than a dangling label', async () => {
   const d = dive({ date: '2026-08-16', maxDepthM: -5, durationMin: 40 });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' ');
   expect(text).toContain('Depth & duration');
@@ -557,7 +577,7 @@ it('omits the Max depth row entirely for a negative reading, rather than a dangl
 // both, and it always produces text.
 it('renders a clean hero for a dive with only a date, with no stray separators', async () => {
   const d = dive({ date: '2026-08-16' });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const text = textIn(t).join(' ');
@@ -578,7 +598,7 @@ it('renders a clean hero for a dive with only a date, with no stray separators',
 // null", so the two can't drift.
 it('does not repeat the centre in the sub-line when the heading has already fallen back to it', async () => {
   const d = dive({ date: '2026-08-22', siteName: null, centerName: 'Aqua' });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  stubDives({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
 
@@ -594,7 +614,7 @@ it('does not repeat the centre in the sub-line when the heading has already fall
 // pass — and that is the more likely wrong fix, since it needs less code.
 it('keeps the centre in the sub-line whenever the heading is not already showing it', async () => {
   const d = dive({ date: '2026-08-22', siteName: 'Blue Hole', centerName: 'Aqua' });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  stubDives({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
@@ -778,7 +798,7 @@ it('rules each cluster off from the one above it, except the first, which the he
     durationMin: 45,
     waterTempC: 21,
   });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   if (!t.root) throw new Error('DiveDetailScreen did not render a root element');
@@ -932,7 +952,7 @@ it('still offers a way back when the dive id is unknown, not just a dead end', a
 // against the hero site heading's own full-ink, sans, 22 px style sidesteps that entirely.
 it('renders the back control mono and muted, distinctly from the hero heading', async () => {
   const d = dive({ date: '2026-08-16', siteName: 'Blue Hole' });
-  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
   const back = textNode(t, '‹ Dives');
@@ -955,7 +975,7 @@ it('renders the back control mono and muted, distinctly from the hero heading', 
 it('uses the id prop instead of the route param, for embedded (wide-layout) use', async () => {
   const target = dive({ id: 'target', siteName: 'Shark Reef' });
   const other = dive({ id: 'other', siteName: 'Blue Hole' });
-  mockUseDives.mockReturnValue({ dives: [other, target], numbers: new Map(), error: undefined });
+  stubDives({ dives: [other, target], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: 'other' });
   const text = textIn(await render(<DiveDetailScreen id="target" />)).join(' ');
   expect(text).toContain('Shark Reef');
@@ -967,7 +987,7 @@ it('uses the id prop instead of the route param, for embedded (wide-layout) use'
 // back TO, and its router.back()/canGoBack() describe the app's real navigation stack,
 // which embedding never touched.
 it('renders no back control when showBackButton is false', async () => {
-  mockUseDives.mockReturnValue({ dives: [diveWithGas], numbers: new Map(), error: undefined });
+  stubDives({ dives: [diveWithGas], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({});
   const t = await render(<DiveDetailScreen id={diveWithGas.id} showBackButton={false} />);
   expect(() => findBackButton(t)).toThrow();
@@ -977,7 +997,7 @@ it('renders no back control when showBackButton is false', async () => {
 // exit, not a dead end) — showBackButton={false} has to suppress it there as well, not
 // only in the common, dive-found branch.
 it('renders no back control in the not-found branch either, when showBackButton is false', async () => {
-  mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  stubDives({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({});
   const t = await render(<DiveDetailScreen id="no-such-id" showBackButton={false} />);
   expect(() => findBackButton(t)).toThrow();

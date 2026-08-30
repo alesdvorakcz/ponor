@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { useMemo } from 'react';
 
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { type Dive } from '../domain/types';
@@ -63,14 +64,27 @@ export function composeDives(rows: unknown[], divesBefore: unknown): Omit<DiveLi
  * degrade a corrupt `dives_before` *value* gracefully, only for a failed settings *query* to
  * blank the screen anyway. The dives and the numbering preference now fail independently,
  * matching how differently wrong they actually are.
+ *
+ * `composeDives` is memoised on the two raw row arrays. `toDives` is `rows.map(toDive)
+ * .sort(...)`, so without this every consumer got a brand-new `dives` array on every render
+ * whether or not a single row had changed — `DivesScreen` re-derived all of its trip
+ * grouping each time, and `DiveFormScreen` looped infinitely on a gate that compared that
+ * array's identity. The memo is worth having only because `useLiveQuery` holds its `data` in
+ * `useState` and therefore hands back the SAME array reference until the query genuinely
+ * re-runs (verified against drizzle-orm/expo-sqlite/query.js); against a hook that rebuilt
+ * `data` on every render it would buy nothing. It is an optimisation, not a contract: no
+ * consumer may assume `dives` is referentially stable, and the one that did has been fixed
+ * to compare a dive id instead.
  */
 export function useDives(): DiveListState {
   const rows = useLiveQuery(diveRowsQuery(db));
   const settingsRows = useLiveQuery(divesBeforeQuery(db));
 
-  const { dives, numbers } = composeDives(
-    rows.data ?? [],
-    readDivesBefore(settingsRows.data ?? []),
+  const rowData = rows.data;
+  const settingsData = settingsRows.data;
+  const { dives, numbers } = useMemo(
+    () => composeDives(rowData ?? [], readDivesBefore(settingsData ?? [])),
+    [rowData, settingsData],
   );
 
   return { dives, numbers, error: rows.error, settingsError: settingsRows.error };

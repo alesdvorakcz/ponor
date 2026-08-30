@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { createDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
-import { type Tank } from '../domain/types';
+import { type Dive, type Tank } from '../domain/types';
 import { makeStyles } from '../theme/styles';
 import DiveFormScreen from './DiveFormScreen';
 
@@ -39,9 +39,34 @@ jest.mock('expo-router', () => ({
 const mockUseDives = useDives as jest.Mock;
 const mockCreate = createDive as jest.Mock;
 
+/**
+ * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
+ * rather than `mockReturnValue`.
+ *
+ * The real hook hands back a **brand-new object, holding a brand-new array, on every
+ * render**: `composeDives`'s `toDives` is `rows.map(toDive).sort(...)` (db/dives.ts), and
+ * the wrapper object is an object literal in `useDives`'s own return statement. A
+ * `mockReturnValue` stub models the exact opposite contract — one object, referentially
+ * stable forever — and that fiction is why 537 green tests never noticed that this screen
+ * looped infinitely on mount in create mode: its render-phase `setState` was gated on
+ * `initialValues !== carriedPathsSource`, a comparison that can only ever settle if
+ * `dives` eventually stops changing identity, which it never does.
+ *
+ * Every stub goes through here, spreading into a fresh array and a fresh `Map` per call,
+ * so no test in this file can quietly reintroduce the stable-object fiction — and so
+ * every test here exercises the hook's real worst case rather than a friendlier one.
+ */
+function stubDives(state: { dives?: Dive[]; numbers?: Map<string, number>; error?: Error } = {}) {
+  mockUseDives.mockImplementation(() => ({
+    dives: [...(state.dives ?? [])],
+    numbers: new Map(state.numbers ?? []),
+    error: state.error,
+  }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
-  mockUseDives.mockReturnValue({ dives: [], numbers: new Map(), error: undefined });
+  stubDives();
 });
 
 // Same RTL adaptation every screen test in this codebase uses (DivesScreen.test.tsx,
@@ -313,11 +338,7 @@ const tank = (over: Partial<Tank> = {}): Tank => ({
 });
 
 it('prefills a carried field from the most recent logged dive, and marks it carried', async () => {
-  mockUseDives.mockReturnValue({
-    dives: [dive({ date: '2026-08-10', buddy: 'Petr' })],
-    numbers: new Map(),
-    error: undefined,
-  });
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
   const peopleHeader = findButton(t, 'People');
   if (!peopleHeader) throw new Error('no People header found');
@@ -332,7 +353,7 @@ it('prefills a carried field from the most recent logged dive, and marks it carr
 });
 
 it('only a LOGGED dive counts as "most recent" — a newer planned one is skipped', async () => {
-  mockUseDives.mockReturnValue({
+  stubDives({
     // The order a real useDives() call actually hands back: newest first, and a
     // future-dated planned dive sorts ahead of a past logged one in that same order —
     // DivesScreen.tsx's own "Up next" section relies on the identical fact.
@@ -340,8 +361,6 @@ it('only a LOGGED dive counts as "most recent" — a newer planned one is skippe
       dive({ status: 'planned', date: '2026-09-15', buddy: 'Alice' }),
       dive({ status: 'logged', date: '2026-08-01', buddy: 'Petr' }),
     ],
-    numbers: new Map(),
-    error: undefined,
   });
   const t = await render(<DiveFormScreen mode="create" />);
   const peopleHeader = findButton(t, 'People');
@@ -352,11 +371,7 @@ it('only a LOGGED dive counts as "most recent" — a newer planned one is skippe
 });
 
 it('drops the carried chip the moment the diver types over it', async () => {
-  mockUseDives.mockReturnValue({
-    dives: [dive({ date: '2026-08-10', buddy: 'Petr' })],
-    numbers: new Map(),
-    error: undefined,
-  });
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
   const peopleHeader = findButton(t, 'People');
   if (!peopleHeader) throw new Error('no People header found');
@@ -370,11 +385,7 @@ it('drops the carried chip the moment the diver types over it', async () => {
 });
 
 it('prefills and marks a carried cylinder field too, not just top-level ones', async () => {
-  mockUseDives.mockReturnValue({
-    dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12 })] })],
-    numbers: new Map(),
-    error: undefined,
-  });
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12 })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
   const gasHeader = findButton(t, 'Gas & cylinders');
   if (!gasHeader) throw new Error('no Gas & cylinders header found');
@@ -386,4 +397,67 @@ it('prefills and marks a carried cylinder field too, not just top-level ones', a
   // analogue of the Buddy/Guide check above: it proves computeCarriedPaths' per-key
   // iteration over one cylinder, not an all-or-nothing flag for the whole tank.
   expect(findClearCarried(t, 'He %')).toBeUndefined();
+});
+
+// --- C1: the screen the `+` button opens must actually mount ---
+//
+// `useDives()` returns a fresh object and a fresh `dives` array every render (see
+// `stubDives` at the top of this file). This screen's render-phase `setState` used to be
+// gated on `initialValues !== carriedPathsSource` — an object-identity comparison over a
+// value recomputed from `dives` — so the gate could never close, React re-rendered after
+// every render-phase update, and mounting create mode threw "Too many re-renders." The
+// gate now compares the id of the dive carry-over came from, a string (or `null`), which
+// compares by value and cannot churn.
+//
+// Three separate mounts, because the loop is not conditional on the data: it fired with
+// an empty logbook, with a populated one, and in edit mode, and a regression that
+// restored it in only one of those cases would otherwise slip through.
+
+it('mounts in create mode with an empty logbook, without looping on a fresh dives array', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  // A positive assertion, not merely "render() did not throw": a screen that rendered
+  // nothing at all would satisfy the absence of a throw just as well.
+  expect(textIn(t).join(' ')).toContain('New dive');
+  expect(findButton(t, 'Save')).toBeDefined();
+});
+
+it('mounts in create mode with a real carry-over source, without looping', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(textIn(t).join(' ')).toContain('New dive');
+  // The carried value still lands — the fix must not have bought stability by dropping
+  // carry-over on the floor.
+  const peopleHeader = findButton(t, 'People');
+  if (!peopleHeader) throw new Error('no People header found');
+  await fireEvent.press(peopleHeader);
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+});
+
+it('mounts in edit mode too, where carry-over never applies but the same gate ran', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="some-id" />);
+  expect(textIn(t).join(' ')).toContain('Edit dive');
+  expect(findButton(t, 'Save')).toBeDefined();
+});
+
+// The re-derivation the gate exists for still has to happen: `useDives()` starts empty and
+// resolves asynchronously, so the carried set must be rebuilt when the carry-over source
+// dive actually changes — not merely when its containing array is rebuilt. Without this,
+// "compare a stable scalar" could be satisfied by comparing a constant.
+it('re-derives the carried set when useDives resolves after the first render', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const peopleHeader = findButton(t, 'People');
+  if (!peopleHeader) throw new Error('no People header found');
+  await fireEvent.press(peopleHeader);
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+
+  // The async read lands: a real logged dive appears where there was none. `rerender`
+  // rather than pressing something on screen — `FormGroup` owns its own expanded state, so
+  // pressing a group header re-renders that group and never this screen, which is precisely
+  // the render `useDives()` would have to run again in.
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+  expect(findClearCarried(t, 'Buddy')).toBeDefined();
 });

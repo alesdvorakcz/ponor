@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
@@ -102,30 +102,40 @@ function blankFormValues(): DiveFormInput {
 }
 
 /**
- * A fresh entry's starting values (Task 6): `blankFormValues()` for `mode="edit"` — a
- * dive's OWN stored data is Task 7's job, not carry-over, see `blankFormValues`'s own
- * docblock — merged with whatever `carryOverFrom` (domain/carryOver.ts) carries forward
- * from `mostRecentLoggedDive`, the diver's own most recently logged dive.
+ * The one dive this form carries values forward from, or `null` when there is none.
  *
  * `dives` is `useDives()`'s own list — "the one read every screen uses" (useDives.ts's own
- * docblock) — passed in rather than read here, so this stays a plain function the render
- * body below can memoise; finding the most recent LOGGED dive is nothing more than the
- * first `status: 'logged'` entry in it, because `useDives()` already hands back every live
- * dive newest-first (db/dives.ts's `toDives`) and a planned (future-dated) dive would
- * otherwise sort ahead of a real logged one in that same order. No second sort: reusing
- * the one order `useDives()` already establishes is the whole point (this screen's own
- * "Consumes" line, and the brief's own "do not add a second read path").
+ * docblock) — passed in rather than read here, so this stays a plain function; finding the
+ * most recent LOGGED dive is nothing more than the first `status: 'logged'` entry in it,
+ * because `useDives()` already hands back every live dive newest-first (db/dives.ts's
+ * `toDives`) and a planned (future-dated) dive would otherwise sort ahead of a real logged
+ * one in that same order. No second sort: reusing the one order `useDives()` already
+ * establishes is the whole point (this screen's own "Consumes" line, and the brief's own
+ * "do not add a second read path").
+ *
+ * `null` in `mode="edit"`, which shows a dive's OWN stored data (Task 7) and never
+ * carry-over — so "edit mode carries nothing" is decided here, once, rather than re-checked
+ * at every later site that would otherwise need to know it.
+ */
+function carryOverSource(mode: 'create' | 'edit', dives: Dive[]): Dive | null {
+  if (mode !== 'create') return null;
+  return dives.find((d) => d.status === 'logged') ?? null;
+}
+
+/**
+ * A fresh entry's starting values (Task 6): `blankFormValues()` — see its own docblock —
+ * merged with whatever `carryOverFrom` (domain/carryOver.ts) carries forward from `source`.
+ * `carryOverFrom(null)` returns `{}`, so a `null` source (a first-ever dive, or edit mode)
+ * leaves the blank baseline exactly as it is.
  *
  * Callers must not treat this as a one-shot read: `useDives()` starts empty and resolves
  * asynchronously (`useLiveQuery`'s own initial state, well after this screen's first
- * render), so `dives` — and therefore this function's result — can change after mount. See
+ * render), so `source` — and therefore this function's result — can change after mount. See
  * the render body below for how that reaches the live form via `useForm`'s `values`
  * option rather than `defaultValues` alone.
  */
-function initialFormValues(mode: 'create' | 'edit', dives: Dive[]): DiveFormInput {
-  if (mode !== 'create') return blankFormValues();
-  const mostRecentLoggedDive = dives.find((d) => d.status === 'logged') ?? null;
-  return { ...blankFormValues(), ...carryOverFrom(mostRecentLoggedDive) };
+function initialFormValues(source: Dive | null): DiveFormInput {
+  return { ...blankFormValues(), ...carryOverFrom(source) };
 }
 
 /**
@@ -179,6 +189,41 @@ function computeCarriedPaths(values: DiveFormInput): Set<string> {
     }
   }
   return paths;
+}
+
+/**
+ * Everything this screen derives from the one dive carry-over came from, kept together so
+ * the three pieces can never disagree about which dive they describe.
+ */
+interface CarriedState {
+  /**
+   * `carryOverSource`'s own dive id, or `null` for a first-ever dive and in edit mode — the
+   * one **stable scalar** the render body's re-derivation gate compares. Deliberately the
+   * id and not the dive, nor the values derived from it: `useDives()` rebuilds every object
+   * it hands back on every render, so any object here would compare unequal forever and the
+   * gate would never close. See the render body for what that cost.
+   */
+  sourceId: string | null;
+  /** `initialFormValues(source)` — this form's starting values, held rather than recomputed
+   * so `useForm`'s `values` option has a reference that changes only when the carry-over
+   * source really does. */
+  values: DiveFormInput;
+  /** DESIGN.md §0.6's `carried ×` paths for `values`, minus whatever the diver has since
+   * typed over (`dropCarried`, render body). */
+  paths: ReadonlySet<string>;
+}
+
+/**
+ * DESIGN.md §0.6's chip means "this came from your LAST DIVE" — so a `null` source marks
+ * nothing at all, which covers both a diver's first-ever dive and `mode="edit"` (Task 7
+ * shows a dive's OWN stored data, never carry-over). Checked against the source rather than
+ * against `mode` a second time: `carryOverSource` already owns that rule, and re-deciding it
+ * here would be the same field-list-in-two-places defect `carryOver.ts` warns about, one
+ * layer up.
+ */
+function carriedStateFor(sourceId: string | null, source: Dive | null): CarriedState {
+  const values = initialFormValues(source);
+  return { sourceId, values, paths: source === null ? new Set<string>() : computeCarriedPaths(values) };
 }
 
 const ENTRY_OPTIONS: readonly Entry[] = ['shore', 'boat', 'other'];
@@ -436,68 +481,67 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   // `initialFormValues`'s docblock for why `dives` (and therefore this) can change after
   // mount, and why that is handled below rather than assumed away.
   const { dives } = useDives();
-  const initialValues = useMemo(() => initialFormValues(mode, dives), [mode, dives]);
+  const source = carryOverSource(mode, dives);
+  // The ONE value the re-derivation below is allowed to compare. `useDives()` returns a
+  // brand-new object holding a brand-new array on every render (`composeDives`'s `toDives`
+  // is `rows.map(toDive).sort(...)`), so every value derived from it — `dives`, `source`,
+  // this form's own starting values — has a fresh identity every render and can never
+  // compare equal to what the previous render produced. A dive id is a string: it
+  // compares by value, so it
+  // settles the moment the underlying dive does, no matter how many objects were rebuilt
+  // around it. `null` covers both "no logged dive to carry from" and edit mode.
+  const sourceId = source?.id ?? null;
+
+  // Everything derived from the carry-over source, held as one piece of state keyed by the
+  // id it came from. React's own documented "Adjusting some state when a prop changes"
+  // pattern (https://react.dev/learn/you-might-not-need-an-effect), not the
+  // effect-plus-setState round trip it exists to replace: an ESLint rule in this repo's
+  // config (react-hooks/set-state-in-effect) already rejects that shape outright, and the
+  // pattern below is the React team's own prescribed fix for it, not a workaround for the
+  // lint rule alone. Calling `setState` during render is safe only while the gate can
+  // actually close — which is exactly what the previous object-identity comparison could
+  // not do: React re-runs the component after a render-phase update, that re-run produced
+  // another fresh object, the gate re-opened, and create mode threw "Too many re-renders."
+  // rather than ever committing a frame at all. Keyed on `sourceId`, the gate closes on the
+  // second render and stays closed.
+  const [carried, setCarried] = useState<CarriedState>(() => carriedStateFor(sourceId, source));
+  if (carried.sourceId !== sourceId) setCarried(carriedStateFor(sourceId, source));
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
-    defaultValues: initialValues,
+    defaultValues: carried.values,
     // `values`, not a second `defaultValues`: react-hook-form only ever reads
     // `defaultValues` once, at construction, so a create-mode carry-over that resolves
     // AFTER this component's first render (`useDives()` starts empty — see
     // `initialFormValues`) would otherwise never reach the form at all. `values` is
     // react-hook-form's own mechanism for exactly this "the real default arrives
-    // asynchronously" case: it re-syncs whenever this reference changes (deep-equal
-    // checked internally, so the fresh object `useMemo` returns each render is a no-op
-    // once `dives` stops changing). `undefined` in edit mode leaves this exactly as inert
-    // as it was before this task — Task 7's job, not this one's.
-    values: mode === 'create' ? initialValues : undefined,
+    // asynchronously" case: it re-syncs whenever this reference changes. Holding the values
+    // in state above rather than recomputing them each render is what makes that reference
+    // stable between real carry-over changes, so this re-syncs when the source dive
+    // actually changes and not merely because `dives` was rebuilt. `undefined` in edit mode
+    // leaves this exactly as inert as it was before this task — Task 7's job, not this one's.
+    values: mode === 'create' ? carried.values : undefined,
     // A field the diver has already typed into keeps what they typed rather than being
     // silently overwritten the moment the real carry-over data lands — only a field
     // nothing has touched yet is safe to re-sync.
     resetOptions: { keepDirtyValues: true },
   });
 
-  // DESIGN.md §0.6's chip means "this came from your LAST DIVE" — that only applies to
-  // a fresh entry. `mode="edit"` shows a dive's OWN stored data (Task 7), never
-  // carry-over, so it starts (and, since nothing here ever adds to the set in edit
-  // mode, stays) with nothing marked, regardless of what Task 7 later points
-  // `defaultValues` at. Computed from THIS render's `initialValues`, exactly like
-  // `useForm`'s own `values` above and for the same reason: `dives` (and so
-  // `initialValues`) can still be the pre-load empty case the first time this runs.
-  const [carriedPaths, setCarriedPaths] = useState<ReadonlySet<string>>(() =>
-    mode === 'create' ? computeCarriedPaths(initialValues) : new Set<string>(),
-  );
-  // Which `initialValues` the `carriedPaths` state above was last derived from — lets the
-  // block below tell "`useDives()`'s async read just resolved, re-derive" from "an ordinary
-  // re-render" (a diver's own keystroke) without a `useEffect`. This is React's own
-  // documented "Adjusting some state when a prop changes" pattern
-  // (https://react.dev/learn/you-might-not-need-an-effect), not the effect-plus-setState
-  // round trip it exists to replace: an ESLint rule in this repo's config
-  // (react-hooks/set-state-in-effect) already rejects that shape outright, and the pattern
-  // below is the React team's own prescribed fix for it, not a workaround for the lint rule
-  // alone. Calling `setState` here, during render rather than inside an effect, is safe
-  // specifically because it is gated behind the reference check immediately below: React
-  // discards this render and re-runs the component with the new state before anything
-  // commits, rather than ever painting a stale frame.
-  const [carriedPathsSource, setCarriedPathsSource] = useState(initialValues);
-  if (initialValues !== carriedPathsSource) {
-    setCarriedPathsSource(initialValues);
-    setCarriedPaths(mode === 'create' ? computeCarriedPaths(initialValues) : new Set<string>());
-  }
+  const carriedPaths = carried.paths;
 
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
   // alike) rather than one closure per field, so there is exactly one place that can
   // get a field's own drop logic wrong. Bails out via the setter's own no-op-on-same-
   // reference return when `name` was never in the set, rather than checking first and
-  // conditionally calling `setCarriedPaths` — the same "read the LATEST state, don't
+  // conditionally calling `setCarried` — the same "read the LATEST state, don't
   // trust a value captured at render time" reasoning `ReorderControls.tsx` documents
   // for staying stateless, applied to a functional updater instead of a prop.
   const dropCarried = useCallback((name: FieldPath<DiveFormInput>) => {
-    setCarriedPaths((prev) => {
-      if (!prev.has(name)) return prev;
-      const next = new Set(prev);
-      next.delete(name);
-      return next;
+    setCarried((prev) => {
+      if (!prev.paths.has(name)) return prev;
+      const paths = new Set(prev.paths);
+      paths.delete(name);
+      return { ...prev, paths };
     });
   }, []);
 
