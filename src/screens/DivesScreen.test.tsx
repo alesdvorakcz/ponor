@@ -653,19 +653,23 @@ it('shows no arrows until the day strip is switched on', async () => {
   expect(findAllMoveButtons(t, 'down')).toHaveLength(0);
 });
 
-// M1c closing fixes: `diveRow`'s hairline (theme/styles.ts) moved from the row's bottom
-// edge to its top, so it now reads as the line under whatever precedes a row — normally a
-// TripHeader, but `toListEntries` (this file's own top docblock) puts a DayStrip in
-// between for a qualifying day, so the seam that actually matters here is
-// "TripHeader -> DayStrip -> first row", not the plainer "TripHeader -> first row" every
-// other trip gets. Two things could go wrong at that seam and neither would be caught by
-// DiveRow.test.tsx alone, since that file renders a DiveRow in isolation with nothing
-// above it: DayStrip could grow a border of its own (doubling the line beside the row's
-// own top edge), or the row's edge could somehow fail to reach the DOM in this real,
-// composed screen even though it does in isolation. This proves both didn't happen: the
-// strip itself carries no border-bearing style, and both rows of the governed day still
-// carry their own top hairline.
-it('gives the day strip no border of its own, so its boundary with the first row it governs is a single line, not a doubled one', async () => {
+// §0.6's hairline rule (theme/styles.ts) puts every row's separator on its TOP edge, so it
+// reads as the line under whatever precedes that row — normally a TripHeader, but
+// `toListEntries` (this file's own top docblock) puts a DayStrip in between for a
+// qualifying day, so the seam that actually matters here is "TripHeader -> DayStrip ->
+// first row", not the plainer "TripHeader -> first row" every other trip gets. Three things
+// could go wrong at that seam and none would be caught by DayStrip.test.tsx or
+// DiveRow.test.tsx alone, since each renders its component in isolation with nothing above
+// it. This composed screen is where they meet.
+//
+// M1d correction: the strip used to be asserted to carry NO border at all, which is what
+// left a trip whose first entry is a strip with its header sitting flush against it and a
+// rule only below the strip (reported on the running app). A TOP border is not the doubled
+// line that assertion was guarding against — the strip's top edge is the header/strip seam,
+// while the first row's own top edge is the strip/row seam, two different places. A BOTTOM
+// border on the strip is what would double, landing immediately beside the row's own top
+// hairline, so that half of the assertion stays exactly as it was.
+it('rules the day strip on its top edge only, so its boundary with the first row it governs is a single line', async () => {
   const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
   const b = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 9.2 });
   mockUseDives.mockReturnValue({ dives: [a, b], numbers: new Map(), error: undefined });
@@ -679,13 +683,17 @@ it('gives the day strip no border of its own, so its boundary with the first row
   const [strip] = strips;
   if (!strip) throw new Error('expected a DayStrip node');
   const stripStyle = [strip.props.style].flat(3).filter(Boolean);
-  expect(stripStyle.some((s: any) => typeof s?.borderTopWidth === 'number' && s.borderTopWidth > 0)).toBe(false);
+  expect(
+    stripStyle.some(
+      (s: any) => s?.borderTopWidth > 0 && s?.borderTopColor === themeFor('light').border,
+    ),
+  ).toBe(true);
   expect(stripStyle.some((s: any) => typeof s?.borderBottomWidth === 'number' && s.borderBottomWidth > 0)).toBe(false);
-  // M1c closing fixes, Important #6: the two longhand checks above would both stay false
-  // for a border applied via the `borderWidth` SHORTHAND instead — RN honours it exactly
-  // like `borderTopWidth`/`borderBottomWidth` set individually, so a strip styled with
-  // `borderWidth: 1` would slip through this test having grown the exact doubled-line
-  // border this test exists to catch.
+  // M1c closing fixes, Important #6: the bottom-edge check above would stay false for a
+  // border applied via the `borderWidth` SHORTHAND instead — RN honours it exactly like
+  // `borderTopWidth`/`borderBottomWidth` set individually, so a strip styled with
+  // `borderWidth: 1` would slip through having grown the exact doubled line this half of
+  // the test exists to catch.
   expect(stripStyle.some((s: any) => typeof s?.borderWidth === 'number' && s.borderWidth > 0)).toBe(false);
 
   const rows = t.root.queryAll((n) => n.props?.style === styles.diveRow);

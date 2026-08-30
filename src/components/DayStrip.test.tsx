@@ -57,6 +57,30 @@ it('takes the surface background only once active, not at rest', async () => {
   expect(activeStyle.some((s) => s.backgroundColor === themeFor('dark').surface)).toBe(true);
 });
 
+// DESIGN.md §0.6: "Hairline separators on `border` divide dive rows, set on each row's
+// TOP edge, not its bottom... a top edge puts a line under the trip header, where the
+// design wants one." `diveRow` already obeys that; this strip did not, so on a trip whose
+// first entry is a day strip the header sat flush against it and the only rule a diver
+// could see was the one the first dive row drew BELOW the strip. Reported on the running
+// app: "the Blue Hole trip has no hairline below it; the hairline is after the reorder
+// line only." Checked on both schemes so the colour has to come from the token rather than
+// being written into the sheet as a literal that happens to match one of them.
+it('carries its hairline on its top edge, the way every dive row does', async () => {
+  const dark = await render(
+    <DayStrip date="2026-08-18" count={2} active={false} scheme="dark" onToggle={() => {}} />,
+  );
+  const light = await render(
+    <DayStrip date="2026-08-18" count={2} active={false} scheme="light" onToggle={() => {}} />,
+  );
+  if (!dark.root || !light.root) throw new Error('DayStrip did not render a root element');
+  expect(
+    flatStyle(dark.root).some((s) => s.borderTopWidth === 1 && s.borderTopColor === themeFor('dark').border),
+  ).toBe(true);
+  expect(
+    flatStyle(light.root).some((s) => s.borderTopWidth === 1 && s.borderTopColor === themeFor('light').border),
+  ).toBe(true);
+});
+
 // §0.5's 48 dp tap-target floor, on the one pressable this component owns.
 it("gives its action a 48 dp touch target, regardless of the strip's own height", async () => {
   const t = await render(<DayStrip date="2026-08-18" count={2} active={false} scheme="dark" onToggle={() => {}} />);

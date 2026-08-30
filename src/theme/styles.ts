@@ -550,6 +550,13 @@ function build(scheme: ColorScheme) {
     // `dayStripActive` below adds `theme.surface` only once the mode is on, so the strip
     // stays quiet until it actually matters — mirroring how `reorderButtonDisabled`
     // shows its own state through presence rather than a second colour.
+    // The top border is the same §0.6 rule `diveRow` above already follows — "set on each
+    // row's TOP edge, not its bottom", because a top edge is what puts a line under the
+    // trip header. This strip is a row of the list like any other and had been the one
+    // exception, so a trip whose first entry is a strip drew its header flush against it
+    // and showed a rule only below the strip (reported on the running app). With the first
+    // dive row's own top border underneath, the strip ends up ruled on both sides, which
+    // is what §0.6's figure shows.
     dayStrip: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -557,6 +564,8 @@ function build(scheme: ColorScheme) {
       gap: 12,
       paddingHorizontal: 16,
       paddingVertical: 6,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
     dayStripActive: {
       backgroundColor: theme.surface,
