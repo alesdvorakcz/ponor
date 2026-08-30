@@ -200,6 +200,74 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       letterSpacing: 1,
     },
+    // DiveDetailScreen (§3's clusters: date & time, site & centre, depth & duration,
+    // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
+    // SectionList: unlike the Dives list this is one fixed dive's worth of content, not
+    // a long reflowing collection.
+    detailContent: {
+      padding: 20,
+      paddingBottom: 48,
+      gap: 24,
+    },
+    detailCluster: {
+      gap: 10,
+    },
+    detailClusterTitle: {
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 13,
+      color: theme.fgMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    detailRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      gap: 12,
+    },
+    detailLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 15,
+      color: theme.fgMuted,
+    },
+    // Data figures — depths, pressures, durations, timestamps (§0.2) — read through this
+    // one; free text and categorical labels (a site name, a buddy, "wet") read through
+    // detailValueText below instead. DiveDetailScreen.tsx picks explicitly per field
+    // rather than inferring it, so a new field can't silently pick up the wrong one.
+    detailValue: {
+      flexShrink: 1,
+      textAlign: 'right',
+      fontFamily: fonts.mono,
+      fontSize: 15,
+      color: theme.fg,
+      fontVariant: ['tabular-nums'],
+    },
+    detailValueText: {
+      flexShrink: 1,
+      textAlign: 'right',
+      fontFamily: fonts.sans,
+      fontSize: 15,
+      color: theme.fg,
+    },
+    // One cylinder's block within Gas & cylinders — hairline-separated from the one
+    // above it, the same border token TripHeader's divider uses.
+    detailTank: {
+      gap: 10,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    detailTankTitle: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 14,
+      color: theme.fg,
+    },
+    detailNotes: {
+      fontFamily: fonts.sans,
+      fontSize: 15,
+      color: theme.fg,
+      lineHeight: 22,
+    },
   });
 }
 
