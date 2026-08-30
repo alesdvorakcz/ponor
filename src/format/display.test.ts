@@ -2,9 +2,13 @@ import {
   formatDepth,
   formatDuration,
   formatDiveDate,
+  formatEntry,
   formatPressure,
+  formatSalinity,
+  formatSuit,
   formatTemperature,
   formatTimeRange,
+  formatWaterBody,
 } from './display';
 
 describe('formatDepth', () => {
@@ -74,5 +78,47 @@ describe('formatTimeRange', () => {
   });
   it('returns null when there is no entry time', () => {
     expect(formatTimeRange(null, 44)).toBeNull();
+  });
+});
+
+// Review task 7, Minor #4: entry/salinity/waterBody/suit used to reach the screen as the
+// raw stored value ("semidry", "quarry") — the database's vocabulary, not the diver's.
+// Every union in domain/types.ts for these four fields is a single lowercase word, so a
+// shared capitalise-first-letter formatter is enough for all of them with nothing to keep
+// in sync as those unions grow — no per-value table to miss an entry in.
+describe('formatEntry', () => {
+  it('capitalises the stored value', () => {
+    expect(formatEntry('shore')).toBe('Shore');
+    expect(formatEntry('boat')).toBe('Boat');
+  });
+  it('returns null for an unrecorded entry', () => {
+    expect(formatEntry(null)).toBeNull();
+  });
+});
+
+describe('formatSalinity', () => {
+  it('capitalises the stored value', () => {
+    expect(formatSalinity('brackish')).toBe('Brackish');
+  });
+  it('returns null for an unrecorded salinity', () => {
+    expect(formatSalinity(null)).toBeNull();
+  });
+});
+
+describe('formatWaterBody', () => {
+  it('capitalises the stored value', () => {
+    expect(formatWaterBody('quarry')).toBe('Quarry');
+  });
+  it('returns null for an unrecorded water body', () => {
+    expect(formatWaterBody(null)).toBeNull();
+  });
+});
+
+describe('formatSuit', () => {
+  it('capitalises the stored value', () => {
+    expect(formatSuit('semidry')).toBe('Semidry');
+  });
+  it('returns null for an unrecorded suit', () => {
+    expect(formatSuit(null)).toBeNull();
   });
 });

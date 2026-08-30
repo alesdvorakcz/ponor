@@ -217,6 +217,26 @@ it('shows an explicitly recorded false, not just a truthy value', async () => {
   expect(text.toLowerCase()).toContain('no');
 });
 
+// Review task 7, Minor #4: entry/salinity/waterBody/suit used to render as the raw stored
+// value ("boat", "quarry") rather than through format/display.ts's formatters — the
+// database's vocabulary, not the diver's. Checks the screen actually wires those formatters
+// in (already unit-tested in isolation in display.test.ts), not just that they exist.
+it('formats enum fields for the diver instead of showing the raw stored value', async () => {
+  const text = (
+    await renderDetail(
+      dive({ date: '2026-08-16', entry: 'boat', salinity: 'salt', waterBody: 'quarry', suit: 'semidry' }),
+    )
+  ).join(' ');
+  expect(text).toContain('Boat');
+  expect(text).toContain('Salt');
+  expect(text).toContain('Quarry');
+  expect(text).toContain('Semidry');
+  expect(text).not.toContain('boat');
+  expect(text).not.toContain('salt');
+  expect(text).not.toContain('quarry');
+  expect(text).not.toContain('semidry');
+});
+
 // Review task 7, Important #1: _layout.tsx sets headerShown: false app-wide and this screen
 // used to render no back control of its own, leaving the invisible iOS edge-swipe as the
 // only exit — undiscoverable, and below the §0.5 48 dp tap-target floor by construction. The

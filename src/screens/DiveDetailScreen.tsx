@@ -11,9 +11,13 @@ import {
   formatDepth,
   formatDiveDate,
   formatDuration,
+  formatEntry,
   formatPressure,
+  formatSalinity,
+  formatSuit,
   formatTemperature,
   formatTimeRange,
+  formatWaterBody,
 } from '../format/display';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, type Styles } from '../theme/styles';
@@ -125,15 +129,20 @@ function BackButton({ styles }: { styles: Styles }) {
 /**
  * DESIGN.md §6's "Where" fields, under this screen's own cluster name "Site & centre". A
  * GPS row needs both coordinates together — a lone latitude or longitude isn't a point a
- * diver could read.
+ * diver could read. `entry`/`salinity`/`waterBody` go through format/display.ts's
+ * formatters rather than rendering the stored value directly — "shore"/"salt"/"quarry" are
+ * the database's vocabulary, not the diver's.
  */
 function whereFields(dive: Dive): Field[] {
   const fields: Field[] = [];
   if (dive.siteName !== null) fields.push({ label: 'Site', value: dive.siteName, mono: false });
   if (dive.centerName !== null) fields.push({ label: 'Centre', value: dive.centerName, mono: false });
-  if (dive.entry !== null) fields.push({ label: 'Entry', value: dive.entry, mono: false });
-  if (dive.salinity !== null) fields.push({ label: 'Salinity', value: dive.salinity, mono: false });
-  if (dive.waterBody !== null) fields.push({ label: 'Water body', value: dive.waterBody, mono: false });
+  const entry = formatEntry(dive.entry);
+  if (entry !== null) fields.push({ label: 'Entry', value: entry, mono: false });
+  const salinity = formatSalinity(dive.salinity);
+  if (salinity !== null) fields.push({ label: 'Salinity', value: salinity, mono: false });
+  const waterBody = formatWaterBody(dive.waterBody);
+  if (waterBody !== null) fields.push({ label: 'Water body', value: waterBody, mono: false });
   if (dive.latitude !== null && dive.longitude !== null) {
     fields.push({
       label: 'GPS',
@@ -177,7 +186,8 @@ function conditionsFields(dive: Dive): Field[] {
  */
 function equipmentFields(dive: Dive): Field[] {
   const fields: Field[] = [];
-  if (dive.suit !== null) fields.push({ label: 'Suit', value: dive.suit, mono: false });
+  const suit = formatSuit(dive.suit);
+  if (suit !== null) fields.push({ label: 'Suit', value: suit, mono: false });
   if (dive.hood !== null) fields.push({ label: 'Hood', value: dive.hood ? 'Yes' : 'No', mono: false });
   if (dive.gloves !== null) fields.push({ label: 'Gloves', value: dive.gloves ? 'Yes' : 'No', mono: false });
   if (dive.boots !== null) fields.push({ label: 'Boots', value: dive.boots ? 'Yes' : 'No', mono: false });

@@ -1,5 +1,6 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
+import { type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -105,4 +106,41 @@ export function formatTimeRange(timeIn: string | null, durationMin: number | nul
   if (timeIn === null) return null;
   const exit = timeOut(timeIn, durationMin);
   return exit === null ? timeIn : `${timeIn} – ${exit}`;
+}
+
+/**
+ * Categorical fields — entry, salinity, water body, suit — are stored as the closed
+ * lowercase vocabulary `domain/types.ts` declares (`Entry`, `Salinity`, `WaterBody`,
+ * `Suit`): the database's vocabulary, not the diver's. This module is the one other place
+ * a stored value becomes a displayed string in this app, so that's where these live too,
+ * rather than each screen capitalising inline.
+ *
+ * Every member of those four unions is a single lowercase word, so one shared
+ * capitalise-first-letter helper covers all of them — no per-value table that could fall
+ * out of sync as a union grows a new member; a new value just capitalises like the rest.
+ * English-only, like every other string this file returns: the app has no i18n framework
+ * yet (a later milestone), so this is not a translation boundary.
+ */
+function capitalize<T extends string>(value: T): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/** How the diver entered the water, e.g. "Shore". */
+export function formatEntry(entry: Entry | null): string | null {
+  return entry === null ? null : capitalize(entry);
+}
+
+/** The water's salinity, e.g. "Brackish". */
+export function formatSalinity(salinity: Salinity | null): string | null {
+  return salinity === null ? null : capitalize(salinity);
+}
+
+/** The kind of water body, e.g. "Quarry". */
+export function formatWaterBody(waterBody: WaterBody | null): string | null {
+  return waterBody === null ? null : capitalize(waterBody);
+}
+
+/** The exposure suit worn, e.g. "Semidry". */
+export function formatSuit(suit: Suit | null): string | null {
+  return suit === null ? null : capitalize(suit);
 }
