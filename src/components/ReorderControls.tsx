@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 
 import { db } from '../db/client';
 import { type ReorderOutcome } from '../db/dives';
@@ -288,7 +288,7 @@ export function ReorderControls({
               accessibilityState={{ disabled: upDisabled }}
               hitSlop={ARROW_HIT_SLOP}
             >
-              <Text style={styles.reorderButtonLabel}>{'▲'}</Text>
+              <View style={styles.reorderArrowUp} />
             </Pressable>
             <Pressable
               style={[styles.reorderButton, downDisabled && styles.reorderButtonDisabled]}
@@ -299,7 +299,7 @@ export function ReorderControls({
               accessibilityState={{ disabled: downDisabled }}
               hitSlop={ARROW_HIT_SLOP}
             >
-              <Text style={styles.reorderButtonLabel}>{'▼'}</Text>
+              <View style={styles.reorderArrowDown} />
             </Pressable>
           </View>
         );

@@ -504,10 +504,21 @@ describe('ReorderControls', () => {
     // also pass an implementation that renders them ALONGSIDE the depth value rather
     // than in place of it. This is the other half — the depth value must actually be
     // GONE from a row that is showing arrows.
+    // M1c closing fixes, Important #2: '▲' used to be a literal glyph in a `Text` node,
+    // which is exactly what broke (neither bundled font contains it — see
+    // `reorderArrowUp`'s own comment in theme/styles.ts). The arrow is now drawn as a
+    // zero-size `View` with a coloured border edge, so there is no `Text` reading '▲' to
+    // search for any more; this checks for the drawn shape by style reference instead; the
+    // "no ad hoc literal" test just below checks that reference is actually the theme's.
     it('hides the depth value on a row that is showing arrows, rather than showing both', async () => {
+      const styles = makeStyles('dark');
       const t = await render(
         <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
       );
+      const upArrows = t.root
+        ? t.root.queryAll((n) => n.type === 'View' && [n.props?.style].flat(3).includes(styles.reorderArrowUp))
+        : [];
+      expect(upArrows.length).toBeGreaterThan(0);
       const text = t.root
         ? t.root
             .queryAll((n) => n.type === 'Text')
@@ -515,7 +526,6 @@ describe('ReorderControls', () => {
             .filter((c): c is string => typeof c === 'string')
             .join(' ')
         : '';
-      expect(text).toContain('▲');
       expect(text).not.toContain('12.2');
       expect(text).not.toContain('9.2');
     });
@@ -525,6 +535,14 @@ describe('ReorderControls', () => {
     // coincidentally-equal literals — makeStyles(scheme) is a stable-by-reference cache
     // (styles.test.ts), so if DiveRow or ReorderControls ever stopped reading from it,
     // this would be the test to notice.
+    //
+    // M1c closing fixes, Important #7: this comment already claimed "row and arrow
+    // styles", but the assertion beneath it used to check only the row — a hardcoded
+    // colour literal on the arrows themselves (theme/styles.ts's `reorderArrowUp`/
+    // `reorderArrowDown`, or the button box around them) would have passed silently.
+    // Checked the identical way the row already was: reference equality against the
+    // theme's own cached objects, which only a value actually read from `makeStyles` can
+    // satisfy — a literal that happens to look the same could never pass this.
     it('reads its row and arrow styles from the theme, not from ad hoc literals', async () => {
       const styles = makeStyles('dark');
       const t = await render(
@@ -534,6 +552,22 @@ describe('ReorderControls', () => {
         ? t.root.queryAll((n) => n.props?.style === styles.diveRow)
         : [];
       expect(rowRoots).toHaveLength(2);
+
+      const buttons = t.root
+        ? t.root.queryAll(
+            (n) => n.type === 'View' && [n.props?.style].flat(3).some((s) => s === styles.reorderButton),
+          )
+        : [];
+      expect(buttons).toHaveLength(4); // 2 dives x (up + down)
+
+      const upArrows = t.root
+        ? t.root.queryAll((n) => n.type === 'View' && [n.props?.style].flat(3).includes(styles.reorderArrowUp))
+        : [];
+      const downArrows = t.root
+        ? t.root.queryAll((n) => n.type === 'View' && [n.props?.style].flat(3).includes(styles.reorderArrowDown))
+        : [];
+      expect(upArrows).toHaveLength(2);
+      expect(downArrows).toHaveLength(2);
     });
   });
 });

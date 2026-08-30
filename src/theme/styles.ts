@@ -433,10 +433,40 @@ function build(scheme: ColorScheme) {
     reorderButtonDisabled: {
       opacity: 0.35,
     },
-    reorderButtonLabel: {
-      fontFamily: fonts.sans,
-      fontSize: 14,
-      color: theme.fg,
+    // M1c closing fixes, Important #2: '▲'/'▼' used to be rendered as typed `Text` glyphs,
+    // and the review read the cmap tables of both bundled fonts (Archivo, IBM Plex Mono —
+    // theme/fonts.ts) directly: neither contains those two code points, so the arrows
+    // rendered as tofu (a missing-glyph box) or nothing, device-dependent. §0.6 already
+    // banned exactly this shape of bug for rating marks — "`●` and `○` are different sizes
+    // in almost every typeface... draw both as circles" (task 7, `ratingDot` above) — and
+    // the fix here is the same idea applied to a triangle instead of a circle: zero
+    // width/height plus one coloured border edge, the other two transparent, is the
+    // standard way to draw a triangle with no image and no path-drawing library. `theme.fg`
+    // is the only real colour either style carries — monochrome chrome, never a depth
+    // colour (§0.1) — and `'transparent'` is a rendering value, not a design colour, so it
+    // is not a token: there is no brand meaning for "invisible" to encode. Composed
+    // directly onto the Pressable in ReorderControls.tsx (no separate Text), so
+    // `reorderButtonDisabled`'s opacity above still dims the whole button, arrow included,
+    // exactly as it dimmed the old glyph.
+    reorderArrowUp: {
+      width: 0,
+      height: 0,
+      borderLeftWidth: 5,
+      borderRightWidth: 5,
+      borderBottomWidth: 7,
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderBottomColor: theme.fg,
+    },
+    reorderArrowDown: {
+      width: 0,
+      height: 0,
+      borderLeftWidth: 5,
+      borderRightWidth: 5,
+      borderTopWidth: 7,
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderTopColor: theme.fg,
     },
     // DivesScreen.tsx applies this to every row that is NOT part of the one active
     // reorder day, once some day is active — §0.6: "Entering the mode dims the rest ...
@@ -500,9 +530,9 @@ function build(scheme: ColorScheme) {
       paddingVertical: 4,
     },
     // Archivo, not mono: §0.2 draws the type split on content, not on volume — this is a
-    // UI control label ("Reorder"/"Done"), the same category as `actionLabel`/
-    // `reorderButtonLabel`, not a data figure. Small, muted and uppercase+tracked is what
-    // reads as "quiet control" rather than the plain, full-ink 14 px label this used to be.
+    // UI control label ("Reorder"/"Done"), the same category as `actionLabel`, not a data
+    // figure. Small, muted and uppercase+tracked is what reads as "quiet control" rather
+    // than the plain, full-ink 14 px label this used to be.
     dayStripActionLabel: {
       fontFamily: fonts['sans-medium'],
       fontSize: 11,
