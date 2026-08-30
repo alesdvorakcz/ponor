@@ -80,7 +80,7 @@ Designed after M1b, once the built screens showed the tokens being *obeyed* with
 | Dive number | Plex Mono | 11 | Muted, above the site name — a label, not a headline |
 | Row metadata | Plex Mono | 11.5 | Time · duration · rating, middot-separated |
 | Cluster label | Plex Mono | 10.5 | Uppercase, +0.14 em, muted |
-| Computed value | Plex Mono | 13.5 | Muted ink, plus a 6 px outlined marker on its label |
+| Computed value | Plex Mono | 13.5 | Muted ink, `=` prefix in a fixed-width slot before the value |
 
 **Computed values are marked as computed.** Every value the app derives rather than the diver enters — time out, surface interval, used pressure, gas used, RMV and MOD — is prefixed with a muted `=` and sits in muted ink. The mark is an equals sign because that is literally what the value is: the result of a calculation, not something anyone typed. An earlier version used a small outlined square, which read as a rendering artefact rather than a deliberate mark — a symbol that needs a legend has already failed. A diver should never have to wonder which numbers came off their computer and which the app worked out. The rule is *derived or entered*, with no exception for arithmetic simple enough to do in your head: used pressure is start minus end, and it is marked for the same reason RMV is. Anything in `src/domain/derived.ts` is marked.
 

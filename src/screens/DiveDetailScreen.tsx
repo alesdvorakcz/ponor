@@ -139,16 +139,17 @@ interface Field {
 }
 
 /**
- * `computed` adds the outlined marker to the label and mutes+shrinks the value (§0.6:
- * "carry a small outlined square on the label and sit in muted ink"). The marker itself
- * (`detailComputedMark`) is a plain View, not nested inside the label `Text` — RN doesn't
- * allow an arbitrary View as a Text child — so it renders as `detailRow`'s own absolutely
- * positioned child instead; `detailRow`'s own `position: 'relative'` is what gives it
- * something to anchor `left: 0`/`top: 5` against, landing it flush with the label's own
- * left edge. `detailLabelComputed`'s `paddingLeft` on the label is what actually keeps its
- * first glyph clear of the marker, and is also the one difference a test can see straight
- * off a Text node's own style prop without having to find a sibling View at all — see
- * DiveDetailScreen.test.tsx's `paddingLeftOf`.
+ * `computed` prefixes the value with a muted `=` and mutes+shrinks the value itself (§0.6,
+ * revised M1c task 7: "prefixed with a muted `=`... a symbol that needs a legend has
+ * already failed" — replacing an earlier 6 px outlined square that the owner read as a
+ * broken glyph in the running app, DESIGN.md §10). The mark is a real sibling `Text`
+ * reading exactly `=` — `styles.detailValueMark` — placed immediately before the value's
+ * own `Text` inside one `detailValueWrap` row, never concatenated into the value's own
+ * string: `value` reaches this component already formatted by `format/display.ts`, and
+ * stays exactly that string whether or not `computed` is set, so nothing here can turn a
+ * real "09:59" into an unparseable "= 09:59" for anything downstream that reads it back
+ * out. `detailValueMark`'s fixed `width` is what keeps it a slot rather than letting it
+ * push the value around — see that style's own comment in theme/styles.ts.
  */
 function Row({ label, value, mono, computed, styles }: Field & { styles: Styles }) {
   const valueStyle = mono
@@ -158,11 +159,11 @@ function Row({ label, value, mono, computed, styles }: Field & { styles: Styles 
     : styles.detailValueText;
   return (
     <View style={styles.detailRow}>
-      {computed && <View style={styles.detailComputedMark} />}
-      <Text style={computed ? [styles.detailLabel, styles.detailLabelComputed] : styles.detailLabel}>
-        {label}
-      </Text>
-      <Text style={valueStyle}>{value}</Text>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <View style={styles.detailValueWrap}>
+        {computed && <Text style={styles.detailValueMark}>=</Text>}
+        <Text style={valueStyle}>{value}</Text>
+      </View>
     </View>
   );
 }

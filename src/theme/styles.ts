@@ -578,16 +578,11 @@ function build(scheme: ColorScheme) {
       letterSpacing: 1.5,
       marginBottom: 8,
     },
-    // `position: 'relative'` is only load-bearing for a computed row's marker
-    // (detailComputedMark below), which anchors `left: 0`/`top: 5` against this box —
-    // every other row ignores it, since a relative position with no offset of its own has
-    // no visual effect.
     detailRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
       gap: 12,
-      position: 'relative',
     },
     detailLabel: {
       fontFamily: fonts.sans,
@@ -616,31 +611,39 @@ function build(scheme: ColorScheme) {
     // Computed-value marking (§0.6: "the rule is derived or entered, with no exception for
     // arithmetic simple enough to do in your head ... anything in src/domain/derived.ts is
     // marked" — used pressure included, same as every other value that module computes).
-    // `detailLabelComputed` reserves room for the marker View below via `paddingLeft`
-    // rather than a wrapping element: DiveDetailScreen.tsx's `Row` composes it onto
-    // `detailLabel` (`[detailLabel, detailLabelComputed]`) only when the field is computed,
-    // so an entered field's label keeps zero padding — the exact difference its own test
-    // ("marks a computed value so it reads differently from one the diver entered") checks
-    // for.
-    detailLabelComputed: {
-      paddingLeft: 13,
+    //
+    // M1c task 7 replaced the original 6 px outlined square (a decorative View absolutely
+    // positioned against the LABEL) with a muted `=` immediately before the VALUE: the
+    // owner had approved the square in a mockup, then read it in the running app as a
+    // broken glyph rather than a mark — DESIGN.md §10, "a symbol that needs a legend has
+    // already failed." An equals sign needs no legend; it says what the value IS.
+    //
+    // `detailValueWrap` is the row's value slot now — a small flex row holding an optional
+    // mark (`detailValueMark`, below) ahead of the value's own unchanged `Text`. The mark
+    // is its own sibling node, never concatenated into the value's own string: `Row` keeps
+    // rendering `{value}` exactly as `formatX()` returned it, so every formatter and every
+    // exact-string test elsewhere in this codebase keeps seeing the real value untouched.
+    // Because the value is always the LAST thing in this row (`detailRow`'s own
+    // `justifyContent: 'space-between'`), its own `textAlign: 'right'` still lands its right
+    // edge flush with every other row's, whether or not a mark precedes it — the mark only
+    // ever adds space to its OWN left, never touches the value's own box.
+    detailValueWrap: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      flexShrink: 1,
     },
-    // The marker itself: a plain decorative View, not a control (§0.5's 48 dp tap-target
-    // floor doesn't apply to it), positioned absolute against `detailRow`'s own box —
-    // `left: 0` lands it flush with the label's own left edge because `detailRow` has no
-    // padding of its own, and `detailLabelComputed`'s paddingLeft above is sized to keep
-    // the label's first glyph clear of it rather than overlapping. `theme.fgMuted` is its
-    // only colour — it gains none of its own.
-    detailComputedMark: {
-      position: 'absolute',
-      left: 0,
-      top: 5,
-      width: 6,
-      height: 6,
-      borderRadius: 1,
-      borderWidth: 1,
-      borderColor: theme.fgMuted,
-      opacity: 0.75,
+    // The mark itself. A fixed `width` — not sized to the glyph — is what keeps it a true
+    // "slot": the value's own position depends only on the value's own text, never on
+    // however wide "=" happens to render in a given font, so a column of values reads the
+    // same whether a given row carries a mark or not (§0.6's own "give the mark a
+    // fixed-width slot rather than letting it push digits around").
+    detailValueMark: {
+      width: 12,
+      textAlign: 'right',
+      marginRight: 3,
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      color: theme.fgMuted,
     },
     // DESIGN.md §0.6 table's "Computed value" row: Plex Mono 13.5 (down from detailValue's
     // 15), muted ink. Composed onto `detailValue` (`[detailValue, detailValueComputed]`),
@@ -692,10 +695,16 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       paddingHorizontal: 20,
     },
+    // M1c task 7 (§0.6: "Chrome the type scale does not cover"): this used to be
+    // sans-medium 16 in full ink — the exact size/weight/colour family a heading uses on
+    // this screen (`detailHeroSite` is sans-semibold 22) — and read as one. "Mono, muted
+    // and small... a way out, not a heading" is the fix: mono because wayfinding chrome is
+    // not UI/display text the way "Dives" as a destination NAME would be, muted+small so it
+    // never competes with the hero it sits above.
     detailBackLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 16,
-      color: theme.fg,
+      fontFamily: fonts.mono,
+      fontSize: 13,
+      color: theme.fgMuted,
     },
   });
 }

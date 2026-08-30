@@ -9,6 +9,7 @@ import { useDives } from '../db/useDives';
 // test's own comment for why.
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
+import { fonts } from '../theme/fonts';
 import DiveDetailScreen from './DiveDetailScreen';
 
 // Same two mocks every test in this file needs: the one read (useDives, per db/useDives.ts's
@@ -45,13 +46,21 @@ function textIn(t: RenderResult): string[] {
 }
 
 /**
- * M1c task 5 helpers: the computed-value marker (DESIGN.md §0.6) is a style difference,
- * not new text, so "the label is present" can't distinguish a marked row from an unmarked
- * one — these three pull one concrete style property off one Text node's (possibly array)
- * `style` prop, the same `[style].flat(3).filter(Boolean).reduce(...)` shape the brief's
- * own sample and DepthValue.test.tsx's `sizeOf` already use. `textNode` finds that Text
- * node by its own exact (non-nested) child string — never a substring match, so 'Time'
- * can't accidentally match 'Time out'.
+ * M1c task 5 helpers, updated for task 7's `=` mark (DESIGN.md §0.6, revised): a computed
+ * row used to be a pure style difference — a `paddingLeft` the label picked up, with no new
+ * text — so telling a marked row from an unmarked one needed a style-probing helper. It is
+ * now a real, visible sibling instead: `Row` (DiveDetailScreen.tsx) renders a `Text` reading
+ * exactly `=` immediately before a computed value's own `Text`, both inside one wrapping
+ * `detailValueWrap` View, so `isMarked` below finds it directly rather than through a proxy.
+ * `styleArrayOf`/`colorOf`/`fontSizeOf` still pull one concrete style property off a Text
+ * node's (possibly array) `style` prop, the same `[style].flat(3).filter(Boolean).
+ * reduce(...)` shape the brief's own sample and DepthValue.test.tsx's `sizeOf` already use —
+ * still needed below to prove the value itself is muted and shrunk, independently of
+ * whether the mark is present. `textNode` finds a Text node by its own exact (non-nested)
+ * child string — never a substring match, so 'Time' can't accidentally match 'Time out', and
+ * so a value ever concatenated into one `"= 09:59"` string (rather than kept as its own
+ * untouched `"09:59"`) would make `textNode(t, '09:59')` return undefined and every test
+ * built on it fail loudly, not silently pass for the wrong reason.
  */
 function textNode(t: RenderResult, s: string) {
   return textNodesOf(t).find((n) => String(n.children[0] ?? '') === s);
@@ -61,18 +70,29 @@ function styleArrayOf(node: ReturnType<typeof textNode>): any[] {
   return [node?.props.style].flat(3).filter(Boolean);
 }
 
-/** 0 for a node that's missing or carries no `paddingLeft` — that IS the unmarked
- * reading (no `detailLabelComputed`), not a missing measurement. */
-function paddingLeftOf(node: ReturnType<typeof textNode>): number {
-  return styleArrayOf(node).reduce((a: number, s: any) => s?.paddingLeft ?? a, 0);
-}
-
 function colorOf(node: ReturnType<typeof textNode>): unknown {
   return styleArrayOf(node).reduce((a: unknown, s: any) => s?.color ?? a, undefined);
 }
 
 function fontSizeOf(node: ReturnType<typeof textNode>): number {
   return styleArrayOf(node).reduce((a: number, s: any) => s?.fontSize ?? a, 0);
+}
+
+/**
+ * Whether the value node `textNode(t, value)` finds is marked as computed — true only when
+ * a `Text` reading exactly `=` sits among ITS OWN siblings (`node.parent.children`), i.e.
+ * inside the same `detailValueWrap` `Row` renders around one field's mark-and-value pair,
+ * never merely "a `=` exists somewhere on this screen." `.parent`/`.children` are real
+ * `test-renderer` `TestInstance` properties (see node_modules/test-renderer's own
+ * `TestInstance` class), so this needs no positional guessing about `textNodesOf`'s flat,
+ * whole-screen traversal order. Returns `false` outright when `value` itself was not found —
+ * the same "missing reading, not a crash" shape the old `paddingLeftOf` gave a node-less
+ * call.
+ */
+function isMarked(t: RenderResult, value: string): boolean {
+  const parent = textNode(t, value)?.parent;
+  if (!parent) return false;
+  return parent.children.some((c) => typeof c !== 'string' && c.type === 'Text' && c.children[0] === '=');
 }
 
 const mockUseDives = useDives as jest.Mock;
@@ -214,15 +234,16 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
 
 // M1c task 5 (DESIGN.md §0.6): every value this screen reads from `src/domain/derived.ts`
 // is marked as computed — no exceptions, not even for arithmetic simple enough to do in
-// your head — with a 6 px outlined marker on the label (surfaced here as
-// `detailLabelComputed`'s `paddingLeft`, since the marker itself is a decorative sibling
-// View a Text-only query can't see) and muted ink on the value. Task 4's own report
-// (MOD-per-cylinder) named the exact failure mode to avoid: a test that only checks a value
-// is present "somewhere" would pass a broken implementation that marks every row, or none
-// of the right ones. Every test below instead compares a marked row against an unmarked one
-// IN THE SAME ASSERTION, so a mutation that removes the marker from the real row, or adds
-// it to a row that shouldn't have one, changes which side of the comparison wins rather
-// than just removing a value both sides could live without.
+// your head — with a muted `=` immediately before the value (task 7 replaced the original
+// 6 px outlined label marker with this: the owner read the square as a broken glyph in the
+// running app, and "a symbol that needs a legend has already failed" — DESIGN.md §10) and
+// muted, shrunk ink on the value itself. Task 4's own report (MOD-per-cylinder) named the
+// exact failure mode to avoid: a test that only checks a value is present "somewhere" would
+// pass a broken implementation that marks every row, or none of the right ones. Every test
+// below instead compares a marked row against an unmarked one IN THE SAME ASSERTION, so a
+// mutation that removes the marker from the real row, or adds it to a row that shouldn't
+// have one, changes which side of the comparison wins rather than just removing a value
+// both sides could live without.
 //
 // This first one is the brief's own Step 1 example, adapted the same way every other
 // `id`-prop test in this file already is (see task 4's report): its own render otherwise
@@ -232,7 +253,9 @@ it('marks a computed value so it reads differently from one the diver entered', 
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  expect(paddingLeftOf(textNode(t, 'Time out'))).toBeGreaterThan(paddingLeftOf(textNode(t, 'Duration')));
+  // timeOut('09:15', 44) = '09:59'; formatDuration(44) = '44 min'.
+  expect(isMarked(t, '09:59')).toBe(true);
+  expect(isMarked(t, '44 min')).toBe(false);
 });
 
 // Time in/out are the closest possible neighbours — same cluster, same clock-reading shape,
@@ -243,8 +266,8 @@ it('marks time out as computed but leaves the entered time in beside it alone', 
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  expect(paddingLeftOf(textNode(t, 'Time out'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'Time in'))).toBe(0);
+  expect(isMarked(t, '09:59')).toBe(true);
+  expect(isMarked(t, '09:15')).toBe(false);
 });
 
 it('marks the surface interval as computed, distinctly from the entered date above it', async () => {
@@ -253,8 +276,9 @@ it('marks the surface interval as computed, distinctly from the entered date abo
   mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
-  expect(paddingLeftOf(textNode(t, 'Surface interval'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'Date'))).toBe(0);
+  // 08:12 + 44 min surfaces at 08:56; the gap to 10:38 is 102 min -> "1 h 42 min".
+  expect(isMarked(t, '1 h 42 min')).toBe(true);
+  expect(isMarked(t, '16 Aug 2026')).toBe(false);
 });
 
 it('marks Gas used and RMV as computed, distinctly from an entered field like O₂', async () => {
@@ -262,9 +286,10 @@ it('marks Gas used and RMV as computed, distinctly from an entered field like O�
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  expect(paddingLeftOf(textNode(t, 'Gas used'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'RMV'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'O₂'))).toBe(0);
+  // gasUsedLitres: (200 - 50) bar * 12 l * 1 = 1800 l; rmv: 1800 / (20/10 + 1) / 45 = 13.3 l/min.
+  expect(isMarked(t, '1800 l')).toBe(true);
+  expect(isMarked(t, '13.3 l/min')).toBe(true);
+  expect(isMarked(t, '32 %')).toBe(false);
 });
 
 // The one field most likely to be mismarked "by analogy" the wrong way: `usedBar` (the
@@ -282,22 +307,23 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  expect(paddingLeftOf(textNode(t, 'MOD'))).toBeGreaterThan(0);
-  expect(paddingLeftOf(textNode(t, 'Used'))).toBeGreaterThan(0);
+  // mod(32) = (1.4 / 0.32 - 1) * 10 = 33.75 -> "33.8 m"; usedBar = 200 - 50 = 150 -> "150 bar".
+  expect(isMarked(t, '33.8 m')).toBe(true);
+  expect(isMarked(t, '150 bar')).toBe(true);
   // Keeps this test's own marked-vs-unmarked contrast (see the block comment above) even
   // though Used flipped sides: Start pressure sits in the same per-tank block and stays
   // diver-entered, so it is the unmarked half of the same-assertion comparison now.
-  expect(paddingLeftOf(textNode(t, 'Start pressure'))).toBe(0);
+  expect(isMarked(t, '200 bar')).toBe(false);
 });
 
 // Structural counterpart to every test above: rather than naming which values are
-// computed, this counts them. `detailLabelComputed` (`paddingLeft: 13`, src/theme/styles.ts)
-// is the only style anywhere in this screen's component tree that ever puts a `paddingLeft`
-// on a Text node — confirmed by grep, and the reason `paddingLeftOf` above can use 0 as its
-// "unmarked" reading rather than "unmeasured" — so counting Text nodes with a positive
-// `paddingLeftOf` counts marked rows with no list of field names to fall out of date.
-// `Object.keys(derived)` is the other half: `derived.ts`'s own export list, read at runtime
-// rather than retyped here, so a value added to that module is counted automatically too.
+// computed, this counts them. A `Text` node reading exactly `=` (task 7's mark — see
+// `isMarked`'s own docblock above for why it replaced the old `paddingLeft`-on-the-label
+// proxy) is the only place this screen's component tree ever renders that one-character
+// string — confirmed by grep — so counting Text nodes whose own child is exactly `'='`
+// counts marked rows with no list of field names to fall out of date. `Object.keys(derived)`
+// is the other half: `derived.ts`'s own export list, read at runtime rather than retyped
+// here, so a value added to that module is counted automatically too.
 //
 // The fixture below is built so all six of today's exports return non-null and each renders
 // as exactly one row: one tank (not two) keeps MOD and Used from doubling up the way task
@@ -324,12 +350,12 @@ it('marks every value this screen reads from derived.ts as computed, not just fi
   mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
-  const markedLabelCount = textNodesOf(t).filter((n) => paddingLeftOf(n) > 0).length;
-  expect(markedLabelCount).toBe(Object.keys(derived).length);
+  const markCount = textNodesOf(t).filter((n) => n.children[0] === '=').length;
+  expect(markCount).toBe(Object.keys(derived).length);
 });
 
-// The label's padding proves the marker; this proves the OTHER half of §0.6's rule ("...and
-// sit in muted ink") independently — a fix that adds detailLabelComputed but forgets
+// The `=` mark proves a row is computed; this proves the OTHER half of §0.6's rule ("...and
+// sit in muted ink") independently — a fix that renders the mark but forgets
 // detailValueComputed would pass every test above and still leave the value looking exactly
 // like an entered one. DESIGN.md §0.6's table also sizes a computed value at 13.5, down from
 // the entered 15 — checked here too, since nothing above touches font size either.
@@ -349,6 +375,25 @@ it("mutes a computed value's own ink and shrinks it, not just its label", async 
   expect(colorOf(computedValue)).not.toBe(colorOf(enteredValue));
   expect(fontSizeOf(computedValue)).toBe(13.5);
   expect(fontSizeOf(enteredValue)).toBe(15);
+});
+
+// M1c task 7 (DESIGN.md §0.6): "give the mark a fixed-width slot rather than letting it
+// push digits around" — the `=` must carry its own explicit `width` rather than being sized
+// to its glyph. A fixed slot is what keeps a computed row's value flush with an entered
+// row's own (`detailValue`'s `textAlign: 'right'`, untouched by this task) regardless of
+// whether a `=` precedes it, instead of the value's position depending on however wide "= "
+// happens to render in a given font.
+it('gives the mark a fixed width, rather than sizing it to the glyph', async () => {
+  const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const marks = textNodesOf(t).filter((n) => n.children[0] === '=');
+  expect(marks.length).toBeGreaterThan(0);
+  for (const mark of marks) {
+    const width = styleArrayOf(mark).reduce((a: unknown, s: any) => (typeof s?.width === 'number' ? s.width : a), undefined);
+    expect(typeof width).toBe('number');
+  }
 });
 
 // M1c task 5's other half: the detail hero (DESIGN.md §0.6) — site name heading, a
@@ -667,6 +712,29 @@ it('still offers a way back when the dive id is unknown, not just a dead end', a
   // Only presence is asserted here — the two tests above already pin which of
   // back()/replace() the press dispatches to, for either branch.
   expect(() => findBackButton(t)).not.toThrow();
+});
+
+// DESIGN.md §0.6 ("Chrome the type scale does not cover"): the back control used to render
+// in sans-medium 16 and read as a heading rather than a way out — "mono, muted and small"
+// is the fix. Proven the same RELATIVE way "mutes a computed value's own ink..." above
+// proves muting (rather than against a hardcoded theme token): this screen resolves its own
+// scheme via useColorScheme(), and this file's own conventions elsewhere already warn
+// against assuming which scheme that resolves to under Jest. Comparing the back label
+// against the hero site heading's own full-ink, sans, 22 px style sidesteps that entirely.
+it('renders the back control mono and muted, distinctly from the hero heading', async () => {
+  const d = dive({ date: '2026-08-16', siteName: 'Blue Hole' });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const back = textNode(t, '‹ Dives');
+  const heading = textNode(t, 'Blue Hole');
+  expect(back).toBeDefined();
+  expect(heading).toBeDefined();
+  const backStyle = styleArrayOf(back);
+  expect(backStyle.some((s) => s.fontFamily === fonts.mono)).toBe(true);
+  expect(backStyle.some((s) => s.fontFamily === fonts['sans-medium'])).toBe(false);
+  expect(fontSizeOf(back)).toBeLessThan(fontSizeOf(heading));
+  expect(colorOf(back)).not.toBe(colorOf(heading));
 });
 
 // M1b's wide (tablet) layout (DESIGN.md §3): DivesScreen.tsx embeds this exact component
