@@ -34,6 +34,17 @@ describe('formatDepth', () => {
   it('returns null rather than rendering NaN', () => {
     expect(formatDepth(Number.NaN)).toBeNull();
   });
+  // M1c closing fixes, Important #3: unlike formatTemperature's "keeps a negative reading
+  // signed" a few describes down, a depth cannot physically be negative — nothing dives
+  // above the surface. This used to be the exact input where this function and
+  // theme/depth.ts's depthColorOrNull disagreed: this returned a string ("-5.0 m") while
+  // depthColorOrNull already refused to colour it, so a screen gating on this function
+  // alone (DiveDetailScreen.tsx's "Max depth" row, DiveRow.tsx's accessibility label) drew
+  // a dangling label DepthValue then rendered nothing beside. Pinned here so the two can
+  // never quietly drift apart again.
+  it('returns null for a negative depth, since nothing dives above the surface', () => {
+    expect(formatDepth(-5)).toBeNull();
+  });
 });
 
 // M1c task 1 review, Important: DepthValue.tsx used to get its value/unit split by
@@ -50,6 +61,9 @@ describe('formatDepthParts', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatDepthParts(Number.NaN)).toBeNull();
+  });
+  it('returns null for a negative depth, since nothing dives above the surface', () => {
+    expect(formatDepthParts(-5)).toBeNull();
   });
 });
 

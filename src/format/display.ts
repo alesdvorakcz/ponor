@@ -42,9 +42,24 @@ function isFiniteNumber(value: number | null): value is number {
  * there remains exactly one place — this one — that decides a depth's numeral and unit;
  * whatever formatDepth ends up being ("32.4 m", "106.3 ft", ...) is only ever this value
  * and this unit joined with a space.
+ *
+ * M1c closing fixes, Important #3: also refuses a negative depth, which `isFiniteNumber`
+ * alone does not catch (unlike temperature, a depth cannot physically be below the
+ * surface). This function used to disagree here with `depthColorOrNull` (theme/depth.ts),
+ * which already rejected negative — two independently-coded answers to "can this depth be
+ * shown?" that only visibly differed on this one input: a screen gating on
+ * `formatDepth(...) !== null` (DiveDetailScreen.tsx, DiveRow.tsx's accessibility label)
+ * said yes, while `DepthValue` — which renders from `depthColorOrNull` — said no, so a
+ * negative max depth drew a dangling "Max depth" label with nothing beside it, and an
+ * accessibility label naming a depth the screen never actually drew. `depthColorOrNull` now
+ * defers its own finiteness/sign check to this function instead of re-deriving it, so there
+ * is exactly one owner of "is this depth displayable" and a future edit here can't quietly
+ * desync the two again. This matters beyond that one screen: M1d's form is what will
+ * actually produce out-of-range numeric input, and negative is the third case after NaN
+ * and 0.
  */
 export function formatDepthParts(metres: number | null): { value: string; unit: string } | null {
-  if (!isFiniteNumber(metres)) return null;
+  if (!isFiniteNumber(metres) || metres < 0) return null;
   return { value: metres.toFixed(1), unit: 'm' };
 }
 

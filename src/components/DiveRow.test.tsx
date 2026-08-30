@@ -130,6 +130,24 @@ it("includes a planned dive's date in the label, so two planned dives at the sam
   expect(soon.root.props.accessibilityLabel).not.toBe(later.root.props.accessibilityLabel);
 });
 
+// M1c closing fixes, Important #3: `depth` here used to come from `formatDepth(...)`
+// alone, which returned a string for a negative reading even though the row's own visible
+// `<DepthValue />` (gated by `depthColorOrNull`) drew nothing for the same value — so a
+// screen reader announced a depth this row never actually showed. `formatDepth` now
+// refuses a negative depth the same way `depthColorOrNull` always has (format/display.ts's
+// formatDepthParts is the one owner both defer to), so the label omits it exactly like any
+// other unrecorded field, rather than naming a number nobody can see on screen.
+it('omits a negative depth from the label, since the row never actually draws one', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: -5 })} number={3} scheme="dark" onPress={() => {}} />,
+  );
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(t.root.props.accessibilityLabel).toBe('Dive 3, Blue Hole');
+  expect(t.root.props.accessibilityLabel).not.toContain('-5');
+  const text = textIn(t).join(' ');
+  expect(text).not.toContain('-5');
+});
+
 it('colours the depth by its band, not by the theme', async () => {
   const t = await render(
     <DiveRow dive={dive({ maxDepthM: 32.4 })} number={1} scheme="dark" onPress={() => {}} />,

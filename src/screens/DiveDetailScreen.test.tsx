@@ -524,6 +524,28 @@ it('renders the hero depth at the 34 px detail-scale variant', async () => {
   expect(sizesOf18).toContain(34);
 });
 
+// M1c closing fixes, Important #3: this cluster used to gate its "Max depth"/"Avg depth"
+// rows on `formatDepth(...) !== null`, while the value beside the label — `DepthValue`,
+// which renders from `depthColorOrNull` — refused to draw anything for a negative depth.
+// The two disagreed on exactly this input: the row (and its "Max depth" label) rendered,
+// DepthValue drew nothing beside it, and a diver saw a dangling label with no value ever
+// answering it. `formatDepth` and `depthColorOrNull` now share one owner (format/display.ts's
+// formatDepthParts), so a negative reading is refused at the gate too, and the label never
+// appears in the first place — the same "omit the element entirely" rule §1 already applies
+// to every other unrecorded/unreadable field, extended to cover an unreadable one too. Duration
+// stays real and positive here so the cluster itself still renders (showDepthDuration), which
+// is what makes "no Max depth label" a meaningful assertion rather than "nothing rendered at
+// all".
+it('omits the Max depth row entirely for a negative reading, rather than a dangling label', async () => {
+  const d = dive({ date: '2026-08-16', maxDepthM: -5, durationMin: 40 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' ');
+  expect(text).toContain('Depth & duration');
+  expect(text).not.toContain('Max depth');
+  expect(text).not.toContain('-5');
+});
+
 // A dive with only a date (§6's frozen minimum) must still render a clean hero: no site
 // heading (siteName is null, and this screen's own convention — whereFields, right above —
 // is to omit a null field rather than placeholder it, never invent a fallback), no number

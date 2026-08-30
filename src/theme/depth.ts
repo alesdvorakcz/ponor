@@ -1,3 +1,5 @@
+import { formatDepthParts } from '../format/display';
+
 import {
   depthBandLimits,
   depthScale,
@@ -89,12 +91,20 @@ export function depthColor(metres: number, scheme: ColorScheme): string {
  *
  * Returns `null` for `null`, `undefined`, `NaN`, a negative depth, or any other
  * non-finite value; the colour `depthColor` would give otherwise.
+ *
+ * M1c closing fixes, Important #3: the finiteness/sign check below used to be re-derived
+ * here independently of `formatDepthParts` (format/display.ts) — two separate places
+ * deciding the same "can this depth be shown?" question, which had already drifted apart
+ * once (see that function's own docblock for the dangling-label bug that caused). Deferring
+ * to it here instead makes `formatDepthParts` the one owner: whatever it accepts, this
+ * colours; whatever it refuses, this returns `null` for, by construction rather than by
+ * two conditions that happen to currently agree.
  */
 export function depthColorOrNull(
   metres: number | null | undefined,
   scheme: ColorScheme,
 ): string | null {
-  if (metres == null || !Number.isFinite(metres) || metres < 0) {
+  if (metres == null || formatDepthParts(metres) === null) {
     return null;
   }
   return depthColor(metres, scheme);
