@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
 
 import { fonts } from './fonts';
 import { themeFor } from './resolve';
@@ -29,6 +29,34 @@ import { type ColorScheme } from './tokens';
  */
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
+
+  // M1c closing fixes, Important #5: `reorderNotice`/`settingsNotice` below (and their
+  // `*Text` siblings) used to be two byte-identical object literals — DivesScreen.tsx shows
+  // the same banner shape for two different triggers (a reorder that didn't take effect, a
+  // failed settings read), and each got its own copy of the shape rather than one shared
+  // definition. Their shared intent lived only in a comment ("Visually identical to
+  // reorderNotice above"), which is exactly the kind of claim a later edit to one copy
+  // could silently make false. One definition, referenced twice below, so the two banners
+  // can no longer drift apart by accident — and if they ever need to diverge on purpose,
+  // that has to happen at a call site that spells out the difference, not by two
+  // maintainers independently retyping the same ten properties.
+  const noticeBanner: ViewStyle = {
+    minHeight: 48,
+    justifyContent: 'center',
+    marginHorizontal: 20,
+    marginBottom: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  };
+  const noticeBannerText: TextStyle = {
+    fontFamily: fonts.sans,
+    fontSize: 14,
+    color: theme.fgMuted,
+  };
 
   return StyleSheet.create({
     screen: {
@@ -547,46 +575,18 @@ function build(scheme: ColorScheme) {
     // take effect (db/dives.ts's `applied: false` — see ReorderControls.tsx's
     // `applyReorder`). Pressable so a diver can dismiss it before the next
     // attempt; §0.5's floor still applies since it is itself a tap target.
-    reorderNotice: {
-      minHeight: 48,
-      justifyContent: 'center',
-      marginHorizontal: 20,
-      marginBottom: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-      backgroundColor: theme.surface,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-    },
-    reorderNoticeText: {
-      fontFamily: fonts.sans,
-      fontSize: 14,
-      color: theme.fgMuted,
-    },
+    // Shares its shape with `settingsNotice` below via `noticeBanner` (this function's own
+    // top) rather than a second copy of the same ten properties.
+    reorderNotice: noticeBanner,
+    reorderNoticeText: noticeBannerText,
     // The banner DivesScreen shows when useDives()'s settings read fails (Review task 7,
     // Important #3) — a display-preference failure that must not blank the logbook, but
-    // must not fail silently either. Visually identical to reorderNotice above (same
-    // banner shape, same tokens) but not a Pressable: it tracks a live query's error state
-    // rather than a one-off action outcome, so it has no natural "this attempt is done"
-    // moment to dismiss — it clears itself once the settings read next succeeds.
-    settingsNotice: {
-      minHeight: 48,
-      justifyContent: 'center',
-      marginHorizontal: 20,
-      marginBottom: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: theme.border,
-      backgroundColor: theme.surface,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-    },
-    settingsNoticeText: {
-      fontFamily: fonts.sans,
-      fontSize: 14,
-      color: theme.fgMuted,
-    },
+    // must not fail silently either. The identical shape `reorderNotice` above uses (same
+    // `noticeBanner`) but not a Pressable: it tracks a live query's error state rather than
+    // a one-off action outcome, so it has no natural "this attempt is done" moment to
+    // dismiss — it clears itself once the settings read next succeeds.
+    settingsNotice: noticeBanner,
+    settingsNoticeText: noticeBannerText,
     // DiveDetailScreen's hero (§0.6, M1c task 5): the site name, a `#N · date · centre`
     // mono sub-line, and the 34 px depth anchor (DepthValue's `variant="hero"`, from task
     // 1) — "the same anchor idea the row now uses, at detail scale." Sits above
