@@ -24,6 +24,7 @@ These bind every task. Values are copied verbatim from `DESIGN.md`.
 - Tap targets are never below **48 dp**, and the primary action sits in the bottom third of the screen (§0.5 — wet hands, one thumb).
 - Czech runs 20–30 % longer than English and needs full diacritics; labels wrap to two lines rather than truncate (§0.5). No i18n framework in this milestone — English strings only — but **no fixed-width text containers** that would break when the Czech string lands in M3.
 - Tests must be able to fail. This project has three separate incidents of a test asserting less than its name claimed. If you add a test, break the code under it once and confirm it goes red.
+- **Nothing but real routes may live under `src/app/`.** expo-router's `require.context` sweeps that directory and treats *every* file in it as a route — including test files, which then drag `@testing-library/react-native` into the app bundle, where its `require('console')` cannot resolve and the app fails to launch. This was discovered in Task 6 the only way it can be: on a simulator, while 289 tests, both typechecks and both linters were green. Screens therefore live in `src/screens/`, with their tests beside them, and each file under `src/app/` is a thin route that re-exports one. Verify with `.expo/types/router.d.ts` — if a `*.test` route appears there, the app is broken.
 
 ## Decisions this plan makes, and why
 
@@ -52,8 +53,10 @@ A fourth decision costs nothing but must be stated: **`useDives()` is built from
 | `src/components/DiveRow.tsx` | One dive row: number, site, depth, time chips, rating. |
 | `src/components/TripHeader.tsx` | A trip's section header. |
 | `src/components/EmptyState.tsx` | The no-dives-yet state. |
-| `src/app/index.tsx` | **Replaces the M0 proof screen** — the Dives list. |
-| `src/app/dive/[id].tsx` | Dive detail. |
+| `src/app/index.tsx` | **Replaces the M0 proof screen** — a thin route re-exporting `DivesScreen`. |
+| `src/screens/DivesScreen.tsx` | The Dives list screen (kept out of `src/app/` so its test can sit beside it). |
+| `src/screens/DiveDetailScreen.tsx` | The dive detail screen. |
+| `src/app/dive/[id].tsx` | Thin route re-exporting `DiveDetailScreen`. |
 | `src/hooks/useWideLayout.ts` | Whether the viewport is wide enough for side-by-side. |
 
 **Modified**
@@ -971,9 +974,12 @@ git commit -m "Replace the proof screen with the Dives list"
 ## Task 7: Dive detail
 
 **Files:**
-- Create: `src/app/dive/[id].tsx`
+- Create: `src/screens/DiveDetailScreen.tsx` (the screen itself)
+- Create: `src/app/dive/[id].tsx` (a thin route that re-exports the screen — nothing else)
 - Modify: `src/theme/styles.ts`
-- Test: `src/app/dive/detail.test.tsx`
+- Test: `src/screens/DiveDetailScreen.test.tsx`
+
+**The test must not live under `src/app/`.** expo-router sweeps that directory as routes and would pull the testing library into the app bundle, breaking the launch — see the Global Constraints. Task 6 hit exactly this and the fix was to extract the screen; follow the same shape here from the start.
 
 **Interfaces:**
 - Consumes: `useDives()`, `formatDepth`/`formatTemperature`/`formatDuration`/`formatPressure`/`formatDiveDate`/`formatTimeRange`, `rmv`, `mod`, `gasUsedLitres`, `usedBar`, `surfaceIntervalMin`, `DepthValue`.
@@ -1035,7 +1041,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/dive src/theme/styles.ts
+git add src/screens/DiveDetailScreen.tsx src/screens/DiveDetailScreen.test.tsx src/app/dive src/theme/styles.ts
 git commit -m "Add the dive detail screen"
 ```
 
