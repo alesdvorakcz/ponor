@@ -137,6 +137,32 @@ it('omits RMV specifically when depth or duration is missing, even though its cl
   expect(text).not.toContain('RMV');
 });
 
+// Review task 7, Important #2: every cluster is gated the same way (`{X.length > 0 && ...}`,
+// `{showDepthDuration && ...}`, `{dive.tanks.length > 0 && ...}`, `{hasNotes && ...}`), and
+// nothing previously checked that a cluster's HEADING disappears along with its rows — only
+// that specific bad values (RMV, NaN, null) were absent. Confirmed live: mutating
+// `{where.length > 0 && (` to `{true && (` makes "Site & centre" render as a bare heading
+// over zero rows, and every other test in this file stayed green.
+//
+// A fixture with EVERYTHING null (like the one above) can't tell that mutation apart from
+// "nothing on the screen renders at all" — with every cluster absent, "Site & centre" isn't
+// there either way, mutated or not. This fixture instead populates exactly one cluster
+// (Depth & duration) and leaves the other five untouched, so the assertion is load-bearing
+// two ways: the populated cluster proves rendering does reach past Date & time, and each
+// omitted cluster's absence is then attributable to its OWN guard, not to a broken render.
+it('omits a cluster heading entirely when every field in it is absent, not just its rows', async () => {
+  const text = (
+    await renderDetail(dive({ date: '2026-08-16', maxDepthM: 25, avgDepthM: 20, durationMin: 40 }))
+  ).join(' ');
+  expect(text).toContain('Depth & duration');
+  expect(text).toContain('25.0 m');
+  expect(text).not.toContain('Site & centre');
+  expect(text).not.toContain('Conditions');
+  expect(text).not.toContain('Gas & cylinders');
+  expect(text).not.toContain('Equipment & people');
+  expect(text).not.toContain('Notes');
+});
+
 it('shows nothing but the date for a dive with only a date', async () => {
   const text = (await renderDetail(dive({ date: '2026-08-16' }))).join(' ');
   expect(text).toContain('16 Aug 2026');
