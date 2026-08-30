@@ -181,6 +181,16 @@ export type ReorderGate = ReturnType<typeof createReorderGate>;
  * since nothing in this component's own contract forbids that either) is
  * added in front of it where there is one, because a place a diver
  * recognises is still more useful to hear than a bare index.
+ *
+ * This is deliberately NOT `diveSiteLabel` (format/display.ts), and must not
+ * be "unified" with it. That one always produces text, falling back to the
+ * words "Unnamed site", because a visual row with no heading renders as a
+ * blank line. Speech has no blank line: `position` already identifies the row
+ * unambiguously, so appending "Unnamed site" to it would add a placeholder and
+ * no information. Three rules now read a dive's place and answer three
+ * different questions — `tripKeyOf` (trips.ts) groups and may be null,
+ * `diveSiteLabel` displays and never is, and this one speaks. They resemble
+ * each other and are not interchangeable.
  */
 function rowLabel(dive: Dive, index: number, total: number): string {
   const site = dive.siteName ?? dive.centerName;
