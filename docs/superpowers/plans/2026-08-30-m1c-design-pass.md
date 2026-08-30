@@ -26,6 +26,15 @@ Copied from `DESIGN.md`. These bind every task.
 - Labels wrap to two lines rather than truncate — Czech runs 20–30 % longer than English.
 - Tests must be able to fail. **Six times on this project a test's fixture could not reach the code path it claimed to cover.** Before trusting a passing test, break the code under it and watch it redden. Pick fixtures that sit *on* the boundary being tested.
 
+## Verified facts, so no task rediscovers them
+
+- Theme token keys are `bg`, `surface`, `border`, `fg`, `fgMuted`, `action`, `actionFg`. **There is no `fg-muted`.**
+- Font keys are `sans`, `sans-medium`, `sans-semibold`, `sans-bold`, `mono`, `mono-medium`, `mono-semibold`.
+- `@testing-library/react-native@14`'s `render()` is **async** and its `root` exposes `queryAll(predicate)`, not `findAllByType`. `await render(...)`. Both screen test files already define a `textIn` helper — read one before writing a harness.
+- **Where a code sample below disagrees with the type-scale table or the Global Constraints, the table and the constraints win.** Task 2 found five defects in its own sample, two of which contradicted this document a few dozen lines above. Treat samples as illustration, not authority.
+- Any style that backs a *control* needs `minHeight: 48`. Text and decorative views do not.
+- A text node that must wrap beside a sibling needs `flex: 1` — React Native's default `flexShrink` is 0, so without it the text overflows instead of wrapping. This matters for every site name, because Czech runs 20–30 % longer than English.
+
 ## The type scale (§0.6)
 
 Every size below is specified. Do not invent one.
@@ -126,9 +135,9 @@ Expected: FAIL — the depth is currently smaller than 20 and the same size as t
 Update the existing `diveNumber`, `diveSite`, `diveChip`, `depthValue` keys and add `depthValueHero`:
 
 ```ts
-diveNumber:   { fontFamily: fonts.mono, fontSize: 11, color: theme['fg-muted'], letterSpacing: 0.4 },
+diveNumber:   { fontFamily: fonts.mono, fontSize: 11, color: theme.fgMuted, letterSpacing: 0.4 },
 diveSite:     { fontFamily: fonts['sans-medium'], fontSize: 16, color: theme.fg, lineHeight: 20 },
-diveChip:     { fontFamily: fonts.mono, fontSize: 11.5, color: theme['fg-muted'] },
+diveChip:     { fontFamily: fonts.mono, fontSize: 11.5, color: theme.fgMuted },
 depthValue:   { fontFamily: fonts['mono-medium'], fontSize: 20, lineHeight: 22,
                 fontVariant: ['tabular-nums'], letterSpacing: -0.4, textAlign: 'right' },
 depthValueHero:{ fontFamily: fonts['mono-medium'], fontSize: 34, lineHeight: 36,
@@ -223,7 +232,7 @@ tripHeader:    { flexDirection: 'row', alignItems: 'baseline', justifyContent: '
                  paddingTop: 20, paddingBottom: 7, paddingHorizontal: 16, backgroundColor: theme.bg },
 tripTitle:     { fontFamily: fonts['sans-semibold'], fontSize: 11.5, color: theme.fg,
                  textTransform: 'uppercase', letterSpacing: 1.5 },
-tripDateRange: { fontFamily: fonts.mono, fontSize: 11, color: theme['fg-muted'] },
+tripDateRange: { fontFamily: fonts.mono, fontSize: 11, color: theme.fgMuted },
 searchInput:   { fontFamily: fonts.mono, fontSize: 12.5, color: theme.fg,
                  backgroundColor: theme.surface, borderRadius: 9,
                  paddingVertical: 9, paddingHorizontal: 12, marginHorizontal: 12, marginBottom: 8 },
@@ -413,13 +422,14 @@ Expected: FAIL — both labels are styled identically today.
 detailHero:       { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14,
                     borderBottomWidth: 1, borderBottomColor: theme.border },
 detailHeroSite:   { fontFamily: fonts['sans-semibold'], fontSize: 22, color: theme.fg, lineHeight: 26 },
-detailHeroSub:    { fontFamily: fonts.mono, fontSize: 11.5, color: theme['fg-muted'], marginTop: 3 },
-detailClusterTitle:{ fontFamily: fonts.mono, fontSize: 10.5, color: theme['fg-muted'],
+detailHeroSub:    { fontFamily: fonts.mono, fontSize: 11.5, color: theme.fgMuted, marginTop: 3 },
+detailClusterTitle:{ fontFamily: fonts.mono, fontSize: 10.5, color: theme.fgMuted,
                     textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
 detailLabelComputed:{ paddingLeft: 13 },
+// A 6 px decorative View, not a control — the 48 dp rule does not apply to it.
 detailComputedMark:{ position: 'absolute', left: 0, top: 5, width: 6, height: 6,
-                    borderRadius: 1, borderWidth: 1, borderColor: theme['fg-muted'], opacity: 0.75 },
-detailValueComputed:{ color: theme['fg-muted'] },
+                    borderRadius: 1, borderWidth: 1, borderColor: theme.fgMuted, opacity: 0.75 },
+detailValueComputed:{ color: theme.fgMuted },
 ```
 
 The hero holds the site name, a mono sub-line (`#6 · 22 Aug 2026 · Ponorka`), and `<DepthValue variant="hero" />`. Computed rows get `detailLabelComputed` plus the marker `View`, and their value takes `detailValueComputed`.
