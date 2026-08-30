@@ -2,10 +2,19 @@ import { dive } from './diveFixture';
 import { searchDives } from './search';
 
 describe('searchDives', () => {
+  // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
+  // unfiltered" apart from "filtered with an empty needle" when every fixture dive has a
+  // non-null searchable field — mutating `if (trimmed === '')` to `if (query === '')` (so a
+  // whitespace query is no longer treated as inactive) survived, because `''.includes('')`
+  // is still true for every dive here. `toBe(all)` pins the actual documented contract —
+  // "an empty or whitespace-only query returns dives itself, unfiltered" (this file's own
+  // docblock) — which is a claim about identity, not just count, and which the mutation
+  // above genuinely breaks: a whitespace query would then run the real filter and return a
+  // freshly-allocated array instead of the original reference.
   it('returns everything for an empty or whitespace query', () => {
     const all = [dive({ siteName: 'Blue Hole' }), dive({ siteName: 'Shark Reef' })];
-    expect(searchDives(all, '')).toHaveLength(2);
-    expect(searchDives(all, '   ')).toHaveLength(2);
+    expect(searchDives(all, '')).toBe(all);
+    expect(searchDives(all, '   ')).toBe(all);
   });
 
   it('matches a site name case-insensitively', () => {
