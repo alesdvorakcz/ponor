@@ -168,9 +168,32 @@ function Row({ label, value, mono, computed, styles }: Field & { styles: Styles 
   );
 }
 
-function Cluster({ title, styles, children }: { title: string; styles: Styles; children: ReactNode }) {
+/**
+ * One titled group of rows. Every cluster carries §0.6's hairline on its TOP edge, the same
+ * rule `diveRow`/`dayStrip` follow in the list — so the line reads as the rule under the
+ * cluster before it, and the last cluster closes on whitespace rather than a rule.
+ *
+ * `first` is the one exception, and it belongs to POSITION, not to any particular cluster:
+ * the topmost cluster sits directly under the hero, which draws its own bottom border, so a
+ * rule there too would render as a visible double line. Passed explicitly at the one call
+ * site that is first rather than inferred here, because this component renders one cluster
+ * at a time and has no way to know where it sits. (The alternative — the hero dropping its
+ * own bottom border — is deliberately not taken: the hero is a full-bleed banner at 16 and
+ * the clusters are an indented column at 20, and those two lines are not the same line.)
+ */
+function Cluster({
+  title,
+  styles,
+  first,
+  children,
+}: {
+  title: string;
+  styles: Styles;
+  first?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <View style={styles.detailCluster}>
+    <View style={first ? [styles.detailCluster, styles.detailClusterFirst] : styles.detailCluster}>
       <Text style={styles.detailClusterTitle}>{title}</Text>
       {children}
     </View>
@@ -472,7 +495,11 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
         </View>
 
         <View style={styles.detailContent}>
-          <Cluster title="Date & time" styles={styles}>
+          {/* The one cluster that always renders (Status and Date are never null, §6), so
+              `first` is a fixed prop here rather than an index the list of clusters below
+              would have to compute — every other cluster is conditional, and the topmost
+              one is this one either way. */}
+          <Cluster title="Date & time" styles={styles} first>
             <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
             <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
             {dive.timeIn !== null && <Row label="Time in" value={dive.timeIn} mono styles={styles} />}

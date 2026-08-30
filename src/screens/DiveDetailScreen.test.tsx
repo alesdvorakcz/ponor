@@ -10,6 +10,7 @@ import { useDives } from '../db/useDives';
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import { fonts } from '../theme/fonts';
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
@@ -722,6 +723,58 @@ it("shows a planned dive's status, distinctly from a logged one", async () => {
   const text = (await renderDetail(dive({ date: '2026-09-01', status: 'planned' }))).join(' ');
   expect(text).toContain('Planned');
   expect(text).not.toContain('Logged');
+});
+
+// DESIGN.md §0.6's hairline rule, applied to this screen's clusters: separators sit on the
+// TOP edge, so each cluster's own line reads as the rule under the cluster before it. `gap`
+// alone was doing all the separating here, which left the seven clusters reading as one
+// undifferentiated column — the same complaint §0.6 exists to answer for the list.
+//
+// The FIRST cluster is the exception, and that is what `detailClusterFirst` is for: it sits
+// immediately below the hero, which already draws its own bottom border, so a rule here too
+// would land as a visible double line. Both halves need pinning — a variant that never
+// applied would show up as a doubled line, and a border that never applied would leave the
+// screen exactly as it was.
+it('rules each cluster off from the one above it, except the first, which the hero already closes', async () => {
+  const d = dive({
+    date: '2026-08-16',
+    siteName: 'Blue Hole',
+    maxDepthM: 18,
+    durationMin: 45,
+    waterTempC: 21,
+  });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  if (!t.root) throw new Error('DiveDetailScreen did not render a root element');
+  // 'light' for the same reason "draws no profile chart" below gives: that is the scheme
+  // useColorScheme() reports under Jest, and the sheet has to match the one that rendered.
+  const styles = makeStyles('light');
+
+  const clusters = t.root.queryAll((n) => [n.props?.style].flat(3).filter(Boolean).includes(styles.detailCluster));
+  // Date & time, Site & centre, Depth & duration, Conditions — four, so "the first" is
+  // genuinely distinguishable from "every cluster" and from "the last".
+  expect(clusters).toHaveLength(4);
+
+  const borderWidthOf = (node: (typeof clusters)[number]) =>
+    [node.props.style].flat(3).filter(Boolean).reduce((a: number, s: any) => (typeof s?.borderTopWidth === 'number' ? s.borderTopWidth : a), 0);
+  const borderColorOf = (node: (typeof clusters)[number]) =>
+    [node.props.style].flat(3).filter(Boolean).reduce((a: unknown, s: any) => s?.borderTopColor ?? a, undefined);
+
+  const paddingTopOf = (node: (typeof clusters)[number]) =>
+    [node.props.style].flat(3).filter(Boolean).reduce((a: number, s: any) => (typeof s?.paddingTop === 'number' ? s.paddingTop : a), 0);
+
+  expect(borderWidthOf(clusters[0]!)).toBe(0);
+  // No leftover padding either: that space exists to hold a label off a line, and the first
+  // cluster has no line — keeping it would just push the screen's first heading away from
+  // the hero on top of `detailContent`'s own padding.
+  expect(paddingTopOf(clusters[0]!)).toBe(0);
+  for (const cluster of clusters.slice(1)) {
+    expect(borderWidthOf(cluster)).toBeGreaterThan(0);
+    expect(borderColorOf(cluster)).toBe(themeFor('light').border);
+    // Enough room below the line that the cluster's own label isn't sitting on it.
+    expect(paddingTopOf(cluster)).toBeGreaterThan(0);
+  }
 });
 
 it('draws no profile chart, because no dive carries a sample series', async () => {

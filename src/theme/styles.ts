@@ -680,8 +680,32 @@ function build(scheme: ColorScheme) {
       paddingBottom: 48,
       gap: 24,
     },
+    // §0.6's hairline rule reaches this screen too: "Hairline separators on `border`...
+    // set on each row's top edge, not its bottom." A cluster is this screen's row, so its
+    // rule sits on top and reads as the line under the cluster before it. `detailContent`'s
+    // `gap: 24` alone used to do all the separating, which is what left seven clusters
+    // reading as one undifferentiated column. `paddingTop` is what keeps the cluster's own
+    // uppercase label off the line it sits under; the asymmetry with the 24 above is
+    // deliberate, so the rule reads as belonging to the cluster it introduces.
     detailCluster: {
       gap: 10,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      paddingTop: 16,
+    },
+    // The first cluster only. It sits directly below `detailHero`, which draws its own
+    // bottom border, so the rule above would land as a visible double line — and its
+    // `paddingTop` would stack on `detailContent`'s own 20. Applied ON TOP of
+    // `detailCluster` (a two-element style array at the call site), never as a replacement,
+    // so the two can't drift apart on anything but the border and the padding.
+    //
+    // The hero deliberately does NOT drop its bottom border to solve this instead: it is a
+    // banner spanning the full bleed at 16 while the clusters are an indented column at 20,
+    // and the line closing the banner is not the same line as the one dividing two
+    // clusters.
+    detailClusterFirst: {
+      borderTopWidth: 0,
+      paddingTop: 0,
     },
     // DESIGN.md §0.6 table's "Cluster label" row: Plex Mono 10.5, uppercase, +0.14 em
     // (0.14 × 10.5 ≈ 1.5), muted. M1c task 5 replaces an earlier Archivo SemiBold 13 px
