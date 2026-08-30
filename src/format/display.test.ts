@@ -22,6 +22,8 @@ import {
   formatVolume,
   formatWaterBody,
   formatWeight,
+  diveSiteLabel,
+  UNNAMED_SITE,
 } from './display';
 
 describe('formatDepth', () => {
@@ -191,6 +193,26 @@ describe('formatDiveStatus', () => {
   });
   it('capitalises a planned dive', () => {
     expect(formatDiveStatus('planned')).toBe('Planned');
+  });
+});
+
+// One owner for what a dive is CALLED on screen. DiveRow.tsx and DiveDetailScreen.tsx each
+// used to answer this themselves and had already drifted: the row showed "Unnamed site" for
+// a dive with no site name while the detail screen showed no title at all. Note this is
+// deliberately NOT domain/trips.ts's `tripKeyOf`, which is centre-first and may be null —
+// see both docblocks.
+describe('diveSiteLabel', () => {
+  it('prefers the site, the name a diver would recognise the dive by', () => {
+    expect(diveSiteLabel({ siteName: 'Blue Hole', centerName: 'Ponorka' })).toBe('Blue Hole');
+  });
+  it('falls back to the centre when no site was recorded', () => {
+    expect(diveSiteLabel({ siteName: null, centerName: 'Ponorka' })).toBe('Ponorka');
+  });
+  // Always text, never null: a row or a hero with no heading is a blank line, which is the
+  // exact defect this function exists to close. The one hard difference from `tripKeyOf`.
+  it('names a dive with neither rather than returning nothing', () => {
+    expect(diveSiteLabel({ siteName: null, centerName: null })).toBe(UNNAMED_SITE);
+    expect(UNNAMED_SITE).toBe('Unnamed site');
   });
 });
 

@@ -131,6 +131,25 @@ it("includes a planned dive's date in the label, so two planned dives at the sam
   expect(soon.root.props.accessibilityLabel).not.toBe(later.root.props.accessibilityLabel);
 });
 
+// The row's own half of item 5's one rule (`diveSiteLabel`, format/display.ts). Untested
+// until now, on either side, which is how the row and the detail screen came to disagree:
+// the row named an unsited dive "Unnamed site" while its own detail page rendered no title
+// at all. Both call sites now read the same function, and both files pin the same two
+// answers for the same two dives — so a change to one that broke the other could not pass.
+it('falls back to the dive centre when no site name was recorded', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: null, centerName: 'Aqua' })} number={7} scheme="dark" onPress={() => {}} />,
+  );
+  expect(textIn(t)).toContain('Aqua');
+});
+
+it('names a dive with neither a site nor a centre, rather than leaving a blank line', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: null, centerName: null })} number={7} scheme="dark" onPress={() => {}} />,
+  );
+  expect(textIn(t)).toContain('Unnamed site');
+});
+
 // M1c closing fixes, Important #3: `depth` here used to come from `formatDepth(...)`
 // alone, which returned a string for a negative reading even though the row's own visible
 // `<DepthValue />` (gated by `depthColorOrNull`) drew nothing for the same value — so a

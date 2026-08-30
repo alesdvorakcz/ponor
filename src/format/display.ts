@@ -1,6 +1,6 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
-import { type DiveStatus, type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
+import { type Dive, type DiveStatus, type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -194,6 +194,39 @@ export function formatSurfaceInterval(minutes: number | null): string | null {
   const hours = Math.floor(total / 60);
   const mins = total % 60;
   return mins === 0 ? `${hours} h` : `${hours} h ${mins} min`;
+}
+
+/**
+ * What a dive is called when it has no name of its own. Exported so `groupIntoTrips`
+ * (domain/trips.ts) can title an unplaced TRIP with the same words a row uses for an
+ * unplaced dive — the words are shared; the rules that reach them are not (see below).
+ */
+export const UNNAMED_SITE = 'Unnamed site';
+
+/**
+ * What a dive is CALLED on screen: its site, or its centre when no site was recorded, or
+ * `UNNAMED_SITE` when it has neither. The single owner of that choice — `DiveRow.tsx`'s
+ * site line, `DiveDetailScreen.tsx`'s hero heading, and anything added later.
+ *
+ * This exists because the two call sites each answered it themselves and had already
+ * drifted: the row showed "Unnamed site" for a dive with no site name while that same
+ * dive's detail page rendered no title at all, so a diver could tap a named row and land on
+ * a heading-less screen. Neither may keep its own copy.
+ *
+ * Site first, because that is the name a diver recognises a dive by — "Blue Hole", not the
+ * shop that took them there. Always a string, never null: a row or a hero with no heading
+ * is a blank line, which is the defect itself.
+ *
+ * Deliberately NOT the same rule as `tripKeyOf` (domain/trips.ts), which is centre-first
+ * and may be null. That one is a grouping KEY, where the centre is what stays constant
+ * across a trip's several sites and where "no place recorded" has to stay distinguishable
+ * from every real place — a key that fell back to these words would merge unplaced dives
+ * with any dive someone actually named "Unnamed site". This one is a display LABEL that
+ * must always produce text. The two look similar and answer different questions; do not
+ * "unify" them.
+ */
+export function diveSiteLabel(dive: Pick<Dive, 'siteName' | 'centerName'>): string {
+  return dive.siteName ?? dive.centerName ?? UNNAMED_SITE;
 }
 
 /**

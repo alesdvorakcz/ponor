@@ -1,16 +1,21 @@
-import { formatDiveDate } from '../format/display';
+import { formatDiveDate, UNNAMED_SITE } from '../format/display';
 import { calendarDateToUtcMs, normaliseTimeOfDay } from './datetime';
 import { type Dive } from './types';
 
 const MS_PER_DAY = 86_400_000;
 
-/** The title for a trip whose dives have neither `centerName` nor `siteName`
- * set — `tripKeyOf` returns null for those, and this is what that null renders
- * as. Never used for the grouping comparison itself (see `tripKeyOf`).
- * DESIGN.md §1's no-form-shaming stance means an unnamed dive is a normal,
- * expected case — never dropped, never blocked — so it needs a real label, not
- * an empty string a list row would render as a blank line. */
-const UNNAMED_SITE = 'Unnamed site';
+// `UNNAMED_SITE` is the title for a trip whose dives have neither `centerName`
+// nor `siteName` set — `tripKeyOf` returns null for those, and this is what
+// that null renders as. Never used for the grouping comparison itself (see
+// `tripKeyOf`). DESIGN.md §1's no-form-shaming stance means an unnamed dive is
+// a normal, expected case — never dropped, never blocked — so it needs a real
+// label, not an empty string a list row would render as a blank line.
+//
+// Imported from format/display.ts rather than restated here: an unplaced trip
+// header and an unplaced row must read the same, and the words had been written
+// out in three places. Only the WORDS are shared. The rule that reaches them is
+// not — `diveSiteLabel` is site-first and always produces text, `tripKeyOf` is
+// centre-first and may be null; both docblocks say why.
 
 /**
  * A trip as the Dives list shows it — DESIGN.md §3: "auto-grouped into trips

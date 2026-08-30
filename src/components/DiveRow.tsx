@@ -2,7 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
-import { formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
+import { diveSiteLabel, formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
 import { makeStyles, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DepthValue } from './DepthValue';
@@ -107,7 +107,11 @@ function accessibilityLabelFor(
  */
 function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowProps) {
   const styles = makeStyles(scheme);
-  const site = dive.siteName ?? dive.centerName ?? 'Unnamed site';
+  // `diveSiteLabel` (format/display.ts), never an inline `siteName ?? centerName ?? ...`
+  // here: this row and the dive's own detail hero must call a dive the same thing, and the
+  // one time they each owned the rule they drifted — the row said "Unnamed site" where the
+  // detail screen showed no heading at all.
+  const site = diveSiteLabel(dive);
   const depth = formatDepth(dive.maxDepthM);
   const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
   const duration = formatDuration(dive.durationMin);

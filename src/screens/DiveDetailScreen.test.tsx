@@ -547,12 +547,15 @@ it('omits the Max depth row entirely for a negative reading, rather than a dangl
   expect(text).not.toContain('-5');
 });
 
-// A dive with only a date (§6's frozen minimum) must still render a clean hero: no site
-// heading (siteName is null, and this screen's own convention — whereFields, right above —
-// is to omit a null field rather than placeholder it, never invent a fallback), no number
+// A dive with only a date (§6's frozen minimum) must still render a clean hero: no number
 // (planned/never-numbered), no centre, and critically no stray "· ·" from joining absent
 // parts, which a naive template string (rather than filter-then-join) would leave behind.
-it('renders a clean hero for a dive with only a date, with no site heading and no stray separators', async () => {
+//
+// M1d correction: this used to assert the hero had NO heading at all for such a dive — the
+// bug half of item 5. The list row already called it "Unnamed site" while its own detail
+// page opened on a sub-line with nothing above it. `diveSiteLabel` is now the one rule for
+// both, and it always produces text.
+it('renders a clean hero for a dive with only a date, with no stray separators', async () => {
   const d = dive({ date: '2026-08-16' });
   mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
@@ -562,8 +565,40 @@ it('renders a clean hero for a dive with only a date, with no site heading and n
   expect(text).not.toContain('null');
   expect(text).not.toContain('undefined');
   expect(text).not.toContain('·  ·');
-  // The 22 px hero heading is absent outright, not rendered with empty text.
-  expect(textNodesOf(t).filter((n) => fontSizeOf(n) === 22)).toHaveLength(0);
+  // The 22 px hero heading names the dive rather than being absent — the same words
+  // DiveRow.test.tsx pins for the same dive in the list it was tapped from.
+  const headings = textNodesOf(t).filter((n) => fontSizeOf(n) === 22);
+  expect(headings.map((n) => String(n.children[0] ?? ''))).toEqual(['Unnamed site']);
+});
+
+// The other half of item 5, and the reason `diveSiteLabel` is site-first: when the label
+// falls back to the CENTRE, the hero sub-line must not also print it. The sub-line renders
+// `#number · date · centre`, so an unsited dive would otherwise show "Aqua" twice, one line
+// apart. The screen reads that off the label itself rather than re-deriving "siteName is
+// null", so the two can't drift.
+it('does not repeat the centre in the sub-line when the heading has already fallen back to it', async () => {
+  const d = dive({ date: '2026-08-22', siteName: null, centerName: 'Aqua' });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+
+  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 22);
+  expect(String(heading?.children[0] ?? '')).toBe('Aqua');
+  // The sub-line still carries everything else it had.
+  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
+  expect(String(sub?.children[0] ?? '')).toBe('#6 · 22 Aug 2026');
+});
+
+// The control for the test above: with a real site name, the centre is NOT the label, so
+// the sub-line keeps it. Without this, "drop the centre from the sub-line entirely" would
+// pass — and that is the more likely wrong fix, since it needs less code.
+it('keeps the centre in the sub-line whenever the heading is not already showing it', async () => {
+  const d = dive({ date: '2026-08-22', siteName: 'Blue Hole', centerName: 'Aqua' });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
+  expect(String(sub?.children[0] ?? '')).toBe('#6 · 22 Aug 2026 · Aqua');
 });
 
 it('omits a computed value entirely when its inputs are missing', async () => {

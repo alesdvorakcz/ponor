@@ -8,6 +8,7 @@ import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '.
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import {
+  diveSiteLabel,
   formatConditionScale,
   formatCoordinates,
   formatCount,
@@ -395,6 +396,12 @@ function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
  * the dive itself from that one hook: a second numbering path is a second place a number
  * shown here could disagree with the number the list showed for the same dive.
  *
+ * The centre is also dropped when the heading above is ALREADY showing it: `diveSiteLabel`
+ * falls back to the centre for a dive with no site name, so on that dive "Aqua" would
+ * otherwise appear twice, one line apart. That case is recognised by comparing against the
+ * label itself rather than by re-deriving "siteName is null" — the label's rule has one
+ * owner, and a second statement of it here is exactly the drift item 5 exists to end.
+ *
  * Number and centre are independently omitted when absent (`undefined` for a planned dive
  * per §2.4, `null` for a dive with no recorded centre) — filtered out before joining,
  * never rendered as an empty segment or a stray leading/trailing " · ". `formatDiveDate`
@@ -405,7 +412,8 @@ function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
  * as a normal, expected dive rather than a broken one.
  */
 function heroSubline(dive: Dive, number: number | undefined): string {
-  return [number !== undefined ? `#${number}` : null, formatDiveDate(dive.date), dive.centerName]
+  const centre = diveSiteLabel(dive) === dive.centerName ? null : dive.centerName;
+  return [number !== undefined ? `#${number}` : null, formatDiveDate(dive.date), centre]
     .filter((part): part is string => part !== null)
     .join(' · ');
 }
@@ -488,7 +496,12 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
       <ScrollView style={styles.detailScroll}>
         <View style={styles.detailHero}>
           <View style={styles.detailHeroMain}>
-            {dive.siteName !== null && <Text style={styles.detailHeroSite}>{dive.siteName}</Text>}
+            {/* Unconditional, and `diveSiteLabel` rather than `dive.siteName`: this screen
+                used to render a heading only `if (dive.siteName !== null)`, so a dive the
+                list called "Unnamed site" opened on a page with no title at all. That rule
+                has one owner now (format/display.ts), which always produces text — see its
+                docblock for why it is not the same rule as `tripKeyOf`. */}
+            <Text style={styles.detailHeroSite}>{diveSiteLabel(dive)}</Text>
             <Text style={styles.detailHeroSub}>{heroSub}</Text>
           </View>
           <DepthValue metres={dive.maxDepthM} scheme={scheme} variant="hero" />
