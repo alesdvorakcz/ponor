@@ -196,7 +196,7 @@ describe('formatDiveStatus', () => {
 // Review task 7, Important #1: the eight formatters below are new — they close the seven
 // fields that used to build their own `${x} unit` strings inline in DiveDetailScreen.tsx,
 // bypassing this module and rendering the literal string "NaN" for exactly the input
-// DESIGN.md §10's COERCION CONTRACT requires M1c's form to produce. Each gets the same two
+// DESIGN.md §10's COERCION CONTRACT requires M1d's form to produce. Each gets the same two
 // cases every formatter above does (a real reading, and the absent/non-finite cases this
 // module exists to swallow), plus whatever is specific to its own unit.
 

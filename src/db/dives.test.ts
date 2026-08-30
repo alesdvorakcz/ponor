@@ -337,7 +337,7 @@ describe('updateDive', () => {
       expect(updated.notes).toBe('edited');
     });
 
-    it('survives the exact shape M1c will produce', async () => {
+    it('survives the exact shape M1d will produce', async () => {
       // `{ notes: form.notes, timeIn: form.timeIn }` where the form never had a
       // timeIn key. This typechecks with no cast, which is why it was Critical.
       const created = await createDive(db, { date: '2026-08-16', timeIn: '09:15' });

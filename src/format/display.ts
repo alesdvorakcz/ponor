@@ -92,7 +92,7 @@ export function formatPressure(bar: number | null): string | null {
  * `DiveDetailScreen.tsx` build seven fields' worth of unit-suffixed strings
  * itself, inline, bypassing every guard above — and rendering the literal
  * string "NaN" for exactly the input DESIGN.md §10's COERCION CONTRACT
- * requires M1c's form to produce (an empty numeric field reaching the domain
+ * requires M1d's form to produce (an empty numeric field reaching the domain
  * as `NaN`, never `0`). Each one is the same `isFiniteNumber` guard the
  * formatters above already use, so a `NaN`, `Infinity`, or wrong-typed value
  * disappears the same way an absent one does, rather than reaching the

@@ -587,7 +587,7 @@ it('omits RMV specifically when depth or duration is missing, even though its cl
 // Review task 7, Important #1: seven fields (GPS, waves/current/surge, tank size/count/O2/He,
 // weight, rating) used to build their own `${x} unit` strings inline, bypassing
 // format/display.ts, and rendered the literal string "NaN" for exactly the input DESIGN.md
-// §10's COERCION CONTRACT requires M1c's form to produce — an empty numeric field reaching
+// §10's COERCION CONTRACT requires M1d's form to produce — an empty numeric field reaching
 // the domain as NaN, never 0. The review verified 8 literal "NaN" strings reaching this
 // screen from a dive shaped like this one.
 it('never renders the literal string "NaN", for any of the fields that used to leak it', async () => {

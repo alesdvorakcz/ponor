@@ -49,7 +49,7 @@ function tankGas(tank: Tank): TankGas {
 
 /**
  * COERCION CONTRACT — read this before wiring up any form for tank fields.
- * M1c (the dive entry form) is the first consumer this applies to.
+ * M1d (the dive entry form) is the first consumer this applies to.
  *
  * The classification above only holds if an empty numeric field reaches
  * this file as null or NaN, and never as 0: this file treats NaN as absent

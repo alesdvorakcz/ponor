@@ -216,7 +216,7 @@ function withoutImmutableFields<T extends object>(patch: T): Omit<T, ImmutableFi
  *
  * A JS object literal produces a carried `undefined` constantly — `{ timeIn:
  * form.timeIn }` where the form has no `timeIn` key is the single most ordinary
- * shape M1c will write — and `'timeIn' in out` cannot tell that apart from a
+ * shape M1d will write — and `'timeIn' in out` cannot tell that apart from a
  * key the caller meant. Deciding it once, here, is the whole fix: **a carried
  * `undefined` means "don't touch", and `null` is the one explicit "clear this
  * field" signal.**
