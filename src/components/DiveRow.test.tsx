@@ -2,6 +2,7 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 import { Text } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
+import { formatDuration, formatTimeRange } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -251,6 +252,29 @@ it('does not put the date on a logged dive row, where the trip header carries it
   const t = await render(<DiveRow dive={d} number={7} scheme="dark" onPress={() => {}} />);
   const text = textIn(t).join(' ');
   expect(text).not.toContain('5 Sep 2026');
+});
+
+// M1c closing fixes, Important #4: DESIGN.md §0.6 specifies the metadata line as "Time ·
+// duration · rating, middot-separated", but the row used to space its chips with a bare
+// `gap` and render no middot at all. Computed via the same formatters DiveRow.tsx itself
+// calls, rather than a hand-typed clock-arithmetic string, so this can't drift from
+// whatever `formatTimeRange`/`formatDuration` actually produce.
+it('middot-separates the time and duration chips, per §0.6', async () => {
+  const d = dive({ timeIn: '09:30', durationMin: 44 });
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const expected = `${formatTimeRange(d.timeIn, d.durationMin)} · ${formatDuration(d.durationMin)}`;
+  expect(textIn(t)).toContain(expected);
+});
+
+// The other half: RatingDots (§0.6, task 7) is drawn as circles, not typed, so it can't
+// join into the same string the text chips above do — it needs its own middot Text
+// between the joined chips and the dots, rendered only when both sides actually exist.
+it('middot-separates the text chips from the rating dots, since dots are drawn rather than typed', async () => {
+  const d = dive({ durationMin: 44, rating: 3 });
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const text = textIn(t);
+  expect(text).toContain(formatDuration(d.durationMin));
+  expect(text).toContain(' · ');
 });
 
 // M1c task 6 (DESIGN.md §0.6): ReorderControls puts its arrows in the exact slot

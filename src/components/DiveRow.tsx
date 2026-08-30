@@ -121,7 +121,19 @@ function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowP
   // `dive.date` is required (never null, §6), so this is never itself the reason a planned
   // row renders with no metadata line at all.
   const plannedDate = dive.status === 'planned' ? formatDiveDate(dive.date) : null;
-  const hasMeta = plannedDate !== null || timeRange !== null || duration !== null || dive.rating !== null;
+  // M1c closing fixes, Important #4: DESIGN.md §0.6 specifies this line as "Time · duration
+  // · rating, middot-separated" — the same joined form `heroSubline` (DiveDetailScreen.tsx)
+  // already uses for its own number/date/centre sub-line — but the row used to space its
+  // chips with a bare flex `gap` and render no middot at all. `metaText` is every text-only
+  // chip this row can carry (plannedDate, timeRange, duration — mutually exclusive per the
+  // comment above, but joined generically regardless) filtered and joined the same way
+  // `heroSubline`/`accessibilityLabelFor` already do, so the separator can never appear
+  // beside a chip that isn't actually there. `dive.rating` stays out of this join: §0.6
+  // draws rating as circles, not text (task 7's `RatingDots`), so it is added as a fourth,
+  // separately middot-joined element below rather than folded into one string.
+  const metaText = [plannedDate, timeRange, duration].filter((part): part is string => part !== null).join(' · ');
+  const hasMetaText = metaText !== '';
+  const hasMeta = hasMetaText || dive.rating !== null;
 
   return (
     <Pressable
@@ -144,11 +156,12 @@ function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowP
       </View>
       {hasMeta && (
         <View style={styles.diveRowBottom}>
-          {/* Leads the line when present, ahead of the time/duration/rating chips a logged
-              dive can also carry — see `plannedDate` above for why the two never coexist. */}
-          {plannedDate !== null && <Text style={styles.diveChip}>{plannedDate}</Text>}
-          {timeRange !== null && <Text style={styles.diveChip}>{timeRange}</Text>}
-          {duration !== null && <Text style={styles.diveChip}>{duration}</Text>}
+          {hasMetaText && <Text style={styles.diveChip}>{metaText}</Text>}
+          {/* The one separator `.join(' · ')` above can't supply: RatingDots is a row of
+              drawn circles (§0.6: "drawn, not typed", task 7), not a string, so it can't
+              join into `metaText` the way the three text chips do. Rendered only when both
+              sides actually exist, so the line never opens or closes on a stray middot. */}
+          {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{' · '}</Text>}
           {dive.rating !== null && <RatingDots rating={dive.rating} styles={styles} />}
         </View>
       )}

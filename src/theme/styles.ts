@@ -346,10 +346,13 @@ function build(scheme: ColorScheme) {
       flex: 1,
       gap: 2,
     },
+    // M1c closing fixes, Important #4: no `gap` any more — DESIGN.md §0.6 specifies this
+    // line as "middot-separated", and DiveRow.tsx now bakes a literal ` · ` between its
+    // chips (matching heroSubline's own join elsewhere), so the separation is the
+    // separator's own spacing, not a second, uncoordinated flex gap stacked on top of it.
     diveRowBottom: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
     },
     // A label above the site name, not a headline (§0.6) — muted and small, so it
     // never competes with depthValue below for the row's one moment of emphasis.
