@@ -64,14 +64,27 @@ function RatingDots({ rating, styles }: { rating: number; styles: Styles }) {
  * Review task 7, Important #4: a screen reader announces a `Pressable`'s child text nodes
  * as disconnected fragments unless something ties them into one sentence — `Pressable`
  * does not supply `accessibilityRole` on its own, and this row's number/site/depth sit in
- * three separate `Text` nodes. Composed from the same three pieces the row renders, in the
- * same order, omitting whichever one the row itself omits: no number for a planned dive
- * (§2.4), no depth for a dive that never recorded one (§1 — no form-shaming). Time, duration
- * and rating are left out on purpose — they're the row's secondary chips, not what a diver
- * needs to pick the right dive out of a list.
+ * three separate `Text` nodes. Composed from the same pieces the row renders, in the same
+ * order, omitting whichever one the row itself omits: no number for a planned dive (§2.4),
+ * no depth for a dive that never recorded one (§1 — no form-shaming), no planned date for a
+ * logged dive (its trip header already states the day — see `plannedDate` below). Time,
+ * duration and rating are left out on purpose — they're the row's secondary chips, not what
+ * a diver needs to pick the right dive out of a list.
+ *
+ * `plannedDate` (M1c closing fixes, Minor carried from task 3's review): task 3 put a
+ * planned dive's date on screen ("Up next" pins planned dives "with their date", §3) but
+ * never added it here, so two planned dives at the same site on different dates announced
+ * identically to a screen reader even though the two rows read differently. Placed last,
+ * after depth — matching where it sits on screen, the metadata line's own leading chip,
+ * below the number/site/depth line the first three pieces come from.
  */
-function accessibilityLabelFor(number: number | undefined, site: string, depth: string | null): string {
-  return [number !== undefined ? `Dive ${number}` : null, site, depth]
+function accessibilityLabelFor(
+  number: number | undefined,
+  site: string,
+  depth: string | null,
+  plannedDate: string | null,
+): string {
+  return [number !== undefined ? `Dive ${number}` : null, site, depth, plannedDate]
     .filter((part): part is string => part !== null)
     .join(', ');
 }
@@ -115,7 +128,7 @@ function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowP
       style={styles.diveRow}
       onPress={() => onPress(dive.id)}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabelFor(number, site, depth)}
+      accessibilityLabel={accessibilityLabelFor(number, site, depth, plannedDate)}
     >
       <View style={styles.diveRowTop}>
         <View style={styles.diveRowMain}>

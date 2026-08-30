@@ -65,13 +65,34 @@ it('announces itself as a button, with a label composed from number, site and de
 // The number is omitted for a planned dive (§2.4: no number until completed) and depth is
 // omitted for a dive that never recorded one (§1 — no form-shaming) — the label degrades
 // the same way the row's own visible text does, rather than reading "Dive undefined" or
-// leaving a trailing ", " where the missing piece would have been.
+// leaving a trailing ", " where the missing piece would have been. The date stays (dive()'s
+// own default, '2026-08-16' -> '16 Aug 2026') since a planned dive always carries one (§6).
 it("omits whichever label piece the row itself omits, for a planned dive with no depth", async () => {
   const t = await render(
     <DiveRow dive={dive({ siteName: 'Shore entry', status: 'planned' })} number={undefined} scheme="dark" onPress={() => {}} />,
   );
   if (!t.root) throw new Error('DiveRow did not render a root element');
-  expect(t.root.props.accessibilityLabel).toBe('Shore entry');
+  expect(t.root.props.accessibilityLabel).toBe('Shore entry, 16 Aug 2026');
+});
+
+// M1c closing fixes, Minor carried from task 3's review: the row shows a planned dive's date
+// visibly ("shows a planned dive its date..." below) but the label used to leave it out, so
+// two planned dives at the same site on different dates announced identically even though
+// the two rows read differently on screen — no depth to tell them apart either, since a
+// planned dive is set up before diving (§2.4: date, site, cylinder, starting pressure, no
+// depth yet). This is the bug itself, not just the label's composition in isolation: two
+// real DiveRow renders, same site, different dates, proven to diverge.
+it("includes a planned dive's date in the label, so two planned dives at the same site on different dates announce differently", async () => {
+  const soon = await render(
+    <DiveRow dive={dive({ status: 'planned', date: '2026-09-05', siteName: 'Silfra' })} number={undefined} scheme="dark" onPress={() => {}} />,
+  );
+  const later = await render(
+    <DiveRow dive={dive({ status: 'planned', date: '2026-09-12', siteName: 'Silfra' })} number={undefined} scheme="dark" onPress={() => {}} />,
+  );
+  if (!soon.root || !later.root) throw new Error('DiveRow did not render a root element');
+  expect(soon.root.props.accessibilityLabel).toBe('Silfra, 5 Sep 2026');
+  expect(later.root.props.accessibilityLabel).toBe('Silfra, 12 Sep 2026');
+  expect(soon.root.props.accessibilityLabel).not.toBe(later.root.props.accessibilityLabel);
 });
 
 it('colours the depth by its band, not by the theme', async () => {
