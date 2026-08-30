@@ -417,6 +417,45 @@ function build(scheme: ColorScheme) {
       fontSize: 14,
       color: theme.fgMuted,
     },
+    // DiveDetailScreen's hero (§0.6, M1c task 5): the site name, a `#N · date · centre`
+    // mono sub-line, and the 34 px depth anchor (DepthValue's `variant="hero"`, from task
+    // 1) — "the same anchor idea the row now uses, at detail scale." Sits above
+    // `detailContent` below, outside its `padding: 20`: this carries its own
+    // `paddingHorizontal: 16` (matching diveRow/tripHeader's own full-bleed 16, not
+    // detailContent's 20) plus a bottom divider, so it reads as one banner spanning the
+    // screen's true edge rather than another indented cluster. `flexDirection: 'row'` +
+    // `alignItems: 'flex-end'` mirrors `diveRowTop`/`diveRowMain` exactly: the depth value
+    // bottom-aligns against the sub-line, the same way a row's depth bottom-aligns against
+    // its site name.
+    detailHero: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      gap: 12,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    // Holds the site name and sub-line stacked, `flex: 1` so it takes the hero's full
+    // width apart from what the depth value needs — the same role `diveRowMain` plays in
+    // a row.
+    detailHeroMain: {
+      flex: 1,
+    },
+    detailHeroSite: {
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 22,
+      color: theme.fg,
+      lineHeight: 26,
+    },
+    detailHeroSub: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      marginTop: 3,
+    },
     // DiveDetailScreen (§3's clusters: date & time, site & centre, depth & duration,
     // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
     // SectionList: unlike the Dives list this is one fixed dive's worth of content, not
@@ -429,18 +468,29 @@ function build(scheme: ColorScheme) {
     detailCluster: {
       gap: 10,
     },
+    // DESIGN.md §0.6 table's "Cluster label" row: Plex Mono 10.5, uppercase, +0.14 em
+    // (0.14 × 10.5 ≈ 1.5), muted. M1c task 5 replaces an earlier Archivo SemiBold 13 px
+    // treatment that predated §0.6 — mono is what marks this text as a structural label
+    // rather than content, the same distinction §0.2 draws for every data figure on this
+    // screen.
     detailClusterTitle: {
-      fontFamily: fonts['sans-semibold'],
-      fontSize: 13,
+      fontFamily: fonts.mono,
+      fontSize: 10.5,
       color: theme.fgMuted,
       textTransform: 'uppercase',
-      letterSpacing: 0.5,
+      letterSpacing: 1.5,
+      marginBottom: 8,
     },
+    // `position: 'relative'` is only load-bearing for a computed row's marker
+    // (detailComputedMark below), which anchors `left: 0`/`top: 5` against this box —
+    // every other row ignores it, since a relative position with no offset of its own has
+    // no visual effect.
     detailRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'flex-start',
       gap: 12,
+      position: 'relative',
     },
     detailLabel: {
       fontFamily: fonts.sans,
@@ -465,6 +515,44 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.sans,
       fontSize: 15,
       color: theme.fg,
+    },
+    // Computed-value marking (§0.6: "Computed values are marked as computed" — exactly
+    // time out, surface interval, gas used, RMV and MOD; nothing else on this screen, not
+    // even Used pressure, which is built from derived.ts's usedBar the same way but isn't
+    // named in the table). `detailLabelComputed` reserves room for the marker View below
+    // via `paddingLeft` rather than a wrapping element: DiveDetailScreen.tsx's `Row`
+    // composes it onto `detailLabel` (`[detailLabel, detailLabelComputed]`) only when the
+    // field is computed, so an entered field's label keeps zero padding — the exact
+    // difference its own test ("marks a computed value so it reads differently from one
+    // the diver entered") checks for.
+    detailLabelComputed: {
+      paddingLeft: 13,
+    },
+    // The marker itself: a plain decorative View, not a control (§0.5's 48 dp tap-target
+    // floor doesn't apply to it), positioned absolute against `detailRow`'s own box —
+    // `left: 0` lands it flush with the label's own left edge because `detailRow` has no
+    // padding of its own, and `detailLabelComputed`'s paddingLeft above is sized to keep
+    // the label's first glyph clear of it rather than overlapping. `theme.fgMuted` is its
+    // only colour — it gains none of its own.
+    detailComputedMark: {
+      position: 'absolute',
+      left: 0,
+      top: 5,
+      width: 6,
+      height: 6,
+      borderRadius: 1,
+      borderWidth: 1,
+      borderColor: theme.fgMuted,
+      opacity: 0.75,
+    },
+    // DESIGN.md §0.6 table's "Computed value" row: Plex Mono 13.5 (down from detailValue's
+    // 15), muted ink. Composed onto `detailValue` (`[detailValue, detailValueComputed]`),
+    // never standalone: every one of the five computed fields is a mono data figure, so
+    // this only ever needs to override size and colour, not the mono family, tabular
+    // figures, or right alignment `detailValue` already supplies.
+    detailValueComputed: {
+      fontSize: 13.5,
+      color: theme.fgMuted,
     },
     // One cylinder's block within Gas & cylinders — hairline-separated from the one
     // above it via `theme.border`, DESIGN.md §0.2's hairlines/dividers token (the

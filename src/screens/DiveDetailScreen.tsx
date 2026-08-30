@@ -4,7 +4,7 @@ import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native'
 
 import { DepthValue } from '../components/DepthValue';
 import { useDives } from '../db/useDives';
-import { gasUsedLitres, mod, rmv, surfaceIntervalMin, usedBar } from '../domain/derived';
+import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import {
@@ -25,7 +25,6 @@ import {
   formatSuit,
   formatSurfaceInterval,
   formatTemperature,
-  formatTimeRange,
   formatVolume,
   formatWaterBody,
   formatWeight,
@@ -57,14 +56,36 @@ import { type ColorScheme } from '../theme/tokens';
  *
  * The six values `src/domain/derived.ts` computes (used pressure, gas used, RMV, MOD,
  * time out, surface interval) are never recomputed here — each is read from that module
- * (time out via `formatTimeRange`, which already wraps `derived.ts`'s `timeOut`) and
- * rendered only when the function actually returned a value. Those functions return
- * `null` precisely when their inputs were absent or contradictory; inventing a displayed
- * value in that case would defeat the safety reasoning they carry, so this screen shows
- * nothing there instead — never a NaN, never a dash standing in for the real number.
- * MOD is the one exception to "one row per value": `mod()` is called once per tank, not
- * once for the dive (DESIGN.md §10, "MOD is per cylinder, and there is no single 'dive
- * MOD'"), so it is read inside `tankFields` below rather than alongside gas-used/RMV.
+ * directly (time out via `timeOut`, called once per tank for MOD and once for the dive for
+ * the rest) and rendered only when the function actually returned a value. Those functions
+ * return `null` precisely when their inputs were absent or contradictory; inventing a
+ * displayed value in that case would defeat the safety reasoning they carry, so this
+ * screen shows nothing there instead — never a NaN, never a dash standing in for the real
+ * number. MOD is the one exception to "one row per value": `mod()` is called once per
+ * tank, not once for the dive (DESIGN.md §10, "MOD is per cylinder, and there is no single
+ * 'dive MOD'"), so it is read inside `tankFields` below rather than alongside gas-used/RMV.
+ *
+ * Time in and time out are two separate rows (M1c task 5), not the one merged
+ * "09:15 – 09:59" range this screen used to show via `formatTimeRange`: half of that range
+ * was the diver's own entry and half was worked out from it, and a single row can't be
+ * marked as partly computed. `dive.timeIn` renders as-is — already the diver's own
+ * "HH:MM", no formatter needed, the same way `whereFields` below renders `siteName`
+ * straight — while "Time out" reads `timeOut()`'s own return.
+ *
+ * Only FIVE of the six derived values carry the computed-value marker (§0.6): time out,
+ * surface interval, gas used, RMV, MOD. Used pressure does not, even though `usedBar` is
+ * built exactly the same way — DESIGN.md §0.6's table names only the five, and the table
+ * is the authority a plausible-looking implementation doesn't get to extend by analogy.
+ * `Row`'s `computed` prop (see below) is what turns the marker on; it is independent of
+ * `mono` even though, on this screen today, every computed field also happens to be one.
+ *
+ * The hero at the top of the screen (also M1c task 5, §0.6) is the same anchor idea
+ * DiveRow.tsx's row gives a dive — depth, in its band colour, is the value that actually
+ * differs dive to dive — read at detail scale: the site name, a `#number · date · centre`
+ * mono sub-line (`heroSubline` below), and `<DepthValue variant="hero" />`. Every piece of
+ * it is independently nullable (no site name, no assigned number for a planned dive, no
+ * centre) except the date, which DESIGN.md §6 never allows to be null — so the sub-line
+ * always has at least the date to show, and the screen never opens on a truly empty hero.
  *
  * No profile chart, sparkline, or other graphic is drawn (§0.4): no dive in this version
  * carries a real sample series, and this screen does not import anything that could draw
@@ -102,18 +123,46 @@ import { type ColorScheme } from '../theme/tokens';
  * §0.2) versus Archivo for free text or a categorical label ("wet", a site name, a
  * buddy's name) — decided explicitly at each call site below rather than inferred from
  * the value's type, so a new field can't silently pick up the wrong one.
+ *
+ * `computed` (M1c task 5, default falsy) marks exactly the five values DESIGN.md §0.6
+ * names as derived rather than diver-entered — time out, surface interval, gas used, RMV,
+ * MOD — and nothing else; see this file's top docblock for why Used pressure is not among
+ * them despite being built the same way. Set explicitly at each call site, the same
+ * reasoning `mono` above already uses, rather than inferred from anything about the field
+ * itself.
  */
 interface Field {
   label: string;
   value: string;
   mono: boolean;
+  computed?: boolean;
 }
 
-function Row({ label, value, mono, styles }: Field & { styles: Styles }) {
+/**
+ * `computed` adds the outlined marker to the label and mutes+shrinks the value (§0.6:
+ * "carry a small outlined square on the label and sit in muted ink"). The marker itself
+ * (`detailComputedMark`) is a plain View, not nested inside the label `Text` — RN doesn't
+ * allow an arbitrary View as a Text child — so it renders as `detailRow`'s own absolutely
+ * positioned child instead; `detailRow`'s own `position: 'relative'` is what gives it
+ * something to anchor `left: 0`/`top: 5` against, landing it flush with the label's own
+ * left edge. `detailLabelComputed`'s `paddingLeft` on the label is what actually keeps its
+ * first glyph clear of the marker, and is also the one difference a test can see straight
+ * off a Text node's own style prop without having to find a sibling View at all — see
+ * DiveDetailScreen.test.tsx's `paddingLeftOf`.
+ */
+function Row({ label, value, mono, computed, styles }: Field & { styles: Styles }) {
+  const valueStyle = mono
+    ? computed
+      ? [styles.detailValue, styles.detailValueComputed]
+      : styles.detailValue
+    : styles.detailValueText;
   return (
     <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={mono ? styles.detailValue : styles.detailValueText}>{value}</Text>
+      {computed && <View style={styles.detailComputedMark} />}
+      <Text style={computed ? [styles.detailLabel, styles.detailLabelComputed] : styles.detailLabel}>
+        {label}
+      </Text>
+      <Text style={valueStyle}>{value}</Text>
     </View>
   );
 }
@@ -249,6 +298,10 @@ function equipmentFields(dive: Dive): Field[] {
  * of them above the tank list (as M1b did, reading `tanks[0]` only) hid the other
  * silently. It sits right after O₂/He — the mix that produces it — and before the
  * pressure fields, which describe consumption, not the mix's own limit.
+ *
+ * MOD carries `computed: true` (M1c task 5, §0.6) — the diver typed the mix, not the
+ * limit. `Used` a few lines down does not, despite being built by derived.ts's `usedBar`
+ * exactly the same way: see this file's top docblock for why the table's five stay five.
  */
 function tankFields(tank: Tank): Field[] {
   const fields: Field[] = [];
@@ -264,7 +317,7 @@ function tankFields(tank: Tank): Field[] {
   const he = formatPercent(tank.hePct);
   if (he !== null) fields.push({ label: 'He', value: he, mono: true });
   const tankMod = formatDepth(mod(tank.o2Pct));
-  if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true });
+  if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true, computed: true });
   const start = formatPressure(tank.startBar);
   if (start !== null) fields.push({ label: 'Start pressure', value: start, mono: true });
   const end = formatPressure(tank.endBar);
@@ -310,6 +363,29 @@ function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
   return index === -1 ? undefined : logged[index + 1];
 }
 
+/**
+ * The hero's mono sub-line, e.g. "#6 · 22 Aug 2026 · Ponorka" — dive number, date, dive
+ * centre, middot-separated. `number` comes from `useDives()`'s own `numbers` map (the same
+ * one DiveRow.tsx and ReorderControls.tsx already read `numbers.get(dive.id)` from), not
+ * recomputed here, for the identical reason this file's own top docblock gives for reading
+ * the dive itself from that one hook: a second numbering path is a second place a number
+ * shown here could disagree with the number the list showed for the same dive.
+ *
+ * Number and centre are independently omitted when absent (`undefined` for a planned dive
+ * per §2.4, `null` for a dive with no recorded centre) — filtered out before joining,
+ * never rendered as an empty segment or a stray leading/trailing " · ". `formatDiveDate`
+ * never returns null (`date` is the one field DESIGN.md §6 never allows to be absent), so
+ * this is never itself the empty string: a dive with nothing else recorded still gets a
+ * one-part sub-line, exactly the "only the date" case this file's own docblock (and its
+ * test "shows nothing but the date and status for a dive with only a date") already treats
+ * as a normal, expected dive rather than a broken one.
+ */
+function heroSubline(dive: Dive, number: number | undefined): string {
+  return [number !== undefined ? `#${number}` : null, formatDiveDate(dive.date), dive.centerName]
+    .filter((part): part is string => part !== null)
+    .join(' · ');
+}
+
 interface DiveDetailScreenProps {
   /** Overrides the route's own `id` param — see this file's top docblock. Absent (the real
    * `/dive/[id]` route) falls back to `useLocalSearchParams()`, exactly as before this prop
@@ -327,7 +403,7 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
-  const { dives } = useDives();
+  const { dives, numbers } = useDives();
 
   const dive = dives.find((d) => d.id === id);
 
@@ -342,9 +418,14 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
     );
   }
 
-  const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
+  const timeOutValue = timeOut(dive.timeIn, dive.durationMin);
   const previous = previousLoggedDive(dives, dive);
   const surfaceInterval = previous === undefined ? null : formatSurfaceInterval(surfaceIntervalMin(previous, dive));
+
+  // Hero (§0.6, M1c task 5) — see heroSubline's own docblock for why `number` comes from
+  // useDives()'s own map rather than being recomputed here.
+  const number = numbers.get(dive.id);
+  const heroSub = heroSubline(dive, number);
 
   const maxDepth = formatDepth(dive.maxDepthM);
   const avgDepth = formatDepth(dive.avgDepthM);
@@ -380,85 +461,98 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
   return (
     <View style={styles.screen}>
       {showBackButton && <BackButton styles={styles} />}
-      <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
-        <Cluster title="Date & time" styles={styles}>
-          <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
-          <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
-          {timeRange !== null && <Row label="Time" value={timeRange} mono styles={styles} />}
-          {surfaceInterval !== null && (
-            <Row label="Surface interval" value={surfaceInterval} mono styles={styles} />
+      <ScrollView style={styles.detailScroll}>
+        <View style={styles.detailHero}>
+          <View style={styles.detailHeroMain}>
+            {dive.siteName !== null && <Text style={styles.detailHeroSite}>{dive.siteName}</Text>}
+            <Text style={styles.detailHeroSub}>{heroSub}</Text>
+          </View>
+          <DepthValue metres={dive.maxDepthM} scheme={scheme} variant="hero" />
+        </View>
+
+        <View style={styles.detailContent}>
+          <Cluster title="Date & time" styles={styles}>
+            <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
+            <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
+            {dive.timeIn !== null && <Row label="Time in" value={dive.timeIn} mono styles={styles} />}
+            {timeOutValue !== null && (
+              <Row label="Time out" value={timeOutValue} mono computed styles={styles} />
+            )}
+            {surfaceInterval !== null && (
+              <Row label="Surface interval" value={surfaceInterval} mono computed styles={styles} />
+            )}
+          </Cluster>
+
+          {where.length > 0 && (
+            <Cluster title="Site & centre" styles={styles}>
+              {where.map((f) => (
+                <Row key={f.label} {...f} styles={styles} />
+              ))}
+            </Cluster>
           )}
-        </Cluster>
 
-        {where.length > 0 && (
-          <Cluster title="Site & centre" styles={styles}>
-            {where.map((f) => (
-              <Row key={f.label} {...f} styles={styles} />
-            ))}
-          </Cluster>
-        )}
-
-        {showDepthDuration && (
-          <Cluster title="Depth & duration" styles={styles}>
-            {maxDepth !== null && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Max depth</Text>
-                <DepthValue metres={dive.maxDepthM} scheme={scheme} />
-              </View>
-            )}
-            {avgDepth !== null && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Avg depth</Text>
-                <DepthValue metres={dive.avgDepthM} scheme={scheme} />
-              </View>
-            )}
-            {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
-          </Cluster>
-        )}
-
-        {conditions.length > 0 && (
-          <Cluster title="Conditions" styles={styles}>
-            {conditions.map((f) => (
-              <Row key={f.label} {...f} styles={styles} />
-            ))}
-          </Cluster>
-        )}
-
-        {showGasCluster && (
-          <Cluster title="Gas & cylinders" styles={styles}>
-            {gasUsed !== null && <Row label="Gas used" value={gasUsed} mono styles={styles} />}
-            {rmvValue !== null && <Row label="RMV" value={rmvValue} mono styles={styles} />}
-            {tankGroups.map(({ index, fields }) => {
-              if (fields.length === 0) return null;
-              return (
-                <View key={index} style={styles.detailTank}>
-                  <Text style={styles.detailTankTitle}>
-                    {dive.tanks.length > 1 ? `Cylinder ${index + 1}` : 'Cylinder'}
-                  </Text>
-                  {fields.map((f) => (
-                    <Row key={f.label} {...f} styles={styles} />
-                  ))}
+          {showDepthDuration && (
+            <Cluster title="Depth & duration" styles={styles}>
+              {maxDepth !== null && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Max depth</Text>
+                  <DepthValue metres={dive.maxDepthM} scheme={scheme} />
                 </View>
-              );
-            })}
-          </Cluster>
-        )}
+              )}
+              {avgDepth !== null && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Avg depth</Text>
+                  <DepthValue metres={dive.avgDepthM} scheme={scheme} />
+                </View>
+              )}
+              {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
+            </Cluster>
+          )}
 
-        {equipment.length > 0 && (
-          <Cluster title="Equipment & people" styles={styles}>
-            {equipment.map((f) => (
-              <Row key={f.label} {...f} styles={styles} />
-            ))}
-          </Cluster>
-        )}
+          {conditions.length > 0 && (
+            <Cluster title="Conditions" styles={styles}>
+              {conditions.map((f) => (
+                <Row key={f.label} {...f} styles={styles} />
+              ))}
+            </Cluster>
+          )}
 
-        {hasNotes && (
-          <Cluster title="Notes" styles={styles}>
-            {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
-            {rating !== null && <Row label="Rating" value={rating} mono styles={styles} />}
-            {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
-          </Cluster>
-        )}
+          {showGasCluster && (
+            <Cluster title="Gas & cylinders" styles={styles}>
+              {gasUsed !== null && <Row label="Gas used" value={gasUsed} mono computed styles={styles} />}
+              {rmvValue !== null && <Row label="RMV" value={rmvValue} mono computed styles={styles} />}
+              {tankGroups.map(({ index, fields }) => {
+                if (fields.length === 0) return null;
+                return (
+                  <View key={index} style={styles.detailTank}>
+                    <Text style={styles.detailTankTitle}>
+                      {dive.tanks.length > 1 ? `Cylinder ${index + 1}` : 'Cylinder'}
+                    </Text>
+                    {fields.map((f) => (
+                      <Row key={f.label} {...f} styles={styles} />
+                    ))}
+                  </View>
+                );
+              })}
+            </Cluster>
+          )}
+
+          {equipment.length > 0 && (
+            <Cluster title="Equipment & people" styles={styles}>
+              {equipment.map((f) => (
+                <Row key={f.label} {...f} styles={styles} />
+              ))}
+            </Cluster>
+          )}
+
+          {hasNotes && (
+            <Cluster title="Notes" styles={styles}>
+              {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
+              {rating !== null && <Row label="Rating" value={rating} mono styles={styles} />}
+              {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
+            </Cluster>
+          )}
+        </View>
       </ScrollView>
     </View>
   );

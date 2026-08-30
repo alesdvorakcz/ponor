@@ -39,6 +39,37 @@ function textIn(t: RenderResult): string[] {
     .filter((c): c is string => typeof c === 'string');
 }
 
+/**
+ * M1c task 5 helpers: the computed-value marker (DESIGN.md §0.6) is a style difference,
+ * not new text, so "the label is present" can't distinguish a marked row from an unmarked
+ * one — these three pull one concrete style property off one Text node's (possibly array)
+ * `style` prop, the same `[style].flat(3).filter(Boolean).reduce(...)` shape the brief's
+ * own sample and DepthValue.test.tsx's `sizeOf` already use. `textNode` finds that Text
+ * node by its own exact (non-nested) child string — never a substring match, so 'Time'
+ * can't accidentally match 'Time out'.
+ */
+function textNode(t: RenderResult, s: string) {
+  return textNodesOf(t).find((n) => String(n.children[0] ?? '') === s);
+}
+
+function styleArrayOf(node: ReturnType<typeof textNode>): any[] {
+  return [node?.props.style].flat(3).filter(Boolean);
+}
+
+/** 0 for a node that's missing or carries no `paddingLeft` — that IS the unmarked
+ * reading (no `detailLabelComputed`), not a missing measurement. */
+function paddingLeftOf(node: ReturnType<typeof textNode>): number {
+  return styleArrayOf(node).reduce((a: number, s: any) => s?.paddingLeft ?? a, 0);
+}
+
+function colorOf(node: ReturnType<typeof textNode>): unknown {
+  return styleArrayOf(node).reduce((a: unknown, s: any) => s?.color ?? a, undefined);
+}
+
+function fontSizeOf(node: ReturnType<typeof textNode>): number {
+  return styleArrayOf(node).reduce((a: number, s: any) => s?.fontSize ?? a, 0);
+}
+
 const mockUseDives = useDives as jest.Mock;
 const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
 const mockCanGoBack = router.canGoBack as jest.Mock;
@@ -174,6 +205,150 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
   const t = await render(<DiveDetailScreen id={d.id} />);
   const modLabels = textIn(t).filter((s) => s === 'MOD');
   expect(modLabels).toHaveLength(2);
+});
+
+// M1c task 5 (DESIGN.md §0.6): exactly five values on this screen are marked as computed
+// — time out, surface interval, gas used, RMV, MOD — with a 6 px outlined marker on the
+// label (surfaced here as `detailLabelComputed`'s `paddingLeft`, since the marker itself is
+// a decorative sibling View a Text-only query can't see) and muted ink on the value. Task
+// 4's own report (MOD-per-cylinder) named the exact failure mode to avoid: a test that only
+// checks a value is present "somewhere" would pass a broken implementation that marks every
+// row, or none of the right ones. Every test below instead compares a marked row against an
+// unmarked one IN THE SAME ASSERTION, so a mutation that removes the marker from the real
+// row, or adds it to a row that shouldn't have one, changes which side of the comparison
+// wins rather than just removing a value both sides could live without.
+//
+// This first one is the brief's own Step 1 example, adapted the same way every other
+// `id`-prop test in this file already is (see task 4's report): its own render otherwise
+// crashes on `reading 'id'` with no `mockUseLocalSearchParams` return value wired up.
+it('marks a computed value so it reads differently from one the diver entered', async () => {
+  const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44, maxDepthM: 32.4 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  expect(paddingLeftOf(textNode(t, 'Time out'))).toBeGreaterThan(paddingLeftOf(textNode(t, 'Duration')));
+});
+
+// Time in/out are the closest possible neighbours — same cluster, same clock-reading shape,
+// one typed by the diver and one worked out from it — so this is the pairing most likely to
+// leak the marker onto the wrong side, or leave both bare.
+it('marks time out as computed but leaves the entered time in beside it alone', async () => {
+  const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  expect(paddingLeftOf(textNode(t, 'Time out'))).toBeGreaterThan(0);
+  expect(paddingLeftOf(textNode(t, 'Time in'))).toBe(0);
+});
+
+it('marks the surface interval as computed, distinctly from the entered date above it', async () => {
+  const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
+  const target = dive({ id: 'target', date: '2026-08-16', timeIn: '10:38' });
+  mockUseDives.mockReturnValue({ dives: [target, earlier], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: target.id });
+  const t = await render(<DiveDetailScreen id={target.id} />);
+  expect(paddingLeftOf(textNode(t, 'Surface interval'))).toBeGreaterThan(0);
+  expect(paddingLeftOf(textNode(t, 'Date'))).toBe(0);
+});
+
+it('marks Gas used and RMV as computed, distinctly from an entered field like O₂', async () => {
+  const d = dive({ date: '2026-06-04', avgDepthM: 20, durationMin: 45, tanks: [tank()] });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  expect(paddingLeftOf(textNode(t, 'Gas used'))).toBeGreaterThan(0);
+  expect(paddingLeftOf(textNode(t, 'RMV'))).toBeGreaterThan(0);
+  expect(paddingLeftOf(textNode(t, 'O₂'))).toBe(0);
+});
+
+// The one field most likely to be mismarked "by analogy": `usedBar` (the "Used" pressure
+// row) is built by derived.ts exactly the way the real five are, but DESIGN.md §0.6's table
+// names only time out, surface interval, gas used, RMV and MOD — Used pressure is diver
+// start-minus-end, not a row a diver could wonder about the provenance of, and the brief
+// this task shipped from is explicit: "Exactly those five are computed. Nothing else on the
+// screen is." A reasonable-looking implementation that marked every derived.ts output would
+// pass every test above and still be wrong; this is the test that catches it.
+it('marks MOD as computed but not Used pressure, even though usedBar is derived too', async () => {
+  const d = dive({ date: '2026-06-04', tanks: [tank()] });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  expect(paddingLeftOf(textNode(t, 'MOD'))).toBeGreaterThan(0);
+  expect(paddingLeftOf(textNode(t, 'Used'))).toBe(0);
+});
+
+// The label's padding proves the marker; this proves the OTHER half of §0.6's rule ("...and
+// sit in muted ink") independently — a fix that adds detailLabelComputed but forgets
+// detailValueComputed would pass every test above and still leave the value looking exactly
+// like an entered one. DESIGN.md §0.6's table also sizes a computed value at 13.5, down from
+// the entered 15 — checked here too, since nothing above touches font size either.
+it("mutes a computed value's own ink and shrinks it, not just its label", async () => {
+  const d = dive({ date: '2026-08-16', timeIn: '09:15', durationMin: 44 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  // timeOut('09:15', 44) = '09:59'; formatDuration(44) = '44 min'.
+  const computedValue = textNode(t, '09:59');
+  const enteredValue = textNode(t, '44 min');
+  // Without this, a computed value that never renders as its own node at all (e.g. still
+  // buried inside a combined "09:15 – 09:59" string) would make colorOf(computedValue)
+  // read `undefined` — which trivially differs from any real colour and would pass this
+  // assertion for the wrong reason.
+  expect(computedValue).toBeDefined();
+  expect(colorOf(computedValue)).not.toBe(colorOf(enteredValue));
+  expect(fontSizeOf(computedValue)).toBe(13.5);
+  expect(fontSizeOf(enteredValue)).toBe(15);
+});
+
+// M1c task 5's other half: the detail hero (DESIGN.md §0.6) — site name heading, a
+// `#number · date · centre` mono sub-line, and the 34 px depth anchor (DepthValue's
+// `variant="hero"`, from task 1). `renderDetail`'s helper `numbers: new Map()` never
+// carries a number for its target, so a dedicated `mockUseDives` call is needed here to
+// give this dive one, the same way the "shows every cylinder its own MOD" test above does.
+it('opens with a hero — site name heading, then number · date · centre in mono', async () => {
+  const d = dive({ date: '2026-08-22', siteName: 'Blue Hole', centerName: 'Ponorka', maxDepthM: 18 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' ');
+  expect(text).toContain('Blue Hole');
+  expect(text).toContain('#6 · 22 Aug 2026 · Ponorka');
+});
+
+// The hero's depth is specifically the 34 px hero variant, not a second 20 px row-scale
+// depth — DepthValue.test.tsx already pins that 'hero' renders at 34 and 'row' at 20 in
+// isolation; this is the proof DiveDetailScreen actually passes `variant="hero"` at its one
+// call site, rather than defaulting to 'row' like every other DepthValue on this screen
+// (the "Depth & duration" cluster's own Max depth row uses the plain 20 px variant, so the
+// same '18.0' numeral legitimately renders twice at two different sizes — this checks that
+// 34 is one of them, not that 20 is absent).
+it('renders the hero depth at the 34 px detail-scale variant', async () => {
+  const d = dive({ date: '2026-08-16', maxDepthM: 18 });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const sizesOf18 = textNodesOf(t)
+    .filter((n) => String(n.children[0] ?? '').includes('18.0'))
+    .map((n) => fontSizeOf(n));
+  expect(sizesOf18).toContain(34);
+});
+
+// A dive with only a date (§6's frozen minimum) must still render a clean hero: no site
+// heading (siteName is null, and this screen's own convention — whereFields, right above —
+// is to omit a null field rather than placeholder it, never invent a fallback), no number
+// (planned/never-numbered), no centre, and critically no stray "· ·" from joining absent
+// parts, which a naive template string (rather than filter-then-join) would leave behind.
+it('renders a clean hero for a dive with only a date, with no site heading and no stray separators', async () => {
+  const d = dive({ date: '2026-08-16' });
+  mockUseDives.mockReturnValue({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const text = textIn(t).join(' ');
+  expect(text).toContain('16 Aug 2026');
+  expect(text).not.toContain('null');
+  expect(text).not.toContain('undefined');
+  expect(text).not.toContain('·  ·');
+  // The 22 px hero heading is absent outright, not rendered with empty text.
+  expect(textNodesOf(t).filter((n) => fontSizeOf(n) === 22)).toHaveLength(0);
 });
 
 it('omits a computed value entirely when its inputs are missing', async () => {
