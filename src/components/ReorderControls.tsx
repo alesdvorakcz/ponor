@@ -97,6 +97,94 @@ export async function applyReorder(
   return { message: outcome.applied ? null : NOT_APPLIED_MESSAGE };
 }
 
+/**
+ * A per-date write guard — DivesScreen.tsx's fix for this task's review
+ * finding: tapping the reorder controls rapidly fires overlapping
+ * `reorderDivesForDate` calls, and an earlier tap's promise can resolve
+ * `applied: true` (so no error shows) after a later overlapping write for
+ * the SAME day has already landed and silently overridden it. A control
+ * reporting success for an effect that was actually discarded is exactly
+ * the failure shape `canReorder` (domain/trips.ts) exists to close for the
+ * `timeIn` tier — this closes the same shape where it turns up again, one
+ * layer down, as a write race.
+ *
+ * `run(date, write)` calls `write()` and returns its promise immediately,
+ * UNLESS `date` already has a call in flight, in which case it returns
+ * `null` and does not call `write` at all — the second request is never
+ * even attempted, not merely started and left to lose a race. Whichever
+ * date `write` was called for is released — eligible to run again — once
+ * that promise settles, success or failure alike (`finally`), so a
+ * rejected write can never leave a date stuck.
+ *
+ * Deliberately not a timing-based debounce: nothing here waits a fixed
+ * duration or races a timer against the write. A date is released only by
+ * ITS OWN call settling, so this holds regardless of how long a write
+ * actually takes on a given device.
+ *
+ * Scoped per date on purpose, not one lock for the whole screen:
+ * `reorderDivesForDate` only ever touches one day's rows
+ * (`where date = day`, db/dives.ts), so two different days' writes cannot
+ * conflict with each other and have no reason to wait on one another —
+ * only a second call for a date that is ALREADY pending is ever blocked.
+ *
+ * Plain state in a closure, not React state: the check-and-set in `run`
+ * has to happen synchronously, in one uninterrupted step, so that two
+ * calls issued back to back — before anything has had a chance to react to
+ * the first — can never both see "nothing pending" and both proceed. A
+ * `useState` value read through a closure captured at the last render
+ * cannot give that guarantee (see DivesScreen.tsx's own use of this for
+ * why); a plain `Set` mutated directly, with no React re-render in
+ * between, can.
+ */
+export function createReorderGate() {
+  const pending = new Set<string>();
+  return {
+    /** True while `date` has a call started by `run` that has not yet
+     * settled. DivesScreen.tsx reads this only to decide what to SHOW
+     * (`ReorderControls`'s `disabled` prop) — never to decide whether a
+     * write may start; `run` itself is the only thing that decides that. */
+    isPending(date: string): boolean {
+      return pending.has(date);
+    },
+    run<T>(date: string, write: () => Promise<T>): Promise<T> | null {
+      if (pending.has(date)) return null;
+      pending.add(date);
+      return write().finally(() => pending.delete(date));
+    },
+  };
+}
+
+export type ReorderGate = ReturnType<typeof createReorderGate>;
+
+/**
+ * Distinguishes one row's "Move ... up/down" accessibility label from every
+ * other row's — the review flagged "Move dive up"/"Move dive down" as
+ * identical on every row, leaving a screen-reader user unable to tell which
+ * dive a control belongs to.
+ *
+ * Site name alone cannot fix that here: every `Dive` this component is ever
+ * given in real use shares one exact place. `dives` (this component's prop
+ * doc, above) is always one `sameDateGroups` run, and `sameDateGroups` only
+ * ever splits up ONE `groupIntoTrips` trip's dives (DivesScreen.tsx's
+ * `toListEntries`) — and `groupIntoTrips`'s own `sameTrip` requires
+ * `placeOf(a) === placeOf(b)` between every adjacent pair, which (string
+ * equality being transitive) makes every dive in a trip share the identical
+ * place. So in the one case this task exists for — two or more untimed
+ * dives sharing a day, which is also the common case for sharing a site —
+ * a label built from site name alone would read the same on every row all
+ * over again and not fix anything. Position within the day always
+ * distinguishes a row, so it is always included; the site name (this
+ * component's own unit tests use fixtures with genuinely different names,
+ * since nothing in this component's own contract forbids that either) is
+ * added in front of it where there is one, because a place a diver
+ * recognises is still more useful to hear than a bare index.
+ */
+function rowLabel(dive: Dive, index: number, total: number): string {
+  const site = dive.siteName ?? dive.centerName;
+  const position = `dive ${index + 1} of ${total}`;
+  return site !== null ? `${site} (${position})` : position;
+}
+
 interface ReorderControlsProps {
   /** One day's dives (`domain/trips.ts`'s `sameDateGroups`), in the screen's
    * own newest-first order — the same dives, same order, `DiveRow` would
@@ -120,6 +208,17 @@ interface ReorderControlsProps {
    * not awaited by this component.
    */
   onReorder: (orderedIds: string[]) => void;
+  /**
+   * True while THIS day's reorder write is in flight (DivesScreen tracks
+   * that per date, not here — this component stays stateless, per its own
+   * docblock below). Every button in the group is disabled on top of its
+   * existing first/last rule, not just visually: `Pressable`'s own
+   * `disabled` prop blocks `onPress` from firing at all, which is what
+   * keeps a second press from reaching `onReorder` while the first write's
+   * promise is still unsettled. Defaults to `false` so every existing
+   * caller/test that never mentions this is unaffected.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -145,7 +244,14 @@ interface ReorderControlsProps {
  * already, and duplicating it here is exactly the kind of drift this
  * codebase's other docblocks keep naming as the recurring mistake.
  */
-export function ReorderControls({ dives, numbers, scheme, onPress, onReorder }: ReorderControlsProps) {
+export function ReorderControls({
+  dives,
+  numbers,
+  scheme,
+  onPress,
+  onReorder,
+  disabled = false,
+}: ReorderControlsProps) {
   const styles = makeStyles(scheme);
   const listOrder = dives.map((d) => d.id);
 
@@ -154,6 +260,8 @@ export function ReorderControls({ dives, numbers, scheme, onPress, onReorder }: 
       {dives.map((dive, index) => {
         const isFirst = index === 0;
         const isLast = index === dives.length - 1;
+        const upDisabled = isFirst || disabled;
+        const downDisabled = isLast || disabled;
         return (
           <View key={dive.id} style={styles.reorderRow}>
             <View style={styles.reorderRowContent}>
@@ -161,22 +269,22 @@ export function ReorderControls({ dives, numbers, scheme, onPress, onReorder }: 
             </View>
             <View style={styles.reorderButtonColumn}>
               <Pressable
-                style={[styles.reorderButton, isFirst && styles.reorderButtonDisabled]}
-                disabled={isFirst}
+                style={[styles.reorderButton, upDisabled && styles.reorderButtonDisabled]}
+                disabled={upDisabled}
                 onPress={() => onReorder(moveUp(listOrder, index))}
                 accessibilityRole="button"
-                accessibilityLabel="Move dive up"
-                accessibilityState={{ disabled: isFirst }}
+                accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} up`}
+                accessibilityState={{ disabled: upDisabled }}
               >
                 <Text style={styles.reorderButtonLabel}>{'▲'}</Text>
               </Pressable>
               <Pressable
-                style={[styles.reorderButton, isLast && styles.reorderButtonDisabled]}
-                disabled={isLast}
+                style={[styles.reorderButton, downDisabled && styles.reorderButtonDisabled]}
+                disabled={downDisabled}
                 onPress={() => onReorder(moveDown(listOrder, index))}
                 accessibilityRole="button"
-                accessibilityLabel="Move dive down"
-                accessibilityState={{ disabled: isLast }}
+                accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} down`}
+                accessibilityState={{ disabled: downDisabled }}
               >
                 <Text style={styles.reorderButtonLabel}>{'▼'}</Text>
               </Pressable>

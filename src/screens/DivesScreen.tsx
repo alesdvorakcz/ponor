@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, SectionList, Text, TextInput, View, useColorScheme } from 'react-native';
 
 import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
-import { applyReorder, ReorderControls } from '../components/ReorderControls';
+import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
 import { TripHeader } from '../components/TripHeader';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
@@ -110,18 +110,45 @@ export default function DivesScreen() {
   // not typecheck today; the relative form does.
   const logDive = () => router.push('./dive/new');
 
+  // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a
+  // lazily-initialised ref, not a bare `useRef(createReorderGate())`, so a
+  // fresh (and immediately discarded) gate isn't constructed on every
+  // render; only the very first one is ever kept or used. `run` is what
+  // actually decides whether a write may start; `pendingReorderDates`
+  // (state) below exists only so a render can SEE which dates are pending,
+  // to compute `disabled` — it never itself decides anything.
+  const reorderGateRef = useRef<ReorderGate | null>(null);
+  if (reorderGateRef.current === null) reorderGateRef.current = createReorderGate();
+  const [pendingReorderDates, setPendingReorderDates] = useState<Set<string>>(new Set());
+
   // Bound per date-group at the JSX call site below (`handleReorder(entry.date)`),
   // since `ReorderControls`'s `onReorder` is `(orderedIds: string[]) => void` and
-  // has no other way to say which day it's for. Clears any previous message
-  // before each attempt rather than leaving a stale one showing through a
-  // successful retry, and never awaited by the caller — the day's actual
-  // resulting order comes back through `useDives()`'s own live query, not
-  // through this promise.
+  // has no other way to say which day it's for. Never awaited by the caller —
+  // the day's actual resulting order comes back through `useDives()`'s own
+  // live query, not through this promise.
+  //
+  // The write itself is routed through `reorderGateRef` — see that
+  // function's own docblock for why a second overlapping call for the same
+  // day is ignored outright rather than raced. `setReorderMessage(null)`
+  // sits INSIDE the guarded callback on purpose: a request the gate ignores
+  // never ran, so it has nothing to say and must not clear a message a
+  // still-in-flight or just-finished call is showing.
   const handleReorder = (date: string) => (orderedIds: string[]) => {
-    setReorderMessage(null);
-    applyReorder(date, orderedIds, reorderDivesForDate)
-      .then((result) => setReorderMessage(result.message))
-      .catch(() => setReorderMessage("Couldn't reorder that day. Try again."));
+    const started = reorderGateRef.current!.run(date, () => {
+      setReorderMessage(null);
+      return applyReorder(date, orderedIds, reorderDivesForDate)
+        .then((result) => setReorderMessage(result.message))
+        .catch(() => setReorderMessage("Couldn't reorder that day. Try again."));
+    });
+    if (started === null) return; // this day already has a write in flight
+    setPendingReorderDates((prev) => new Set(prev).add(date));
+    started.finally(() => {
+      setPendingReorderDates((prev) => {
+        const next = new Set(prev);
+        next.delete(date);
+        return next;
+      });
+    });
   };
 
   if (error) {
@@ -224,6 +251,7 @@ export default function DivesScreen() {
                 scheme={scheme}
                 onPress={openDive}
                 onReorder={handleReorder(item.date)}
+                disabled={pendingReorderDates.has(item.date)}
               />
             )
           }

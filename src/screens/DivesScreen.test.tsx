@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 
 import { dive } from '../domain/diveFixture';
-import { reorderDivesForDate } from '../db/dives';
+import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
 import { useDives } from '../db/useDives';
 import DivesScreen from './DivesScreen';
 
@@ -39,10 +39,20 @@ function findSearchInput(t: RenderResult) {
   return input;
 }
 
-/** Every node carrying a given `accessibilityLabel`, in tree order — top to
- * bottom, the same order as the dives they belong to. */
-function findAllByLabel(t: RenderResult, label: string) {
-  return t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
+/** Every "Move ... up" / "Move ... down" control, in tree order. Matched by
+ * prefix/suffix, not the exact label, because ReorderControls.tsx's `rowLabel`
+ * now bakes each row's own site name and position into the label text (the
+ * fix for this task's Minor finding) — see ReorderControls.test.tsx for
+ * coverage of that label's actual content. */
+function findAllMoveButtons(t: RenderResult, direction: 'up' | 'down') {
+  return t.root
+    ? t.root.queryAll(
+        (n) =>
+          typeof n.props?.accessibilityLabel === 'string' &&
+          n.props.accessibilityLabel.startsWith('Move ') &&
+          n.props.accessibilityLabel.endsWith(` ${direction}`),
+      )
+    : [];
 }
 
 const mockUseDives = useDives as jest.Mock;
@@ -169,7 +179,7 @@ it('offers move controls for an untimed same-day pair, and asks reorderDivesForD
   mockReorderDivesForDate.mockResolvedValue({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
 
   const t = await render(<DivesScreen />);
-  const [firstDown] = findAllByLabel(t, 'Move dive down');
+  const [firstDown] = findAllMoveButtons(t, 'down');
   if (!firstDown) throw new Error('expected a move-down control');
   await fireEvent.press(firstDown);
 
@@ -195,8 +205,8 @@ it('does not offer move controls for a same-day pair that already has entry time
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  expect(findAllByLabel(t, 'Move dive down')).toHaveLength(0);
-  expect(findAllByLabel(t, 'Move dive up')).toHaveLength(0);
+  expect(findAllMoveButtons(t, 'down')).toHaveLength(0);
+  expect(findAllMoveButtons(t, 'up')).toHaveLength(0);
 });
 
 // The exact failure this task's brief names: canReorder is meant to make
@@ -216,11 +226,113 @@ it('shows a message rather than silently springing back when a reorder does not 
   mockReorderDivesForDate.mockResolvedValue({ applied: false, effectiveOrder: ['y', 'x'], overriddenIds: ['x'] });
 
   const t = await render(<DivesScreen />);
-  const [firstDown] = findAllByLabel(t, 'Move dive down');
+  const [firstDown] = findAllMoveButtons(t, 'down');
   if (!firstDown) throw new Error('expected a move-down control');
   await fireEvent.press(firstDown);
 
   await waitFor(() => {
     expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't reorder");
+  });
+});
+
+// This task's review, Important finding: firing two overlapping
+// reorderDivesForDate calls for the SAME day lets an earlier tap's promise
+// resolve `applied: true` (so no error shows) after a later overlapping
+// write has already landed and silently overridden it — a control reporting
+// success for an effect that was actually discarded.
+//
+// The actual guarantee — that two calls issued back to back, before either
+// settles, collapse to one write — is proven precisely and deterministically
+// against `createReorderGate` itself, with full control over timing via a
+// manually-resolvable promise: see ReorderControls.test.tsx's
+// `describe('createReorderGate', ...)`. Reproducing that same "fired
+// without awaiting either" shape (db/dives.test.ts's own pattern) through
+// two genuinely overlapping `fireEvent.press` calls at this level was tried
+// first and abandoned: React logs "overlapping act() calls, this is not
+// supported" for that and can leave its internal act-tracking in a state
+// that bleeds into whichever test runs next in the file. What this level
+// still has to prove instead is the WIRING: a diver who presses a control,
+// sees it go disabled, and (whether by intent or by a press landing just
+// before the disabled state renders) presses it again gets exactly one
+// write, and the day recovers once that write settles.
+it('does not fire a second reorder write for a day whose controls are already disabled by an in-flight one, and recovers once it settles — leaving a different day untouched throughout', async () => {
+  const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
+  const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
+  const p = dive({ id: 'p', date: '2026-08-10', siteName: 'Shark Reef' });
+  const q = dive({ id: 'q', date: '2026-08-10', siteName: 'Shark Reef' });
+  mockUseDives.mockReturnValue({
+    dives: [x, y, p, q],
+    numbers: new Map([
+      ['x', 4],
+      ['y', 3],
+      ['p', 2],
+      ['q', 1],
+    ]),
+    error: undefined,
+  });
+  let resolveReorder: ((outcome: ReorderOutcome) => void) | undefined;
+  mockReorderDivesForDate.mockReturnValue(
+    new Promise<ReorderOutcome>((resolve) => {
+      resolveReorder = resolve;
+    }),
+  );
+
+  const t = await render(<DivesScreen />);
+  // Blue Hole's pair renders first, then Shark Reef's (groupIntoTrips
+  // preserves the input's own order): x's down (enabled), y's (disabled,
+  // last row), p's down (enabled), q's (disabled, last row).
+  const [xDown, , pDown] = findAllMoveButtons(t, 'down');
+  if (!xDown || !pDown) throw new Error('expected both days to offer a move-down control');
+
+  fireEvent.press(xDown); // deliberately not awaited: the write is left in flight until resolved below
+  await waitFor(() => {
+    const downs = findAllMoveButtons(t, 'down');
+    expect(downs[0]?.props.accessibilityState?.disabled).toBe(true); // Blue Hole (2026-08-16): in flight
+    expect(downs[2]?.props.accessibilityState?.disabled).toBe(false); // Shark Reef (2026-08-10): untouched
+  });
+
+  // A repeat press on the now-disabled control must not reach
+  // reorderDivesForDate a second time.
+  await fireEvent.press(findAllMoveButtons(t, 'down')[0]!);
+  expect(mockReorderDivesForDate).toHaveBeenCalledTimes(1);
+
+  resolveReorder?.({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
+  await waitFor(() => {
+    expect(findAllMoveButtons(t, 'down')[0]?.props.accessibilityState?.disabled).toBe(false);
+  });
+});
+
+// "Make sure the guard releases on failure as well as success" — a rejected
+// write must not leave that day stuck disabled forever.
+it('releases the in-flight guard after a failed write, so a later reorder for the same day still runs', async () => {
+  const x = dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' });
+  const y = dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' });
+  mockUseDives.mockReturnValue({
+    dives: [x, y],
+    numbers: new Map([
+      ['x', 2],
+      ['y', 1],
+    ]),
+    error: undefined,
+  });
+  mockReorderDivesForDate.mockRejectedValueOnce(new Error('db unavailable'));
+  mockReorderDivesForDate.mockResolvedValueOnce({ applied: true, effectiveOrder: ['x', 'y'], overriddenIds: [] });
+
+  const t = await render(<DivesScreen />);
+  const [firstDown] = findAllMoveButtons(t, 'down');
+  if (!firstDown) throw new Error('expected a move-down control');
+
+  await fireEvent.press(firstDown); // the first attempt rejects
+  await waitFor(() => {
+    expect(mockReorderDivesForDate).toHaveBeenCalledTimes(1);
+  });
+  // Not stuck disabled behind the failed attempt.
+  await waitFor(() => {
+    expect(findAllMoveButtons(t, 'down')[0]?.props.accessibilityState?.disabled).toBe(false);
+  });
+
+  await fireEvent.press(firstDown); // a later press for the same day must not be stuck behind it
+  await waitFor(() => {
+    expect(mockReorderDivesForDate).toHaveBeenCalledTimes(2);
   });
 });
