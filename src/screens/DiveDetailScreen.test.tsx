@@ -10,6 +10,7 @@ import { useDives } from '../db/useDives';
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import { fonts } from '../theme/fonts';
+import { makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
 // Same two mocks every test in this file needs: the one read (useDives, per db/useDives.ts's
@@ -43,6 +44,30 @@ function textIn(t: RenderResult): string[] {
   return textNodesOf(t)
     .flatMap((n) => n.children)
     .filter((c): c is string => typeof c === 'string');
+}
+
+// M1c closing fixes, Important #1 — see DiveRow.test.tsx's own copy of this helper for the
+// full account (this screen's "draws no profile chart" test below shared the exact same
+// defect: `n.type === 'Svg'` can never match, since react-native-svg is not a dependency
+// and 'Svg' appears nowhere else under src/). §0.4 also covers this screen explicitly — "no
+// profile chart, sparkline, or other graphic is drawn... this screen does not import
+// anything that could draw one" — so the guard here checks the same two realistic shapes:
+// a suspiciously-named element type, or a `View` styled with anything this screen's own
+// `makeStyles(scheme)` didn't hand out. `known` is every value `makeStyles` returns, not a
+// hand-picked list of this screen's dozen-plus View styles, so it can't go stale as the
+// screen's own clusters change.
+const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
+
+function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'dark') {
+  if (!t.root) return [];
+  const known = Object.values(makeStyles(scheme));
+  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
+  const byAdHocStyle = t.root.queryAll((n) => {
+    if (n.type !== 'View') return false;
+    const style = [n.props?.style].flat(5).filter(Boolean);
+    return style.length > 0 && !style.some((s) => known.includes(s));
+  });
+  return [...byName, ...byAdHocStyle];
 }
 
 /**
@@ -679,8 +704,11 @@ it("shows a planned dive's status, distinctly from a logged one", async () => {
 
 it('draws no profile chart, because no dive carries a sample series', async () => {
   const t = await renderDetailTree(diveWithGas);
-  const svgNodes = t.root ? t.root.queryAll((n) => n.type === 'Svg') : [];
-  expect(svgNodes).toHaveLength(0);
+  // DivesScreen.tsx's own constraint applies here too: this screen resolves its scheme via
+  // useColorScheme(), which is 'light' under Jest — the whitelist has to be built from the
+  // same scheme the screen actually rendered with, or every real style would misreport as
+  // "ad hoc" against the wrong scheme's cached objects.
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
 });
 
 it('says the dive is gone rather than crashing when the id is unknown', async () => {

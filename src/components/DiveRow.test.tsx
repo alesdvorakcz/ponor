@@ -29,6 +29,41 @@ function textIn(t: RenderResult): string[] {
     .filter((c): c is string => typeof c === 'string');
 }
 
+// M1c closing fixes, Important #1 — the worst finding in the whole-branch review, and it
+// indicts every "tested rather than hoped" claim this codebase has made about §0.4 since
+// M1b. The old version of the test below searched for `n.type === 'Svg'`: react-native-svg
+// is not a dependency (nothing in package.json needs it) and the literal string 'Svg'
+// appears nowhere under src/ except that predicate and DiveDetailScreen.test.tsx's twin, so
+// the query always returned `[]` regardless of what DiveRow actually rendered. Proven
+// directly: adding a five-bar sparkline to this row (a `View` per bar, background-coloured
+// — nothing to do with `Svg`) left that assertion passing.
+//
+// §0.4's real property is "this row renders no graphical element", not "no element happens
+// to be named Svg" — the guard has to describe what a graphic would actually look like in
+// this codebase, not one exact node type that happens not to exist yet. Two realistic
+// shapes, checked independently: (1) an element whose own type NAME says what it draws — an
+// SVG primitive if react-native-svg is ever added (Svg/Path/Circle/Rect/...), an Image used
+// as a rendered sprite, or a component simply named for the thing it draws (Chart,
+// Sparkline, Profile); (2) a `View` styled with anything that didn't come from this file's
+// own `makeStyles(scheme)` — a bar or fill built from an ad hoc literal, exactly the shape a
+// dropped-in chart component would bring, since it would carry its own styling rather than
+// reuse DiveRow's. `known` is every value `makeStyles` actually hands out, not a hand-picked
+// subset, so this can't go stale as DiveRow's own styling evolves — only a style DiveRow was
+// never given trips it.
+const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
+
+function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'dark') {
+  if (!t.root) return [];
+  const known = Object.values(makeStyles(scheme));
+  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
+  const byAdHocStyle = t.root.queryAll((n) => {
+    if (n.type !== 'View') return false;
+    const style = [n.props?.style].flat(5).filter(Boolean);
+    return style.length > 0 && !style.some((s) => known.includes(s));
+  });
+  return [...byName, ...byAdHocStyle];
+}
+
 it('shows the dive number, site and depth', async () => {
   const t = await render(
     <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" onPress={() => {}} />,
@@ -124,11 +159,13 @@ it('shows no dive number for a planned dive', async () => {
 });
 
 it('draws no graphic for a dive, because no dive has a sample series', async () => {
+  // `rating: 4` on top of `maxDepthM` so this render also exercises RatingDots' own
+  // `View`s (§0.6's drawn marks, task 7) — proving the whitelist above recognises every
+  // legitimate View this row can produce, not just the ones a depth-only fixture reaches.
   const t = await render(
-    <DiveRow dive={dive({ maxDepthM: 32.4 })} number={1} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ maxDepthM: 32.4, rating: 4 })} number={1} scheme="dark" onPress={() => {}} />,
   );
-  const svgs = t.root ? t.root.queryAll((n) => n.type === 'Svg') : [];
-  expect(svgs).toHaveLength(0);
+  expect(unexpectedGraphics(t)).toHaveLength(0);
 });
 
 it('passes the dive id to onPress', async () => {
@@ -278,7 +315,7 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
     return t.root.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.ratingDot));
   }
 
-  function isFilled(t: RenderResult, node: ReturnType<typeof findDots>[number], scheme: 'dark' | 'light' = 'dark') {
+  function isFilled(node: ReturnType<typeof findDots>[number], scheme: 'dark' | 'light' = 'dark') {
     const styles = makeStyles(scheme);
     return [node.props.style].flat(3).includes(styles.ratingDotFilled);
   }
@@ -292,7 +329,7 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
     const t = await render(<DiveRow dive={dive({ rating: 3 })} number={1} scheme="dark" onPress={() => {}} />);
     const dots = findDots(t);
     expect(dots).toHaveLength(5);
-    expect(dots.filter((d) => isFilled(t, d))).toHaveLength(3);
+    expect(dots.filter((d) => isFilled(d))).toHaveLength(3);
   });
 
   // The trap this task's own brief names: a test that only counts "5 marks rendered" would
@@ -303,8 +340,8 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
   it('gives filled and empty marks identical dimensions, the property the two glyphs broke', async () => {
     const t = await render(<DiveRow dive={dive({ rating: 2 })} number={1} scheme="dark" onPress={() => {}} />);
     const dots = findDots(t);
-    const filled = dots.find((d) => isFilled(t, d));
-    const empty = dots.find((d) => !isFilled(t, d));
+    const filled = dots.find((d) => isFilled(d));
+    const empty = dots.find((d) => !isFilled(d));
     if (!filled || !empty) throw new Error('expected both a filled and an empty dot at rating 2');
 
     const dims = (n: (typeof dots)[number]) => {
