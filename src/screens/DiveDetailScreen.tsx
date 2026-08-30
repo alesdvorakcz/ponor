@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
-import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, Text, View, useColorScheme } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 
 import { DepthValue } from '../components/DepthValue';
 import { useDives } from '../db/useDives';
@@ -49,6 +49,11 @@ import { type ColorScheme } from '../theme/tokens';
  * No profile chart, sparkline, or other graphic is drawn (§0.4): no dive in this version
  * carries a real sample series, and this screen does not import anything that could draw
  * one.
+ *
+ * The screen supplies its own back control (BackButton, below) rather than relying on a
+ * native header: `_layout.tsx` sets `headerShown: false` for the whole app, and flipping
+ * that globally would also put a header on the Dives list, which the design does not call
+ * for. See BackButton's own docblock for the rest of the reasoning.
  */
 
 /**
@@ -79,6 +84,41 @@ function Cluster({ title, styles, children }: { title: string; styles: Styles; c
       <Text style={styles.detailClusterTitle}>{title}</Text>
       {children}
     </View>
+  );
+}
+
+/**
+ * The screen's only exit besides the iOS edge-swipe gesture, which has no on-screen
+ * affordance at all — undiscoverable, and the swipe itself isn't a 48 dp tap target
+ * either way (§0.5). Rendered in both of this screen's branches (found and not-found):
+ * a dive reached by an unknown id is exactly as much a dead end without this as a real
+ * one would be, maybe more so since there's no content to scroll through either.
+ *
+ * `router.canGoBack()` guards which navigation actually happens: this screen is reachable
+ * directly by URL (a future share link or notification), where there is no history to pop
+ * and `router.back()` would have nothing to do. `router.replace` rather than `router.push`
+ * for that fallback, so a cold deep-link launch doesn't grow the stack by one — landing
+ * back on `/` should behave like arriving there fresh, not like a second Dives screen
+ * pushed on top of a first.
+ */
+function BackButton({ styles }: { styles: Styles }) {
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
+  };
+
+  return (
+    <Pressable
+      style={styles.detailBack}
+      onPress={goBack}
+      accessibilityRole="button"
+      accessibilityLabel="Back to dives"
+    >
+      <Text style={styles.detailBackLabel}>‹ Dives</Text>
+    </Pressable>
   );
 }
 
@@ -205,6 +245,7 @@ export default function DiveDetailScreen() {
   if (dive === undefined) {
     return (
       <View style={styles.screen}>
+        <BackButton styles={styles} />
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>Dive not found.</Text>
         </View>
@@ -232,84 +273,89 @@ export default function DiveDetailScreen() {
   const hasNotes = dive.title !== null || dive.notes !== null || dive.rating !== null;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.detailContent}>
-      <Cluster title="Date & time" styles={styles}>
-        <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
-        {timeRange !== null && <Row label="Time" value={timeRange} mono styles={styles} />}
-        {surfaceInterval !== null && <Row label="Surface interval" value={surfaceInterval} mono styles={styles} />}
-      </Cluster>
-
-      {where.length > 0 && (
-        <Cluster title="Site & centre" styles={styles}>
-          {where.map((f) => (
-            <Row key={f.label} {...f} styles={styles} />
-          ))}
-        </Cluster>
-      )}
-
-      {showDepthDuration && (
-        <Cluster title="Depth & duration" styles={styles}>
-          {maxDepth !== null && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Max depth</Text>
-              <DepthValue metres={dive.maxDepthM} scheme={scheme} />
-            </View>
+    <View style={styles.screen}>
+      <BackButton styles={styles} />
+      <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
+        <Cluster title="Date & time" styles={styles}>
+          <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
+          {timeRange !== null && <Row label="Time" value={timeRange} mono styles={styles} />}
+          {surfaceInterval !== null && (
+            <Row label="Surface interval" value={surfaceInterval} mono styles={styles} />
           )}
-          {avgDepth !== null && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Avg depth</Text>
-              <DepthValue metres={dive.avgDepthM} scheme={scheme} />
-            </View>
-          )}
-          {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
         </Cluster>
-      )}
 
-      {conditions.length > 0 && (
-        <Cluster title="Conditions" styles={styles}>
-          {conditions.map((f) => (
-            <Row key={f.label} {...f} styles={styles} />
-          ))}
-        </Cluster>
-      )}
+        {where.length > 0 && (
+          <Cluster title="Site & centre" styles={styles}>
+            {where.map((f) => (
+              <Row key={f.label} {...f} styles={styles} />
+            ))}
+          </Cluster>
+        )}
 
-      {dive.tanks.length > 0 && (
-        <Cluster title="Gas & cylinders" styles={styles}>
-          {gasUsed !== null && <Row label="Gas used" value={`${Math.round(gasUsed)} l`} mono styles={styles} />}
-          {rmvValue !== null && <Row label="RMV" value={`${rmvValue.toFixed(1)} l/min`} mono styles={styles} />}
-          {modValue !== null && <Row label="MOD" value={modValue} mono styles={styles} />}
-          {dive.tanks.map((tank, index) => {
-            const fields = tankFields(tank);
-            if (fields.length === 0) return null;
-            return (
-              <View key={index} style={styles.detailTank}>
-                <Text style={styles.detailTankTitle}>
-                  {dive.tanks.length > 1 ? `Cylinder ${index + 1}` : 'Cylinder'}
-                </Text>
-                {fields.map((f) => (
-                  <Row key={f.label} {...f} styles={styles} />
-                ))}
+        {showDepthDuration && (
+          <Cluster title="Depth & duration" styles={styles}>
+            {maxDepth !== null && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Max depth</Text>
+                <DepthValue metres={dive.maxDepthM} scheme={scheme} />
               </View>
-            );
-          })}
-        </Cluster>
-      )}
+            )}
+            {avgDepth !== null && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Avg depth</Text>
+                <DepthValue metres={dive.avgDepthM} scheme={scheme} />
+              </View>
+            )}
+            {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
+          </Cluster>
+        )}
 
-      {equipment.length > 0 && (
-        <Cluster title="Equipment & people" styles={styles}>
-          {equipment.map((f) => (
-            <Row key={f.label} {...f} styles={styles} />
-          ))}
-        </Cluster>
-      )}
+        {conditions.length > 0 && (
+          <Cluster title="Conditions" styles={styles}>
+            {conditions.map((f) => (
+              <Row key={f.label} {...f} styles={styles} />
+            ))}
+          </Cluster>
+        )}
 
-      {hasNotes && (
-        <Cluster title="Notes" styles={styles}>
-          {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
-          {dive.rating !== null && <Row label="Rating" value={`${dive.rating} / 5`} mono styles={styles} />}
-          {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
-        </Cluster>
-      )}
-    </ScrollView>
+        {dive.tanks.length > 0 && (
+          <Cluster title="Gas & cylinders" styles={styles}>
+            {gasUsed !== null && <Row label="Gas used" value={`${Math.round(gasUsed)} l`} mono styles={styles} />}
+            {rmvValue !== null && <Row label="RMV" value={`${rmvValue.toFixed(1)} l/min`} mono styles={styles} />}
+            {modValue !== null && <Row label="MOD" value={modValue} mono styles={styles} />}
+            {dive.tanks.map((tank, index) => {
+              const fields = tankFields(tank);
+              if (fields.length === 0) return null;
+              return (
+                <View key={index} style={styles.detailTank}>
+                  <Text style={styles.detailTankTitle}>
+                    {dive.tanks.length > 1 ? `Cylinder ${index + 1}` : 'Cylinder'}
+                  </Text>
+                  {fields.map((f) => (
+                    <Row key={f.label} {...f} styles={styles} />
+                  ))}
+                </View>
+              );
+            })}
+          </Cluster>
+        )}
+
+        {equipment.length > 0 && (
+          <Cluster title="Equipment & people" styles={styles}>
+            {equipment.map((f) => (
+              <Row key={f.label} {...f} styles={styles} />
+            ))}
+          </Cluster>
+        )}
+
+        {hasNotes && (
+          <Cluster title="Notes" styles={styles}>
+            {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
+            {dive.rating !== null && <Row label="Rating" value={`${dive.rating} / 5`} mono styles={styles} />}
+            {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
+          </Cluster>
+        )}
+      </ScrollView>
+    </View>
   );
 }

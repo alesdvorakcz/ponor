@@ -268,6 +268,30 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       lineHeight: 22,
     },
+    // The ScrollView itself, once its content sits below detailBack below rather than
+    // filling `screen` alone — screen still supplies the flex/background/status-bar
+    // clearance for both, this just lets the ScrollView take the remaining height.
+    detailScroll: {
+      flex: 1,
+    },
+    // DiveDetailScreen's own back control (review task 7, Important #1): _layout.tsx sets
+    // headerShown: false app-wide with no per-route override, and flipping that globally
+    // would also put a header on the Dives list, which the design doesn't call for — so the
+    // screen supplies its own, pinned above the ScrollView rather than scrolling with its
+    // content. 48 dp minHeight matches the `action`/`fab` tap-target floor above, but this
+    // is deliberately NOT filled ink like those: it's wayfinding, not the screen's primary
+    // action, so it stays a plain label rather than competing with one.
+    detailBack: {
+      minHeight: 48,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+    },
+    detailBackLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 16,
+      color: theme.fg,
+    },
   });
 }
 

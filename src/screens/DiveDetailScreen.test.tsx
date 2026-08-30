@@ -1,5 +1,5 @@
-import { render, type RenderResult } from '@testing-library/react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { dive } from '../domain/diveFixture';
 import { useDives } from '../db/useDives';
@@ -12,8 +12,16 @@ import DiveDetailScreen from './DiveDetailScreen';
 // app that needs to fake expo-router's half at all. Jest hoists both jest.mock() calls above
 // the imports above at transform time regardless of where they sit textually (see
 // DivesScreen.test.tsx's own note on this), so plain ES imports of the mocked names work.
+//
+// `router` is faked alongside `useLocalSearchParams` (review task 7, Important #1): the
+// screen's own back control calls `router.back`/`canGoBack`/`replace` directly (the same
+// imperative singleton DivesScreen.tsx already uses for `openDive`/`logDive`), not through a
+// hook, so it needs the same module mock rather than a render prop.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
-jest.mock('expo-router', () => ({ useLocalSearchParams: jest.fn() }));
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: jest.fn(),
+  router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn() },
+}));
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
 // @testing-library/react-native@14 actually exposes — the same adaptation DivesScreen.test.tsx,
@@ -33,11 +41,29 @@ function textIn(t: RenderResult): string[] {
 
 const mockUseDives = useDives as jest.Mock;
 const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
+const mockCanGoBack = router.canGoBack as jest.Mock;
+const mockBack = router.back as jest.Mock;
+const mockReplace = router.replace as jest.Mock;
 
 afterEach(() => {
   mockUseDives.mockReset();
   mockUseLocalSearchParams.mockReset();
+  mockCanGoBack.mockReset();
+  mockBack.mockReset();
+  mockReplace.mockReset();
 });
+
+/** The screen's one back control, wherever it sits in the tree (both the found and the
+ * not-found branch render it). Throws rather than returning undefined for the same reason
+ * DivesScreen.test.tsx's findSearchInput does: a test that finds none should fail at the
+ * query, not at a confusing downstream fireEvent error. */
+function findBackButton(t: RenderResult) {
+  const [button] = t.root
+    ? t.root.queryAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Back to dives')
+    : [];
+  if (!button) throw new Error('DiveDetailScreen did not render a back control');
+  return button;
+}
 
 /** Renders the screen for `target` with `dives` as the full list `useDives()` returns —
  * the shape the screen must search itself, per db/useDives.ts's "the one read" contract. */
@@ -64,6 +90,14 @@ async function renderDetailFor(id: string): Promise<string[]> {
   mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id });
   return textIn(await render(<DiveDetailScreen />));
+}
+
+/** Same not-found setup as renderDetailFor, but keeps the tree instead of flattening it to
+ * text — for assertions that need to find and press a control, not just read strings. */
+async function renderDetailTreeFor(id: string): Promise<RenderResult> {
+  mockUseDives.mockReturnValue({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id });
+  return render(<DiveDetailScreen />);
 }
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
@@ -155,4 +189,33 @@ it('finds its own dive inside a multi-dive list, not just the first entry', asyn
 it('shows an explicitly recorded false, not just a truthy value', async () => {
   const text = (await renderDetail(dive({ date: '2026-08-16', hood: false }))).join(' ');
   expect(text.toLowerCase()).toContain('no');
+});
+
+// Review task 7, Important #1: _layout.tsx sets headerShown: false app-wide and this screen
+// used to render no back control of its own, leaving the invisible iOS edge-swipe as the
+// only exit — undiscoverable, and below the §0.5 48 dp tap-target floor by construction. The
+// three tests below pin the two branches of the guard the fix relies on (router.canGoBack()),
+// plus that the not-found branch — reachable directly by a deep link, where there is no
+// history to pop — gets the same control rather than being a dead end.
+it('pops the navigation stack when there is history to go back to', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  const t = await renderDetailTree(diveWithGas);
+  await fireEvent.press(findBackButton(t));
+  expect(mockBack).toHaveBeenCalledTimes(1);
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+it('replaces to the dives list instead, for a cold deep link with no history to pop', async () => {
+  mockCanGoBack.mockReturnValue(false);
+  const t = await renderDetailTree(diveWithGas);
+  await fireEvent.press(findBackButton(t));
+  expect(mockReplace).toHaveBeenCalledWith('/');
+  expect(mockBack).not.toHaveBeenCalled();
+});
+
+it('still offers a way back when the dive id is unknown, not just a dead end', async () => {
+  const t = await renderDetailTreeFor('no-such-id');
+  // Only presence is asserted here — the two tests above already pin which of
+  // back()/replace() the press dispatches to, for either branch.
+  expect(() => findBackButton(t)).not.toThrow();
 });
