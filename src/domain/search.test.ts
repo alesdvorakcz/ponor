@@ -33,4 +33,19 @@ describe('searchDives', () => {
     const all = [dive({ date: '2026-08-18', siteName: 'Reef' }), dive({ date: '2026-08-16', siteName: 'Reef' })];
     expect(searchDives(all, 'reef').map((d) => d.date)).toEqual(['2026-08-18', '2026-08-16']);
   });
+
+  it('folds case without depending on the device locale', () => {
+    // toLocaleLowerCase() reads the host device's OS locale, which is
+    // independent of the app's content languages — that makes matching
+    // non-deterministic across devices for identical, synced data. Asserting
+    // the locale-sensitive method is never called pins the implementation to
+    // toLowerCase() without needing a locale-specific (e.g. Turkish) fixture.
+    const spy = jest.spyOn(String.prototype, 'toLocaleLowerCase');
+    try {
+      expect(searchDives([dive({ siteName: 'Blue Hole' })], 'BLUE')).toHaveLength(1);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

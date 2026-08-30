@@ -10,7 +10,7 @@ import { type Dive } from './types';
  * Every field named here is `string | null` on `Dive` (§6). Picking exactly
  * these keys, rather than typing this as `(keyof Dive)[]`, is what makes
  * adding a non-string field to this list a compile error instead of a
- * runtime crash the first time `value.toLocaleLowerCase()` below hits it.
+ * runtime crash the first time `value.toLowerCase()` below hits it.
  */
 const SEARCHABLE_FIELDS: readonly (keyof Pick<
   Dive,
@@ -29,10 +29,11 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * needle that happens to be a substring of every string.
  *
  * A dive matches when the trimmed, lowercased query is a substring of any of
- * `SEARCHABLE_FIELDS`, compared with `toLocaleLowerCase()` rather than
- * `toLowerCase()` — the app ships in English and Czech, and the two can
- * disagree on how a character folds case for a given locale, so only the
- * locale-aware form is safe to use on Czech diacritics.
+ * `SEARCHABLE_FIELDS`, compared with `toLowerCase()` rather than
+ * `toLocaleLowerCase()` — matching must not depend on the viewing device's
+ * OS locale, which is independent of the app's content languages (English
+ * and Czech). Czech diacritics fold identically under both functions, so
+ * nothing is lost by avoiding the locale-sensitive form.
  *
  * All six searchable fields are nullable, and `null` is skipped rather than
  * coerced to a string: `String(null)` is `"null"`, which would make an
@@ -49,11 +50,11 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
   const trimmed = query.trim();
   if (trimmed === '') return dives;
 
-  const needle = trimmed.toLocaleLowerCase();
+  const needle = trimmed.toLowerCase();
   return dives.filter((d) =>
     SEARCHABLE_FIELDS.some((field) => {
       const value = d[field];
-      return value !== null && value.toLocaleLowerCase().includes(needle);
+      return value !== null && value.toLowerCase().includes(needle);
     }),
   );
 }
