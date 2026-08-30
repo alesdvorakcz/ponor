@@ -342,6 +342,22 @@ describe('surfaceIntervalMin', () => {
     expect(surfaceIntervalMin(previous, next)).toBe(102); // out at 08:56
   });
 
+  // DiveDetailScreen.tsx's previousLoggedDive() leans on this guard as an (undocumented,
+  // until now) safety net: if that lookup ever grabbed the wrong neighbour — the next dive
+  // instead of the previous one, the exact shape a reversed array index would produce — it
+  // would call this function with the pair transposed relative to their real chronological
+  // order. That's reproduced directly here by swapping the previous/next pair above: the
+  // "previous" dive now surfaces (10:38 + 30 = 11:08) after the "next" dive even starts
+  // (08:12), so `interval` comes out negative and this returns null rather than a
+  // plausible-looking wrong number. Guarding the OUTCOME, not just each input on its own —
+  // both times are perfectly valid clock times individually — is what makes this safe
+  // against a mis-paired call, from this function or any future one shaped like it.
+  it('is null for a transposed pair — what a mis-ordered lookup would produce — not a wrong number', () => {
+    const earlier = { date: '2026-08-16', timeIn: '08:12', durationMin: 44 };
+    const later = { date: '2026-08-16', timeIn: '10:38', durationMin: 30 };
+    expect(surfaceIntervalMin(later, earlier)).toBeNull();
+  });
+
   it('spans midnight between consecutive days', () => {
     const previous = { date: '2026-08-16', timeIn: '23:00', durationMin: 30 };
     const next = { date: '2026-08-17', timeIn: '00:30' };

@@ -226,6 +226,16 @@ function tankFields(tank: Tank): Field[] {
  * backwards would silently pair `dive` with the dive that came after it instead of
  * before it — the same reversed-order shape diveNumber.ts's docblock names as the
  * milestone's recurring mistake ("a logbook rendering dives numbered #2, #1, #3").
+ *
+ * If the index direction above were ever wrong regardless, `surfaceIntervalMin`'s own
+ * `interval >= 0` guard (derived.ts) is a second, independent line of defence: a reversed
+ * index here can only ever hand it a "previous" dive that is chronologically AFTER
+ * `dive`, and that guard rejects exactly that shape on every date/time combination (see
+ * derived.test.ts's "transposed pair" case for a pinned example) — so the failure mode
+ * stays a silently ABSENT surface-interval row, never a wrong-but-plausible number. This
+ * function's own correctness doesn't lean on that happening to hold; it's named here so a
+ * future change to either guard is something a reader can find, not something that has to
+ * be re-derived from scratch.
  */
 function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
   const { logged } = splitPlanned(dives);
