@@ -317,7 +317,8 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       lineHeight: 20,
     },
-    // Shared by the time-range chip and the duration chip.
+    // Shared by the time-range chip, the duration chip, and — DiveRow.tsx's `plannedDate` —
+    // a planned dive's leading date chip.
     diveChip: {
       fontFamily: fonts.mono,
       fontSize: 11.5,

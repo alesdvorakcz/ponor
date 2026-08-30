@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
-import { formatDepth, formatDuration, formatTimeRange } from '../format/display';
+import { formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DepthValue } from './DepthValue';
@@ -51,7 +51,9 @@ function accessibilityLabelFor(number: number | undefined, site: string, depth: 
  *
  * Every field but `dive.date` may be null, and a dive with nothing else set is
  * legitimate (§6) — every optional piece below is omitted outright rather than
- * rendered as a placeholder, so that row degrades to just a number and a site.
+ * rendered as a placeholder, so a logged row degrades to just a number and a
+ * site, and a planned one to `planned`, a site, and its date (§3 — see
+ * `plannedDate` below).
  *
  * No sparkline, bar, or any other graphic (§0.4): no dive in this version carries a
  * real sample series, and an invented shape would read as recorded data.
@@ -66,7 +68,17 @@ function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
   const depth = formatDepth(dive.maxDepthM);
   const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
   const duration = formatDuration(dive.durationMin);
-  const hasMeta = timeRange !== null || duration !== null || dive.rating !== null;
+  // §3: "Up next" pins planned dives "with their date" — the one fact that section exists
+  // to show. Scoped to `status === 'planned'` rather than to `number === undefined` (the
+  // two happen to coincide, per diveNumber.ts's `assignDiveNumbers`, which numbers only
+  // `status: 'logged'` dives) because it is the dive's status, not the presence of a
+  // number, that decides whether the date belongs here. A logged dive never gets one: its
+  // trip header (TripHeader.tsx) already states the day — "BLUE HOLE · 16–18 Aug 2026" —
+  // so repeating it on every row beneath would be redundant noise in the common case.
+  // `dive.date` is required (never null, §6), so this is never itself the reason a planned
+  // row renders with no metadata line at all.
+  const plannedDate = dive.status === 'planned' ? formatDiveDate(dive.date) : null;
+  const hasMeta = plannedDate !== null || timeRange !== null || duration !== null || dive.rating !== null;
 
   return (
     <Pressable
@@ -77,7 +89,10 @@ function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
     >
       <View style={styles.diveRowTop}>
         <View style={styles.diveRowMain}>
-          {number !== undefined && <Text style={styles.diveNumber}>{`#${number}`}</Text>}
+          {/* Always rendered, never conditioned on `number !== undefined` alone: a planned
+              dive has no number to show, but the label slot above the site name should say
+              so rather than sit empty (§2.4 — no number until completed). */}
+          <Text style={styles.diveNumber}>{number !== undefined ? `#${number}` : 'planned'}</Text>
           <Text style={styles.diveSite} numberOfLines={2}>
             {site}
           </Text>
@@ -86,6 +101,9 @@ function DiveRowComponent({ dive, number, scheme, onPress }: DiveRowProps) {
       </View>
       {hasMeta && (
         <View style={styles.diveRowBottom}>
+          {/* Leads the line when present, ahead of the time/duration/rating chips a logged
+              dive can also carry — see `plannedDate` above for why the two never coexist. */}
+          {plannedDate !== null && <Text style={styles.diveChip}>{plannedDate}</Text>}
           {timeRange !== null && <Text style={styles.diveChip}>{timeRange}</Text>}
           {duration !== null && <Text style={styles.diveChip}>{duration}</Text>}
           {dive.rating !== null && <Text style={styles.diveRating}>{ratingMarks(dive.rating)}</Text>}

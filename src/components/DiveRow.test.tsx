@@ -152,3 +152,24 @@ it('lets a long site name wrap rather than truncate', async () => {
   const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Šenkýřův'));
   expect(node?.props.numberOfLines).toBe(2);
 });
+
+// M1c task 3: DESIGN.md §3 now pins planned dives under "Up next" "with their date" — on
+// screen today that section showed a site name and nothing else, the one omission that
+// mattered for a section whose entire purpose is *when*.
+it('shows a planned dive its date, since "Up next" is about when', async () => {
+  const d = dive({ status: 'planned', date: '2026-09-05', siteName: 'Silfra' });
+  const t = await render(<DiveRow dive={d} number={undefined} scheme="dark" onPress={() => {}} />);
+  const text = textIn(t).join(' ');
+  expect(text).toContain('5 Sep 2026');
+  expect(text).not.toMatch(/#\d/);
+});
+
+// The more important half of this task: a logged dive's trip header already states the day
+// ("BLUE HOLE · 16–18 Aug 2026", TripHeader.tsx) — repeating it on every row beneath would
+// be redundant noise in the common case, the one this screen shows most often.
+it('does not put the date on a logged dive row, where the trip header carries it', async () => {
+  const d = dive({ status: 'logged', date: '2026-09-05', siteName: 'Silfra', timeIn: '09:00' });
+  const t = await render(<DiveRow dive={d} number={7} scheme="dark" onPress={() => {}} />);
+  const text = textIn(t).join(' ');
+  expect(text).not.toContain('5 Sep 2026');
+});

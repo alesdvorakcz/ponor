@@ -235,6 +235,10 @@ export default function DivesScreen() {
           {
             key: 'up-next',
             title: 'Up next',
+            // Stays empty rather than e.g. the soonest/furthest date: a batch of planned
+            // dives has no single trip date range the way a logged trip does, and each
+            // row already states its own date (§3 — DiveRow.tsx's `plannedDate`), so
+            // there is nothing this header needs to add.
             dateRange: '',
             data: upNext.map((dive): ListEntry => ({ kind: 'dive', dive })),
           },
