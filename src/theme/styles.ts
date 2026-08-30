@@ -38,12 +38,23 @@ function build(scheme: ColorScheme) {
     },
     // The Dives screen's search box (DESIGN.md §3, M1c task 2). It used to carry a
     // 1px `border` on top of its `surface` fill, making it the heaviest object at
-    // the top of the screen while being the one a diver touches least — now it's
-    // just the fill, no hairline. §0.5's 48 dp tap-target floor still applies to it
-    // exactly as much as to any button: `fontSize: 12.5` plus 9+9 vertical padding
-    // alone lands well under 48, so `minHeight: 48` stays explicit rather than
-    // hoping text + padding gets there on its own now that the border (which used
-    // to contribute to the box too) is gone.
+    // the top of the screen while being the one a diver touches least — task 2 first
+    // dropped the border outright, fill only. Review found that overshot: `surface`
+    // on `bg` alone measures ~1.1–1.2:1 contrast in both themes, well under WCAG's
+    // 3:1 guideline for identifying a non-text UI component, and §0.5 states plainly
+    // that contrast here is "a functional requirement, not a taste question" — this
+    // field is used in exactly the noon-deck glare that requirement names. The
+    // border is back below, but as a hairline rather than the original box-defining
+    // 1px: still `theme.border`, which itself only reaches ~1.3–1.4:1 against `bg`
+    // (the token palette is deliberately low-contrast — DESIGN.md §0 calls the brand
+    // a calm precision instrument — so this is what the system offers without
+    // inventing a new colour for this one field); the placeholder text below makes
+    // up the rest, clearing AA at ~5:1. Fill plus hairline is quieter than the
+    // original bordered box without being the boundary-less field task 2's first
+    // pass left behind. §0.5's 48 dp tap-target floor still applies to it exactly as
+    // much as to any button: `fontSize: 12.5` plus 9+9 vertical padding alone lands
+    // well under 48, so `minHeight: 48` stays explicit rather than hoping text +
+    // padding gets there on its own.
     //
     // `fontFamily: fonts.sans`, not mono, despite this box quieting down: §0.2 draws
     // the type split on content, not on volume — "Archivo for UI and display, IBM
@@ -52,12 +63,14 @@ function build(scheme: ColorScheme) {
     // a button label, not a measurement; every other quiet/muted style in this file
     // (`messageText`, `emptyStateText`, `reorderNoticeText`) stays sans too; only
     // fields showing an actual number (chips, depth, the trip date range below) earn
-    // mono. Smaller size and losing the border already do the "quieter" work.
+    // mono. Smaller size does the rest of the "quieter" work.
     searchInput: {
       minHeight: 48,
       marginHorizontal: 12,
       marginBottom: 8,
       borderRadius: 9,
+      borderWidth: 1,
+      borderColor: theme.border,
       backgroundColor: theme.surface,
       paddingVertical: 9,
       paddingHorizontal: 12,
@@ -124,8 +137,10 @@ function build(scheme: ColorScheme) {
     // while it sticks. No divider line or `gap` of its own any more: §0.6 doesn't call
     // for one, and the asymmetric padding below (a bigger gap above than below) plus
     // tripTitle's own small/uppercase/tracked/muted treatment is what now separates one
-    // trip from the last trip's rows — the same "typography does the separating, not a
-    // rule" idea searchInput's dropped border leans on just above.
+    // trip from the last trip's rows — the same de-emphasis-over-a-heavy-rule idea
+    // searchInput's own comment describes just above, though that field kept a
+    // hairline `border` after review; this row drops its border/gap entirely, since
+    // §0.6 never asked for one back.
     // `alignItems: 'baseline'` (was `flex-start`): tripTitle and tripDateRange are now
     // close enough in size (11.5 / 11) that aligning their text baselines reads as one
     // line, where flex-start's top-alignment used to leave dateRange looking to float
@@ -451,7 +466,10 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
     },
     // One cylinder's block within Gas & cylinders — hairline-separated from the one
-    // above it, the same border token TripHeader's divider uses.
+    // above it via `theme.border`, DESIGN.md §0.2's hairlines/dividers token (the
+    // same token searchInput uses for its own hairline). Not TripHeader's divider —
+    // M1c task 2 removed that one in favour of typography and whitespace; see the
+    // comment on `tripHeader` above.
     detailTank: {
       gap: 10,
       paddingTop: 12,

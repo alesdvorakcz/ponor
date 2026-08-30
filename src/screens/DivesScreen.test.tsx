@@ -5,6 +5,7 @@ import { dive } from '../domain/diveFixture';
 import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { themeFor } from '../theme/resolve';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -236,6 +237,33 @@ it('narrows the list to dives matching the search text', async () => {
   const text = textIn(t).join(' ');
   expect(text).toContain('Blue Hole');
   expect(text).not.toContain('Shark Reef');
+});
+
+// M1c task 2 review, Important: task 2 dropped the search field's border entirely,
+// leaving `surface` fill as the only cue against `bg` — ~1.1–1.2:1 contrast in both
+// themes, under WCAG's 3:1 guideline for identifying a non-text UI component, and a
+// real problem against DESIGN.md §0.5's "contrast is a functional requirement" for
+// logging on an open deck at noon. A hairline `theme.border` was restored afterward
+// (styles.ts's own `searchInput` comment has the full account); this pins the border's
+// presence so a later "quieten it further" pass can't drop it again unnoticed.
+it('keeps a hairline border on the search field so it has a visible boundary', async () => {
+  mockUseDives.mockReturnValue({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const style = [findSearchInput(t).props.style].flat(3).filter(Boolean);
+  expect(style.some((s) => s?.borderWidth === 1)).toBe(true);
+  // Not pinned to one scheme: DivesScreen resolves its own scheme from the (mocked,
+  // in tests) OS preference rather than taking it as a prop the way DiveRow does, so
+  // membership in the pair of real theme tokens is what's actually being pinned here
+  // — a genuine `border` colour, either scheme — not "some string was set".
+  expect(
+    style.some(
+      (s) => s?.borderColor === themeFor('dark').border || s?.borderColor === themeFor('light').border,
+    ),
+  ).toBe(true);
 });
 
 // M1c task 2, DESIGN.md §0.6's "Trip header" row: Archivo SemiBold 11.5, uppercase,
