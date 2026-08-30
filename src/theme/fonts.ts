@@ -25,6 +25,9 @@ import { fonts as androidFonts } from './tokens';
  * so a family+fontWeight lookup would never reach them. A PostScript name
  * addresses one face unambiguously and sidesteps that entirely.
  */
+// M1c closing fixes: 'mono-semibold' removed — see tokens.js's own `fonts` map comment for
+// why (its last consumer, depthValue, moved to mono-medium in 295d9f6). Removed here too,
+// not just there, because fonts.test.ts asserts these two maps carry the identical key set.
 export const iosFonts: Record<string, string> = {
   sans: 'Archivo-Regular',
   'sans-medium': 'Archivo-Medium',
@@ -32,7 +35,6 @@ export const iosFonts: Record<string, string> = {
   'sans-bold': 'Archivo-Bold',
   mono: 'IBMPlexMono-Regular',
   'mono-medium': 'IBMPlexMono-Medium',
-  'mono-semibold': 'IBMPlexMono-SemiBold',
 };
 
 export const fonts = Platform.OS === 'ios' ? iosFonts : androidFonts;

@@ -41,6 +41,13 @@ const tokens = {
  * Native font families. React Native does not synthesise weights, so each
  * weight is its own family. Names are prefixed to avoid colliding with
  * Tailwind's font-weight utilities: `--font-bold` would clash with `font-bold`.
+ *
+ * M1c closing fixes: 'mono-semibold' removed. Commit 295d9f6 (the design pass) switched
+ * depthValue from mono-semibold to mono-medium, which removed its last consumer in
+ * styles.ts — but the .ttf kept shipping in the binary via app.config.ts's font list for
+ * nothing. Three coordinated edits removed it (this map, fonts.ts's iosFonts, and
+ * app.config.ts's font list) because fonts.test.ts asserts the iOS/Android key sets stay
+ * in parity.
  */
 const fonts = {
   sans: 'Archivo_400Regular',
@@ -49,7 +56,6 @@ const fonts = {
   'sans-bold': 'Archivo_700Bold',
   mono: 'IBMPlexMono_400Regular',
   'mono-medium': 'IBMPlexMono_500Medium',
-  'mono-semibold': 'IBMPlexMono_600SemiBold',
 };
 
 module.exports = { tokens, depthScale, depthBandLimits, fonts };

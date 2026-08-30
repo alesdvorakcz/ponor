@@ -31,7 +31,6 @@ const config: ExpoConfig = {
           './node_modules/@expo-google-fonts/archivo/700Bold/Archivo_700Bold.ttf',
           './node_modules/@expo-google-fonts/ibm-plex-mono/400Regular/IBMPlexMono_400Regular.ttf',
           './node_modules/@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf',
-          './node_modules/@expo-google-fonts/ibm-plex-mono/600SemiBold/IBMPlexMono_600SemiBold.ttf',
         ],
       },
     ],
