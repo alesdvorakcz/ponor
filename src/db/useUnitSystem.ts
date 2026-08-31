@@ -20,6 +20,11 @@ import { readUnitSystem, unitSystemQuery } from './settings';
  * would let a caller do differently — see `readUnitSystem` (db/settings.ts) for why a unit
  * preference that fails to load degrades honestly to metric where a dive count cannot.
  *
+ * Its whole pipeline is `readUnitSystem(unitSystemQuery(db))`, which `db/settings.test.ts`
+ * exercises against a real database — the same split `useDives` documents, where the pure
+ * half is tested directly and `useLiveQuery` itself is left to the app. There is nothing
+ * here beyond that call and the `?? []` for the first render, before the query resolves.
+ *
  * **Screens call this; components take the answer as a prop.** Exactly the shape `scheme`
  * already has in this codebase — `resolveScheme(useColorScheme())` at the top of each
  * screen, `scheme` threaded down through `DiveRow`/`DepthValue`/`FormField` — and for the

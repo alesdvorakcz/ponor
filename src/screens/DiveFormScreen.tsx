@@ -1227,6 +1227,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
+            // A literal, where every unit-bearing field beside it reads `unitLabel(...)`:
+            // duration has no pair (§3 lists four, format/units.ts says why), and a dive is
+            // 47 minutes long wherever it is dived.
             unit="min"
           />
         </View>
@@ -1330,6 +1333,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             // drawn beside the figure now rather than only inside an empty box, so the two
             // spellings would have sat one screen apart on the same cylinder. If `L` is the
             // wanted spelling it belongs in that formatter, where both screens read it.
+            //
+            // Still a literal after §3's unit setting landed, deliberately: the imperial
+            // cylinder unit is the cubic foot, which measures free gas at working pressure
+            // rather than the water capacity litres measure, so it is a different quantity
+            // and not a conversion (format/units.ts).
             unit="l"
           />
           <ControlledTextField
