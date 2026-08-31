@@ -2872,3 +2872,32 @@ it('does not offer the dive under edit its own values back', async () => {
   await typeInto(t, 'Site', 'blue');
   expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Lagoon']);
 });
+
+// The case §2.3's own wiring is mostly FOR, end to end: carry-over fills the site, so a
+// diver changing sites clears it and is then looking at an empty field. That empty query is
+// not "no suggestions" — it is §2.1's "the app learns: pickers order options by your usage
+// frequency" applied to a text field, and it is the only path where the list appears without
+// a single keystroke. Both halves are asserted in one test because they are one gesture: the
+// field holding its carried value offers nothing (it would be offering itself), and the same
+// field a tap later offers the diver's most-used sites.
+it('offers the most-used sites the moment a carried one is cleared', async () => {
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Silfra' }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-05', siteName: 'Blue Hole' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+  expect(suggestionsUnder(t, 'Site')).toEqual([]);
+
+  const clear = findClearCarried(t, 'Site');
+  if (!clear) throw new Error('Site was not marked carried to begin with');
+  await fireEvent.press(clear);
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
+  // Most-used first, most recent breaking the tie — not the order the dives arrived in.
+  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole', 'Silfra']);
+});
