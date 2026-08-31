@@ -394,6 +394,26 @@ it('creates a dive and returns to the list', async () => {
   await waitFor(() => expect(router.back).toHaveBeenCalled());
 });
 
+it('saves the depth a Czech keypad typed, comma and all', async () => {
+  // The entry half of the decimal-comma defect. `decimal-pad` is the keyboard every
+  // numeric field on this form asks for (FormField.tsx), and on a `cs`/`de`/`fr` device its
+  // separator key types `,` — so this is the ordinary spelling for the app's first diver,
+  // and it used to reach `createDive` as no depth at all.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickDate(t, '2026-08-16');
+  await typeInto(t, 'Max depth', '18,4');
+  await typeInto(t, 'Duration', '47');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const input = mockCreate.mock.calls[0]?.[1] ?? {};
+  expect(input).toEqual(expect.objectContaining({ maxDepthM: 18.4, durationMin: 47 }));
+  // `toNewDiveInput` omits a null field entirely, so the failure this guards is a MISSING
+  // key rather than a null one — which `objectContaining` above would also catch, but only
+  // by accident of what it happens to name. Said outright.
+  expect(input).toHaveProperty('maxDepthM');
+});
+
 /**
  * Every path in `value` that holds the literal `0`, however deeply nested.
  *
@@ -1059,6 +1079,26 @@ it('clears a field the diver emptied, rather than leaving the old value', async 
   // would silently keep the note the diver just deleted.
   expect(writtenPatch().notes).toBeNull();
   expect(writtenPatch()).toHaveProperty('notes');
+});
+
+it('keeps a depth typed with a decimal comma, rather than clearing the one already there', async () => {
+  // The whole chain, not just the schema (diveFormSchema.test.ts covers that): a Czech
+  // device's `decimal-pad` types `,` for the separator, and this is what a diver correcting
+  // 32.4 m to 32.6 m on that keypad actually produces. `Number('32,6')` is NaN, which the
+  // coercion contract maps to null — so the patch carried `maxDepthM: null` and the save
+  // ERASED a depth that was on screen a moment earlier.
+  const target = existing();
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await typeInto(t, 'Max depth', '32,6');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch()).toHaveProperty('maxDepthM', 32.6);
+  // Stated separately, because `toHaveProperty(..., 32.6)` and "did not clear it" are two
+  // different claims and it is the second one that cost a diver their reading.
+  expect(writtenPatch().maxDepthM).not.toBeNull();
 });
 
 it('completing a planned dive turns it into a logged one', async () => {

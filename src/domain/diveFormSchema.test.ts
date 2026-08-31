@@ -35,6 +35,44 @@ describe('the coercion contract', () => {
   });
 });
 
+describe('a decimal comma, which is what `decimal-pad` types on a Czech device', () => {
+  it('reads a comma as the decimal point in every numeric field, not as no number at all', () => {
+    // `Number('18,4')` is NaN, which the contract above faithfully maps to null — the right
+    // reading of "not a number" and the wrong reading of what the diver did. Ponor ships
+    // `cs`; on a Czech, German or French keypad the separator key types `,`.
+    const v = diveFormSchema.parse({
+      ...base,
+      maxDepthM: '18,4',
+      avgDepthM: '9,7',
+      durationMin: '47,5',
+      waterTempC: '-1,5',
+      weightsKg: '6,5',
+      latitude: '50,12345',
+      tanks: [{ sizeL: '11,1', workingBar: '232', startBar: '210,5' }],
+    });
+    expect(v.maxDepthM).toBe(18.4);
+    expect(v.avgDepthM).toBe(9.7);
+    expect(v.durationMin).toBe(47.5);
+    expect(v.waterTempC).toBe(-1.5);
+    expect(v.weightsKg).toBe(6.5);
+    expect(v.latitude).toBe(50.12345);
+    expect(v.tanks[0]?.sizeL).toBe(11.1);
+    expect(v.tanks[0]?.startBar).toBe(210.5);
+  });
+
+  it('still refuses text that names no number, however many commas it has', () => {
+    // The separator rule must not turn the transform into something that accepts anything:
+    // these still name no number, so they still land on null rather than on a guess.
+    expect(diveFormSchema.parse({ ...base, maxDepthM: '1,2,3' }).maxDepthM).toBeNull();
+    expect(diveFormSchema.parse({ ...base, maxDepthM: ',' }).maxDepthM).toBeNull();
+    expect(diveFormSchema.parse({ ...base, maxDepthM: '18,4 m' }).maxDepthM).toBeNull();
+  });
+
+  it('leaves a full stop exactly as it was, so the two spellings agree', () => {
+    expect(diveFormSchema.parse({ ...base, maxDepthM: '18.4' }).maxDepthM).toBe(18.4);
+  });
+});
+
 describe('the status control (§2.4)', () => {
   it('logs a dive the form never said anything about', () => {
     // A plan is the exception, not a mode: a form carrying no status at all is logging a
@@ -127,6 +165,19 @@ describe('toDivePatch', () => {
     expect(patchAfterEditing({ weightsKg: 5 }, { weightsKg: '0' })).toEqual({ weightsKg: 0 });
     // ...and a stored zero left alone is still not a change.
     expect(patchAfterEditing({ weightsKg: 0 })).toEqual({});
+  });
+
+  it('does not clear a stored depth when the diver retypes it with a decimal comma', () => {
+    // The edit path is where the decimal-comma defect actually destroyed data. Typing
+    // `18,4` over a stored 18.4 parsed to null, which is not "no change" to the repository
+    // but the explicit instruction to CLEAR the column — a depth the diver could see on
+    // screen, gone, with the app reporting a successful save.
+    expect(patchAfterEditing({ maxDepthM: 18.4 }, { maxDepthM: '18,4' })).toEqual({});
+    // ...and a comma that really does change the value still writes the new number rather
+    // than the null, so this is not passing merely because nothing is ever sent.
+    expect(patchAfterEditing({ maxDepthM: 18.4 }, { maxDepthM: '21,6' })).toEqual({ maxDepthM: 21.6 });
+    // The same in a cylinder, where a null would ride along inside the whole JSON blob.
+    expect(patchAfterEditing({ tanks: [tank({ sizeL: 11.1 })] }, { tanks: [{ ...tank({ sizeL: 11.1 }), sizeL: '11,1' }] })).toEqual({});
   });
 
   it('never sends status for a dive whose status the diver did not touch', () => {

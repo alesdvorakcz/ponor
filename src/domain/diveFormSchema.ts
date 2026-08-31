@@ -3,6 +3,31 @@ import { isCalendarDate } from './datetime';
 import type { Dive, DiveStatus, Tank } from './types';
 
 /**
+ * A comma read as the decimal point it is on this form.
+ *
+ * **This is deliberately not a locale-aware parser, and must not become one.**
+ * A locale parser has to decide whether `1,234` is one thousand two hundred
+ * and thirty-four or one point two three four, and it decides it from a
+ * locale tag that has nothing to do with which key the diver actually
+ * pressed. Here the question does not arise: no value this form takes needs a
+ * thousands separator — depth, average depth, duration, visibility, water and
+ * air temperature, pressures, cylinder size, count, gas percentages, weights,
+ * rating and the 0-3 condition scales are every one of them far below 1000 in
+ * the SI unit DESIGN.md §6 stores (latitude and longitude are bounded by ±180)
+ * — and `decimal-pad`, the only keyboard this form gives a numeric field
+ * (`FormField.tsx`), offers no grouping key at all. So a comma in one of
+ * these fields can only ever be a decimal point, and reading it as one is
+ * unambiguous rather than a guess.
+ *
+ * Applied to every comma, not just the first, purely so the failure is
+ * consistent: `'1,2,3'` names no number either way and comes back `NaN`,
+ * which the transform below maps to `null`.
+ */
+function normaliseDecimalSeparator(value: string): string {
+  return value.replace(/,/g, '.');
+}
+
+/**
  * The coercion contract (DESIGN.md §10, derived.ts's COERCION CONTRACT block).
  *
  * An empty numeric field must reach the domain as null — never 0. `derived.ts`
@@ -32,6 +57,17 @@ import type { Dive, DiveStatus, Tank } from './types';
  * this whole file exists for. `.default(null)` is the one spelling that
  * makes an absent key and a present-but-empty one produce the identical
  * `null` this file's callers can rely on.
+ *
+ * **A comma is a decimal point here** (`normaliseDecimalSeparator` below), and
+ * that is the second half of the same contract: the contract promised "never
+ * `0`", and honoured it by mapping `Number('18,4')`'s `NaN` to `null` — which
+ * is the correct reading of "this is not a number" and the wrong reading of
+ * what the diver did. Every numeric field on this form uses the `decimal-pad`
+ * keyboard, and on a Czech, German or French device that keypad's separator
+ * key types `,`. Ponor ships `cs` and its first diver is Czech, so `18,4` in
+ * Max depth is the ordinary spelling, not an edge case — and it silently
+ * saved nothing on entry, while on the edit path it emitted
+ * `patch.maxDepthM = null` and **cleared a depth that was already there**.
  */
 const optionalNumber = z
   .union([z.string(), z.number(), z.null(), z.undefined()])
@@ -40,7 +76,7 @@ const optionalNumber = z
     if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
     const trimmed = raw.trim();
     if (trimmed === '') return null;
-    const parsed = Number(trimmed);
+    const parsed = Number(normaliseDecimalSeparator(trimmed));
     return Number.isFinite(parsed) ? parsed : null;
   })
   .default(null);
