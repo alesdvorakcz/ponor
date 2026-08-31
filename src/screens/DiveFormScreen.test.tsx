@@ -544,7 +544,7 @@ describe('a value the form itself could not have produced, in a field that is no
     dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', ...over } as Parameters<typeof dive>[0]);
 
   it('says why Save did nothing when an option field holds an unknown value', async () => {
-    stubDives({ dives: [fromANewerClient({ entry: 'liveaboard' })] });
+    stubLogbookFor(fromANewerClient({ entry: 'liveaboard' }));
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Conditions');
     await pressSave(t);
@@ -557,7 +557,7 @@ describe('a value the form itself could not have produced, in a field that is no
   });
 
   it('says why Save did nothing when a boolean field holds something that is not one', async () => {
-    stubDives({ dives: [fromANewerClient({ hood: 'sometimes' })] });
+    stubLogbookFor(fromANewerClient({ hood: 'sometimes' }));
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Equipment');
     await pressSave(t);
@@ -570,7 +570,7 @@ describe('a value the form itself could not have produced, in a field that is no
     // A message that names no way out is only a politer dead end. Picking any option
     // replaces the unreadable value, and the save this diver came for goes through.
     const target = fromANewerClient({ entry: 'liveaboard' });
-    stubDives({ dives: [target] });
+    stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Conditions');
@@ -655,6 +655,50 @@ const tank = (over: Partial<Tank> = {}): Tank => ({
   material: 'steel', sizeL: 12, count: 1, workingBar: 232,
   o2Pct: 32, hePct: null, startBar: 200, endBar: 50, ...over,
 });
+
+/**
+ * A dive that is deliberately **not** the one under edit, filled in every field an edit-mode
+ * test reads back — and filled with different values from the ones those tests expect, so a
+ * form that loaded this dive instead fails on the value rather than merely on the id.
+ */
+const decoy = (over: Partial<Dive> = {}): Dive =>
+  dive({
+    siteName: 'Wrong Reef',
+    centerName: 'Wrong Centre',
+    maxDepthM: 9.9,
+    durationMin: 9,
+    timeIn: '23:59',
+    notes: 'A different dive entirely',
+    buddy: 'Nobody',
+    tanks: [tank({ sizeL: 3, count: 1, endBar: 7 })],
+    ...over,
+  });
+
+/**
+ * The logbook an edit-mode test opens against: the dive under edit with **another dive ahead
+ * of it** and a third behind it.
+ *
+ * Every `mode="edit"` test used to stub a logbook holding exactly one dive, which made
+ * `DiveFormScreen.tsx`'s own `dives.find((d) => d.id === diveId)` indistinguishable from
+ * `dives[0]` — the two agree on a one-dive list, and every one of the ~18 tests below stayed
+ * green with the lookup replaced by the index. A diver editing dive #47 would then have
+ * loaded, displayed and `updateDive`d the NEWEST dive instead: the form shows one dive's
+ * values under another dive's id, and the save writes them there.
+ *
+ * `useDives()` hands its list back newest-first (`toDives`, db/dives.ts), so the decoy ahead
+ * of the target is dated later and the one behind it earlier — the real shape, not an
+ * arbitrary shuffle. `alsoLive` is for a test that needs a specific extra dive on the list.
+ */
+function stubLogbookFor(target: Dive, ...alsoLive: Dive[]) {
+  stubDives({
+    dives: [
+      decoy({ id: 'decoy-newer', date: '2026-12-31' }),
+      target,
+      ...alsoLive,
+      decoy({ id: 'decoy-older', date: '2019-01-01' }),
+    ],
+  });
+}
 
 it('prefills a carried field from the most recent logged dive, and marks it carried', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
@@ -1192,9 +1236,41 @@ function writtenPatch(): Record<string, unknown> {
   return (mockUpdate.mock.calls[0]?.[2] ?? {}) as Record<string, unknown>;
 }
 
+// The lookup itself, stated once and directly: which dive `diveId` names, out of a logbook
+// that holds more than one. Everything else in this section exercises it in passing (see
+// `stubLogbookFor` above for why they now all can); this is the test whose failure names the
+// defect. The mutation it exists for is `dives.find((d) => d.id === diveId)` → `dives[0]`,
+// which is silent cross-dive data corruption: the newest dive's values shown under the
+// edited dive's heading, and written back to the edited dive's id on save.
+it('loads and patches the dive the id names, not whichever dive happens to be first', async () => {
+  const target = existing();
+  stubLogbookFor(target);
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  // What the diver is looking at is the TARGET's data, not the newest dive's — in the core
+  // strip and inside a collapsed group alike, so this covers the whole seeding path rather
+  // than one field that might be special.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(findTextInput(t, 'Max depth')?.props?.value).toBe('32.4');
+  expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
+  await openGroup(t, 'Notes & rating');
+  expect(findTextInput(t, 'Notes')?.props?.value).toBe('Arch at 30 m');
+
+  await typeInto(t, 'Max depth', '28');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // ...and the write goes to that same dive. Both halves are needed: loading the wrong dive
+  // and patching the right id is how a diver's dive #47 quietly becomes a copy of their
+  // newest one, and the id alone would not have shown it.
+  expect(mockUpdate.mock.calls[0]?.[1]).toBe('target');
+  expect(writtenPatch()).toEqual({ maxDepthM: 28 });
+});
+
 it('sends only the fields that changed', async () => {
   const target = existing();
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await typeInto(t, 'Max depth', '28.0');
@@ -1216,7 +1292,7 @@ it('sends only the fields that changed', async () => {
 
 it('clears a field the diver emptied, rather than leaving the old value', async () => {
   const target = existing();
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   // `notes` lives inside a collapsed §2.2 group, so it has to be opened first — and the
@@ -1241,7 +1317,7 @@ it('keeps a depth typed with a decimal comma, rather than clearing the one alrea
   // coercion contract maps to null — so the patch carried `maxDepthM: null` and the save
   // ERASED a depth that was on screen a moment earlier.
   const target = existing();
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await typeInto(t, 'Max depth', '32,6');
@@ -1256,7 +1332,7 @@ it('keeps a depth typed with a decimal comma, rather than clearing the one alrea
 
 it('completing a planned dive turns it into a logged one', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' });
-  stubDives({ dives: [planned] });
+  stubLogbookFor(planned);
   mockUpdate.mockResolvedValue(planned);
   // Arriving the way §2.4's *Complete dive* pill sends a diver: the control is already on
   // Logged, so saving finishes the dive. This used to happen with no control at all — the
@@ -1277,7 +1353,7 @@ it('completing a planned dive turns it into a logged one', async () => {
 
 it('says it is completing a planned dive when that is what the save will do', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
-  stubDives({ dives: [planned] });
+  stubLogbookFor(planned);
   const t = await render(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
   // Saving is what logs the dive (§2.4), so the screen has to say so before it happens —
   // and all three of the things that say it agree: the heading, the control, and the
@@ -1291,7 +1367,7 @@ it('says it is completing a planned dive when that is what the save will do', as
 
 it('does not promise to complete a planned dive it is only going to edit', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
-  stubDives({ dives: [planned] });
+  stubLogbookFor(planned);
   // No `initialStatus`: this is the diver who opened the dive to fix something, not the one
   // who came through the *Complete dive* pill. The heading said "Complete dive" here for as
   // long as the save silently made it true; with that rule deleted, saying it would be a
@@ -1308,7 +1384,7 @@ it('does not promise to complete a planned dive it is only going to edit', async
 
 it('leaves a logged dive logged — status is not written on every save', async () => {
   const target = existing();
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await typeInto(t, 'Max depth', '28');
@@ -1323,7 +1399,7 @@ it('leaves a logged dive logged — status is not written on every save', async 
 });
 
 it("opens both pickers on the dive's own date and time, not on today", async () => {
-  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '07:05' })] });
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', timeIn: '07:05' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
 
   // Read the way a diver writes a date (`formatDiveDate`), never the stored ISO string —
@@ -1345,7 +1421,7 @@ it("seeds the entry-time picker on the dive's own day, not on today", async () =
   // 2026-08-16, so a picker seeded from today fails this outright, in every zone and on
   // every day of the year. `datetime.dst.test.ts` covers the hour itself, in a forced zone
   // whose clocks actually move.
-  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' })] });
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await openGroup(t, 'Times & depth');
 
@@ -1371,7 +1447,7 @@ it('follows the date the diver just picked, rather than the one the dive was loa
   // The seed is the form's LIVE date, not the stored one: a diver who corrects the date
   // before setting the entry time must get a picker that already knows the new day, or the
   // rewrite this fix closes simply moves to the corrected date.
-  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' })] });
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await pickDate(t, '2026-03-08');
   await openGroup(t, 'Times & depth');
@@ -1388,7 +1464,7 @@ it('follows the date the diver just picked, rather than the one the dive was loa
 });
 
 it('marks nothing as carried in edit mode — a dive already holds its own values', async () => {
-  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', buddy: 'Petr' })] });
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', buddy: 'Petr' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await openGroup(t, 'People');
 
@@ -1403,7 +1479,7 @@ it('marks nothing as carried in edit mode — a dive already holds its own value
 
 it('sends an empty patch, and still returns to the list, when nothing was changed', async () => {
   const target = existing();
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await pressSave(t);
@@ -1419,7 +1495,7 @@ it('sends an empty patch, and still returns to the list, when nothing was change
 
 it('leaves a recorded cylinder alone when the diver never opens the cylinder group', async () => {
   const target = dive({ id: 'target', date: '2026-08-16', tanks: [tank({ sizeL: 12, startBar: 200, endBar: 50 })] });
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await pressSave(t);
@@ -1433,7 +1509,7 @@ it('leaves a recorded cylinder alone when the diver never opens the cylinder gro
 
 it('writes a cylinder the diver actually changed', async () => {
   const target = dive({ id: 'target', date: '2026-08-16', tanks: [tank({ sizeL: 12 })] });
-  stubDives({ dives: [target] });
+  stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await openGroup(t, 'Gas & cylinders');
@@ -1458,7 +1534,7 @@ it('seeds the form from a dive that only arrives after the first render', async 
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   expect(findTextInput(t, 'Site')?.props?.value).toBe('');
 
-  stubDives({ dives: [existing()] });
+  stubLogbookFor(existing());
   await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
 
   expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
@@ -1478,7 +1554,7 @@ it('writes nothing, and says so, when the dive being edited cannot be found', as
 });
 
 it('tells the diver when an edit fails to save, instead of pretending it worked', async () => {
-  stubDives({ dives: [existing()] });
+  stubLogbookFor(existing());
   mockUpdate.mockRejectedValue(new Error('disk full'));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await typeInto(t, 'Max depth', '28');
@@ -1512,7 +1588,7 @@ it('offers a visible way out of a new dive, which saves nothing', async () => {
 });
 
 it('offers the same way out of an edit, and writes nothing on the way', async () => {
-  stubDives({ dives: [existing()] });
+  stubLogbookFor(existing());
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await typeInto(t, 'Max depth', '28');
 
@@ -1772,7 +1848,7 @@ it('saves a planned dive dated in the past without complaint', async () => {
 
 it("leaves a planned dive planned when the diver only fixes its site name", async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Sifra' });
-  stubDives({ dives: [planned] });
+  stubLogbookFor(planned);
   mockUpdate.mockResolvedValue(planned);
   const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
   await typeInto(t, 'Site', 'Silfra');
@@ -1792,7 +1868,7 @@ it("leaves a planned dive planned when the diver only fixes its site name", asyn
 
 it('completes a planned dive when the diver moves the control to Logged by hand', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
-  stubDives({ dives: [planned] });
+  stubLogbookFor(planned);
   mockUpdate.mockResolvedValue(planned);
   // No route param this time: the pill is one way in, and moving the control is the other.
   // Both have to work, and they are different code paths — one seeds the form, the other
@@ -1811,7 +1887,7 @@ it('completes a planned dive when the diver moves the control to Logged by hand'
 
 it('turns a logged dive back into a plan when the diver moves the control the other way', async () => {
   const logged = dive({ id: 'l1', date: '2026-08-16' });
-  stubDives({ dives: [logged] });
+  stubLogbookFor(logged);
   mockUpdate.mockResolvedValue(logged);
   const t = await render(<DiveFormScreen mode="edit" diveId="l1" />);
   expect(plannedIsOn(t)).toBe(false);
@@ -1832,7 +1908,7 @@ it('opens on the state the route asked for, even when the dive arrives afterward
   // has to survive that re-seed, or the control silently springs back to Planned and the
   // pill completes nothing.
   const t = await render(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
-  stubDives({ dives: [dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' })] });
+  stubLogbookFor(dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' }));
   await t.rerender(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
 
   // The dive really did arrive (otherwise "still on Logged" would be true of a blank form)...
