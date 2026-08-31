@@ -1,7 +1,8 @@
-import { SymbolView, type AndroidSymbol, type SFSymbol } from 'expo-symbols';
+import { SymbolView } from 'expo-symbols';
 import { type ColorValue } from 'react-native';
 
 import { type Entry } from '../domain/types';
+import { symbolName, type PlatformSymbol } from './symbolName';
 
 /**
  * The symbol for one `Entry` value, or nothing at all — and **nothing at all is the normal
@@ -33,7 +34,7 @@ import { type Entry } from '../domain/types';
  * from here on, since a name neither platform has fails `tsc` instead of rendering an empty
  * box on a device.
  */
-const ENTRY_SYMBOLS: Partial<Record<Entry, { ios: SFSymbol; android: AndroidSymbol }>> = {
+const ENTRY_SYMBOLS: Partial<Record<Entry, PlatformSymbol>> = {
   shore: { ios: 'figure.walk', android: 'directions_walk' },
   boat: { ios: 'ferry.fill', android: 'directions_boat_filled' },
 };
@@ -58,11 +59,13 @@ export interface EntryIconProps {
  * An `Entry` value's SF Symbol, or `null` for a value that has none.
  *
  * The mechanism is `SearchCapsule.tsx`'s, not a second one: `expo-symbols`' `SymbolView`
- * with `name` in its object form, so iOS resolves a real SF Symbol and Android resolves
+ * with `name` in its object form — built by `symbolName`, the one owner of what that object
+ * must contain — so iOS resolves a real SF Symbol and Android and the browser resolve
  * Material Symbols' own equivalent. Read that component for why this is a real symbol view
- * rather than a drawn or imported approximation, and `EntryIcon.test.tsx` (following
- * `SearchCapsule.test.tsx`) for the native module the assertion pins — a substituted image
- * would never produce a `SymbolModule`-named host node at all.
+ * rather than a drawn or imported approximation, `symbolName.ts` for the `web` key both call
+ * sites used to omit, and `EntryIcon.test.tsx` (following `SearchCapsule.test.tsx`) for the
+ * native module the assertion pins — a substituted image would never produce a
+ * `SymbolModule`-named host node at all.
  *
  * No `accessibilityLabel` and no `fallback`. The chip around it already announces
  * `` `${label}: ${displayLabel(option)}` `` (DiveFormScreen.tsx's `OptionChips`), and an
@@ -72,5 +75,5 @@ export interface EntryIconProps {
 export function EntryIcon({ entry, tintColor, size = 15 }: EntryIconProps) {
   const symbol = ENTRY_SYMBOLS[entry];
   if (symbol === undefined) return null;
-  return <SymbolView name={symbol} size={size} tintColor={tintColor} />;
+  return <SymbolView name={symbolName(symbol)} size={size} tintColor={tintColor} />;
 }

@@ -5,6 +5,7 @@ import { TextInput, View } from 'react-native';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { symbolName } from './symbolName';
 
 interface SearchCapsuleProps {
   scheme: ColorScheme;
@@ -36,13 +37,17 @@ export function SearchCapsule({ scheme, value, onChangeText }: SearchCapsuleProp
 
   // An SF Symbol, not a drawn/imported approximation (expo-symbols, DESIGN.md §0.6) — real
   // enough that SearchCapsule.test.tsx can pin the exact native module it resolves to.
-  // `name`'s object form supplies Material Symbols' own "search" on Android (expo-symbols
-  // falls back to `fallback` — here, nothing — when a platform's key is missing), which
-  // this suite cannot itself observe (Jest's one platform is iOS — see
-  // SearchCapsule.test.tsx's own note) but `AndroidSymbol` types at compile time regardless.
+  // `name`'s object form supplies Material Symbols' own "search" off iOS (expo-symbols falls
+  // back to `fallback` — here, nothing — when a platform's key is missing), which this suite
+  // cannot itself observe (Jest's one platform is iOS — see SearchCapsule.test.tsx's own
+  // note) but `AndroidSymbol` types at compile time regardless.
+  //
+  // Through `symbolName`, which is what supplies the `web` key the browser's SymbolView
+  // reads and this call site used to omit — read that file for why `web` is derived from
+  // `android` rather than named again, and why nothing about the iOS render changes.
   const icon = (
     <SymbolView
-      name={{ ios: 'magnifyingglass', android: 'search' }}
+      name={symbolName({ ios: 'magnifyingglass', android: 'search' })}
       size={18}
       tintColor={theme.fg}
     />
