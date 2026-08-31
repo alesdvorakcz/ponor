@@ -825,6 +825,48 @@ it('offers move controls for an untimed same-day pair, once its strip is switche
   });
 });
 
+// S1, the screen's own half: a planned dive sharing the date. `splitPlanned` has already
+// lifted it into "Up next" by the time this group is built, so the ids this screen can hand
+// `reorderDivesForDate` are the day's LOGGED dives and nothing else — which is why the
+// repository's completeness check had to be scoped to those (db/dives.ts). Found on a
+// device: two untimed logged dives plus one plan on the same day could not be reordered at
+// all, and the diver got "Couldn't reorder that day".
+it('hand-orders a day that also holds a planned dive, naming only the logged ones', async () => {
+  stubDives({
+    dives: [
+      dive({ id: 'p', date: '2026-08-16', status: 'planned', siteName: 'Blue Hole' }),
+      dive({ id: 'x', date: '2026-08-16', siteName: 'Blue Hole' }),
+      dive({ id: 'y', date: '2026-08-16', siteName: 'Blue Hole' }),
+    ],
+    numbers: new Map([
+      ['x', 2],
+      ['y', 1],
+    ]),
+    error: undefined,
+  });
+  mockReorderDivesForDate.mockResolvedValue({ applied: true, effectiveOrder: ['y', 'x'], overriddenIds: [] });
+
+  const t = await render(<DivesScreen />);
+  // The strip still appears, and it counts the LOGGED dives — "2 dives, no times". A strip
+  // that counted the plan would both say the wrong number and describe a day this screen
+  // cannot actually produce an order for.
+  const [toggle] = findDayStripAction(t, 'Reorder');
+  if (!toggle) throw new Error('expected a Reorder strip for the untimed pair');
+  expect(textIn(t).join(' ')).toContain('2 dives');
+  await fireEvent.press(toggle);
+
+  const [firstDown] = findAllMoveButtons(t, 'down');
+  if (!firstDown) throw new Error('expected a move-down control once the strip is active');
+  await fireEvent.press(firstDown);
+
+  // Two ids, and the planned dive's is not one of them — the whole point, and what the
+  // repository has to accept.
+  await waitFor(() => {
+    expect(mockReorderDivesForDate).toHaveBeenCalledWith(expect.anything(), '2026-08-16', ['x', 'y']);
+  });
+  expect(textIn(t).join(' ').toLowerCase()).not.toContain("couldn't reorder");
+});
+
 it('does not offer move controls — or a day strip at all — for a same-day pair that already has entry times', async () => {
   // Same siteName on both, for the same reason noted in the test above —
   // otherwise this would pass because groupIntoTrips split them apart, not

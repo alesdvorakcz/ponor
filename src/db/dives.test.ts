@@ -1,5 +1,9 @@
 import { eq, sql } from 'drizzle-orm';
 import { assignDiveNumbers } from '../domain/diveNumber';
+// The exact three functions DivesScreen puts between `useDives()` and this repository —
+// imported rather than restated, so the seam test below builds the ids the way the screen
+// really does instead of the way this file imagines it does.
+import { canReorder, sameDateGroups, splitPlanned } from '../domain/trips';
 import {
   createDive,
   diveRowsQuery,
@@ -787,22 +791,108 @@ describe('reorderDivesForDate', () => {
   it('refuses a partial order rather than leaving stale hand orders behind', async () => {
     const [one, , three] = await threeUntimed();
     await expect(reorderDivesForDate(db, '2026-08-16', [three, one])).rejects.toThrow(
-      /every live dive/i,
+      /every live logged dive/i,
     );
     // and nothing was written
     expect((await getDive(db, three))?.manualOrder).toBeNull();
   });
 
-  it('refuses an id that is not a live dive on that date', async () => {
+  it('refuses an id that is not a live logged dive on that date', async () => {
     const [one, two, three] = await threeUntimed();
     await expect(
       reorderDivesForDate(db, '2026-08-16', [one, two, three, 'nope']),
-    ).rejects.toThrow(/not on that date/i);
+    ).rejects.toThrow(/not a logged dive on that date/i);
 
     const elsewhere = await createDive(db, { date: '2026-08-17' });
     await expect(
       reorderDivesForDate(db, '2026-08-16', [one, two, three, elsewhere.id]),
-    ).rejects.toThrow(/not on that date/i);
+    ).rejects.toThrow(/not a logged dive on that date/i);
+  });
+
+  // --- A planned dive sharing the date (found on a device) ---
+  //
+  // §2.4 plans are lifted into "Up next" by `splitPlanned` before DivesScreen ever builds a
+  // day's group, so the ids that screen can hand this function are the day's LOGGED dives and
+  // nothing else. Counting the planned one as part of the day therefore did not make the
+  // check stricter, it made the day unreorderable: two untimed logged dives plus one plan on
+  // the same date threw "must name every live dive", the screen caught it, and the diver got
+  // "Couldn't reorder that day" with no way to succeed.
+
+  const twoUntimedPlusAPlan = async (): Promise<[string, string, string]> => [
+    (await createDive(db, { date: '2026-08-16', title: 'one' })).id,
+    (await createDive(db, { date: '2026-08-16', title: 'two' })).id,
+    (await createDive(db, { date: '2026-08-16', status: 'planned', title: 'plan' })).id,
+  ];
+
+  it('reorders a day that also holds a planned dive, which is not part of the day’s order', async () => {
+    const [one, two, plan] = await twoUntimedPlusAPlan();
+
+    const outcome = await reorderDivesForDate(db, '2026-08-16', [two, one]);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.effectiveOrder).toEqual([two, one]);
+    expect((await mustGet(two)).manualOrder).toBe(1);
+    expect((await mustGet(one)).manualOrder).toBe(2);
+    // The plan was neither renumbered nor stamped: it is not in this order, and `indexOf`
+    // would have given it `0` — a hand order nothing asked for, sorting it ahead of both.
+    expect((await mustGet(plan)).manualOrder).toBeNull();
+  });
+
+  it('still refuses a partial order on such a day — the check is scoped, not switched off', async () => {
+    // The point of the scoping is which dives it counts, not that it stopped counting. Omit
+    // a LOGGED dive on the same day and it must still throw, or S1's fix would have traded
+    // one silent half-write for another.
+    const [one] = await twoUntimedPlusAPlan();
+    await expect(reorderDivesForDate(db, '2026-08-16', [one])).rejects.toThrow(
+      /every live logged dive/i,
+    );
+    expect((await mustGet(one)).manualOrder).toBeNull();
+  });
+
+  it('refuses an order that names the planned dive, which has no place in it', async () => {
+    const [one, two, plan] = await twoUntimedPlusAPlan();
+    await expect(reorderDivesForDate(db, '2026-08-16', [two, one, plan])).rejects.toThrow(
+      /not a logged dive on that date/i,
+    );
+    expect((await mustGet(one)).manualOrder).toBeNull();
+  });
+
+  it('accepts exactly the ids DivesScreen is able to hand it for such a day', async () => {
+    // The seam itself, built from the screen's own three steps rather than from a
+    // hand-written id list: `splitPlanned` lifts the plan into "Up next", `sameDateGroups`
+    // takes what is left of the day, `canReorder` decides whether a strip is offered at all
+    // — and the ids that reach here are that group's, reversed into chronological order the
+    // way `moveDown` (ReorderControls.tsx) does. There is no step in that chain where the
+    // planned dive's id could have come from, which is why demanding it made the day
+    // unreorderable rather than making the write safer.
+    await createDive(db, { date: '2026-08-16', title: 'one', siteName: 'Blue Hole' });
+    await createDive(db, { date: '2026-08-16', title: 'two', siteName: 'Blue Hole' });
+    await createDive(db, { date: '2026-08-16', status: 'planned', siteName: 'Blue Hole' });
+
+    const { logged } = splitPlanned(await listDives(db));
+    const [group] = sameDateGroups(logged);
+    if (group === undefined) throw new Error('the day produced no same-date group');
+    expect(canReorder(group)).toBe(true);
+    // The screen can only ever name these two, and it has to be allowed to.
+    expect(group).toHaveLength(2);
+
+    const chronological = [...group].reverse().map((d) => d.id);
+    const outcome = await reorderDivesForDate(db, '2026-08-16', chronological);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.effectiveOrder).toEqual(chronological);
+  });
+
+  it('reorders a day whose only other dive is planned, leaving the plan alone', async () => {
+    // The narrow case the fix must not overshoot: a plan on the date is invisible to the
+    // ordering, so a day of two untimed logged dives behaves exactly as a day of two does.
+    const one = (await createDive(db, { date: '2026-08-16', title: 'one' })).id;
+    const two = (await createDive(db, { date: '2026-08-16', title: 'two' })).id;
+    const plan = (await createDive(db, { date: '2026-08-16', status: 'planned', title: 'plan' })).id;
+    await reorderDivesForDate(db, '2026-08-16', [two, one]);
+
+    // `chronological()` reads every live dive through the real comparator, planned included,
+    // so this is the day as the app actually orders it.
+    expect((await mustGet(two)).manualOrder).toBe(1);
+    expect((await mustGet(plan)).manualOrder).toBeNull();
   });
 
   it('refuses a duplicated id', async () => {

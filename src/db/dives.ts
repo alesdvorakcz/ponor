@@ -416,10 +416,20 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
  * produce a plausible, wrong logbook. Renumbering the whole date is the write
  * that is actually correct, so it is the one the repository offers.
  *
- * `orderedIds` must name exactly the live dives on that date, once each. A
- * subset would leave stale orders on the dives it omitted, which is the same
- * half-applied-ordering bug one tier down; an unknown or duplicated id is a
+ * `orderedIds` must name exactly the live **logged** dives on that date, once
+ * each. A subset would leave stale orders on the dives it omitted, which is the
+ * same half-applied-ordering bug one tier down; an unknown or duplicated id is a
  * caller bug. All three throw rather than writing something partly right.
+ *
+ * **Planned dives on the date take no part in it, and naming them is refused.**
+ * They are not in the trip, they are not numbered (§2.5), and `splitPlanned`
+ * has already lifted them into "Up next" by the time the list builds a day's
+ * group — so `DivesScreen` structurally cannot name them, and a completeness
+ * check counting them made a day with one planned dive and two untimed logged
+ * ones impossible to reorder at all ("Couldn't reorder that day", found on a
+ * device). Requiring ids the only caller cannot supply is not strictness, it is
+ * a rule about a different set of dives. The check stays strict for logged
+ * dives, which is what it exists for.
  *
  * One statement, not a transaction: the whole renumber is a single UPDATE with
  * a CASE over the ids, so it is atomic on both drivers by construction, needs
@@ -483,15 +493,19 @@ export async function reorderDivesForDate(
     })
     .from(dives)
     .where(and(eq(dives.date, day), liveDives));
-  const liveIds = new Set(live.map((row) => row.id));
+  // The day's ordering is the LOGGED dives' ordering, and nothing else — see this
+  // function's own docblock. Filtered here rather than in the query so the
+  // `status` column is read once for both this and `effectiveOrder` below.
+  const orderable = live.filter((row) => row.status === 'logged');
+  const orderableIds = new Set(orderable.map((row) => row.id));
 
-  const missing = live.filter((row) => !unique.has(row.id)).map((row) => row.id);
-  const unknown = orderedIds.filter((id) => !liveIds.has(id));
+  const missing = orderable.filter((row) => !unique.has(row.id)).map((row) => row.id);
+  const unknown = orderedIds.filter((id) => !orderableIds.has(id));
   if (missing.length > 0 || unknown.length > 0) {
     throw new Error(
-      `reorderDivesForDate: the order must name every live dive on ${day}, once each` +
+      `reorderDivesForDate: the order must name every live logged dive on ${day}, once each` +
         (missing.length > 0 ? ` — missing: ${missing.join(', ')}` : '') +
-        (unknown.length > 0 ? ` — not on that date: ${unknown.join(', ')}` : ''),
+        (unknown.length > 0 ? ` — not a logged dive on that date: ${unknown.join(', ')}` : ''),
     );
   }
   if (orderedIds.length === 0) {
@@ -512,7 +526,11 @@ export async function reorderDivesForDate(
   // and assignDiveNumbers use. Deriving it rather than re-stating "timeIn wins
   // over manualOrder" here is the point: a second copy of the tier rules is
   // precisely the drift this milestone spent itself closing.
-  const reordered = live.map((row) => ({
+  // `orderable`, not `live`: a planned dive is not in this order, so `indexOf`
+  // would give it `0` — a hand order the write never made and a slot ahead of
+  // every real one — and it does not belong in `effectiveOrder` either, which
+  // describes the day the LIST shows.
+  const reordered = orderable.map((row) => ({
     ...row,
     manualOrder: orderedIds.indexOf(row.id) + 1,
   }));
