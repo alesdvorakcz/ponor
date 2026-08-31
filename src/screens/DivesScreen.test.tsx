@@ -15,13 +15,14 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { dive } from '../domain/diveFixture';
 // The real numbering rule, not a stub: §2.5's numbers are computed, so a test that
 // hand-wrote them would be asserting its own arithmetic rather than the app's.
 import { assignDiveNumbers } from '../domain/diveNumber';
-import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
+import { reorderDivesForDate, softDeleteDive, type ReorderOutcome } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
@@ -47,7 +48,10 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // every read, which goes through the mocked useDives() above — mocked separately so a
 // reorder test can control exactly what ReorderOutcome it resolves with, without a real
 // database.
-jest.mock('../db/dives', () => ({ reorderDivesForDate: jest.fn() }));
+jest.mock('../db/dives', () => ({ reorderDivesForDate: jest.fn(), softDeleteDive: jest.fn() }));
+// `softDeleteDive` joins it for the wide layout below: the embedded DiveDetailScreen owns the
+// delete, and Jest mocks a module once per test FILE regardless of which file under test does
+// the importing. Left out, the embedded pane would call `undefined` and report a failed delete.
 // A bare jest.fn() returns undefined, which is falsy — every pre-existing test below, none
 // of which mentions wide layouts, is unaffected and keeps exercising the narrow layout.
 // Only the wide-layout tests near the bottom of this file set this to true.
@@ -237,7 +241,14 @@ function stubDives(state: Partial<DiveListState>) {
 
 const mockReorderDivesForDate = reorderDivesForDate as jest.Mock;
 const mockUseWideLayout = useWideLayout as jest.Mock;
+const mockSoftDelete = softDeleteDive as jest.Mock;
+// The wide layout embeds DiveDetailScreen, whose delete confirms through the platform Alert
+// (§0.1: the red belongs to OS chrome). Spied once for the file; nothing else here calls it.
+const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+afterEach(() => alertSpy.mockClear());
 const mockRouterPush = router.push as jest.Mock;
+const mockRouterBack = router.back as jest.Mock;
+const mockRouterReplace = router.replace as jest.Mock;
 const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
 
 afterEach(() => {
@@ -1107,6 +1118,54 @@ it("does not render the detail screen's own back control when embedded beside th
   await fireEvent.press(findRow(t, 1));
   const backButtons = t.root ? t.root.queryAll((n) => n.props.accessibilityLabel === 'Back to dives') : [];
   expect(backButtons).toHaveLength(0);
+  // ...and the dive's own action is still there. `EditButton` sits OUTSIDE the
+  // `showBackButton` guard in DiveDetailScreen.tsx, which nothing checked: pulled inside it,
+  // a tablet would have no way to edit a dive at all, and the assertion above would still
+  // pass. Editing the dive on screen is exactly as valid beside the list as on top of it.
+  expect(findControl(t, 'Edit')).toBeDefined();
+});
+
+// §2.4's other wide-layout wiring, and the one this screen owns rather than DiveDetailScreen:
+// `onDeleted={() => setSelectedId(null)}`. Deleting from the pane must not navigate — the
+// list is already on screen, and `router.back()` would leave the Dives screen entirely — and
+// it must not do nothing either, or the pane sits on "Dive not found." for a dive that was
+// just correctly removed. DiveDetailScreen.test.tsx pins that the prop works when passed;
+// this is the proof that this screen actually passes it.
+it('clears the tablet detail pane when the dive in it is deleted, rather than stranding it', async () => {
+  mockUseWideLayout.mockReturnValue(true);
+  mockUseLocalSearchParams.mockReturnValue({});
+  mockSoftDelete.mockResolvedValue(undefined);
+  const doomed = dive({ id: 'a', siteName: 'Blue Hole', date: '2026-08-16' });
+  const survivor = dive({ id: 'b', siteName: 'Shark Reef', date: '2026-08-15' });
+  stubDives({ dives: [doomed, survivor], numbers: new Map([['a', 2], ['b', 1]]), error: undefined });
+  const t = await render(<DivesScreen />);
+  await fireEvent.press(findRow(t, 2));
+  expect(textIn(t).join(' ')).toContain('Date & time'); // the pane really is showing the dive
+
+  const del = findControl(t, 'Delete dive');
+  if (!del) throw new Error('the embedded detail pane offered no Delete dive control');
+  await fireEvent.press(del);
+  const destructive = (alertSpy.mock.calls[0]?.[2] as { style?: string; onPress?: () => void }[] | undefined)?.find(
+    (b) => b.style === 'destructive',
+  );
+  if (!destructive) throw new Error('the confirmation offered no destructive button');
+  await act(async () => {
+    destructive.onPress?.();
+  });
+
+  // The live query catches up, which is the half a stubbed hook will not do by itself: the
+  // tombstoned dive is gone from `useDives()`'s own list. Without this the pane would still
+  // find the dive and the defect would be invisible — it is the dive DISAPPEARING under a
+  // stale selection that puts "Dive not found." on a tablet.
+  stubDives({ dives: [survivor], numbers: new Map([['b', 1]]), error: undefined });
+  await t.rerender(<DivesScreen />);
+
+  expect(textIn(t).join(' ')).toContain('Select a dive');
+  expect(textIn(t).join(' ')).not.toContain('Dive not found');
+  // Nothing navigated: the default `onDeleted` is `backToDives`, which would pop the stack
+  // (or replace to '/') and take the diver off the list they are looking at.
+  expect(mockRouterBack).not.toHaveBeenCalled();
+  expect(mockRouterReplace).not.toHaveBeenCalled();
 });
 
 // --- M1d task 7: §2.4's *Complete dive*, on an "Up next" row ---

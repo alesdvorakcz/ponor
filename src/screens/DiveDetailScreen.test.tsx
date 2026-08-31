@@ -1088,6 +1088,23 @@ it('opens the edit form for the dive on screen', async () => {
 // pushed: this pair's whole history is a label and a link disagreeing (§10 — "Complete dive"
 // wired to the plain edit link completes nothing while saying it did), and an assertion on
 // labels alone, or on `mockPush` having been called, survives the two hrefs being swapped.
+it('keeps Edit when the back control is hidden — the tablet pane still edits its dive', async () => {
+  // `EditButton` is rendered OUTSIDE the `showBackButton` guard, with a comment saying so,
+  // and nothing checked it: pulled inside, a tablet would have no edit control at all, and
+  // every other test in this file — all of which leave `showBackButton` at its default —
+  // would still pass. DivesScreen.test.tsx pins the same pairing from the other side.
+  stubDives({ dives: [dive({ id: 'target', siteName: 'Blue Hole' })], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({});
+  const t = await render(<DiveDetailScreen id="target" showBackButton={false} />);
+
+  // The flag really took effect, so the line below is not passing because nothing was hidden.
+  expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Back to dives')).toHaveLength(0);
+  expect(findControl(t, 'Edit')).toBeDefined();
+
+  await pressControl(t, 'Edit');
+  expect(mockPush).toHaveBeenCalledWith(editDiveHref('target'));
+});
+
 it('offers Edit for a planned dive too, not only Complete dive', async () => {
   const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
   expect(findControl(t, 'Edit')).toBeDefined();
