@@ -9,11 +9,11 @@ import { DateTimeField } from '../components/DateTimeField';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { db } from '../db/client';
-import { createDive } from '../db/dives';
+import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
-import { diveFormSchema, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
+import { diveFormSchema, toDivePatch, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
 import { backToDives } from '../navigation/backToDives';
@@ -97,6 +97,48 @@ function blankFormValues(): DiveFormInput {
     notes: null,
     rating: null,
   };
+}
+
+/**
+ * Every field this form has, read off `diveFormSchema` itself rather than typed out here a
+ * second time — the same rule `carryOver.ts`'s `FRESH_FIELDS` follows, so a field added to
+ * the schema is seeded into edit mode automatically instead of silently opening blank on a
+ * dive that records it.
+ */
+const FORM_FIELDS = Object.keys(diveFormSchema.shape) as (keyof DiveFormValues)[];
+
+/**
+ * Type-level proof that every field this form has is also a field a `Dive` has, so
+ * `diveToFormValues` below can copy them across by name. A field added to
+ * `diveFormSchema` that `Dive` does not carry is a compile error here rather than a field
+ * that silently seeds as `undefined` when a dive is opened for editing.
+ */
+type Assert<T extends true> = T;
+export type FormFieldsExistOnDive = Assert<keyof DiveFormValues extends keyof Dive ? true : false>;
+
+/**
+ * A stored dive's own values, as this form's starting point in `mode="edit"` (Task 7).
+ *
+ * The counterpart of `initialFormValues` below, and deliberately NOT built on top of
+ * carry-over: editing shows the dive's own data (`carryOverSource` returns `null` for edit
+ * mode, once, so the rule lives in one place). Every field is copied straight across by
+ * name — `FORM_FIELDS` above, never a hand-written list — because `DiveFormValues` and
+ * `Dive` name the same fields the same way, which the assertion above pins.
+ *
+ * `tanks` gets `blankFormValues()`'s single blank cylinder when the dive recorded none, for
+ * exactly the reason `initialFormValues` does: this screen binds `tanks.0.*` directly, and
+ * a form bound to an array element that does not exist would go on SHOWING one cylinder
+ * while HOLDING none. `toDivePatch` (diveFormSchema.ts) treats a blank cylinder and no
+ * cylinder as the same claim in both directions, so that blank never turns into a write.
+ */
+function diveToFormValues(dive: Dive): DiveFormInput {
+  const blank = blankFormValues();
+  const values = { ...blank } as Record<string, unknown>;
+  for (const field of FORM_FIELDS) {
+    values[field] = (dive as unknown as Record<string, unknown>)[field];
+  }
+  const seeded = values as DiveFormInput;
+  return seeded.tanks !== undefined && seeded.tanks.length > 0 ? seeded : { ...seeded, tanks: blank.tanks };
 }
 
 /**
@@ -202,38 +244,56 @@ function computeCarriedPaths(values: DiveFormInput): Set<string> {
 }
 
 /**
- * Everything this screen derives from the one dive carry-over came from, kept together so
- * the three pieces can never disagree about which dive they describe.
+ * Everything this screen derives from the one dive it was seeded by — the dive carry-over
+ * came from in create mode, the dive being edited in edit mode — kept together so the three
+ * pieces can never disagree about which dive they describe.
  */
-interface CarriedState {
+interface SeedState {
   /**
-   * `carryOverSource`'s own dive id, or `null` for a first-ever dive and in edit mode — the
-   * one **stable scalar** the render body's re-derivation gate compares. Deliberately the
-   * id and not the dive, nor the values derived from it: `useDives()` rebuilds every object
-   * it hands back on every render, so any object here would compare unequal forever and the
-   * gate would never close. See the render body for what that cost.
+   * The seed dive's own id, or `null` when there is none (a first-ever dive; an edit whose
+   * dive has not arrived from `useDives()` yet) — the one **stable scalar** the render
+   * body's re-derivation gate compares. Deliberately the id and not the dive, nor the
+   * values derived from it: `useDives()` rebuilds every object it hands back on every
+   * render, so any object here would compare unequal forever and the gate would never
+   * close. See the render body for what that cost.
    */
   sourceId: string | null;
-  /** `initialFormValues(source)` — this form's starting values, held rather than recomputed
-   * so `useForm`'s `values` option has a reference that changes only when the carry-over
-   * source really does. */
+  /** This form's starting values, held rather than recomputed so `useForm`'s `values`
+   * option has a reference that changes only when the seed dive really does. */
   values: DiveFormInput;
   /** DESIGN.md §0.6's `carried ×` paths for `values`, minus whatever the diver has since
-   * typed over (`dropCarried`, render body). */
+   * typed over (`dropCarried`, render body). Always empty in edit mode — see below. */
   paths: ReadonlySet<string>;
 }
 
 /**
- * DESIGN.md §0.6's chip means "this came from your LAST DIVE" — so a `null` source marks
- * nothing at all, which covers both a diver's first-ever dive and `mode="edit"` (Task 7
- * shows a dive's OWN stored data, never carry-over). Checked against the source rather than
- * against `mode` a second time: `carryOverSource` already owns that rule, and re-deciding it
- * here would be the same field-list-in-two-places defect `carryOver.ts` warns about, one
- * layer up.
+ * This form's starting values, and DESIGN.md §0.6's `carried ×` paths for them.
+ *
+ * The chip means "this came from your LAST DIVE", so edit mode marks nothing at all: it
+ * shows the dive's OWN stored data (`diveToFormValues`), and a field holding what it has
+ * always held is not carried from anywhere. Create mode marks whatever carry-over actually
+ * filled in, and a `null` source — a diver's first-ever dive — marks nothing either.
+ *
+ * `mode` is read here rather than only through `carryOverSource`, because the two modes now
+ * seed from different dives entirely (the previous dive versus this one); the ONE thing
+ * that is not re-decided here is which dive create mode carries from, which stays
+ * `carryOverSource`'s alone.
  */
-function carriedStateFor(sourceId: string | null, source: Dive | null): CarriedState {
-  const values = initialFormValues(source);
-  return { sourceId, values, paths: source === null ? new Set<string>() : computeCarriedPaths(values) };
+function seedStateFor(mode: 'create' | 'edit', seed: Dive | null): SeedState {
+  const sourceId = seed?.id ?? null;
+  if (mode === 'edit') {
+    return {
+      sourceId,
+      // A `null` seed in edit mode means the dive has not arrived yet (`useDives()` starts
+      // empty) or the id names no live dive at all. Today's blank form is what shows in
+      // that gap; `onValid` below refuses to write anything without a real dive, so a form
+      // that opened blank can never save its blanks over a dive it never loaded.
+      values: seed === null ? blankFormValues() : diveToFormValues(seed),
+      paths: new Set<string>(),
+    };
+  }
+  const values = initialFormValues(seed);
+  return { sourceId, values, paths: seed === null ? new Set<string>() : computeCarriedPaths(values) };
 }
 
 const ENTRY_OPTIONS: readonly Entry[] = ['shore', 'boat', 'other'];
@@ -561,14 +621,26 @@ function ControlledBooleanField({ control, name, label, scheme }: ControlledBool
 
 export interface DiveFormScreenProps {
   mode: 'create' | 'edit';
-  /** Which dive `mode="edit"` is for. Unused until Task 7 wires real loading via
-   * `useDives()` — this screen shell does not read it yet. */
+  /** Which dive `mode="edit"` is for — found inside `useDives()`'s own list (Task 7), never
+   * fetched with a second query, exactly as DiveDetailScreen.tsx finds the dive it shows. */
   diveId?: string;
 }
 
-/** Shown when `createDive`'s write rejects (`onValid` below) — see `formSaveError`
- * (theme/styles.ts) for why this is not silent, and not a `disabled` save control either. */
+/** Shown when `createDive`'s or `updateDive`'s write rejects (`onValid` below) — see
+ * `formSaveError` (theme/styles.ts) for why this is not silent, and not a `disabled` save
+ * control either. */
 const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
+
+/**
+ * Shown when Save is pressed in edit mode and there is no dive to write to — the id names
+ * nothing live (deleted on another device, a stale deep link), or `useDives()` has not
+ * resolved yet.
+ *
+ * Not silent, and deliberately not a `createDive` fallback either: a form that quietly
+ * logged a NEW dive because it could not find the one it was editing would duplicate the
+ * dive on the device that still has it, and duplicate it again on every later attempt.
+ */
+const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
 
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
@@ -595,10 +667,17 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
  *
  * Creating a dive (`createDive`, `useDives()`, `carryOverFrom` applied to the diver's own
  * most recent LOGGED dive, and returning to the list on success — Task 6) is wired below
- * for `mode="create"`. `mode="edit"` (Task 7: editing, and completing a planned dive) is
- * still shell-only — `onValid` below does not write anything for it yet.
+ * for `mode="create"`.
+ *
+ * **`mode="edit"`** (Task 7) is the same form seeded from one stored dive
+ * (`diveToFormValues`) instead of from carry-over, saving through `updateDive` with a patch
+ * of **only what changed** (`toDivePatch`, diveFormSchema.ts) rather than the whole row —
+ * see that function for why the distinction between "left alone" and "cleared" is the
+ * entire point. **Completing a planned dive (§2.4) is that same mode**: the patch gains
+ * `status: 'logged'`, and the dive gains a number the moment it is logged, because
+ * numbering is computed (§2.5) rather than stored.
  */
-export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
+export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
@@ -608,19 +687,28 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   // `initialFormValues`'s docblock for why `dives` (and therefore this) can change after
   // mount, and why that is handled below rather than assumed away.
   const { dives } = useDives();
-  const source = carryOverSource(mode, dives);
+  // The dive being edited, found inside the one read every screen uses rather than through
+  // a second query of this screen's own — the identical rule (and the identical `find`)
+  // DiveDetailScreen.tsx follows for the dive it shows, so the form and the detail it was
+  // opened from can never disagree about what the dive holds. `null` in create mode, and
+  // while `useDives()` has not resolved yet.
+  const target = mode === 'edit' && diveId !== undefined ? (dives.find((d) => d.id === diveId) ?? null) : null;
+  // The one dive this form is seeded from: the previous dive in create mode (carry-over,
+  // §2.1), this dive in edit mode (its own stored values, Task 7).
+  const seedDive = mode === 'edit' ? target : carryOverSource(mode, dives);
   // The ONE value the re-derivation below is allowed to compare. `useDives()` returns a
   // brand-new object holding a brand-new array on every render (`composeDives`'s `toDives`
-  // is `rows.map(toDive).sort(...)`), so every value derived from it — `dives`, `source`,
+  // is `rows.map(toDive).sort(...)`), so every value derived from it — `dives`, `seedDive`,
   // this form's own starting values — has a fresh identity every render and can never
   // compare equal to what the previous render produced. A dive id is a string: it
   // compares by value, so it
   // settles the moment the underlying dive does, no matter how many objects were rebuilt
-  // around it. `null` covers both "no logged dive to carry from" and edit mode.
-  const sourceId = source?.id ?? null;
+  // around it. `null` covers "no logged dive to carry from" and "the edited dive has not
+  // arrived yet" alike.
+  const sourceId = seedDive?.id ?? null;
 
-  // Everything derived from the carry-over source, held as one piece of state keyed by the
-  // id it came from. React's own documented "Adjusting some state when a prop changes"
+  // Everything derived from the seed dive, held as one piece of state keyed by the id it
+  // came from. React's own documented "Adjusting some state when a prop changes"
   // pattern (https://react.dev/learn/you-might-not-need-an-effect), not the
   // effect-plus-setState round trip it exists to replace: an ESLint rule in this repo's
   // config (react-hooks/set-state-in-effect) already rejects that shape outright, and the
@@ -631,8 +719,8 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   // another fresh object, the gate re-opened, and create mode threw "Too many re-renders."
   // rather than ever committing a frame at all. Keyed on `sourceId`, the gate closes on the
   // second render and stays closed.
-  const [carried, setCarried] = useState<CarriedState>(() => carriedStateFor(sourceId, source));
-  if (carried.sourceId !== sourceId) setCarried(carriedStateFor(sourceId, source));
+  const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive));
+  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive));
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
@@ -645,9 +733,13 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
     // asynchronously" case: it re-syncs whenever this reference changes. Holding the values
     // in state above rather than recomputing them each render is what makes that reference
     // stable between real carry-over changes, so this re-syncs when the source dive
-    // actually changes and not merely because `dives` was rebuilt. `undefined` in edit mode
-    // leaves this exactly as inert as it was before this task — Task 7's job, not this one's.
-    values: mode === 'create' ? carried.values : undefined,
+    // actually changes and not merely because `dives` was rebuilt.
+    //
+    // Both modes now, not create alone: edit mode reads the SAME asynchronous `useDives()`,
+    // so a form opened on `/dive/<id>/edit` renders once before its dive exists, and
+    // `defaultValues` (read once, at construction) would leave it showing a blank new-dive
+    // form over a real dive forever.
+    values: carried.values,
     // A field the diver has already typed into keeps what they typed rather than being
     // silently overwritten the moment the real carry-over data lands — only a field
     // nothing has touched yet is safe to re-sync.
@@ -686,11 +778,7 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
 
-  // `mode === 'edit'` is Task 7's job — completing/editing a specific dive via
-  // `updateDive` — not this one's; this screen shell still runs `zodResolver` and reaches
-  // this handler for it, but writes nothing yet, matching the shell's own docblock above.
   const onValid = async (values: DiveFormValues) => {
-    if (mode !== 'create') return;
     // The latch, not `saving` below: both taps of a double-tap reach here through
     // `handleSubmit`'s own async resolver before React has rendered anything, so a state
     // flag read at render time is still `false` for the second one. A ref is written and
@@ -700,7 +788,26 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
     setSaving(true);
     setSaveError(null);
     try {
-      await createDive(db, toNewDiveInput(values));
+      if (mode === 'edit') {
+        // Nothing to write to. Told, not swallowed, and above all not turned into a
+        // `createDive` — see MISSING_DIVE_MESSAGE.
+        if (target === null) {
+          setSaveError(MISSING_DIVE_MESSAGE);
+          return;
+        }
+        // Only what changed (`toDivePatch`), never the whole row: an untouched field must
+        // stay untouched, and a field the diver emptied must be cleared — two different
+        // instructions the repository tells apart by `undefined` versus `null`.
+        const patch = toDivePatch(target, values);
+        // §2.4's "Complete dive": finishing a planned dive is this same form, and saving it
+        // is what logs it. Keyed on the dive's own `status`, never on which entry point the
+        // diver came through or on any label — the same discriminator `splitPlanned` uses
+        // (DESIGN.md §10), so a screen or a translation cannot change what this means.
+        if (target.status === 'planned') patch.status = 'logged';
+        await updateDive(db, target.id, patch);
+      } else {
+        await createDive(db, toNewDiveInput(values));
+      }
       // `backToDives` (navigation/backToDives.ts), not a private copy of its guard: this
       // screen is reachable directly by URL exactly as DiveDetailScreen is, and a diver who
       // deep-linked into the form and saved must land on the list rather than sitting on a
@@ -719,8 +826,33 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
 
   return (
     <View style={styles.screen}>
+      {/* The way out (M1d task 7, amendment D — found by using the app: this screen had
+          none at all). iOS's edge-swipe and Android's system back both worked, but nothing
+          on screen said so, while DiveDetailScreen next door has offered a visible `‹ Dives`
+          since M1c. Same treatment as that control — mono, muted, small, at §0.5's 48 dp
+          floor, pinned above the scroll rather than scrolling with it (`backControl` in
+          theme/styles.ts is now the one definition both share) — because it is the same kind
+          of thing: a way out, not an action, and nothing here may read like the primary
+          button. It writes NOTHING: `backToDives` and no save, in either mode. */}
+      <Pressable
+        style={styles.formBack}
+        onPress={backToDives}
+        accessibilityRole="button"
+        // Says what leaving does, which is the half a diver cannot see from the chevron:
+        // deliberately not containing the word "Save", so this can never be mistaken —
+        // by a screen reader or by a test query — for the save control below.
+        accessibilityLabel="Leave without saving"
+      >
+        <Text style={styles.formBackLabel}>‹ Cancel</Text>
+      </Pressable>
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
-        <Text style={styles.formHeading}>{mode === 'edit' ? 'Edit dive' : 'New dive'}</Text>
+        {/* §2.4 again: a planned dive is not "edited", it is FINISHED — and the diver needs
+            to know before saving that this is the write that logs it. Keyed on the dive's
+            own status, so the heading and the patch above can never disagree; "Edit dive"
+            while the dive has not loaded yet, since nothing is known to complete. */}
+        <Text style={styles.formHeading}>
+          {mode === 'edit' ? (target?.status === 'planned' ? 'Complete dive' : 'Edit dive') : 'New dive'}
+        </Text>
 
         {/* Core strip (§2.2) — date, site, centre, max depth, duration, always visible. */}
         <View style={styles.formCoreStrip}>

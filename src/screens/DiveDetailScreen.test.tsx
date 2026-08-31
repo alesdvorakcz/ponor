@@ -1,7 +1,9 @@
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { Alert } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
+import { softDeleteDive } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 // Namespace import, not the usual named one: the completeness test below (`marks every
 // value this screen reads from derived.ts as computed`) needs the module's own export list
@@ -26,9 +28,14 @@ import DiveDetailScreen from './DiveDetailScreen';
 // imperative singleton DivesScreen.tsx already uses for `openDive`/`logDive`), not through a
 // hook, so it needs the same module mock rather than a render prop.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// M1d task 7: this screen now writes, too — the one write it has, `softDeleteDive`. Mocked
+// per module exactly as DiveFormScreen.test.tsx mocks `createDive`/`updateDive`, so a delete
+// test controls what the write resolves or rejects with and no real database is involved.
+// `router.push` joins the fake for the Edit control, which opens `/dive/[id]/edit`.
+jest.mock('../db/dives', () => ({ softDeleteDive: jest.fn() }));
 jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(),
-  router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn() },
+  router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn(), push: jest.fn() },
 }));
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
@@ -146,6 +153,8 @@ const mockUseLocalSearchParams = useLocalSearchParams as jest.Mock;
 const mockCanGoBack = router.canGoBack as jest.Mock;
 const mockBack = router.back as jest.Mock;
 const mockReplace = router.replace as jest.Mock;
+const mockPush = router.push as jest.Mock;
+const mockSoftDelete = softDeleteDive as jest.Mock;
 
 afterEach(() => {
   mockUseDives.mockReset();
@@ -153,6 +162,8 @@ afterEach(() => {
   mockCanGoBack.mockReset();
   mockBack.mockReset();
   mockReplace.mockReset();
+  mockPush.mockReset();
+  mockSoftDelete.mockReset();
 });
 
 /** The screen's one back control, wherever it sits in the tree (both the found and the
@@ -1001,4 +1012,150 @@ it('renders no back control in the not-found branch either, when showBackButton 
   mockUseLocalSearchParams.mockReturnValue({});
   const t = await render(<DiveDetailScreen id="no-such-id" showBackButton={false} />);
   expect(() => findBackButton(t)).toThrow();
+});
+
+// --- M1d task 7: the dive's own two actions — edit (or complete), and delete ---
+//
+// `softDeleteDive` existed, was tested at the repository level, and wrote the `deleted_at`
+// tombstone M2's sync needs — and nothing called it. There was no way to delete a dive in
+// the app at all. Deleting belongs here rather than on a list row: it is a deliberate act
+// performed on one dive you are looking at.
+
+/** One control by its exact accessibilityLabel — `undefined` when the screen renders none,
+ * which several tests below assert directly. */
+function findControl(t: RenderResult, label: string) {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === label) : [])[0];
+}
+
+/** Presses one control, failing at the query rather than at a confusing downstream
+ * `fireEvent` error when the screen rendered none — the same contract `findBackButton`
+ * above and DivesScreen.test.tsx's own `findSearchInput` already follow. */
+async function pressControl(t: RenderResult, label: string) {
+  const node = findControl(t, label);
+  if (!node) throw new Error(`DiveDetailScreen rendered no control labelled ${label}`);
+  await fireEvent.press(node);
+}
+
+const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+afterEach(() => alertSpy.mockClear());
+
+/** The buttons the platform Alert was actually asked to show — the third argument of the
+ * one `Alert.alert` call, exactly as `DiveDetailScreen` passed it. */
+function alertButtons(): { text?: string; style?: string; onPress?: () => void }[] {
+  return (alertSpy.mock.calls[0]?.[2] ?? []) as { text?: string; style?: string; onPress?: () => void }[];
+}
+
+/** Presses Delete and then the Alert's own destructive button, which is the only path that
+ * actually deletes anything. */
+async function confirmDelete(t: RenderResult) {
+  await pressControl(t, 'Delete dive');
+  const destructive = alertButtons().find((b) => b.style === 'destructive');
+  if (!destructive) throw new Error('the confirmation offered no destructive button');
+  await act(async () => {
+    destructive.onPress?.();
+  });
+}
+
+it('opens the edit form for the dive on screen', async () => {
+  const t = await renderDetailTree(dive({ id: 'target', siteName: 'Blue Hole' }));
+  const edit = findControl(t, 'Edit');
+  expect(edit).toBeDefined();
+
+  await pressControl(t, 'Edit');
+  // The dive's OWN id — a control that always opened the first dive in the list, or the
+  // route's own param, would be indistinguishable from this one on a one-dive logbook.
+  expect(mockPush).toHaveBeenCalledWith('/dive/target/edit');
+});
+
+it('offers Complete dive rather than Edit for a planned dive, and opens the same form', async () => {
+  const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
+  // §2.4: a planned dive is finished, not edited — and the label is keyed on `status`, never
+  // on any display string (DESIGN.md §10).
+  expect(findControl(t, 'Complete dive')).toBeDefined();
+  expect(findControl(t, 'Edit')).toBeUndefined();
+
+  await pressControl(t, 'Complete dive');
+  expect(mockPush).toHaveBeenCalledWith('/dive/p1/edit');
+});
+
+it('asks before deleting, and deletes nothing until the diver confirms', async () => {
+  const t = await renderDetailTree(dive({ id: 'target', siteName: 'Blue Hole' }));
+  await pressControl(t, 'Delete dive');
+
+  expect(alertSpy).toHaveBeenCalled();
+  // Pressing the control is a request to be asked, not a deletion. Without this, a
+  // mis-wired confirmation that deleted first and asked afterwards would pass every other
+  // test in this section.
+  expect(mockSoftDelete).not.toHaveBeenCalled();
+  const buttons = alertButtons();
+  // The red lives in OS chrome (amendment C, §0.1): `style: 'destructive'` is the platform's
+  // own, the same way the keyboard's colours are.
+  expect(buttons.find((b) => b.style === 'destructive')?.text).toBe('Delete');
+  expect(buttons.find((b) => b.style === 'cancel')).toBeDefined();
+});
+
+it("keeps the app's own delete control muted, never coloured", async () => {
+  const t = await renderDetailTree(dive({ id: 'target' }));
+  // §0.1: colour encodes depth and nothing else, so this app's own surface stays monochrome
+  // — the destructive colour belongs to the Alert above and to nothing this screen draws.
+  expect(colorOf(textNode(t, 'Delete dive'))).toBe(themeFor('light').fgMuted);
+});
+
+it('deletes the dive and leaves the detail screen once the diver confirms', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  mockSoftDelete.mockResolvedValue(undefined);
+  const t = await renderDetailTree(dive({ id: 'target' }));
+
+  await confirmDelete(t);
+
+  // `softDeleteDive`, never a hard delete: it writes the `deleted_at` tombstone (§6) that
+  // M2's sync needs to propagate the deletion, and `db/dives.test.ts` pins that the row
+  // survives with the tombstone and that the numbering above it closes up.
+  await waitFor(() => expect(mockSoftDelete).toHaveBeenCalled());
+  expect(mockSoftDelete.mock.calls[0]?.[1]).toBe('target');
+  await waitFor(() => expect(mockBack).toHaveBeenCalled());
+});
+
+it('says so when a delete fails, and leaves the dive where it is', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  mockSoftDelete.mockRejectedValue(new Error('disk full'));
+  const t = await renderDetailTree(dive({ id: 'target', siteName: 'Blue Hole' }));
+
+  await confirmDelete(t);
+
+  // §10: a local write failure is shown to the diver. Silently leaving the dive on screen
+  // would be indistinguishable from a control that does nothing at all.
+  await waitFor(() => expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't delete"));
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('Blue Hole');
+});
+
+it('clears the pane instead of navigating, when the wide layout supplies onDeleted', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  mockSoftDelete.mockResolvedValue(undefined);
+  const onDeleted = jest.fn();
+  stubDives({ dives: [dive({ id: 'target' })], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({});
+  const t = await render(<DiveDetailScreen id="target" showBackButton={false} onDeleted={onDeleted} />);
+
+  await confirmDelete(t);
+
+  // Side by side with the list there is nothing to navigate away from — `router.back()`
+  // would leave the Dives screen entirely, and doing nothing would leave this pane showing
+  // "Dive not found." for a dive that was just correctly deleted.
+  await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+it('offers neither action for a dive it could not find', async () => {
+  stubDives({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: 'no-such-id' });
+  const t = await render(<DiveDetailScreen />);
+
+  // The not-found branch has no dive to edit or delete, and a control there would either do
+  // nothing or act on the wrong id.
+  expect(findControl(t, 'Edit')).toBeUndefined();
+  expect(findControl(t, 'Delete dive')).toBeUndefined();
+  expect(textIn(t).join(' ')).toContain('Dive not found');
 });

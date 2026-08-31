@@ -14,7 +14,7 @@ import { useDives } from '../db/useDives';
 import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
-import { formatDiveCount } from '../format/display';
+import { diveSiteLabel, formatDiveCount } from '../format/display';
 import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { resolveScheme } from '../theme/resolve';
@@ -213,6 +213,12 @@ export default function DivesScreen() {
   // door makes `/dive/<anything>` a valid href, so this catches a misspelt or moved SEGMENT
   // but not this file alone being renamed — that would silently resolve to the detail route.
   const logDive = () => router.push('/dive/new');
+  // §2.4's *Complete dive*: "After surfacing, Complete dive asks only for the missing
+  // numbers." It opens the SAME route the detail screen's own Edit control does — a planned
+  // dive is completed by editing it, and `DiveFormScreen` decides what that means from the
+  // dive's own `status` (DESIGN.md §10), so this list never has to say so a second time.
+  // Absolute, for the typed-routes reason `logDive` above records at length.
+  const completeDive = (id: string) => router.push(`/dive/${id}/edit`);
 
   // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a
   // lazily-initialised ref, not a bare `useRef(createReorderGate())`, so a
@@ -360,6 +366,30 @@ export default function DivesScreen() {
     return (
       <View style={activeReorderDate !== null ? styles.reorderDimmed : undefined}>
         <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} onPress={openDive} />
+        {/* §2.4: a planned dive is one still to be dived, so it gets the one action a
+            logged dive has no use for. Keyed on the dive's own `status` — never on which
+            section it was rendered in, and never on the section's title, which is an
+            i18next label bound for Czech (DESIGN.md §10, the same reason `splitPlanned`
+            keys on status). A row of its own beneath the dive's row, not a control nested
+            inside `DiveRow`'s single Pressable: two tappable objects in one row make which
+            one a tap lands on a matter of pixels. */}
+        {item.dive.status === 'planned' && (
+          <View style={styles.plannedActions}>
+            <Pressable
+              style={styles.plannedAction}
+              onPress={() => completeDive(item.dive.id)}
+              accessibilityRole="button"
+              // Names the dive it belongs to, so a screen reader moving down a queue of
+              // planned dives can tell one "Complete dive" from the next — the same
+              // reasoning ReorderControls.tsx's own `rowLabel` records for its arrows.
+              accessibilityLabel={`Complete dive: ${diveSiteLabel(item.dive)}`}
+            >
+              <View style={styles.plannedActionPill}>
+                <Text style={styles.plannedActionLabel}>Complete dive</Text>
+              </View>
+            </Pressable>
+          </View>
+        )}
       </View>
     );
   };
@@ -469,7 +499,11 @@ export default function DivesScreen() {
             </View>
           </View>
         ) : (
-          <DiveDetailScreen id={selectedId} showBackButton={false} />
+          // `onDeleted` (M1d task 7) for the same reason `showBackButton={false}` is here:
+          // deleting from this pane must not navigate anywhere — the list is already on
+          // screen — it must clear the selection, or this pane would sit on "Dive not
+          // found." for a dive that was just correctly removed.
+          <DiveDetailScreen id={selectedId} showBackButton={false} onDeleted={() => setSelectedId(null)} />
         )}
       </View>
     </View>

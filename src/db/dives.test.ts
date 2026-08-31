@@ -785,5 +785,42 @@ describe('softDeleteDive', () => {
     await softDeleteDive(db, created.id);
     expect(await getDive(db, created.id)).toBeNull();
     expect(await listDives(db)).toEqual([]);
+
+    // M1d task 7. The two assertions above were this test's whole body, and they say
+    // "the dive is gone from every read" — which a hard `DELETE FROM dives` satisfies
+    // exactly as well, under a test named for the opposite behaviour. That would be
+    // invisible until M2: a deletion no other device can ever learn about, because
+    // `pull_changes` propagates a deletion as a row carrying a tombstone (DESIGN.md §7),
+    // and a row that is gone carries nothing.
+    //
+    // Read past `liveDives` deliberately — every repository read filters tombstones out,
+    // so the row this asserts on is one nothing else in this file can see.
+    const row = (await db.select().from(dives).where(eq(dives.id, created.id))).at(0);
+    expect(row).toBeDefined();
+    expect(row?.deletedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // §7's whole-row last-write-wins is keyed on updated_at, so a deletion that did not
+    // advance it would lose the conflict against an earlier edit made on another device
+    // — the dive would come back.
+    expect(row?.updatedAt).toBe(row?.deletedAt);
+  });
+
+  it('closes the numbering up over a deleted dive, because dive numbers are computed', async () => {
+    const first = await createDive(db, { date: '2026-08-16' });
+    const middle = await createDive(db, { date: '2026-08-17' });
+    const last = await createDive(db, { date: '2026-08-18' });
+
+    const before = assignDiveNumbers(await listDives(db), 0);
+    expect([before.get(first.id), before.get(middle.id), before.get(last.id)]).toEqual([1, 2, 3]);
+
+    await softDeleteDive(db, middle.id);
+
+    // DESIGN.md §2.5: dive numbers are computed from chronological position, never stored
+    // — so deleting #2 makes the dive above it #2, on every device, with nothing to
+    // migrate. Worth asserting over "the row disappeared": the row disappearing is the
+    // easy half, and a stored number would leave a logbook reading #1, #3.
+    const after = assignDiveNumbers(await listDives(db), 0);
+    expect(after.get(first.id)).toBe(1);
+    expect(after.get(last.id)).toBe(2);
+    expect(after.has(middle.id)).toBe(false);
   });
 });

@@ -58,6 +58,46 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // The way out of a stacked screen — `detailBack` (DiveDetailScreen) and `formBack`
+  // (DiveFormScreen, M1d task 7) — one definition rather than two copies of the same six
+  // properties, the same reasoning `noticeBanner` above records. §0.6: "The dive-detail
+  // back control is mono, muted and small — it is a way out, not a heading," and the form's
+  // exit is exactly the same kind of object, so it must not invent a second treatment for
+  // it. `minHeight: 48` is §0.5's tap-target floor and is not spacing. The two call sites
+  // differ only in `paddingHorizontal`, which aligns each to the content beneath it (16 for
+  // the detail hero, 20 for the form's own scroll padding) and is therefore set there.
+  const backControl: ViewStyle = {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+  };
+  const backControlLabel: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    color: theme.fgMuted,
+  };
+
+  // §0.6's quiet control: "a bordered pill in tracked uppercase, not plain text, so it
+  // reads as a control rather than a label." Written once and used by the day strip's
+  // Reorder/Done and by an "Up next" row's *Complete dive* (§2.4) — one definition for the
+  // same object, the same reasoning `noticeBanner` and `backControl` above record. Archivo,
+  // not mono: §0.2 splits the two faces on content, and this is a UI control label, the
+  // same category as `actionLabel`, never a data figure.
+  const actionPill: ViewStyle = {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  };
+  const actionPillLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 11,
+    color: theme.fgMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  };
+
   // M1c task 11, DESIGN.md §0.6: the Dives screen's floating bottom row — the search
   // capsule and the "+" — is "separated by a soft shadow, not a line," and the "+" shares
   // that exact treatment ("its own floating button beside the capsule ... sharing the same
@@ -610,24 +650,39 @@ function build(scheme: ColorScheme) {
     // on the Pressable, centred (`dayStripAction`'s own `alignItems`/`justifyContent`)
     // around this visually smaller box, the same "small visible control, generous hidden
     // target" split `reorderButton`'s own hitSlop already uses elsewhere in this file.
-    dayStripActionPill: {
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-    },
+    dayStripActionPill: actionPill,
     // Archivo, not mono: §0.2 draws the type split on content, not on volume — this is a
     // UI control label ("Reorder"/"Done"), the same category as `actionLabel`, not a data
     // figure. Small, muted and uppercase+tracked is what reads as "quiet control" rather
-    // than the plain, full-ink 14 px label this used to be.
-    dayStripActionLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 11,
-      color: theme.fgMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
+    // than the plain, full-ink 14 px label this used to be. Shared with the "Up next" row's
+    // own action via `actionPillLabel` at the top of this function (M1d task 7).
+    dayStripActionLabel: actionPillLabel,
+    // §2.4's *Complete dive*, on an "Up next" row (M1d task 7): "After surfacing, Complete
+    // dive asks only for the missing numbers." A row of its own beneath the dive's row
+    // rather than a control inside it — DiveRow is one Pressable that opens the dive, and a
+    // second tappable object nested in it would make which of the two a tap lands on a
+    // matter of pixels. Trailing-aligned, so a column of queued dives reads as one column
+    // of actions; the pill itself is `actionPill` above, the same quiet control the day
+    // strip uses, because it is the same kind of thing.
+    plannedActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      paddingHorizontal: 16,
+      paddingBottom: 6,
     },
+    // The 48 dp floor (§0.5) sits on the Pressable, centred around the visually smaller
+    // pill inside it — the same "small visible control, generous hidden target" split
+    // `dayStripAction` above already uses, and the reason the pill is nested rather than
+    // being the Pressable itself.
+    plannedAction: {
+      minHeight: 48,
+      minWidth: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    plannedActionPill: actionPill,
+    plannedActionLabel: actionPillLabel,
     // The banner DivesScreen shows when a reorder request could not fully
     // take effect (db/dives.ts's `applied: false` — see ReorderControls.tsx's
     // `applyReorder`). Pressable so a diver can dismiss it before the next
@@ -852,10 +907,60 @@ function build(scheme: ColorScheme) {
     // because they are stacked and left-aligned. `minHeight: 48` is §0.5's tap-target floor
     // and is not spacing — it stays exactly as it is.
     detailBack: {
-      minHeight: 48,
+      ...backControl,
+      paddingHorizontal: 16,
+    },
+    // The detail screen's top bar (M1d task 7): the way out at its leading edge, the dive's
+    // own action ("Edit", or "Complete dive" for a planned one — DiveDetailScreen.tsx) at
+    // its trailing edge. A row rather than two stacked controls, because the second one is
+    // a peer of the first, not a heading: both are chrome above the hero, and §0.6 already
+    // fixes that treatment — mono, small, quiet. No `justifyContent: 'space-between'`,
+    // because the back control is hidden in the wide (tablet) layout and the action must
+    // stay at the trailing edge regardless of how many children the row has; `detailAction`
+    // below carries `marginLeft: 'auto'` for that instead.
+    detailTopBar: {
       flexDirection: 'row',
       alignItems: 'center',
+    },
+    // Full ink where `detailBackLabel` below is muted — §0.6: "Ink versus muted ink is the
+    // only lever" (§0.1 rules out a hue, and a new shape would be new vocabulary for one
+    // control). Wayfinding stays muted; the thing a diver came here to DO reads as the
+    // brighter of the two, without becoming the filled `action` button, which on this screen
+    // would compete with the hero it sits directly above.
+    detailAction: {
+      ...backControl,
       paddingHorizontal: 16,
+      marginLeft: 'auto',
+    },
+    detailActionLabel: {
+      ...backControlLabel,
+      color: theme.fg,
+    },
+    // Deleting a dive (M1d task 7, DESIGN.md §6's tombstone): "a plain muted label, not a
+    // red one" — §0.1 spends every hue on depth, so the destructive colour belongs to the
+    // OS's own confirmation Alert (`style: 'destructive'`, DiveDetailScreen.tsx) exactly as
+    // the keyboard's colours do, and never to a surface this app draws. It sits at the END
+    // of the scrolled content, below every cluster, rather than in the top bar beside Edit:
+    // a deliberate act on one dive should take a deliberate reach, and the top bar is where
+    // the thumb already is.
+    // A delete that failed, said plainly (§10: "A local save failure is shown to the
+    // diver"). The same `noticeBanner` shape `reorderNotice`/`settingsNotice`/`formSaveError`
+    // already share, minus the horizontal margin: this one sits inside `detailContent`'s own
+    // 20 px padding rather than spanning the screen.
+    detailDeleteError: {
+      ...noticeBanner,
+      marginHorizontal: 0,
+    },
+    detailDeleteErrorText: noticeBannerText,
+    detailDelete: {
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    detailDeleteLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 14,
+      color: theme.fgMuted,
     },
     // M1c task 7 (§0.6: "Chrome the type scale does not cover"): this used to be
     // sans-medium 16 in full ink — the exact size/weight/colour family a heading uses on
@@ -863,11 +968,7 @@ function build(scheme: ColorScheme) {
     // and small... a way out, not a heading" is the fix: mono because wayfinding chrome is
     // not UI/display text the way "Dives" as a destination NAME would be, muted+small so it
     // never competes with the hero it sits above.
-    detailBackLabel: {
-      fontFamily: fonts.mono,
-      fontSize: 13,
-      color: theme.fgMuted,
-    },
+    detailBackLabel: backControlLabel,
     // The dive-entry form (DESIGN.md §2.2, M1d task 4) — DiveFormScreen.tsx's own
     // ScrollView content. `gap` separates the core strip from the six collapsible groups
     // below it; `paddingBottom` keeps the last group clear of `formFooter`'s own fixed
@@ -1153,23 +1254,36 @@ function build(scheme: ColorScheme) {
     // attempt is done" moment to dismiss — the next Save attempt clears it either way.
     formSaveError: noticeBanner,
     formSaveErrorText: noticeBannerText,
-    // The blocking-field notice (M1d task 6 fix wave): shown under the one field whose
-    // value stopped a save, so a diver who typed a date the schema cannot read is told
-    // that, rather than tapping Save and watching nothing happen at all. Same banner
-    // vocabulary as `formSaveError` above and the two notices at the top of this function —
-    // one shape for "something is wrong and here is what" — spread from `noticeBanner`
-    // rather than retyped, with three properties overridden: no horizontal margin, because
-    // this one sits INSIDE `formScrollContent`'s own 20 px padding rather than spanning the
-    // screen; no bottom margin, because the field group it sits in already owns the gap
-    // below it; and no 48 dp floor, because that floor is a TAP TARGET rule (§0.5) and this
-    // is a line of text under a field, not something to tap.
+    // The blocking-field notice (M1d task 6 fix wave; reshaped in task 7): shown under the
+    // one field whose value stopped a save, so a diver who typed a date the schema cannot
+    // read is told that, rather than tapping Save and watching nothing happen at all.
+    //
+    // It used to spread `noticeBanner` — a bordered, `surface`-filled, 12-radius box — and
+    // that was the defect, found by using the app: directly beneath `formFieldInput` below
+    // (border, radius, surface fill) it rendered as *the same object one row down*, so the
+    // message read as a second, empty field rather than as a sentence about the field above
+    // it. §0.1 rules out solving that with a red, so the lever is shape and weight: no box
+    // at all, and text a size smaller than the input's, in muted ink with medium weight.
+    // The wrapping View stays for the spacing alone — see FieldError (DiveFormScreen.tsx).
     formFieldError: {
-      ...noticeBanner,
-      marginHorizontal: 0,
-      marginBottom: 0,
-      minHeight: 0,
+      paddingTop: 2,
+      paddingHorizontal: 2,
     },
-    formFieldErrorText: noticeBannerText,
+    formFieldErrorText: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 12.5,
+      color: theme.fgMuted,
+    },
+    // The form's own way out (M1d task 7) — `backControl` at the top of this function, the
+    // one definition `detailBack` above also uses, so the two screens' exits cannot drift
+    // into two different treatments. `paddingHorizontal: 20` rather than the detail
+    // screen's 16: it aligns to `formScrollContent`'s own 20 px padding, which is what the
+    // heading directly beneath it is aligned to.
+    formBack: {
+      ...backControl,
+      paddingHorizontal: 20,
+    },
+    formBackLabel: backControlLabel,
   });
 }
 

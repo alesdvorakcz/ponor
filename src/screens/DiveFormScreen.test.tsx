@@ -12,7 +12,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
-import { createDive } from '../db/dives';
+import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
 import { type Dive, type Tank } from '../domain/types';
@@ -24,8 +24,8 @@ jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 // save, so this screen's test needs the same per-module mock split DivesScreen.test.tsx
 // already established: the one read mocked here, the write mocked separately (below) so a
 // save test can control exactly what it resolves or rejects with, without a real database.
-// updateDive is mocked alongside createDive only because both live in the one module this
-// screen imports from — mode="edit" does not call it yet (Task 7's job).
+// Task 7 gives updateDive a real caller: mode="edit" writes a patch of changed fields
+// through it, and completing a planned dive (§2.4) is that same write plus `status`.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
@@ -38,6 +38,7 @@ jest.mock('expo-router', () => ({
 
 const mockUseDives = useDives as jest.Mock;
 const mockCreate = createDive as jest.Mock;
+const mockUpdate = updateDive as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -966,4 +967,303 @@ it('asks for no exit time, which is computed rather than entered', async () => {
   expect(findTextInput(t, 'Time out')).toBeUndefined();
   expect(findPickerField(t, 'Time out')).toBeUndefined();
   expect(textIn(t).join(' ')).not.toContain('Time out');
+});
+
+// --- Task 7: editing a dive, completing a planned one, and leaving without saving ---
+//
+// Everything below drives `mode="edit"`, which had never been exercised by a test before
+// this task: the screen accepted the prop, showed a different heading, and wrote nothing.
+// `stubDives` (top of this file) is what puts the dive on screen — edit mode finds it inside
+// `useDives()`'s own list, exactly as DiveDetailScreen does, rather than through a second
+// query — so a fresh array and a fresh object still arrive on every render here too.
+
+/** The dive under edit in most of the tests below. A function, not a shared constant: each
+ * test gets its own object, so one test mutating what it was handed cannot reach another. */
+const existing = () =>
+  dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', maxDepthM: 32.4, notes: 'Arch at 30 m' });
+
+/** The patch `updateDive(db, id, patch)` was called with — the third argument, and the
+ * whole point of every test in this section. */
+function writtenPatch(): Record<string, unknown> {
+  return (mockUpdate.mock.calls[0]?.[2] ?? {}) as Record<string, unknown>;
+}
+
+it('sends only the fields that changed', async () => {
+  const target = existing();
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await typeInto(t, 'Max depth', '28.0');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch()).toHaveProperty('maxDepthM', 28);
+  // The other half of `updateDive`'s contract (db/dives.ts): a field the patch does not
+  // name is left alone. Sending `siteName: 'Blue Hole'` here would look harmless and is
+  // not — under §7's whole-row last-write-wins it overwrites whatever another device wrote
+  // to a field this diver never opened, while advancing `updated_at` so that write wins.
+  expect(writtenPatch()).not.toHaveProperty('siteName');
+  // The right dive, through the right function: an edit that reached `createDive` would
+  // leave the original untouched and duplicate it, which no assertion about the patch alone
+  // would notice.
+  expect(mockUpdate.mock.calls[0]?.[1]).toBe('target');
+  expect(mockCreate).not.toHaveBeenCalled();
+});
+
+it('clears a field the diver emptied, rather than leaving the old value', async () => {
+  const target = existing();
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  // `notes` lives inside a collapsed §2.2 group, so it has to be opened first — and the
+  // value has to actually be there before emptying it means anything.
+  await openGroup(t, 'Notes & rating');
+  expect(findTextInput(t, 'Notes')?.props?.value).toBe('Arch at 30 m');
+
+  await typeInto(t, 'Notes', '');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // `null`, not absent and not `''`: absent means "don't touch" to the repository, which
+  // would silently keep the note the diver just deleted.
+  expect(writtenPatch().notes).toBeNull();
+  expect(writtenPatch()).toHaveProperty('notes');
+});
+
+it('completing a planned dive turns it into a logged one', async () => {
+  const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' });
+  stubDives({ dives: [planned] });
+  mockUpdate.mockResolvedValue(planned);
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+  // §2.4: "Complete dive asks only for the missing numbers" — and this is the one that
+  // makes the dive real.
+  await typeInto(t, 'Duration', '44');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch().status).toBe('logged');
+  // The diver's own number went with it: a patch that logged the dive but dropped what
+  // they actually came here to type would pass an assertion about `status` alone.
+  expect(writtenPatch().durationMin).toBe(44);
+});
+
+it('says it is completing a planned dive, rather than calling it an edit', async () => {
+  const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
+  stubDives({ dives: [planned] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+  // Saving is what logs the dive (§2.4), so the screen has to say so before it happens.
+  expect(textIn(t).join(' ')).toContain('Complete dive');
+  expect(textIn(t).join(' ')).not.toContain('Edit dive');
+});
+
+it('leaves a logged dive logged — status is not written on every save', async () => {
+  const target = existing();
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await typeInto(t, 'Max depth', '28');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // The mirror of the completion test above: `status: 'logged'` on every edit would be
+  // invisible on a logged dive and pass that test just as well, while quietly touching a
+  // column no edit asked about.
+  expect(writtenPatch()).not.toHaveProperty('status');
+  expect(textIn(t).join(' ')).toContain('Edit dive');
+});
+
+it("opens both pickers on the dive's own date and time, not on today", async () => {
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '07:05' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  // Read the way a diver writes a date (`formatDiveDate`), never the stored ISO string —
+  // and it is the DIVE's date, which is what an unseeded picker (today, or "Not set") would
+  // fail to be.
+  expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
+  await openGroup(t, 'Times & depth');
+  expect(shownIn(t, 'Time in')).toBe('07:05');
+});
+
+it('marks nothing as carried in edit mode — a dive already holds its own values', async () => {
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'People');
+
+  // Both halves matter. The value IS seeded (this is the dive's own data)...
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  // ...but §0.6's chip means "this came from your LAST DIVE", which is not true of any
+  // field here — and a `×` on it would offer to clear a value the diver actually stored.
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  expect(findClearCarried(t, 'Site')).toBeUndefined();
+});
+
+it('sends an empty patch, and still returns to the list, when nothing was changed', async () => {
+  const target = existing();
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // The strongest statement of the whole diff: a dive read into the form, parsed back out
+  // by the schema and compared against itself must produce NOTHING. Any field that fails to
+  // round-trip — a number reformatted, a null turned into '', the blank cylinder the form
+  // always shows — shows up here as a key that should not exist.
+  expect(writtenPatch()).toEqual({});
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+});
+
+it('leaves a recorded cylinder alone when the diver never opens the cylinder group', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', tanks: [tank({ sizeL: 12, startBar: 200, endBar: 50 })] });
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // `tanks` is the one field a diff cannot do with `===`, and the one the form rebuilds on
+  // every render (it always shows a cylinder, recorded or not) — so an untouched cylinder
+  // group is exactly where a whole-array rewrite would hide.
+  expect(writtenPatch()).not.toHaveProperty('tanks');
+});
+
+it('writes a cylinder the diver actually changed', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', tanks: [tank({ sizeL: 12 })] });
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
+  await typeInto(t, 'End pressure', '40');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // The other side of the test above: "never writes tanks" would pass that one and be
+  // completely wrong. The whole cylinder goes, because `tanks` is one JSON column (§6) —
+  // so the fields the diver did not touch have to survive the write.
+  const tanks = writtenPatch().tanks as { sizeL?: number; endBar?: number }[] | undefined;
+  expect(tanks).toHaveLength(1);
+  expect(tanks?.[0]?.endBar).toBe(40);
+  expect(tanks?.[0]?.sizeL).toBe(12);
+});
+
+it('seeds the form from a dive that only arrives after the first render', async () => {
+  // `useDives()` starts empty and resolves asynchronously, so this is the ordinary case on
+  // a real device, not an edge one: `defaultValues` is read once at construction, and edit
+  // mode built on it alone would show a blank new-dive form over a real dive forever.
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
+
+  stubDives({ dives: [existing()] });
+  await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
+});
+
+it('writes nothing, and says so, when the dive being edited cannot be found', async () => {
+  const t = await render(<DiveFormScreen mode="edit" diveId="gone" />);
+  await pressSave(t);
+
+  await waitFor(() => expect(textIn(t).join(' ')).toContain("Couldn't find that dive"));
+  expect(mockUpdate).not.toHaveBeenCalled();
+  // The failure that matters most: falling back to `createDive` would duplicate the dive on
+  // every device that still has it, and again on every retry.
+  expect(mockCreate).not.toHaveBeenCalled();
+  expect(router.back).not.toHaveBeenCalled();
+});
+
+it('tells the diver when an edit fails to save, instead of pretending it worked', async () => {
+  stubDives({ dives: [existing()] });
+  mockUpdate.mockRejectedValue(new Error('disk full'));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await typeInto(t, 'Max depth', '28');
+  await pressSave(t);
+
+  await waitFor(() => expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't"));
+  expect(router.back).not.toHaveBeenCalled();
+  // §1 cuts both ways: what the diver typed survives a failed write.
+  expect(findTextInput(t, 'Max depth')?.props?.value).toBe('28');
+});
+
+// --- Amendment D: the form had no visible way out at all ---
+
+/** The form's exit control, by the label that says what it does. Deliberately checked
+ * against `findButton(t, 'Save')` in the test below, because the one thing this control must
+ * never be mistaken for is the primary action. */
+const findLeave = (t: RenderResult) => findButton(t, 'Leave without saving');
+
+it('offers a visible way out of a new dive, which saves nothing', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const leave = findLeave(t);
+  expect(leave).toBeDefined();
+  // Visible text, not only an accessibility label: swipe-back already existed and was
+  // invisible, which is the entire defect this fixes.
+  expect(textIn(t).join(' ')).toContain('Cancel');
+
+  await fireEvent.press(leave!);
+  expect(mockCreate).not.toHaveBeenCalled();
+  expect(mockUpdate).not.toHaveBeenCalled();
+  expect(router.back).toHaveBeenCalled();
+});
+
+it('offers the same way out of an edit, and writes nothing on the way', async () => {
+  stubDives({ dives: [existing()] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await typeInto(t, 'Max depth', '28');
+
+  const leave = findLeave(t);
+  expect(leave).toBeDefined();
+  await fireEvent.press(leave!);
+  expect(mockUpdate).not.toHaveBeenCalled();
+  expect(router.back).toHaveBeenCalled();
+});
+
+it('gives the way out the wayfinding treatment, never the primary action one', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+  const leaveStyle = [findLeave(t)?.props?.style].flat(5);
+  const saveStyle = [findButton(t, 'Save')?.props?.style].flat(5);
+
+  // §0.5/§0.6: the same mono, muted, 48 dp control DiveDetailScreen's `‹ Dives` uses — and
+  // emphatically not `action`, the app's one filled-ink button, which the save control
+  // beside it does carry.
+  expect(leaveStyle).toContain(styles.formBack);
+  expect(leaveStyle).not.toContain(styles.action);
+  expect(saveStyle).toContain(styles.action);
+  expect(styles.formBack.minHeight).toBe(48);
+});
+
+// --- Amendment E: the blocking-field message was shaped like an empty text input ---
+
+it('shows a blocking field message as a line of text, not as a second empty field', async () => {
+  nonCanonicalSource();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pressSave(t);
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
+
+  const message = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Enter a real date'));
+  const container = [message?.parent?.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  const box = Object.assign({}, ...container) as { borderWidth?: number; backgroundColor?: string; minHeight?: number };
+  const styles = makeStyles('light');
+
+  // Nothing that makes an input an input. Directly beneath one, this used to carry
+  // `noticeBanner`'s border, `surface` fill and 12 px radius at the same width — the same
+  // object one row down, which is why it read as a second empty field rather than as a
+  // sentence about the first.
+  expect(box.borderWidth ?? 0).toBe(0);
+  expect(box.backgroundColor).toBeUndefined();
+  expect(box.minHeight ?? 0).toBe(0);
+  // ...and the input it sits under still has all three, so the difference above is a real
+  // one rather than the whole form having quietly lost its field boxes.
+  expect(styles.formFieldInput.borderWidth).toBeGreaterThan(0);
+  expect(styles.formFieldInput.backgroundColor).toBeDefined();
+  expect(styles.formFieldInput.minHeight).toBe(48);
+  // Weight and size are the lever §0.1 leaves (no red): smaller than the input's own text,
+  // and muted rather than full ink.
+  const text = [message?.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  const ink = Object.assign({}, ...text) as { fontSize?: number; color?: string };
+  expect(ink.fontSize).toBeLessThan(styles.formFieldInput.fontSize);
+  expect(ink.color).toBe(styles.formFieldLabel.color);
 });

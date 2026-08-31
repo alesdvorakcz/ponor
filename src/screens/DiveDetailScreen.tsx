@@ -1,8 +1,10 @@
-import { type ReactNode } from 'react';
-import { useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { useRef, useState, type ReactNode } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Alert, Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 
 import { DepthValue } from '../components/DepthValue';
+import { db } from '../db/client';
+import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
@@ -98,9 +100,14 @@ import { type ColorScheme } from '../theme/tokens';
  * that globally would also put a header on the Dives list, which the design does not call
  * for. See BackButton's own docblock for the rest of the reasoning.
  *
- * **Two optional props, added for M1b's wide (tablet) layout, DivesScreen.tsx's own job to
- * use — every other caller, i.e. the real `/dive/[id]` route, passes neither and gets
- * exactly today's behaviour:**
+ * The screen also owns the dive's two write actions (M1d task 7): *Edit* — *Complete dive*
+ * for a planned dive (§2.4) — which opens `/dive/[id]/edit`, and *Delete*, which confirms
+ * through the platform's own `Alert` and then tombstones the dive (`softDeleteDive`). Both
+ * are described where they are built (`EditButton`, `runDelete`/`confirmDelete` below).
+ *
+ * **Three optional props, the first two added for M1b's wide (tablet) layout and the third
+ * for the delete it needs, DivesScreen.tsx's own job to use — every other caller, i.e. the
+ * real `/dive/[id]` route, passes none and gets exactly today's behaviour:**
  *
  * - `id` overrides the route's own `id` param. On a wide layout the diver never navigates
  *   to `/dive/[id]` at all — DivesScreen.tsx renders this component directly, beside the
@@ -118,6 +125,9 @@ import { type ColorScheme } from '../theme/tokens';
  *   would either do nothing a diver could make sense of or, worse, leave the Dives screen
  *   entirely, since `canGoBack()` reports on whatever brought the app to `/`, not on
  *   whether a detail pane happens to be open next to it.
+ * - `onDeleted` (default `backToDives`) replaces what happens after a successful delete,
+ *   for the same reason and in the same one case: side by side there is nowhere to navigate
+ *   to, so the embedded pane clears its own selection instead of leaving the Dives screen.
  */
 
 /**
@@ -225,6 +235,46 @@ function BackButton({ styles }: { styles: Styles }) {
       accessibilityLabel="Back to dives"
     >
       <Text style={styles.detailBackLabel}>‹ Dives</Text>
+    </Pressable>
+  );
+}
+
+/** What the delete confirmation says. Held here rather than inline so the test can assert
+ * on the same strings the diver reads, without either copy drifting. The body states the
+ * consequence in the diver's terms — there is no undo in the app — rather than in the
+ * schema's ("a tombstone is written", DESIGN.md §6, which is true and means nothing here). */
+const DELETE_TITLE = 'Delete this dive?';
+const DELETE_BODY = "It will be removed from your logbook. This can't be undone.";
+const DELETE_ERROR_MESSAGE = "Couldn't delete this dive. Try again.";
+
+/**
+ * The dive's own action (M1d task 7), at the trailing edge of the top bar — where the back
+ * control is the leading edge of the same row. Deleting deliberately does NOT sit beside it:
+ * see `detailDelete` (theme/styles.ts) for why it lives at the end of the content instead.
+ *
+ * *Edit* — or ***Complete dive*** for a planned one (§2.4: "After surfacing, Complete dive
+ * asks only for the missing numbers") — opens the same form either way, at
+ * `/dive/[id]/edit`; the label is keyed on the dive's own `status`, never on any display
+ * string, for the reason DESIGN.md §10 records for `splitPlanned`: that text is bound for
+ * i18next, and a rule reading it would stop firing the day it becomes Czech.
+ *
+ * The route is absolute rather than relative, and that is the whole point: expo-router's
+ * typed routes (app.config.ts) check an absolute path against the routes that actually
+ * exist on disk, where a relative one is resolved at runtime and checked against nothing —
+ * the same reasoning DivesScreen.tsx's own `logDive` records, and the same reason this
+ * pushes rather than replaces (the diver goes back to this dive, not past it).
+ */
+function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
+  const planned = dive.status === 'planned';
+  const label = planned ? 'Complete dive' : 'Edit';
+  return (
+    <Pressable
+      style={styles.detailAction}
+      onPress={() => router.push(`/dive/${dive.id}/edit`)}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Text style={styles.detailActionLabel}>{label}</Text>
     </Pressable>
   );
 }
@@ -420,15 +470,43 @@ interface DiveDetailScreenProps {
    * DivesScreen.tsx passes `false` for its embedded, side-by-side instance. See this file's
    * top docblock for why that instance has nothing for the control to go back to. */
   showBackButton?: boolean;
+  /**
+   * What happens after a successful delete (M1d task 7). Defaults to `backToDives` — the
+   * routed case, where this screen sits on top of the list and the deleted dive must not be
+   * left on screen.
+   *
+   * The wide (tablet) layout needs the other answer for the same reason `showBackButton`
+   * exists: there is nothing to navigate away from, the list is already beside this pane,
+   * and `router.back()` would leave the Dives screen entirely. DivesScreen.tsx passes a
+   * callback that clears its own selection instead, so the pane returns to "Select a dive"
+   * rather than sitting on "Dive not found."
+   */
+  onDeleted?: () => void;
 }
 
-export default function DiveDetailScreen({ id: idProp, showBackButton = true }: DiveDetailScreenProps = {}) {
+export default function DiveDetailScreen({
+  id: idProp,
+  showBackButton = true,
+  onDeleted = backToDives,
+}: DiveDetailScreenProps = {}) {
   const scheme: ColorScheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
   const { dives, numbers } = useDives();
+  // Both halves of DESIGN.md §10's in-flight guard, for the same reason DiveFormScreen's
+  // save carries them: `deletingRef` is what actually turns a second confirmation away
+  // (written and read synchronously), and `deleting` is only how that is SHOWN, a render
+  // flag that by definition lags a render behind. Declared before the not-found return
+  // below, because a hook may not sit after a conditional return.
+  const deletingRef = useRef(false);
+  const [deleting, setDeleting] = useState(false);
+  // Non-null only while a delete has failed and not yet been retried. A failed LOCAL write
+  // is shown to the diver (§10: "A local save failure is shown to the diver") — the dive is
+  // still here, and silently leaving it on screen as though nothing had been asked for
+  // would be indistinguishable from a dead control.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const dive = dives.find((d) => d.id === id);
 
@@ -442,6 +520,41 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
       </View>
     );
   }
+
+  // Soft, never hard (DESIGN.md §6): `softDeleteDive` writes the `deleted_at` tombstone
+  // M2's sync needs to propagate the deletion, and every read already filters on it
+  // (`liveDives`), so the dive disappears from the list and from numbering — every dive
+  // above it renumbers, which is correct, because dive numbers are computed and never
+  // stored (§2.5).
+  const runDelete = async () => {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await softDeleteDive(db, dive.id);
+      onDeleted();
+    } catch {
+      setDeleteError(DELETE_ERROR_MESSAGE);
+    } finally {
+      // Released on both paths, so a failed delete leaves a control the diver can press
+      // again rather than one that silently stopped working.
+      deletingRef.current = false;
+      setDeleting(false);
+    }
+  };
+
+  // The platform's own Alert, with a `style: 'destructive'` button (M1d task 7, amendment
+  // C). That is what resolves the tension with §0.1: the app's own surfaces stay
+  // monochrome, and the red belongs to OS chrome — the same way the keyboard's colours do
+  // — so this screen's own control stays a plain muted label. Confirmation is not optional
+  // for this one: it is the only action in the app that removes something.
+  const confirmDelete = () => {
+    Alert.alert(DELETE_TITLE, DELETE_BODY, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void runDelete() },
+    ]);
+  };
 
   const timeOutValue = timeOut(dive.timeIn, dive.durationMin);
   const previous = previousLoggedDive(dives, dive);
@@ -485,7 +598,13 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
 
   return (
     <View style={styles.screen}>
-      {showBackButton && <BackButton styles={styles} />}
+      {/* The way out and the dive's own action, as one row above the hero. `EditButton` is
+          rendered regardless of `showBackButton`: on the wide layout there is nothing to go
+          back TO, but editing the dive on screen is exactly as valid there as it is here. */}
+      <View style={styles.detailTopBar}>
+        {showBackButton && <BackButton styles={styles} />}
+        <EditButton dive={dive} styles={styles} />
+      </View>
       <ScrollView style={styles.detailScroll}>
         <View style={styles.detailHero}>
           <View style={styles.detailHeroMain}>
@@ -586,6 +705,26 @@ export default function DiveDetailScreen({ id: idProp, showBackButton = true }: 
               {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
             </Cluster>
           )}
+
+          {/* Deleting (M1d task 7, amendment C). At the END of the content and inside the
+              scroll, below every cluster: a deliberate act on one dive you are looking at,
+              which is also why it lives here rather than on a row in the list. A plain muted
+              label — the red is the Alert's, not this app's (§0.1). */}
+          {deleteError !== null && (
+            <View style={styles.detailDeleteError}>
+              <Text style={styles.detailDeleteErrorText}>{deleteError}</Text>
+            </View>
+          )}
+          <Pressable
+            style={styles.detailDelete}
+            onPress={confirmDelete}
+            disabled={deleting}
+            accessibilityRole="button"
+            accessibilityLabel="Delete dive"
+            accessibilityState={{ disabled: deleting }}
+          >
+            <Text style={styles.detailDeleteLabel}>Delete dive</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </View>

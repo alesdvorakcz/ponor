@@ -105,6 +105,15 @@ const tankFormSchema = z.object({
 });
 
 /**
+ * Every key one cylinder has, read off `tankFormSchema` itself rather than typed out a
+ * second time — the same "no hand-maintained second list" rule `carryOver.ts`'s
+ * `FRESH_FIELDS` follows, and what keeps `toDivePatch` below comparing a cylinder field
+ * that is added later without anyone remembering to come here. The cast is safe because
+ * `TankFormFieldsMatchTank` (just below) already proves the two shapes are the same.
+ */
+const TANK_FIELDS = Object.keys(tankFormSchema.shape) as (keyof Tank)[];
+
+/**
  * Type-level proof that a parsed cylinder has exactly `Tank`'s shape — same
  * reasoning as `Mutual` in `db/dives.ts`: if a field is ever added to `Tank`
  * and this schema is not updated to match, that is a compile error here
@@ -222,4 +231,73 @@ export function toNewDiveInput(values: DiveFormValues): Partial<Dive> & Pick<Div
     }
   }
   return input;
+}
+
+/**
+ * Whether a cylinder records anything at all.
+ *
+ * `[]` and `[{ every field null }]` are the same claim — "no cylinders recorded"
+ * (DESIGN.md §6) — and the form shows exactly one cylinder whether or not the dive it is
+ * editing has one, so an untouched cylinder group must not read as an edit in either
+ * direction: not "the diver added a blank cylinder" for a dive stored with `[]`, and not
+ * "the diver removed one" for a dive stored with a blank one (which is what `createDive`
+ * writes today for a form whose Gas & cylinders group was never opened). `toDivePatch`
+ * therefore normalises BOTH sides with this before comparing them.
+ */
+function isRecordedTank(tank: Tank): boolean {
+  return TANK_FIELDS.some((field) => tank[field] !== null);
+}
+
+/** Field-by-field equality over `TANK_FIELDS` — never `JSON.stringify`, which would also
+ * compare key ORDER and so report a stored blob and a freshly parsed cylinder as different
+ * purely because the two were built in different orders. */
+function sameTanks(before: readonly Tank[], after: readonly Tank[]): boolean {
+  if (before.length !== after.length) return false;
+  return before.every((tank, index) => {
+    const other = after[index];
+    return other !== undefined && TANK_FIELDS.every((field) => Object.is(tank[field], other[field]));
+  });
+}
+
+/**
+ * The **changed** half of a dive-entry form, for `updateDive` (`db/dives.ts`) — the
+ * editing counterpart of `toNewDiveInput` above, and typed from `Dive` alone for the same
+ * layering reason that function's own docblock gives: `domain/` is the lower layer, so the
+ * shape returned here is structurally what `db/dives.ts` calls `DivePatch` without this
+ * file having to know that type exists.
+ *
+ * The repository's contract is the entire point of the diff: **a field the patch does not
+ * mention is left untouched; a field it carries as `null` is cleared.** Those are two
+ * different instructions, and only a comparison against the stored dive can tell them
+ * apart. Sending every field instead would overwrite whatever a field the diver never
+ * opened happens to hold — and would do it while advancing `updated_at`, so under §7's
+ * whole-row last-write-wins the device that changed nothing beats the device that changed
+ * something. Sending nothing for an emptied field is the opposite failure: the diver
+ * deletes a value, the app says "saved", and the old value is still there.
+ *
+ * `status` is deliberately absent: it is not a form field, and completing a planned dive
+ * (§2.4) is a decision the caller makes where that policy lives, not one this function
+ * infers from the values it was handed.
+ */
+export function toDivePatch(
+  original: Dive,
+  values: DiveFormValues,
+): Partial<Omit<Dive, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'manualOrder'>> {
+  const patch: Record<string, unknown> = {};
+  const { tanks, ...rest } = values;
+  const before = original as unknown as Record<string, unknown>;
+
+  for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
+    // `Object.is`, not `===`: identical semantics for every value this schema can produce
+    // (strings, finite numbers, booleans, null) and no `NaN !== NaN` surprise if one ever
+    // slips through, which would otherwise report an unchanged field as changed on every
+    // single save.
+    if (!Object.is(rest[key], before[key])) patch[key] = rest[key];
+  }
+
+  const nextTanks = tanks.filter(isRecordedTank);
+  const currentTanks = original.tanks.filter(isRecordedTank);
+  if (!sameTanks(currentTanks, nextTanks)) patch.tanks = nextTanks;
+
+  return patch;
 }

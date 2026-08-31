@@ -1104,3 +1104,53 @@ it("does not render the detail screen's own back control when embedded beside th
   const backButtons = t.root ? t.root.queryAll((n) => n.props.accessibilityLabel === 'Back to dives') : [];
   expect(backButtons).toHaveLength(0);
 });
+
+// --- M1d task 7: §2.4's *Complete dive*, on an "Up next" row ---
+//
+// "After surfacing, Complete dive asks only for the missing numbers." It is the one action
+// a planned dive has and a logged one does not, and it opens the same `/dive/[id]/edit`
+// form the detail screen's Edit control does — DiveFormScreen decides what that means from
+// the dive's own status, so this list never states the rule a second time.
+
+/** One control by its exact accessibilityLabel — `undefined` when the screen renders none,
+ * which the logged-row test below asserts directly. */
+function findControl(t: RenderResult, label: string) {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === label) : [])[0];
+}
+
+it('offers Complete dive on an "Up next" row, and opens that dive\'s own form', async () => {
+  stubDives({
+    dives: [
+      dive({ id: 'p', date: '2026-09-01', status: 'planned', siteName: 'Silfra' }),
+      dive({ id: 'l', date: '2026-08-16', siteName: 'Blue Hole' }),
+    ],
+    numbers: new Map([['l', 12]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+
+  // Named after the dive it belongs to, so a queue of planned dives does not announce as a
+  // column of identical "Complete dive" buttons.
+  const complete = findControl(t, 'Complete dive: Silfra');
+  if (!complete) throw new Error('DivesScreen offered no Complete dive control');
+  await fireEvent.press(complete);
+  expect(mockRouterPush).toHaveBeenCalledWith('/dive/p/edit');
+});
+
+it('offers no Complete dive on a logged row', async () => {
+  stubDives({
+    dives: [dive({ id: 'l', date: '2026-08-16', siteName: 'Blue Hole' })],
+    numbers: new Map([['l', 12]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+
+  // A logged dive is already dived; the control would either do nothing or silently
+  // re-log it. Keyed on `status`, so this cannot be satisfied by "the first section only".
+  expect(findControl(t, 'Complete dive: Blue Hole')).toBeUndefined();
+  expect(textIn(t).join(' ')).not.toContain('Complete dive');
+  // ...and the row itself still opens the dive, so the absence above is not the whole row
+  // having gone missing.
+  await fireEvent.press(findRow(t, 12));
+  expect(mockRouterPush).toHaveBeenCalledWith('/dive/l');
+});
