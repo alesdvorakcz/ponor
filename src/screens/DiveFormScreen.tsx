@@ -14,7 +14,15 @@ import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import { diveFormSchema, toDivePatch, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
-import { type Dive, type DiveStatus, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
+import {
+  ENTRY_VALUES,
+  SALINITY_VALUES,
+  SUIT_VALUES,
+  TANK_MATERIAL_VALUES,
+  WATER_BODY_VALUES,
+  type Dive,
+  type DiveStatus,
+} from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatTankMaterial, formatWaterBody } from '../format/display';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
@@ -313,11 +321,17 @@ function seedStateFor(mode: 'create' | 'edit', seed: Dive | null, openAs?: DiveS
   return { sourceId, values, paths: seed === null ? new Set<string>() : computeCarriedPaths(values) };
 }
 
-const ENTRY_OPTIONS: readonly Entry[] = ['shore', 'boat', 'other'];
-const SALINITY_OPTIONS: readonly Salinity[] = ['salt', 'fresh', 'brackish'];
-const WATER_BODY_OPTIONS: readonly WaterBody[] = ['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'];
-const SUIT_OPTIONS: readonly Suit[] = ['none', 'shorty', 'wet', 'semidry', 'dry'];
-const MATERIAL_OPTIONS: readonly TankMaterial[] = ['steel', 'alu'];
+/**
+ * The chips each fixed-choice field offers, taken straight from `domain/types.ts`'s own
+ * `*_VALUES` arrays — the same arrays `Entry`, `Salinity`, `WaterBody`, `Suit` and
+ * `TankMaterial` are derived from, and the same ones `diveFormSchema.ts` builds its
+ * `optionalPicked` fields out of.
+ *
+ * This screen used to hold a second copy of all five (`ENTRY_OPTIONS = ['shore', 'boat',
+ * 'other']`, and so on), typed as `readonly Entry[]` — which type-checks a list that is
+ * MISSING a member perfectly happily. Adding one to the domain therefore produced a chip
+ * the diver never saw, and no build error to say so. There is one list now.
+ */
 
 type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 
@@ -1061,7 +1075,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             name="entry"
             label="Entry"
-            options={ENTRY_OPTIONS}
+            options={ENTRY_VALUES}
             displayLabel={(option) => formatEntry(option) ?? option}
             scheme={scheme}
           />
@@ -1069,7 +1083,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             name="salinity"
             label="Salinity"
-            options={SALINITY_OPTIONS}
+            options={SALINITY_VALUES}
             displayLabel={(option) => formatSalinity(option) ?? option}
             scheme={scheme}
           />
@@ -1077,7 +1091,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             name="waterBody"
             label="Water body"
-            options={WATER_BODY_OPTIONS}
+            options={WATER_BODY_VALUES}
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
           />
@@ -1098,7 +1112,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             name="tanks.0.material"
             label="Material"
-            options={MATERIAL_OPTIONS}
+            options={TANK_MATERIAL_VALUES}
             displayLabel={(option) => formatTankMaterial(option) ?? option}
             scheme={scheme}
           />
@@ -1178,7 +1192,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             name="suit"
             label="Suit"
-            options={SUIT_OPTIONS}
+            options={SUIT_VALUES}
             displayLabel={(option) => formatSuit(option) ?? option}
             scheme={scheme}
           />

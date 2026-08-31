@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { Suit, Tank } from '../domain/types';
+import type { DiveStatus, Entry, Salinity, Suit, Tank, WaterBody } from '../domain/types';
 
 /**
  * The `tanks` column: a JSON array of Tank, stored as text.
@@ -55,7 +55,14 @@ const tanksJson = customType<{ data: Tank[]; driverData: string }>({
  */
 export const dives = sqliteTable('dives', {
   id: text('id').primaryKey(),
-  status: text('status').$type<'logged' | 'planned'>().notNull().default('logged'),
+  // Every one of these `$type<>` labels names a domain type rather than spelling the
+  // union out again. `suit` always did; `status`, `entry`, `salinity` and `water_body`
+  // each carried their own copy, which made `domain/types.ts` the fourth place a closed
+  // vocabulary was written down. `Mutual` (db/dives.ts) did catch a divergence, but as a
+  // wall of Drizzle overload text about an insert, pointing nowhere near the list that had
+  // gone stale — and a compile error nobody can read is one step from a compile error
+  // somebody loosens. There is one list per vocabulary now, in domain/types.ts.
+  status: text('status').$type<DiveStatus>().notNull().default('logged'),
 
   date: text('date').notNull(),
   timeIn: text('time_in'),
@@ -74,9 +81,9 @@ export const dives = sqliteTable('dives', {
   siteName: text('site_name'),
   centerId: text('center_id'),
   centerName: text('center_name'),
-  entry: text('entry').$type<'shore' | 'boat' | 'other'>(),
-  salinity: text('salinity').$type<'salt' | 'fresh' | 'brackish'>(),
-  waterBody: text('water_body').$type<'ocean' | 'lake' | 'river' | 'quarry' | 'cave' | 'pool'>(),
+  entry: text('entry').$type<Entry>(),
+  salinity: text('salinity').$type<Salinity>(),
+  waterBody: text('water_body').$type<WaterBody>(),
   /**
    * Two columns rather than one, because SQLite has no point type. The Postgres
    * side composes them into a single PostGIS point in M2 — see DESIGN.md §6.

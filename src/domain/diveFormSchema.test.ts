@@ -1,6 +1,13 @@
 import { dive } from './diveFixture';
 import { diveFormSchema, toDivePatch, toNewDiveInput } from './diveFormSchema';
-import { type Tank } from './types';
+import {
+  ENTRY_VALUES,
+  SALINITY_VALUES,
+  SUIT_VALUES,
+  TANK_MATERIAL_VALUES,
+  WATER_BODY_VALUES,
+  type Tank,
+} from './types';
 
 const base = { date: '2026-08-16' };
 
@@ -70,6 +77,44 @@ describe('a decimal comma, which is what `decimal-pad` types on a Czech device',
 
   it('leaves a full stop exactly as it was, so the two spellings agree', () => {
     expect(diveFormSchema.parse({ ...base, maxDepthM: '18.4' }).maxDepthM).toBe(18.4);
+  });
+});
+
+// The five fixed-option fields, each checked against `domain/types.ts`'s own array rather
+// than a list written out here — which is the whole point. The schema used to carry its own
+// copy of all five, so a member added to `Entry` reached a Zod field that rejected it: a
+// value the domain calls legal, blocking the whole save (§1 says nothing may), with no chip
+// to pick it and nothing failing to compile. Looping over the source array is what makes
+// this test grow a case on its own the day a vocabulary does.
+describe('the fixed-option fields, against the vocabulary they come from', () => {
+  const vocabularies = [
+    ['entry', ENTRY_VALUES],
+    ['salinity', SALINITY_VALUES],
+    ['waterBody', WATER_BODY_VALUES],
+    ['suit', SUIT_VALUES],
+  ] as const;
+
+  it.each(vocabularies)('accepts every %s the domain declares', (field, values) => {
+    expect(values.length).toBeGreaterThan(1);
+    for (const value of values) {
+      expect(diveFormSchema.parse({ ...base, [field]: value })[field]).toBe(value);
+    }
+  });
+
+  it('accepts every cylinder material the domain declares', () => {
+    expect(TANK_MATERIAL_VALUES.length).toBeGreaterThan(1);
+    for (const material of TANK_MATERIAL_VALUES) {
+      expect(diveFormSchema.parse({ ...base, tanks: [{ material }] }).tanks[0]?.material).toBe(material);
+    }
+  });
+
+  it('still refuses a value no vocabulary contains', () => {
+    // The guard that keeps the loops above from passing for a schema that accepts anything:
+    // `optionalPicked`'s own docblock rests on these being taps on a fixed list.
+    // Deliberately absurd rather than merely absent: 'liveaboard' is the kind of value
+    // `Entry` might genuinely grow one day, and a sentinel that becomes real turns this
+    // guard red for a change that is actually correct.
+    expect(() => diveFormSchema.parse({ ...base, entry: 'by helicopter' })).toThrow();
   });
 });
 

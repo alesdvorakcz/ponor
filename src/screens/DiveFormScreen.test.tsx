@@ -16,7 +16,15 @@ import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
 import { formatTankMaterial } from '../format/display';
-import { type Dive, type Tank } from '../domain/types';
+import {
+  ENTRY_VALUES,
+  SALINITY_VALUES,
+  SUIT_VALUES,
+  TANK_MATERIAL_VALUES,
+  WATER_BODY_VALUES,
+  type Dive,
+  type Tank,
+} from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
@@ -899,6 +907,39 @@ it('carries a real cylinder through unchanged, so the empty-tanks fix is not a b
   expect(writtenTanks()).toHaveLength(1);
   expect(writtenTanks()?.[0]?.sizeL).toBe(12);
   expect(writtenTanks()?.[0]?.count).toBe(2);
+});
+
+// Every fixed-option field offers exactly the vocabulary `domain/types.ts` declares — read
+// off those arrays rather than a list written here, so a member added there either shows up
+// as a chip or fails this test. This screen used to keep a second copy of all five, typed
+// `readonly Entry[]`, which type-checks a list that is MISSING a member perfectly happily:
+// the missing value was a chip the diver never saw, plus a Zod rejection that blocked the
+// whole save if it ever arrived from anywhere else, and nothing failed to build.
+describe('the fixed-option chips, against the vocabulary they come from', () => {
+  /** The chip labels for one field, by the `` `${label}: ${text}` `` shape `OptionChips`
+   * announces — the values themselves, not the display strings, so this stays about which
+   * options exist rather than about how they are capitalised. */
+  function chipsFor(t: RenderResult, label: string): string[] {
+    return buttonsOf(t)
+      .map((n) => String(n.props?.accessibilityLabel ?? ''))
+      .filter((announced) => announced.startsWith(`${label}: `))
+      .map((announced) => announced.slice(`${label}: `.length));
+  }
+
+  it.each([
+    ['Entry', 'Conditions', ENTRY_VALUES],
+    ['Salinity', 'Conditions', SALINITY_VALUES],
+    ['Water body', 'Conditions', WATER_BODY_VALUES],
+    ['Suit', 'Equipment', SUIT_VALUES],
+    ['Material', 'Gas & cylinders', TANK_MATERIAL_VALUES],
+  ] as const)('offers one %s chip per value the domain declares', async (label, group, values) => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, group);
+    // Compared as a count and as a set of the underlying values: the labels themselves are
+    // display strings (`formatEntry` and friends), so this asserts one chip per member
+    // without pinning the wording, which format/display.ts owns.
+    expect(chipsFor(t, label)).toHaveLength(values.length);
+  });
 });
 
 it('labels the material chips from the one owner of that string, not a private copy', async () => {

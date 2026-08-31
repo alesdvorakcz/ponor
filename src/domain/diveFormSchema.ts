@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { isCalendarDate } from './datetime';
-import type { Dive, DiveStatus, Tank } from './types';
+import {
+  ENTRY_VALUES,
+  SALINITY_VALUES,
+  SUIT_VALUES,
+  TANK_MATERIAL_VALUES,
+  WATER_BODY_VALUES,
+  type Dive,
+  type DiveStatus,
+  type Tank,
+} from './types';
 
 /**
  * A comma read as the decimal point it is on this form.
@@ -142,6 +151,14 @@ const optionalBoolean = z
  * Unlike `date`, an out-of-range value here is never something a diver could
  * type — these are taps on a fixed list, not free text — so rejecting one is
  * catching a real bug upstream, not "arguing with a diver on a boat".
+ *
+ * **Every caller passes one of `domain/types.ts`'s own `*_VALUES` arrays**, never a
+ * literal list written out here. Those arrays are what the matching union types are
+ * derived FROM, so a member added to `Entry` reaches this schema and the form's chips
+ * by construction — where a second list here would have rejected it (blocking the save
+ * §1 forbids blocking) for a value the domain calls legal, with nothing failing to
+ * compile. Same rule `TankFormFieldsMatchTank` and `StatusFormValuesMatchDive` below
+ * enforce for the two shapes that genuinely do have to exist twice.
  */
 function optionalPicked<T extends string>(values: readonly T[]) {
   const literal = values as [T, ...T[]];
@@ -186,7 +203,7 @@ const optionalStatus = z
  * skipped) rather than 0 (the whole dive's gas figure would be voided).
  */
 const tankFormSchema = z.object({
-  material: optionalPicked(['steel', 'alu'] as const),
+  material: optionalPicked(TANK_MATERIAL_VALUES),
   sizeL: optionalNumber,
   // The one field on this form that counts rather than measures — see `wholeNumber`.
   count: wholeNumber,
@@ -279,9 +296,9 @@ export const diveFormSchema = z.object({
   waves: optionalNumber,
   current: optionalNumber,
   surge: optionalNumber,
-  entry: optionalPicked(['shore', 'boat', 'other'] as const),
-  salinity: optionalPicked(['salt', 'fresh', 'brackish'] as const),
-  waterBody: optionalPicked(['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'] as const),
+  entry: optionalPicked(ENTRY_VALUES),
+  salinity: optionalPicked(SALINITY_VALUES),
+  waterBody: optionalPicked(WATER_BODY_VALUES),
   latitude: optionalNumber,
   longitude: optionalNumber,
 
@@ -291,7 +308,7 @@ export const diveFormSchema = z.object({
   tanks: z.array(tankFormSchema).default([]),
 
   // Equipment.
-  suit: optionalPicked(['none', 'shorty', 'wet', 'semidry', 'dry'] as const),
+  suit: optionalPicked(SUIT_VALUES),
   hood: optionalBoolean,
   gloves: optionalBoolean,
   boots: optionalBoolean,

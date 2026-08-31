@@ -1,9 +1,40 @@
 export type DiveStatus = 'logged' | 'planned';
-export type Entry = 'shore' | 'boat' | 'other';
-export type Salinity = 'salt' | 'fresh' | 'brackish';
-export type WaterBody = 'ocean' | 'lake' | 'river' | 'quarry' | 'cave' | 'pool';
-export type TankMaterial = 'steel' | 'alu';
-export type Suit = 'none' | 'shorty' | 'wet' | 'semidry' | 'dry';
+
+/**
+ * The five closed vocabularies a dive form offers as a fixed list of chips, as **values**
+ * — and each one's type derived from its own list rather than written beside it.
+ *
+ * A union and the array of its members are the same fact, and this codebase had them
+ * written out twice each: once as the type here, once as a Zod `optionalPicked([...])` in
+ * `domain/diveFormSchema.ts`, and once more as an `ENTRY_OPTIONS`-style const in
+ * `DiveFormScreen.tsx` — three copies, none tied to the others by anything a compiler
+ * checks. Adding `'liveaboard'` to `Entry` bought a save-blocking Zod rejection for a value
+ * the domain says is legal, plus a chip the diver never sees to pick it, and nothing
+ * anywhere would have failed to build.
+ *
+ * Deriving rather than asserting is what closes it: `Entry` cannot disagree with
+ * `ENTRY_VALUES` because it *is* `ENTRY_VALUES`. (`db/dives.ts`'s `Mutual` and
+ * `diveFormSchema.ts`'s `TankFormFieldsMatchTank` assert the same kind of agreement where
+ * two shapes genuinely have to exist separately; here only one does.)
+ *
+ * **The order is the order the chips appear in**, so it is part of what these declare:
+ * commonest first for entry and salinity, and warmest-to-coldest for suits, which is how a
+ * diver reads down the list rather than alphabetically.
+ *
+ * `as const` on each, so the arrays are readonly tuples of literals — without it every
+ * member widens to `string` and the derived type says nothing at all.
+ */
+export const ENTRY_VALUES = ['shore', 'boat', 'other'] as const;
+export const SALINITY_VALUES = ['salt', 'fresh', 'brackish'] as const;
+export const WATER_BODY_VALUES = ['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'] as const;
+export const TANK_MATERIAL_VALUES = ['steel', 'alu'] as const;
+export const SUIT_VALUES = ['none', 'shorty', 'wet', 'semidry', 'dry'] as const;
+
+export type Entry = (typeof ENTRY_VALUES)[number];
+export type Salinity = (typeof SALINITY_VALUES)[number];
+export type WaterBody = (typeof WATER_BODY_VALUES)[number];
+export type TankMaterial = (typeof TANK_MATERIAL_VALUES)[number];
+export type Suit = (typeof SUIT_VALUES)[number];
 
 /**
  * One cylinder. Stored as an entry in the dive row's `tanks` JSON array, first
