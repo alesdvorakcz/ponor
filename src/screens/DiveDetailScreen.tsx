@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DepthValue } from '../components/DepthValue';
 import { db } from '../db/client';
@@ -41,7 +42,7 @@ import {
 import { type UnitSystem } from '../format/units';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, type Styles } from '../theme/styles';
+import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 /**
@@ -565,6 +566,15 @@ export default function DiveDetailScreen({
 }: DiveDetailScreenProps = {}) {
   const scheme: ColorScheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
+  // How far down this screen's content begins, read off the device (`screenTopInset`,
+  // theme/styles.ts — the app's one owner of that rule) rather than baked into the sheet.
+  // Read here even when embedded in the wide layout's detail pane: the same provider answers
+  // both, so this root and the list column's pinned bar beside it land on one line.
+  //
+  // The back control moves down ~14 pt on an island phone as a result. That is the
+  // correction, not a regression: this container used to START inside the safe area, and the
+  // control's own 48 dp tap floor (§0.5) absorbed enough of the difference to disguise it.
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
@@ -592,7 +602,7 @@ export default function DiveDetailScreen({
 
   if (dive === undefined) {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         {showBackButton && <BackButton styles={styles} />}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>Dive not found.</Text>
@@ -685,7 +695,7 @@ export default function DiveDetailScreen({
   const hasNotes = dive.title !== null || dive.notes !== null || rating !== null;
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* The way out and the dive's own action, as one row above the hero. `EditButton` is
           rendered regardless of `showBackButton`: on the wide layout there is nothing to go
           back TO, but editing the dive on screen is exactly as valid there as it is here. */}

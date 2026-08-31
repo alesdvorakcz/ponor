@@ -28,46 +28,58 @@ import { type ColorScheme } from './tokens';
  * is actually a cache lookup.
  */
 /**
- * How far below the top of the display a screen's content begins — the status-bar clearance
- * every screen in the app has used since M0, as a static number rather than a safe-area
- * read. `screen` and (through `divesBarTopInset` below) the Dives screen's pinned bar are
- * what spend it.
+ * The **floor** under `screenTopInset` below, and nothing else: the clearance a screen gets
+ * on a device that reports a smaller top inset than the app's own composition wants. It was
+ * every screen's clearance outright from M0 until the fix `screenTopInset` records; it is
+ * now only the answer for devices with no notch and no island.
  *
- * It was spent as an absolute `top` while the action capsule floated over the list: Yoga
- * measures an absolute child's offsets from its containing block's BORDER edge, so
+ * It was once spent as an absolute `top` while the action capsule floated over the list:
+ * Yoga measures an absolute child's offsets from its containing block's BORDER edge, so
  * `screen`'s padding was invisible to it and a `top: 0` capsule landed over the clock and
- * the battery (seen on the simulator, not deduced). Nothing on the Dives screen is
- * absolutely positioned now, so the constant has one meaning again.
+ * the battery (seen on the simulator, not deduced). Nothing in the app is absolutely
+ * positioned against this any more, so the constant has one meaning again.
  *
  * Module scope rather than inside `build` because it is scheme-independent and
- * `divesBarTopInset` — which is not a style and takes no theme — has to read it too.
+ * `screenTopInset` — which is not a style and takes no theme — has to read it.
  */
-const SCREEN_TOP_INSET = 48;
+const MIN_SCREEN_TOP_INSET = 48;
 
 /**
- * Where the Dives screen's pinned bar puts its capsule: **the greater of the device's own
- * top safe-area inset and the app's standing top inset above.** The one number in this
- * sheet's vocabulary that cannot be baked into a scheme-only stylesheet, so it is composed
- * at the call site as `{ paddingTop: divesBarTopInset(insets.top) }` — the same shape
+ * **How far below the top of the display any screen's content begins: the greater of the
+ * device's own top safe-area inset and the app's floor above.** One function for the whole
+ * app — the pinned bar on Dives, and the root `View` of every other screen — because it is
+ * one rule (§4.1), and a second helper computing the same clearance for a different screen
+ * is the drift this project keeps paying for.
+ *
+ * The one number in this sheet's vocabulary that cannot be baked into a scheme-only
+ * stylesheet: it depends on the device, not the theme. So `screen` below deliberately
+ * carries **no** `paddingTop`, and every screen composes it in as
+ * `[styles.screen, { paddingTop: screenTopInset(insets.top) }]` — the same shape
  * `DiveFormScreen`'s footer already uses for `insets.bottom`, and one `unexpectedGraphics`
  * permits by key (nothing here can carry a colour).
  *
  * **Derived, not measured for one phone.** The owner measured iOS 26 on the device: Files
- * puts its trailing `•••` at ~66 pt and Photos its trailing controls at the same ~66, while
+ * puts its trailing `•••` at 62 pt and Photos its trailing controls at the same place, while
  * ours sat at ~52 and read as touching the Dynamic Island. On that device (iPhone 17 Pro)
- * `insets.top` is 62 and the glass capsule draws its material ~3.5 pt inside the 48 dp box
- * `capsuleGlyph` gives it, so a bar that starts its content at exactly `insets.top` lands
- * the visible capsule at ~65.5. The safe-area inset IS the clearance Apple is using; there
- * is no magic constant to keep in step with a phone.
+ * `insets.top` is 62. The safe-area inset IS the clearance Apple is using; there is no magic
+ * constant to keep in step with a phone.
+ *
+ * **Why every screen and not just the bar.** The Dives bar got this first, and for one
+ * release the other five roots kept the flat 48 — which is INSIDE the safe area on an island
+ * phone, so Settings' title sat at 56.3 pt where the bar's capsule sat at 62. Two screens of
+ * one app disagreeing about where the top of the screen is, and only one of them agreeing
+ * with iOS. The back controls on the form and the dive detail move down ~14 pt as a result:
+ * that is the correction, not a regression — their containers were starting inside the safe
+ * area and a control's own 48 dp centring (§0.5) was absorbing enough of it to disguise that.
  *
  * The `max` is what keeps every other device sane rather than cramped: an iPhone SE reports
- * 20 and an iPad 24, and a capsule 20 pt from the top edge would be worse than what this
- * replaces. Below a notch the app's own 48 wins and nothing moves — which is also what
- * keeps the wide layout's two columns aligned, since the detail pane beside the list is
- * `screen`, i.e. this same 48.
+ * 20 and an iPad 24, and content 20 pt from the top edge would be worse than what this
+ * replaces. Below a notch the app's own 48 wins and nothing moves from where it has sat
+ * since M0 — which is also what keeps the wide layout's two columns aligned, since the list
+ * column's bar and the detail pane beside it now ask this same function the same question.
  */
-export function divesBarTopInset(safeAreaTop: number): number {
-  return Math.max(safeAreaTop, SCREEN_TOP_INSET);
+export function screenTopInset(safeAreaTop: number): number {
+  return Math.max(safeAreaTop, MIN_SCREEN_TOP_INSET);
 }
 
 function build(scheme: ColorScheme) {
@@ -342,6 +354,13 @@ function build(scheme: ColorScheme) {
     fontSize: 11,
   };
 
+  // The app's ground, under three names. One definition rather than three literals, the same
+  // reasoning `noticeBanner` above records: `screen`, `divesScreen` and `wideScreen` are the
+  // roots of every screen in the app, they must paint the same ground and fill the same way,
+  // and each of the three says at its own definition what makes it a distinct name (what the
+  // call site adds on top, §4.1's "a deliberate near-duplicate names its siblings").
+  const screenGround: ViewStyle = { flex: 1, backgroundColor: theme.bg };
+
   const rowScroll: ViewStyle = { flex: 1 };
   const rowScrollContent: ViewStyle = {
     paddingTop: 4,
@@ -350,11 +369,16 @@ function build(scheme: ColorScheme) {
   };
 
   return StyleSheet.create({
-    screen: {
-      flex: 1,
-      backgroundColor: theme.bg,
-      paddingTop: SCREEN_TOP_INSET,
-    },
+    // Every screen's root: the app's ground, and the flex that lets its content fill.
+    //
+    // **`paddingTop` is deliberately absent**, and composed in at the call site from
+    // `screenTopInset(insets.top)` — see that function for why the top clearance is read off
+    // the device rather than written here. A static number here would be a second answer to
+    // the question that function owns, and it was: 48, which is inside the safe area on an
+    // island phone. Absent rather than floored at the app's minimum, so a root that forgets
+    // to compose it lands its content under the clock instead of quietly looking a little
+    // tight — the failure is the visible kind.
+    screen: screenGround,
     // M1c task 11, DESIGN.md §0.6 rev 5: the Dives screen's search field used to live here
     // — a bordered/filled box at the TOP of the screen (`searchInput`, `searchBarCollapse`,
     // `searchBarHidden`; `git log` has them) — until it moved to a floating capsule at the
@@ -448,36 +472,33 @@ function build(scheme: ColorScheme) {
     // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
     // `divesScreen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the
     // one thing it adds. Neither carries a top inset: the list column's own pinned bar and
-    // the detail pane's own `screen` each supply theirs, one per column, so a padding here
-    // would stack a second one over the detail pane (see `wideListColumn`).
-    wideScreen: {
-      flex: 1,
-      flexDirection: 'row',
-      backgroundColor: theme.bg,
-    },
+    // the detail pane's own `screen` each compose theirs from `screenTopInset`, one per
+    // column, so a padding here would stack a second one over the detail pane (see
+    // `wideListColumn`).
+    wideScreen: { ...screenGround, flexDirection: 'row' },
     // Fixed-width list column (task brief: "the list sits at a fixed column width"). Wide
     // enough for a row's number/site/depth to read comfortably without crowding the detail
     // pane out — the same width iPad split views commonly give a master column.
     //
-    // **No `paddingTop`.** It carried `SCREEN_TOP_INSET` while the list column began with a
-    // title row that had no clearance of its own; the pinned bar it now begins with owns
-    // that clearance and derives it from the device (`divesBarTopInset`), so a padding here
-    // would stack under it. The two columns still line up on the devices this layout is for:
-    // an iPad reports a 24 pt top inset, `divesBarTopInset` floors that at the app's own 48,
-    // and 48 is exactly what `screen` gives the `DiveDetailScreen` in the pane beside it.
+    // **No `paddingTop`.** It carried the app's flat top inset while the list column began
+    // with a title row that had no clearance of its own; the pinned bar it now begins with
+    // owns that clearance and derives it from the device (`screenTopInset`), so a padding
+    // here would stack under it. The two columns line up by construction now rather than by
+    // two numbers happening to agree: the bar asks `screenTopInset(insets.top)` and the
+    // `DiveDetailScreen` in the pane beside it asks the same function the same question, so
+    // an iPad's 24 pt inset floors to 48 on both sides and any future device moves both.
     wideListColumn: {
       width: 360,
       borderRightWidth: 1,
       borderRightColor: theme.border,
     },
     // The detail pane beside it. No padding of its own: the embedded DiveDetailScreen
-    // supplies its own `screen` style (flex, background, the same paddingTop: 48) as ITS
-    // root view regardless of whether it's routed to full-screen or embedded here, so this
-    // column just has to get out of the way and let that happen — adding padding here too
-    // would stack a second 48pt under the first and misalign the detail content against the
-    // list beside it. The "nothing selected yet" placeholder (DivesScreen.tsx) composes
-    // `screen` + `centerFill` itself for the same reason, rather than this column supplying
-    // it.
+    // supplies its own root (`screen`, plus the `screenTopInset` it composes in) regardless
+    // of whether it's routed to full-screen or embedded here, so this column just has to get
+    // out of the way and let that happen — adding padding here too would stack a second top
+    // inset under the first and misalign the detail content against the list beside it. The
+    // "nothing selected yet" placeholder (DivesScreen.tsx) composes `screen` + the same
+    // inset + `centerFill` itself for the same reason, rather than this column supplying it.
     wideDetailColumn: {
       flex: 1,
     },
@@ -627,15 +648,16 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.actionFg,
     },
-    // The Dives screen's root, and the one screen in the app whose root is NOT `screen`:
-    // `screen`'s static `paddingTop: 48` would stack under the pinned bar's own top inset
-    // below, which is derived from the device instead (`divesBarTopInset` at the top of this
-    // file). Everything else about it is `screen` — flex and the app's ground — and the wide
-    // layout's `wideScreen` is this plus a row direction for the same reason.
-    divesScreen: {
-      flex: 1,
-      backgroundColor: theme.bg,
-    },
+    // The Dives screen's root. **A deliberate near-duplicate that names its siblings**
+    // (§4.1): it is `screenGround`, exactly as `screen` above is, and the difference is not
+    // in the style but in what the call site adds. Every other screen composes
+    // `screenTopInset(insets.top)` onto `screen`; this one composes nothing, because the
+    // pinned bar immediately below (`divesBar`) spends that clearance itself, and a padding
+    // here would stack a second one under it. Unifying the two names would delete that
+    // distinction and leave a bare `styles.screen` meaning "no top inset here" on one screen
+    // and "someone forgot the inset" on the other five. `wideScreen` is the third sibling:
+    // the same ground plus a row direction, for the same reason.
+    divesScreen: screenGround,
     // DESIGN.md §3's note (owner's call, recorded during M1d, built with Settings): "Tabs go
     // to the bottom; search and `+` move to a top-right capsule." This is the bar that
     // capsule is pinned in — the **native iOS large-title arrangement** the owner chose after
@@ -673,7 +695,9 @@ function build(scheme: ColorScheme) {
     // Settings' column, and `detailBack` records the same choice one screen over.)
     //
     // `paddingTop` is deliberately absent and composed in at the call site from
-    // `divesBarTopInset(insets.top)` — see that function for why the clearance is read off
+    // `screenTopInset(insets.top)` — the same owner every other screen's root asks, so this
+    // bar and the Settings title beside it can no longer disagree about where the top of the
+    // screen is. See that function for why the clearance is read off
     // the device rather than written here.
     divesBar: {
       backgroundColor: theme.bg,

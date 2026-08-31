@@ -18,7 +18,7 @@ import { diveSiteLabel, formatDiveCount } from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
-import { divesBarTopInset, makeStyles } from '../theme/styles';
+import { makeStyles, screenTopInset } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
 /**
@@ -161,10 +161,12 @@ export default function DivesScreen() {
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
-  // The device's own safe area, read for exactly one value: how far down the pinned bar
-  // starts (`bar`, below, through `divesBarTopInset`). The Dynamic Island is the whole
-  // reason — a static inset that clears a notch does not clear an island, and there is no
-  // way for a scheme-only stylesheet to know which one this phone has.
+  // The device's own safe area, read for how far down this screen's content begins: the
+  // pinned bar in the narrow layout (`bar`, below) and the wide layout's "nothing selected"
+  // pane, both through `screenTopInset` — the one owner every screen in the app asks. The
+  // Dynamic Island is the whole reason — a static inset that clears a notch does not clear
+  // an island, and there is no way for a scheme-only stylesheet to know which one this
+  // phone has.
   const insets = useSafeAreaInsets();
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
@@ -298,11 +300,12 @@ export default function DivesScreen() {
    * also opaque (`divesBar`, theme/styles.ts), so even if it ever did overlap the list,
    * nothing could be read through it.
    *
-   * **The top clearance is the device's, not a number.** `divesBarTopInset(insets.top)` —
+   * **The top clearance is the device's, not a number.** `screenTopInset(insets.top)` —
    * see it in theme/styles.ts. The old row inherited `screen`'s static 48, which on a
    * Dynamic Island phone put the capsule at ~52 pt where iOS 26's own Files and Photos put
-   * their trailing controls at ~66; reading the safe area gives 66 there and leaves every
-   * other device on the app's own 48.
+   * their trailing controls at 62; reading the safe area gives 62 there and leaves every
+   * other device on the app's own 48. Every other screen's root now asks that same
+   * function, so this bar is no longer the one place in the app that clears the island.
    *
    * **No compact title.** Nothing fades in to replace the title once it has scrolled off —
    * the owner's deliberate choice, on the grounds that the tab bar already says which screen
@@ -317,7 +320,7 @@ export default function DivesScreen() {
    * it so that name does not move between branches.
    */
   const bar = (actions?: readonly CapsuleAction[]) => (
-    <View style={[styles.divesBar, { paddingTop: divesBarTopInset(insets.top) }]}>
+    <View style={[styles.divesBar, { paddingTop: screenTopInset(insets.top) }]}>
       <View style={styles.divesBarRow}>
         {actions !== undefined && <ActionCapsule scheme={scheme} actions={actions} />}
       </View>
@@ -563,11 +566,13 @@ export default function DivesScreen() {
       <View style={styles.wideListColumn}>{listPane}</View>
       <View style={styles.wideDetailColumn}>
         {selectedId === null ? (
-          // Composes screen + centerFill itself (rather than wideDetailColumn supplying
-          // the padding) so this placeholder lines up with DiveDetailScreen's own root
-          // exactly the way a selected dive's detail does — see wideDetailColumn's style
-          // comment (theme/styles.ts) for why that padding belongs here, not the column.
-          <View style={styles.screen}>
+          // Composes screen + the top inset + centerFill itself (rather than
+          // wideDetailColumn supplying the padding) so this placeholder lines up with
+          // DiveDetailScreen's own root exactly the way a selected dive's detail does — see
+          // wideDetailColumn's style comment (theme/styles.ts) for why that padding belongs
+          // here, not the column. Same `screenTopInset` call the detail screen makes, so the
+          // two cannot drift apart by a point.
+          <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
             <View style={styles.centerFill}>
               <Text style={styles.messageText}>Select a dive to see its details.</Text>
             </View>

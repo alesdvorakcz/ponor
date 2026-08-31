@@ -1,5 +1,5 @@
 import { themeFor } from './resolve';
-import { divesBarTopInset, makeStyles } from './styles';
+import { makeStyles, screenTopInset } from './styles';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
 // fresh StyleSheet each time, `styles` would get a new object identity on every render,
@@ -147,29 +147,56 @@ describe('a screen title', () => {
   });
 });
 
+// **Where the top of a screen is — one owner, one answer** (DESIGN.md §4.1). The Dives
+// screen's pinned bar got this rule first and the other five roots kept the sheet's flat 48
+// for a release, which is INSIDE the safe area on a Dynamic Island phone: measured on an
+// iPhone 17 Pro, the capsule sat at 62 pt (exactly where iOS 26's Files puts its trailing
+// `•••`) while "Settings" sat at 56.3 and crowded the island. Two screens of one app
+// disagreeing about where the top is, and only one agreeing with iOS.
+//
+// The helper is what these tests pin, deliberately: it is the rule, and it is a pure
+// function of the device's inset. Restating each screen's resulting padding here would be
+// six assertions that can only fail by being edited, and none of them would have caught the
+// defect — every one of the six was green while Settings was 5.7 pt too high.
+describe('the screen top inset', () => {
+  // Pinned as the RULE (the greater of the device's inset and the app's own floor) rather
+  // than as 62, which is one phone's answer: a hard-coded 62 would be wrong on every device
+  // without an island, and is the reason this is a function of `insets.top` at all.
+  it('clears the greater of the device safe area and the app floor', () => {
+    // A Dynamic Island phone (iPhone 17 Pro reports 62): the device wins, and the app lands
+    // on the same line iOS 26's own apps use.
+    expect(screenTopInset(62)).toBe(62);
+    // A notched phone, an iPad (24) and an iPhone SE (20): the app's own floor wins, so
+    // nothing moves from where it has sat since M0, and the wide layout's two columns stay
+    // aligned (the list column's bar and the detail pane beside it ask this same function).
+    expect(screenTopInset(47)).toBe(48);
+    expect(screenTopInset(24)).toBe(48);
+    expect(screenTopInset(0)).toBe(48);
+    // It is a floor, not a clamp: a device with a deeper inset than any shipped today gets
+    // its own clearance rather than being cropped back to 48.
+    expect(screenTopInset(100)).toBe(100);
+  });
+
+  // **The second implementation, as a property of the sheet.** `screen` carried
+  // `paddingTop: 48` — a second answer to the question the helper above owns, and the one
+  // every screen except Dives was actually getting. It cannot come back quietly: a static
+  // number here would silently outrank nothing and silently under-clear an island, whereas
+  // its absence forces every root to compose the device's answer in. Asserted as "no top
+  // padding at all" rather than as some particular number, because any number here is the
+  // defect regardless of which one it is.
+  it('is not also written into the sheet, where the device cannot be read', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const screen = makeStyles(scheme).screen as Record<string, unknown>;
+      expect(screen.paddingTop).toBeUndefined();
+      expect(screen.padding).toBeUndefined();
+      expect(screen.paddingVertical).toBeUndefined();
+    }
+  });
+});
+
 // The Dives screen's pinned bar (DESIGN.md §0.6, rewritten again for the native large-title
 // arrangement). Two properties, and each is a defect that has already shipped once.
 describe('the Dives screen pinned bar', () => {
-  // The clearance the owner measured on iOS 26 — Files and Photos both put their trailing
-  // controls at ~66 pt on this phone, ours sat at ~52 and read as touching the Dynamic
-  // Island. Pinned as the RULE (the greater of the device's inset and the app's own 48)
-  // rather than as 66, which is one phone's answer: a hard-coded 66 would be wrong on every
-  // device without an island, and the reason this is a function of `insets.top` at all.
-  it('clears the greater of the device safe area and the app top inset', () => {
-    // A Dynamic Island phone (iPhone 17 Pro reports 62): the device wins, and the glass
-    // capsule's material — drawn ~3.5 pt inside the 48 dp box it is given — lands at ~66.
-    expect(divesBarTopInset(62)).toBe(62);
-    // A notched phone, an iPad (24) and an iPhone SE (20): the app's own inset wins, so
-    // nothing moves from where it has sat since M0, and the wide layout's two columns stay
-    // aligned (the detail pane beside the list is `screen`, i.e. that same 48).
-    expect(divesBarTopInset(47)).toBe(48);
-    expect(divesBarTopInset(24)).toBe(48);
-    expect(divesBarTopInset(0)).toBe(48);
-    // It is a floor, not a clamp: a device with a deeper inset than any shipped today gets
-    // its own clearance rather than being cropped back to 48.
-    expect(divesBarTopInset(100)).toBe(100);
-  });
-
   // **The `…16` defect, as a property of the sheet.** The capsule floated over the list once
   // and covered the trailing slot of every sticky trip header — where a trip's date range
   // lives — and `UNNAMED SITE`'s range read as `…16` on the simulator. DivesScreen.test.tsx

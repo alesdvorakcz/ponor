@@ -1,5 +1,5 @@
 // The package's own official Jest mock. DivesScreen calls `useSafeAreaInsets()` again — the
-// pinned bar's top clearance is read off the device (`divesBarTopInset`, theme/styles.ts) so
+// pinned bar's top clearance is read off the device (`screenTopInset`, theme/styles.ts) so
 // that it clears a Dynamic Island rather than a notch — and the real hook throws without a
 // Provider ancestor, which a bare render has none of. Imported first, and named `mock...`,
 // for the babel-plugin-jest-hoist reason DiveFormScreen.test.tsx records: a jest.mock()
@@ -26,7 +26,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { themeFor } from '../theme/resolve';
-import { divesBarTopInset, makeStyles } from '../theme/styles';
+import { makeStyles, screenTopInset } from '../theme/styles';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -555,9 +555,9 @@ it('reserves no clearance in the list for a capsule that no longer floats over i
 
 // **The clearance the owner measured**, as the value this screen actually composes rather
 // than as the rule `styles.test.ts` pins next door. `SafeAreaProvider` reports the inset an
-// iPhone 17 Pro does (62), and the bar has to spend it: the previous arrangement inherited
+// iPhone 17 Pro does (62), and the bar has to spend it: the arrangement before it inherited
 // `screen`'s static 48 and landed the capsule at ~52, crowding the Dynamic Island, where
-// iOS 26's own Files and Photos put their trailing controls at ~66. Composed at the call
+// iOS 26's own Files and Photos put their trailing controls at 62. Composed at the call
 // site, so a bar that read the sheet and never the device would fail here while every
 // stylesheet assertion still passed.
 it('spends the device safe-area inset on the bar, so the capsule clears a Dynamic Island', async () => {
@@ -572,7 +572,7 @@ it('spends the device safe-area inset on the bar, so the capsule clears a Dynami
 
   const style = [findBar(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
   const paddingTop = style.map((s) => s.paddingTop).find((value) => value !== undefined);
-  expect(paddingTop).toBe(divesBarTopInset(62));
+  expect(paddingTop).toBe(screenTopInset(62));
   expect(paddingTop).toBe(62);
 });
 

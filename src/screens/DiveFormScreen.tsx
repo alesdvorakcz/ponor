@@ -47,7 +47,7 @@ import {
 import { unitLabel, type UnitSystem } from '../format/units';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles } from '../theme/styles';
+import { makeStyles, screenTopInset } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 function toInputString(value: unknown): string {
@@ -1077,7 +1077,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   };
 
   return (
-    <View style={styles.screen}>
+    // The top clearance is the device's (`screenTopInset`, theme/styles.ts), the same owner
+    // every other screen's root asks; `insets` is already read here for the footer's bottom
+    // clearance below. `‹ Cancel` beneath this moves down ~14 pt on an island phone as a
+    // result — the correction, not a regression: this container used to start INSIDE the
+    // safe area, and the control's own 48 dp tap floor (§0.5) disguised most of it.
+    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* The way out (M1d task 7, amendment D — found by using the app: this screen had
           none at all). iOS's edge-swipe and Android's system back both worked, but nothing
           on screen said so, while DiveDetailScreen next door has offered a visible `‹ Dives`

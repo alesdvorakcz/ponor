@@ -1,3 +1,14 @@
+// The package's own official Jest mock — this screen now calls useSafeAreaInsets() for its
+// root's top clearance (`screenTopInset`, theme/styles.ts), gets a real SafeAreaProvider for
+// free from expo-router's root layout in the app, and has none when rendered bare here.
+// Imported first, and named `mock...`, for the babel-plugin-jest-hoist reason
+// DiveFormScreen.test.tsx records: a jest.mock() factory may only close over out-of-scope
+// identifiers starting with `mock`/`require`, and every jest.mock() call is hoisted above
+// every import regardless. Left on the mock's own zero insets by every test in this file:
+// where the clearance actually LANDS is `styles.test.ts`'s rule to pin, not a number to
+// restate here.
+import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
+
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 
 import { db } from '../db/client';
@@ -19,6 +30,7 @@ import SettingsScreen from './SettingsScreen';
 // return primitives, which cannot have that problem, but the discipline is the file's rather
 // than the value's: a stub that models "one frozen answer forever" is the wrong shape to
 // reach for at all, and this screen genuinely does adjust state when its reads change.
+jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn() }));
 jest.mock('../db/useDivesBefore', () => ({ useDivesBefore: jest.fn() }));
 // The writes. `jest.requireActual` keeps `parseDiveCount` REAL: it is the rule that decides

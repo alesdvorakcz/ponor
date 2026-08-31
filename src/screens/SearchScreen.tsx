@@ -11,7 +11,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles } from '../theme/styles';
+import { makeStyles, screenTopInset } from '../theme/styles';
 
 /** The way out, in the same slot the Dives screen's magnifier occupies at the other end of
  * the app — one glyph, monochrome, in a capsule. `symbolName` (components/symbolName.ts)
@@ -90,7 +90,10 @@ export default function SearchScreen() {
     // double-count it. Both are RN's own documented pairing, and this is the app's only
     // screen where a control has to sit ON the keyboard rather than merely above the fold.
     <KeyboardAvoidingView
-      style={styles.screen}
+      // The top clearance comes from the device, not the sheet (`screenTopInset`,
+      // theme/styles.ts): `insets` is already read below for the dock's own bottom
+      // clearance, and this is the same device answering the other end of the screen.
+      style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       {message !== null ? (

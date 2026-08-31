@@ -1,3 +1,14 @@
+// The package's own official Jest mock — this screen now calls useSafeAreaInsets() for its
+// root's top clearance (`screenTopInset`, theme/styles.ts), gets a real SafeAreaProvider for
+// free from expo-router's root layout in the app, and has none when rendered bare here.
+// Imported first, and named `mock...`, for the babel-plugin-jest-hoist reason
+// DiveFormScreen.test.tsx records: a jest.mock() factory may only close over out-of-scope
+// identifiers starting with `mock`/`require`, and every jest.mock() call is hoisted above
+// every import regardless. Left on the mock's own zero insets by every test in this file:
+// where the clearance actually LANDS is `styles.test.ts`'s rule to pin, not a number to
+// restate here.
+import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
+
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
@@ -32,6 +43,7 @@ import DiveDetailScreen from './DiveDetailScreen';
 // screen's own back control calls `router.back`/`canGoBack`/`replace` directly (the same
 // imperative singleton DivesScreen.tsx already uses for `openDive`/`logDive`), not through a
 // hook, so it needs the same module mock rather than a render prop.
+jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // The unit preference (§3), mocked per module exactly as `useDives` is above and for the
 // same reason: it is a live database read, and this screen must be renderable in either

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ScrollView, Text, View, useColorScheme } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
@@ -11,7 +12,7 @@ import { isDiveCount } from '../domain/diveNumber';
 import { formatUnitSystem } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles } from '../theme/styles';
+import { makeStyles, screenTopInset } from '../theme/styles';
 
 /** Shown when a settings write rejects. §1's "never block a save" cuts both ways, and this
  * is the other one: a diver who changes a setting and is not told the change failed is
@@ -52,6 +53,12 @@ const SAVE_FAILED = "Couldn't save that. Try again.";
 export default function SettingsScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
+  // How far down this screen's content begins, from the device rather than from a constant
+  // (`screenTopInset`, theme/styles.ts — the app's one owner of that rule). The reported
+  // defect: with the sheet's old flat 48, "Settings" sat at 56.3 pt on an iPhone 17 Pro,
+  // above the 62 pt line the Dives capsule and iOS 26's own apps both use, i.e. inside the
+  // safe area and crowding the Dynamic Island.
+  const insets = useSafeAreaInsets();
   // Both live reads, so this screen shows what is actually stored rather than what it last
   // wrote — the same discipline DivesScreen keeps with `useDives()`. A write below is never
   // read back from its own return value.
@@ -122,7 +129,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's own ScrollView.
           RN's default is `'never'`, under which the first tap anywhere while a field has
           focus is spent dismissing the keyboard and never reaches what it landed on — so
