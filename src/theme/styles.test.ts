@@ -63,6 +63,21 @@ describe('the form field row', () => {
     expect(makeStyles('dark').formField.minHeight).toBe(48);
   });
 
+  // ...and the LABEL/VALUE line inside it carries the floor too, which neither of the two
+  // above implies. A field whose value trails gets there for free: the input's own 48 sets
+  // the line's height, `formField` centres it, and the label lands 24 below the hairline. A
+  // field whose value is STACKED underneath — `OptionChips`, notes, an opened picker — has
+  // content past 48 already, so the centring does nothing and the line collapsed to the
+  // height of the label text: *Units* sat 10 below Settings' first hairline, touching it,
+  // while *Dives before Ponor* under it sat at 24 (reported on the running app). Tied to the
+  // input's own floor rather than to a retyped 48, because they are the same floor: the row
+  // has to be at least as tall as the tallest thing that can sit in it.
+  it('holds the label line at that floor too, so a stacked field keeps its label off the rule', () => {
+    const styles = makeStyles('dark');
+    expect(styles.formFieldRow.minHeight).toBe(styles.formFieldInput.minHeight);
+    expect(styles.formFieldRow.minHeight).toBe(styles.formField.minHeight);
+  });
+
   // ...and the input inside it reaches the floor too, which the row's own height does not
   // imply: a `TextInput` shorter than its row leaves the rest of that row inert, so a diver
   // aiming at the field's top or bottom third focuses nothing. Both halves are needed —

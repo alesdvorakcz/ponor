@@ -1371,7 +1371,22 @@ function build(scheme: ColorScheme) {
     // put a `formChip` straight in the row, and without this it sat flush against the end of
     // the word "Hood" in the middle of an otherwise empty row. It is a no-op for every other
     // field, whose value slot already carries `flex: 1`.
+    //
+    // **`minHeight: 48` is §0.5's floor, on the row rather than on one of its children, and
+    // it is what puts a label in the same place in every field.** `formField` above states
+    // the floor for the FIELD; a field whose value trails meets it through the input's own
+    // matching 48 and the field's `justifyContent: 'center'`, so its label sits 24 below the
+    // hairline. A field whose value is STACKED underneath — `OptionChips`, notes, an opened
+    // picker — has content well past 48 already, so the centring is a no-op and this row
+    // collapsed to the height of the label text alone: the label landed 10 below the
+    // hairline and read as touching it (reported on the running app, on Settings, where
+    // *Units* sat against the rule while *Dives before Ponor* beneath it did not). The floor
+    // belongs here, where it holds whether the trailing slot contains an input or nothing at
+    // all — and it is what makes `FIELD_EXTRA_CLEARANCE`'s own note ("the row above it... is
+    // `minHeight: 48` with its input stretched to match") true of every field rather than of
+    // most of them. A no-op wherever the row was already 48, which is every other field.
     formFieldRow: {
+      minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',

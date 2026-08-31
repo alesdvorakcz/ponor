@@ -276,3 +276,39 @@ it('sets the count in mono, on a keypad with no decimal separator', async () => 
   expect([field.props.style].flat(5)).toContain(makeStyles('light').formFieldInputMono);
   expect(field.props.keyboardType).toBe('number-pad');
 });
+
+// The owner's report, from the running app: "the `Units` label sits roughly 11 pt below the
+// hairline above it, where `Dives before Ponor` gets roughly 24 pt. It reads as touching the
+// rule."
+//
+// Both rows already drew their own top hairline (`formField`) — the first group was not
+// exempted from anything. What differed is what each row holds. A field whose value TRAILS
+// gets its label's position for free: the input's own 48 dp floor sets the line's height and
+// `formField`'s `justifyContent: 'center'` centres the label in it. *Units* is a chip field,
+// so its value is stacked underneath and the field's content is past 48 before the label is
+// measured — the centring is a no-op and the line was as tall as the label text alone.
+// `formFieldRow` carries the floor now (theme/styles.ts, and styles.test.ts ties it to the
+// input's own), so the label sits in the same place in either kind of field.
+//
+// Asserted through the screen rather than off the sheet: what makes the difference here is
+// that the chip field's label line is the SHARED row, and a component that drew its label in
+// a wrapper of its own would satisfy every assertion in styles.test.ts while leaving *Units*
+// exactly where the owner found it.
+it('gives the first group’s label the same room off the rule as the second’s', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+  const styles = makeStyles('light');
+
+  const rowOf = (label: string) => {
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(label)) : [];
+    if (!text) throw new Error(`SettingsScreen rendered no ${label} label`);
+    const row = text.parent;
+    if (!row) throw new Error(`the ${label} label sits in no row at all`);
+    return row;
+  };
+
+  for (const label of ['Units', 'Dives before Ponor']) {
+    expect([rowOf(label).props.style].flat(5)).toContain(styles.formFieldRow);
+  }
+  expect(styles.formFieldRow.minHeight).toBe(48);
+});
