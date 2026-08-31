@@ -43,17 +43,26 @@ it('passes an unstyled View, so the guard is not simply flagging everything', as
 });
 
 it('passes a device measurement composed in locally, which cannot live in a scheme-only sheet', async () => {
-  // `DiveFormScreen`'s footer and `DivesScreen`'s floating row both compose a safe-area inset
-  // this way, and both say why where they are written. Without this the fixed guard would
-  // report two correct screens and the fix would be reverted rather than kept.
-  const t = await render(<View style={[styles.floatingRow, { bottom: 34 }]} />);
+  // `DiveFormScreen`'s footer composes a safe-area inset exactly this way, and says why where
+  // it is written. Without this the fixed guard would report a correct screen and the fix
+  // would be reverted rather than kept.
+  //
+  // `styles.formFooter` replaces `styles.floatingRow` here, which was this case's other real
+  // example until DESIGN.md §3's note moved that row to the top of the screen, where the
+  // clearance it needs is `screen`'s own static `paddingTop` and no inset is composed in at
+  // all. Swapped rather than left pointing at a key `makeStyles` no longer hands out: with
+  // `undefined` in its place both this test and the one below still PASSED — the guard simply
+  // saw one style instead of two — so the composed-beside-a-known-style half of each stopped
+  // being exercised while both stayed green. Caught by `tsc`, which is the only thing that
+  // could catch it.
+  const t = await render(<View style={[styles.formFooter, { paddingBottom: 34 }]} />);
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
 it('does not let a geometry key smuggle a colour in beside it', async () => {
   // The allowlist is per KEY, and every key on the object has to be in it — otherwise
-  // `{ bottom: 34, backgroundColor: '#ff0000' }` would ride in on the exemption above.
-  const t = await render(<View style={[styles.floatingRow, { bottom: 34, backgroundColor: '#ff0000' }]} />);
+  // `{ paddingBottom: 34, backgroundColor: '#ff0000' }` would ride in on the exemption above.
+  const t = await render(<View style={[styles.formFooter, { paddingBottom: 34, backgroundColor: '#ff0000' }]} />);
   expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
 });
 

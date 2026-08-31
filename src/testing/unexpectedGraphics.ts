@@ -49,9 +49,13 @@ const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canv
 /**
  * The one kind of inline style a screen may legitimately compose in locally: a position or
  * padding read off the device at runtime, which by definition cannot live in a scheme-only
- * stylesheet. `DiveFormScreen`'s `{ paddingBottom: insets.bottom + 24 }` and
- * `DivesScreen`'s `{ bottom: insets.bottom + FLOATING_ROW_BOTTOM_MARGIN }` are the two in
- * the app today, and both name their reason where they are written.
+ * stylesheet. `DiveFormScreen`'s `{ paddingBottom: insets.bottom + 24 }` is the one in the
+ * app today, and it names its reason where it is written. `DivesScreen`'s floating row was
+ * the other (`{ bottom: insets.bottom + ... }`) until DESIGN.md §3's note moved it to the
+ * top of the screen, where `screen`'s own static `paddingTop` is the clearance and no inset
+ * is read at all. The list keeps its `bottom`/`left`/`right` entries regardless: what it
+ * permits is bounded by construction rather than by which screens happen to use it, and
+ * trimming it to today's call sites would just have to be undone by the next one.
  *
  * Deliberately a key allowlist rather than a "no colour keys" denylist: a denylist has to
  * anticipate every property that can carry a hue or draw a shape (`shadowColor`,

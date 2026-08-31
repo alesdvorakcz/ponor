@@ -131,23 +131,43 @@ function build(scheme: ColorScheme) {
     shadowRadius: 12,
     elevation: 6,
   };
-  // The capsule's shape only — no fill. DESIGN.md §0.6, measured off iOS 26 Messages: "no
+  // A capsule's shape only — no fill. DESIGN.md §0.6, measured off iOS 26 Messages: "no
   // bar, no border, no top rule — a fully rounded capsule" ("fully rounded" = radius =
   // height / 2, not a merely-rounded rectangle — SearchCapsule.test.tsx pins that relation
   // directly). `height` rather than `minHeight`: the radius/2 relationship above needs a
   // FIXED height to hold exactly, and §0.5's 48 dp tap-target floor is met with nothing to
-  // spare either way. `flex: 1` so the capsule fills whatever room `floatingRow` below
-  // leaves it beside the fixed-size `fab`. No `overflow: 'hidden'`: that would clip
-  // `floatingShadow` above, which draws OUTSIDE this shape's own bounds.
-  const capsuleShape: ViewStyle = {
-    flex: 1,
+  // spare either way. No `overflow: 'hidden'`: that would clip `floatingShadow` above,
+  // which draws OUTSIDE this shape's own bounds.
+  //
+  // **Two capsules now share it** (§3's note, built with Settings): the search field, which
+  // fills whatever width the top row leaves it, and the top-right action capsule, which is
+  // sized by the glyphs inside it. The difference between them is width and padding and
+  // nothing else — split below rather than written out twice, so the height, the rounding
+  // and the shadow cannot drift between two objects a diver sees side by side.
+  const capsuleBase: ViewStyle = {
     height: 48,
     borderRadius: 24,
     flexDirection: 'row',
     alignItems: 'center',
+    ...floatingShadow,
+  };
+  // The search field's capsule: `flex: 1` so it takes the top row's remaining width beside
+  // the action capsule, with room for the magnifier and the text beside it.
+  const searchCapsuleShape: ViewStyle = {
+    ...capsuleBase,
+    flex: 1,
     paddingHorizontal: 16,
     gap: 8,
-    ...floatingShadow,
+  };
+  // The top-right action capsule (§3): "one top-right glass capsule carrying ... magnifier
+  // and `+` as equal monochrome glyphs". No `flex` — it is as wide as its glyphs, which are
+  // each a 48 dp square (`capsuleGlyph` below, §0.5's floor), so the capsule measures itself
+  // rather than being told a width that would have to be kept in step with how many glyphs
+  // it holds. That is what makes M2's Map and M3's Stats — and the view-toggle glyph
+  // Calendar carries alongside them — additions rather than a re-measure.
+  const actionCapsuleShape: ViewStyle = {
+    ...capsuleBase,
+    paddingHorizontal: 4,
   };
 
   // ---------------------------------------------------------------------------------------
@@ -173,6 +193,19 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
+  };
+
+  // What a screen calls itself: the form's "Log a dive" / "Edit dive", and Settings' own
+  // title. Archivo SemiBold 20 in full ink — the largest type in the app that is not a
+  // depth, which is what makes it read as the name of the thing rather than as part of it.
+  // One definition rather than two, the same reasoning `noticeBanner` and `backControl`
+  // above record: the two call sites differ only in how they are placed (the form's sits in
+  // a flex row beside §2.4's status control and so takes `flex: 1`; Settings' is a block and
+  // takes the row inset directly), and neither may quietly pick a different size.
+  const screenHeading: TextStyle = {
+    fontFamily: fonts['sans-semibold'],
+    fontSize: 20,
+    color: theme.fg,
   };
 
   // A row's leading half (§0.6: "Label at the leading edge in Archivo 15 muted — the detail
@@ -222,6 +255,20 @@ function build(scheme: ColorScheme) {
   // the row itself met it.
   const FIELD_EXTRA_CLEARANCE = 12;
 
+  // A scrolling column of §0.6 rows — the dive form, and now Settings, which is the same
+  // grammar asking about the app instead of about a dive. One definition rather than two,
+  // so the two screens cannot drift on how far their first row sits from the heading above
+  // it. `paddingTop: 4` is the trim `formScrollContent` already recorded (a back control's
+  // or heading's own 48 dp floor leaves ~17 px of slack, and a second 20 on top read as a
+  // gap nothing asked for); `paddingBottom` clears the form's fixed footer, and on Settings
+  // is simply the room a last row wants above the tab bar.
+  const rowScroll: ViewStyle = { flex: 1 };
+  const rowScrollContent: ViewStyle = {
+    paddingTop: 4,
+    paddingBottom: 40,
+    gap: 20,
+  };
+
   return StyleSheet.create({
     screen: {
       flex: 1,
@@ -242,7 +289,7 @@ function build(scheme: ColorScheme) {
     // GlassView supplies its own translucent material natively, so adding a
     // `backgroundColor` here would paint over it.
     searchCapsuleGlass: {
-      ...capsuleShape,
+      ...searchCapsuleShape,
     },
     // SearchCapsule.tsx's root everywhere else — every pre-26 iPhone and all of Android,
     // "the common case, [which] must look deliberate rather than degraded" (DESIGN.md
@@ -250,8 +297,45 @@ function build(scheme: ColorScheme) {
     // was supplying natively: an opaque fill, so this reads as a deliberate flat capsule
     // rather than a glass capsule that failed to render.
     searchCapsulePlain: {
-      ...capsuleShape,
+      ...searchCapsuleShape,
       backgroundColor: theme.surface,
+    },
+    // ActionCapsule.tsx's two materials, chosen exactly as the search capsule's pair above
+    // is (`isLiquidGlassAvailable()`, never a static platform check) and for the same
+    // reason: real Liquid Glass where the OS has it, and everywhere else the identical
+    // shape in an opaque `surface` fill, which "must look deliberate rather than degraded"
+    // (§0.6). The glass variant carries no fill, since GlassView supplies its own material.
+    actionCapsuleGlass: {
+      ...actionCapsuleShape,
+    },
+    actionCapsulePlain: {
+      ...actionCapsuleShape,
+      backgroundColor: theme.surface,
+    },
+    // One glyph's tap target inside the action capsule — 48 x 48, §0.5's floor as a real
+    // box rather than `hitSlop`. Slop is the right tool for a control sitting inline in a
+    // row of text (`CLEAR_HIT_SLOP`, FormField.tsx); here the capsule exists to hold these
+    // and nothing else, so the target can simply BE the size it needs, and two of them side
+    // by side are what give the capsule its width.
+    //
+    // A square, not a circle: the ink is the glyph, and a rounded fill behind it would be a
+    // second object competing with the capsule that already surrounds it.
+    capsuleGlyph: {
+      width: 48,
+      height: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // The hairline between two glyphs in one capsule. Without it the capsule reads as one
+    // control with two decorations rather than as two buttons — a real risk now that the
+    // `+` has given up the 60 dp circle that used to say "this is the button" on its own
+    // (§3: "the `+` ... stops being big"). `border`, the same hairline every seam in the
+    // app is drawn in, and short of the capsule's full height so it separates without
+    // cutting the shape in two.
+    capsuleDivider: {
+      width: 1,
+      height: 20,
+      backgroundColor: theme.border,
     },
     // The capsule's TextInput. No border, background, or minHeight of its own — unlike the
     // old top-of-screen `searchInput` this replaces, all three now belong to whichever of
@@ -266,13 +350,23 @@ function build(scheme: ColorScheme) {
       fontSize: 12.5,
       color: theme.fg,
     },
-    // SectionList's contentContainerStyle. The bottom padding keeps the last row from
-    // ever sitting behind the floating bottom row — the search capsule and the `fab`
-    // beside it (DESIGN.md §0.6) — sized generously rather than exactly, since how much
-    // room that row actually needs varies per device (`useSafeAreaInsets`, DivesScreen.tsx)
-    // in a way this static sheet cannot read.
+    // SectionList's contentContainerStyle.
+    //
+    // The padding moved from the bottom to the TOP when the floating row did (§3's note,
+    // built with Settings): the capsule now rests on the list's first rows instead of its
+    // last, so that is where the list needs room. 60 = the capsule's own 48 plus the 12
+    // `TOP_ACTION_ROW_MARGIN` (DivesScreen.tsx) below it, which is the whole of what the row
+    // occupies now that it sits inside `screen`'s own `paddingTop` rather than against the
+    // device's bottom edge — no `useSafeAreaInsets` term to guess at any more, because the
+    // home indicator is the tab bar's problem and the tab bar handles its own insets.
+    //
+    // The bottom keeps a smaller allowance: nothing floats there now (the tab bar is a
+    // sibling of the whole screen, not an overlay on this list), so this is only the
+    // breathing room a last row wants before the bar rather than clearance for something
+    // drawn on top of it.
     listContent: {
-      paddingBottom: 120,
+      paddingTop: 60,
+      paddingBottom: 24,
     },
     // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
     // `screen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the one
@@ -454,55 +548,42 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.actionFg,
     },
-    // M1c task 11, DESIGN.md §0.6: the floating row at the bottom of the Dives screen —
-    // the search capsule and the "+" beside it. `position: 'absolute'` with `left`/`right`
-    // (not a fixed `width`) is what gives "roughly 24 dp clear either side" — the row spans
-    // the full width minus 24 on each edge, and `searchCapsuleShape`'s own `flex: 1` fills
-    // whatever of that width `fab` below doesn't take. `bottom` is NOT set here: it mixes a
-    // static margin with `useSafeAreaInsets()`'s own per-device `bottom` (DivesScreen.tsx),
-    // which this scheme-only stylesheet has no way to read, so DivesScreen.tsx composes it
-    // in as a `{ bottom }` override alongside this style rather than this trying to guess
-    // it. `alignItems: 'center'` copes with the capsule (48) and the fab (60) not sharing a
-    // height — DESIGN.md §0.6 asks for the same shadow on both, never the same size.
-    floatingRow: {
+    // DESIGN.md §3's note (owner's call, recorded during M1d, built with Settings): "Tabs go
+    // to the bottom; search and `+` move to a top-right capsule." This is that row — the
+    // same floating strip M1c task 11 put at the bottom, turned the other way up, because
+    // the tab bar now wants the space it stood in.
+    //
+    // `position: 'absolute'` with `left`/`right` (not a fixed `width`) keeps the "roughly
+    // 24 dp clear either side" the bottom row had, and gives the search field somewhere to
+    // grow when it opens: `searchCapsuleShape`'s `flex: 1` takes the width the action
+    // capsule leaves. `justifyContent: 'flex-end'` is what pins the capsule to the RIGHT
+    // while search is closed and the row holds only that one child.
+    //
+    // `top: 0` rather than a safe-area term. Yoga positions an absolute child against its
+    // parent's padding box, and the parent here is `screen`/`wideListColumn`, both of which
+    // already carry `paddingTop: 48` — the same static status-bar clearance every other
+    // screen in the app uses. The bottom row needed `useSafeAreaInsets` because the home
+    // indicator's height genuinely varies by device and nothing else in the app had
+    // measured it; the top does not need a second, different answer to a question `screen`
+    // has been answering since M0.
+    topActionRow: {
       position: 'absolute',
+      top: 0,
       left: 24,
       right: 24,
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'flex-end',
       gap: 12,
     },
-    // Composed onto floatingRow above exactly while useHideOnScroll's `hidden` is true
-    // (DivesScreen.tsx) — opacity only, unlike the old top `searchBarHidden` this replaces
-    // (still just above), which also zeroed `height` to reclaim the space a document-flow
-    // element was taking. `floatingRow` is already `position: 'absolute'` — out of flow,
-    // nothing to reclaim — and animating its height to 0 would visibly squash the capsule
-    // and the fab inside it as they faded, rather than the two simply receding in place.
-    floatingRowHidden: {
+    // Composed onto topActionRow above exactly while useHideOnScroll's `hidden` is true
+    // (DivesScreen.tsx) — opacity only, unlike the long-gone top `searchBarHidden`, which
+    // also zeroed `height` to reclaim the space a document-flow element was taking.
+    // `topActionRow` is already `position: 'absolute'` — out of flow, nothing to reclaim —
+    // and animating its height to 0 would visibly squash the capsule as it faded, rather
+    // than it simply receding in place.
+    topActionRowHidden: {
       opacity: 0,
-    },
-    // The Dives screen's floating "+" (§3: "big + button as the app's main gesture"), in
-    // the bottom third (§0.5) via `floatingRow` above, which now positions it — no
-    // `position`/`right`/`bottom` of its own any more, since a sibling absolutely
-    // positioned against the SAME ancestor `floatingRow` already is would just fight it
-    // for placement. Same action/action-fg tokens as `action` above — laid out as a circle
-    // rather than a bar — plus `floatingShadow`, shared with `searchCapsuleGlass`/
-    // `searchCapsulePlain` above so the two floating pieces cannot drift to different
-    // shadows (this function's own top comment on `floatingShadow`).
-    fab: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: theme.action,
-      ...floatingShadow,
-    },
-    fabLabel: {
-      fontFamily: fonts['sans-bold'],
-      fontSize: 30,
-      lineHeight: 34,
-      color: theme.actionFg,
     },
     // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
     // floor applies to the row as a whole, not just its icon-sized controls, hence
@@ -1098,26 +1179,17 @@ function build(scheme: ColorScheme) {
     // never competes with the hero it sits above.
     detailBackLabel: backControlLabel,
     // The dive-entry form (DESIGN.md §2.2, M1d task 4) — DiveFormScreen.tsx's own
-    // ScrollView content. `gap` separates the core strip from the six collapsible groups
-    // below it; `paddingBottom` keeps the last group clear of `formFooter`'s own fixed
-    // height, the same reasoning `listContent`'s own `paddingBottom` above gives for the
-    // floating row it sits above.
+    // ScrollView content, and since Settings arrived, `rowScroll`/`rowScrollContent` at the
+    // top of this function rather than a private pair (see there; the `gap` separates the
+    // core strip from the six collapsible groups below it, and `paddingBottom` keeps the
+    // last group clear of `formFooter`'s own fixed height).
     //
-    // **No horizontal padding of its own any more** (M1d design pass, §0.6): every row-level
+    // **No horizontal padding of its own** (M1d design pass, §0.6): every row-level
     // child carries `FORM_ROW_INSET` instead, so a field's hairline and its focus fill reach
     // the screen's real edges the way a dive row's do while the text inside still lands on
-    // 20. `paddingTop` drops from 20 to 4 for the reason `detailHero` above already records
-    // for itself: `formBack`'s 48 dp tap-target floor around a 13 px label already leaves
-    // roughly 17 px of slack beneath it, and stacking a second 20 on top read as a gap twice
-    // the size anything asked for.
-    formScroll: {
-      flex: 1,
-    },
-    formScrollContent: {
-      paddingTop: 4,
-      paddingBottom: 40,
-      gap: 20,
-    },
+    // 20.
+    formScroll: rowScroll,
+    formScrollContent: rowScrollContent,
     // The core strip (§2.2: "date, site, center, max depth, duration" — always visible,
     // never behind a group).
     //
@@ -1143,10 +1215,8 @@ function build(scheme: ColorScheme) {
     // §0.5's "Czech runs 20-30 % longer than English", the same requirement `tripTitle` and
     // `formFieldLabel` already answer the same way.
     formHeading: {
+      ...screenHeading,
       flex: 1,
-      fontFamily: fonts['sans-semibold'],
-      fontSize: 20,
-      color: theme.fg,
     },
     // §2.4's Logged/Planned control (M1d). Quiet by construction, on the owner's own brief
     // — "most of the dives will not be created as planned, so this feature should not
@@ -1674,6 +1744,74 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: FORM_ROW_INSET,
     },
     formBackLabel: backControlLabel,
+    // ------------------------------------------------------------------------------------
+    // Settings (DESIGN.md §3, M1's two entries: units and `dives_before`)
+    // ------------------------------------------------------------------------------------
+    // The screen is a column of §0.6 rows, exactly as the form is — "a field is a row, label
+    // leading, value trailing" — so it borrows the form's scroll shape and its row inset
+    // rather than inventing a third vocabulary for the same objects. Every row-level style
+    // it uses (`formField`, `formFieldRow`, `formFieldLabel`, `formChipRow`, `formChip`) is
+    // literally the form's, read through the shared components; only the three keys below
+    // are its own, and each is a thing the form has no equivalent of.
+    settingsScroll: rowScroll,
+    settingsContent: rowScrollContent,
+    // The screen's title — `screenHeading` at the top of this function, the form's own, plus
+    // the row inset so it lands in the same column as the labels beneath it. The tab bar
+    // names this screen too, and the title still earns its place: a tab label is chrome the
+    // eye skips, and this is the first line of the page.
+    settingsHeading: {
+      ...screenHeading,
+      paddingHorizontal: FORM_ROW_INSET,
+    },
+    // A sentence under a row, explaining what the row does — `dives_before`'s "every dive
+    // number moves with this", and the note shown when the stored value cannot be read.
+    //
+    // Shaped after `formFieldError` (§0.6: "A field error is text, not a field. Muted...")
+    // and turned around: that message trails, into the column of the value it is about,
+    // because it names what went wrong with something the diver typed. This one LEADS,
+    // under the label, because it explains what the row IS — read before the value, not
+    // after it. Same absence of a box, for the reason recorded there: a bordered, filled
+    // message under a row reads as a second, empty row.
+    settingsCaption: {
+      paddingHorizontal: FORM_ROW_INSET,
+      paddingTop: 6,
+    },
+    settingsCaptionText: {
+      fontFamily: fonts.sans,
+      fontSize: 12.5,
+      color: theme.fgMuted,
+      lineHeight: 17,
+    },
+    // ------------------------------------------------------------------------------------
+    // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
+    // ------------------------------------------------------------------------------------
+    // Ponor's ground with a hairline on its top edge, which is the same seam every row in
+    // the app draws and the same reason: without it the bar floats on the list it is meant
+    // to be beneath. Monochrome throughout — §0.1 spends every hue on depth, and §10 is
+    // explicit that the `+` gets no accent, which binds the bar it now sits above just as
+    // hard. What separates the current tab from the others is `fg` against `fgMuted`, the
+    // one lever §0.6 already uses for "Up next" against a trip title; the tints themselves
+    // are props rather than styles (navigation/tabs.tsx), because that is the shape the
+    // navigator's own options take.
+    tabBar: {
+      backgroundColor: theme.bg,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    // §0.5's floor on one tab, stated here rather than left to the navigator's default. The
+    // default is 49 dp of bar and would clear it — except on an iPhone in landscape, where
+    // the vendored BottomTabBar drops to a 32 dp "compact" bar whenever labels sit BESIDE
+    // icons. `tabScreenOptions` pins the label below the icon so that branch is never taken
+    // (see there); this is the second half of the same guarantee, on the item itself.
+    tabBarItem: {
+      minHeight: 48,
+    },
+    // Archivo, small: a tab label is UI chrome, the same category as `actionLabel` and
+    // `actionPillLabel`, never a data figure (§0.2 splits the two faces on content).
+    tabBarLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 11,
+    },
   });
 }
 

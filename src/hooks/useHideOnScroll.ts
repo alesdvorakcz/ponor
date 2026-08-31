@@ -113,14 +113,18 @@ interface HideOnScroll {
 }
 
 /**
- * DESIGN.md §0.6. `forceVisible` covers the one situation the scroll accumulator alone
- * cannot: a search that has just narrowed to zero results swaps the SectionList out for
- * a static "no dives match" message (DivesScreen.tsx), so there is no list left to
- * scroll back up on. Without this override, a diver who kept refining their query while
- * scrolled down — the keyboard does not blur on scroll, and SectionList's default
- * `keyboardDismissMode` is `'none'`, so typing into an already-focused field while
- * scrolled away keeps working — could narrow their search to zero results and be left
- * unable to see, or reach, the very field that would let them fix it.
+ * DESIGN.md §0.6. `forceVisible` covers what the scroll accumulator alone cannot: a state
+ * in which receding would leave the diver unable to reach the row back.
+ *
+ * Its caller passes "the search field is open" (DivesScreen.tsx, DESIGN.md §3's note). It
+ * used to pass "the search has narrowed to zero results", which was the same guarantee
+ * arriving later: zero results swaps the SectionList out for a static "no dives match"
+ * message, so there is no list left to scroll back up on — and a diver who kept refining
+ * their query while scrolled down could reach that state, since the keyboard does not blur
+ * on scroll and SectionList's default `keyboardDismissMode` is `'none'`, so typing into an
+ * already-focused field while scrolled away keeps working. A query can only exist while the
+ * field is open, so the new condition contains the old one and additionally stops a diver
+ * typing into a field they can no longer see, rather than recovering afterwards.
  *
  * `setHidden(false)` below runs during render, not in an Effect: React's own documented
  * pattern for "adjusting state when a prop changes" (an Effect that calls `setState`

@@ -1,22 +1,6 @@
-// The package's own official Jest mock (react-native-safe-area-context/jest/mock, its only
-// export under `jest/`) — see the jest.mock call below for why this file needs it at all.
-// Imported (not required) so this stays a normal ES import; named `mock...` because
-// babel-plugin-jest-hoist only allows a jest.mock() factory to close over out-of-scope
-// identifiers that start with `mock` (or `require`), and hoists every jest.mock() call
-// above every import in this file regardless. Deliberately the FIRST import in the file,
-// above even the `react-native-safe-area-context` import a few lines down: the hoisted
-// jest.mock() call below runs its factory the first time anything requires
-// 'react-native-safe-area-context', which is exactly what that later import does — if this
-// one hadn't already run by then, the factory would close over `mockSafeAreaContext` before
-// it was assigned. Confirmed directly, not assumed: with the two imports the other way
-// round, the factory threw "Cannot read properties of undefined (reading 'default')" at
-// that exact line.
-import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
-
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { dive } from '../domain/diveFixture';
 // The real numbering rule, not a stub: §2.5's numbers are computed, so a test that
@@ -30,16 +14,13 @@ import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import DivesScreen from './DivesScreen';
 
-// M1c task 11: DivesScreen now calls useSafeAreaInsets() (react-native-safe-area-context)
-// to clear the home indicator (DESIGN.md §0.6) — real usage gets a SafeAreaProvider for
-// free from expo-router's own root layout (ExpoRoot.js wraps every screen in
-// SafeAreaProviderCompat), but this file renders DivesScreen bare, with no such ancestor.
-// mockSafeAreaContext (imported above) is the documented way around that: its
-// useSafeAreaInsets() falls back to a zero-inset default when no Provider is present,
-// rather than the real implementation's hard `throw` ("No safe area value available ..."),
-// and its SafeAreaProvider accepts `initialMetrics` so the one test below that actually
-// cares about a NON-zero inset can supply one.
-jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
+// This file used to mock `react-native-safe-area-context` (its own official `jest/mock`)
+// because DivesScreen called `useSafeAreaInsets()` to clear the home indicator, and the
+// real hook throws without a Provider ancestor, which a bare render has none of. DESIGN.md
+// §3's note moved the floating row to the TOP, where the clearance it needs is
+// `screen`/`wideListColumn`'s own static `paddingTop: 48` — the same one every screen in
+// the app uses — so this screen reads no insets at all any more and the mock went with the
+// call. Nothing else this file renders reads them either.
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.
@@ -88,13 +69,31 @@ function textIn(t: RenderResult): string[] {
     .filter((c): c is string => typeof c === 'string');
 }
 
-/** The screen's one TextInput — the search box. Throws rather than returning
- * undefined so a test that finds none fails at the query, not at a confusing
- * downstream fireEvent error. */
+/** The screen's one TextInput — the search box, which exists only while search is OPEN
+ * (DESIGN.md §3's note: the capsule's magnifier is what search costs until it is reached
+ * for). Throws rather than returning undefined so a test that forgot to open search fails
+ * at the query, not at a confusing downstream fireEvent error. */
 function findSearchInput(t: RenderResult) {
   const [input] = t.root ? t.root.queryAll((n) => n.type === 'TextInput') : [];
   if (!input) throw new Error('DivesScreen did not render a TextInput');
   return input;
+}
+
+/** The capsule's leading glyph, whichever of its two states it is in — a magnifier that
+ * opens search, or an × that closes it. Matched on the label rather than the symbol
+ * because the label is what this screen decides and a screen reader hears; which SF Symbol
+ * each state draws is ActionCapsule.test.tsx's concern. */
+function findSearchToggle(t: RenderResult, state: 'open' | 'close') {
+  const label = state === 'open' ? 'Search dives' : 'Close search';
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
+  if (!node) throw new Error(`DivesScreen did not render a "${label}" control`);
+  return node;
+}
+
+/** Opens search and hands back the field it revealed. */
+async function openSearch(t: RenderResult) {
+  await fireEvent.press(findSearchToggle(t, 'open'));
+  return findSearchInput(t);
 }
 
 /** Every "Move ... up" / "Move ... down" control, in tree order. Matched by
@@ -169,22 +168,23 @@ function findScrollable(t: RenderResult) {
   return node;
 }
 
-/** M1c task 11, DESIGN.md §0.6: the floating bottom row — the search capsule AND the "+"
- * beside it, which now share one hide-on-scroll wrapper rather than each tracking its own
- * (renamed from findSearchFieldWrapper, back when this wrapped only the search TextInput
- * at the top of the screen) — located by the one prop only that wrapper sets
+/** DESIGN.md §3's note: the floating TOP row — the action capsule, and the search field
+ * beside it while search is open — located by the one prop only that wrapper sets
  * (`accessibilityElementsHidden`), so a test can read its hidden/visible state without
- * caring how many levels separate it from the search field or the fab. */
+ * caring how many levels separate it from either. Named `findFloatingRow` through three
+ * homes now (a top search bar, a bottom row, this) because it has always been the same
+ * object: whatever the hide-on-scroll wrapper currently contains. */
 function findFloatingRow(t: RenderResult) {
   const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityElementsHidden !== undefined) : [];
   if (!node) throw new Error('DivesScreen did not render the floating row wrapper');
   return node;
 }
 
-/** The floating "+" (DivesScreen.tsx's `fab`) — matched by its own accessibilityLabel,
- * which EmptyState's differently-labelled primary action (rendered only on the
- * empty-logbook branch, never alongside this one) can never collide with. */
-function findFab(t: RenderResult) {
+/** The "+" — now the capsule's trailing glyph rather than a 60 dp circle, and matched by
+ * the same accessibilityLabel it carried as a circle, which EmptyState's differently
+ * labelled primary action (rendered only on the empty-logbook branch, never alongside this
+ * one) can never collide with. */
+function findLogDive(t: RenderResult) {
   const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : [];
   if (!node) throw new Error('DivesScreen did not render the "+"');
   return node;
@@ -409,7 +409,7 @@ it('tells a diver their search matched nothing, distinctly from an empty logbook
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere');
+  await fireEvent.changeText(await openSearch(t), 'no such site anywhere');
   const text = textIn(t).join(' ');
   expect(text).not.toContain('Log your first dive');
   expect(text).not.toContain('Blue Hole');
@@ -430,10 +430,53 @@ it('narrows the list to dives matching the search text', async () => {
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  await fireEvent.changeText(findSearchInput(t), 'Blue');
+  await fireEvent.changeText(await openSearch(t), 'Blue');
   const text = textIn(t).join(' ');
   expect(text).toContain('Blue Hole');
   expect(text).not.toContain('Shark Reef');
+});
+
+// DESIGN.md §3's note: search is behind the capsule's magnifier now, so the field is a mode
+// rather than permanent chrome. Both halves matter and each would pass alone against a
+// broken implementation — a field that was always mounted would satisfy the second, and one
+// that never mounted would satisfy the first.
+it('keeps the search field out of the way until the magnifier is pressed', async () => {
+  stubDives({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
+    numbers: new Map([['a', 1]]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(0);
+  await openSearch(t);
+  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(1);
+});
+
+// The load-bearing half of closing search (DivesScreen.tsx's `toggleSearch`): a query left
+// behind with the field unmounted would go on filtering the list with nothing on screen to
+// say why the diver's other dives had vanished — a hidden filter. Proven by narrowing to one
+// dive first, so "Shark Reef" is genuinely absent before the close and genuinely back after
+// it; a test that only closed the field and looked for the input would pass whether or not
+// the query survived.
+it('clears the query when search is closed, so no filter is left running invisibly', async () => {
+  stubDives({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Shark Reef' })],
+    numbers: new Map([
+      ['a', 1],
+      ['b', 2],
+    ]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  await fireEvent.changeText(await openSearch(t), 'Blue');
+  expect(textIn(t).join(' ')).not.toContain('Shark Reef');
+
+  await fireEvent.press(findSearchToggle(t, 'close'));
+  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(0);
+  expect(textIn(t).join(' ')).toContain('Shark Reef');
+
+  // ...and reopening starts from the whole logbook rather than restoring the old query.
+  expect((await openSearch(t)).props.value).toBe('');
 });
 
 // M1c task 11, DESIGN.md §0.6 rev 5 supersedes the hairline border the M1c task 2 review
@@ -446,94 +489,95 @@ it('narrows the list to dives matching the search text', async () => {
 // instead" for the capsule itself. What belongs at THIS (screen) level instead is what
 // SearchCapsule itself has no way to know: where DivesScreen actually puts it.
 //
-// The task brief's own trap, named directly: "an assertion that the capsule renders would
-// pass whether or not it is positioned at the bottom." Proven here by rendering with two
-// DIFFERENT bottom safe-area insets and requiring the row's own `bottom` offset to move by
-// exactly the difference between them — a hard-coded offset (or one read off `top` instead)
-// would give the same wrong answer both times; only a genuine `insets.bottom + margin`
-// computation can pass this for both.
-it('floats the search row at the bottom of the screen, offset by the real safe-area inset rather than a fixed number', async () => {
+// **This test used to assert the opposite, and the opposite was right at the time.** It
+// pinned the row to the BOTTOM, offset by the real `insets.bottom`, against DESIGN.md
+// §0.6's "Search is a floating capsule at the bottom, beside the `+`". §3's note supersedes
+// that placement outright — "Tabs go to the bottom; search and `+` move to a top-right
+// capsule", an owner's call measured off iOS 26 — and the reason is a collision, not a
+// preference: the tab bar now occupies the space that row stood in. So the assertion is
+// inverted rather than deleted, and it keeps the same shape it had, which is what makes it
+// able to fail: `top` present and `bottom` absent, plus `right` pinned closer than `left`
+// is (the row spans the width so the search field has somewhere to grow, and
+// `justifyContent: 'flex-end'` is what actually puts the capsule on the right — asserted
+// here because "renders a capsule" would pass wherever it sat).
+it('floats the action capsule at the top of the screen, pinned right, not at the bottom', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
   });
-  const renderWithBottomInset = async (bottom: number) => {
-    const t = await render(
-      <SafeAreaProvider
-        initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 640 }, insets: { top: 0, left: 0, right: 0, bottom } }}
-      >
-        <DivesScreen />
-      </SafeAreaProvider>,
-    );
-    return [findFloatingRow(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  };
-  const numberAt = (style: Record<string, unknown>[], key: string) =>
-    style.reduce((acc: number | undefined, s) => (typeof s[key] === 'number' ? (s[key] as number) : acc), undefined);
+  const t = await render(<DivesScreen />);
+  const style = [findFloatingRow(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
 
-  const zeroInsetStyle = await renderWithBottomInset(0);
-  const homeIndicatorStyle = await renderWithBottomInset(34); // a real iPhone's own bottom inset
-
-  expect(zeroInsetStyle.some((s) => s.position === 'absolute')).toBe(true);
-  expect(zeroInsetStyle.some((s) => s.top !== undefined)).toBe(false); // bottom, not top
-
-  const zeroBottom = numberAt(zeroInsetStyle, 'bottom');
-  const homeIndicatorBottom = numberAt(homeIndicatorStyle, 'bottom');
-  expect(zeroBottom).toBeGreaterThan(0); // still clear of the physical screen edge with no inset at all
-  expect(homeIndicatorBottom).toBe(zeroBottom! + 34); // moves up by exactly the extra inset — not clamped, not ignored
+  expect(style.some((s) => s.position === 'absolute')).toBe(true);
+  expect(style.some((s) => s.top !== undefined)).toBe(true);
+  expect(style.some((s) => s.bottom !== undefined)).toBe(false);
+  expect(style.some((s) => s.justifyContent === 'flex-end')).toBe(true);
 });
 
-// §0.6: "the + stays at the bottom too, as its own floating button beside the capsule" —
-// sharing the capsule's own hide-on-scroll row rather than tracking a separate one of its
-// own, so "Both recede as the list scrolls down and return on the way up" holds for both at
-// once. Proven structurally, not just by both happening to report the same hidden value:
-// the fab must be a genuine DESCENDANT of the exact node findFloatingRow reads
+// The list must not open with its first rows underneath the capsule that now floats over
+// them. Checked as a relation rather than a number — the padding has to clear the capsule's
+// own height, so a capsule that grew without the padding following would fail this — and
+// read off makeStyles rather than retyped, so neither side can be satisfied by a constant
+// copied into the test.
+it('clears the list past the capsule floating over its first rows', async () => {
+  const styles = makeStyles('dark');
+  const capsuleHeight = (styles.actionCapsulePlain as Record<string, unknown>).height;
+  const listPaddingTop = (styles.listContent as Record<string, unknown>).paddingTop;
+  expect(typeof capsuleHeight).toBe('number');
+  expect(listPaddingTop).toBeGreaterThan(capsuleHeight as number);
+});
+
+// §3's note: the capsule carries search and `+` "as equal monochrome glyphs" — one object,
+// so "Both recede as the list scrolls down and return on the way up" (§0.6) holds for both
+// at once. Proven structurally, not just by both happening to report the same hidden value:
+// the "+" must be a genuine DESCENDANT of the exact node findFloatingRow reads
 // accessibilityElementsHidden/pointerEvents off, not a sibling that merely mirrors it.
-it('nests the + inside the same floating row as the search field, so both hide and reappear together', async () => {
+it('nests the + inside the same floating row as the search control, so both hide and reappear together', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  const fabInRow = findFloatingRow(t).queryAll((n) => n.props?.accessibilityLabel === 'Log a dive');
-  expect(fabInRow).toHaveLength(1);
+  const row = findFloatingRow(t);
+  expect(row.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive')).toHaveLength(1);
+  expect(row.queryAll((n) => n.props?.accessibilityLabel === 'Search dives')).toHaveLength(1);
 });
 
-// DESIGN.md §0.6: the "+" is "its own floating button beside the capsule ... sharing the
-// same shadow" — checked here against the ACTUAL shared value styles.ts's `floatingShadow`
-// gives the capsule (via makeStyles, not a number retyped into this test), so a fab that
-// carried some other, merely-similar-looking shadow of its own would fail this even though
-// ">  0" alone would have missed it.
-it('gives the + the exact same shadow treatment as the search capsule beside it', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  const fabStyle = [findFab(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  const capsuleShadowOpacity = (makeStyles('dark').searchCapsulePlain as Record<string, unknown>).shadowOpacity;
-  expect(typeof capsuleShadowOpacity).toBe('number');
-  expect(capsuleShadowOpacity).toBeGreaterThan(0);
-  expect(fabStyle.some((s) => s.shadowOpacity === capsuleShadowOpacity)).toBe(true);
+// DESIGN.md §0.6 gave the "+" and the search capsule the same shadow so the two floating
+// pieces could not drift apart; §3's note makes them one capsule and a field beside it, and
+// the requirement survives the move — checked against the ACTUAL shared value styles.ts
+// gives the search capsule (via makeStyles, not a number retyped into this test), so a
+// capsule carrying some other, merely-similar-looking shadow would fail this even though
+// "> 0" alone would have missed it.
+it('gives the action capsule the exact same shadow treatment as the search capsule beside it', async () => {
+  const styles = makeStyles('dark');
+  const searchShadow = (styles.searchCapsulePlain as Record<string, unknown>).shadowOpacity;
+  const actionShadow = (styles.actionCapsulePlain as Record<string, unknown>).shadowOpacity;
+  expect(typeof searchShadow).toBe('number');
+  expect(searchShadow).toBeGreaterThan(0);
+  expect(actionShadow).toBe(searchShadow);
 });
 
-// §0.5's 48 dp tap-target floor, restated by the task brief for this row specifically:
-// "so does the +." The search field's own floor is SearchCapsule.test.tsx's concern now;
-// this is the one part of it DivesScreen.tsx itself still owns.
-it('keeps the + at a 48 dp touch target, same floor as the search field beside it', async () => {
+// §0.5's 48 dp tap-target floor. It mattered more, not less, once the "+" gave up its 60 dp
+// circle for a glyph in a shared capsule — the whole cost §3 accepts is that the "+" "stops
+// being big", and getting smaller than a thumb is not part of that bargain. Both glyphs are
+// checked, since they are the same object and a regression would hit either.
+it('keeps both capsule glyphs at a 48 dp touch target', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  const fabStyle = [findFab(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  const widthOf = fabStyle.reduce((acc: number, s) => (typeof s.width === 'number' ? s.width : acc), 0);
-  const heightOf = fabStyle.reduce((acc: number, s) => (typeof s.height === 'number' ? s.height : acc), 0);
-  expect(widthOf).toBeGreaterThanOrEqual(48);
-  expect(heightOf).toBeGreaterThanOrEqual(48);
+  for (const node of [findLogDive(t), findSearchToggle(t, 'open')]) {
+    const style = [node.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    const widthOf = style.reduce((acc: number, s) => (typeof s.width === 'number' ? s.width : acc), 0);
+    const heightOf = style.reduce((acc: number, s) => (typeof s.height === 'number' ? s.height : acc), 0);
+    expect(widthOf).toBeGreaterThanOrEqual(48);
+    expect(heightOf).toBeGreaterThanOrEqual(48);
+  }
 });
 
 // M1c task 8, DESIGN.md §0.6: "The search field yields to the list. It hides as the
@@ -557,13 +601,22 @@ it('hides the search field on a sustained downward scroll and shows it again on 
   const t = await render(<DivesScreen />);
   const scrollable = findScrollable(t);
 
+  const hiddenStyle = makeStyles('light').topActionRowHidden; // the scheme useColorScheme() reports under Jest
+  const wears = (style: unknown) => [style].flat(5).filter(Boolean).includes(hiddenStyle);
+
   await scrollAndSettle(scrollable, 100); // well past the 24px threshold, downward
   expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
   expect(findFloatingRow(t).props.pointerEvents).toBe('none');
+  // ...and it is actually INVISIBLE, not merely unreachable. Added when a mutation that
+  // dropped `topActionRowHidden` from the composed style — leaving a fully opaque capsule
+  // sitting over the list that no diver could tap — failed no test in this file at all. The
+  // a11y and pointer props are the interaction half; this is the half a diver can see.
+  expect(wears(findFloatingRow(t).props.style)).toBe(true);
 
   await scrollAndSettle(scrollable, 50); // well past the threshold again, upward from 100
   expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
   expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
+  expect(wears(findFloatingRow(t).props.style)).toBe(false);
 });
 
 // Brief's #1, "no jitter": pinned here too, not just in useHideOnScroll.test.ts, since
@@ -597,15 +650,20 @@ it('does not hide the search field for a scroll well under the jitter threshold,
   expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
 });
 
-// Brief's #2, "always reachable" — the one case the scroll accumulator alone cannot
-// cover on its own: once a query narrows results to zero, DivesScreen swaps the
-// SectionList out for a static message, so there is no list left to scroll back up on.
-// useHideOnScroll.ts's own docblock has the full account of why (the keyboard does not
-// blur on scroll, so a diver can keep narrowing their query while scrolled away). This
-// proves useHideOnScroll's `forceVisible` argument is actually wired to `matching`
-// here, not just implemented and unused: without it, this test's last two assertions
-// would see the field still stranded hidden from the scroll above.
-it('brings the search field back once a query narrows results to zero, even if it was hidden by scrolling', async () => {
+// Brief's #2, "always reachable" — the case the scroll accumulator alone cannot cover.
+//
+// **This test used to prove the other half of the same guarantee**: that a search narrowed
+// to zero results forced the row back, because that state swaps the SectionList out for a
+// static message and leaves nothing to scroll up on. §3's note puts search behind a glyph,
+// so a query can only exist while the field is open, and DivesScreen now passes `searchOpen`
+// itself to `useHideOnScroll` — a strictly stronger condition that contains the old one and
+// additionally stops a diver typing into a field they have scrolled out of sight (the
+// keyboard does not blur on scroll). The zero-results state is still covered, by the "search
+// matched nothing" test above; what is proven here is the condition that now supersedes it.
+//
+// The first half is what makes this able to fail: with search CLOSED the identical scroll
+// must hide the row, so "still visible" afterwards cannot be a row that never hid.
+it('does not let a scroll take an open search field away from the diver typing into it', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
@@ -613,13 +671,17 @@ it('brings the search field back once a query narrows results to zero, even if i
   });
   const t = await render(<DivesScreen />);
   await scrollAndSettle(findScrollable(t), 100);
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true); // hidden first — the precondition this test is actually about
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true); // closed: it recedes, as it always has
 
-  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere');
+  await scrollAndSettle(findScrollable(t), 0); // back to the top, where the row always returns
+  await openSearch(t);
+  await scrollAndSettle(findScrollable(t), 100); // the same scroll again, with the field open
 
-  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match'); // the pre-existing zero-results state still fires
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false); // ...and the field is reachable again, not stranded hidden
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
   expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
+  // Still typeable, and still filtering — not merely present but inert.
+  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere');
+  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match');
 });
 
 // useHideOnScroll.ts's own docblock names the risk this covers: `forceVisible`
@@ -643,7 +705,7 @@ it('brings the search field back once a query narrows results to zero, even if i
 // clean (0, 0) baseline, but from the stale (50, 10) one nets only a 20px move (accum
 // 10 + (30 - 50) = -10), leaving `hidden` exactly where the forced-visible reset left
 // it: unrecomputed, and so still visible.
-it('judges the first scroll after a narrow-to-zero-and-back round trip from a clean baseline, not the old list’s stale one', async () => {
+it('judges the first scroll after an open-and-close search round trip from a clean baseline, not the stale one', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
@@ -654,25 +716,36 @@ it('judges the first scroll after a narrow-to-zero-and-back round trip from a cl
 
   await scrollAndSettle(scrollable, 40); // crosses the threshold once, so the tracked reference point is no longer 0
   expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
-  await fireEvent.scroll(scrollable, { nativeEvent: { contentOffset: { y: 50 } } }); // under the threshold from here; leaves accum (10) != lastY (50)
+  // Back up past the threshold, but NOT to the top (10, not 0): the top-offset branch is an
+  // unconditional reset that would hand this test a clean baseline for free and prove
+  // nothing. This leaves the tracked state at lastY 10 / accum 0, which is where clean and
+  // stale finally diverge — the whole difficulty the note above describes.
+  await scrollAndSettle(scrollable, 10);
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
 
-  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere'); // narrows to zero...
-  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match');
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false); // forced visible — the RENDERED half of the reset, already proven above
-  await fireEvent.changeText(findSearchInput(t), ''); // ...and back — a fresh SectionList remounts at the top
-  expect(textIn(t).join(' ')).toContain('Blue Hole');
+  // The round trip is opening and closing search now, rather than narrowing a query to zero
+  // results and back: `forceVisible` is `searchOpen` itself (DivesScreen.tsx), so this is
+  // the gesture that raises and lowers it. The mechanism under test is unchanged — a force
+  // resets the RENDERED `hidden` immediately and leaves `pendingReset` to reset the tracked
+  // accumulator at the next scroll.
+  //
+  // The row has to be VISIBLE to be opened at all, which is why the scroll back up above is
+  // not merely setup: `fireEvent` honours `pointerEvents: 'none'`, exactly as a finger does,
+  // so pressing the magnifier on a receded row is a no-op in the test for the same reason it
+  // is one on the device. (Found by writing this test the other way round and watching the
+  // press silently fail to open anything.)
+  //
+  // One thing genuinely did change and is worth stating, because the old version of this
+  // test leaned on it: the SectionList no longer remounts across the round trip (the
+  // zero-results branch swapped it for a message; opening a search field does not), so
+  // `scrollable` above stays mounted and `fireEvent` cannot silently no-op on a detached
+  // instance. It is re-found below anyway, which costs nothing and keeps the test honest if
+  // that ever stops being true.
+  await fireEvent.press(findSearchToggle(t, 'open'));
+  await fireEvent.press(findSearchToggle(t, 'close'));
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false); // the force is lifted, but nothing has recomputed yet
 
-  // Re-found, not the same `scrollable` reference from above: the zero-results round
-  // trip above unmounts the old SectionList and mounts a genuinely new one (the
-  // ternary in DivesScreen.tsx's listPane), so the pre-round-trip node is now detached
-  // — fireEvent silently no-ops on a detached instance (@testing-library/react-native's
-  // own fire-event.js: `if (!isInstanceMounted(instance)) return;`), which would make
-  // this assertion pass VACUOUSLY (the scroll simply never reaching onScroll at all)
-  // rather than for the reason this test claims. Caught the same way as the
-  // coincidental-numbers issue above: by first writing this test against the stale
-  // reference, watching it fail even against the correct implementation, and tracing
-  // why rather than adjusting the expectation to match.
-  await scrollAndSettle(findScrollable(t), 30); // clears 24 from a clean baseline; from the stale one, nets only 20 and never recomputes hidden at all
+  await scrollAndSettle(findScrollable(t), 30); // clears 24 from a clean baseline; from the stale one (lastY 10) nets only 20 and never recomputes hidden at all
   expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
 });
 
@@ -1106,7 +1179,7 @@ it('dims every other row to 32% opacity once a day is active, and restores full 
 it('opens the new-dive route from the "+"', async () => {
   stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
   const t = await render(<DivesScreen />);
-  await fireEvent.press(findFab(t));
+  await fireEvent.press(findLogDive(t));
   expect(mockRouterPush).toHaveBeenCalledWith('/dive/new');
 });
 
