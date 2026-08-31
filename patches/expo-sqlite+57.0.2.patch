@@ -1,0 +1,17 @@
+diff --git a/node_modules/expo-sqlite/web/WorkerChannel.ts b/node_modules/expo-sqlite/web/WorkerChannel.ts
+index 7fba380..bf64318 100644
+--- a/node_modules/expo-sqlite/web/WorkerChannel.ts
++++ b/node_modules/expo-sqlite/web/WorkerChannel.ts
+@@ -40,7 +40,11 @@ export function sendWorkerResult({
+     const resultJson = error != null ? serialize({ error }) : serialize({ result });
+     const resultBytes = new TextEncoder().encode(resultJson);
+     const length = resultBytes.length;
+-    resultArray.set(new Uint32Array([length]), 0);
++    // `resultArray.set(new Uint32Array([length]), 0)` wrote ONE byte, not four: `set` on a
++    // Uint8Array converts each source element to a byte, so the length arrived mod 256 while
++    // invokeWorkerSync reads it back as a full uint32. Every synchronous result of 256 bytes
++    // or more was therefore truncated to `length % 256` and JSON.parse threw on the fragment.
++    new Uint32Array(resultBuffer, 0, 1)[0] = length;
+     resultArray.set(resultBytes, 4);
+     Atomics.store(lock, 0, RESOLVED);
+   } else {
