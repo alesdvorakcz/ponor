@@ -1251,6 +1251,104 @@ it('deletes the dive and leaves the detail screen once the diver confirms', asyn
   await waitFor(() => expect(mockBack).toHaveBeenCalled());
 });
 
+// --- DESIGN.md §10's in-flight guard, on the delete side ---
+//
+// `runDelete` carries both halves the save control carries — a `deletingRef` latch and a
+// `disabled` prop — under a docblock claiming the same reasoning, and had none of the three
+// tests the save guard has. Deleting is the one action in the app that removes something, so
+// a second write landing on an already-tombstoned row is the failure worth pinning: it
+// resolves, it advances `updated_at` a second time, and under §7's whole-row last-write-wins
+// that second stamp is what another device compares against.
+//
+// The two halves are pinned separately, because a test exercising only one goes green with
+// the other deleted — and here they guard genuinely different doors. The Alert's own button
+// is a plain callback, so a double-tap on it never consults `disabled` at all; only the ref
+// turns the second one away. `disabled` is what stops the CONTROL reopening the alert while
+// a write is still running.
+
+/** A `softDeleteDive` that hangs until the test lets it finish. `release` is assigned
+ * synchronously by the Promise constructor, so it is callable before the write has been
+ * started even once. */
+function hangingDelete(): () => void {
+  let release!: () => void;
+  const inFlight = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mockSoftDelete.mockImplementation(async () => {
+    await inFlight;
+  });
+  return release;
+}
+
+it('tombstones the dive once when the confirmation is double-tapped', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  const release = hangingDelete();
+  const t = await renderDetailTree(dive({ id: 'target' }));
+  await pressControl(t, 'Delete dive');
+  const destructive = alertButtons().find((b) => b.style === 'destructive');
+  if (!destructive) throw new Error('the confirmation offered no destructive button');
+
+  // Both taps in the SAME frame, which is what a double-tap is: React has not re-rendered
+  // anything between them, so a state flag read at render time is still `false` for the
+  // second one and the ref is the only thing fast enough to turn it away. Dispatched
+  // straight at the Alert's own callback rather than through `fireEvent.press` — that opens
+  // an `act` scope of its own, and the first press's is still open here because the write is
+  // deliberately held, which React rejects outright and which corrupts the next test's tree.
+  await act(async () => {
+    destructive.onPress?.();
+    destructive.onPress?.();
+  });
+
+  // Recorded before the write is released, so this is genuinely "while in flight" rather
+  // than "after the latch had already let go".
+  const writesInFlight = mockSoftDelete.mock.calls.length;
+  release();
+  await waitFor(() => expect(mockBack).toHaveBeenCalled());
+
+  expect(writesInFlight).toBe(1);
+  expect(mockSoftDelete).toHaveBeenCalledTimes(1);
+  // One deletion, one exit — not two of either.
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+it('lets the diver try again after a failed delete, rather than latching the control shut', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  mockSoftDelete.mockRejectedValue(new Error('disk full'));
+  const t = await renderDetailTree(dive({ id: 'target' }));
+
+  await confirmDelete(t);
+  await waitFor(() => expect(mockSoftDelete).toHaveBeenCalledTimes(1));
+
+  // A guard that never released would leave the diver looking at a dive they cannot delete
+  // and a control that silently stopped working — the same dead end §1 exists to prevent,
+  // reached from the opposite direction.
+  await confirmDelete(t);
+  await waitFor(() => expect(mockSoftDelete).toHaveBeenCalledTimes(2));
+});
+
+it('marks the delete control disabled while the write is in flight, and only then', async () => {
+  mockCanGoBack.mockReturnValue(true);
+  const release = hangingDelete();
+  const t = await renderDetailTree(dive({ id: 'target' }));
+  expect(findControl(t, 'Delete dive')?.props?.accessibilityState?.disabled).not.toBe(true);
+
+  await pressControl(t, 'Delete dive');
+  const destructive = alertButtons().find((b) => b.style === 'destructive');
+  if (!destructive) throw new Error('the confirmation offered no destructive button');
+  await act(async () => {
+    destructive.onPress?.();
+  });
+
+  // `accessibilityState.disabled` is the half a screen reader announces, and the only half
+  // observable from here: `Pressable` consumes the `disabled` prop itself rather than
+  // forwarding it to the host `View` these queries reach. A control that ignores a tap it
+  // still announces as available is its own kind of dead button.
+  await waitFor(() => expect(findControl(t, 'Delete dive')?.props?.accessibilityState?.disabled).toBe(true));
+
+  release();
+  await waitFor(() => expect(mockBack).toHaveBeenCalled());
+});
+
 it('says so when a delete fails, and leaves the dive where it is', async () => {
   mockCanGoBack.mockReturnValue(true);
   mockSoftDelete.mockRejectedValue(new Error('disk full'));
