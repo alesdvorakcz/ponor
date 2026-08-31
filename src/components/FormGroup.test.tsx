@@ -1,6 +1,7 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { FormGroup } from './FormGroup';
 
@@ -92,18 +93,75 @@ it('announces its open state as state, not only in the label', async () => {
   expect(headerOf(t).props.accessibilityState?.expanded).toBe(false);
 });
 
-it('says Show or Hide on its face, matching the state it announces', async () => {
-  // Text rather than a chevron glyph, deliberately: neither bundled font (Archivo, IBM Plex
-  // Mono) carries a triangle or chevron code point, so a typed arrow renders as tofu — the
-  // same finding `DayStrip`'s Reorder/Done control already records. Both readings are checked
-  // against each other here, so a face that stopped following the state cannot pass.
+// DESIGN.md §0.6: "**A collapsible group is marked by a chevron, not by the words
+// 'Show'/'Hide'.** **Drawn, not typed** — the same reason §0.6 already gives for rating
+// marks: a glyph's size varies by typeface, so a typed chevron looks broken somewhere."
+//
+// **The test this replaces asserted the opposite** — "says Show or Hide on its face" — and
+// was rewritten rather than satisfied, because §0.6 now rules out the thing it was pinning.
+// Its own reasoning survives and is what the two tests below turn into assertions: the fonts
+// this app bundles have no chevron code point, so the mark must not be text at all, and the
+// state must still be readable off the mark.
+it('marks its state with a drawn chevron, and puts no second word on the header', async () => {
   const t = await renderGroup();
-  expect(textIn(t)).toContain('Show');
-  expect(textIn(t)).not.toContain('Hide');
+  const styles = makeStyles('light');
+
+  // Drawn: a box with two borders and nothing inside it (theme/styles.ts's own
+  // `reorderArrowUp` technique), never a `Text`. Asserted on the style the header actually
+  // wears, not on the sheet alone — a correct style reaching no element is the failure.
+  const marks = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formGroupChevron)) : [];
+  expect(marks).toHaveLength(1);
+  expect(marks[0]?.type).toBe('View');
+  expect(styles.formGroupChevron.borderRightWidth).toBeGreaterThan(0);
+  expect(styles.formGroupChevron.borderBottomWidth).toBeGreaterThan(0);
+  // Not typed: nothing about this mark reaches for a font, which is precisely the thing
+  // neither bundled face can supply.
+  expect(styles.formGroupChevron).not.toHaveProperty('fontFamily');
+  expect(marks[0]?.props?.children).toBeUndefined();
+
+  // The header is the group's name and nothing else now: no "Show", no "Hide", and no word
+  // that replaced them.
+  expect(textIn(t)).toEqual(['Gas & cylinders']);
+  await fireEvent.press(headerOf(t));
+  expect(textIn(t).filter((s) => s !== CHILD)).toEqual(['Gas & cylinders']);
+});
+
+// "It rotates to show state" (§0.6). Both halves: that the second style is actually applied
+// when the group opens, and that what it does is turn the mark through a half-circle — a
+// chevron rotated by 90° points sideways, which says nothing about open or closed and would
+// pass any assertion that merely required the two transforms to differ.
+it('rotates the chevron through a half-circle to show the state, rather than merely restyling it', async () => {
+  const styles = makeStyles('light');
+  const degreesOf = (style: { transform?: unknown }) => {
+    const rotate = (style.transform as { rotate?: string }[] | undefined)?.find((entry) => entry.rotate !== undefined);
+    return Number(String(rotate?.rotate).replace('deg', ''));
+  };
+  expect(Math.abs(degreesOf(styles.formGroupChevronExpanded) - degreesOf(styles.formGroupChevron))).toBe(180);
+
+  const t = await renderGroup();
+  const markOf = () => (t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formGroupChevron)) : [])[0];
+  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.formGroupChevronExpanded);
 
   await fireEvent.press(headerOf(t));
-  expect(textIn(t)).toContain('Hide');
-  expect(textIn(t)).not.toContain('Show');
+  expect([markOf()?.props?.style].flat(5)).toContain(styles.formGroupChevronExpanded);
+
+  await fireEvent.press(headerOf(t));
+  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.formGroupChevronExpanded);
+});
+
+// §0.1: "colour is depth, and colour is nothing else" — every control is monochrome. The
+// chevron is chrome, so it takes the header's own muted ink from the tokens and recolours
+// with the scheme, rather than carrying a fixed value that would be right in one theme.
+it('draws the chevron in the header’s own muted ink, in whichever scheme is rendering', async () => {
+  for (const scheme of ['light', 'dark'] as const) {
+    const styles = makeStyles(scheme);
+    expect(styles.formGroupChevron.borderRightColor).toBe(themeFor(scheme).fgMuted);
+    expect(styles.formGroupChevron.borderBottomColor).toBe(themeFor(scheme).fgMuted);
+    expect(styles.formGroupChevron.borderRightColor).toBe(styles.formGroupTitle.color);
+  }
+  expect(makeStyles('light').formGroupChevron.borderRightColor).not.toBe(
+    makeStyles('dark').formGroupChevron.borderRightColor,
+  );
 });
 
 it('opens on mount when a caller asks it to, and still closes', async () => {
@@ -162,34 +220,17 @@ it('wears the detail screen’s own cluster label, not a heading of its own', as
   const worn = Object.assign({}, ...[title?.props?.style].flat(5).filter(Boolean)) as Record<string, unknown>;
   const cluster = { ...(styles.detailClusterTitle as unknown as Record<string, unknown>) };
   // `marginBottom` belongs to a block heading with rows under it; this one sits in a flex row
-  // beside its Show/Hide control, where a bottom margin would push it off that row's centre.
+  // beside its disclosure chevron, where a bottom margin would push it off that row's centre.
   delete cluster.marginBottom;
   for (const [property, value] of Object.entries(cluster)) {
     expect(worn[property]).toBe(value);
   }
   // It was `sans-medium` 15 in full `fg` — a heading — so the two things that actually
-  // changed are pinned against the label beside them rather than left implicit.
+  // changed are pinned against something else in the app rather than left implicit. The
+  // comparison used to be against the header's own "Show"/"Hide" label; that word is gone
+  // (§0.6's chevron), so it is made against `formStatusLabel` — the same object that label
+  // WAS, and still the app's one quiet-control face. The claim is unchanged: a group's name
+  // is a structural label in mono, not a UI control's label in Archivo.
   expect(worn.color).toBe(styles.formFieldLabel.color);
-  expect(worn.fontFamily).not.toBe(styles.formGroupState.fontFamily);
-});
-
-// The two words on the header row are a structural LABEL and a UI CONTROL, and §0.2 splits
-// the faces on exactly that. Rendered in one face at nearly one size — which is what a mono
-// 10.5 title beside a mono 11.5 state was — they read as one continuous string,
-// "CONDITIONS HIDE", rather than as a heading with a control beside it.
-it('sets the disclosure state in the other face, so it does not read as part of the title', async () => {
-  const t = await renderGroup();
-  const styles = makeStyles('light');
-  const state = textNodesOf(t).find((n) => String(n.children[0] ?? '') === 'Show');
-  const worn = Object.assign({}, ...[state?.props?.style].flat(5).filter(Boolean)) as Record<string, unknown>;
-  expect(worn.fontFamily).not.toBe(styles.formGroupTitle.fontFamily);
-  // ...and it is the app's ONE quiet-control label rather than a private copy of it — the
-  // same object §2.4's Logged/Planned control on this very form wears, and the day strip's
-  // Reorder/Done one screen over. Reference equality, so a second definition that merely
-  // happened to match today could not pass.
-  expect(styles.formGroupState).toBe(styles.formStatusLabel);
-  // Still the quiet, uppercase, tracked formula every control label in this app shares — the
-  // face is the only thing that separates it from the title.
-  expect(worn.textTransform).toBe('uppercase');
-  expect(worn.color).toBe(styles.formGroupTitle.color);
+  expect(worn.fontFamily).not.toBe(styles.formStatusLabel.fontFamily);
 });

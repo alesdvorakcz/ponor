@@ -1502,22 +1502,42 @@ function build(scheme: ColorScheme) {
       ...clusterLabel,
       flex: 1,
     },
-    // "Show"/"Hide" (FormGroup.tsx's own docblock: text, not a chevron glyph — this
-    // codebase's bundled fonts have no triangle/chevron code point, the same gap
-    // `reorderArrowUp`/`reorderArrowDown` above already found and fixed for the reorder
-    // arrows).
+    // §0.6: "**A collapsible group is marked by a chevron, not by the words 'Show'/'Hide'.**
+    // **Drawn, not typed** — the same reason §0.6 already gives for rating marks: a glyph's
+    // size varies by typeface, so a typed chevron looks broken somewhere. It rotates to show
+    // state, needs no translation, and drops a word from a row that is otherwise pure
+    // structure."
     //
-    // `actionPillLabel` (this function's own top) — Archivo, where the title beside it is now
-    // mono. It was mono 11.5 uppercase tracked muted, which against a mono 10.5 uppercase
-    // tracked muted title reads as one continuous string ("CONDITIONS HIDE") rather than a
-    // label and a control. §0.2 splits the two faces on content and this is the split doing
-    // its job: the group's NAME is a structural label, the word beside it is a UI control's,
-    // the same category as `actionLabel`/`dayStripActionLabel`.
+    // Drawn exactly as `reorderArrowUp`/`reorderArrowDown` above are, and for the reason
+    // those record: neither bundled font (Archivo, IBM Plex Mono — theme/fonts.ts) carries a
+    // chevron code point, so a typed one renders as tofu or nothing, device-dependent. That
+    // finding is what made the header carry the WORD "Show"/"Hide" until now; §0.6 keeps the
+    // finding and changes the conclusion, because a glyph is not the only alternative to a
+    // word. Two adjacent borders on a zero-content box, rotated, is the same no-image
+    // no-path-library technique the reorder arrows use for a triangle.
     //
-    // The pill those two labels usually sit in is deliberately absent: there the pill IS the
-    // target inside a row that is not, where here the whole 48 dp row is one `Pressable`, so
-    // a bordered box around one word inside it would draw a target that is not the target.
-    formGroupState: actionPillLabel,
+    // `fgMuted` — the same ink `formGroupTitle` beside it wears, so the mark reads as part of
+    // the header rather than as the loudest object on a row of quiet ones. The 2 dp stroke is
+    // the smallest that stays visible against `bg` in both themes at this size.
+    formGroupChevron: {
+      width: 9,
+      height: 9,
+      borderRightWidth: 2,
+      borderBottomWidth: 2,
+      borderRightColor: theme.fgMuted,
+      borderBottomColor: theme.fgMuted,
+      // 45° clockwise turns the box's bottom-right corner — the only corner its two borders
+      // draw — into a chevron pointing DOWN: closed, "there is more below this."
+      transform: [{ rotate: '45deg' }],
+    },
+    // The same mark turned through a half-circle, so open points UP. A second `transform`
+    // rather than an `Animated` value: nothing else in this app animates yet, and a rotation
+    // that snaps is still a rotation — §0.6 asks the mark to SHOW state, not to perform the
+    // transition. Composed over the base style, which is why this repeats `transform` (the
+    // whole property is replaced, not merged) and nothing else.
+    formGroupChevronExpanded: {
+      transform: [{ rotate: '225deg' }],
+    },
     formGroupBody: {
       paddingBottom: 16,
     },
