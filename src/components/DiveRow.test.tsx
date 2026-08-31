@@ -455,11 +455,11 @@ it('reads and announces the depth in the system it is given', async () => {
   const imperial = await render(<DiveRow dive={d} number={248} scheme="dark" units="imperial" onPress={() => {}} />);
 
   expect(textIn(metric).join('')).toContain('24.6 m');
-  expect(metric.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 24.6 m');
+  expect(metric.root?.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 24.6 m');
 
   expect(textIn(imperial).join('')).toContain('81 ft');
   expect(textIn(imperial).join('')).not.toContain('24.6');
-  expect(imperial.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 81 ft');
+  expect(imperial.root?.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 81 ft');
 });
 
 // §0.1 again, from the list's own side: the row's one piece of colour is the depth value,

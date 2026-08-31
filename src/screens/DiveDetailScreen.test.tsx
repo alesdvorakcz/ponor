@@ -6,6 +6,7 @@ import { dive } from '../domain/diveFixture';
 import { HE_LABEL, O2_LABEL } from '../format/display';
 import { softDeleteDive } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 // Namespace import, not the usual named one: the completeness test below (`marks every
 // value this screen reads from derived.ts as computed`) needs the module's own export list
 // at runtime, via `Object.keys`, rather than a set of names typed into this file — see that
@@ -13,6 +14,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
+import { depthColor } from '../theme/depth';
 import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -155,8 +157,12 @@ const mockBack = router.back as jest.Mock;
 const mockReplace = router.replace as jest.Mock;
 const mockPush = router.push as jest.Mock;
 const mockSoftDelete = softDeleteDive as jest.Mock;
+const mockUseUnitSystem = useUnitSystem as jest.Mock;
 
 afterEach(() => {
+  // Put back rather than reset: every test below that says nothing about units expects the
+  // metric default, and `mockReset` would leave the hook returning `undefined`.
+  mockUseUnitSystem.mockReturnValue('metric');
   mockUseDives.mockReset();
   mockUseLocalSearchParams.mockReset();
   mockCanGoBack.mockReset();
@@ -1422,4 +1428,82 @@ it('offers neither action for a dive it could not find', async () => {
   expect(findControl(t, 'Complete dive')).toBeUndefined();
   expect(findControl(t, 'Delete dive')).toBeUndefined();
   expect(textIn(t).join(' ')).toContain('Dive not found');
+});
+
+// DESIGN.md §3's unit setting, on the screen that shows the most figures at once. The
+// property that matters here is not "feet appear" but that **no figure is left behind**:
+// a diver reading depths in feet beside a pressure in bar has no way to know which of the
+// two the app forgot.
+describe('the unit setting', () => {
+  const fullDive = dive({
+    maxDepthM: 24.6,
+    avgDepthM: 18,
+    visibilityM: 20,
+    waterTempC: 25,
+    airTempC: 30,
+    weightsKg: 6.5,
+    durationMin: 47,
+    tanks: [tank({ workingBar: 232, startBar: 200, endBar: 50 })],
+  });
+
+  // `DepthValue` renders its numeral and its unit as two sibling Text nodes (§0.6 sets the
+  // unit quieter), so `textIn`'s flat list yields "81" and " ft" separately and joining on
+  // a space gives "81  ft". Collapsed here so an assertion can name the string the diver
+  // actually sees, in one form for both the split and the joined renderings.
+  const readAs = (parts: string[]) => parts.join(' ').replace(/\s+/g, ' ');
+
+  it('reads every figure on the screen in the chosen system, leaving none in the other', async () => {
+    mockUseUnitSystem.mockReturnValue('imperial');
+    const text = readAs(await renderDetail(fullDive));
+
+    // Depth (hero, max, avg), visibility, both temperatures, weights, all three pressures,
+    // and the two derived figures that are themselves a depth and a pressure.
+    expect(text).toContain('81 ft'); // max depth, 24.6 m
+    expect(text).toContain('59 ft'); // avg depth, 18 m
+    expect(text).toContain('66 ft'); // visibility, 20 m
+    expect(text).toContain('77 °F'); // water temp, 25 °C
+    expect(text).toContain('86 °F'); // air temp, 30 °C
+    expect(text).toContain('14 lb'); // weights, 6.5 kg
+    expect(text).toContain('3365 psi'); // working pressure, 232 bar
+    expect(text).toContain('2901 psi'); // start, 200 bar
+    expect(text).toContain('725 psi'); // end, 50 bar
+    expect(text).toContain('2176 psi'); // used = 150 bar, from derived.ts
+    expect(text).toContain('111 ft'); // MOD for 32 % at 1.4 ata, 33.75 m
+
+    // And nothing at all left in the other system. The three metric unit words must not
+    // appear anywhere on the screen — this is what a half-converted screen fails on.
+    expect(text).not.toMatch(/\d\s(m|bar|kg)\b/);
+    expect(text).not.toContain('°C');
+
+    // Duration stays minutes in both systems, so it must still be here.
+    expect(text).toContain('47 min');
+  });
+
+  it('reads the same dive in metres and bar when the diver is metric', async () => {
+    const text = readAs(await renderDetail(fullDive));
+    expect(text).toContain('24.6 m');
+    expect(text).toContain('25 °C');
+    expect(text).toContain('232 bar');
+    expect(text).toContain('6.5 kg');
+    expect(text).not.toContain('ft');
+    expect(text).not.toContain('psi');
+  });
+
+  // §0.1 on the screen that draws depth largest. The hero's colour is the dive's band, and
+  // a band is a fact about metres — switching systems changes the numeral and nothing else.
+  it('keeps a depth in its own band colour when the system changes', async () => {
+    const metric = await renderDetailTree(fullDive);
+    mockUseUnitSystem.mockReturnValue('imperial');
+    const imperial = await renderDetailTree(fullDive);
+    // 'light' is the scheme useColorScheme() reports under Jest — the same note every other
+    // style assertion in this file carries.
+    const band = depthColor(24.6, 'light');
+    const heroColour = (t: RenderResult) =>
+      textNodesOf(t)
+        .flatMap((n) => [n.props.style].flat(3))
+        .map((st) => (st as { color?: string } | undefined)?.color)
+        .find((c) => c === band);
+    expect(heroColour(metric)).toBe(band);
+    expect(heroColour(imperial)).toBe(band);
+  });
 });

@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 
 import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
 import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
@@ -57,6 +58,7 @@ jest.mock('expo-router', () => ({
 const mockUseDives = useDives as jest.Mock;
 const mockCreate = createDive as jest.Mock;
 const mockUpdate = updateDive as jest.Mock;
+const mockUseUnitSystem = useUnitSystem as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -90,6 +92,9 @@ beforeEach(() => {
   // `clearAllMocks` clears calls but not return values, so one test overriding this would
   // otherwise leak its `false` into every test declared after it.
   (router.canGoBack as jest.Mock).mockReturnValue(true);
+  // Set explicitly for the same reason `canGoBack` is: `clearAllMocks` clears calls but not
+  // return values, so one imperial test would otherwise leak into every test after it.
+  mockUseUnitSystem.mockReturnValue('metric');
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -2569,4 +2574,120 @@ it('opens on the state the route asked for, even when the dive arrives afterward
   expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
   // ...and the control still holds what the route asked for, over the dive's own status.
   expect(plannedIsOn(t)).toBe(false);
+});
+
+// --- DESIGN.md §3's unit setting on the form (m/ft · bar/psi · °C/°F · kg/lb) ---
+//
+// The form is the one screen where getting this half-right is a data bug rather than a
+// display one: a field labelled `ft` holding a figure in metres would be written to a
+// metres column on the next save. So these cover the whole loop — what the suffix says,
+// what the field is seeded with, and what reaches the repository — rather than the label
+// alone.
+describe('the unit setting', () => {
+  const imperial = () => mockUseUnitSystem.mockReturnValue('imperial');
+
+  /** A field's unit suffix and placeholder, which §0.6 makes the same word in the same slot
+   * (`FormField.tsx`: one is drawn or the other, never both). Read off the real
+   * `TextInput`'s placeholder, so this follows the control rather than the prop. */
+  const unitOf = (t: RenderResult, label: string) =>
+    String(findTextInput(t, label)?.props?.placeholder ?? '');
+
+  it('labels every unit-bearing field in the chosen system', async () => {
+    imperial();
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'Times & depth');
+    await openGroup(t, 'Conditions');
+    await openGroup(t, 'Gas & cylinders');
+    await openGroup(t, 'Equipment');
+
+    expect(unitOf(t, 'Max depth')).toBe('ft');
+    expect(unitOf(t, 'Avg depth')).toBe('ft');
+    expect(unitOf(t, 'Visibility')).toBe('ft');
+    expect(unitOf(t, 'Water temp')).toBe('°F');
+    expect(unitOf(t, 'Air temp')).toBe('°F');
+    expect(unitOf(t, 'Working pressure')).toBe('psi');
+    expect(unitOf(t, 'Start pressure')).toBe('psi');
+    expect(unitOf(t, 'End pressure')).toBe('psi');
+    expect(unitOf(t, 'Weights')).toBe('lb');
+
+    // The three that have no pair (format/units.ts) must NOT move: minutes are minutes,
+    // a cylinder's litres are water capacity rather than the cubic feet of free gas an
+    // imperial cylinder is named for, and a gas fraction is a percentage in any system.
+    expect(unitOf(t, 'Duration')).toBe('min');
+    expect(unitOf(t, 'Size')).toBe('l');
+    expect(unitOf(t, O2_LABEL)).toBe('%');
+  });
+
+  it('labels them in metric for a metric diver', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'Conditions');
+    expect(unitOf(t, 'Max depth')).toBe('m');
+    expect(unitOf(t, 'Water temp')).toBe('°C');
+  });
+
+  it('seeds an edited dive with the figures the diver reads, not the metres it stores', async () => {
+    imperial();
+    const target = dive({ id: 'target', date: '2026-08-16', maxDepthM: 24.6, weightsKg: 6.5 });
+    stubLogbookFor(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Equipment');
+
+    expect(findTextInput(t, 'Max depth')?.props?.value).toBe('81');
+    expect(findTextInput(t, 'Weights')?.props?.value).toBe('14');
+  });
+
+  it('writes SI whatever the diver typed in', async () => {
+    imperial();
+    mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+    const t = await render(<DiveFormScreen mode="create" />);
+    await typeInto(t, 'Max depth', '81');
+    await pressSave(t);
+
+    // 81 ft x 0.3048 m/ft, exactly — the column is metres and stays metres (§6).
+    expect(writtenInput().maxDepthM).toBeCloseTo(24.6888, 10);
+  });
+
+  // The defect `storedValueFor` exists for, reached through the real screen rather than
+  // through the function alone: an imperial diver who opens a dive to fix a typo must not
+  // have its stored depth quietly re-quantised to the nearest foot on the way out.
+  it('writes nothing for a figure the imperial diver only looked at', async () => {
+    imperial();
+    const target = dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', maxDepthM: 24.6 });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await typeInto(t, 'Site', 'Blue Hole II');
+    await pressSave(t);
+
+    expect(writtenPatch()).toEqual({ siteName: 'Blue Hole II' });
+    expect(Object.keys(writtenPatch())).not.toContain('maxDepthM');
+  });
+
+  it('writes the depth in SI once the imperial diver actually changes it', async () => {
+    imperial();
+    const target = dive({ id: 'target', date: '2026-08-16', maxDepthM: 24.6 });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await typeInto(t, 'Max depth', '82');
+    await pressSave(t);
+
+    expect(Object.keys(writtenPatch())).toEqual(['maxDepthM']);
+    expect(writtenPatch().maxDepthM).toBeCloseTo(24.9936, 10);
+  });
+
+  // `useUnitSystem` resolves asynchronously exactly as `useDives` does, so the first render
+  // always sees the metric default. Without `units` in the reseed gate an imperial diver's
+  // form would seed metres under `ft` labels and never correct itself.
+  it('reseeds when the preference arrives after the first render', async () => {
+    const target = dive({ id: 'target', date: '2026-08-16', maxDepthM: 24.6 });
+    stubLogbookFor(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    expect(findTextInput(t, 'Max depth')?.props?.value).toBe('24.6');
+
+    imperial();
+    await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
+    expect(findTextInput(t, 'Max depth')?.props?.value).toBe('81');
+    expect(unitOf(t, 'Max depth')).toBe('ft');
+  });
 });
