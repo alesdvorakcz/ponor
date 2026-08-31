@@ -61,7 +61,7 @@ function textIn(t: RenderResult): string[] {
 
 it('shows the dive number, site and depth', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" units="metric" onPress={() => {}} />,
   );
   // `.join('')`, not `.join(' ')`: DepthValue (this task) now splits "32.4 m" across two
   // sibling Text nodes — the value and a nested, quieter unit — so the two arrive here as
@@ -82,7 +82,7 @@ it('shows the dive number, site and depth', async () => {
 // actionable at all.
 it('announces itself as a button, with a label composed from number, site and depth', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: 32.4 })} number={248} scheme="dark" units="metric" onPress={() => {}} />,
   );
   // DiveRow's own top-level element IS the Pressable's rendered host view here (this file's
   // own top comment) — read its props directly, the same way the "passes the dive id to
@@ -99,7 +99,7 @@ it('announces itself as a button, with a label composed from number, site and de
 // own default, '2026-08-16' -> '16 Aug 2026') since a planned dive always carries one (§6).
 it("omits whichever label piece the row itself omits, for a planned dive with no depth", async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Shore entry', status: 'planned' })} number={undefined} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Shore entry', status: 'planned' })} number={undefined} scheme="dark" units="metric" onPress={() => {}} />,
   );
   if (!t.root) throw new Error('DiveRow did not render a root element');
   expect(t.root.props.accessibilityLabel).toBe('Shore entry, 16 Aug 2026');
@@ -114,10 +114,10 @@ it("omits whichever label piece the row itself omits, for a planned dive with no
 // real DiveRow renders, same site, different dates, proven to diverge.
 it("includes a planned dive's date in the label, so two planned dives at the same site on different dates announce differently", async () => {
   const soon = await render(
-    <DiveRow dive={dive({ status: 'planned', date: '2026-09-05', siteName: 'Silfra' })} number={undefined} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ status: 'planned', date: '2026-09-05', siteName: 'Silfra' })} number={undefined} scheme="dark" units="metric" onPress={() => {}} />,
   );
   const later = await render(
-    <DiveRow dive={dive({ status: 'planned', date: '2026-09-12', siteName: 'Silfra' })} number={undefined} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ status: 'planned', date: '2026-09-12', siteName: 'Silfra' })} number={undefined} scheme="dark" units="metric" onPress={() => {}} />,
   );
   if (!soon.root || !later.root) throw new Error('DiveRow did not render a root element');
   expect(soon.root.props.accessibilityLabel).toBe('Silfra, 5 Sep 2026');
@@ -132,7 +132,7 @@ it("includes a planned dive's date in the label, so two planned dives at the sam
 // answers for the same two dives — so a change to one that broke the other could not pass.
 it('falls back to the dive centre when no site name was recorded', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: null, centerName: 'Aqua' })} number={7} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: null, centerName: 'Aqua' })} number={7} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(textIn(t)).toContain('Aqua');
 });
@@ -144,7 +144,7 @@ it('falls back to the dive centre when no site name was recorded', async () => {
 // are recorded, which is the ordinary case for a diver who books through a centre.
 it('names the site, not the centre, when the dive records both', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', centerName: 'Aqua' })} number={7} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', centerName: 'Aqua' })} number={7} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(textIn(t)).toContain('Blue Hole');
   expect(textIn(t)).not.toContain('Aqua');
@@ -155,7 +155,7 @@ it('names the site, not the centre, when the dive records both', async () => {
 
 it('names a dive with neither a site nor a centre, rather than leaving a blank line', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: null, centerName: null })} number={7} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: null, centerName: null })} number={7} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(textIn(t)).toContain('Unnamed site');
 });
@@ -169,7 +169,7 @@ it('names a dive with neither a site nor a centre, rather than leaving a blank l
 // other unrecorded field, rather than naming a number nobody can see on screen.
 it('omits a negative depth from the label, since the row never actually draws one', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: -5 })} number={3} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: -5 })} number={3} scheme="dark" units="metric" onPress={() => {}} />,
   );
   if (!t.root) throw new Error('DiveRow did not render a root element');
   expect(t.root.props.accessibilityLabel).toBe('Dive 3, Blue Hole');
@@ -180,7 +180,7 @@ it('omits a negative depth from the label, since the row never actually draws on
 
 it('colours the depth by its band, not by the theme', async () => {
   const t = await render(
-    <DiveRow dive={dive({ maxDepthM: 32.4 })} number={1} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ maxDepthM: 32.4 })} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   const depthNode = textNodesOf(t).find((n) => String(n.children[0]).includes('32.4'));
   expect(depthNode).toBeDefined();
@@ -191,7 +191,7 @@ it('colours the depth by its band, not by the theme', async () => {
 
 it('renders a dive with nothing but a date, without placeholders or a crash', async () => {
   const t = await render(
-    <DiveRow dive={dive({ date: '2026-08-16' })} number={1} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ date: '2026-08-16' })} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   const text = textIn(t).join(' ');
   expect(text).not.toContain('null');
@@ -201,7 +201,7 @@ it('renders a dive with nothing but a date, without placeholders or a crash', as
 
 it('shows no dive number for a planned dive', async () => {
   const t = await render(
-    <DiveRow dive={dive({ status: 'planned' })} number={undefined} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ status: 'planned' })} number={undefined} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(textIn(t).join(' ')).not.toMatch(/#\d/);
 });
@@ -211,7 +211,7 @@ it('draws no graphic for a dive, because no dive has a sample series', async () 
   // `View`s (§0.6's drawn marks, task 7) — proving the whitelist above recognises every
   // legitimate View this row can produce, not just the ones a depth-only fixture reaches.
   const t = await render(
-    <DiveRow dive={dive({ maxDepthM: 32.4, rating: 4 })} number={1} scheme="dark" onPress={() => {}} />,
+    <DiveRow dive={dive({ maxDepthM: 32.4, rating: 4 })} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
 });
@@ -219,7 +219,7 @@ it('draws no graphic for a dive, because no dive has a sample series', async () 
 it('passes the dive id to onPress', async () => {
   const onPress = jest.fn();
   const d = dive({ id: 'abc' });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={onPress} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={onPress} />);
   if (!t.root) throw new Error('DiveRow did not render a root element');
   await fireEvent.press(t.root);
   expect(onPress).toHaveBeenCalledWith('abc');
@@ -230,7 +230,7 @@ it('passes the dive id to onPress', async () => {
 // of aligned, colour-coded numbers rather than every element competing at one size.
 it('sets the depth larger than the site name, so the row has an anchor', async () => {
   const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const sizeOf = (s: string) => {
     const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes(s));
     return [node?.props.style].flat(3).filter(Boolean)
@@ -243,7 +243,7 @@ it('sets the depth larger than the site name, so the row has an anchor', async (
 
 it('gives the depth tabular figures so a column of dives aligns', async () => {
   const d = dive({ maxDepthM: 9.2 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('9.2'));
   const style = [node?.props.style].flat(3).filter(Boolean);
   expect(style.some((s) => s?.fontVariant?.includes('tabular-nums'))).toBe(true);
@@ -257,7 +257,7 @@ it('gives the depth tabular figures so a column of dives aligns', async () => {
 // only then truncates) and is the one assertion this test needs to isolate the guarantee.
 it('lets a long site name wrap rather than truncate', async () => {
   const d = dive({ siteName: 'Šenkýřův lom u Zbraslavi nad Vltavou' });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const node = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Šenkýřův'));
   expect(node?.props.numberOfLines).toBe(2);
 });
@@ -267,7 +267,7 @@ it('lets a long site name wrap rather than truncate', async () => {
 // mattered for a section whose entire purpose is *when*.
 it('shows a planned dive its date, since "Up next" is about when', async () => {
   const d = dive({ status: 'planned', date: '2026-09-05', siteName: 'Silfra' });
-  const t = await render(<DiveRow dive={d} number={undefined} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={undefined} scheme="dark" units="metric" onPress={() => {}} />);
   const text = textIn(t).join(' ');
   expect(text).toContain('5 Sep 2026');
   expect(text).not.toMatch(/#\d/);
@@ -278,7 +278,7 @@ it('shows a planned dive its date, since "Up next" is about when', async () => {
 // be redundant noise in the common case, the one this screen shows most often.
 it('does not put the date on a logged dive row, where the trip header carries it', async () => {
   const d = dive({ status: 'logged', date: '2026-09-05', siteName: 'Silfra', timeIn: '09:00' });
-  const t = await render(<DiveRow dive={d} number={7} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={7} scheme="dark" units="metric" onPress={() => {}} />);
   const text = textIn(t).join(' ');
   expect(text).not.toContain('5 Sep 2026');
 });
@@ -290,7 +290,7 @@ it('does not put the date on a logged dive row, where the trip header carries it
 // whatever `formatTimeRange`/`formatDuration` actually produce.
 it('middot-separates the time and duration chips, per §0.6', async () => {
   const d = dive({ timeIn: '09:30', durationMin: 44 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const expected = `${formatTimeRange(d.timeIn, d.durationMin)} · ${formatDuration(d.durationMin)}`;
   expect(textIn(t)).toContain(expected);
 });
@@ -300,7 +300,7 @@ it('middot-separates the time and duration chips, per §0.6', async () => {
 // between the joined chips and the dots, rendered only when both sides actually exist.
 it('middot-separates the text chips from the rating dots, since dots are drawn rather than typed', async () => {
   const d = dive({ durationMin: 44, rating: 3 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const text = textIn(t);
   expect(text).toContain(formatDuration(d.durationMin));
   expect(text).toContain(' · ');
@@ -317,7 +317,7 @@ it('middot-separates the text chips from the rating dots, since dots are drawn r
 it('lets a caller override the depth slot, hiding the depth value rather than adding beside it', async () => {
   const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
   const t = await render(
-    <DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
+    <DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
   );
   const text = textIn(t).join(' ');
   expect(text).toContain('ARROWS');
@@ -333,9 +333,9 @@ it('lets a caller override the depth slot, hiding the depth value rather than ad
 // it.
 it("keeps the row's own container style identical with or without a depthSlot override", async () => {
   const d = dive({ siteName: 'Blue Hole', maxDepthM: 32.4 });
-  const plain = await render(<DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} />);
+  const plain = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   const withSlot = await render(
-    <DiveRow dive={d} number={1} scheme="dark" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
+    <DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} depthSlot={<Text>ARROWS</Text>} />,
   );
   if (!plain.root || !withSlot.root) throw new Error('DiveRow did not render a root element');
   expect(withSlot.root.props.style).toEqual(plain.root.props.style);
@@ -354,7 +354,7 @@ it("keeps the row's own container style identical with or without a depthSlot ov
 // asserts `borderBottomWidth` is ABSENT, so reverting to the bottom edge reddens this test
 // directly instead of leaving it silently correct on the wrong property.
 it('gives the row a hairline border on theme.border, on its TOP edge specifically', async () => {
-  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" units="metric" onPress={() => {}} />);
   if (!t.root) throw new Error('DiveRow did not render a root element');
   const style = [t.root.props.style].flat(3).filter(Boolean);
   expect(style.some((s) => typeof s?.borderTopWidth === 'number' && s.borderTopWidth > 0)).toBe(true);
@@ -366,7 +366,7 @@ it('gives the row a hairline border on theme.border, on its TOP edge specificall
 });
 
 it("recolours the row's top hairline for the light scheme rather than carrying a fixed colour", async () => {
-  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="light" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="light" units="metric" onPress={() => {}} />);
   if (!t.root) throw new Error('DiveRow did not render a root element');
   const style = [t.root.props.style].flat(3).filter(Boolean);
   expect(style.some((s) => s?.borderTopColor === themeFor('light').border)).toBe(true);
@@ -392,12 +392,12 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
   }
 
   it('renders no rating dots when the dive has no rating', async () => {
-    const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" onPress={() => {}} />);
+    const t = await render(<DiveRow dive={dive({ maxDepthM: 12 })} number={1} scheme="dark" units="metric" onPress={() => {}} />);
     expect(findDots(t)).toHaveLength(0);
   });
 
   it('draws exactly RATING_MAX dots, filling only up to the rating', async () => {
-    const t = await render(<DiveRow dive={dive({ rating: 3 })} number={1} scheme="dark" onPress={() => {}} />);
+    const t = await render(<DiveRow dive={dive({ rating: 3 })} number={1} scheme="dark" units="metric" onPress={() => {}} />);
     const dots = findDots(t);
     expect(dots).toHaveLength(5);
     expect(dots.filter((d) => isFilled(d))).toHaveLength(3);
@@ -409,7 +409,7 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
   // not their count. This asserts the actual property that broke: a filled dot and an
   // empty dot must report the identical width and height, not merely both be "some size".
   it('gives filled and empty marks identical dimensions, the property the two glyphs broke', async () => {
-    const t = await render(<DiveRow dive={dive({ rating: 2 })} number={1} scheme="dark" onPress={() => {}} />);
+    const t = await render(<DiveRow dive={dive({ rating: 2 })} number={1} scheme="dark" units="metric" onPress={() => {}} />);
     const dots = findDots(t);
     const filled = dots.find((d) => isFilled(d));
     const empty = dots.find((d) => !isFilled(d));
@@ -432,7 +432,7 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
   // own ink is the theme's plain `fg`, never a depth-band hue.
   it('keeps rating marks monochrome, in the theme ink rather than any depth colour', async () => {
     const theme = themeFor('dark');
-    const t = await render(<DiveRow dive={dive({ rating: 5 })} number={1} scheme="dark" onPress={() => {}} />);
+    const t = await render(<DiveRow dive={dive({ rating: 5 })} number={1} scheme="dark" units="metric" onPress={() => {}} />);
     const dots = findDots(t);
     expect(dots).toHaveLength(5);
     for (const d of dots) {
@@ -442,4 +442,37 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
       expect(bg === theme.fg || border === theme.fg).toBe(true);
     }
   });
+});
+
+// DESIGN.md §3's unit setting reaches a row through one prop, and it has to reach BOTH of
+// the places this row states a depth — the value a sighted diver reads and the label a
+// screen reader speaks. They are composed from the same `formatDepth` call, so this pins
+// that they cannot diverge: a row announcing "24.6 m" beside a screen showing "81 ft"
+// would be the same defect as a mislabelled figure, just only audible.
+it('reads and announces the depth in the system it is given', async () => {
+  const d = dive({ siteName: 'Blue Hole', maxDepthM: 24.6 });
+  const metric = await render(<DiveRow dive={d} number={248} scheme="dark" units="metric" onPress={() => {}} />);
+  const imperial = await render(<DiveRow dive={d} number={248} scheme="dark" units="imperial" onPress={() => {}} />);
+
+  expect(textIn(metric).join('')).toContain('24.6 m');
+  expect(metric.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 24.6 m');
+
+  expect(textIn(imperial).join('')).toContain('81 ft');
+  expect(textIn(imperial).join('')).not.toContain('24.6');
+  expect(imperial.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 81 ft');
+});
+
+// §0.1 again, from the list's own side: the row's one piece of colour is the depth value,
+// and it must not move when the diver switches systems. Same dive, same band, either way.
+it('draws the same dive in the same band colour whichever system it is read in', async () => {
+  const d = dive({ maxDepthM: 24.6 });
+  const metric = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
+  const imperial = await render(<DiveRow dive={d} number={1} scheme="dark" units="imperial" onPress={() => {}} />);
+  const colourOf = (t: RenderResult) =>
+    textNodesOf(t)
+      .flatMap((n) => [n.props.style].flat(3))
+      .map((st) => (st as { color?: string } | undefined)?.color)
+      .find((c) => c !== undefined && c === depthColor(24.6, 'dark'));
+  expect(colourOf(metric)).toBe(depthColor(24.6, 'dark'));
+  expect(colourOf(imperial)).toBe(depthColor(24.6, 'dark'));
 });

@@ -1,4 +1,4 @@
-import { formatDepthParts } from '../format/display';
+import { isDisplayableDepth } from '../format/display';
 
 import {
   depthBandLimits,
@@ -93,18 +93,27 @@ export function depthColor(metres: number, scheme: ColorScheme): string {
  * non-finite value; the colour `depthColor` would give otherwise.
  *
  * M1c closing fixes, Important #3: the finiteness/sign check below used to be re-derived
- * here independently of `formatDepthParts` (format/display.ts) — two separate places
- * deciding the same "can this depth be shown?" question, which had already drifted apart
- * once (see that function's own docblock for the dangling-label bug that caused). Deferring
- * to it here instead makes `formatDepthParts` the one owner: whatever it accepts, this
- * colours; whatever it refuses, this returns `null` for, by construction rather than by
- * two conditions that happen to currently agree.
+ * here independently of format/display.ts — two separate places deciding the same "can
+ * this depth be shown?" question, which had already drifted apart once (see
+ * `formatDepthParts`'s own docblock for the dangling-label bug that caused). Deferring to
+ * that module here instead makes it the one owner: whatever it accepts, this colours;
+ * whatever it refuses, this returns `null` for, by construction rather than by two
+ * conditions that happen to currently agree.
+ *
+ * **It defers to `isDisplayableDepth`, not to `formatDepthParts` itself**, since the m/ft
+ * setting landed. That is the same owner and the same answer — `formatDepthParts` returns
+ * null exactly when this predicate is false — reached without handing this file a
+ * `UnitSystem` it must never have. **The band is computed from the stored metre value and
+ * from nothing else** (§0.1: the scale follows the order water removes colour, which is a
+ * fact about water and not about the diver's preference), so a dive shown as `81 ft` draws
+ * in the very same band as the `24.7 m` it is. A colour taken from a converted figure would
+ * put every imperial dive past 40 m in band 6.
  */
 export function depthColorOrNull(
   metres: number | null | undefined,
   scheme: ColorScheme,
 ): string | null {
-  if (metres == null || formatDepthParts(metres) === null) {
+  if (!isDisplayableDepth(metres)) {
     return null;
   }
   return depthColor(metres, scheme);

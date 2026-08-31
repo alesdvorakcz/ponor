@@ -3,7 +3,6 @@ import { Controller, useForm, useWatch, type Control, type FieldPath } from 'rea
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { z } from 'zod';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { EntryIcon } from '../components/EntryIcon';
@@ -12,15 +11,19 @@ import { FormGroup } from '../components/FormGroup';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import {
   diveFormSchema,
+  toDisplayUnits,
   toDivePatch,
   toNewDiveInput,
   unknownBooleanNote,
   unknownOptionNote,
+  type DiveFormInput,
   type DiveFormValues,
+  type TankFormInput,
 } from '../domain/diveFormSchema';
 import {
   ENTRY_VALUES,
@@ -40,22 +43,11 @@ import {
   HE_LABEL,
   O2_LABEL,
 } from '../format/display';
+import { unitLabel, type UnitSystem } from '../format/units';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-
-/**
- * The form's own **input** shape — every numeric/text field as the raw string (or
- * already-typed value) a `TextInput`/carry-over default can hold, before
- * `zodResolver(diveFormSchema)` coerces it — as opposed to `DiveFormValues`, the
- * schema's *output* type of real numbers and nulls. `diveFormSchema.ts`'s own docblock
- * draws exactly this line: "this schema... over the form's **string** values." Deriving
- * it with `z.input<>` rather than hand-typing a second copy is what keeps this screen
- * from drifting out of step with the schema the moment a field is added there.
- */
-type DiveFormInput = z.input<typeof diveFormSchema>;
-type TankFormInput = NonNullable<DiveFormInput['tanks']>[number];
 
 function toInputString(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -140,14 +132,13 @@ function blankFormValues(): DiveFormInput {
  */
 const FORM_FIELDS = Object.keys(diveFormSchema.shape) as (keyof DiveFormValues)[];
 
-/**
- * Type-level proof that every field this form has is also a field a `Dive` has, so
- * `diveToFormValues` below can copy them across by name. A field added to
- * `diveFormSchema` that `Dive` does not carry is a compile error here rather than a field
- * that silently seeds as `undefined` when a dive is opened for editing.
+/*
+ * `diveToFormValues` below copies a dive's values across by name, which is sound only
+ * because every field this form has is also a field a `Dive` has. That proof is
+ * `FormFieldsExistOnDive` and it lives in `diveFormSchema.ts` now — the module that
+ * declares both types, and whose own unit conversion rests on the identical fact. It used
+ * to be declared here, guarding one of the two casts that stand on it.
  */
-type Assert<T extends true> = T;
-export type FormFieldsExistOnDive = Assert<keyof DiveFormValues extends keyof Dive ? true : false>;
 
 /**
  * A stored dive's own values, as this form's starting point in `mode="edit"` (Task 7).
@@ -291,8 +282,21 @@ interface SeedState {
    * close. See the render body for what that cost.
    */
   sourceId: string | null;
-  /** This form's starting values, held rather than recomputed so `useForm`'s `values`
-   * option has a reference that changes only when the seed dive really does. */
+  /**
+   * The unit system these `values` are expressed in — the second scalar the render body's
+   * gate compares, alongside `sourceId`.
+   *
+   * It has to be compared, because `useUnitSystem()` resolves asynchronously exactly as
+   * `useDives()` does: the first render of this screen always sees the metric default, and
+   * an imperial diver's real preference arrives a moment later. Without this the form would
+   * seed a dive's metre figures under `ft` labels and never correct itself — the mislabelled
+   * form this whole task exists to prevent, arrived at through a race rather than a missing
+   * conversion. A string, so it compares by value and the gate closes on the next render.
+   */
+  units: UnitSystem;
+  /** This form's starting values, in the diver's own units (`toDisplayUnits`), held rather
+   * than recomputed so `useForm`'s `values` option has a reference that changes only when
+   * the seed dive or the unit system really does. */
   values: DiveFormInput;
   /** DESIGN.md §0.6's `carried ×` paths for `values`, minus whatever the diver has since
    * typed over (`dropCarried`, render body). Always empty in edit mode — see below. */
@@ -345,28 +349,36 @@ interface SeedState {
 function seedStateFor(
   mode: 'create' | 'edit',
   seed: Dive | null,
+  units: UnitSystem,
   openAs?: DiveStatus,
   typed: ReadonlySet<string> = new Set<string>(),
 ): SeedState {
   const sourceId = seed?.id ?? null;
-  const withOpenAs = (values: DiveFormInput): DiveFormInput =>
-    openAs === undefined ? values : { ...values, status: openAs };
+  // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
+  // here: from this point down the form holds the figures the diver reads and types, and
+  // SI reappears on the far side in `toNewDiveInput`/`toDivePatch`. Wrapped around
+  // `openAs` rather than applied at the two call sites below, so neither branch can
+  // forget it — a create-mode form seeded in metres under `ft` labels and an edit-mode one
+  // are the same bug.
+  const seedValues = (values: DiveFormInput): DiveFormInput =>
+    toDisplayUnits(openAs === undefined ? values : { ...values, status: openAs }, units);
   if (mode === 'edit') {
     return {
       sourceId,
+      units,
       // A `null` seed in edit mode means the dive has not arrived yet (`useDives()` starts
       // empty) or the id names no live dive at all. Today's blank form is what shows in
       // that gap; `onValid` below refuses to write anything without a real dive, so a form
       // that opened blank can never save its blanks over a dive it never loaded.
-      values: withOpenAs(seed === null ? blankFormValues() : diveToFormValues(seed)),
+      values: seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
       paths: new Set<string>(),
       typed,
     };
   }
-  const values = withOpenAs(initialFormValues(seed));
+  const values = seedValues(initialFormValues(seed));
   const marked = seed === null ? new Set<string>() : computeCarriedPaths(values);
   for (const field of typed) marked.delete(field);
-  return { sourceId, values, paths: marked, typed };
+  return { sourceId, units, values, paths: marked, typed };
 }
 
 /**
@@ -960,6 +972,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // `initialFormValues`'s docblock for why `dives` (and therefore this) can change after
   // mount, and why that is handled below rather than assumed away.
   const { dives } = useDives();
+  // The diver's units (§3). Its own hook, never a field on `useDives()` — see
+  // db/useUnitSystem.ts. It decides what this form's figures are expressed in, so it is
+  // part of the reseed gate below exactly as the seed dive's id is.
+  const units = useUnitSystem();
   // The dive being edited, found inside the one read every screen uses rather than through
   // a second query of this screen's own — the identical rule (and the identical `find`)
   // DiveDetailScreen.tsx follows for the dive it shows, so the form and the detail it was
@@ -996,8 +1012,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // `carried.typed` goes back in on every reseed: the seed decides the VALUES and the marks,
   // and the diver's own history of having touched a field outlives any of them — see
   // `SeedState.typed`.
-  const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, initialStatus));
-  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive, initialStatus, carried.typed));
+  const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, units, initialStatus));
+  if (carried.sourceId !== sourceId || carried.units !== units) {
+    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed));
+  }
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
@@ -1112,10 +1130,15 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         // control is a form field now, so the patch names `status` exactly when the diver
         // moved that control and never otherwise — completing a dive is a deliberate act,
         // not a side effect of opening its form.
-        const patch = toDivePatch(target, values);
+        // `units` is what the figures in front of the diver mean; `toDivePatch` converts
+        // each back to SI before diffing it against the stored dive, so an untouched field
+        // produces no patch entry at all rather than a re-quantised one. See that
+        // function's own docblock — this is the one call that would silently rewrite every
+        // imperial diver's stored depths if the argument were dropped.
+        const patch = toDivePatch(target, values, units);
         await updateDive(db, target.id, patch);
       } else {
-        await createDive(db, toNewDiveInput(values));
+        await createDive(db, toNewDiveInput(values, units));
       }
       // `backToDives` (navigation/backToDives.ts), not a private copy of its guard: this
       // screen is reachable directly by URL exactly as DiveDetailScreen is, and a diver who
@@ -1195,7 +1218,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
-            unit="m"
+            unit={unitLabel('depth', units)}
           />
           <ControlledTextField
             control={control}
@@ -1216,7 +1239,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               one. `timeOut` gets no control at all: it is computed from this plus duration
               (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
           <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
-          <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit="m" />
+          <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
         </FormGroup>
 
         <FormGroup title="Conditions" scheme={scheme}>
@@ -1227,9 +1250,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
-            unit="°C"
+            unit={unitLabel('temperature', units)}
           />
-          <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit="°C" />
+          <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
           <ControlledTextField
             control={control}
             name="visibilityM"
@@ -1237,7 +1260,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
-            unit="m"
+            unit={unitLabel('depth', units)}
           />
           <ControlledTextField control={control} name="waves" label="Waves" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
           <ControlledTextField control={control} name="current" label="Current" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
@@ -1334,7 +1357,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
             mono
-            unit="bar"
+            unit={unitLabel('pressure', units)}
           />
           {/* `O2 %` and `He %` until M1d's closing fixes: the same two fields the detail
               screen labels `O₂` and `He`, so one cylinder read two ways one screen apart —
@@ -1372,7 +1395,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
-            unit="bar"
+            unit={unitLabel('pressure', units)}
           />
           <ControlledTextField
             control={control}
@@ -1381,7 +1404,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
-            unit="bar"
+            unit={unitLabel('pressure', units)}
           />
         </FormGroup>
 
@@ -1406,7 +1429,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
             mono
-            unit="kg"
+            unit={unitLabel('weight', units)}
           />
         </FormGroup>
 

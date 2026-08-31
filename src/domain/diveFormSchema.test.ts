@@ -1,6 +1,7 @@
 import { dive } from './diveFixture';
 import {
   diveFormSchema,
+  toDisplayUnits,
   toDivePatch,
   toNewDiveInput,
   unknownBooleanNote,
@@ -8,6 +9,7 @@ import {
   UNKNOWN_BOOLEAN_NOTE,
   UNKNOWN_OPTION_NOTE,
 } from './diveFormSchema';
+import { type UnitSystem } from '../format/units';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -18,6 +20,22 @@ import {
 } from './types';
 
 const base = { date: '2026-08-16' };
+
+/** The form as the diver found it: this dive's own stored values, parsed back through the
+ * schema exactly as `DiveFormScreen` seeds and submits them. `over` is what they changed. */
+const patchAfterEditing = (
+  stored: Parameters<typeof dive>[0],
+  over: Record<string, unknown> = {},
+  units: UnitSystem = 'metric',
+) => {
+  const original = dive(stored);
+  // Seeded exactly as `DiveFormScreen` seeds it — through `toDisplayUnits`, so the form
+  // holds the figures the diver actually reads — and then overridden with whatever they
+  // typed, in those same units.
+  const values = diveFormSchema.parse({ ...toDisplayUnits(original, units), ...over });
+  return toDivePatch(original, values, units);
+};
+
 
 describe('the coercion contract', () => {
   it('turns an empty numeric field into null, never zero', () => {
@@ -210,7 +228,7 @@ describe('never blocking a save', () => {
 
 describe('toNewDiveInput', () => {
   it('omits fields the diver left empty rather than sending nulls for all of them', () => {
-    const input = toNewDiveInput(diveFormSchema.parse({ date: '2026-08-16' }));
+    const input = toNewDiveInput(diveFormSchema.parse({ date: '2026-08-16' }), 'metric');
     expect(input.date).toBe('2026-08-16');
     expect(Object.values(input).every((v) => v !== 0)).toBe(true);
   });
@@ -220,20 +238,12 @@ describe('toNewDiveInput', () => {
     // could reach `status: 'planned'` before, because the form had no field for it and the
     // form is `createDive`'s only caller. Both states asserted — an input that always said
     // 'logged' would pass the second line alone, which is exactly the state it was in.
-    expect(toNewDiveInput(diveFormSchema.parse({ ...base, status: 'planned' })).status).toBe('planned');
-    expect(toNewDiveInput(diveFormSchema.parse(base)).status).toBe('logged');
+    expect(toNewDiveInput(diveFormSchema.parse({ ...base, status: 'planned' }), 'metric').status).toBe('planned');
+    expect(toNewDiveInput(diveFormSchema.parse(base), 'metric').status).toBe('logged');
   });
 });
 
 describe('toDivePatch', () => {
-  /** The form as the diver found it: this dive's own stored values, parsed back through the
-   * schema exactly as `DiveFormScreen` seeds and submits them. `over` is what they changed. */
-  const patchAfterEditing = (stored: Parameters<typeof dive>[0], over: Record<string, unknown> = {}) => {
-    const original = dive(stored);
-    const values = diveFormSchema.parse({ ...original, ...over });
-    return toDivePatch(original, values);
-  };
-
   it('sends nothing at all when nothing changed', () => {
     // The whole diff in one assertion: a dive read into the form and submitted untouched
     // must produce no write. Any field that fails to round-trip shows up here as a key.
@@ -324,5 +334,112 @@ describe('toDivePatch', () => {
 
   it('sends an empty array when the diver clears the only cylinder they had', () => {
     expect(patchAfterEditing({ tanks: [tank()] }, { tanks: [{}] })).toEqual({ tanks: [] });
+  });
+});
+
+// DESIGN.md §3's unit setting, from the two ends the form actually has: `toDisplayUnits`
+// seeds the fields with the figures the diver reads, and `toNewDiveInput`/`toDivePatch`
+// put SI back before anything is written. §6 stores SI and only SI.
+describe('working in the diver’s own units', () => {
+  describe('toDisplayUnits', () => {
+    it('leaves a metric form exactly as the dive is stored, unrounded', () => {
+      // Not merely "unconverted": no rounding either. 24.63 is what the diver typed and
+      // what a metric save must write back, even though the detail screen shows 24.6.
+      const seeded = toDisplayUnits(dive({ maxDepthM: 24.63, waterTempC: 25, weightsKg: 6.5 }), 'metric');
+      expect(seeded.maxDepthM).toBe(24.63);
+      expect(seeded.waterTempC).toBe(25);
+      expect(seeded.weightsKg).toBe(6.5);
+    });
+
+    it('converts every field carrying one of the four pairs, and no other', () => {
+      const seeded = toDisplayUnits(
+        dive({
+          maxDepthM: 24.6,
+          avgDepthM: 18,
+          visibilityM: 20,
+          waterTempC: 25,
+          airTempC: 30,
+          weightsKg: 6.5,
+          durationMin: 47,
+          rating: 4,
+          latitude: 50.12345,
+          tanks: [{ sizeL: 12, count: 1, workingBar: 232, startBar: 200, endBar: 50, o2Pct: 32, hePct: null, material: 'steel' }],
+        }),
+        'imperial',
+      );
+      expect(seeded.maxDepthM).toBe(81);
+      expect(seeded.avgDepthM).toBe(59);
+      expect(seeded.visibilityM).toBe(66);
+      expect(seeded.waterTempC).toBe(77);
+      expect(seeded.airTempC).toBe(86);
+      expect(seeded.weightsKg).toBe(14);
+      expect(seeded.tanks?.[0]?.workingBar).toBe(3365);
+      expect(seeded.tanks?.[0]?.startBar).toBe(2901);
+      expect(seeded.tanks?.[0]?.endBar).toBe(725);
+      // Untouched: minutes are minutes, a rating is a rating, a coordinate is degrees, and
+      // a cylinder's litres have no imperial counterpart that is the same quantity.
+      expect(seeded.durationMin).toBe(47);
+      expect(seeded.rating).toBe(4);
+      expect(seeded.latitude).toBe(50.12345);
+      expect(seeded.tanks?.[0]?.sizeL).toBe(12);
+      expect(seeded.tanks?.[0]?.o2Pct).toBe(32);
+      expect(seeded.tanks?.[0]?.count).toBe(1);
+      // ...and nothing that is not a number at all.
+      expect(seeded.tanks?.[0]?.material).toBe('steel');
+    });
+  });
+
+  describe('toNewDiveInput', () => {
+    it('writes SI whatever the diver typed in', () => {
+      const values = diveFormSchema.parse({
+        ...base,
+        maxDepthM: '81',
+        waterTempC: '77',
+        weightsKg: '14',
+        tanks: [{ startBar: '3000' }],
+      });
+      const input = toNewDiveInput(values, 'imperial');
+      expect(input.maxDepthM).toBeCloseTo(24.6888, 10);
+      expect(input.waterTempC).toBeCloseTo(25, 10);
+      expect(input.weightsKg).toBeCloseTo(6.35029318, 10);
+      expect(input.tanks?.[0]?.startBar).toBeCloseTo(206.8427187950508, 10);
+    });
+
+    it('writes a metric diver’s figures through untouched', () => {
+      const input = toNewDiveInput(diveFormSchema.parse({ ...base, maxDepthM: '24.63' }), 'metric');
+      expect(input.maxDepthM).toBe(24.63);
+    });
+  });
+
+  describe('toDivePatch', () => {
+    // The defect the display-space comparison exists to prevent. 24.6 m reads as 81 ft;
+    // 81 ft converts back to 24.6888 m, so a naive diff would report a changed depth on a
+    // save that only corrected a buddy's name — on every imperial dive, forever, with
+    // updated_at advancing behind it.
+    it('writes nothing for a field the imperial diver never touched', () => {
+      expect(
+        patchAfterEditing(
+          { maxDepthM: 24.6, waterTempC: 25, weightsKg: 6.5, tanks: [{ startBar: 200, endBar: 50, sizeL: 12, count: 1, workingBar: 232, o2Pct: 32, hePct: null, material: 'steel' }] },
+          {},
+          'imperial',
+        ),
+      ).toEqual({});
+    });
+
+    it('writes only the field the imperial diver did change, in SI', () => {
+      const patch = patchAfterEditing({ maxDepthM: 24.6, buddy: 'Jana' }, { maxDepthM: '82' }, 'imperial');
+      expect(Object.keys(patch)).toEqual(['maxDepthM']);
+      expect(patch.maxDepthM).toBeCloseTo(24.9936, 10);
+    });
+
+    it('writes an unrelated edit without disturbing the depth it sits beside', () => {
+      const patch = patchAfterEditing({ maxDepthM: 24.6, buddy: 'Jana' }, { buddy: 'Petr' }, 'imperial');
+      expect(patch).toEqual({ buddy: 'Petr' });
+    });
+
+    it('leaves a cylinder alone whose pressures the imperial diver only read', () => {
+      const stored = { tanks: [{ sizeL: 12, count: 1, workingBar: 232, o2Pct: 32, hePct: null, startBar: 200, endBar: 50, material: 'steel' as const }] };
+      expect(patchAfterEditing(stored, {}, 'imperial')).toEqual({});
+    });
   });
 });

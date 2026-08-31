@@ -31,6 +31,12 @@ import DiveDetailScreen from './DiveDetailScreen';
 // imperative singleton DivesScreen.tsx already uses for `openDive`/`logDive`), not through a
 // hook, so it needs the same module mock rather than a render prop.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// The unit preference (§3), mocked per module exactly as `useDives` is above and for the
+// same reason: it is a live database read, and this screen must be renderable in either
+// system without one. Left on its own default, `metric`, by every test that does not care
+// — which is what keeps the existing assertions below reading in metres, unchanged.
+jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+
 // M1d task 7: this screen now writes, too — the one write it has, `softDeleteDive`. Mocked
 // per module exactly as DiveFormScreen.test.tsx mocks `createDive`/`updateDive`, so a delete
 // test controls what the write resolves or rejects with and no real database is involved.

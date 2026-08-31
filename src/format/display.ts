@@ -9,13 +9,30 @@ import {
   type TankMaterial,
   type WaterBody,
 } from '../domain/types';
+import { displayFigure, type UnitSystem } from './units';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
- * stored, converted at display"). M1b ships metric only — the unit
- * *setting* (m/ft, bar/psi, °C/°F, kg/lb) arrives in M1c and will live
- * here — so that adding it later touches this module instead of every
- * screen that currently would have formatted a raw number itself.
+ * stored, converted at display"). §4.1 names this module the one owner of
+ * that conversion, and the unit *setting* §3 gives Settings — m/ft,
+ * bar/psi, °C/°F, kg/lb — has landed here rather than in the screens, so
+ * exactly one place decides what a stored number reads as.
+ *
+ * **The unit system is a parameter, never a lookup.** Every formatter below
+ * that has a pair takes `system` from its caller and reads nothing —
+ * no context, no hook, no settings row — from inside itself. That is what
+ * keeps these pure functions testable as pure functions, and it keeps the
+ * decision of *which* system in one place per screen (`useUnitSystem`)
+ * rather than scattered down every formatter in the file. The arithmetic,
+ * the unit words and the precision of each pair live one file over in
+ * `format/units.ts`; this module joins the pieces into the sentence a
+ * diver reads and guards what may not be shown at all.
+ *
+ * A formatter with no `system` parameter has no pair, and that is a
+ * decision rather than an omission: duration is minutes in both systems,
+ * and litres/l-per-min have no imperial counterpart that is the same
+ * quantity — see `format/units.ts`'s top docblock, which states why §3
+ * lists exactly four pairs.
  *
  * Every formatter returns null for a field that was never recorded (null)
  * or cannot be a real reading (NaN, ±Infinity — e.g. a value that reached
@@ -66,33 +83,67 @@ function isFiniteNumber(value: number | null): value is number {
  * actually produce out-of-range numeric input, and negative is the third case after NaN
  * and 0.
  */
-export function formatDepthParts(metres: number | null): { value: string; unit: string } | null {
-  if (!isFiniteNumber(metres) || metres < 0) return null;
-  return { value: metres.toFixed(1), unit: 'm' };
+export function formatDepthParts(
+  metres: number | null,
+  system: UnitSystem,
+): { value: string; unit: string } | null {
+  if (!isDisplayableDepth(metres)) return null;
+  return displayFigure('depth', metres, system);
 }
 
-/** Depth to one decimal place, e.g. "32.4 m" — the precision a gauge reads to. */
-export function formatDepth(metres: number | null): string | null {
-  const parts = formatDepthParts(metres);
+/**
+ * Whether a stored depth can be shown at all — finite, and not below the surface.
+ *
+ * Split out of `formatDepthParts` above when that function gained its `system` parameter,
+ * and the split is load-bearing rather than tidying. `depthColorOrNull` (theme/depth.ts)
+ * asks exactly this question and used to ask it *by calling `formatDepthParts` and checking
+ * for null* — see that function's own docblock for the dangling-"Max depth"-label bug that
+ * arrangement was introduced to fix. It could not keep doing so once formatting needed a
+ * unit system, because the depth SCALE has no unit system: §0.1's bands are metres, colour
+ * is computed from the stored value, and handing `depthColorOrNull` a `UnitSystem` would
+ * say otherwise in the one place that must never believe it.
+ *
+ * So the predicate is what both read, and `formatDepthParts` is defined in terms of it —
+ * there is still exactly one owner of "can this depth be shown", and it is still impossible
+ * for the two answers to drift apart: whatever this accepts, the screen colours *and*
+ * prints; whatever it refuses, neither does.
+ *
+ * Negative is refused as well as non-finite, and that is not the same check: unlike a
+ * temperature, a depth cannot physically be above the surface. (`-0` is not negative and is
+ * accepted, printing as `0.0 m` — a dive that never left the surface is a legal, if sad,
+ * reading.)
+ */
+export function isDisplayableDepth(metres: number | null | undefined): metres is number {
+  return metres !== undefined && isFiniteNumber(metres) && !(metres < 0);
+}
+
+/** Depth as one string, e.g. "32.4 m" or "106 ft" — `formatDepthParts` joined with a
+ * space, never assembled any other way. */
+export function formatDepth(metres: number | null, system: UnitSystem): string | null {
+  const parts = formatDepthParts(metres, system);
   return parts === null ? null : `${parts.value} ${parts.unit}`;
 }
 
-/** Duration to the whole minute, e.g. "72 min" — how divers log it, never h:mm. */
+/** Duration to the whole minute, e.g. "72 min" — how divers log it, never h:mm. Minutes in
+ * both systems: a dive is 47 minutes long wherever it is dived, so this takes no `system`. */
 export function formatDuration(minutes: number | null): string | null {
   if (!isFiniteNumber(minutes)) return null;
   return `${Math.round(minutes)} min`;
 }
 
-/** Temperature to the whole degree, e.g. "-1 °C" — sign kept for sub-zero water. */
-export function formatTemperature(celsius: number | null): string | null {
+/** Water or air temperature, e.g. "-1 °C" or "30 °F" — whole degrees in both systems, sign
+ * kept for sub-zero water. */
+export function formatTemperature(celsius: number | null, system: UnitSystem): string | null {
   if (!isFiniteNumber(celsius)) return null;
-  return `${Math.round(celsius)} °C`;
+  const parts = displayFigure('temperature', celsius, system);
+  return `${parts.value} ${parts.unit}`;
 }
 
-/** Cylinder pressure to the whole bar, e.g. "208 bar". */
-export function formatPressure(bar: number | null): string | null {
+/** Cylinder pressure, e.g. "208 bar" or "3016 psi" — whole units in both systems. */
+export function formatPressure(bar: number | null, system: UnitSystem): string | null {
   if (!isFiniteNumber(bar)) return null;
-  return `${Math.round(bar)} bar`;
+  const parts = displayFigure('pressure', bar, system);
+  return `${parts.value} ${parts.unit}`;
 }
 
 /**
@@ -111,13 +162,31 @@ export function formatPressure(bar: number | null): string | null {
  * this file for.
  */
 
-/** A weight belt's load, e.g. "6.5 kg" — unrounded, since weighting is often set in half-kilos. */
-export function formatWeight(kg: number | null): string | null {
+/**
+ * A weight belt's load, e.g. "6.5 kg" or "14 lb".
+ *
+ * Metric stays unrounded, since weighting is often set in half-kilos and a fixed decimal
+ * count would render a plain 6 kg as "6.0 kg"; imperial reads to the whole pound, which is
+ * finer than that half-kilo and is how weights are cast and stated. Both halves of that
+ * decision, and why they are not the same rule, live in `SPECS` (format/units.ts).
+ */
+export function formatWeight(kg: number | null, system: UnitSystem): string | null {
   if (!isFiniteNumber(kg)) return null;
-  return `${kg} kg`;
+  const parts = displayFigure('weight', kg, system);
+  return `${parts.value} ${parts.unit}`;
 }
 
-/** A cylinder's water capacity, e.g. "12 l" or "11.1 l" — unrounded, since a real cylinder size can be fractional. */
+/**
+ * A cylinder's water capacity, e.g. "12 l" or "11.1 l" — unrounded, since a real cylinder
+ * size can be fractional.
+ *
+ * **Litres in both systems, and this is a decision rather than a gap.** The imperial
+ * cylinder unit is the cubic foot, which measures the *free gas* a cylinder holds at its
+ * working pressure — an "80 cf" cylinder is an 11.1 L one — so l → cf is a different
+ * quantity, not a conversion, and it needs a working pressure this app never insists a
+ * diver record. §3 lists four pairs and this is one of the reasons it lists four. The same
+ * holds for `formatGasUsed` and `formatRmv` below, which are litres of that same gas.
+ */
 export function formatVolume(litres: number | null): string | null {
   if (!isFiniteNumber(litres)) return null;
   return `${litres} l`;

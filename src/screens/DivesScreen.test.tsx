@@ -44,6 +44,12 @@ jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// The unit preference (§3), mocked per module exactly as `useDives` is above and for the
+// same reason: it is a live database read, and this screen must be renderable in either
+// system without one. Left on its own default, `metric`, by every test that does not care
+// — which is what keeps the existing assertions below reading in metres, unchanged.
+jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+
 // DivesScreen calls this one directly (via ReorderControls.tsx's applyReorder), unlike
 // every read, which goes through the mocked useDives() above — mocked separately so a
 // reorder test can control exactly what ReorderOutcome it resolves with, without a real

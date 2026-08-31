@@ -1,4 +1,12 @@
 import { z } from 'zod';
+import {
+  displayValueFor,
+  diveFieldQuantity,
+  storedValueFor,
+  tankFieldQuantity,
+  type Quantity,
+  type UnitSystem,
+} from '../format/units';
 import { isCalendarDate } from './datetime';
 import {
   ENTRY_VALUES,
@@ -19,14 +27,21 @@ import {
  * and thirty-four or one point two three four, and it decides it from a
  * locale tag that has nothing to do with which key the diver actually
  * pressed. Here the question does not arise: no value this form takes needs a
- * thousands separator — depth, average depth, duration, visibility, water and
- * air temperature, pressures, cylinder size, count, gas percentages, weights,
- * rating and the 0-3 condition scales are every one of them far below 1000 in
- * the SI unit DESIGN.md §6 stores (latitude and longitude are bounded by ±180)
- * — and `decimal-pad`, the only keyboard this form gives a numeric field
- * (`FormField.tsx`), offers no grouping key at all. So a comma in one of
- * these fields can only ever be a decimal point, and reading it as one is
- * unambiguous rather than a guess.
+ * thousands separator, and no keyboard it offers can even produce one.
+ * `decimal-pad` and `number-pad` (`FormField.tsx`) have no grouping key at
+ * all, so a comma reaching this function came from the decimal key on a
+ * Czech, German or French device and can only have meant a decimal point.
+ *
+ * The magnitudes back that up rather than carrying it. Every figure this form
+ * takes is under a thousand in the SI unit DESIGN.md §6 stores — depth,
+ * duration, visibility, temperatures, pressures, cylinder size, count, gas
+ * percentages, weights, rating and the 0-3 scales, with latitude and longitude
+ * bounded by ±180 — **with one exception since §3's unit setting landed: a
+ * cylinder pressure typed in psi is in the thousands** (a 232 bar cylinder is
+ * 3365 psi). That does not weaken the rule, because the keyboard argument
+ * above never depended on the size of the number; it is recorded here because
+ * this docblock used to claim "far below 1000" of every field without
+ * exception, and that sentence is no longer true.
  *
  * Applied to every comma, not just the first, purely so the failure is
  * consistent: `'1,2,3'` names no number either way and comes back `NaN`,
@@ -389,6 +404,115 @@ export const diveFormSchema = z.object({
 export type DiveFormValues = z.infer<typeof diveFormSchema>;
 
 /**
+ * The form's own **input** shape — every numeric/text field as the raw string (or
+ * already-typed value) a `TextInput`/carry-over default can hold, before
+ * `zodResolver(diveFormSchema)` coerces it — as opposed to `DiveFormValues` above, this
+ * schema's *output* type of real numbers and nulls. The docblock on the schema itself
+ * draws exactly this line: "this schema... over the form's **string** values." Derived
+ * with `z.input<>` rather than hand-typed, so it cannot drift from the schema the moment
+ * a field is added.
+ *
+ * It lived in `DiveFormScreen.tsx` until `toDisplayUnits` below needed to name it too;
+ * declaring a schema's input type beside its output type is where it belonged anyway.
+ */
+export type DiveFormInput = z.input<typeof diveFormSchema>;
+
+/** One cylinder as the form holds it, before coercion — see `DiveFormInput`. */
+export type TankFormInput = NonNullable<DiveFormInput['tanks']>[number];
+
+/**
+ * Type-level proof that every field this form has is also a field a `Dive` has, so the two
+ * functions below may look a form field's name up in `format/units.ts`'s exhaustive
+ * `Dive`-keyed quantity map — and so `DiveFormScreen`'s `diveToFormValues` may copy a
+ * dive's values across by name. A field added to the schema above that `Dive` does not
+ * carry is a compile error here rather than a field that silently converts as nothing (or
+ * silently seeds as `undefined`).
+ *
+ * Declared here rather than at either call site because this is where both types are
+ * defined; it used to live in `DiveFormScreen.tsx` alone, guarding only one of the two
+ * casts that rest on it.
+ */
+export type FormFieldsExistOnDive = Assert<keyof DiveFormValues extends keyof Dive ? true : false>;
+
+/**
+ * One form figure back in the SI the database stores, or the value unchanged when the
+ * field measures nothing §3 gives a pair for (`durationMin`, `rating`, a gas percentage,
+ * a latitude...) or is not a number at all (a site name, a status, a boolean).
+ *
+ * `stored` is the value the dive being edited already holds for this field, and it is what
+ * lets an untouched field come back bit-for-bit — see `storedValueFor` (format/units.ts)
+ * for why converting `81 ft` straight back to metres on every save would quietly
+ * re-quantise a dive's stored depth. `undefined` for a dive that does not exist yet.
+ */
+function storedFieldValue(
+  quantity: Quantity | null,
+  value: unknown,
+  stored: unknown,
+  units: UnitSystem,
+): unknown {
+  if (quantity === null || typeof value !== 'number') return value;
+  return storedValueFor(quantity, value, typeof stored === 'number' ? stored : null, units);
+}
+
+/**
+ * One cylinder's figures back in SI, paired against the cylinder that currently sits at the
+ * same index of the stored dive (`undefined` when there is none).
+ *
+ * Index-wise, because that is already how `sameTanks` below compares the two arrays: the
+ * form binds `tanks.0.*` and the array is positional, so cylinder 1 is cylinder 1. A
+ * carried-over working pressure the diver never touched therefore stays exactly the number
+ * the previous dive recorded, rather than making every second dive of a trip differ from
+ * the first by a fraction of a bar.
+ */
+function toStoredTank(tank: Tank, stored: Tank | undefined, units: UnitSystem): Tank {
+  const next = { ...tank } as Record<string, unknown>;
+  for (const field of TANK_FIELDS) {
+    next[field] = storedFieldValue(tankFieldQuantity(field), tank[field], stored?.[field], units);
+  }
+  return next as unknown as Tank;
+}
+
+/**
+ * The form's SEED values, converted the other way: a dive's stored SI figures as the
+ * numbers a diver working in `units` expects to find in the fields — `24.7` in a metres
+ * form, `81` in a feet one.
+ *
+ * The counterpart of `toNewDiveInput`/`toDivePatch` below, and the reason the form can be
+ * said to work in the diver's own units at all: everything between this call and those two
+ * — what the box shows, what carry-over marks, what react-hook-form calls dirty, what Zod
+ * coerces — sees only the diver's own numbers, and SI exists on either side of it. That is
+ * still "converted at display" (§6): the value in the database never leaves SI, and the
+ * only thing this changes is what a text field is seeded with.
+ *
+ * Takes and returns `DiveFormInput` — the seed, not the parsed output — because that is
+ * what `blankFormValues()`/`carryOverFrom` produce and what `useForm`'s `values` option
+ * takes. Non-numeric fields (a site name, the date, a boolean, a status) pass through
+ * untouched, as do the numeric fields §3 gives no pair: `storedFieldValue` and
+ * `displayFieldValue` share exactly that rule, one per direction.
+ */
+export function toDisplayUnits(values: DiveFormInput, units: UnitSystem): DiveFormInput {
+  const next = { ...values } as Record<string, unknown>;
+  for (const key of Object.keys(diveFormSchema.shape) as (keyof DiveFormValues)[]) {
+    if (key === 'tanks') continue;
+    next[key] = displayFieldValue(diveFieldQuantity(key), next[key], units);
+  }
+  next.tanks = values.tanks?.map((tank) => {
+    const converted = { ...tank } as Record<string, unknown>;
+    for (const field of TANK_FIELDS) {
+      converted[field] = displayFieldValue(tankFieldQuantity(field), converted[field], units);
+    }
+    return converted as TankFormInput;
+  });
+  return next as DiveFormInput;
+}
+
+/** `storedFieldValue`'s mirror — see `toDisplayUnits`. */
+function displayFieldValue(quantity: Quantity | null, value: unknown, units: UnitSystem): unknown {
+  if (quantity === null || typeof value !== 'number') return value;
+  return displayValueFor(quantity, value, units);
+}
+
+/**
  * The single place form values become a domain object, for `createDive`
  * (`db/dives.ts`). Deliberately typed from `Dive` alone rather than
  * importing `db/dives.ts`'s `NewDiveInput`: `domain/` is the lower layer and
@@ -414,13 +538,37 @@ export type DiveFormValues = z.infer<typeof diveFormSchema>;
  * (§2.4's control always holds one of its two states), so the loop below copies
  * it every time and a created dive states plainly which one it is, rather than
  * leaning on `createDive`'s own `?? 'logged'` fallback to fill the gap.
+ *
+ * **`units` is what the diver typed in, and this is where it stops being true of the
+ * data.** A `DiveFormValues` holds the figures the diver actually read and typed —
+ * `81` in a field labelled `ft` — while §6 stores SI and nothing else, so every
+ * unit-bearing field is converted here on its way out. Passed rather than looked up, for
+ * the same reason `format/display.ts`'s formatters take it: one place decides, and this
+ * stays a pure function. And required rather than defaulted, deliberately: a defaulted
+ * `'metric'` would let a call site that forgot it write feet into a metres column with
+ * nothing failing anywhere — the silent-wrong-number failure this codebase keeps paying
+ * for. Which field converts into what is `format/units.ts`'s exhaustive map, never a list
+ * kept here.
  */
-export function toNewDiveInput(values: DiveFormValues): Partial<Dive> & Pick<Dive, 'date'> {
+export function toNewDiveInput(
+  values: DiveFormValues,
+  units: UnitSystem,
+): Partial<Dive> & Pick<Dive, 'date'> {
   const { date, tanks, ...rest } = values;
-  const input: Partial<Dive> & Pick<Dive, 'date'> = { date, tanks };
+  // No stored cylinder to preserve against — nothing is stored yet — so every recorded
+  // figure simply converts.
+  const input: Partial<Dive> & Pick<Dive, 'date'> = {
+    date,
+    tanks: tanks.map((tank) => toStoredTank(tank, undefined, units)),
+  };
   for (const [key, value] of Object.entries(rest) as [keyof typeof rest, (typeof rest)[keyof typeof rest]][]) {
     if (value !== null) {
-      (input as Record<string, unknown>)[key] = value;
+      (input as Record<string, unknown>)[key] = storedFieldValue(
+        diveFieldQuantity(key),
+        value,
+        undefined,
+        units,
+      );
     }
   }
   return input;
@@ -475,24 +623,43 @@ function sameTanks(before: readonly Tank[], after: readonly Tank[]): boolean {
  * depth is. It is emphatically NOT inferred from the stored status: a caller that added
  * `patch.status = 'logged'` whenever the dive was planned would complete a dive whose
  * site name the diver only came back to correct, which is the bug this replaced.
+ *
+ * **`units` converts each figure back to SI *before* it is compared, and the order is the
+ * whole point.** The form holds what the diver read — `81 ft` over a dive stored as
+ * 24.6 m — and 81 ft converts to 24.6888 m, so a naive diff would report every
+ * unit-bearing field on every imperial dive as changed, on a save that only corrected a
+ * buddy's name. `storedValueFor` (format/units.ts) closes that by asking the question that
+ * actually matters — does the stored value still *read* as the figure in the box? — and
+ * handing back the stored value itself when it does. `Object.is` then sees no change and
+ * the patch stays empty, which is exactly right: the diver changed nothing, so nothing is
+ * written, `updated_at` does not move, and M2's whole-row last-write-wins has nothing to
+ * carry to their other devices.
  */
 export function toDivePatch(
   original: Dive,
   values: DiveFormValues,
+  units: UnitSystem,
 ): Partial<Omit<Dive, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'manualOrder'>> {
   const patch: Record<string, unknown> = {};
   const { tanks, ...rest } = values;
   const before = original as unknown as Record<string, unknown>;
 
   for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
+    const next = storedFieldValue(diveFieldQuantity(key), rest[key], before[key], units);
     // `Object.is`, not `===`: identical semantics for every value this schema can produce
     // (strings, finite numbers, booleans, null) and no `NaN !== NaN` surprise if one ever
     // slips through, which would otherwise report an unchanged field as changed on every
     // single save.
-    if (!Object.is(rest[key], before[key])) patch[key] = rest[key];
+    if (!Object.is(next, before[key])) patch[key] = next;
   }
 
-  const nextTanks = tanks.filter(isRecordedTank);
+  // Converted against the cylinder sitting at the same index of the STORED array, not
+  // against the filtered one below: `isRecordedTank` can drop a blank cylinder from either
+  // side and shift the pairing, and the value being preserved belongs to a position in the
+  // stored dive, not to a position in a filtered view of it.
+  const nextTanks = tanks
+    .map((tank, index) => toStoredTank(tank, original.tanks[index], units))
+    .filter(isRecordedTank);
   const currentTanks = original.tanks.filter(isRecordedTank);
   if (!sameTanks(currentTanks, nextTanks)) patch.tanks = nextTanks;
 

@@ -39,6 +39,12 @@ jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 // Task 7 gives updateDive a real caller: mode="edit" writes a patch of changed fields
 // through it, and completing a planned dive (§2.4) is that same write plus `status`.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// The unit preference (§3), mocked per module exactly as `useDives` is above and for the
+// same reason: it is a live database read, and this screen must be renderable in either
+// system without one. Left on its own default, `metric`, by every test that does not care
+// — which is what keeps the existing assertions below reading in metres, unchanged.
+jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same

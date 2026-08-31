@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
 import { diveSiteLabel, formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
+import { type UnitSystem } from '../format/units';
 import { makeStyles, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DepthValue } from './DepthValue';
@@ -12,6 +13,13 @@ interface DiveRowProps {
   /** Chronological dive number, or `undefined` for a planned dive (§2.4: no number until completed). */
   number: number | undefined;
   scheme: ColorScheme;
+  /**
+   * The diver's unit system (§3), for the depth this row shows **and for the accessibility
+   * label that speaks it**. Both, always: the label is composed from `formatDepth`'s own
+   * output rather than from a second reading of the same field, so a screen reader can
+   * never announce a depth in metres beside a screen showing feet.
+   */
+  units: UnitSystem;
   onPress: (id: string) => void;
   /**
    * Overrides the depth value's own slot at the row's trailing edge, in place of
@@ -105,14 +113,14 @@ function accessibilityLabelFor(
  * one), so it carries `accessibilityRole="button"` and a composed `accessibilityLabel`
  * (see `accessibilityLabelFor` above) rather than relying on `Pressable`'s default.
  */
-function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowProps) {
+function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: DiveRowProps) {
   const styles = makeStyles(scheme);
   // `diveSiteLabel` (format/display.ts), never an inline `siteName ?? centerName ?? ...`
   // here: this row and the dive's own detail hero must call a dive the same thing, and the
   // one time they each owned the rule they drifted — the row said "Unnamed site" where the
   // detail screen showed no heading at all.
   const site = diveSiteLabel(dive);
-  const depth = formatDepth(dive.maxDepthM);
+  const depth = formatDepth(dive.maxDepthM, units);
   const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
   const duration = formatDuration(dive.durationMin);
   // §3: "Up next" pins planned dives "with their date" — the one fact that section exists
@@ -156,7 +164,7 @@ function DiveRowComponent({ dive, number, scheme, onPress, depthSlot }: DiveRowP
             {site}
           </Text>
         </View>
-        {depthSlot !== undefined ? depthSlot : <DepthValue metres={dive.maxDepthM} scheme={scheme} />}
+        {depthSlot !== undefined ? depthSlot : <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />}
       </View>
       {hasMeta && (
         <View style={styles.diveRowBottom}>

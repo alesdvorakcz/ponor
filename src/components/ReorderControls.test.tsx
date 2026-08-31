@@ -200,7 +200,7 @@ describe('ReorderControls', () => {
 
   it("renders each dive's row via DiveRow, in the given order", async () => {
     const t = await render(
-      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
     );
     const text = textIn(t).join(' ');
     expect(text).toContain('Site A');
@@ -212,7 +212,7 @@ describe('ReorderControls', () => {
 
   it('disables move-up on the first row and move-down on the last, and nothing else', async () => {
     const t = await render(
-      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
     );
     const ups = findAllMoveButtons(t, 'up');
     const downs = findAllMoveButtons(t, 'down');
@@ -230,7 +230,7 @@ describe('ReorderControls', () => {
   it('a disabled control does not fire onReorder even if pressed', async () => {
     const onReorder = jest.fn();
     const t = await render(
-      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={onReorder} />,
+      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={onReorder} />,
     );
     const [firstUp] = findAllMoveButtons(t, 'up');
     if (!firstUp) throw new Error('expected a move-up control on the first row');
@@ -248,7 +248,7 @@ describe('ReorderControls', () => {
       <ReorderControls
         dives={[a, b, c]}
         numbers={new Map()}
-        scheme="dark"
+        scheme="dark" units="metric"
         onPress={() => {}}
         onReorder={onReorder}
       />,
@@ -263,7 +263,7 @@ describe('ReorderControls', () => {
   it('passes the dive id, not the row, to onPress', async () => {
     const onPress = jest.fn();
     const t = await render(
-      <ReorderControls dives={[a, b]} numbers={new Map()} scheme="dark" onPress={onPress} onReorder={() => {}} />,
+      <ReorderControls dives={[a, b]} numbers={new Map()} scheme="dark" units="metric" onPress={onPress} onReorder={() => {}} />,
     );
     const [siteA] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children[0] === 'Site A') : [];
     // DiveRow's own row is the Pressable ancestor of its site text; walking up
@@ -282,7 +282,7 @@ describe('ReorderControls', () => {
   // rather than from some fixed field.
   it("labels each row's controls with the dive's site and position, not an identical string", async () => {
     const t = await render(
-      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
     );
     expect(findAllMoveButtons(t, 'up').map((n) => n.props.accessibilityLabel)).toEqual([
       'Move Site A (dive 1 of 3) up',
@@ -309,7 +309,7 @@ describe('ReorderControls', () => {
       <ReorderControls
         dives={[sameSite1, sameSite2]}
         numbers={new Map()}
-        scheme="dark"
+        scheme="dark" units="metric"
         onPress={() => {}}
         onReorder={() => {}}
       />,
@@ -326,7 +326,7 @@ describe('ReorderControls', () => {
       <ReorderControls
         dives={[unnamed1, unnamed2]}
         numbers={new Map()}
-        scheme="dark"
+        scheme="dark" units="metric"
         onPress={() => {}}
         onReorder={() => {}}
       />,
@@ -349,7 +349,7 @@ describe('ReorderControls', () => {
         <ReorderControls
           dives={[a, b, c]}
           numbers={new Map()}
-          scheme="dark"
+          scheme="dark" units="metric"
           onPress={() => {}}
           onReorder={onReorder}
           disabled
@@ -373,7 +373,7 @@ describe('ReorderControls', () => {
 
     it('defaults to false, leaving first/last-row behaviour exactly as before', async () => {
       const t = await render(
-        <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const ups = findAllMoveButtons(t, 'up');
       const downs = findAllMoveButtons(t, 'down');
@@ -407,12 +407,12 @@ describe('ReorderControls', () => {
     // "Move "), which is exactly how a screen reader would tell the two kinds of button
     // apart too.
     it("renders one row per dive, each with DiveRow's own unmodified container style", async () => {
-      const plain = await render(<DiveRow dive={d1} number={1} scheme="dark" onPress={() => {}} />);
+      const plain = await render(<DiveRow dive={d1} number={1} scheme="dark" units="metric" onPress={() => {}} />);
       if (!plain.root) throw new Error('expected DiveRow to render a root element');
       const plainRowStyle = flatStyle(plain.root);
 
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const rowRoots = t.root
         ? t.root.queryAll(
@@ -434,7 +434,7 @@ describe('ReorderControls', () => {
     // own cross-axis size is the tallest of its children.
     it('nests each arrow inside its own row rather than beside it in a separate column', async () => {
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const rowRoots = t.root
         ? t.root.queryAll(
@@ -466,7 +466,7 @@ describe('ReorderControls', () => {
     // separately below, via hitSlop rather than the box itself.
     it('draws each arrow at 34 x 26, not the old 48 x 48 box that used to inflate the row', async () => {
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const [firstUp] = findAllMoveButtons(t, 'up');
       if (!firstUp) throw new Error('expected a move-up control');
@@ -490,7 +490,7 @@ describe('ReorderControls', () => {
     // this test went on passing. The container's own room is asserted right after.
     it('still reaches a 48 dp touch target via hitSlop, even though the visible box is smaller', async () => {
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const [firstUp] = findAllMoveButtons(t, 'up');
       if (!firstUp) throw new Error('expected a move-up control');
@@ -531,7 +531,7 @@ describe('ReorderControls', () => {
     it('hides the depth value on a row that is showing arrows, rather than showing both', async () => {
       const styles = makeStyles('dark');
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const upArrows = t.root
         ? t.root.queryAll((n) => n.type === 'View' && [n.props?.style].flat(3).includes(styles.reorderArrowUp))
@@ -564,7 +564,7 @@ describe('ReorderControls', () => {
     it('reads its row and arrow styles from the theme, not from ad hoc literals', async () => {
       const styles = makeStyles('dark');
       const t = await render(
-        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
+        <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
       );
       const rowRoots = t.root
         ? t.root.queryAll((n) => n.props?.style === styles.diveRow)

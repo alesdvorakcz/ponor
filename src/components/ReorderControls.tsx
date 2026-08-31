@@ -4,6 +4,7 @@ import { db } from '../db/client';
 import { type ReorderOutcome } from '../db/dives';
 import { type Db } from '../db/types';
 import { type Dive } from '../domain/types';
+import { type UnitSystem } from '../format/units';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DiveRow } from './DiveRow';
@@ -208,6 +209,17 @@ interface ReorderControlsProps {
   dives: Dive[];
   numbers: Map<string, number>;
   scheme: ColorScheme;
+  /**
+   * The diver's unit system (§3), forwarded to `DiveRow` untouched.
+   *
+   * This component draws no figure of its own — the depth value it replaces is exactly
+   * what its arrows take the place of — so it has no use for this beyond passing it on. It
+   * is still required rather than defaulted: the rows underneath keep showing their depth
+   * on every OTHER day of the list while one day is being ordered (§0.6, "entering the mode
+   * dims the rest"), and a default here would be a second place that decides a diver's
+   * units, silently disagreeing with the screen around it.
+   */
+  units: UnitSystem;
   onPress: (id: string) => void;
   /**
    * Called with the day's requested new order, in CHRONOLOGICAL
@@ -285,6 +297,7 @@ export function ReorderControls({
   dives,
   numbers,
   scheme,
+  units,
   onPress,
   onReorder,
   disabled = false,
@@ -331,6 +344,7 @@ export function ReorderControls({
             dive={dive}
             number={numbers.get(dive.id)}
             scheme={scheme}
+            units={units}
             onPress={onPress}
             depthSlot={arrows}
           />

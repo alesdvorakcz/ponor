@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { isDiveCount } from '../domain/diveNumber';
+import { DEFAULT_UNIT_SYSTEM, isUnitSystem, type UnitSystem } from '../format/units';
 import { settings } from './schema';
 import type { Db } from './types';
 
@@ -131,4 +132,63 @@ export async function setDivesBefore(db: Db, count: number): Promise<void> {
     .insert(settings)
     .values({ key: DIVES_BEFORE_KEY, value })
     .onConflictDoUpdate({ target: settings.key, set: { value } });
+}
+
+/**
+ * The diver's chosen unit system (DESIGN.md §3: m/ft · bar/psi · °C/°F · kg/lb), the
+ * second key this local-only table holds — and named here, once, so the Settings screen
+ * that will write it and the hook that reads it cannot spell it two ways. `settings`'s own
+ * column comment already listed "units" as one of its intended keys; this is that key.
+ */
+const UNITS_KEY = 'units';
+
+/**
+ * The `units` row as a builder, for `useLiveQuery` — the same shape `divesBeforeQuery`
+ * above takes, and for the same reason: a live query needs the builder, not the awaited
+ * rows, so that changing the preference re-renders every screen showing a figure.
+ */
+export function unitSystemQuery(db: Db) {
+  return db.select().from(settings).where(eq(settings.key, UNITS_KEY));
+}
+
+/**
+ * The unit system out of `unitSystemQuery`'s rows: the stored value when it names one this
+ * build knows, and `DEFAULT_UNIT_SYSTEM` (metric) otherwise — an absent row, an
+ * uninterpretable one, or a system a future build offers and this one does not.
+ *
+ * **It never throws and never reports a failure, where `getDivesBefore` does both**, and
+ * the asymmetry is deliberate. A wrong `dives_before` misnumbers the whole logbook with
+ * nothing on screen to give it away, which is why that read refuses a value it cannot
+ * interpret. A unit system that failed to load is not that kind of lie: every figure the
+ * app prints carries its own unit word beside it (`format/units.ts`'s `displayFigure`), so
+ * a diver who should be seeing feet sees `24.6 m` — the right number under the right
+ * label, merely not the one they asked for — and a switch in Settings fixes it. Degrading
+ * silently to a self-labelling default is the honest behaviour here; a banner over the
+ * logbook would not be.
+ *
+ * `rows` is `unknown[]`, not this query's real return type, because `useLiveQuery`'s
+ * `.data` is typed that loosely — the same reason `readDivesBefore` above takes it.
+ */
+export function readUnitSystem(rows: unknown[]): UnitSystem {
+  const row = Array.isArray(rows) ? rows.at(0) : undefined;
+  const value =
+    row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
+  return isUnitSystem(value) ? value : DEFAULT_UNIT_SYSTEM;
+}
+
+/**
+ * Records the diver's unit system. Written for the Settings screen (§3), which is the only
+ * thing that ever changes it — the value has no other producer, and putting the key and
+ * the upsert here rather than in that screen is what keeps `readUnitSystem` above the only
+ * reader of a string only this function writes.
+ *
+ * Takes a `UnitSystem`, so there is nothing to validate: an unknown value cannot be
+ * constructed to pass in. `setDivesBefore` has to check because a `number` can be
+ * fractional or negative; a two-member union cannot be either.
+ */
+export async function setUnitSystem(db: Db, system: UnitSystem): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key: UNITS_KEY, value: system })
+    .onConflictDoUpdate({ target: settings.key, set: { value: system } });
 }

@@ -1,7 +1,15 @@
 import { assignDiveNumbers, isDiveCount } from '../domain/diveNumber';
 import { createDive, listDives } from './dives';
 import { settings } from './schema';
-import { divesBeforeQuery, getDivesBefore, readDivesBefore, setDivesBefore } from './settings';
+import {
+  divesBeforeQuery,
+  getDivesBefore,
+  readDivesBefore,
+  readUnitSystem,
+  setDivesBefore,
+  setUnitSystem,
+  unitSystemQuery,
+} from './settings';
 import { createTestDb, type TestDb } from './testDb';
 
 let db: TestDb;
@@ -130,5 +138,68 @@ describe('the numbering path this accessor exists to protect', () => {
     await createDive(db, { date: '2026-08-16' });
     const numbers = assignDiveNumbers(await listDives(db), await getDivesBefore(db));
     expect([...numbers.values()]).toEqual([248]);
+  });
+});
+
+// The second key this local-only table holds (DESIGN.md §3's m/ft · bar/psi · °C/°F ·
+// kg/lb). Read through the same builder/reader split `dives_before` uses above, so the
+// Settings screen and the live hook cannot spell the key two ways.
+describe('readUnitSystem', () => {
+  it('is metric on a fresh database — the default a diver who never opened Settings gets', async () => {
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('metric');
+  });
+
+  it('returns the stored system', async () => {
+    await db.insert(settings).values({ key: 'units', value: 'imperial' });
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+    // ...and the other way, so a reader hard-wired to one value cannot pass.
+    await db.update(settings).set({ value: 'metric' });
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('metric');
+  });
+
+  it('falls back to metric for a value this build cannot honour, rather than throwing', async () => {
+    // Unlike `dives_before`, which throws: every figure this app prints carries its own
+    // unit word, so a preference that failed to load shows the right number under the
+    // right label — see readUnitSystem's own docblock for why that asymmetry is deliberate.
+    for (const bad of ['Imperial', 'nautical', '', '  metric  ', 'null']) {
+      const fresh = createTestDb();
+      await fresh.insert(settings).values({ key: 'units', value: bad });
+      expect(readUnitSystem(await unitSystemQuery(fresh))).toBe('metric');
+    }
+  });
+
+  it('ignores unrelated settings keys', async () => {
+    await db.insert(settings).values({ key: 'dives_before', value: '247' });
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('metric');
+  });
+
+  it('never throws on a malformed rows argument — it runs during a render, which may not throw', () => {
+    const malformed = [null, undefined, 'nope', 42, [{}], [{ value: 42 }], [null]] as unknown[];
+    for (const bad of malformed) {
+      expect(() => readUnitSystem(bad as unknown[])).not.toThrow();
+      expect(readUnitSystem(bad as unknown[])).toBe('metric');
+    }
+  });
+});
+
+describe('setUnitSystem', () => {
+  it('records the choice where readUnitSystem finds it', async () => {
+    await setUnitSystem(db, 'imperial');
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+  });
+
+  it('overwrites the previous choice rather than adding a second row', async () => {
+    await setUnitSystem(db, 'imperial');
+    await setUnitSystem(db, 'metric');
+    const rows = await unitSystemQuery(db);
+    expect(rows).toHaveLength(1);
+    expect(readUnitSystem(rows)).toBe('metric');
+  });
+
+  it('leaves the diver’s pre-Ponor count alone — two keys, one table', async () => {
+    await setDivesBefore(db, 247);
+    await setUnitSystem(db, 'imperial');
+    expect(await getDivesBefore(db)).toBe(247);
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
   });
 });

@@ -7,6 +7,7 @@ import {
   formatDiveCount,
   formatDuration,
   formatDiveDate,
+  isDisplayableDepth,
   formatDiveStatus,
   formatEntry,
   formatGasUsed,
@@ -29,14 +30,14 @@ import {
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
-    expect(formatDepth(32.44)).toBe('32.4 m');
-    expect(formatDepth(18)).toBe('18.0 m');
+    expect(formatDepth(32.44, 'metric')).toBe('32.4 m');
+    expect(formatDepth(18, 'metric')).toBe('18.0 m');
   });
   it('returns null for an unrecorded depth rather than a zero', () => {
-    expect(formatDepth(null)).toBeNull();
+    expect(formatDepth(null, 'metric')).toBeNull();
   });
   it('returns null rather than rendering NaN', () => {
-    expect(formatDepth(Number.NaN)).toBeNull();
+    expect(formatDepth(Number.NaN, 'metric')).toBeNull();
   });
   // M1c closing fixes, Important #3: unlike formatTemperature's "keeps a negative reading
   // signed" a few describes down, a depth cannot physically be negative — nothing dives
@@ -47,7 +48,47 @@ describe('formatDepth', () => {
   // a dangling label DepthValue then rendered nothing beside. Pinned here so the two can
   // never quietly drift apart again.
   it('returns null for a negative depth, since nothing dives above the surface', () => {
-    expect(formatDepth(-5)).toBeNull();
+    expect(formatDepth(-5, 'metric')).toBeNull();
+  });
+  // The unit setting (DESIGN.md §3) reaches this function as an argument and nothing else
+  // — no context, no settings read — which is what keeps it a pure function two call sites
+  // can hand different systems in the same render.
+  it('reads the same stored depth in the system it is given', () => {
+    expect(formatDepth(24.6, 'imperial')).toBe('81 ft');
+    expect(formatDepth(24.6, 'metric')).toBe('24.6 m');
+  });
+  it('refuses the same depths in either system, so a screen gates identically in both', () => {
+    expect(formatDepth(null, 'imperial')).toBeNull();
+    expect(formatDepth(Number.NaN, 'imperial')).toBeNull();
+    expect(formatDepth(-5, 'imperial')).toBeNull();
+  });
+});
+
+// The predicate `formatDepthParts` is defined in terms of, and `theme/depth.ts`'s
+// `depthColorOrNull` defers to — so "can this depth be shown" has one owner even though
+// only one of the two knows about units. Pinned directly, because it is now the thing that
+// keeps a screen's "Max depth" label and the coloured value beside it from disagreeing.
+describe('isDisplayableDepth', () => {
+  it('accepts a real depth', () => {
+    expect(isDisplayableDepth(24.6)).toBe(true);
+    expect(isDisplayableDepth(0)).toBe(true);
+  });
+  it('refuses what cannot be a depth', () => {
+    expect(isDisplayableDepth(null)).toBe(false);
+    expect(isDisplayableDepth(undefined)).toBe(false);
+    expect(isDisplayableDepth(Number.NaN)).toBe(false);
+    expect(isDisplayableDepth(Number.POSITIVE_INFINITY)).toBe(false);
+    expect(isDisplayableDepth(-5)).toBe(false);
+  });
+  // The contract the two owners share, stated as the relationship rather than as two lists
+  // that happen to agree: whatever this accepts, formatDepthParts prints — in EITHER
+  // system, since displayability is not a unit question.
+  it('agrees with formatDepthParts in both systems', () => {
+    for (const metres of [24.6, 0, -0, null, Number.NaN, -5, Number.POSITIVE_INFINITY]) {
+      const displayable = isDisplayableDepth(metres);
+      expect(formatDepthParts(metres, 'metric') !== null).toBe(displayable);
+      expect(formatDepthParts(metres, 'imperial') !== null).toBe(displayable);
+    }
   });
 });
 
@@ -57,17 +98,20 @@ describe('formatDepth', () => {
 // above is now defined in terms of it, so this pins the one contract both of them share.
 describe('formatDepthParts', () => {
   it('splits the numeral and unit apart, matching what formatDepth joins back together', () => {
-    expect(formatDepthParts(32.44)).toEqual({ value: '32.4', unit: 'm' });
-    expect(formatDepthParts(18)).toEqual({ value: '18.0', unit: 'm' });
+    expect(formatDepthParts(32.44, 'metric')).toEqual({ value: '32.4', unit: 'm' });
+    expect(formatDepthParts(18, 'metric')).toEqual({ value: '18.0', unit: 'm' });
   });
   it('returns null for an unrecorded depth rather than a zero', () => {
-    expect(formatDepthParts(null)).toBeNull();
+    expect(formatDepthParts(null, 'metric')).toBeNull();
   });
   it('returns null rather than rendering NaN', () => {
-    expect(formatDepthParts(Number.NaN)).toBeNull();
+    expect(formatDepthParts(Number.NaN, 'metric')).toBeNull();
   });
   it('returns null for a negative depth, since nothing dives above the surface', () => {
-    expect(formatDepthParts(-5)).toBeNull();
+    expect(formatDepthParts(-5, 'metric')).toBeNull();
+  });
+  it('carries the imperial unit as its own field, never spliced into the numeral', () => {
+    expect(formatDepthParts(24.6, 'imperial')).toEqual({ value: '81', unit: 'ft' });
   });
 });
 
@@ -92,22 +136,31 @@ describe('formatDuration', () => {
 
 describe('formatTemperature', () => {
   it('rounds to a whole degree', () => {
-    expect(formatTemperature(25.6)).toBe('26 °C');
+    expect(formatTemperature(25.6, 'metric')).toBe('26 °C');
   });
   it('keeps a negative reading signed', () => {
-    expect(formatTemperature(-1.2)).toBe('-1 °C');
+    expect(formatTemperature(-1.2, 'metric')).toBe('-1 °C');
   });
   it('returns null for no reading', () => {
-    expect(formatTemperature(null)).toBeNull();
+    expect(formatTemperature(null, 'metric')).toBeNull();
+  });
+  it('reads the same stored temperature in the system it is given', () => {
+    expect(formatTemperature(25, 'imperial')).toBe('77 °F');
+    // Sub-zero water is above zero in Fahrenheit, which is exactly the point of keeping
+    // the conversion out of the screens: -1 °C is 30 °F, not -1 °F.
+    expect(formatTemperature(-1, 'imperial')).toBe('30 °F');
   });
 });
 
 describe('formatPressure', () => {
   it('renders whole bar', () => {
-    expect(formatPressure(207.5)).toBe('208 bar');
+    expect(formatPressure(207.5, 'metric')).toBe('208 bar');
+  });
+  it('reads the same stored pressure in the system it is given', () => {
+    expect(formatPressure(232, 'imperial')).toBe('3365 psi');
   });
   it('returns null for no reading', () => {
-    expect(formatPressure(null)).toBeNull();
+    expect(formatPressure(null, 'metric')).toBeNull();
   });
 });
 
@@ -258,13 +311,19 @@ describe('formatDiveCount', () => {
 
 describe('formatWeight', () => {
   it('renders kilograms unrounded — weighting is often set in half-kilos', () => {
-    expect(formatWeight(6.5)).toBe('6.5 kg');
+    expect(formatWeight(6.5, 'metric')).toBe('6.5 kg');
   });
   it('returns null for an unrecorded weight rather than a zero', () => {
-    expect(formatWeight(null)).toBeNull();
+    expect(formatWeight(null, 'metric')).toBeNull();
+  });
+  it('reads the same stored weight in the system it is given', () => {
+    // Whole pounds, where the metric side keeps the half-kilo it was recorded in — the one
+    // pair whose two halves round differently, and deliberately so (format/units.ts).
+    expect(formatWeight(6.5, 'imperial')).toBe('14 lb');
+    expect(formatWeight(6, 'metric')).toBe('6 kg');
   });
   it('returns null rather than rendering NaN', () => {
-    expect(formatWeight(Number.NaN)).toBeNull();
+    expect(formatWeight(Number.NaN, 'metric')).toBeNull();
   });
 });
 

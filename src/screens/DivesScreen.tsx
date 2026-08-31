@@ -11,6 +11,7 @@ import { SearchCapsule } from '../components/SearchCapsule';
 import { TripHeader } from '../components/TripHeader';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
@@ -145,6 +146,9 @@ const FLOATING_ROW_BOTTOM_MARGIN = 12;
 
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
+  // The diver's units (§3), read once here and threaded down exactly as `scheme` is — one
+  // place per screen decides, and every component below stays a pure function of its props.
+  const units = useUnitSystem();
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
@@ -354,6 +358,7 @@ export default function DivesScreen() {
           dives={item.dives}
           numbers={numbers}
           scheme={scheme}
+          units={units}
           onPress={openDive}
           onReorder={handleReorder(item.date)}
           disabled={pendingReorderDates.has(item.date)}
@@ -370,7 +375,7 @@ export default function DivesScreen() {
     // unaffected as they were before this task.
     return (
       <View style={activeReorderDate !== null ? styles.reorderDimmed : undefined}>
-        <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} onPress={openDive} />
+        <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} units={units} onPress={openDive} />
         {/* §2.4: a planned dive is one still to be dived, so it gets the one action a
             logged dive has no use for. Keyed on the dive's own `status` — never on which
             section it was rendered in, and never on the section's title, which is an

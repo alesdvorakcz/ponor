@@ -6,6 +6,7 @@ import { DepthValue } from '../components/DepthValue';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
@@ -37,6 +38,7 @@ import {
   formatWaterBody,
   formatWeight,
 } from '../format/display';
+import { type UnitSystem } from '../format/units';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, type Styles } from '../theme/styles';
@@ -365,18 +367,19 @@ function whereFields(dive: Dive): Field[] {
 /**
  * DESIGN.md §6's "Profile & conditions" fields, minus max/avg depth and duration, which
  * this screen groups into its own "Depth & duration" cluster instead. Water temp, air
- * temp and visibility go through `formatTemperature`/`formatDepth` (visibility is a metres
- * reading at the same one-decimal precision a depth is); waves/current/surge go through
+ * temp and visibility go through `formatTemperature`/`formatDepth` (visibility is a
+ * distance and therefore takes the same m/ft pair a depth does, at the same precision);
+ * waves/current/surge go through
  * `formatConditionScale`, the bare 0–3 rating DESIGN.md §10 keeps unclamped, shown as the
  * diver recorded it rather than a formatted scale.
  */
-function conditionsFields(dive: Dive): Field[] {
+function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
-  const waterTemp = formatTemperature(dive.waterTempC);
+  const waterTemp = formatTemperature(dive.waterTempC, units);
   if (waterTemp !== null) fields.push({ label: 'Water temp', value: waterTemp, mono: true });
-  const airTemp = formatTemperature(dive.airTempC);
+  const airTemp = formatTemperature(dive.airTempC, units);
   if (airTemp !== null) fields.push({ label: 'Air temp', value: airTemp, mono: true });
-  const visibility = formatDepth(dive.visibilityM);
+  const visibility = formatDepth(dive.visibilityM, units);
   if (visibility !== null) fields.push({ label: 'Visibility', value: visibility, mono: true });
   const waves = formatConditionScale(dive.waves);
   if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: true });
@@ -395,14 +398,14 @@ function conditionsFields(dive: Dive): Field[] {
  * indistinguishable on screen from a field nobody ever filled in. That silent conflation
  * is exactly the form-shaming §1 rules out, just for a boolean instead of a number.
  */
-function equipmentFields(dive: Dive): Field[] {
+function equipmentFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
   const suit = formatSuit(dive.suit);
   if (suit !== null) fields.push({ label: 'Suit', value: suit, mono: false });
   if (dive.hood !== null) fields.push({ label: 'Hood', value: dive.hood ? 'Yes' : 'No', mono: false });
   if (dive.gloves !== null) fields.push({ label: 'Gloves', value: dive.gloves ? 'Yes' : 'No', mono: false });
   if (dive.boots !== null) fields.push({ label: 'Boots', value: dive.boots ? 'Yes' : 'No', mono: false });
-  const weights = formatWeight(dive.weightsKg);
+  const weights = formatWeight(dive.weightsKg, units);
   if (weights !== null) fields.push({ label: 'Weights', value: weights, mono: true });
   if (dive.buddy !== null) fields.push({ label: 'Buddy', value: dive.buddy, mono: false });
   if (dive.guide !== null) fields.push({ label: 'Guide', value: dive.guide, mono: false });
@@ -418,8 +421,9 @@ function equipmentFields(dive: Dive): Field[] {
  * `formatVolume`/`formatCount`/`formatPercent` like every other field on this screen —
  * the module's own docblock is the single owner of turning an SI value into a string,
  * and a dedicated formatter per field is what closes that even for a field with no unit
- * conversion coming (§10's kg/lb, m/ft, bar/psi list is depth, temperature, pressure and
- * weight — not these).
+ * conversion (§3's four pairs are depth, temperature, pressure and weight — `sizeL`,
+ * `count` and the two gas fractions are none of them, so those three formatters take no
+ * `units`; see format/units.ts for why a cylinder's size has no imperial counterpart).
  *
  * MOD is computed here, per tank, from that tank's own `o2Pct` — never once for the
  * dive. DESIGN.md §10: "MOD is per cylinder, and there is no single 'dive MOD'." A
@@ -432,7 +436,7 @@ function equipmentFields(dive: Dive): Field[] {
  * are read from derived.ts (`mod`, `usedBar`) rather than typed by the diver, and §0.6
  * draws no exception for either — anything in derived.ts is marked, full stop.
  */
-function tankFields(tank: Tank): Field[] {
+function tankFields(tank: Tank, units: UnitSystem): Field[] {
   const fields: Field[] = [];
   // `formatTankMaterial`, never the raw stored word: `material` is the same closed
   // lowercase vocabulary as entry/salinity/suit, and this line used to render it as it is
@@ -444,7 +448,7 @@ function tankFields(tank: Tank): Field[] {
   if (size !== null) fields.push({ label: 'Size', value: size, mono: true });
   const count = formatCount(tank.count);
   if (count !== null) fields.push({ label: 'Count', value: count, mono: true });
-  const working = formatPressure(tank.workingBar);
+  const working = formatPressure(tank.workingBar, units);
   if (working !== null) fields.push({ label: 'Working pressure', value: working, mono: true });
   // The two label constants, not two more string literals: the form spelled these `O2 %` and
   // `He %` — one cylinder reading two ways one screen apart, the same defect
@@ -454,13 +458,13 @@ function tankFields(tank: Tank): Field[] {
   if (o2 !== null) fields.push({ label: O2_LABEL, value: o2, mono: true });
   const he = formatPercent(tank.hePct);
   if (he !== null) fields.push({ label: HE_LABEL, value: he, mono: true });
-  const tankMod = formatDepth(mod(tank.o2Pct));
+  const tankMod = formatDepth(mod(tank.o2Pct), units);
   if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true, computed: true });
-  const start = formatPressure(tank.startBar);
+  const start = formatPressure(tank.startBar, units);
   if (start !== null) fields.push({ label: 'Start pressure', value: start, mono: true });
-  const end = formatPressure(tank.endBar);
+  const end = formatPressure(tank.endBar, units);
   if (end !== null) fields.push({ label: 'End pressure', value: end, mono: true });
-  const used = formatPressure(usedBar(tank));
+  const used = formatPressure(usedBar(tank), units);
   if (used !== null) fields.push({ label: 'Used', value: used, mono: true, computed: true });
   return fields;
 }
@@ -565,6 +569,12 @@ export default function DiveDetailScreen({
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
   const { dives, numbers } = useDives();
+  // The diver's units (§3), read here rather than taken as a prop even on the wide layout,
+  // where DivesScreen renders this component directly: it is a preference, not something
+  // the embedding screen decides, and a prop would be a second place that could disagree
+  // with the rows beside it. Its own hook, never a field on `useDives()` — see
+  // db/useUnitSystem.ts for why those two reads stay apart.
+  const units = useUnitSystem();
   // Both halves of DESIGN.md §10's in-flight guard, for the same reason DiveFormScreen's
   // save carries them: `deletingRef` is what actually turns a second confirmation away
   // (written and read synchronously), and `deleting` is only how that is SHOWN, a render
@@ -643,14 +653,14 @@ export default function DiveDetailScreen({
   const number = numbers.get(dive.id);
   const heroSub = heroSubline(dive, number);
 
-  const maxDepth = formatDepth(dive.maxDepthM);
-  const avgDepth = formatDepth(dive.avgDepthM);
+  const maxDepth = formatDepth(dive.maxDepthM, units);
+  const avgDepth = formatDepth(dive.avgDepthM, units);
   const duration = formatDuration(dive.durationMin);
   const showDepthDuration = maxDepth !== null || avgDepth !== null || duration !== null;
 
   const where = whereFields(dive);
-  const conditions = conditionsFields(dive);
-  const equipment = equipmentFields(dive);
+  const conditions = conditionsFields(dive, units);
+  const equipment = equipmentFields(dive, units);
 
   const gasUsed = formatGasUsed(gasUsedLitres(dive.tanks));
   const rmvValue = formatRmv(rmv(dive));
@@ -668,7 +678,7 @@ export default function DiveDetailScreen({
   // otherwise leave this heading standing over zero rows, the same "heading with nothing
   // under it" shape this screen's own "omits a cluster heading entirely..." test already
   // guards for its siblings.
-  const tankGroups = dive.tanks.map((tank, index) => ({ index, fields: tankFields(tank) }));
+  const tankGroups = dive.tanks.map((tank, index) => ({ index, fields: tankFields(tank, units) }));
   const showGasCluster = gasUsed !== null || rmvValue !== null || tankGroups.some((t) => t.fields.length > 0);
 
   const rating = formatRating(dive.rating);
@@ -694,7 +704,7 @@ export default function DiveDetailScreen({
             <Text style={styles.detailHeroSite}>{diveSiteLabel(dive)}</Text>
             <Text style={styles.detailHeroSub}>{heroSub}</Text>
           </View>
-          <DepthValue metres={dive.maxDepthM} scheme={scheme} variant="hero" />
+          <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} variant="hero" />
         </View>
 
         <View style={styles.detailContent}>
@@ -727,13 +737,13 @@ export default function DiveDetailScreen({
               {maxDepth !== null && (
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Max depth</Text>
-                  <DepthValue metres={dive.maxDepthM} scheme={scheme} />
+                  <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />
                 </View>
               )}
               {avgDepth !== null && (
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Avg depth</Text>
-                  <DepthValue metres={dive.avgDepthM} scheme={scheme} />
+                  <DepthValue metres={dive.avgDepthM} scheme={scheme} units={units} />
                 </View>
               )}
               {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
