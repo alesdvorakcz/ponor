@@ -183,7 +183,11 @@ export function storedTimeOfDay(value: unknown): unknown {
 
 /**
  * ---------------------------------------------------------------------------
- * THE PICKER BOUNDARY (M1d) — a JS `Date` in, this module's strings out, and back.
+ * THE LOCAL-CALENDAR BOUNDARY (M1d) — a JS `Date` in, this module's strings out, and back.
+ *
+ * Named for the picker it was written for, but it is not only the picker's: `todayCalendarDate`
+ * below answers "what day is it where the diver is", which is the same conversion asked
+ * without a `Date` to convert, and it lives here for exactly that reason.
  *
  * DESIGN.md §10: "the stored form is still the `YYYY-MM-DD` / `HH:MM` string —
  * `domain/datetime.ts` remains its only owner, and the `Date` the picker returns is
@@ -207,6 +211,8 @@ export function storedTimeOfDay(value: unknown): unknown {
  * Nothing here invents a value: every function returns null rather than a guess when it is
  * handed something that is not a real moment (a dismissed picker's `undefined`, an invalid
  * `Date`) or not a real date/time string, and the caller decides what "not set" looks like.
+ * `todayCalendarDate` is the one exception and says why on itself — "no answer" is not a
+ * thing a caller asking what today is can do anything with.
  * ---------------------------------------------------------------------------
  */
 
@@ -237,6 +243,45 @@ export function localDateToCalendarDate(value: unknown): string | null {
   return normaliseCalendarDate(
     `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`,
   );
+}
+
+/**
+ * Only reachable from `todayCalendarDate` below when the device's own clock reads a year
+ * `YYYY-MM-DD` has no room for — `localDateToCalendarDate` refuses years outside 1000-9999,
+ * and no clock an app can run on is there. Named rather than inlined so the branch that
+ * returns it is obviously the impossible one.
+ */
+const UNSPELLABLE_CLOCK_DAY = '1970-01-01';
+
+/**
+ * Today's date on the device's own calendar, canonical `YYYY-MM-DD` — the answer to "what
+ * day is it where the diver is", as opposed to `localDateToCalendarDate`, which answers
+ * "what day does this particular moment fall on".
+ *
+ * This exists because the obvious spelling, `new Date().toISOString().slice(0, 10)`, is the
+ * UTC day, and it was written out twice — once for the dive form's default date and once
+ * for `carryOverDate`'s "otherwise today" — where a diver in Prague logging a night dive at
+ * 00:30 got yesterday's date, twice over. `toISOString` is right for an `updated_at`
+ * timestamp (`db/dives.ts`) and wrong for a calendar day, and the difference is not visible
+ * in a UTC test run, which is why it survived. There is one owner of the conversion now and
+ * every caller goes through it.
+ *
+ * **`now` is injectable and never trusted.** `carryOverDate` passes its own injected clock
+ * so the 48-hour rule stays testable without mocking `Date`. A value that names no real
+ * moment — an invalid `Date`, or anything that is not a `Date` at all — falls back to the
+ * real current time rather than returning null or throwing: unlike everywhere else in this
+ * module, where null means "the diver's value could not be read and the caller decides what
+ * to show", a caller asking what today is always needs a real answer, and a broken injected
+ * clock is a test artefact rather than something a diver typed. Refusing would only push
+ * an invented date into the caller.
+ *
+ * The conversion itself is not repeated here, and neither is the check for what counts as a
+ * real moment: both are `localDateToCalendarDate`'s, which reads local calendar components
+ * and rejects a `NaN` time through `realDate`. A second copy of either is the exact defect
+ * this function was added to close.
+ */
+export function todayCalendarDate(now: Date = new Date()): string {
+  return localDateToCalendarDate(now) ?? localDateToCalendarDate(new Date()) ?? UNSPELLABLE_CLOCK_DAY;
 }
 
 /**

@@ -12,6 +12,7 @@ import { db } from '../db/client';
 import { createDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
+import { todayCalendarDate } from '../domain/datetime';
 import { diveFormSchema, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
@@ -37,14 +38,6 @@ function toInputString(value: unknown): string {
   return String(value);
 }
 
-/** UTC calendar day, matching `carryOver.ts`'s own `carryOverDate` — the one other place
- * in this codebase that needs "today" rather than a stored date string, which
- * `domain/datetime.ts` deliberately does not own (it owns what a date STRING means, not
- * what today's date is). */
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 const EMPTY_TANK: TankFormInput = {
   material: null,
   sizeL: null,
@@ -65,10 +58,14 @@ const EMPTY_TANK: TankFormInput = {
  * cylinder until '+ add cylinder' is tapped," DESIGN.md §6). `initialFormValues` below
  * layers `carryOverFrom(mostRecentLoggedDive)` on top of this for a real diver's second
  * dive onward (Task 6).
+ *
+ * `date` comes from `todayCalendarDate`, the same owner `carryOverDate` calls, and not
+ * from a local `new Date().toISOString().slice(0, 10)` — that is the UTC day, and it
+ * opened a night dive logged at 00:30 in Prague on *yesterday's* date (DESIGN.md §10).
  */
 function blankFormValues(): DiveFormInput {
   return {
-    date: todayIso(),
+    date: todayCalendarDate(),
     siteId: null,
     siteName: null,
     centerId: null,

@@ -1,4 +1,4 @@
-import { calendarDateToUtcMs } from './datetime';
+import { calendarDateToUtcMs, todayCalendarDate } from './datetime';
 import { diveFormSchema, type DiveFormValues } from './diveFormSchema';
 import type { Dive, Tank } from './types';
 
@@ -61,14 +61,20 @@ function carryOverTank(tank: Tank): Tank {
 
 /**
  * §2.1: "the date stays on the previous dive's date when it is less than
- * 48 h old, otherwise today." Both sides of that comparison are computed in
- * UTC — `calendarDateToUtcMs` for the previous dive's date, `toISOString`
- * (always UTC, by spec) for today's — never a local-time `Date` getter.
- * `new Date('2026-01-01')` parses as UTC midnight but *renders* as
- * 31 Dec 2025 through `getDate()` west of Greenwich, and that exact class of
- * bug has already been caught twice in this codebase (see `datetime.ts`'s
- * own docblock). `datetime.ts` owns what a date string means; this function
- * only calls it, never reimplements it.
+ * 48 h old, otherwise today." Those are two different questions about time
+ * and they get two different answers, both from `datetime.ts`:
+ *
+ * - **How long ago was the previous dive** is elapsed hours, so both sides of
+ *   the comparison are UTC (`calendarDateToUtcMs`, and `now`'s own epoch
+ *   time). A fixed zone counts elapsed time correctly and the device's does
+ *   not, since divers change zones constantly (DESIGN.md §7).
+ * - **What is today** is a question about the calendar the diver is looking
+ *   at, so it comes from `todayCalendarDate`, which reads local components.
+ *   This line used to be `now.toISOString().slice(0, 10)` — the UTC day —
+ *   which handed a diver in Prague logging a night dive at 00:30 the
+ *   *previous* day's date. That spelling is right for an `updated_at`
+ *   timestamp and wrong for a calendar day, and DESIGN.md §10 records the
+ *   trap; `datetime.ts` owns the conversion and this function only calls it.
  *
  * A previous date `calendarDateToUtcMs` cannot parse — not just malformed
  * text but a rolled-forward impossible date like '2026-02-30', which
@@ -78,7 +84,7 @@ function carryOverTank(tank: Tank): Tank {
  * applies in `derived.ts`.
  */
 function carryOverDate(previousDate: string, now: Date): string {
-  const today = now.toISOString().slice(0, 10);
+  const today = todayCalendarDate(now);
   const previousMs = calendarDateToUtcMs(previousDate);
   if (previousMs === null) return today;
   return now.getTime() - previousMs < HOURS_48_MS ? previousDate : today;

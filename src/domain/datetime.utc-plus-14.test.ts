@@ -3,7 +3,7 @@
  * @jest-environment-options {"timeZone": "Pacific/Kiritimati"}
  */
 
-import { calendarDateToLocalDate, localDateToCalendarDate, localDateToTimeOfDay } from './datetime';
+import { calendarDateToLocalDate, localDateToCalendarDate, localDateToTimeOfDay, todayCalendarDate } from './datetime';
 
 /**
  * The picker boundary, in the furthest zone EAST of Greenwich (UTC+14, and a real place
@@ -52,5 +52,17 @@ describe('the picker boundary, forced into Pacific/Kiritimati (UTC+14)', () => {
     // `new Date('2026-08-31')` would be UTC midnight, which is 14:00 local on the same day
     // here — right day, wrong hour, and the wrong day entirely west of Greenwich.
     expect(localDateToCalendarDate(seeded)).toBe('2026-08-31');
+  });
+
+  it('calls today the day the diver is living in, not the UTC day', () => {
+    // The same rule as above, asked the other way round — `todayCalendarDate` is what the
+    // dive form's default date and `carryOverDate`'s "otherwise today" both call, and both
+    // used to spell it `new Date().toISOString().slice(0, 10)` themselves. At 00:30 local
+    // that is still the 30th, so a night dive opened on yesterday.
+    expect(todayCalendarDate(new Date(2026, 7, 31, 0, 30))).toBe('2026-08-31');
+    // Never null and never a throw, whatever the clock it is handed: a caller asking what
+    // today is always needs a real answer, so an unusable one falls back to the real
+    // current time — read locally here too, like everything else in this file.
+    expect(todayCalendarDate(new Date(NaN))).toBe(localDateToCalendarDate(new Date()));
   });
 });

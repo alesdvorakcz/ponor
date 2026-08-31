@@ -1,4 +1,4 @@
-import { calendarDateToUtcMs } from './datetime';
+import { calendarDateToUtcMs, todayCalendarDate } from './datetime';
 import { dive } from './diveFixture';
 import { CARRIED_FIELDS, carryOverFrom } from './carryOver';
 import { diveFormSchema } from './diveFormSchema';
@@ -113,7 +113,12 @@ describe('the 48-hour date rule', () => {
   });
 
   it('moves to today once the previous dive is older than 48 hours', () => {
-    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date('2026-08-20T10:00:00Z'));
+    // `now` built from LOCAL components, and so are the two below it that assert which day
+    // "today" is: since the fix, today is the day `now` falls on in the DEVICE's zone, so a
+    // `Date.parse('...T10:00:00Z')` moment would name a different day here depending on
+    // where the suite runs. The zone-forced proof lives in carryOver.utc-plus-14.test.ts
+    // and carryOver.utc-minus-11.test.ts; this file only has to stop depending on a zone.
+    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(2026, 7, 20, 10, 0));
     expect(c.date).toBe('2026-08-20');
   });
 
@@ -129,18 +134,21 @@ describe('the 48-hour date rule', () => {
     if (midnight === null) throw new Error('fixture date failed to parse');
     const now = new Date(midnight + 48 * 60 * 60 * 1000);
     const c = carryOverFrom(dive({ date: '2026-08-16' }), now);
-    expect(c.date).toBe(now.toISOString().slice(0, 10));
+    // The boundary is what this test is about, not which day today is, so the expectation
+    // asks the same owner the code does. `not.toBe` below is the assertion that discriminates
+    // — no zone can make the local day of 2026-08-18T00:00Z come out as the 16th.
+    expect(c.date).toBe(todayCalendarDate(now));
     expect(c.date).not.toBe('2026-08-16');
   });
 
-  it("computes today from now's UTC calendar date, not the test runner's local one", () => {
-    // 23:30 UTC is already past midnight in every zone east of Greenwich
-    // (this machine's own zone included) — a local-getter implementation
-    // would report the 17th here, where the UTC-correct answer is the 16th.
-    // Mirrors the exact "parses UTC, renders local" trap datetime.ts's own
-    // docblock names, just on the other side of the date line from it.
-    const c = carryOverFrom(dive({ date: '2020-01-01' }), new Date('2026-08-16T23:30:00Z'));
-    expect(c.date).toBe('2026-08-16');
+  it("computes today from the day now falls on where the diver is, not the UTC day", () => {
+    // 00:30 is the hour that separates the two readings: east of Greenwich a local
+    // small-hours moment is still the PREVIOUS day in UTC, so `now.toISOString()` handed a
+    // night dive yesterday's date. Built from local components, this holds in every zone,
+    // and carryOver.utc-plus-14/-minus-11.test.ts force the extremes where the two answers
+    // are guaranteed to differ.
+    const c = carryOverFrom(dive({ date: '2020-01-01' }), new Date(2026, 7, 31, 0, 30));
+    expect(c.date).toBe('2026-08-31');
   });
 
   it('falls back to today rather than trusting a rolled invalid date', () => {
@@ -150,7 +158,7 @@ describe('the 48-hour date rule', () => {
     // dated two days later than what was actually stored; refusing it and
     // falling back to today is the safe reading.
     const corrupt = dive({ date: '2026-02-30' });
-    const c = carryOverFrom(corrupt, new Date('2026-03-01T10:00:00Z'));
+    const c = carryOverFrom(corrupt, new Date(2026, 2, 1, 10, 0));
     expect(c.date).toBe('2026-03-01');
   });
 });

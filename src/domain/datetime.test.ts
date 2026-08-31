@@ -11,6 +11,7 @@ import {
   storedTimeOfDay,
   timeOfDayToLocalDate,
   timeOfDayToMinutes,
+  todayCalendarDate,
 } from './datetime';
 
 describe('normaliseTimeOfDay', () => {
@@ -244,5 +245,42 @@ describe('the picker boundary', () => {
     // would make the picker open on a different century than the one stored.
     expect(calendarDateToLocalDate('0099-01-01')?.getFullYear()).toBe(99);
     expect(localDateToCalendarDate(calendarDateToLocalDate('0099-01-01'))).toBe('0099-01-01');
+  });
+});
+
+/**
+ * `todayCalendarDate` — the one owner of "what day is it where the diver is". Which day
+ * that actually is under an extreme offset is proved in `datetime.utc-plus-14.test.ts` and
+ * `datetime.utc-minus-11.test.ts`; this block covers the contract that holds in every zone.
+ */
+describe('todayCalendarDate', () => {
+  it('reads the day an injected clock falls on, in canonical form', () => {
+    expect(todayCalendarDate(new Date(2026, 7, 31, 0, 30))).toBe('2026-08-31');
+    expect(todayCalendarDate(new Date(2026, 7, 31, 23, 30))).toBe('2026-08-31');
+    // Single-digit month and day, where the padding is what makes the result canonical.
+    expect(todayCalendarDate(new Date(2026, 0, 7, 12, 0))).toBe('2026-01-07');
+  });
+
+  it('agrees with the picker boundary, because it is the same conversion', () => {
+    // Not a tautology dressed up as a test: it is the assertion that would fail the moment
+    // someone "fixed" one of these two by writing the conversion out a second time.
+    for (const moment of [new Date(2026, 7, 31, 0, 30), new Date(2019, 2, 4, 19, 45), new Date(2024, 1, 29, 23, 59)]) {
+      expect(todayCalendarDate(moment)).toBe(localDateToCalendarDate(moment));
+    }
+  });
+
+  it('always names a real date this module can read back', () => {
+    expect(isCalendarDate(todayCalendarDate())).toBe(true);
+  });
+
+  it('answers with the real today when the injected clock is not a usable moment', () => {
+    // Unlike everything else here, this never returns null: a caller asking what today is
+    // has nothing sensible to do with "no answer", and an unusable injected clock is a test
+    // artefact rather than something a diver typed. Compared against a moment taken here
+    // rather than a fixed string, so this cannot rot as the calendar moves.
+    const realToday = localDateToCalendarDate(new Date());
+    expect(todayCalendarDate(new Date(NaN))).toBe(realToday);
+    expect(todayCalendarDate(undefined as unknown as Date)).toBe(realToday);
+    expect(todayCalendarDate('2026-08-31' as unknown as Date)).toBe(realToday);
   });
 });
