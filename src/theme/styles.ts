@@ -328,7 +328,7 @@ function build(scheme: ColorScheme) {
   const FORM_ROW_INSET = 20;
 
   // What a field puts UNDER its label/value row — the option chips, an open date picker, the
-  // notes box, and (M2) the autocomplete list §0.6 positions there — owns the clearance
+  // notes box, and §2.3's autocomplete list, which §0.6 positions there — owns the clearance
   // between itself and the NEXT row's hairline. The row above it deliberately has no vertical
   // padding of its own: it is `minHeight: 48` with its input stretched to match, so the row IS
   // the tap target (§0.5), and padding there would leave the input short of the floor while
@@ -1479,8 +1479,8 @@ function build(scheme: ColorScheme) {
     // The label/value line inside `formField` above. A separate style rather than putting
     // `flexDirection: 'row'` on the field itself, because a field is not always one line:
     // `OptionChips` puts a wrapping chip row under it, `DateTimeField` puts an opened picker
-    // there, notes puts its own box there, and §0.6 fixes that slot as where M2's
-    // autocomplete list will go ("The list belongs directly under the focused row").
+    // there, notes puts its own box there, and §2.3's autocomplete list now sits there too
+    // (`formSuggestions` below) — §0.6: "The list belongs directly under the focused row."
     //
     // `justifyContent: 'space-between'` is what makes "the value trailing" (§0.6) true for
     // the one field whose value has no `formFieldValue` slot to grow into: hood/gloves/boots
