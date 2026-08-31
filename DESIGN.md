@@ -187,6 +187,28 @@ Four tabs plus a full-screen dive form. Onboarding is two steps — pick units a
 
 **The web app** comes from the same codebase — Expo Router already targets the browser. Two platform splits are expected: maps (MapLibre with free OSM tiles instead of `react-native-maps`) and storage (the browser starts in online mode against Supabase; a local cache can follow). It ships right after the store release, hosted free as a static site, and the future admin area lives inside it.
 
+### 4.1 One owner per rule
+
+This project's defining defect is one rule written in two places, then drifting. It has produced dive numbers reading #2, #1, #3; a date contract asserted three ways at three strictnesses and enforced in none; a site name that said "Unnamed site" in the list and nothing at all on the detail; a cylinder material rendered "Steel" on one screen and "steel" on the next; and, twice, a *Complete dive* button wired to the plain edit route, completing nothing while saying it did. Every one shipped green.
+
+**Each of these owns its class of rule. A second implementation is a defect, not a style preference:**
+
+| Owner | Owns |
+|---|---|
+| `domain/datetime.ts` | Every reading of a `YYYY-MM-DD` or `HH:MM` string, and every conversion to or from a `Date`. Never `toISOString()` (UTC) and never `new Date('2026-08-31')` (UTC midnight) outside it — three separate bugs came from exactly those. |
+| `format/display.ts` | Every conversion of a stored value into diver-facing text. |
+| `theme/styles.ts` | Every place a token meets a style property. `theme/depth.ts` is the only reader of the depth scale; `theme/resolve.ts` the only reader of the token sets. |
+| `domain/diveNumber.ts` | Dive ordering and numbering (§2.5). |
+| `domain/trips.ts` | Trip grouping (§3). |
+| `db/dives.ts` | Every write, and the `undefined` = don't touch / `null` = clear patch contract. |
+| `src/testing/` | Shared test guards, so a guard cannot be broken in one copy and sound in four others. |
+
+**Two rules keep it that way.**
+
+*Derive, or tie at compile time.* A list that can be computed from another is computed — `FRESH_FIELDS` is the schema's keys minus `CARRIED_FIELDS`, not a second list. One that cannot be gets a type-level assertion that fails the build when the two diverge; `TankFormFieldsMatchTank` and `StatusFormValuesMatchDive` in `diveFormSchema.ts` are the pattern to copy. Adding a member to a hand-maintained option list used to produce a save-blocking rejection and a missing chip, silently.
+
+*A deliberate near-duplicate names its siblings.* Some rules look alike and answer different questions, and unifying them is itself a bug. Three read a dive's place: `tripKeyOf` groups (centre first, **may be null**, so "no place recorded" stays distinguishable from a dive actually named "Unnamed site"), `diveSiteLabel` displays (site first, **never null**, because a row with no heading is a blank line), and `ReorderControls`'s `rowLabel` speaks (**omits** the placeholder, because position already identifies the row and "Unnamed site" would be noise in speech). Each carries a note naming the others and the question each answers. Without that note, the next reader sees three copies of one rule and helpfully unifies them.
+
 ## 5. Backend on Supabase
 
 One Supabase project (EU region, Frankfurt) provides everything server-side; we write SQL and policies, no server code and no hosting. Row-Level Security is the security model: dives are readable and writable only by their owner; sites and centers are readable by everyone.
