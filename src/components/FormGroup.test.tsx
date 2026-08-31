@@ -145,3 +145,51 @@ it('gives the header the 48 dp tap target §0.5 sets, and actually wears that st
   expect([headerOf(t).props.style].flat(5)).toContain(styles.formGroupHeader);
   expect(styles.formGroupHeader.minHeight).toBe(48);
 });
+
+// DESIGN.md §0.6: "**A group header is a cluster label** — Plex Mono 10.5, uppercase,
+// +0.14 em, muted. *Conditions* and *Gas & cylinders* name the same groups on both screens
+// and used to carry two different treatments."
+//
+// Asserted against `detailClusterTitle` — the treatment on the OTHER screen — rather than
+// against a list of font properties spelled out here, because "the same on both screens" is
+// the whole rule. A second copy of the values would go green the moment one screen's copy
+// changed, which is the drift this test exists to catch. The one property that may differ is
+// named explicitly below.
+it('wears the detail screen’s own cluster label, not a heading of its own', async () => {
+  const t = await renderGroup({ title: 'Conditions' });
+  const styles = makeStyles('light');
+  const title = textNodesOf(t).find((n) => String(n.children[0] ?? '') === 'Conditions');
+  const worn = Object.assign({}, ...[title?.props?.style].flat(5).filter(Boolean)) as Record<string, unknown>;
+  const cluster = { ...(styles.detailClusterTitle as unknown as Record<string, unknown>) };
+  // `marginBottom` belongs to a block heading with rows under it; this one sits in a flex row
+  // beside its Show/Hide control, where a bottom margin would push it off that row's centre.
+  delete cluster.marginBottom;
+  for (const [property, value] of Object.entries(cluster)) {
+    expect(worn[property]).toBe(value);
+  }
+  // It was `sans-medium` 15 in full `fg` — a heading — so the two things that actually
+  // changed are pinned against the label beside them rather than left implicit.
+  expect(worn.color).toBe(styles.formFieldLabel.color);
+  expect(worn.fontFamily).not.toBe(styles.formGroupState.fontFamily);
+});
+
+// The two words on the header row are a structural LABEL and a UI CONTROL, and §0.2 splits
+// the faces on exactly that. Rendered in one face at nearly one size — which is what a mono
+// 10.5 title beside a mono 11.5 state was — they read as one continuous string,
+// "CONDITIONS HIDE", rather than as a heading with a control beside it.
+it('sets the disclosure state in the other face, so it does not read as part of the title', async () => {
+  const t = await renderGroup();
+  const styles = makeStyles('light');
+  const state = textNodesOf(t).find((n) => String(n.children[0] ?? '') === 'Show');
+  const worn = Object.assign({}, ...[state?.props?.style].flat(5).filter(Boolean)) as Record<string, unknown>;
+  expect(worn.fontFamily).not.toBe(styles.formGroupTitle.fontFamily);
+  // ...and it is the app's ONE quiet-control label rather than a private copy of it — the
+  // same object §2.4's Logged/Planned control on this very form wears, and the day strip's
+  // Reorder/Done one screen over. Reference equality, so a second definition that merely
+  // happened to match today could not pass.
+  expect(styles.formGroupState).toBe(styles.formStatusLabel);
+  // Still the quiet, uppercase, tracked formula every control label in this app shares — the
+  // face is the only thing that separates it from the title.
+  expect(worn.textTransform).toBe('uppercase');
+  expect(worn.color).toBe(styles.formGroupTitle.color);
+});

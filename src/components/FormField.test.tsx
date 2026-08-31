@@ -1,6 +1,7 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { FormField } from './FormField';
@@ -127,6 +128,110 @@ it('marks a carried field and leaves a typed one unmarked', async () => {
   expect(chips).toHaveLength(1);
 });
 
+// --- §0.6's design pass: a field is a row, its figures are mono, and focus draws the box ---
+
+/** Every style entry one node actually wears, flattened the way RN composes them. */
+function stylesOn(node: { props?: { style?: unknown } } | undefined): unknown[] {
+  return [node?.props?.style].flat(5).filter(Boolean);
+}
+
+// DESIGN.md §0.6: "**Figures in mono, names in sans.** A depth, duration, pressure or
+// temperature is a data figure and takes Plex Mono 15 with tabular figures (§0.2); a site,
+// centre or buddy is a name and stays Archivo."
+//
+// Two fields side by side, checked against each other, for the reason the keyboardType test
+// above already gives: one field alone would pass whether or not the prop is read at all,
+// since one of the two faces is the default either way. The mono face is compared against
+// the sheet's own `formFieldInputMono` rather than a font name spelled out here — this test
+// is about which treatment a field is given, not about what that treatment is.
+it('sets a figure in mono and a name in sans, from the field\'s own prop', async () => {
+  const t = await render(
+    <View>
+      <FormField label="Max depth" value="18.4" onChange={() => {}} scheme="light" mono />
+      <FormField label="Site" value="Silfra" onChange={() => {}} scheme="light" />
+    </View>,
+  );
+  const styles = makeStyles('light');
+  const [figure, name] = inputsOf(t);
+  expect(stylesOn(figure)).toContain(styles.formFieldInputMono);
+  expect(stylesOn(name)).not.toContain(styles.formFieldInputMono);
+  // Both are still the one shared input treatment underneath, so the mono style is an
+  // override on top rather than a second, independently-drifting definition.
+  expect(stylesOn(figure)).toContain(styles.formFieldInput);
+  expect(stylesOn(name)).toContain(styles.formFieldInput);
+  // Tabular figures are half of what §0.2 asks for and are easy to lose while keeping the
+  // family, so they are pinned rather than assumed.
+  expect(styles.formFieldInputMono.fontVariant).toContain('tabular-nums');
+});
+
+// §0.6: the unit "follows the figure as a muted suffix, exactly as `12.2 m` reads on the
+// detail, and an empty numeric field shows that unit as its placeholder so the row still
+// says what belongs in it."
+//
+// Both halves in one test, because the rule is that they are the SAME word in the SAME slot:
+// a component that drew both at once would read as "m m", and one that drew neither would
+// leave the row saying nothing about what belongs in it.
+it('shows the unit as a suffix once there is a figure, and as the placeholder before', async () => {
+  const filled = await render(<FormField label="Max depth" value="18.4" onChange={() => {}} scheme="light" mono unit="m" />);
+  // A real `Text` node reading exactly the unit, beside the value — never concatenated into
+  // the value itself, which has to stay exactly what the diver typed.
+  expect(textIn(filled)).toContain('m');
+  expect(inputsOf(filled)[0]?.props.value).toBe('18.4');
+
+  const empty = await render(<FormField label="Max depth" value="" onChange={() => {}} scheme="light" mono unit="m" />);
+  expect(inputsOf(empty)[0]?.props.placeholder).toBe('m');
+  // ...and NOT also as a suffix. The two are the same word in the same slot, so drawing both
+  // would read as "m m" the moment the field is empty — which is most of the time.
+  expect(textIn(empty)).not.toContain('m');
+});
+
+// A field whose hint is not a unit — a conditions scale's `0-3`, a rating's `1-5` — keeps it
+// as a placeholder and never grows a suffix. "3 0-3" is the reading this separation exists to
+// prevent, and a single prop could not tell the two cases apart.
+it('never turns a plain hint into a suffix beside the value', async () => {
+  const t = await render(<FormField label="Waves" value="2" onChange={() => {}} scheme="light" mono placeholder="0-3" />);
+  expect(textIn(t)).not.toContain('0-3');
+  expect(inputsOf(t)[0]?.props.placeholder).toBe('0-3');
+});
+
+// §0.6: "**Focus is what draws the affordance.** The focused row fills with `surface`;
+// nothing else does." Driven through the input's real `onFocus`/`onBlur` rather than a prop,
+// so a field wired to a fill it could never turn on would fail here rather than pass.
+it('fills its row with surface while focused, and nothing at rest', async () => {
+  const t = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  const styles = makeStyles('light');
+  // `t.root` and not `queryAll`: this component's own root IS the row, and `queryAll` walks
+  // descendants only — it never returns the instance it is called on, so a query for the row
+  // finds nothing and every `not.toContain` below would pass on an empty array.
+  const row = () => stylesOn(t.root ?? undefined);
+  const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
+
+  expect(row()).toContain(styles.formField);
+  expect(row()).not.toContain(styles.formFieldFocused);
+  await fireEvent(input, 'focus');
+  expect(row()).toContain(styles.formFieldFocused);
+  await fireEvent(input, 'blur');
+  expect(row()).not.toContain(styles.formFieldFocused);
+  // The fill is `surface` and nothing else — §0.6 gives the affordance to one token, and a
+  // border or a radius here would be the box coming back by another name.
+  expect(styles.formFieldFocused).toEqual({ backgroundColor: themeFor('light').surface });
+});
+
+// The blur that draws the fill must not swallow the blur the CALLER asked for:
+// `field.onBlur` is what marks a field touched in react-hook-form, and a component that
+// handled its own focus state by replacing the prop rather than calling it would break that
+// silently — nothing on screen would change.
+it('still reports the blur its caller asked for, now that it also tracks focus itself', async () => {
+  const onBlur = jest.fn();
+  const t = await render(<FormField label="Site" value="" onChange={() => {}} onBlur={onBlur} scheme="light" />);
+  const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
+  await fireEvent(input, 'focus');
+  await fireEvent(input, 'blur');
+  expect(onBlur).toHaveBeenCalledTimes(1);
+});
+
 /** The chip's own `×`, by the label `FormField` gives it. */
 function findClearCarried(t: RenderResult) {
   return t.root
@@ -160,7 +265,9 @@ it('reaches a 48 dp target for the clear control, all of it pointing away from t
 
   // Vertical: the row is the ancestor, and it is 48 dp, so slop of at least half the
   // difference on each side claims all of it whatever the glyph metrics turn out to be.
-  expect(styles.formFieldHeader.minHeight).toBe(48);
+  // (`formField` since §0.6's design pass collapsed the label row and the input into one
+  // row; it was `formFieldHeader`, the same floor on the ancestor that no longer exists.)
+  expect(styles.formField.minHeight).toBe(48);
   expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
   expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
 
@@ -174,11 +281,16 @@ it('reaches a 48 dp target for the clear control, all of it pointing away from t
   const clearZoneWidth = styles.formFieldCarriedClear.paddingHorizontal * 2 + 7;
   expect(clearZoneWidth + (slop.right ?? 0)).toBeGreaterThanOrEqual(48);
 
-  // ...and that right-hand slop has somewhere to be delivered. `formScrollContent`'s padding
-  // is the room between a field's trailing edge and the ScrollView's own, and the ScrollView
-  // is the first ancestor that clips — so slop wider than it would be spent on nothing,
-  // which is the mistake the previous numbers were a reaction to.
-  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formScrollContent.padding);
+  // ...and that right-hand slop has somewhere to be delivered. The room is the field row's
+  // own trailing padding — the chip sits at the row's trailing content edge, and the row
+  // extends `paddingHorizontal` further before its own bounds end — so slop wider than that
+  // would be spent on nothing, which is the mistake the previous numbers were a reaction to.
+  //
+  // It used to be `formScrollContent`'s padding, which was where the room lived before §0.6's
+  // design pass moved the form's horizontal inset off the ScrollView and onto each row (so a
+  // row's hairline and its focus fill span the full width, the way a dive row's do). The room
+  // is the same 20 dp; it is now inside the field's own unclipped box rather than outside it.
+  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formField.paddingHorizontal);
 });
 
 // The chip must not clip, or none of the slop above leaves it. React Native descends into a

@@ -150,6 +150,78 @@ function build(scheme: ColorScheme) {
     ...floatingShadow,
   };
 
+  // ---------------------------------------------------------------------------------------
+  // The row grammar §0.6 gives the dive detail, and (M1d design pass) gives the form too:
+  // "The form is the dive detail you can type into." Each of the four definitions below is
+  // written ONCE here and read by both screens, rather than the form restating the detail
+  // screen's values under its own names — which is exactly how the two came to speak
+  // different visual languages for identical content in the first place. A form field that
+  // needs a variant (an editable value has to be a `TextInput`, and a label has to be free
+  // to wrap) derives it from the definition below rather than replacing it, so the
+  // difference stays visible at the point it is made.
+  // ---------------------------------------------------------------------------------------
+
+  // §0.6's table row "Cluster label": Plex Mono 10.5, uppercase, +0.14 em (0.14 × 10.5 ≈
+  // 1.5), muted. `detailClusterTitle` and the form's own `formGroupTitle` are the two call
+  // sites — "*Conditions* and *Gas & cylinders* name the same groups on both screens and used
+  // to carry two different treatments" (§0.6). Deliberately carries no margin: one of the two
+  // is a block heading and the other sits in a flex row beside a disclosure state, and a
+  // margin that suits one is wrong for the other.
+  const clusterLabel: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 10.5,
+    color: theme.fgMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  };
+
+  // A row's leading half (§0.6: "Label at the leading edge in Archivo 15 muted — the detail
+  // screen's own row label"). Archivo, not mono: §0.2 splits the two faces on content, and a
+  // field's NAME is not a data figure however numeric its value turns out to be.
+  const rowLabel: TextStyle = {
+    fontFamily: fonts.sans,
+    fontSize: 15,
+    color: theme.fgMuted,
+  };
+
+  // A row's trailing half, in the two faces §0.2 splits on content — "Figures in mono, names
+  // in sans" (§0.6). Which one a given field takes is decided EXPLICITLY at each call site,
+  // on both screens (`Field.mono` on the detail, `FormField`'s own `mono` prop on the form),
+  // never inferred from the value's type or from the keyboard the field asks for: a new field
+  // must not be able to pick up the wrong face silently.
+  const rowValue: TextStyle = {
+    textAlign: 'right',
+    fontSize: 15,
+    color: theme.fg,
+  };
+  const rowValueMono: TextStyle = {
+    ...rowValue,
+    fontFamily: fonts.mono,
+    fontVariant: ['tabular-nums'],
+  };
+  const rowValueSans: TextStyle = {
+    ...rowValue,
+    fontFamily: fonts.sans,
+  };
+
+  // The form's own horizontal inset, carried by every row-level child of its ScrollView —
+  // each field, each group header, the heading row — rather than by the ScrollView's own
+  // contentContainer. That is what makes a field's hairline and its focus fill span the full
+  // width the way a dive row's do (§0.6: "a hairline on each row's top edge, the same rule
+  // dive rows follow"), while the text inside still lands on the same 20 `detailContent` uses
+  // one screen over. It also leaves the `carried ×` chip's outward `hitSlop` (FormField.tsx)
+  // 20 dp of room INSIDE the field's own unclipped box, where the old contentContainer
+  // padding left it 20 dp outside every field — same floor, delivered closer to home.
+  const FORM_ROW_INSET = 20;
+
+  // What a field puts UNDER its label/value row — the option chips, an open date picker, the
+  // notes box, and (M2) the autocomplete list §0.6 positions there — owns the clearance
+  // between itself and the NEXT row's hairline. The row above it deliberately has no vertical
+  // padding of its own: it is `minHeight: 48` with its input stretched to match, so the row IS
+  // the tap target (§0.5), and padding there would leave the input short of the floor while
+  // the row itself met it.
+  const FIELD_EXTRA_CLEARANCE = 12;
+
   return StyleSheet.create({
     screen: {
       flex: 1,
@@ -808,17 +880,14 @@ function build(scheme: ColorScheme) {
       borderTopWidth: 0,
       paddingTop: 0,
     },
-    // DESIGN.md §0.6 table's "Cluster label" row: Plex Mono 10.5, uppercase, +0.14 em
-    // (0.14 × 10.5 ≈ 1.5), muted. M1c task 5 replaces an earlier Archivo SemiBold 13 px
-    // treatment that predated §0.6 — mono is what marks this text as a structural label
-    // rather than content, the same distinction §0.2 draws for every data figure on this
-    // screen.
+    // DESIGN.md §0.6 table's "Cluster label" row — `clusterLabel` at the top of this
+    // function, the one definition the form's own group headers now read too (M1d design
+    // pass), plus the margin that only a block heading wants. M1c task 5 replaced an earlier
+    // Archivo SemiBold 13 px treatment that predated §0.6 — mono is what marks this text as a
+    // structural label rather than content, the same distinction §0.2 draws for every data
+    // figure on this screen.
     detailClusterTitle: {
-      fontFamily: fonts.mono,
-      fontSize: 10.5,
-      color: theme.fgMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 1.5,
+      ...clusterLabel,
       marginBottom: 8,
     },
     detailRow: {
@@ -827,29 +896,21 @@ function build(scheme: ColorScheme) {
       alignItems: 'flex-start',
       gap: 12,
     },
-    detailLabel: {
-      fontFamily: fonts.sans,
-      fontSize: 15,
-      color: theme.fgMuted,
-    },
+    detailLabel: rowLabel,
     // Data figures — depths, pressures, durations, timestamps (§0.2) — read through this
     // one; free text and categorical labels (a site name, a buddy, "wet") read through
     // detailValueText below instead. DiveDetailScreen.tsx picks explicitly per field
     // rather than inferring it, so a new field can't silently pick up the wrong one.
+    // `rowValueMono`/`rowValueSans` are this function's own shared pair, so the form's typed
+    // values (`formFieldInput`/`formFieldInputMono`) are the same two faces at the same size
+    // rather than a second, independently-chosen treatment for identical content.
     detailValue: {
+      ...rowValueMono,
       flexShrink: 1,
-      textAlign: 'right',
-      fontFamily: fonts.mono,
-      fontSize: 15,
-      color: theme.fg,
-      fontVariant: ['tabular-nums'],
     },
     detailValueText: {
+      ...rowValueSans,
       flexShrink: 1,
-      textAlign: 'right',
-      fontFamily: fonts.sans,
-      fontSize: 15,
-      color: theme.fg,
     },
     // Computed-value marking (§0.6: "the rule is derived or entered, with no exception for
     // arithmetic simple enough to do in your head ... anything in src/domain/derived.ts is
@@ -1041,19 +1102,32 @@ function build(scheme: ColorScheme) {
     // below it; `paddingBottom` keeps the last group clear of `formFooter`'s own fixed
     // height, the same reasoning `listContent`'s own `paddingBottom` above gives for the
     // floating row it sits above.
+    //
+    // **No horizontal padding of its own any more** (M1d design pass, §0.6): every row-level
+    // child carries `FORM_ROW_INSET` instead, so a field's hairline and its focus fill reach
+    // the screen's real edges the way a dive row's do while the text inside still lands on
+    // 20. `paddingTop` drops from 20 to 4 for the reason `detailHero` above already records
+    // for itself: `formBack`'s 48 dp tap-target floor around a 13 px label already leaves
+    // roughly 17 px of slack beneath it, and stacking a second 20 on top read as a gap twice
+    // the size anything asked for.
     formScroll: {
       flex: 1,
     },
     formScrollContent: {
-      padding: 20,
+      paddingTop: 4,
       paddingBottom: 40,
       gap: 20,
     },
     // The core strip (§2.2: "date, site, center, max depth, duration" — always visible,
     // never behind a group).
-    formCoreStrip: {
-      gap: 4,
-    },
+    //
+    // It carries nothing of its own now, and that is the point rather than an oversight: its
+    // five rows separate themselves, each with its own top hairline and its own 48 dp height
+    // (§0.6), exactly as the dive list's rows do — a `gap` here would push each hairline off
+    // the row it belongs to and leave it floating in whitespace. The wrapper stays because
+    // §2.2 names this strip as a thing, and because DiveFormScreen.test.tsx pins §2.4's
+    // status control OUT of it: "a dive's status is not one of its measurements."
+    formCoreStrip: {},
     // The form's header row: the heading, and §2.4's Logged/Planned control beside it.
     // The control belongs HERE and not in `formCoreStrip` above, which §2.2 fixes as date,
     // site, centre, max depth and duration — a dive's status is not one of its
@@ -1063,6 +1137,7 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
+      paddingHorizontal: FORM_ROW_INSET,
     },
     // `flex: 1` so a longer heading wraps rather than squeezing the control off the row —
     // §0.5's "Czech runs 20-30 % longer than English", the same requirement `tripTitle` and
@@ -1107,30 +1182,79 @@ function build(scheme: ColorScheme) {
     formStatusPillOn: selectedFill,
     formStatusLabel: actionPillLabel,
     formStatusLabelOn: selectedInk,
-    // FormField.tsx's own root — one label-and-input row, repeated for every field on
-    // this screen regardless of group.
-    formField: {
-      gap: 6,
-    },
-    // Holds the label with room at its trailing edge for the `carried ×` chip below
-    // (§0.6) — `justifyContent: 'space-between'` is what reserves that space.
+    // **A field is a row, not a box** (DESIGN.md §0.6, M1d design pass) — the root every
+    // field on this form shares: FormField.tsx, DateTimeField.tsx, and `OptionChips` /
+    // `BooleanField` in DiveFormScreen.tsx. It is `detailRow` one screen over, made
+    // typeable: a label leading, the value trailing, and a hairline on the row's TOP edge,
+    // "the same rule dive rows follow" (`diveRow` above records at length why the edge is
+    // not interchangeable — a top edge draws the line under whatever PRECEDES the row, so a
+    // group's header gets a line beneath it and the group's last row closes on whitespace).
     //
-    // **`minHeight: 48` because this is a control row, not a caption.** Three different
-    // controls land in it — §0.6's `carried ×` (FormField.tsx), the picker fields' own `×`
-    // (DateTimeField.tsx), and `BooleanField`'s Yes/No chip, which is a `formChip` and has
-    // therefore always made this row 48 dp on hood/gloves/boots. The other two are small
-    // chips that reach §0.5's floor through `hitSlop`, and hitSlop only ever extends a
-    // target within its ancestors: on a 24 dp label row the slop above and below simply
-    // was not delivered, so both `×` controls were roughly 24 dp tall while their own
-    // comments claimed 48. The floor lives here, on every field, rather than only on the
-    // rows currently showing a chip — a conditional height would move the input out from
-    // under the diver's finger the moment typing dropped the chip.
-    formFieldHeader: {
+    // What it replaces is the reason it exists: a label stacked above a bordered,
+    // `surface`-filled, 10-radius input, drawn for every field whether or not it was being
+    // used — "five bordered boxes down the core strip was the heaviest chrome in the app"
+    // (§0.6), and a depth typed in Archivo inside a box that the detail screen read back in
+    // Plex Mono inside no box at all.
+    //
+    // **`minHeight: 48` is §0.5's floor and carries over from `formFieldHeader`, which this
+    // replaces.** It is not spacing and it is not decoration: the `carried ×`
+    // (FormField.tsx) and the picker fields' `×` (DateTimeField.tsx) reach the floor through
+    // `hitSlop`, and hitSlop is only ever delivered inside a target's ancestors — this row is
+    // that ancestor now, exactly as the old label row was, so the vertical slop still lands.
+    // It applies to every field rather than only to the rows currently showing a chip, for
+    // the same reason it did before: a conditional height would move the input out from under
+    // a diver's finger the moment typing dropped the chip.
+    //
+    // **No vertical padding, deliberately.** `formFieldInput` below carries the same 48, so
+    // the input fills the row and the whole 48 dp is a live target for focusing the field.
+    // Padding here would leave the row at the floor while the thing a diver actually taps sat
+    // short of it — the shape `da2769f` found in four controls at once.
+    formField: {
       minHeight: 48,
+      justifyContent: 'center',
+      gap: 10,
+      paddingHorizontal: FORM_ROW_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    // §0.6: "**Focus is what draws the affordance.** The focused row fills with `surface`;
+    // nothing else does. The box appears where it is wanted instead of five times over."
+    // Composed ON TOP of `formField` above (a two-element style array at the call site),
+    // never as a replacement, so a focused row cannot drift from an unfocused one on
+    // anything but the fill. `surface` and nothing else — no border, no radius, no shadow:
+    // §0.1 spends every hue on depth, and this is the one moment the form has to say "here",
+    // so it says it with the token §0.2 reserves for exactly this ("Cards, fields, charts").
+    formFieldFocused: {
+      backgroundColor: theme.surface,
+    },
+    // The label/value line inside `formField` above. A separate style rather than putting
+    // `flexDirection: 'row'` on the field itself, because a field is not always one line:
+    // `OptionChips` puts a wrapping chip row under it, `DateTimeField` puts an opened picker
+    // there, notes puts its own box there, and §0.6 fixes that slot as where M2's
+    // autocomplete list will go ("The list belongs directly under the focused row").
+    //
+    // `justifyContent: 'space-between'` is what makes "the value trailing" (§0.6) true for
+    // the one field whose value has no `formFieldValue` slot to grow into: hood/gloves/boots
+    // put a `formChip` straight in the row, and without this it sat flush against the end of
+    // the word "Hood" in the middle of an otherwise empty row. It is a no-op for every other
+    // field, whose value slot already carries `flex: 1`.
+    formFieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 8,
+      gap: 12,
+    },
+    // A field whose value is a CONTROL rather than text — hood/gloves/boots' Yes/No chip,
+    // and nothing else today. Composed onto `formField` above at that one call site.
+    //
+    // `formChip` carries §0.5's 48 dp floor as a real box, and a 48 dp box inside a 48 dp row
+    // puts its border exactly on the row's hairlines, top and bottom — three of them in a
+    // column read as chips spilling out of their rows. This row can afford the padding
+    // `formField` deliberately withholds precisely because it holds no `TextInput`: the rule
+    // there exists so an input's own floor cannot end up shorter than the row it fills, and
+    // there is no input here to fall short.
+    formFieldChoice: {
+      paddingVertical: 6,
     },
     // The `carried ×` chip (§0.6, M1d task 5): "muted mono on `border`... gains no
     // colour" — the same monochrome rule `depthValue` exists to be the one exception to
@@ -1172,7 +1296,10 @@ function build(scheme: ColorScheme) {
     // layout can actually deliver OUTWARD reaches §0.5's floor without any of it reaching
     // back over the word "carried" — see `CLEAR_HIT_SLOP` (FormField.tsx) for the whole
     // arithmetic. Four dp is what separates a compact chip from a control that clears a
-    // field when a diver taps its label.
+    // field when a diver taps its label. The room that slop is delivered into is
+    // `FORM_ROW_INSET` (this function's own top), the field row's own trailing padding —
+    // 20 dp inside the row's unclipped box, where it used to be 20 dp of ScrollView padding
+    // outside the field entirely.
     formFieldCarriedClear: {
       borderLeftWidth: 1,
       borderLeftColor: theme.fgMuted,
@@ -1184,83 +1311,133 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       color: theme.fgMuted,
     },
-    // `flex: 1`, not a fixed width: the same wrapping requirement `tripTitle` above
-    // documents (Czech runs 20-30% longer than English) applies to every field label on
-    // this screen, not just a trip's own heading.
+    // `rowLabel` (this function's own top) — the detail screen's `detailLabel`, exactly, so
+    // "Max depth" reads the same on the screen you type it into as on the screen you read it
+    // back from. It was Archivo **14** in its own private definition until the M1d design
+    // pass; §0.6 sets 15 and names the detail row as the source.
+    //
+    // `flexShrink: 1` rather than `flex: 1`: the same wrapping requirement `tripTitle` above
+    // documents (Czech runs 20-30 % longer than English) still has to hold, and shrink is
+    // what lets a long label wrap. Growing is deliberately left to `formFieldValue` below,
+    // whose `flexBasis: 0` means the label absorbs ALL of the shrinking when the two compete
+    // — so a long Czech label wraps to a second line and the value keeps its column, rather
+    // than the value being squeezed to nothing.
     formFieldLabel: {
+      ...rowLabel,
+      flexShrink: 1,
+    },
+    // A row's trailing half: the input, and the unit that follows it. `flex: 1` (basis 0) so
+    // it takes whatever the label leaves and the value lands hard against the row's trailing
+    // edge, the same place `detailValue`'s own `textAlign: 'right'` puts it one screen over.
+    formFieldValue: {
       flex: 1,
-      fontFamily: fonts.sans,
-      fontSize: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 5,
+    },
+    // The typed value itself — `rowValueSans`, i.e. `detailValueText` made editable. **No
+    // border, no radius, no fill:** §0.6 gives the box to focus alone (`formFieldFocused`
+    // above), so an unused field draws nothing at all.
+    //
+    // `minHeight: 48` is §0.5's floor on the thing a diver actually taps to start typing, and
+    // it deliberately matches `formField`'s own so the input fills the row rather than
+    // floating in the middle of it — the row's whole height focuses the field. `padding: 0`
+    // because the row owns the inset now; the input's own 12/10 would have offset the value
+    // from the label beside it.
+    formFieldInput: {
+      ...rowValueSans,
+      flex: 1,
+      minHeight: 48,
+      padding: 0,
+    },
+    // §0.6: "Figures in mono, names in sans... a depth, duration, pressure or temperature is
+    // a data figure and takes Plex Mono 15 with tabular figures (§0.2); a site, centre or
+    // buddy is a name and stays Archivo." Composed ON TOP of `formFieldInput` above, never
+    // standalone, and chosen EXPLICITLY per field at the call site (`FormField`'s `mono`
+    // prop) — the same rule, and the same reason, `DiveDetailScreen`'s own `Field.mono`
+    // follows: a new field must not be able to pick up the wrong face by accident, and the
+    // keyboard a field asks for is not the same question (latitude and a cylinder count both
+    // take a numeric keypad; only one of them is a figure a diver reads back).
+    formFieldInputMono: rowValueMono,
+    // The unit that follows a figure, "as a muted suffix, exactly as `12.2 m` reads on the
+    // detail" (§0.6). Mono like the figure it qualifies and muted so it never competes with
+    // it — the same relationship `depthUnit` above draws between a depth and its `m`, at row
+    // scale. It is a sibling `Text`, never concatenated into the input's own value: what the
+    // diver typed has to stay exactly what the form holds.
+    //
+    // Rendered only while the field HAS a figure. An empty numeric field shows its unit as
+    // the placeholder instead (§0.6: "so the row still says what belongs in it"), which is
+    // the same word in the same slot — drawing both would read as "m m".
+    formFieldUnit: {
+      fontFamily: fonts.mono,
+      fontSize: 15,
       color: theme.fgMuted,
     },
-    // The one text-input treatment every field on this form shares, numeric or not —
-    // `keyboardType` is the only thing that varies per field (FormField.tsx's own prop).
-    // `minHeight: 48` is this screen's own tap-target floor (§0.5) for the input itself,
-    // not just the buttons around it.
-    formFieldInput: {
-      minHeight: 48,
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      backgroundColor: theme.surface,
-      color: theme.fg,
-      fontFamily: fonts.sans,
-      fontSize: 15,
-    },
-    // Notes gets more room and top-aligned text, rather than centring a growing
-    // paragraph vertically inside a single-line-sized box.
+    // Notes, and notes alone: the one field the detail screen does NOT render as a row —
+    // there it is `detailNotes`, a full-width paragraph under its cluster, because a
+    // paragraph right-aligned in a trailing slot is unreadable. So the form follows it there
+    // too: the label keeps its row, and the box drops to the full width beneath it, in the
+    // same face, size, ink and line height `detailNotes` uses.
+    //
+    // `flex: 0` undoes `formFieldInput`'s own `flex: 1` (basis 0), which in a COLUMN would
+    // resolve to zero height and leave the field invisible. `marginBottom` is
+    // `FIELD_EXTRA_CLEARANCE` — see that constant for why anything below a row owns its own
+    // clearance to the next row's hairline.
     formFieldInputMultiline: {
+      flex: 0,
+      alignSelf: 'stretch',
       minHeight: 96,
+      lineHeight: 22,
+      textAlign: 'left',
       textAlignVertical: 'top',
+      marginBottom: FIELD_EXTRA_CLEARANCE,
     },
     // DateTimeField.tsx's trigger (M1d, date/time pickers): the control that stands where a
-    // `formFieldInput` stands for every other field, so the core strip reads as one column
-    // of identically-sized rows rather than one odd row among six. Deliberately the same
-    // box as `formFieldInput` above — same 48 dp floor (§0.5), border, radius, fill and
-    // padding — because it IS that field, with a picker behind it instead of a keyboard.
+    // `formFieldInput` stands for every other field, so the form reads as one column of
+    // identically-shaped rows rather than one odd row among six. Deliberately the same slot
+    // as `formFieldInput` above — same `flex: 1`, same 48 dp floor (§0.5), and since the M1d
+    // design pass the same absence of a box — because it IS that field, with a picker behind
+    // it instead of a keyboard.
     //
     // `justifyContent: 'center'` rather than the input's own text-centring: this holds a
     // `Text`, not a `TextInput`, and a `Text` does not vertically centre itself in a box
-    // taller than its line.
+    // taller than its line. `alignItems: 'flex-end'` is what `textAlign: 'right'` does for
+    // the input — the value trails, like every other value in the column.
     formFieldPicker: {
+      flex: 1,
       minHeight: 48,
       justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      backgroundColor: theme.surface,
+      alignItems: 'flex-end',
     },
-    // The value the trigger shows. Same face and size as `formFieldInput`'s own text, not
-    // the mono §0.2 gives a timestamp elsewhere: this sits inline in a column of typed
-    // fields, and one mono row among six sans ones reads as a different KIND of field
-    // rather than as data. (The dive list is the other way round — there a time is data in a
-    // row of data, and `diveRowMeta` above is mono accordingly.)
-    formFieldPickerText: {
-      fontFamily: fonts.sans,
-      fontSize: 15,
-      color: theme.fg,
-    },
+    // The value the trigger shows — `rowValueMono`, the same face `detailValue` gives the
+    // "Date" and "Time in" rows one screen over, which is what §0.2 reserves for a timestamp.
+    //
+    // It used to be Archivo, under a comment arguing that "one mono row among six sans ones
+    // reads as a different KIND of field rather than as data." That was true of the form as
+    // it stood, where every value was sans and mono would have been the odd one out; §0.6's
+    // design pass removes the premise rather than the conclusion. The form is a mixed column
+    // of figures and names now, exactly as the detail screen is, and a date is a figure in
+    // both places or in neither.
+    formFieldPickerText: rowValueMono,
     // "Not set" — an optional field the diver never recorded (`timeIn`). Same muted ink
     // `formFieldInput`'s own placeholder uses (FormField.tsx reads `formFieldLabel.color`
     // for exactly this), so an unset picker field and an empty text field look equally
     // empty rather than one of them looking filled in.
     formFieldPickerTextUnset: {
-      fontFamily: fonts.sans,
-      fontSize: 15,
+      ...rowValueMono,
       color: theme.fgMuted,
     },
-    // The native picker itself, once the trigger opens it. `alignSelf: 'flex-start'` keeps
-    // the OS control at its own intrinsic width instead of stretching it across the form,
-    // and the height is the one thing an iOS inline (calendar) picker will NOT size for
-    // itself inside a ScrollView — without it the control lays out at zero height and the
-    // field looks like it simply did not open.
+    // The native picker itself, once the trigger opens it — in the slot §0.6 fixes for
+    // anything a field puts under its own row. `alignSelf: 'flex-start'` keeps the OS control
+    // at its own intrinsic width instead of stretching it across the form.
+    //
+    // No `marginTop` any more: `formField`'s own `gap` is what separates this from the row
+    // above it now, and the two stacked read as roughly double what either asked for.
+    // `marginBottom` is `FIELD_EXTRA_CLEARANCE` — see that constant.
     formFieldPickerControl: {
       alignSelf: 'flex-start',
-      marginTop: 8,
+      marginBottom: FIELD_EXTRA_CLEARANCE,
     },
     // Colour handed to the picker's own iOS API (`textColor`, `accentColor`) — read as
     // `.color` at the call site, the same way FormField.tsx already reads
@@ -1303,35 +1480,45 @@ function build(scheme: ColorScheme) {
     formGroup: {
       borderTopWidth: 1,
       borderTopColor: theme.border,
-      paddingTop: 4,
     },
     // The disclosure control — §0.5's own "48 dp minimum tap targets, including each
-    // group's header."
+    // group's header." No `paddingTop` on `formGroup` above to stack under it: that floor
+    // already leaves roughly 19 px of slack around a 10.5 px label, and the two together read
+    // as a gap nothing asked for — the same arithmetic `detailHero`/`detailBack` above record.
     formGroupHeader: {
       minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: FORM_ROW_INSET,
     },
+    // §0.6: "**A group header is a cluster label** — Plex Mono 10.5, uppercase, +0.14 em,
+    // muted. *Conditions* and *Gas & cylinders* name the same groups on both screens and used
+    // to carry two different treatments." `clusterLabel` at the top of this function is that
+    // one treatment, read here and by `detailClusterTitle` above; this was Archivo Medium 15
+    // in full ink, which is a heading, and the same words one screen over were a mono label.
     formGroupTitle: {
+      ...clusterLabel,
       flex: 1,
-      fontFamily: fonts['sans-medium'],
-      fontSize: 15,
-      color: theme.fg,
     },
     // "Show"/"Hide" (FormGroup.tsx's own docblock: text, not a chevron glyph — this
     // codebase's bundled fonts have no triangle/chevron code point, the same gap
     // `reorderArrowUp`/`reorderArrowDown` above already found and fixed for the reorder
-    // arrows). Same uppercase/tracked/muted formula as `dayStripActionLabel`.
-    formGroupState: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
-    },
+    // arrows).
+    //
+    // `actionPillLabel` (this function's own top) — Archivo, where the title beside it is now
+    // mono. It was mono 11.5 uppercase tracked muted, which against a mono 10.5 uppercase
+    // tracked muted title reads as one continuous string ("CONDITIONS HIDE") rather than a
+    // label and a control. §0.2 splits the two faces on content and this is the split doing
+    // its job: the group's NAME is a structural label, the word beside it is a UI control's,
+    // the same category as `actionLabel`/`dayStripActionLabel`.
+    //
+    // The pill those two labels usually sit in is deliberately absent: there the pill IS the
+    // target inside a row that is not, where here the whole 48 dp row is one `Pressable`, so
+    // a bordered box around one word inside it would draw a target that is not the target.
+    formGroupState: actionPillLabel,
     formGroupBody: {
-      gap: 14,
       paddingBottom: 16,
     },
     // A fixed-choice field (entry, salinity, water body, suit, cylinder material) —
@@ -1342,11 +1529,33 @@ function build(scheme: ColorScheme) {
     // could mistype — a mistyped enum would fail zodResolver's per-field validation and
     // block the WHOLE form's `handleSubmit`, exactly the "never block a save" (§1)
     // failure this screen exists to avoid.
+    // In the slot §0.6 gives a field's second line, under its own label row — a fixed-choice
+    // field cannot put six water-body chips at Czech length into a trailing slot without
+    // wrapping them into a column two words wide.
+    //
+    // It is therefore the one thing on this form that does NOT trail, and that is deliberate:
+    // this is a set of options to read through, not a value to read off, and a set reads
+    // left-to-right. Trailing them was tried on the simulator first and is what made the
+    // decision — six chips fill the first line and push the seventh to the far right, so the
+    // block is left-aligned except for one orphan hanging under its own last chip.
+    // `paddingBottom` is `FIELD_EXTRA_CLEARANCE` — see that constant.
     formChipRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
+      paddingBottom: FIELD_EXTRA_CLEARANCE,
     },
+    // **No fill** (M1d design pass). §0.6 gives `surface` to one thing — "The focused row
+    // fills with `surface`; nothing else does. The box appears where it is wanted instead of
+    // five times over" — and once the fields stopped drawing boxes these were the brightest
+    // objects left on the screen: six white boxes in a row under *Water body*, which is
+    // literally the shape that sentence rules out. An outline is not a fill, so the border
+    // stays; what goes is the `#FFFFFF` that made a row of options louder than the value the
+    // diver is typing.
+    //
+    // That leaves it the same at-rest/chosen pair `actionPill`/`selectedFill` already give
+    // §2.4's Logged/Planned control one row up — quiet outline, inverted ink when chosen —
+    // rather than a second way of saying the same thing.
     formChip: {
       minHeight: 48,
       alignItems: 'center',
@@ -1355,7 +1564,6 @@ function build(scheme: ColorScheme) {
       borderColor: theme.border,
       borderRadius: 10,
       paddingHorizontal: 14,
-      backgroundColor: theme.surface,
     },
     // `selectedFill`/`selectedInk` at the top of this function — the §0.1 inverted-ink
     // pair every "this one is chosen" state in the app shares, rather than a second
@@ -1373,7 +1581,7 @@ function build(scheme: ColorScheme) {
     // long form — "one scroll view" (brief) describes the form's OWN fields, not this
     // persistent action bar.
     formFooter: {
-      paddingHorizontal: 20,
+      paddingHorizontal: FORM_ROW_INSET,
       paddingTop: 12,
       paddingBottom: 24,
       borderTopWidth: 1,
@@ -1396,29 +1604,40 @@ function build(scheme: ColorScheme) {
     // read is told that, rather than tapping Save and watching nothing happen at all.
     //
     // It used to spread `noticeBanner` — a bordered, `surface`-filled, 12-radius box — and
-    // that was the defect, found by using the app: directly beneath `formFieldInput` below
-    // (border, radius, surface fill) it rendered as *the same object one row down*, so the
-    // message read as a second, empty field rather than as a sentence about the field above
-    // it. §0.1 rules out solving that with a red, so the lever is shape and weight: no box
-    // at all, and text a size smaller than the input's, in muted ink with medium weight.
-    // The wrapping View stays for the spacing alone — see FieldError (DiveFormScreen.tsx).
+    // that was the defect, found by using the app: directly beneath the bordered,
+    // `surface`-filled input this form drew back then it rendered as *the same object one row
+    // down*, so the message read as a second, empty field rather than as a sentence about the
+    // field above it. §0.1 rules out solving that with a red, so the lever is shape and
+    // weight: no box at all, and text a size smaller than the input's, in muted ink with
+    // medium weight. The wrapping View stays for the spacing alone — see FieldNote
+    // (DiveFormScreen.tsx).
+    //
+    // §0.6 states the finished rule: "**A field error is text, not a field.** Muted,
+    // trailing, under the row it belongs to." *Trailing* is what `alignItems: 'flex-end'`
+    // (and the text's own `textAlign`) adds here — the message lands in the same column as
+    // the value it is about, rather than under the label, which names the field and is not
+    // what went wrong. `paddingHorizontal` is `FORM_ROW_INSET`, so it sits in the same
+    // column every row on this form does; it draws no hairline, because it is not a row.
     formFieldError: {
+      alignItems: 'flex-end',
+      paddingHorizontal: FORM_ROW_INSET,
       paddingTop: 2,
-      paddingHorizontal: 2,
+      paddingBottom: 8,
     },
     formFieldErrorText: {
       fontFamily: fonts['sans-medium'],
       fontSize: 12.5,
       color: theme.fgMuted,
+      textAlign: 'right',
     },
     // The form's own way out (M1d task 7) — `backControl` at the top of this function, the
     // one definition `detailBack` above also uses, so the two screens' exits cannot drift
-    // into two different treatments. `paddingHorizontal: 20` rather than the detail
-    // screen's 16: it aligns to `formScrollContent`'s own 20 px padding, which is what the
-    // heading directly beneath it is aligned to.
+    // into two different treatments. `FORM_ROW_INSET` rather than the detail screen's 16: it
+    // aligns to this form's own row inset, which is what the heading directly beneath it —
+    // and every field row below that — is aligned to.
     formBack: {
       ...backControl,
-      paddingHorizontal: 20,
+      paddingHorizontal: FORM_ROW_INSET,
     },
     formBackLabel: backControlLabel,
   });

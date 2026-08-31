@@ -33,7 +33,7 @@ it('still catches a bare literal with nothing known beside it', async () => {
 });
 
 it('passes a View wearing only styles the sheet handed out', async () => {
-  const t = await render(<View style={[styles.formField, styles.formFieldHeader]} />);
+  const t = await render(<View style={[styles.formField, styles.formFieldFocused]} />);
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 

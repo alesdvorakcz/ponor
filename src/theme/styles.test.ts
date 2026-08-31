@@ -47,16 +47,35 @@ describe('the 48 dp floor a style claims is a floor it keeps', () => {
   });
 });
 
-// The label row above every field on the dive form (FormField.tsx, DateTimeField.tsx,
-// OptionChips/BooleanField in DiveFormScreen.tsx) is a CONTROL row: §0.6's `carried ×`, a
-// picker field's `×` and hood/gloves/boots' Yes/No chip all land in it. The two `×`
+// Every field on the dive form (FormField.tsx, DateTimeField.tsx, OptionChips/BooleanField
+// in DiveFormScreen.tsx) is one CONTROL row: §0.6's `carried ×`, a picker field's `×`,
+// hood/gloves/boots' Yes/No chip and the field's own input all land in it. The two `×`
 // controls reach §0.5's floor through `hitSlop`, and hitSlop is delivered only inside the
 // ancestors — so the row's own height is what decides whether those targets exist at all.
 // Pinned here rather than left implicit: this is the value both components' hitSlop
-// comments now depend on, and it was 24 dp while they claimed 48.
-describe('the form field label row', () => {
+// comments depend on, and it was 24 dp while they claimed 48.
+//
+// The floor moved from `formFieldHeader` (the label row above a bordered input) to
+// `formField` itself when §0.6's design pass collapsed the two into one row — same floor,
+// same reason, one row instead of two.
+describe('the form field row', () => {
   it('is tall enough for the controls that sit in it', () => {
-    expect(makeStyles('dark').formFieldHeader.minHeight).toBe(48);
+    expect(makeStyles('dark').formField.minHeight).toBe(48);
+  });
+
+  // ...and the input inside it reaches the floor too, which the row's own height does not
+  // imply: a `TextInput` shorter than its row leaves the rest of that row inert, so a diver
+  // aiming at the field's top or bottom third focuses nothing. Both halves are needed —
+  // vertical padding on the row would satisfy the assertion above while breaking this one.
+  it('gives the input the same floor, so the whole row focuses the field', () => {
+    expect(makeStyles('dark').formFieldInput.minHeight).toBe(48);
+    // No vertical padding on the row, in any of its three spellings: padding there would
+    // hold the row at 48 while pushing the input — the thing a diver taps to start typing —
+    // below the floor, which is exactly the shape `da2769f` found in four controls at once.
+    const row = makeStyles('dark').formField as unknown as Record<string, unknown>;
+    expect(row.paddingVertical ?? 0).toBe(0);
+    expect(row.paddingTop ?? 0).toBe(0);
+    expect(row.paddingBottom ?? 0).toBe(0);
   });
 });
 

@@ -288,6 +288,26 @@ interface SeedState {
   /** DESIGN.md §0.6's `carried ×` paths for `values`, minus whatever the diver has since
    * typed over (`dropCarried`, render body). Always empty in edit mode — see below. */
   paths: ReadonlySet<string>;
+  /**
+   * Every field the diver has typed into or cleared on this form, ever — and the one part of
+   * this state that **survives a reseed**.
+   *
+   * The chip means "this came from your last dive" and must mean nothing else. `useDives()`
+   * resolves after the first render, so a diver who taps `+` and starts typing immediately is
+   * typing into a form whose carry-over has not landed yet; when it does, `keepDirtyValues`
+   * correctly keeps what they typed — and `computeCarriedPaths` was then run over the
+   * carry-over values and marked that field `carried` anyway, offering an `×` that would
+   * clear a value the diver had entered themselves. Filtering the recomputed set by this one
+   * is what stops that: a field the diver has touched can never be re-marked, whatever
+   * arrives afterwards.
+   *
+   * Kept here rather than read from react-hook-form's `dirtyFields` because `dropCarried`
+   * already runs on exactly these two gestures for exactly these fields, and one path is
+   * cheaper to keep honest than two. It is also strictly the more conservative signal:
+   * `dirtyFields` compares against the CURRENT defaults, so a value re-synced from carry-over
+   * can stop being dirty, where having been typed is a fact that does not expire.
+   */
+  typed: ReadonlySet<string>;
 }
 
 /**
@@ -308,8 +328,17 @@ interface SeedState {
  * for the control alone. It writes nothing and means nothing on its own — the diver still
  * sees the flipped control and still has to save — which is precisely why it is a starting
  * value here rather than a rule inside `onValid` about where the diver came from.
+ *
+ * `typed` is carried in and back out untouched, and subtracted from the marks on the way:
+ * see `SeedState.typed` for the race it closes. A reseed re-derives everything the SEED
+ * decides and nothing the DIVER decided.
  */
-function seedStateFor(mode: 'create' | 'edit', seed: Dive | null, openAs?: DiveStatus): SeedState {
+function seedStateFor(
+  mode: 'create' | 'edit',
+  seed: Dive | null,
+  openAs?: DiveStatus,
+  typed: ReadonlySet<string> = new Set<string>(),
+): SeedState {
   const sourceId = seed?.id ?? null;
   const withOpenAs = (values: DiveFormInput): DiveFormInput =>
     openAs === undefined ? values : { ...values, status: openAs };
@@ -322,10 +351,13 @@ function seedStateFor(mode: 'create' | 'edit', seed: Dive | null, openAs?: DiveS
       // that opened blank can never save its blanks over a dive it never loaded.
       values: withOpenAs(seed === null ? blankFormValues() : diveToFormValues(seed)),
       paths: new Set<string>(),
+      typed,
     };
   }
   const values = withOpenAs(initialFormValues(seed));
-  return { sourceId, values, paths: seed === null ? new Set<string>() : computeCarriedPaths(values) };
+  const marked = seed === null ? new Set<string>() : computeCarriedPaths(values);
+  for (const field of typed) marked.delete(field);
+  return { sourceId, values, paths: marked, typed };
 }
 
 /**
@@ -350,6 +382,12 @@ interface ControlledTextFieldProps {
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
   multiline?: boolean;
   placeholder?: string;
+  /** §0.6's "figures in mono, names in sans" — set explicitly per field, never inferred.
+   * See `FormFieldProps.mono` for why `keyboardType` is not the same question. */
+  mono?: boolean;
+  /** The figure's unit, drawn as a muted suffix and as the empty field's placeholder (§0.6).
+   * See `FormFieldProps.unit` for why it is not `placeholder`. */
+  unit?: string;
   /**
    * DESIGN.md §0.6's `carried ×` chip (M1d task 5). Both omitted at every call site
    * whose `name` is not one of `computeCarriedPaths`' own paths — `FormField` then
@@ -421,6 +459,8 @@ function ControlledTextField({
   keyboardType,
   multiline,
   placeholder,
+  mono,
+  unit,
   carriedPaths,
   onDropCarried,
 }: ControlledTextFieldProps) {
@@ -447,6 +487,8 @@ function ControlledTextField({
             keyboardType={keyboardType}
             multiline={multiline}
             placeholder={placeholder}
+            mono={mono}
+            unit={unit}
             carried={carriedPaths?.has(name)}
             // The `×`: same drop, same forward, but with FormField's own `''` — never
             // this field's current (possibly numeric-looking) value — so a cleared
@@ -558,8 +600,13 @@ interface OptionChipsProps<T extends string> {
 function OptionChips<T extends string>({ label, value, options, displayLabel, onChange, scheme }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   return (
+    // The same `formField` row as every other field (§0.6), with the chips in the slot §0.6
+    // gives a field's second line rather than in the row's trailing value slot: five suit
+    // options at Czech length cannot sit beside a label without wrapping into a column two
+    // words wide. `formChipRow`'s own `justifyContent: 'flex-end'` is what keeps them in the
+    // value column anyway.
     <View style={styles.formField}>
-      <View style={styles.formFieldHeader}>
+      <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
       </View>
       <View style={styles.formChipRow}>
@@ -651,17 +698,24 @@ function BooleanField({ label, value, onChange, scheme }: BooleanFieldProps) {
   const styles = makeStyles(scheme);
   const checked = value === true;
   return (
-    <View style={styles.formFieldHeader}>
-      <Text style={styles.formFieldLabel}>{label}</Text>
-      <Pressable
-        style={[styles.formChip, checked && styles.formChipSelected]}
-        onPress={() => onChange(!checked)}
-        accessibilityRole="switch"
-        accessibilityLabel={label}
-        accessibilityState={{ checked }}
-      >
-        <Text style={[styles.formChipText, checked && styles.formChipTextSelected]}>{checked ? 'Yes' : 'No'}</Text>
-      </Pressable>
+    // The one field whose value genuinely fits the row's trailing slot as a control rather
+    // than as text — so it is `formField` plus `formFieldRow` like every other field (§0.6),
+    // with the chip standing where a typed value would. It used to be the bare label row with
+    // no field wrapper at all, which is why hood/gloves/boots drew no hairline of their own.
+    // `formFieldChoice` is the padding a 48 dp chip needs inside a 48 dp row — see that style.
+    <View style={[styles.formField, styles.formFieldChoice]}>
+      <View style={styles.formFieldRow}>
+        <Text style={styles.formFieldLabel}>{label}</Text>
+        <Pressable
+          style={[styles.formChip, checked && styles.formChipSelected]}
+          onPress={() => onChange(!checked)}
+          accessibilityRole="switch"
+          accessibilityLabel={label}
+          accessibilityState={{ checked }}
+        >
+          <Text style={[styles.formChipText, checked && styles.formChipTextSelected]}>{checked ? 'Yes' : 'No'}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -897,8 +951,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // another fresh object, the gate re-opened, and create mode threw "Too many re-renders."
   // rather than ever committing a frame at all. Keyed on `sourceId`, the gate closes on the
   // second render and stays closed.
+  //
+  // `carried.typed` goes back in on every reseed: the seed decides the VALUES and the marks,
+  // and the diver's own history of having touched a field outlives any of them — see
+  // `SeedState.typed`.
   const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, initialStatus));
-  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive, initialStatus));
+  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive, initialStatus, carried.typed));
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
@@ -944,17 +1002,30 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
 
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
   // alike) rather than one closure per field, so there is exactly one place that can
-  // get a field's own drop logic wrong. Bails out via the setter's own no-op-on-same-
-  // reference return when `name` was never in the set, rather than checking first and
-  // conditionally calling `setCarried` — the same "read the LATEST state, don't
-  // trust a value captured at render time" reasoning `ReorderControls.tsx` documents
-  // for staying stateless, applied to a functional updater instead of a prop.
+  // get a field's own drop logic wrong. Reads the LATEST state through a functional
+  // updater rather than a value captured at render time — the same reasoning
+  // `ReorderControls.tsx` documents for staying stateless.
+  //
+  // It does **two** things, and the second is what makes the chip honest. Dropping the mark
+  // is the visible half ("overwriting is just typing, and drops the chip", §0.6). Recording
+  // the field in `typed` is the half that has to outlive the drop: this fires on every
+  // keystroke, including keystrokes that land BEFORE `useDives()` has resolved and therefore
+  // before there is any mark to drop — and when carry-over lands a moment later, that is
+  // exactly the field a recomputed `computeCarriedPaths` would mark as carried, over text the
+  // diver typed. It used to bail out early whenever `name` was not already marked, which is
+  // the same condition, so the one case that needed recording was the one case it skipped.
+  //
+  // The early return moved rather than disappeared: once a field is both recorded and
+  // unmarked there is nothing left to change, so a second keystroke returns the same
+  // reference and re-renders nothing.
   const dropCarried = useCallback((name: FieldPath<DiveFormInput>) => {
     setCarried((prev) => {
-      if (!prev.paths.has(name)) return prev;
+      if (prev.typed.has(name) && !prev.paths.has(name)) return prev;
       const paths = new Set(prev.paths);
       paths.delete(name);
-      return { ...prev, paths };
+      const typed = new Set(prev.typed);
+      typed.add(name);
+      return { ...prev, paths, typed };
     });
   }, []);
 
@@ -1082,7 +1153,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Max depth"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="m"
+            mono
+            unit="m"
           />
           <ControlledTextField
             control={control}
@@ -1090,7 +1162,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Duration"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="min"
+            mono
+            unit="min"
           />
         </View>
 
@@ -1102,7 +1175,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               one. `timeOut` gets no control at all: it is computed from this plus duration
               (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
           <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
-          <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" placeholder="m" />
+          <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit="m" />
         </FormGroup>
 
         <FormGroup title="Conditions" scheme={scheme}>
@@ -1112,20 +1185,22 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Water temp"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="°C"
+            mono
+            unit="°C"
           />
-          <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" placeholder="°C" />
+          <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit="°C" />
           <ControlledTextField
             control={control}
             name="visibilityM"
             label="Visibility"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="m"
+            mono
+            unit="m"
           />
-          <ControlledTextField control={control} name="waves" label="Waves" scheme={scheme} keyboardType="decimal-pad" placeholder="0-3" />
-          <ControlledTextField control={control} name="current" label="Current" scheme={scheme} keyboardType="decimal-pad" placeholder="0-3" />
-          <ControlledTextField control={control} name="surge" label="Surge" scheme={scheme} keyboardType="decimal-pad" placeholder="0-3" />
+          <ControlledTextField control={control} name="waves" label="Waves" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
+          <ControlledTextField control={control} name="current" label="Current" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
+          <ControlledTextField control={control} name="surge" label="Surge" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
           <ControlledOptionField
             control={control}
             name="entry"
@@ -1150,8 +1225,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
           />
-          <ControlledTextField control={control} name="latitude" label="Latitude" scheme={scheme} keyboardType="decimal-pad" />
-          <ControlledTextField control={control} name="longitude" label="Longitude" scheme={scheme} keyboardType="decimal-pad" />
+          <ControlledTextField control={control} name="latitude" label="Latitude" scheme={scheme} keyboardType="decimal-pad" mono />
+          <ControlledTextField control={control} name="longitude" label="Longitude" scheme={scheme} keyboardType="decimal-pad" mono />
         </FormGroup>
 
         {/* DESIGN.md §6: the form shows a single cylinder until "+ add cylinder" is
@@ -1177,9 +1252,16 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Size"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="L"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
+            // Lower-case `l`, where the placeholder here used to read `L`: §0.6 asks for the
+            // unit "exactly as `12.2 m` reads on the detail", and `formatVolume`
+            // (format/display.ts) — the one owner of that string — prints `12 l`. The unit is
+            // drawn beside the figure now rather than only inside an empty box, so the two
+            // spellings would have sat one screen apart on the same cylinder. If `L` is the
+            // wanted spelling it belongs in that formatter, where both screens read it.
+            unit="l"
           />
           <ControlledTextField
             control={control}
@@ -1195,6 +1277,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             keyboardType="number-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
           />
           <ControlledTextField
             control={control}
@@ -1202,9 +1285,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Working pressure"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="bar"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
+            unit="bar"
           />
           <ControlledTextField
             control={control}
@@ -1214,6 +1298,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             keyboardType="decimal-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
           />
           <ControlledTextField
             control={control}
@@ -1223,6 +1308,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             keyboardType="decimal-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
           />
           <ControlledTextField
             control={control}
@@ -1230,7 +1316,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Start pressure"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="bar"
+            mono
+            unit="bar"
           />
           <ControlledTextField
             control={control}
@@ -1238,7 +1325,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="End pressure"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="bar"
+            mono
+            unit="bar"
           />
         </FormGroup>
 
@@ -1260,9 +1348,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Weights"
             scheme={scheme}
             keyboardType="decimal-pad"
-            placeholder="kg"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            mono
+            unit="kg"
           />
         </FormGroup>
 
@@ -1288,7 +1377,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         <FormGroup title="Notes & rating" scheme={scheme}>
           <ControlledTextField control={control} name="title" label="Title" scheme={scheme} />
           <ControlledTextField control={control} name="notes" label="Notes" scheme={scheme} multiline />
-          <ControlledTextField control={control} name="rating" label="Rating" scheme={scheme} keyboardType="decimal-pad" placeholder="1-5" />
+          <ControlledTextField control={control} name="rating" label="Rating" scheme={scheme} keyboardType="decimal-pad" mono placeholder="1-5" />
         </FormGroup>
       </ScrollView>
 

@@ -246,17 +246,23 @@ it('reaches a 48 dp target for the clear control, all of it pointing away from t
   const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
   const styles = makeStyles('light');
 
-  expect(styles.formFieldHeader.minHeight).toBe(48);
+  // `formField` since §0.6's design pass collapsed the label row and the trigger into one
+  // row; it was `formFieldHeader`, the same floor on the ancestor that no longer exists.
+  expect(styles.formField.minHeight).toBe(48);
   expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
   expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
 
   // Outward only, matching `FormField`'s chip: nothing between this control and the
-  // ScrollView clips to bounds, so slop to the right is delivered, and slop to the left
-  // would reach back across the field's own label row for no gain.
+  // ScrollView clips to bounds, so slop to the right is delivered. Slop to the LEFT would
+  // now land on the picker's own trigger, which sits immediately there since the design
+  // pass — "clear this field" drawn over "open this picker" — where before it merely fell
+  // across empty space in the label row for no gain.
   const clearZoneWidth = styles.formFieldClear.paddingHorizontal * 2 + 7;
   expect(slop.left ?? 0).toBe(0);
   expect(clearZoneWidth + (slop.right ?? 0)).toBeGreaterThanOrEqual(48);
-  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formScrollContent.padding);
+  // The room is the field row's own trailing padding now, not the ScrollView's — see
+  // FormField.test.tsx's copy of this assertion for where the inset moved and why.
+  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formField.paddingHorizontal);
 });
 
 it('clears an optional field back to unrecorded, with the empty string and never a value', async () => {

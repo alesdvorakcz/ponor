@@ -69,6 +69,11 @@ export interface DateTimeFieldProps {
  * left-aligned field label and the chip rather than over anything a diver reads as a label
  * of its own. Kept identical because the two are the same control in the same row, and two
  * spellings of one rule is how they would drift.
+ *
+ * Since §0.6's design pass the inward direction is no longer merely wasteful here either:
+ * the picker's own trigger now sits immediately to this chip's LEFT, so left slop would put
+ * "clear the field" over "open the picker" — the same mistake `FormField`'s slop was pointed
+ * away from, with a control in place of a word.
  */
 const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
@@ -154,9 +159,28 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
   };
 
   return (
-    <View style={styles.formField}>
-      <View style={styles.formFieldHeader}>
+    // The same row every other field on this form is (§0.6, M1d design pass) — label
+    // leading, value trailing, hairline on the top edge — with the picker itself in the slot
+    // §0.6 gives a field's second line, "directly under the focused row."
+    //
+    // **`open` is this field's focus.** A picker field has no keyboard focus to read, and
+    // being open is exactly the state a text field's focus fill marks: this is the row the
+    // diver is working in. So it draws the same `surface` fill, from the same style, rather
+    // than the form having two different ways of saying the same thing.
+    <View style={[styles.formField, open && styles.formFieldFocused]}>
+      <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
+        <Pressable
+          style={styles.formFieldPicker}
+          onPress={() => setOpen((wasOpen) => !wasOpen)}
+          accessibilityRole="button"
+          // Same `label: value` shape `OptionChips` already uses on this form, so a screen
+          // reader announces what the field currently holds rather than only what it is for.
+          accessibilityLabel={`${label}: ${displayText}`}
+          accessibilityState={{ expanded: open }}
+        >
+          <Text style={recorded ? styles.formFieldPickerText : styles.formFieldPickerTextUnset}>{displayText}</Text>
+        </Pressable>
         {onClear !== undefined && recorded && (
           <Pressable
             style={styles.formFieldClear}
@@ -171,17 +195,6 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
           </Pressable>
         )}
       </View>
-      <Pressable
-        style={styles.formFieldPicker}
-        onPress={() => setOpen((wasOpen) => !wasOpen)}
-        accessibilityRole="button"
-        // Same `label: value` shape `OptionChips` already uses on this form, so a screen
-        // reader announces what the field currently holds rather than only what it is for.
-        accessibilityLabel={`${label}: ${displayText}`}
-        accessibilityState={{ expanded: open }}
-      >
-        <Text style={recorded ? styles.formFieldPickerText : styles.formFieldPickerTextUnset}>{displayText}</Text>
-      </Pressable>
       {open && (
         <DateTimePicker
           value={seed}

@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { makeStyles } from '../theme/styles';
@@ -35,6 +35,32 @@ export interface FormFieldProps {
   multiline?: boolean;
   placeholder?: string;
   /**
+   * DESIGN.md §0.6: "**Figures in mono, names in sans.** A depth, duration, pressure or
+   * temperature is a data figure and takes Plex Mono 15 with tabular figures (§0.2); a site,
+   * centre or buddy is a name and stays Archivo."
+   *
+   * Set **explicitly at every call site**, exactly as `DiveDetailScreen`'s own `Field.mono`
+   * is, and deliberately NOT inferred from `keyboardType` above: the two answer different
+   * questions. A latitude and a cylinder count both take a numeric keypad; only one of them
+   * is a figure a diver reads back off a slate. Inferring it would let a new field pick up
+   * the wrong face silently, which is the whole reason this form and the detail screen
+   * drifted apart in the first place.
+   */
+  mono?: boolean;
+  /**
+   * The unit this field's figure is measured in — `m`, `min`, `bar`, `kg`, `°C`.
+   *
+   * DESIGN.md §0.6 gives it two jobs and they are the same word in the same slot: it follows
+   * a figure "as a muted suffix, exactly as `12.2 m` reads on the detail", and an **empty**
+   * field "shows that unit as its placeholder so the row still says what belongs in it." So
+   * one is drawn or the other, never both.
+   *
+   * Distinct from `placeholder` above, which is for a field whose hint is not a unit — the
+   * `0-3` of a conditions scale, the `1-5` of a rating. Rendering "3 0-3" would be nonsense,
+   * and a single prop could not tell the two cases apart.
+   */
+  unit?: string;
+  /**
    * DESIGN.md §0.6: "A prefilled field shows a `carried ×` chip." Owned entirely by the
    * caller (`DiveFormScreen.tsx` derives it from `CARRIED_FIELDS`, M1d task 3) — this
    * component has no opinion on WHY a value is carried, only on how to show that it is.
@@ -66,8 +92,8 @@ export interface FormFieldProps {
  * 48 dp (§0.5's own floor) around the chip's `×`, via `hitSlop` rather than an inflated
  * visible box — the same "small visible control, generous hidden target" split
  * `ReorderControls.tsx`'s own `ARROW_HIT_SLOP` documents at length, and for the same
- * reason: the chip sits inline in a field's label row, and a 48 x 48 visible box would
- * make that row far taller than the 14 px label text beside it.
+ * reason: the chip sits inline in a field's row, and a 48 x 48 visible box would make that
+ * row far taller than the 15 px label text beside it.
  *
  * **All of it points away from the label.** The previous numbers were
  * `{ top: 14, bottom: 14, left: 21, right: 0 }`, which reached the floor by extending the
@@ -88,18 +114,31 @@ export interface FormFieldProps {
  *
  * **The arithmetic.** The `×` zone is `formFieldCarriedClear`'s own `paddingHorizontal: 14`
  * plus one mono glyph at fontSize 11 — call it 35 dp — and 14 dp of slop to its right
- * brings it past 48. That 14 has somewhere to go: `formScrollContent`'s `padding: 20`
- * (theme/styles.ts) is the room between the field's trailing edge and the ScrollView's own,
- * and the ScrollView is the first ancestor that clips. Vertically the 14 above and below is
- * spent inside `formFieldHeader`'s `minHeight: 48`, which is what makes the target the
- * row's full height whatever the glyph's exact metrics turn out to be.
+ * brings it past 48. That 14 has somewhere to go: `formField`'s own trailing padding
+ * (`FORM_ROW_INSET`, theme/styles.ts) is 20 dp of room inside the row's own unclipped box,
+ * between the chip's trailing edge and the row's. Before §0.6's design pass the same 20 came
+ * from `formScrollContent`'s padding, outside the field entirely; the room moved inward with
+ * the inset and got no smaller. Vertically the 14 above and below is spent inside
+ * `formField`'s `minHeight: 48`, which is what makes the target the row's full height
+ * whatever the glyph's exact metrics turn out to be.
  */
 const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
 /**
- * One form row (DESIGN.md §2.2): a label above an input, with the label's own row left
- * open at its trailing edge — `formFieldHeader`'s `justifyContent: 'space-between'` — for
- * the `carried ×` chip below (§0.6).
+ * One form field (DESIGN.md §2.2, restyled to §0.6): **a row, not a box** — the label at the
+ * leading edge, the typed value trailing, and a hairline on the row's own top edge. It is
+ * `DiveDetailScreen`'s `Row` made typeable, which is the whole point of §0.6's form section:
+ * "The form is the dive detail you can type into."
+ *
+ * What it replaces: a label stacked above a bordered, `surface`-filled input drawn in advance
+ * for every field whether or not it was being used. §0.6: "Five bordered boxes down the core
+ * strip was the heaviest chrome in the app."
+ *
+ * **Focus is what draws the affordance** (§0.6). The row fills with `surface` while the input
+ * holds focus and nothing else does, so the box appears where it is wanted instead of five
+ * times over. The state is local: nothing outside this component has any use for it, and
+ * `onBlur` is still forwarded to whatever the caller passed — react-hook-form's own
+ * `field.onBlur`, which is what marks a field touched — rather than being swallowed here.
  *
  * `forwardRef`s its `TextInput` so a `Controller`'s `field.ref` can attach to the real
  * input for react-hook-form's own focus management, rather than being destructured and
@@ -108,14 +147,55 @@ const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, carried, onClear },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, onClear },
   ref,
 ) {
   const styles = makeStyles(scheme);
+  const [focused, setFocused] = useState(false);
+
+  // Notes, and notes alone. The detail screen renders notes as a full-width paragraph rather
+  // than as a row (`detailNotes`), because a paragraph right-aligned into a trailing slot is
+  // unreadable — so this follows it there: the label keeps its row, and the box drops to the
+  // full width beneath it, in the slot §0.6 gives a field's second line.
+  const stacked = multiline === true;
+
+  const input = (
+    <TextInput
+      ref={ref}
+      style={[styles.formFieldInput, mono === true && styles.formFieldInputMono, stacked && styles.formFieldInputMultiline]}
+      value={value}
+      onChangeText={onChange}
+      onFocus={() => setFocused(true)}
+      // Both, in this order: the row stops being the focused one, and the caller still hears
+      // about the blur it asked for.
+      onBlur={() => {
+        setFocused(false);
+        onBlur?.();
+      }}
+      keyboardType={keyboardType ?? 'default'}
+      multiline={multiline}
+      // §0.6: an empty numeric field shows its unit as the placeholder, "so the row still
+      // says what belongs in it". `placeholder` covers the fields whose hint is not a unit —
+      // a conditions scale's `0-3`, a rating's `1-5`.
+      placeholder={unit ?? placeholder}
+      placeholderTextColor={styles.formFieldLabel.color}
+      accessibilityLabel={label}
+    />
+  );
+
   return (
-    <View style={styles.formField}>
-      <View style={styles.formFieldHeader}>
+    <View style={[styles.formField, focused && styles.formFieldFocused]}>
+      <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
+        {!stacked && (
+          <View style={styles.formFieldValue}>
+            {input}
+            {/* The muted suffix (§0.6), drawn only while there is a figure for it to follow:
+                an empty field is already showing this same word as its placeholder, and both
+                at once would read as "m m". */}
+            {unit !== undefined && value !== '' && <Text style={styles.formFieldUnit}>{unit}</Text>}
+          </View>
+        )}
         {carried && (
           <View style={styles.formFieldCarried}>
             <Text style={styles.formFieldCarriedLabel}>carried</Text>
@@ -136,18 +216,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           </View>
         )}
       </View>
-      <TextInput
-        ref={ref}
-        style={[styles.formFieldInput, multiline && styles.formFieldInputMultiline]}
-        value={value}
-        onChangeText={onChange}
-        onBlur={onBlur}
-        keyboardType={keyboardType ?? 'default'}
-        multiline={multiline}
-        placeholder={placeholder}
-        placeholderTextColor={styles.formFieldLabel.color}
-        accessibilityLabel={label}
-      />
+      {stacked && input}
     </View>
   );
 });

@@ -92,6 +92,12 @@ beforeEach(() => {
 // has one) is required for `root` to resolve to something whose descendants `queryAll` can
 // actually reach — a bare `<>...</>` Fragment root would leave `root` pointing at only the
 // first top-level child, per M1d task 1's own probe finding.
+//
+// `TestNode` is that same instance type, named so a helper can take one as a parameter —
+// `RenderResult['root']` types as possibly-null, and every query in this file already guards
+// for that before handing anything on.
+type TestNode = NonNullable<RenderResult['root']>;
+
 function textNodesOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'Text') : [];
 }
@@ -362,6 +368,99 @@ it('draws nothing outside its own makeStyles treatment, collapsed or expanded', 
   if (!header) throw new Error('no Gas & cylinders header found');
   await fireEvent.press(header);
   expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+});
+
+// --- §0.6's design pass: a field is a row, and focus is the only thing that draws a box ---
+
+/** Every `backgroundColor` anything on screen is painted with, flattened the way RN composes
+ * styles. `View`s and `Text`s alike, so a fill that moved onto a label would still be seen. */
+function fillsOn(t: RenderResult): unknown[] {
+  const nodes = t.root ? [t.root, ...t.root.queryAll(() => true)] : [];
+  return nodes
+    .flatMap((n) => [n.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[])
+    .map((s) => s.backgroundColor)
+    .filter((c) => c !== undefined);
+}
+
+// DESIGN.md §0.6: "**Focus is what draws the affordance.** The focused row fills with
+// `surface`; nothing else does. The box appears where it is wanted instead of five times
+// over."
+//
+// Swept across the whole screen rather than asserted on one field, because the rule is about
+// what ELSE is allowed to fill — and the answer is nothing. Every field used to draw a
+// `surface`-filled box in advance; so did every option chip, six of them in a row under
+// *Water body*, which is literally the shape that sentence rules out. Both groups holding
+// chips are opened first, so this sees them.
+//
+// 'light' throughout: this screen resolves its own scheme from `useColorScheme()`, which
+// reports light under Jest (the same note the monochrome test below carries).
+it('paints nothing with surface until a field is focused, and then only that row', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Equipment');
+  const surface = themeFor('light').surface;
+
+  // The sweep is worth nothing if it sweeps nothing: the screen has to be painting SOMETHING
+  // (the save control's inverted ink, the carried chip's `border` fill) for the absence of
+  // `surface` below to mean anything at all.
+  expect(fillsOn(t).length).toBeGreaterThan(0);
+  expect(fillsOn(t)).not.toContain(surface);
+
+  const input = findTextInput(t, 'Max depth');
+  if (!input) throw new Error('no Max depth field found');
+  await fireEvent(input, 'focus');
+  // Exactly one row, not the whole column: "the box appears where it is wanted."
+  expect(fillsOn(t).filter((c) => c === surface)).toHaveLength(1);
+});
+
+// §0.6: "A field is a row, not a box... Separated by a hairline on each row's **top** edge,
+// the same rule dive rows follow." The edge is not interchangeable — `diveRow` (theme/
+// styles.ts) records at length what a bottom edge cost the dives list — so it is pinned as
+// the edge, not merely as "a border somewhere".
+//
+// Counted across the whole core strip rather than asserted for one field, because the point
+// is that EVERY field is a row: the five §2.2 names, plus the group header above them, is
+// what makes the form one ruled column instead of five boxes.
+it('rules every field on its top edge, the way a dive row is ruled', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+  const strip = regionWith(t, styles.formCoreStrip);
+  expect(strip).toBeDefined();
+
+  const rows = strip?.queryAll((n) => [n.props?.style].flat(5).filter(Boolean).includes(styles.formField)) ?? [];
+  // Date, site, centre, max depth, duration (§2.2).
+  expect(rows).toHaveLength(5);
+  expect(styles.formField.borderTopWidth).toBe(1);
+  expect(styles.formField.borderTopColor).toBe(themeFor('light').border);
+  // ...and no bottom edge beside it, which would double every rule between two rows and
+  // leave one hanging under the last field of every group.
+  expect((styles.formField as unknown as Record<string, unknown>).borderBottomWidth ?? 0).toBe(0);
+});
+
+// The three fields that are NOT a `FormField` — hood, gloves and boots are a `BooleanField`,
+// and suit and weights sit beside them — have to be rows too, or "a field is a row" is a rule
+// with three exceptions in one group. `BooleanField` used to render the bare label row with
+// no field wrapper at all, which is exactly why those three drew no hairline of their own and
+// their Yes/No chips sat flush against the end of the word instead of at the row's edge.
+it('makes a yes/no field a row like every other field, hairline and all', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+  await openGroup(t, 'Equipment');
+
+  // By the `switch` role `BooleanField` declares, the same idiom §2.4's control uses — never
+  // `buttonsOf`, which would find neither.
+  const chip = (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
+    (n) => String(n.props?.accessibilityLabel ?? '') === 'Hood',
+  );
+  expect(chip).toBeDefined();
+  const row = fieldRootOf(chip);
+  expect(row).not.toBeNull();
+  // The row it sits in is `formField` — so it carries the hairline and the 48 dp floor — and
+  // it also carries the padding a 48 dp chip needs inside a 48 dp row.
+  expect([row?.props?.style].flat(5)).toContain(styles.formFieldChoice);
+  // ...and the value trails, which for this one field depends on the row itself rather than
+  // on a `formFieldValue` slot it does not have.
+  expect(styles.formFieldRow.justifyContent).toBe('space-between');
 });
 
 // --- mode is a real prop, not a dead one, even though Task 7 owns loading the dive ---
@@ -640,6 +739,25 @@ it('clears the date message once the diver picks a real date, rather than leavin
   expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ date: '2026-08-31' }));
 });
 
+/**
+ * The `formField` row a control belongs to — the node §0.6 makes a field's own root.
+ *
+ * **Walked for, not counted in `.parent` hops.** The assertion below is about a
+ * RELATIONSHIP (the message is the field's sibling), and counting hops pins the depth of the
+ * tree between them instead: §0.6's design pass put a `formFieldRow` between a field's root
+ * and its control, which moved every hop by one while leaving the relationship exactly as it
+ * was — a red that says nothing about what the test is for.
+ */
+function fieldRootOf(node: TestNode | undefined): TestNode | null {
+  const field = makeStyles('light').formField;
+  let current: TestNode | null = node?.parent ?? null;
+  while (current !== null) {
+    if ([current.props?.style].flat(5).filter(Boolean).includes(field)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
 it('shows a blocking field message under the field it belongs to, not somewhere else', async () => {
   nonCanonicalSource();
   const t = await render(<DiveFormScreen mode="create" />);
@@ -653,9 +771,12 @@ it('shows a blocking field message under the field it belongs to, not somewhere 
   const dateField = findPickerField(t, 'Date');
   expect(message).toBeDefined();
   expect(dateField).toBeDefined();
-  // DateTimeField.tsx renders `formField` > the control; the message sits next to that
-  // `formField`, so the two share a grandparent-level container.
-  expect(message?.parent?.parent).toBe(dateField?.parent?.parent);
+  // The message's own wrapper (`formFieldError`) and the Date field's `formField` root sit
+  // in the same container, one directly after the other — §0.6: "under the row it belongs
+  // to."
+  const fieldRoot = fieldRootOf(dateField);
+  expect(fieldRoot).not.toBeNull();
+  expect(message?.parent?.parent).toBe(fieldRoot?.parent);
 });
 
 it('tells the diver when a save fails instead of pretending it worked', async () => {
@@ -1037,6 +1158,51 @@ it("keeps what the diver typed before carry-over landed, and still fills the fie
   // option, `defaultValues` alone — would pass the line above and silently drop carry-over
   // for every diver whose hook resolves after the first render, which is all of them.
   expect(findTextInput(t, 'Guide')?.props?.value).toBe('Ondra');
+});
+
+// The chip means "this came from your last dive" (§0.6) and must mean nothing else.
+//
+// The value above is kept correctly, and the chip was offered over it anyway: the reseed ran
+// `computeCarriedPaths` over the newly-arrived carry-over values, which of course name
+// `buddy`, so the field the diver had typed themselves came back marked `carried` — with an
+// `×` offering to clear their own text as though it were somebody else's. Found by reading
+// §0.6 against the race the test above already sets up; the two run the same setup for
+// exactly that reason.
+//
+// The guard is the `typed` set (`SeedState`, DiveFormScreen.tsx), which survives the reseed.
+// Both fields are checked: without the Guide half, a fix that simply stopped marking anything
+// after the first render would pass.
+it('never re-marks a field the diver typed into before carry-over landed', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  await typeInto(t, 'Buddy', 'Jana');
+
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr', guide: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  expect(findClearCarried(t, 'Guide')).toBeDefined();
+});
+
+// The same rule for the other gesture that means "this value is mine now": clearing. A diver
+// who taps the `×` on a carried field before the read resolves has said the field is empty on
+// purpose, and the reseed must not put the chip — or the old value — back.
+it('never re-marks a field the diver cleared before carry-over landed', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr', guide: 'Ondra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  const clear = findClearCarried(t, 'Buddy');
+  if (!clear) throw new Error('Buddy was not marked carried to begin with');
+  await fireEvent.press(clear);
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+
+  // A later render from a DIFFERENT source dive — the same reseed path the race above takes.
+  stubDives({ dives: [dive({ id: 'later', date: '2026-08-11', buddy: 'Petr', guide: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
 });
 
 // --- M3: carrying over from a dive that recorded no cylinders ---
@@ -1858,27 +2024,46 @@ it('shows a blocking field message as a line of text, not as a second empty fiel
 
   const message = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Enter a real date'));
   const container = [message?.parent?.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  const box = Object.assign({}, ...container) as { borderWidth?: number; backgroundColor?: string; minHeight?: number };
+  const box = Object.assign({}, ...container) as {
+    borderWidth?: number;
+    borderTopWidth?: number;
+    backgroundColor?: string;
+    minHeight?: number;
+  };
   const styles = makeStyles('light');
 
-  // Nothing that makes an input an input. Directly beneath one, this used to carry
+  // Nothing that makes a field a field. Directly beneath one, this used to carry
   // `noticeBanner`'s border, `surface` fill and 12 px radius at the same width — the same
   // object one row down, which is why it read as a second empty field rather than as a
   // sentence about the first.
+  //
+  // The three properties it must not have are the same three, but §0.6's design pass moved
+  // where they live: a field is a ROW now, not a box, so the border it must not draw is the
+  // row's own top hairline, the fill is the one a FOCUSED row draws, and the height is the
+  // row's 48 dp floor. A message that grew any of them would be a row of the form again.
   expect(box.borderWidth ?? 0).toBe(0);
+  expect(box.borderTopWidth ?? 0).toBe(0);
   expect(box.backgroundColor).toBeUndefined();
   expect(box.minHeight ?? 0).toBe(0);
-  // ...and the input it sits under still has all three, so the difference above is a real
-  // one rather than the whole form having quietly lost its field boxes.
-  expect(styles.formFieldInput.borderWidth).toBeGreaterThan(0);
-  expect(styles.formFieldInput.backgroundColor).toBeDefined();
-  expect(styles.formFieldInput.minHeight).toBe(48);
+  // ...and a real field does have all three, so the difference above is a real one rather
+  // than the whole form having quietly lost its rows.
+  expect(styles.formField.borderTopWidth).toBeGreaterThan(0);
+  expect(styles.formFieldFocused.backgroundColor).toBeDefined();
+  expect(styles.formField.minHeight).toBe(48);
   // Weight and size are the lever §0.1 leaves (no red): smaller than the input's own text,
-  // and muted rather than full ink.
+  // and muted rather than full ink. §0.6 adds one more — "muted, **trailing**, under the row
+  // it belongs to" — so it lands in the value's column rather than under the label, which
+  // names the field and is not what went wrong.
   const text = [message?.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  const ink = Object.assign({}, ...text) as { fontSize?: number; color?: string };
-  expect(ink.fontSize).toBeLessThan(styles.formFieldInput.fontSize);
+  const ink = Object.assign({}, ...text) as { fontSize?: number; color?: string; textAlign?: string };
+  // `fontSize` types as optional on the shared `rowValueSans` this style is built from, so
+  // it is pinned present before being compared — an `undefined` slipping through as `NaN`
+  // would make the comparison below meaningless rather than red.
+  const inputSize = styles.formFieldInput.fontSize;
+  expect(inputSize).toBeDefined();
+  expect(ink.fontSize).toBeLessThan(inputSize ?? 0);
   expect(ink.color).toBe(styles.formFieldLabel.color);
+  expect(ink.textAlign).toBe('right');
 });
 
 // --- M1d: creating a planned dive — §2.4's missing producer ---
