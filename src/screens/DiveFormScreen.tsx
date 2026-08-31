@@ -13,8 +13,8 @@ import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { diveFormSchema, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
-import { backToDives } from '../navigation/backToDives';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
+import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -306,44 +306,44 @@ function ControlledTextField({
       control={control}
       name={name}
       render={({ field, fieldState }) => (
-      <>
-        <FormField
-          ref={field.ref}
-          label={label}
-          value={toInputString(field.value)}
-          // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
-          // drops the chip") — dropping first, then forwarding, so a field currently
-          // showing `carried` never renders even one frame of the new text next to a
-          // chip that no longer describes it.
-          onChange={(text) => {
-            onDropCarried?.(name);
-            field.onChange(text);
-          }}
-          onBlur={field.onBlur}
-          scheme={scheme}
-          keyboardType={keyboardType}
-          multiline={multiline}
-          placeholder={placeholder}
-          carried={carriedPaths?.has(name)}
-          // The `×`: same drop, same forward, but with FormField's own `''` — never
-          // this field's current (possibly numeric-looking) value — so a cleared
-          // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
-          // coercion contract) as the same empty string `optionalNumber` turns into
-          // `null`, not a derived `0`.
-          onClear={(text) => {
-            onDropCarried?.(name);
-            field.onChange(text);
-          }}
-        />
-        {fieldState.error?.message !== undefined && (
-          <View style={styles.formFieldError}>
-            {/* The schema's own message (`diveFormSchema.ts`), not a second sentence
-                written here: what makes a date unreadable is that file's rule to state,
-                and a copy here would drift the first time the rule changed. */}
-            <Text style={styles.formFieldErrorText}>{fieldState.error.message}</Text>
-          </View>
-        )}
-      </>
+        <>
+          <FormField
+            ref={field.ref}
+            label={label}
+            value={toInputString(field.value)}
+            // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
+            // drops the chip") — dropping first, then forwarding, so a field currently
+            // showing `carried` never renders even one frame of the new text next to a
+            // chip that no longer describes it.
+            onChange={(text) => {
+              onDropCarried?.(name);
+              field.onChange(text);
+            }}
+            onBlur={field.onBlur}
+            scheme={scheme}
+            keyboardType={keyboardType}
+            multiline={multiline}
+            placeholder={placeholder}
+            carried={carriedPaths?.has(name)}
+            // The `×`: same drop, same forward, but with FormField's own `''` — never
+            // this field's current (possibly numeric-looking) value — so a cleared
+            // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
+            // coercion contract) as the same empty string `optionalNumber` turns into
+            // `null`, not a derived `0`.
+            onClear={(text) => {
+              onDropCarried?.(name);
+              field.onChange(text);
+            }}
+          />
+          {fieldState.error?.message !== undefined && (
+            <View style={styles.formFieldError}>
+              {/* The schema's own message (`diveFormSchema.ts`), not a second sentence
+                  written here: what makes a date unreadable is that file's rule to state,
+                  and a copy here would drift the first time the rule changed. */}
+              <Text style={styles.formFieldErrorText}>{fieldState.error.message}</Text>
+            </View>
+          )}
+        </>
       )}
     />
   );
