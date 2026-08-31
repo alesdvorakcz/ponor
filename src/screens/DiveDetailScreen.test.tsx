@@ -635,6 +635,12 @@ it('keeps the centre in the sub-line whenever the heading is not already showing
   const t = await render(<DiveDetailScreen id={d.id} />);
   const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
   expect(String(sub?.children[0] ?? '')).toBe('#6 · 22 Aug 2026 · Aqua');
+  // The hero's own heading, which the assertion above never reads: `diveSiteLabel` is
+  // site-FIRST, and its precedence was pinned only in display.test.ts. Nothing here set both
+  // fields on the heading's own dive, so this call site accepted a centre-first inline copy
+  // — a dive titled after the shop rather than the place, on every trip booked through one.
+  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 22);
+  expect(String(heading?.children[0] ?? '')).toBe('Blue Hole');
 });
 
 it('omits a computed value entirely when its inputs are missing', async () => {

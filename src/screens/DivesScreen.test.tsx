@@ -1171,6 +1171,27 @@ it("opens that form with the status control on Logged, so the pill's label stays
   expect(href?.params?.openAs).toBe('logged');
 });
 
+// The pill's own name comes from `diveSiteLabel` (format/display.ts), whose site-over-centre
+// precedence was pinned only in that module's own test. No fixture on this screen ever set
+// both fields, so this call site accepted a centre-first inline copy — every planned dive
+// booked through a shop would have announced as "Complete dive: Aqua", and a queue of them
+// as a column of identical labels, which is precisely what naming the dive exists to prevent.
+it('names the planned dive by its site, not by its centre, when it records both', async () => {
+  stubDives({
+    dives: [
+      dive({ id: 'p1', date: '2026-09-01', status: 'planned', siteName: 'Silfra', centerName: 'Aqua' }),
+      dive({ id: 'p2', date: '2026-09-02', status: 'planned', siteName: 'Kleifarvatn', centerName: 'Aqua' }),
+    ],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+
+  expect(findControl(t, 'Complete dive: Silfra')).toBeDefined();
+  expect(findControl(t, 'Complete dive: Kleifarvatn')).toBeDefined();
+  expect(findControl(t, 'Complete dive: Aqua')).toBeUndefined();
+});
+
 it('offers no Complete dive on a logged row', async () => {
   stubDives({
     dives: [dive({ id: 'l', date: '2026-08-16', siteName: 'Blue Hole' })],

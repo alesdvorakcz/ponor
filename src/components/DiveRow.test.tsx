@@ -143,6 +143,22 @@ it('falls back to the dive centre when no site name was recorded', async () => {
   expect(textIn(t)).toContain('Aqua');
 });
 
+// The case the two tests around this one cannot see: `diveSiteLabel` is `siteName ??
+// centerName ?? 'Unnamed site'`, and its PRECEDENCE was pinned only in display.test.ts. No
+// fixture anywhere set both fields, so this call site accepted a centre-first inline copy —
+// a row that named every dive after the shop rather than the place, on every trip where both
+// are recorded, which is the ordinary case for a diver who books through a centre.
+it('names the site, not the centre, when the dive records both', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ siteName: 'Blue Hole', centerName: 'Aqua' })} number={7} scheme="dark" onPress={() => {}} />,
+  );
+  expect(textIn(t)).toContain('Blue Hole');
+  expect(textIn(t)).not.toContain('Aqua');
+  // The announced label is composed from the same string (`accessibilityLabelFor`), so a
+  // row that got this right on screen and wrong in the label would be caught here too.
+  expect(t.root?.props?.accessibilityLabel).toBe('Dive 7, Blue Hole');
+});
+
 it('names a dive with neither a site nor a centre, rather than leaving a blank line', async () => {
   const t = await render(
     <DiveRow dive={dive({ siteName: null, centerName: null })} number={7} scheme="dark" onPress={() => {}} />,
