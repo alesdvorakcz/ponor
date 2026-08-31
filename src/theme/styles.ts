@@ -1545,17 +1545,24 @@ function build(scheme: ColorScheme) {
       gap: 8,
       paddingBottom: FIELD_EXTRA_CLEARANCE,
     },
-    // **No fill** (M1d design pass). §0.6 gives `surface` to one thing — "The focused row
-    // fills with `surface`; nothing else does. The box appears where it is wanted instead of
-    // five times over" — and once the fields stopped drawing boxes these were the brightest
-    // objects left on the screen: six white boxes in a row under *Water body*, which is
-    // literally the shape that sentence rules out. An outline is not a fill, so the border
-    // stays; what goes is the `#FFFFFF` that made a row of options louder than the value the
-    // diver is typing.
+    // **A chip is filled** — the owner's call after seeing the form built, now written into
+    // §0.6: "`surface` behind an unselected chip, `action` ink behind the selected one — the
+    // same invert the save control uses, so 'the chosen thing is the inverted thing' is one
+    // rule across the app."
     //
-    // That leaves it the same at-rest/chosen pair `actionPill`/`selectedFill` already give
-    // §2.4's Logged/Planned control one row up — quiet outline, inverted ink when chosen —
-    // rather than a second way of saying the same thing.
+    // The fill was taken away during the M1d design pass, under the reading that §0.6's
+    // "The focused row fills with `surface`; nothing else does" spent the token on the
+    // focused row alone. §0.6 now answers that directly rather than leaving it inferred, and
+    // it does so with its eyes open: "This does put a `surface` fill on two different things
+    // (a chip, and the focused row); they are told apart by shape and scale rather than by
+    // colour, a small pill inside a row against a full-bleed fill. Recorded as a known
+    // trade-off, not an oversight." So the outline stays *and* the ground comes back — an
+    // unfilled chip on the app's `bg` reads as an outline drawn on nothing, which is the
+    // opposite failure from the one the removal was fixing.
+    //
+    // The at-rest/chosen pair is still exactly `actionPill`/`selectedFill`'s, the one §2.4's
+    // Logged/Planned control one row up already wears, rather than a second way of saying
+    // the same thing; only the at-rest ground is new.
     formChip: {
       minHeight: 48,
       alignItems: 'center',
@@ -1564,6 +1571,7 @@ function build(scheme: ColorScheme) {
       borderColor: theme.border,
       borderRadius: 10,
       paddingHorizontal: 14,
+      backgroundColor: theme.surface,
     },
     // `selectedFill`/`selectedInk` at the top of this function — the §0.1 inverted-ink
     // pair every "this one is chosen" state in the app shares, rather than a second

@@ -382,35 +382,118 @@ function fillsOn(t: RenderResult): unknown[] {
     .filter((c) => c !== undefined);
 }
 
+/**
+ * The `backgroundColor` a node actually renders with — the LAST one its composed style array
+ * declares, which is how RN flattens `[base, override]`. Not `.some(...)`: a selected chip
+ * wears `[formChip, formChipSelected]`, so "does any layer mention `surface`" answers yes for
+ * a chip that is painted `action` on screen, and a test built on that could not tell the
+ * inverted state from the resting one at all.
+ */
+function effectiveFill(node: TestNode): unknown {
+  return ([node.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[]).reduce(
+    (fill: unknown, layer) => (layer.backgroundColor === undefined ? fill : layer.backgroundColor),
+    undefined,
+  );
+}
+
+/** Every node painted with `colour`. The counterpart of `fillsOn` above for a test that needs
+ * to know WHICH object carries a fill rather than only that something does. */
+function nodesFilledWith(t: RenderResult, colour: unknown): TestNode[] {
+  const nodes = t.root ? [t.root, ...t.root.queryAll(() => true)] : [];
+  return nodes.filter((n) => effectiveFill(n) === colour);
+}
+
+/** Whether a node wears one of `makeStyles`' own style objects, by reference. */
+function wears(node: TestNode, style: unknown): boolean {
+  return [node.props?.style].flat(5).includes(style);
+}
+
 // DESIGN.md §0.6: "**Focus is what draws the affordance.** The focused row fills with
 // `surface`; nothing else does. The box appears where it is wanted instead of five times
-// over."
+// over" — and, since the owner's chip call in that same section, with exactly one named
+// exception: "`surface` behind an unselected chip, `action` ink behind the selected one...
+// This does put a `surface` fill on two different things (a chip, and the focused row);
+// they are told apart by shape and scale rather than by colour, a small pill inside a row
+// against a full-bleed fill. Recorded as a known trade-off, not an oversight."
 //
-// Swept across the whole screen rather than asserted on one field, because the rule is about
-// what ELSE is allowed to fill — and the answer is nothing. Every field used to draw a
-// `surface`-filled box in advance; so did every option chip, six of them in a row under
-// *Water body*, which is literally the shape that sentence rules out. Both groups holding
-// chips are opened first, so this sees them.
+// **This test asserted the opposite until that call, and was rewritten rather than
+// satisfied.** It read `expect(fillsOn(t)).not.toContain(surface)` — no `surface` anywhere
+// on screen until a field takes focus — which is now a claim §0.6 contradicts outright: an
+// implementation that passed it would be one shipping unfilled chips. What the assertion was
+// really protecting survives intact and is what stands here instead — the fill is not drawn
+// down the column of FIELD ROWS in advance, which is the "five times over" the sentence
+// rules out — with the exception pinned to its own boundary: every `surface` on screen
+// belongs to a chip or to the one focused row, and to nothing else.
+//
+// Both groups holding chips are opened first, so this sees them.
 //
 // 'light' throughout: this screen resolves its own scheme from `useColorScheme()`, which
 // reports light under Jest (the same note the monochrome test below carries).
-it('paints nothing with surface until a field is focused, and then only that row', async () => {
+it('fills chips and the focused row with surface, and nothing else — least of all a column of unfocused rows', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Conditions');
   await openGroup(t, 'Equipment');
+  const styles = makeStyles('light');
   const surface = themeFor('light').surface;
 
   // The sweep is worth nothing if it sweeps nothing: the screen has to be painting SOMETHING
-  // (the save control's inverted ink, the carried chip's `border` fill) for the absence of
-  // `surface` below to mean anything at all.
+  // (the save control's inverted ink, the carried chip's `border` fill) for the classification
+  // below to mean anything at all.
   expect(fillsOn(t).length).toBeGreaterThan(0);
-  expect(fillsOn(t)).not.toContain(surface);
+
+  // Every `surface` before focus is a chip, and there are plenty of them: entry, salinity,
+  // water body, suit and the three yes/no controls are all open at this point.
+  const atRest = nodesFilledWith(t, surface);
+  expect(atRest.length).toBeGreaterThan(5);
+  expect(atRest.filter((n) => !wears(n, styles.formChip))).toEqual([]);
+  // ...and not one field row among them.
+  expect(atRest.filter((n) => wears(n, styles.formField))).toEqual([]);
 
   const input = findTextInput(t, 'Max depth');
   if (!input) throw new Error('no Max depth field found');
   await fireEvent(input, 'focus');
   // Exactly one row, not the whole column: "the box appears where it is wanted."
-  expect(fillsOn(t).filter((c) => c === surface)).toHaveLength(1);
+  const focused = nodesFilledWith(t, surface).filter((n) => wears(n, styles.formField));
+  expect(focused).toHaveLength(1);
+  expect(focused.filter((n) => wears(n, styles.formFieldFocused))).toHaveLength(1);
+  // And the chips did not change their minds about being filled while a row took focus.
+  expect(nodesFilledWith(t, surface)).toHaveLength(atRest.length + 1);
+});
+
+// §0.6's chip rule, at the one place it is visible: the same invert the save control uses.
+// Read off the rendered chip rather than off `makeStyles` alone, because a style object that
+// is correct and never reaches a chip is the failure this is for — `formChipSelected` and
+// `formChipTextSelected` were both already defined, and both would still be, if `selected`
+// stopped being wired to the style array at all.
+it('inverts the chip a diver picked, and leaves the rest on surface', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  const theme = themeFor('light');
+  const styles = makeStyles('light');
+
+  const before = findChip(t, 'Entry', 1);
+  if (!before) throw new Error('no Entry chip found');
+  expect(wears(before, styles.formChip)).toBe(true);
+  expect(wears(before, styles.formChipSelected)).toBe(false);
+
+  await pressChip(t, 'Entry', 1);
+  const after = findChip(t, 'Entry', 1);
+  if (!after) throw new Error('the Entry chip vanished when it was picked');
+
+  // The chosen one is `action` on `action-fg`; every other chip in the same row stays on
+  // `surface`. Both halves, because a fill that inverted every chip at once would satisfy
+  // either one alone.
+  expect(nodesFilledWith(t, theme.action)).toContain(after);
+  expect(nodesFilledWith(t, theme.surface)).not.toContain(after);
+  for (const index of [0, 2]) {
+    const other = findChip(t, 'Entry', index);
+    if (!other) throw new Error(`no Entry chip at position ${index}`);
+    expect(nodesFilledWith(t, theme.surface)).toContain(other);
+    expect(nodesFilledWith(t, theme.action)).not.toContain(other);
+  }
+  // ...and the label inverts with the ground, rather than staying `fg` on `action`.
+  const label = after.queryAll((n) => n.type === 'Text')[0];
+  expect([label?.props?.style].flat(5)).toContain(styles.formChipTextSelected);
 });
 
 // §0.6: "A field is a row, not a box... Separated by a hairline on each row's **top** edge,
