@@ -87,10 +87,11 @@ export function nextScrollVisibility(state: ScrollVisibilityState, y: number): S
  * the platform to animate whatever layout/opacity difference that state change produces on
  * the NEXT commit — no `Animated.Value`, no interpolation, no measured height to keep in
  * sync with styles.ts, just a plain boolean and the style DivesScreen.tsx composes from it
- * (`floatingRow`/`floatingRowHidden`, theme/styles.ts — M1c task 11 renamed these from
- * `searchBarCollapse`/`searchBarHidden` when the field they collapsed moved off the top of
- * the screen into a floating row it now shares with the "+"; this hook's own mechanism
- * below is unchanged by that move).
+ * (`topActionRow`/`topActionRowHidden`, theme/styles.ts — that pair has been renamed twice
+ * as the controls moved, from `searchBarCollapse`/`searchBarHidden` at the top of the screen
+ * to `floatingRow`/`floatingRowHidden` at the bottom and back up again; this hook's own
+ * mechanism below is unchanged by every one of those moves, which is the point of it being
+ * a boolean and not a measured height).
  * `isLayoutAnimationEnabled` (RN's own `ReactNativeFeatureFlags.js`) defaults `true` and
  * nothing in this app overrides it.
  */
@@ -113,33 +114,30 @@ interface HideOnScroll {
 }
 
 /**
- * **This hook currently has no caller, and that is recorded rather than acted on.**
+ * DESIGN.md §0.6: "Both recede as the list scrolls down and return on the way up. A logbook
+ * is scanned far more often than searched, so neither earns its space until reached for."
  *
- * It drove the Dives screen's floating row until DESIGN.md §3's note moved that row to the
- * top-right as a persistent capsule and moved the search field to a screen of its own
- * (`SearchScreen.tsx`). §0.6's "Both recede as the list scrolls down and return on the way
- * up" was an argument about a strip that *held a search field* at the bottom: search now
- * costs a glyph rather than a field, so there is nothing left down there to yield. The
- * hook is kept rather than deleted for one concrete reason — `NativeTabsTabBarMinimizeBehavior`
- * (expo-router's native tabs) is the platform's own version of exactly this idea at the
- * bottom of the screen, and if the app ever needs to coordinate with it, this reducer and
- * its boundary tests are the thing it would need. If that never happens, delete this file
- * and `useHideOnScroll.test.ts` together; do not leave it half-wired.
+ * **Its one caller is the Dives screen's top-right capsule** (DivesScreen.tsx). That is not
+ * where it started: it drove the same pair of controls as a floating row at the BOTTOM until
+ * §3's note moved them up, and it briefly had no caller at all — the move took the capsule
+ * to the top and left the recede behind, on the reading that a glyph costs less space than
+ * the field it replaced. What that reading missed is that the recede was never only about
+ * space. The list's trip headers are sticky and their trailing slot carries the trip's date
+ * range (§0.6's type table), so a capsule that stays put occludes every header's date in
+ * turn as the list scrolls — found on the simulator, where `UNNAMED SITE`'s range read as
+ * `…16` behind the capsule. The paragraph above is what stops that, and it stops it whether
+ * the controls sit at the top or the bottom.
  *
- * Everything below describes what it does when something does call it.
- *
- * DESIGN.md §0.6. `forceVisible` covers what the scroll accumulator alone cannot: a state
- * in which receding would leave the diver unable to reach the row back.
- *
- * Its caller passes "the search field is open" (DivesScreen.tsx, DESIGN.md §3's note). It
- * used to pass "the search has narrowed to zero results", which was the same guarantee
- * arriving later: zero results swaps the SectionList out for a static "no dives match"
- * message, so there is no list left to scroll back up on — and a diver who kept refining
- * their query while scrolled down could reach that state, since the keyboard does not blur
- * on scroll and SectionList's default `keyboardDismissMode` is `'none'`, so typing into an
- * already-focused field while scrolled away keeps working. A query can only exist while the
- * field is open, so the new condition contains the old one and additionally stops a diver
- * typing into a field they can no longer see, rather than recovering afterwards.
+ * `forceVisible` covers what the scroll accumulator alone cannot: a state in which receding
+ * would leave the diver unable to reach the row back. Its caller passes `false` today,
+ * deliberately — see DivesScreen.tsx for why this screen no longer has such a state, now
+ * that search has a screen of its own. Two earlier arguments are worth keeping, because they
+ * are what the parameter is FOR and the next screen to need it will meet the same shape:
+ * "the search field is open", and before that "the search has narrowed to zero results",
+ * which was the same guarantee arriving later — zero results swapped the SectionList out for
+ * a static "no dives match" message, so there was no list left to scroll back up on, and a
+ * diver could reach that state while scrolled away because the keyboard does not blur on
+ * scroll and SectionList's default `keyboardDismissMode` is `'none'`.
  *
  * `setHidden(false)` below runs during render, not in an Effect: React's own documented
  * pattern for "adjusting state when a prop changes" (an Effect that calls `setState`

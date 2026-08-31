@@ -14,6 +14,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
 import { diveSiteLabel, formatDiveCount } from '../format/display';
+import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
@@ -157,6 +158,26 @@ export default function DivesScreen() {
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
+  // DESIGN.md §0.6: "Both recede as the list scrolls down and return on the way up. A
+  // logbook is scanned far more often than searched, so neither earns its space until
+  // reached for." That paragraph was written for the bottom capsule and was dropped when
+  // §3's note moved it to the top right; the recede came back with the capsule, because the
+  // reason it existed is a top-right problem too. The list's trip headers are STICKY and
+  // their trailing slot holds the trip's date range (§0.6), so every header in turn slides
+  // under a persistent capsule and loses its date — seen on the simulator, not deduced.
+  // `useHideOnScroll.ts` holds the mechanism (a threshold, not a raw delta sign) and its
+  // own boundary tests.
+  //
+  // **`forceVisible` is `false`, and that is a statement rather than a placeholder.** The
+  // argument exists for a state in which receding would leave the diver unable to reach the
+  // capsule back, and while search lived on this screen there was one: a query that narrowed
+  // the list to zero swapped the SectionList for a static message, leaving nothing to scroll
+  // up on. Search has its own screen now (SearchScreen.tsx), this screen holds no query, and
+  // its only listless branches — a failed read and an empty logbook — both return above
+  // without rendering the capsule at all. So there is no such state here to name, and
+  // `nextScrollVisibility`'s unconditional "visible at the top of the list" rule is the whole
+  // guarantee this screen needs.
+  const hideOnScroll = useHideOnScroll(false);
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -455,6 +476,15 @@ export default function DivesScreen() {
           )}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.listContent}
+          // The capsule above yields to this list (§0.6). `stickySectionHeadersEnabled` is
+          // directly above for a reason: it is what makes the recede necessary rather than
+          // merely nice, since a sticky TripHeader parks its date range under the capsule's
+          // corner for as long as its trip is on screen.
+          onScroll={hideOnScroll.onScroll}
+          // 16ms matches the screen's refresh rate (RN's own docs note no benefit below it).
+          // The default, 0, fires one event per gesture — far too coarse for the hook's
+          // accumulator to read a direction from.
+          scrollEventThrottle={16}
         />
       )}
       {/* DESIGN.md §3's note: "Tabs go to the bottom; search and `+` move to a top-right
@@ -464,16 +494,18 @@ export default function DivesScreen() {
           would paint UNDER its rows, not over them, as soon as any scrolled past it.
           `styles.listContent` keeps the list's own first row clear of it.
 
-          **It does not recede any more, and that is the owner's call rather than an
-          omission.** §0.6's "Both recede as the list scrolls down and return on the way up"
-          was written for a capsule that HELD a search field at the bottom, and the argument
-          for it was that neither control earned its space until reached for. Search is now
-          a glyph that opens `/search` (SearchScreen.tsx), so it already costs a glyph rather
-          than a field, and the `+` beside it is this screen's primary action — a persistent
-          top-right capsule is what iOS 26 Calendar does with exactly these controls, and it
-          is what §3's note points at. `useHideOnScroll` therefore has no caller left; see
-          that file for what is being kept and why. */}
-      <View style={styles.topActionRow}>
+          **It recedes as the list scrolls down and returns on the way up** — §0.6, and the
+          reason that sentence was written: the list's sticky trip headers carry each trip's
+          date range in their trailing slot, so a capsule that never moved would sit on top
+          of every one of them in turn. `hidden` gates pointerEvents and accessibility as
+          well as the style, so a diver can never tap into, or have a screen reader land on,
+          a capsule that has faded to nothing. */}
+      <View
+        style={[styles.topActionRow, hideOnScroll.hidden ? styles.topActionRowHidden : undefined]}
+        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
+        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
+        accessibilityElementsHidden={hideOnScroll.hidden}
+      >
         <ActionCapsule scheme={scheme} actions={capsuleActions} />
       </View>
     </>

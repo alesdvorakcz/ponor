@@ -152,12 +152,30 @@ function findScrollable(t: RenderResult) {
   return node;
 }
 
+/** Fires a scroll event and, like pressToggleAndSettle above, flushes inside act()
+ * afterward. Crossing useHideOnScroll's threshold calls `LayoutAnimation.configureNext`
+ * (useHideOnScroll.ts), which — per its own source
+ * (Libraries/LayoutAnimation/LayoutAnimation.js) — always arms a real `setTimeout` racing
+ * the native animation callback, regardless of whether a native layer is even listening. A
+ * test that fires another interaction, or simply ends, before that settles can log an act()
+ * warning or leak into whichever test runs next. 300ms comfortably clears the configured
+ * 200ms duration plus that race's own +17ms. Only needed for a scroll expected to actually
+ * cross the threshold; a sub-threshold scroll never calls configureNext and is fired with a
+ * plain `fireEvent.scroll` instead. */
+async function scrollAndSettle(node: NonNullable<RenderResult['root']>, y: number) {
+  await fireEvent.scroll(node, { nativeEvent: { contentOffset: { y } } });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 /** DESIGN.md §3's note: the floating TOP row holding the action capsule — located by the
- * one style only that wrapper wears. It used to be found by `accessibilityElementsHidden`,
- * the prop that gated its hide-on-scroll state; the row is persistent now (see this file's
- * own note where those tests were), so that prop is gone and the style is what identifies
- * it. Named `findFloatingRow` through three homes because it has always been the same
- * object: whatever floats over the list. */
+ * base style only that wrapper wears, which is the entry that stays put whether or not
+ * `topActionRowHidden` is composed beside it. (It was once found by
+ * `accessibilityElementsHidden` instead; that prop is back, but keying on it would make the
+ * lookup itself depend on the state the recede tests are trying to read.) Named
+ * `findFloatingRow` through three homes because it has always been the same object:
+ * whatever floats over the list. */
 function findFloatingRow(t: RenderResult) {
   const [node] = t.root
     ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').topActionRow))
@@ -450,30 +468,99 @@ it('carries both glyphs inside the one floating row, as a single object', async 
   expect(row.queryAll((n) => n.props?.accessibilityLabel === 'Search dives')).toHaveLength(1);
 });
 
-// **The row is persistent, and that is the owner's call rather than a regression.** §0.6's
-// "Both recede as the list scrolls down and return on the way up" described a capsule that
-// HELD a search field at the bottom; §3's note moves the trigger to a glyph and the field to
-// its own screen, so search already costs a glyph rather than a strip, and the `+` beside it
-// is this screen's primary action. Four wiring tests for the old behaviour were removed with
-// this one written in their place, so "it no longer hides" is asserted rather than merely
-// left untested — `useHideOnScroll` and its own unit tests are untouched and still green.
-it('leaves the capsule in place as the list scrolls, rather than receding', async () => {
+// **The capsule recedes again, and this replaces the test that said it does not.** §0.6:
+// "Both recede as the list scrolls down and return on the way up." That paragraph was
+// written for the bottom capsule and read as superseded when §3's note moved the controls to
+// the top right — the reasoning being that a glyph costs less space than the field it
+// replaced, so nothing had to yield. Using the app said otherwise: this list's trip headers
+// are STICKY and carry their trip's date range in the trailing slot (§0.6), so a capsule
+// that never moves parks on top of every header's date in turn. `useHideOnScroll` has its
+// caller back; the three tests below are the wiring, and `useHideOnScroll.test.ts` remains
+// the exhaustive boundary coverage of the reducer itself.
+//
+// The trap the brief for the original work named, still live here: "an assertion that the
+// capsule is present after scrolling up would also pass if it never hid at all." So HIDDEN
+// is asserted first, as a precondition this test fails at if receding is broken, before
+// SHOWN is asserted at all.
+it('recedes the capsule on a sustained downward scroll and brings it back on a sustained upward one', async () => {
   stubDives({
     dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
     numbers: new Map(),
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  const before = [findFloatingRow(t).props.style].flat(5).filter(Boolean);
+  const scrollable = findScrollable(t);
+  const styles = makeStyles('light');
 
-  await fireEvent.scroll(findScrollable(t), { nativeEvent: { contentOffset: { y: 400 } } });
+  // A prop assertion rather than a behavioural one, and deliberately so: `fireEvent.scroll`
+  // calls the handler directly and never consults the throttle, so nothing rendered in Jest
+  // can tell 16 from the default. On a device the default fires ONE event per gesture, which
+  // gives the hook's accumulator a single sample and no direction to read — so deleting this
+  // line breaks the recede on the simulator while leaving every behavioural test below green
+  // (confirmed by deleting it and re-running). This is the one thing that catches that.
+  expect(scrollable.props.scrollEventThrottle).toBe(16);
 
-  const after = [findFloatingRow(t).props.style].flat(5).filter(Boolean);
-  expect(after).toEqual(before);
-  expect(findFloatingRow(t).props.pointerEvents).toBeUndefined();
-  // The glyphs are still reachable, which is the thing a receding row took away.
+  await scrollAndSettle(scrollable, 400); // well past the 24px threshold, downward
+  expect([findFloatingRow(t).props.style].flat(5)).toContain(styles.topActionRowHidden);
+  expect(findFloatingRow(t).props.pointerEvents).toBe('none');
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
+
+  await scrollAndSettle(scrollable, 300); // well past it again, upward from 400
+  expect([findFloatingRow(t).props.style].flat(5)).not.toContain(styles.topActionRowHidden);
+  expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
+  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
+  // The glyphs are reachable again, which is the thing a receded row takes away.
   expect(findSearchToggle(t)).toBeTruthy();
   expect(findLogDive(t)).toBeTruthy();
+});
+
+// The occlusion this recede exists for, stated as the relation that causes it rather than as
+// a screenshot: the capsule and a sticky trip header's trailing date range both live in the
+// top-right corner of the same list, so while the capsule is opaque the date is behind it.
+// Read off makeStyles rather than retyped, so a capsule that moved or a header whose trailing
+// slot changed sides would fail this instead of quietly making it vacuous.
+it('parks the capsule in the same corner a sticky trip header puts its date range', async () => {
+  const styles = makeStyles('light');
+  const row = styles.topActionRow as Record<string, unknown>;
+  const header = styles.tripHeader as Record<string, unknown>;
+  // The row is pinned right (`justifyContent: 'flex-end'`, asserted above) and the header
+  // lays its title and trailing date out end-to-end, so the date lands under the capsule.
+  expect(row.justifyContent).toBe('flex-end');
+  expect(header.justifyContent).toBe('space-between');
+  expect(header.flexDirection).toBe('row');
+  // And the capsule is opaque until it recedes — which is why `topActionRowHidden` has to
+  // reach 0 rather than merely dim.
+  expect((styles.topActionRowHidden as Record<string, unknown>).opacity).toBe(0);
+});
+
+// "No jitter": pinned here and not only in useHideOnScroll.test.ts, because a screen that
+// wired the hook up with its own lower threshold would pass every unit test in that file and
+// still flicker the capsule on a settling fling.
+//
+// The small scroll alone is not, on its own, a test that could fail for the reason it claims
+// — the capsule starts visible, so "still visible after a small scroll" passes even with
+// `onScroll` never wired to the SectionList at all. The second scroll closes that: it
+// continues from the same tracked position to a total well past the threshold, so the
+// capsule can only recede there if the small scroll actually reached the handler and was
+// counted.
+it('ignores a scroll under the jitter threshold, but recedes once a real one follows', async () => {
+  stubDives({
+    dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const scrollable = findScrollable(t);
+  const styles = makeStyles('light');
+
+  // No scrollAndSettle: a sub-threshold scroll never calls LayoutAnimation.configureNext,
+  // so there is nothing to flush before asserting.
+  await fireEvent.scroll(scrollable, { nativeEvent: { contentOffset: { y: 10 } } }); // under the 24px threshold
+  expect([findFloatingRow(t).props.style].flat(5)).not.toContain(styles.topActionRowHidden);
+  expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
+
+  await scrollAndSettle(scrollable, 40); // +30 from there — past the threshold, so the wiring is live
+  expect([findFloatingRow(t).props.style].flat(5)).toContain(styles.topActionRowHidden);
 });
 
 // DESIGN.md §0.6 gave the "+" and the search capsule the same shadow so the two floating

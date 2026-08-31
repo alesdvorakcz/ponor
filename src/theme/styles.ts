@@ -591,6 +591,26 @@ function build(scheme: ColorScheme) {
       justifyContent: 'flex-end',
       gap: 12,
     },
+    // Composed onto `topActionRow` above exactly while `useHideOnScroll`'s `hidden` is true
+    // (DivesScreen.tsx). §0.6: "Both recede as the list scrolls down and return on the way
+    // up. A logbook is scanned far more often than searched, so neither earns its space
+    // until reached for."
+    //
+    // **The recede is load-bearing, not decorative, and that was found by using the app.**
+    // The list's trip headers are sticky and their trailing slot carries the trip's date
+    // range (§0.6's type table), so a persistent capsule sits exactly where every header's
+    // date arrives as it slides up — on the simulator `UNNAMED SITE`'s range read as `…16`
+    // with the rest behind the capsule. Nothing here can fix that by moving: the capsule and
+    // the date want the same corner, and §0.6 already answered which of them yields.
+    //
+    // Opacity only, exactly as the bottom row's `floatingRowHidden` was before it (`git log`
+    // has that key): `topActionRow` is already `position: 'absolute'` — out of flow, with no
+    // space to reclaim — and animating its height to 0 would visibly squash the capsule as it
+    // faded rather than let it recede in place. It is also the one property
+    // `useHideOnScroll`'s `LayoutAnimation` config actually animates.
+    topActionRowHidden: {
+      opacity: 0,
+    },
     // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------
