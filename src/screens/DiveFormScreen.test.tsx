@@ -86,6 +86,15 @@ beforeEach(() => {
   (router.canGoBack as jest.Mock).mockReturnValue(true);
 });
 
+// `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
+// nothing else here fakes anything. Restored for every test rather than only for those four,
+// because a faked clock leaking into the next test in the file is exactly the kind of
+// order-dependent green this suite's own stubbing docblock exists to prevent — and
+// `useRealTimers()` is a no-op when nothing was faked.
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 // Same RTL adaptation every screen test in this codebase uses (DivesScreen.test.tsx,
 // DiveDetailScreen.test.tsx): `render` is async and its `root` is a test-renderer
 // `TestInstance` exposing `queryAll(predicate)`. A single root `<View>` (DiveFormScreen.tsx
@@ -676,12 +685,44 @@ it('replaces to the dives list after a save reached by a deep link, with no hist
 // The first test below is the one that would catch a future "the UI is safe now, delete the
 // rule" change; the second and third pin that the message clears and sits where it belongs.
 
-/** A logged dive whose stored date is real but not canonical — the shape an M2 sync from
+/**
+ * Everything Jest's modern fake timers can take over EXCEPT the clock — the same list, and
+ * the same reasoning, as `DiveFormScreen.utc-plus-14.test.tsx`: `setSystemTime` is only
+ * available under fake timers, but this screen is a real React tree whose render and RTL's
+ * own `act`/cleanup run on microtasks and timers, so freezing those to pin a date would
+ * replace one source of flakiness with a larger one. Listing them here fakes `Date` alone.
+ */
+const CLOCK_ONLY = [
+  'hrtime', 'nextTick', 'performance', 'queueMicrotask',
+  'requestAnimationFrame', 'cancelAnimationFrame',
+  'requestIdleCallback', 'cancelIdleCallback',
+  'setImmediate', 'clearImmediate',
+  'setInterval', 'clearInterval',
+  'setTimeout', 'clearTimeout',
+] as const;
+
+/**
+ * A logged dive whose stored date is real but not canonical — the shape an M2 sync from
  * another client can deliver, and the only thing that still puts an unreadable value in
- * front of this form. Dated far ahead so `carryOverDate`'s own 48-hour rule keeps it rather
- * than substituting today: that is the mechanics of getting the value into the field, not
- * the point being made. */
-const nonCanonicalSource = () => stubDives({ dives: [dive({ status: 'logged', date: '2099-8-17' })] });
+ * front of this form. Getting it *into* the field is the mechanics, not the point being
+ * made, so the mechanics are stated here once for the four tests below.
+ *
+ * **The clock is pinned to the day this dive was logged**, because carry-over hands the
+ * date forward only when the previous dive was today or yesterday (`carryOverDate`,
+ * domain/carryOver.ts). This used to lean on `date: '2099-8-17'` instead, with a comment
+ * saying the 48-hour rule "keeps it rather than substituting today" — which was true only
+ * because that rule was one-sided and carried *any* future date for ever, the very defect
+ * the m1d carry-over fix closed. Four tests about the Date field's blocking message were
+ * therefore standing on a bug in a different module; a far-future source now correctly
+ * yields today's date and no message at all. Pinning the clock is what makes the mechanics
+ * say what they mean, and only `Date` is faked (see `CLOCK_ONLY` above).
+ */
+const NON_CANONICAL_DATE = '2026-8-17';
+
+function nonCanonicalSource() {
+  jest.useFakeTimers({ now: new Date(2026, 7, 17, 10, 0), doNotFake: [...CLOCK_ONLY] });
+  stubDives({ dives: [dive({ status: 'logged', date: NON_CANONICAL_DATE })] });
+}
 
 it('says why Save did nothing for a date this form itself could never have produced', async () => {
   nonCanonicalSource();
@@ -696,8 +737,9 @@ it('says why Save did nothing for a date this form itself could never have produ
   expect(router.back).not.toHaveBeenCalled();
   expect(router.replace).not.toHaveBeenCalled();
   // And §1's other direction: the value is shown as it stands rather than blanked or
-  // silently "corrected" into a different day.
-  expect(shownIn(t, 'Date')).toBe('2099-8-17');
+  // silently "corrected" into a different day. Read from the same constant the source dive
+  // is built from, so the two cannot drift into a test that passes on a value nobody set.
+  expect(shownIn(t, 'Date')).toBe(NON_CANONICAL_DATE);
 });
 
 // §1 again, one field over — and the policy behind it, settled after M1d (DESIGN.md §10:

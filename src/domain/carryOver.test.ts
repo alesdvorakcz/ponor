@@ -147,12 +147,47 @@ describe('the carry-over date window', () => {
     expect(c.date).not.toBe('2026-08-16');
   });
 
-  it('keeps a previous date that is somehow ahead of today', () => {
-    // A dive dated tomorrow — a device whose clock or zone moved, a date typed a day out —
-    // is not "more than 48 h old" by any reading, so it carries. Stated because a window
-    // written as a day COUNT rather than a signed difference would silently drop it.
+  it('moves to today when the previous dive has not happened yet', () => {
+    // The window's NEAR end, and the defect this pair of tests exists for. This assertion
+    // used to read `toBe('2026-08-18')` — it asserted the bug — on the reasoning that a dive
+    // dated tomorrow "is not more than 48 h old by any reading". True, and beside the point:
+    // §2.1's rule is "your last dive was recent, so you are probably still on the same
+    // trip", and a dive that has not happened yet is not recent.
     const c = carryOverFrom(dive({ date: '2026-08-18' }), new Date(2026, 7, 17, 10, 0));
-    expect(c.date).toBe('2026-08-18');
+    expect(c.date).toBe('2026-08-17');
+    expect(c.date).not.toBe('2026-08-18');
+  });
+
+  it('moves to today for a previous dive dated far in the future, rather than following it there', () => {
+    // How it was found on a device: §2.4's Logged/Planned control made planned dives
+    // creatable, a dive was planned for 5 September, and from then on EVERY new dive opened
+    // on 5 September while the real date was 31 August. A one-sided `todayMs - previousMs <=
+    // DAY_MS` cannot ever expire it — the difference is negative, and stays negative, so the
+    // stale date is not merely carried for a day, it is permanent until the clock catches
+    // up. The near-boundary test above is one day out and would be satisfied by an
+    // off-by-one; this is the shape the diver actually hit.
+    const c = carryOverFrom(dive({ date: '2026-09-05' }), new Date(2026, 7, 31, 10, 0));
+    expect(c.date).toBe('2026-08-31');
+  });
+
+  it("carries today's dive as the date STRING it was stored as, which is the near boundary itself", () => {
+    // The control for the two above: "reject anything not strictly older than today" would
+    // pass both of them and break the commonest case there is — the second dive of a two-dive
+    // morning.
+    //
+    // It has to be a non-canonical spelling of today to prove anything, and that is the whole
+    // reason this test reads the way it does. Written with a canonical `'2026-08-17'` it
+    // CANNOT FAIL: carrying returns the previous date and falling back returns today, and on
+    // this input those are the same string — so a `> 0` in place of `>= 0` stays green. Spelled
+    // `'2026-8-17'` the two branches finally differ, because `carryOverDate` hands back the
+    // stored value verbatim while its fallback goes through `todayCalendarDate`.
+    //
+    // That verbatim hand-back is itself the behaviour being pinned, not an accident of the
+    // fixture: it is what puts a value `diveFormSchema` refuses in front of the form at all
+    // (DiveFormScreen.test.tsx's `nonCanonicalSource` is built on exactly this), and a
+    // carry-over that quietly canonicalised on the way past would take that path away.
+    const c = carryOverFrom(dive({ date: '2026-8-17' }), new Date(2026, 7, 17, 10, 0));
+    expect(c.date).toBe('2026-8-17');
   });
 
   it("computes today from the day now falls on where the diver is, not the UTC day", () => {

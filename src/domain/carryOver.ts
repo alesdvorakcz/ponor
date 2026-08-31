@@ -120,16 +120,38 @@ function carryOverTank(tank: Tank): Tank {
  * this falls back to today rather than trusting a value it cannot read. Same
  * refuse-rather-than-guess rule `surfaceIntervalMin` applies in `derived.ts`.
  *
- * A previous date *ahead* of today still carries, exactly as it did before:
- * a dive logged tomorrow (a device whose zone or clock moved, a date typed a
- * day out) is many things, but "more than 48 h old" is not one of them.
+ * **The window has two ends, and the near one is today.** A previous date
+ * *ahead* of today does not carry: it falls back to today like any date
+ * outside the window. This is the second defect this function has had, and it
+ * only became reachable when §2.4's Logged/Planned control shipped and divers
+ * could finally create a planned dive — completing one planned for 5 Sep made
+ * every new dive after it open on 5 Sep while the real date was 31 Aug, and it
+ * stayed 5 Sep however many days passed, because a future date's difference is
+ * *negative* and every negative number is `<= DAY_MS`. One-sided, the test
+ * really is "the previous dive is not more than 48 h old", which a dive that
+ * has not happened yet passes trivially — for ever.
+ *
+ * §2.1's rule is not a staleness test, though; it is "your last dive was
+ * recent, so you are probably still on the same trip", and a dive in the
+ * future is not recent. So the window is stated as what it means — the
+ * previous dive was **today or yesterday** — and a date on either side of that
+ * pair gets today. A future date is exactly the case where deferring to the
+ * stored value is worst: it is either a plan for a trip that has not started
+ * or a typo, and both are dates the diver is demonstrably not diving on now.
+ *
+ * Note this is the one branch where carry-over and the date part company: the
+ * gear, site and centre of a dive dated tomorrow still carry (that is
+ * `carryOverFrom`'s business, and they are as likely to be right as any
+ * other), while the date does not. §2.1 gives the date its own rule precisely
+ * so it can differ.
  */
 function carryOverDate(previousDate: string, now: Date): string {
   const today = todayCalendarDate(now);
   const previousMs = calendarDateToUtcMs(previousDate);
   const todayMs = calendarDateToUtcMs(today);
   if (previousMs === null || todayMs === null) return today;
-  return todayMs - previousMs <= DAY_MS ? previousDate : today;
+  const behindByMs = todayMs - previousMs;
+  return behindByMs >= 0 && behindByMs <= DAY_MS ? previousDate : today;
 }
 
 /**
