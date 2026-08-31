@@ -7,16 +7,13 @@ import { DayStrip } from '../components/DayStrip';
 import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
-import { SearchCapsule } from '../components/SearchCapsule';
 import { TripHeader } from '../components/TripHeader';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { searchDives } from '../domain/search';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
 import { diveSiteLabel, formatDiveCount } from '../format/display';
-import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
@@ -142,13 +139,14 @@ function entryKey(entry: ListEntry): string {
  * `symbolName` (components/symbolName.ts) owns the per-platform key each is requested by,
  * and this is only which symbol each slot shows.
  *
- * The leading slot toggles: a magnifier while search is closed, an × while it is open. That
- * is the same slot showing its own state rather than a second control appearing beside the
- * first — the capsule stays two glyphs wide whatever it is doing, and the `+` never moves
- * out from under a thumb that was reaching for it.
+ * Both are **triggers that leave this screen**, and the capsule is therefore fixed: two
+ * glyphs, always the same two, never showing a state of their own. Search opens
+ * `/search`, which is where the field lives (SearchScreen.tsx — measured off iOS 26
+ * Messages: the field belongs at the BOTTOM, on the keyboard, and only its trigger belongs
+ * up here). The `+` opens the form. Neither ever swaps for an × or a Done, so the `+`
+ * cannot move out from under a thumb that was reaching for it.
  */
 const SEARCH_GLYPH = { ios: 'magnifyingglass', android: 'search' } as const;
-const CLOSE_SEARCH_GLYPH = { ios: 'xmark', android: 'close' } as const;
 const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
 
 export default function DivesScreen() {
@@ -159,40 +157,6 @@ export default function DivesScreen() {
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
-  const [query, setQuery] = useState('');
-  // Computed here rather than just below, where `sections` actually needs it, because
-  // useHideOnScroll's `forceVisible` argument depends on it and a hook call can never
-  // follow the early returns below (Rules of Hooks) — this is the single call `sections`
-  // used to make on its own, relocated, not a second one. `dives.length === 0` on the
-  // empty-logbook branch below makes `matching` trivially `[]` too, which is harmless:
-  // that branch returns before `listPane` — and everything below it — is ever reached.
-  const matching = searchDives(dives, query);
-  // Whether the search field is on screen at all (§3's note). Closed is the resting state:
-  // the capsule's magnifier is what search costs until it is reached for, which is the same
-  // judgement §0.6 already made at the bottom of the screen — "a logbook is scanned far more
-  // often than searched, so neither earns its space until reached for" — delivered by a
-  // glyph now rather than by a capsule that receded.
-  const [searchOpen, setSearchOpen] = useState(false);
-  // M1c task 8, DESIGN.md §0.6, moved to the top with the row itself: the floating row still
-  // recedes as the list scrolls down and returns on the way up. **That behaviour is kept
-  // deliberately, not by inheritance.** §3's note moves the row's POSITION and says nothing
-  // about its behaviour, and §0.6's "Both recede as the list scrolls down and return on the
-  // way up" is a sentence about what these two controls are worth against the list, which
-  // did not change when they changed ends; a control that used to yield and now sits over
-  // the first rows forever would be a regression nothing was asked to make. See
-  // useHideOnScroll.ts's own docblock for the mechanism.
-  //
-  // **What recedes is the resting capsule; an open search field does not.** `forceVisible`
-  // is `searchOpen` and nothing else, which is a strictly stronger condition than the
-  // `matching.length === 0` it replaces rather than a narrower one. That guard existed
-  // because a search narrowed to zero results swaps the list out for a static message,
-  // leaving nothing to scroll back up on (useHideOnScroll.ts's own docblock) — and a query
-  // can only exist while the field is open, so every state it protected is inside this one.
-  // It also closes the hazard rather than merely recovering from it: the keyboard does not
-  // blur on scroll, so under the old rule a diver could scroll the field away and go on
-  // typing into a control they could no longer see. A mode the diver explicitly opened, and
-  // explicitly closes, does not evaporate under their fingers.
-  const hideOnScroll = useHideOnScroll(searchOpen);
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -248,37 +212,20 @@ export default function DivesScreen() {
   // params rather than an interpolated string, which expo-router's typed routes check just
   // as strictly — see that module and `logDive` above.
   const completeDive = (id: string) => router.push(completeDiveHref(id));
-
-  /**
-   * Opening and closing search (§3's note). **Closing clears the query**, and that is the
-   * load-bearing half: with the field unmounted, a query left behind would go on filtering
-   * the list with nothing on screen to say why the diver's other dives had vanished — a
-   * hidden filter, which is the same complaint §3 records against hiding search behind a
-   * pull-down ("a hidden affordance, which is the same complaint that already cost the
-   * reorder control a redesign"). Reopening therefore always starts from the whole logbook.
-   */
-  const toggleSearch = () => {
-    setSearchOpen((open) => {
-      if (open) setQuery('');
-      return !open;
-    });
-  };
+  // `/search` (SearchScreen.tsx) is a thin route the same way `/dive/new` is, and absolute
+  // for the same reason `logDive` above records: expo-router's typed routes check an
+  // absolute path against the files that actually exist.
+  const openSearch = () => router.push('/search');
 
   /**
    * What the capsule carries, in order. §3 expects a third glyph eventually (Calendar's
    * view-toggle); adding one is adding an entry here.
    *
-   * The leading slot is one control that reports its own state — magnifier closed, × open —
-   * rather than two controls swapping places, so its label changes with its glyph and a
-   * screen reader hears which of the two it currently is.
+   * Both are plain triggers with fixed labels — neither reports a state, because neither has
+   * one to report: this screen is never "in search", it only opens the screen that is.
    */
   const capsuleActions: readonly CapsuleAction[] = [
-    {
-      key: 'search',
-      symbol: searchOpen ? CLOSE_SEARCH_GLYPH : SEARCH_GLYPH,
-      label: searchOpen ? 'Close search' : 'Search dives',
-      onPress: toggleSearch,
-    },
+    { key: 'search', symbol: SEARCH_GLYPH, label: 'Search dives', onPress: openSearch },
     // Unchanged label from the 60 dp circle this replaces: it is the same action, said the
     // same way, and DivesScreen.test.tsx finds it by exactly this string.
     { key: 'log-dive', symbol: LOG_DIVE_GLYPH, label: 'Log a dive', onPress: logDive },
@@ -345,9 +292,7 @@ export default function DivesScreen() {
     );
   }
 
-  // `matching` itself is computed above, before the early returns (this file's own note
-  // there explains why).
-  const { planned, logged } = splitPlanned(matching);
+  const { planned, logged } = splitPlanned(dives);
   // `planned` inherits useDives()'s one order (newest-date-first, via
   // compareDiveOrder) unchanged — correct for the logged trips below, but
   // backwards for a section titled "Up next": a future date sorts as
@@ -510,34 +455,25 @@ export default function DivesScreen() {
           )}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.listContent}
-          onScroll={hideOnScroll.onScroll}
-          // RN's own default (0) sends only one scroll event per gesture — far too
-          // coarse for hideOnScroll's accumulator to track direction against. 16ms
-          // matches the screen's refresh rate (RN's docs note no benefit below it).
-          scrollEventThrottle={16}
         />
       )}
       {/* DESIGN.md §3's note: "Tabs go to the bottom; search and `+` move to a top-right
-          capsule." The row floats on the list's FIRST rows now instead of its last, and
-          still comes AFTER the SectionList in sibling order deliberately: React Native
-          stacks siblings by render order regardless of `position: absolute`, so a floating
-          row placed before an in-flow SectionList would paint UNDER its rows, not over
-          them, as soon as any scrolled past it. `styles.listContent` keeps the list's own
-          first row clear of it. `hidden` gates pointerEvents/accessibility directly, so a
-          diver can never tap into, or have a screen reader land on, a row that has faded to
-          nothing. */}
-      <View
-        style={[styles.topActionRow, hideOnScroll.hidden ? styles.topActionRowHidden : undefined]}
-        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
-        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
-        accessibilityElementsHidden={hideOnScroll.hidden}
-      >
-        {/* Only while open, and it takes the row's whole remaining width when it is
-            (`searchCapsuleGlass`/`Plain`'s own `flex: 1`). Unmounted rather than hidden
-            when closed: a field left in the tree would still be reachable by a screen
-            reader and would still hold whatever was typed into it, which is exactly the
-            "silent filter" `closeSearch` below exists to prevent. */}
-        {searchOpen && <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} />}
+          capsule." It floats on the list's first rows and comes AFTER the SectionList in
+          sibling order deliberately: React Native stacks siblings by render order regardless
+          of `position: absolute`, so a floating row placed before an in-flow SectionList
+          would paint UNDER its rows, not over them, as soon as any scrolled past it.
+          `styles.listContent` keeps the list's own first row clear of it.
+
+          **It does not recede any more, and that is the owner's call rather than an
+          omission.** §0.6's "Both recede as the list scrolls down and return on the way up"
+          was written for a capsule that HELD a search field at the bottom, and the argument
+          for it was that neither control earned its space until reached for. Search is now
+          a glyph that opens `/search` (SearchScreen.tsx), so it already costs a glyph rather
+          than a field, and the `+` beside it is this screen's primary action — a persistent
+          top-right capsule is what iOS 26 Calendar does with exactly these controls, and it
+          is what §3's note points at. `useHideOnScroll` therefore has no caller left; see
+          that file for what is being kept and why. */}
+      <View style={styles.topActionRow}>
         <ActionCapsule scheme={scheme} actions={capsuleActions} />
       </View>
     </>

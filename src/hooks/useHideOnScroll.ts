@@ -113,6 +113,21 @@ interface HideOnScroll {
 }
 
 /**
+ * **This hook currently has no caller, and that is recorded rather than acted on.**
+ *
+ * It drove the Dives screen's floating row until DESIGN.md §3's note moved that row to the
+ * top-right as a persistent capsule and moved the search field to a screen of its own
+ * (`SearchScreen.tsx`). §0.6's "Both recede as the list scrolls down and return on the way
+ * up" was an argument about a strip that *held a search field* at the bottom: search now
+ * costs a glyph rather than a field, so there is nothing left down there to yield. The
+ * hook is kept rather than deleted for one concrete reason — `NativeTabsTabBarMinimizeBehavior`
+ * (expo-router's native tabs) is the platform's own version of exactly this idea at the
+ * bottom of the screen, and if the app ever needs to coordinate with it, this reducer and
+ * its boundary tests are the thing it would need. If that never happens, delete this file
+ * and `useHideOnScroll.test.ts` together; do not leave it half-wired.
+ *
+ * Everything below describes what it does when something does call it.
+ *
  * DESIGN.md §0.6. `forceVisible` covers what the scroll accumulator alone cannot: a state
  * in which receding would leave the diver unable to reach the row back.
  *

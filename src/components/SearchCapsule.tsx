@@ -11,6 +11,16 @@ interface SearchCapsuleProps {
   scheme: ColorScheme;
   value: string;
   onChangeText: (text: string) => void;
+  /**
+   * Takes focus, and raises the keyboard, as soon as this renders.
+   *
+   * Set only by the search screen (`SearchScreen.tsx`), where the diver has *just* pressed a
+   * magnifier and this field is the entire reason that screen exists — arriving on it and
+   * having to tap once more would be a second tap for a decision already made. Off
+   * everywhere else, so a field that merely happens to be on screen never steals focus or
+   * summons a keyboard nobody asked for.
+   */
+  autoFocus?: boolean;
 }
 
 /**
@@ -31,7 +41,7 @@ interface SearchCapsuleProps {
  * SearchCapsule.test.tsx pins that the two are shape-for-shape identical, not just each
  * individually plausible.
  */
-export function SearchCapsule({ scheme, value, onChangeText }: SearchCapsuleProps) {
+export function SearchCapsule({ scheme, value, onChangeText, autoFocus }: SearchCapsuleProps) {
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
 
@@ -61,6 +71,7 @@ export function SearchCapsule({ scheme, value, onChangeText }: SearchCapsuleProp
       onChangeText={onChangeText}
       autoCapitalize="none"
       autoCorrect={false}
+      autoFocus={autoFocus}
       accessibilityLabel="Search dives"
     />
   );

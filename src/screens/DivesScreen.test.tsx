@@ -69,31 +69,15 @@ function textIn(t: RenderResult): string[] {
     .filter((c): c is string => typeof c === 'string');
 }
 
-/** The screen's one TextInput — the search box, which exists only while search is OPEN
- * (DESIGN.md §3's note: the capsule's magnifier is what search costs until it is reached
- * for). Throws rather than returning undefined so a test that forgot to open search fails
- * at the query, not at a confusing downstream fireEvent error. */
-function findSearchInput(t: RenderResult) {
-  const [input] = t.root ? t.root.queryAll((n) => n.type === 'TextInput') : [];
-  if (!input) throw new Error('DivesScreen did not render a TextInput');
-  return input;
-}
-
-/** The capsule's leading glyph, whichever of its two states it is in — a magnifier that
- * opens search, or an × that closes it. Matched on the label rather than the symbol
- * because the label is what this screen decides and a screen reader hears; which SF Symbol
- * each state draws is ActionCapsule.test.tsx's concern. */
-function findSearchToggle(t: RenderResult, state: 'open' | 'close') {
-  const label = state === 'open' ? 'Search dives' : 'Close search';
-  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
-  if (!node) throw new Error(`DivesScreen did not render a "${label}" control`);
+/** The capsule's leading glyph — the magnifier that opens `/search`. Matched on the label
+ * rather than the symbol because the label is what this screen decides and a screen reader
+ * hears; which SF Symbol it draws is ActionCapsule.test.tsx's concern. It has ONE label now:
+ * the glyph used to toggle between a magnifier and an × while the field lived on this
+ * screen, and reports no state at all since the field moved to one of its own. */
+function findSearchToggle(t: RenderResult) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : [];
+  if (!node) throw new Error('DivesScreen did not render a "Search dives" control');
   return node;
-}
-
-/** Opens search and hands back the field it revealed. */
-async function openSearch(t: RenderResult) {
-  await fireEvent.press(findSearchToggle(t, 'open'));
-  return findSearchInput(t);
 }
 
 /** Every "Move ... up" / "Move ... down" control, in tree order. Matched by
@@ -168,14 +152,16 @@ function findScrollable(t: RenderResult) {
   return node;
 }
 
-/** DESIGN.md §3's note: the floating TOP row — the action capsule, and the search field
- * beside it while search is open — located by the one prop only that wrapper sets
- * (`accessibilityElementsHidden`), so a test can read its hidden/visible state without
- * caring how many levels separate it from either. Named `findFloatingRow` through three
- * homes now (a top search bar, a bottom row, this) because it has always been the same
- * object: whatever the hide-on-scroll wrapper currently contains. */
+/** DESIGN.md §3's note: the floating TOP row holding the action capsule — located by the
+ * one style only that wrapper wears. It used to be found by `accessibilityElementsHidden`,
+ * the prop that gated its hide-on-scroll state; the row is persistent now (see this file's
+ * own note where those tests were), so that prop is gone and the style is what identifies
+ * it. Named `findFloatingRow` through three homes because it has always been the same
+ * object: whatever floats over the list. */
 function findFloatingRow(t: RenderResult) {
-  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityElementsHidden !== undefined) : [];
+  const [node] = t.root
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').topActionRow))
+    : [];
   if (!node) throw new Error('DivesScreen did not render the floating row wrapper');
   return node;
 }
@@ -188,24 +174,6 @@ function findLogDive(t: RenderResult) {
   const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : [];
   if (!node) throw new Error('DivesScreen did not render the "+"');
   return node;
-}
-
-/** Fires a scroll event and, like pressToggleAndSettle above, flushes inside act()
- * afterward. Crossing useHideOnScroll's threshold calls `LayoutAnimation.configureNext`
- * (useHideOnScroll.ts), which — per its own source
- * (Libraries/LayoutAnimation/LayoutAnimation.js) — always arms a real `setTimeout` racing
- * the native animation callback, regardless of whether a native layer is even listening.
- * The same risk pressToggleAndSettle's own comment describes applies here: a test that
- * fires another interaction, or simply ends, before that settles can log an act() warning
- * or leak into whichever test runs next. 300ms comfortably clears the configured 200ms
- * duration plus that race's own +17ms. Only needed for a scroll expected to actually
- * cross the threshold; a sub-threshold scroll never calls configureNext and is fired with
- * a plain `fireEvent.scroll` instead. */
-async function scrollAndSettle(node: NonNullable<RenderResult['root']>, y: number) {
-  await fireEvent.scroll(node, { nativeEvent: { contentOffset: { y } } });
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  });
 }
 
 /** A DiveRow, found by its own number badge ("#<n>") rather than its site name: a
@@ -396,31 +364,18 @@ it('still blanks the logbook for a failed dives read even when the settings read
   expect(text.toLowerCase()).not.toContain("couldn't read your settings");
 });
 
-// Not in the brief's sample, but the brief's own text calls this out as the third state a
-// diver can hit: a non-empty logbook where the *search* matches nothing. That is not an
-// empty logbook (must not show "Log your first dive") and it is not silence either (must
-// say something) — distinct from both other states, so it gets its own coverage rather than
-// resting on the assumption that the "no results" branch and the "empty logbook" branch
-// can't be confused for each other.
-it('tells a diver their search matched nothing, distinctly from an empty logbook', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  await fireEvent.changeText(await openSearch(t), 'no such site anywhere');
-  const text = textIn(t).join(' ');
-  expect(text).not.toContain('Log your first dive');
-  expect(text).not.toContain('Blue Hole');
-  expect(text.toLowerCase()).toContain('no dives match');
-});
-
-// DESIGN.md §3 lists search as one of the Dives screen's jobs, and the M1b done-when
-// checklist pins it explicitly ("searching narrows the list"). searchDives itself is
-// unit-tested in domain/search.test.ts; what is unproven without this is that the screen
-// actually wires the TextInput's value into it rather than, say, leaving it inert.
-it('narrows the list to dives matching the search text', async () => {
+// DESIGN.md §3 lists search as one of the Dives screen's jobs, and §3's note (owner's call,
+// measured on iOS 26 Messages) splits that job in two: the TRIGGER is a magnifier in the
+// top-right capsule, and the FIELD lives at the bottom of a screen of its own, on the
+// keyboard. What belongs to THIS screen is therefore the trigger and nothing else — that it
+// opens `/search`, and that no query, field or filter is left here.
+//
+// Everything the field itself does — narrowing the list, saying when nothing matched, the
+// way out — moved with it to SearchScreen.test.tsx rather than being dropped. This file's
+// own history is the reason to say so: two tests here asserted a search field that this
+// screen no longer owns, and deleting them without a forwarding address would look like
+// coverage quietly lost.
+it('opens the search screen from the magnifier, and holds no search field of its own', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Shark Reef' })],
     numbers: new Map([
@@ -430,65 +385,16 @@ it('narrows the list to dives matching the search text', async () => {
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  await fireEvent.changeText(await openSearch(t), 'Blue');
+
+  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(0);
+  await fireEvent.press(findSearchToggle(t));
+  expect(mockRouterPush).toHaveBeenCalledWith('/search');
+  // ...and pressing it navigated rather than filtering in place: both dives are still here.
   const text = textIn(t).join(' ');
   expect(text).toContain('Blue Hole');
-  expect(text).not.toContain('Shark Reef');
+  expect(text).toContain('Shark Reef');
 });
 
-// DESIGN.md §3's note: search is behind the capsule's magnifier now, so the field is a mode
-// rather than permanent chrome. Both halves matter and each would pass alone against a
-// broken implementation — a field that was always mounted would satisfy the second, and one
-// that never mounted would satisfy the first.
-it('keeps the search field out of the way until the magnifier is pressed', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(0);
-  await openSearch(t);
-  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(1);
-});
-
-// The load-bearing half of closing search (DivesScreen.tsx's `toggleSearch`): a query left
-// behind with the field unmounted would go on filtering the list with nothing on screen to
-// say why the diver's other dives had vanished — a hidden filter. Proven by narrowing to one
-// dive first, so "Shark Reef" is genuinely absent before the close and genuinely back after
-// it; a test that only closed the field and looked for the input would pass whether or not
-// the query survived.
-it('clears the query when search is closed, so no filter is left running invisibly', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Shark Reef' })],
-    numbers: new Map([
-      ['a', 1],
-      ['b', 2],
-    ]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  await fireEvent.changeText(await openSearch(t), 'Blue');
-  expect(textIn(t).join(' ')).not.toContain('Shark Reef');
-
-  await fireEvent.press(findSearchToggle(t, 'close'));
-  expect(t.root?.queryAll((n) => n.type === 'TextInput')).toHaveLength(0);
-  expect(textIn(t).join(' ')).toContain('Shark Reef');
-
-  // ...and reopening starts from the whole logbook rather than restoring the old query.
-  expect((await openSearch(t)).props.value).toBe('');
-});
-
-// M1c task 11, DESIGN.md §0.6 rev 5 supersedes the hairline border the M1c task 2 review
-// comment above once restored: the search field is no longer a bordered box at the top of
-// the screen at all, and the rule for the capsule it became is the opposite one —
-// "no bar, no border, no top rule ... separated by a soft shadow, not a line." The test
-// that used to pin the border's presence here (`git log` has it) is gone for that reason,
-// not dropped by oversight; SearchCapsule.test.tsx's own "gives the fallback the identical
-// measured shape as the glass version" test is what now pins "no border, has a shadow
-// instead" for the capsule itself. What belongs at THIS (screen) level instead is what
-// SearchCapsule itself has no way to know: where DivesScreen actually puts it.
-//
 // **This test used to assert the opposite, and the opposite was right at the time.** It
 // pinned the row to the BOTTOM, offset by the real `insets.bottom`, against DESIGN.md
 // §0.6's "Search is a floating capsule at the bottom, beside the `+`". §3's note supersedes
@@ -528,12 +434,11 @@ it('clears the list past the capsule floating over its first rows', async () => 
   expect(listPaddingTop).toBeGreaterThan(capsuleHeight as number);
 });
 
-// §3's note: the capsule carries search and `+` "as equal monochrome glyphs" — one object,
-// so "Both recede as the list scrolls down and return on the way up" (§0.6) holds for both
-// at once. Proven structurally, not just by both happening to report the same hidden value:
-// the "+" must be a genuine DESCENDANT of the exact node findFloatingRow reads
-// accessibilityElementsHidden/pointerEvents off, not a sibling that merely mirrors it.
-it('nests the + inside the same floating row as the search control, so both hide and reappear together', async () => {
+// §3's note: the capsule carries search and `+` "as equal monochrome glyphs" — ONE object
+// in one row, not two controls that happen to sit near each other. Proven structurally:
+// each must be a genuine DESCENDANT of the row `findFloatingRow` locates, so a `+` that
+// drifted into its own wrapper would fail even while still rendering in the same corner.
+it('carries both glyphs inside the one floating row, as a single object', async () => {
   stubDives({
     dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
     numbers: new Map([['a', 1]]),
@@ -543,6 +448,32 @@ it('nests the + inside the same floating row as the search control, so both hide
   const row = findFloatingRow(t);
   expect(row.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive')).toHaveLength(1);
   expect(row.queryAll((n) => n.props?.accessibilityLabel === 'Search dives')).toHaveLength(1);
+});
+
+// **The row is persistent, and that is the owner's call rather than a regression.** §0.6's
+// "Both recede as the list scrolls down and return on the way up" described a capsule that
+// HELD a search field at the bottom; §3's note moves the trigger to a glyph and the field to
+// its own screen, so search already costs a glyph rather than a strip, and the `+` beside it
+// is this screen's primary action. Four wiring tests for the old behaviour were removed with
+// this one written in their place, so "it no longer hides" is asserted rather than merely
+// left untested — `useHideOnScroll` and its own unit tests are untouched and still green.
+it('leaves the capsule in place as the list scrolls, rather than receding', async () => {
+  stubDives({
+    dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const before = [findFloatingRow(t).props.style].flat(5).filter(Boolean);
+
+  await fireEvent.scroll(findScrollable(t), { nativeEvent: { contentOffset: { y: 400 } } });
+
+  const after = [findFloatingRow(t).props.style].flat(5).filter(Boolean);
+  expect(after).toEqual(before);
+  expect(findFloatingRow(t).props.pointerEvents).toBeUndefined();
+  // The glyphs are still reachable, which is the thing a receding row took away.
+  expect(findSearchToggle(t)).toBeTruthy();
+  expect(findLogDive(t)).toBeTruthy();
 });
 
 // DESIGN.md §0.6 gave the "+" and the search capsule the same shadow so the two floating
@@ -571,182 +502,13 @@ it('keeps both capsule glyphs at a 48 dp touch target', async () => {
     error: undefined,
   });
   const t = await render(<DivesScreen />);
-  for (const node of [findLogDive(t), findSearchToggle(t, 'open')]) {
+  for (const node of [findLogDive(t), findSearchToggle(t)]) {
     const style = [node.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
     const widthOf = style.reduce((acc: number, s) => (typeof s.width === 'number' ? s.width : acc), 0);
     const heightOf = style.reduce((acc: number, s) => (typeof s.height === 'number' ? s.height : acc), 0);
     expect(widthOf).toBeGreaterThanOrEqual(48);
     expect(heightOf).toBeGreaterThanOrEqual(48);
   }
-});
-
-// M1c task 8, DESIGN.md §0.6: "The search field yields to the list. It hides as the
-// list scrolls down and returns on the way back up." nextScrollVisibility itself is
-// unit-tested exhaustively, at exact threshold boundaries, in useHideOnScroll.test.ts;
-// these four prove the WIRING into this screen — that a real scroll on the real
-// SectionList actually drives the real field.
-//
-// The task brief's own trap, named directly: "an assertion that the field is present
-// after scrolling up would also pass if the field never hid at all." The test below
-// asserts HIDDEN first, as an explicit precondition the test would already fail at if
-// hiding were broken, before ever asserting SHOWN again — so the second half can only
-// pass by genuinely recovering from a real hidden state, not by the field having sat
-// untouched the whole time.
-it('hides the search field on a sustained downward scroll and shows it again on a sustained upward one', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  const scrollable = findScrollable(t);
-
-  const hiddenStyle = makeStyles('light').topActionRowHidden; // the scheme useColorScheme() reports under Jest
-  const wears = (style: unknown) => [style].flat(5).filter(Boolean).includes(hiddenStyle);
-
-  await scrollAndSettle(scrollable, 100); // well past the 24px threshold, downward
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
-  expect(findFloatingRow(t).props.pointerEvents).toBe('none');
-  // ...and it is actually INVISIBLE, not merely unreachable. Added when a mutation that
-  // dropped `topActionRowHidden` from the composed style — leaving a fully opaque capsule
-  // sitting over the list that no diver could tap — failed no test in this file at all. The
-  // a11y and pointer props are the interaction half; this is the half a diver can see.
-  expect(wears(findFloatingRow(t).props.style)).toBe(true);
-
-  await scrollAndSettle(scrollable, 50); // well past the threshold again, upward from 100
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
-  expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
-  expect(wears(findFloatingRow(t).props.style)).toBe(false);
-});
-
-// Brief's #1, "no jitter": pinned here too, not just in useHideOnScroll.test.ts, since
-// this is what actually ships — a screen that wired the hook up with, say, its own
-// lower threshold would pass every unit test in that file while still jittering here.
-//
-// The small scroll alone is not, on its own, a test that could fail for the reason it
-// claims: the field starts visible, so "still visible after a small scroll" would pass
-// even if onScroll were never wired to the SectionList at all (confirmed by deliberately
-// disconnecting it and re-running — the earlier, single-assertion version of this test
-// kept passing). The second scroll below closes that gap: it continues from the same
-// tracked position to a total well past the threshold, so the field can only end up
-// hidden there if the small scroll first actually reached the handler and was
-// genuinely counted, not ignored by a broken/absent wiring.
-it('does not hide the search field for a scroll well under the jitter threshold, but does hide it once a real scroll follows', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  const scrollable = findScrollable(t);
-
-  // No scrollAndSettle: a sub-threshold scroll never calls
-  // LayoutAnimation.configureNext, so there is nothing to flush before asserting.
-  await fireEvent.scroll(scrollable, { nativeEvent: { contentOffset: { y: 10 } } }); // well under the 24px threshold
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
-  expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
-
-  await scrollAndSettle(scrollable, 40); // +30 from here — past the threshold, so wiring is live
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
-});
-
-// Brief's #2, "always reachable" — the case the scroll accumulator alone cannot cover.
-//
-// **This test used to prove the other half of the same guarantee**: that a search narrowed
-// to zero results forced the row back, because that state swaps the SectionList out for a
-// static message and leaves nothing to scroll up on. §3's note puts search behind a glyph,
-// so a query can only exist while the field is open, and DivesScreen now passes `searchOpen`
-// itself to `useHideOnScroll` — a strictly stronger condition that contains the old one and
-// additionally stops a diver typing into a field they have scrolled out of sight (the
-// keyboard does not blur on scroll). The zero-results state is still covered, by the "search
-// matched nothing" test above; what is proven here is the condition that now supersedes it.
-//
-// The first half is what makes this able to fail: with search CLOSED the identical scroll
-// must hide the row, so "still visible" afterwards cannot be a row that never hid.
-it('does not let a scroll take an open search field away from the diver typing into it', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  await scrollAndSettle(findScrollable(t), 100);
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true); // closed: it recedes, as it always has
-
-  await scrollAndSettle(findScrollable(t), 0); // back to the top, where the row always returns
-  await openSearch(t);
-  await scrollAndSettle(findScrollable(t), 100); // the same scroll again, with the field open
-
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
-  expect(findFloatingRow(t).props.pointerEvents).toBe('auto');
-  // Still typeable, and still filtering — not merely present but inert.
-  await fireEvent.changeText(findSearchInput(t), 'no such site anywhere');
-  expect(textIn(t).join(' ').toLowerCase()).toContain('no dives match');
-});
-
-// useHideOnScroll.ts's own docblock names the risk this covers: `forceVisible`
-// resets the RENDERED `hidden`, but the tracked accumulator (a ref, deliberately not
-// touched during render — see that docblock's account of what react-hooks/refs
-// rejected) is only reset lazily, the next time onScroll actually runs, via a
-// `pendingReset` flag. This proves that flag is actually consumed, not just set: a
-// scroll fired against the freshly-reappeared list must judge distance from a genuinely
-// clean baseline, not from wherever the OLD list's tracking was last left.
-//
-// A single scroll before the round trip is NOT enough to tell a clean reset from a
-// stale one apart: nextScrollVisibility's `accum` and `lastY` both measure distance
-// from the SAME start (0), so one continuous, never-reset run from the top always
-// leaves accum === lastY — a bug that used the stale tracked state instead of a fresh
-// one would compute the exact same result by coincidence (caught in the process of
-// writing this test: an earlier version scrolled to 15 then straight to 35, and could
-// not tell a reset from no reset at all). Crossing the threshold at least once first
-// (40, then a further 50) is what actually decouples them: after that, accum (10) and
-// lastY (50) diverge, so a follow-up scroll to 30 gives a genuinely different answer
-// depending on which one onScroll measures from — 30 clears the 24px threshold from a
-// clean (0, 0) baseline, but from the stale (50, 10) one nets only a 20px move (accum
-// 10 + (30 - 50) = -10), leaving `hidden` exactly where the forced-visible reset left
-// it: unrecomputed, and so still visible.
-it('judges the first scroll after an open-and-close search round trip from a clean baseline, not the stale one', async () => {
-  stubDives({
-    dives: [dive({ id: 'a', siteName: 'Blue Hole' })],
-    numbers: new Map([['a', 1]]),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  const scrollable = findScrollable(t);
-
-  await scrollAndSettle(scrollable, 40); // crosses the threshold once, so the tracked reference point is no longer 0
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
-  // Back up past the threshold, but NOT to the top (10, not 0): the top-offset branch is an
-  // unconditional reset that would hand this test a clean baseline for free and prove
-  // nothing. This leaves the tracked state at lastY 10 / accum 0, which is where clean and
-  // stale finally diverge — the whole difficulty the note above describes.
-  await scrollAndSettle(scrollable, 10);
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false);
-
-  // The round trip is opening and closing search now, rather than narrowing a query to zero
-  // results and back: `forceVisible` is `searchOpen` itself (DivesScreen.tsx), so this is
-  // the gesture that raises and lowers it. The mechanism under test is unchanged — a force
-  // resets the RENDERED `hidden` immediately and leaves `pendingReset` to reset the tracked
-  // accumulator at the next scroll.
-  //
-  // The row has to be VISIBLE to be opened at all, which is why the scroll back up above is
-  // not merely setup: `fireEvent` honours `pointerEvents: 'none'`, exactly as a finger does,
-  // so pressing the magnifier on a receded row is a no-op in the test for the same reason it
-  // is one on the device. (Found by writing this test the other way round and watching the
-  // press silently fail to open anything.)
-  //
-  // One thing genuinely did change and is worth stating, because the old version of this
-  // test leaned on it: the SectionList no longer remounts across the round trip (the
-  // zero-results branch swapped it for a message; opening a search field does not), so
-  // `scrollable` above stays mounted and `fireEvent` cannot silently no-op on a detached
-  // instance. It is re-found below anyway, which costs nothing and keeps the test honest if
-  // that ever stops being true.
-  await fireEvent.press(findSearchToggle(t, 'open'));
-  await fireEvent.press(findSearchToggle(t, 'close'));
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(false); // the force is lifted, but nothing has recomputed yet
-
-  await scrollAndSettle(findScrollable(t), 30); // clears 24 from a clean baseline; from the stale one (lastY 10) nets only 20 and never recomputes hidden at all
-  expect(findFloatingRow(t).props.accessibilityElementsHidden).toBe(true);
 });
 
 // M1c task 2, DESIGN.md §0.6's "Trip header" row: Archivo SemiBold 11.5, uppercase,
