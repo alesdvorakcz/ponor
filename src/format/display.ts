@@ -148,6 +148,42 @@ export function formatPercent(pct: number | null): string | null {
   return `${pct} %`;
 }
 
+/**
+ * What a cylinder's two gas fractions are CALLED — the same words on the form a diver fills
+ * in and on the detail they land on. `UNNAMED_SITE` above is the precedent: a word shared by
+ * two call sites lives here, where §4.1 puts diver-facing text, rather than being retyped at
+ * each of them.
+ *
+ * They arrive because the pair had already drifted, in the same shape and for the same
+ * reason as `formatTankMaterial`'s "Steel"/"steel" below: `DiveFormScreen` labelled the
+ * fields `O2 %` and `He %` while `DiveDetailScreen` labelled them `O₂` and `He`. One
+ * cylinder, four names, one screen apart.
+ *
+ * **The subscript wins, and the unit moves to the value.** Two separate calls:
+ *
+ * - `O₂` over `O2` is simply correct typography for a chemical formula, and it is what every
+ *   docblock in this tree and DESIGN.md §2.1 itself already write. The form was the only
+ *   place spelling it with an ASCII digit.
+ * - The `%` leaves the label because a label is a field's NAME and the unit belongs to the
+ *   figure — which is what every other numeric field on this same form already does (`Size`
+ *   with `l`, `Working pressure` with `bar`, `Max depth` with `m`). So the form's two fields
+ *   gain `unit="%"`, which §0.6 draws as the empty field's placeholder and as a muted suffix
+ *   beside a filled one. Nothing is lost in the move: the detail screen's value has always
+ *   carried its unit through `formatPercent` above, and now the form's does too, so both
+ *   screens read `O₂ · 32 %`.
+ *
+ * Only these two, deliberately, and this is the gap worth naming: roughly twenty-five field
+ * labels are still typed out in both screens as bare literals. They agree today, and every
+ * one of them is one edit away from being this defect again. Unifying the whole set is a
+ * real change with a natural moment attached — i18next (en + cs, §4) has to give every one
+ * of them a key, and that is the pass that should place them — so this fixes the pair that
+ * actually drifted rather than pre-empting it.
+ */
+export const O2_LABEL = 'O₂';
+
+/** The other half of the mix, and the other half of the same drift — see `O2_LABEL`. */
+export const HE_LABEL = 'He';
+
 /** How many cylinders of one kind, e.g. "2" — a plain count, no unit. */
 export function formatCount(count: number | null): string | null {
   if (!isFiniteNumber(count)) return null;

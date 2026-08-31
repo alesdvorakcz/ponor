@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
-import { formatTankMaterial } from '../format/display';
+import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -1035,10 +1035,16 @@ it('prefills and marks a carried cylinder field too, not just top-level ones', a
 
   expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
   expect(findClearCarried(t, 'Size')).toBeDefined();
-  // He % is the same cylinder's own null field — must not be marked, the tanks-array
+  // He is the same cylinder's own null field — must not be marked, the tanks-array
   // analogue of the Buddy/Guide check above: it proves computeCarriedPaths' per-key
   // iteration over one cylinder, not an all-or-nothing flag for the whole tank.
-  expect(findClearCarried(t, 'He %')).toBeUndefined();
+  //
+  // Queried by `HE_LABEL` rather than by a literal, here and below. The field was labelled
+  // `He %` until M1d's closing fixes unified it with the detail screen's `He` (see
+  // `O2_LABEL`, format/display.ts, for that decision) — and a screen test that spells a
+  // label out for itself is a second copy of the same string, which is how these queries
+  // would go on passing against a label nobody renders.
+  expect(findClearCarried(t, HE_LABEL)).toBeUndefined();
 });
 
 // `hasCarriedValue`'s whole reason to exist is that `0` is a real answer and `null` is not,
@@ -1058,8 +1064,8 @@ it('marks a carried 0 as carried — a zero is an answer, an empty field is not'
   expect(findClearCarried(t, 'Weights')).toBeDefined();
 
   await openGroup(t, 'Gas & cylinders');
-  expect(findTextInput(t, 'He %')?.props?.value).toBe('0');
-  expect(findClearCarried(t, 'He %')).toBeDefined();
+  expect(findTextInput(t, HE_LABEL)?.props?.value).toBe('0');
+  expect(findClearCarried(t, HE_LABEL)).toBeDefined();
 });
 
 it('still marks nothing on a field the previous dive left empty, beside one it filled with 0', async () => {
@@ -1663,6 +1669,30 @@ it('labels the material chips from the one owner of that string, not a private c
   // The formatter is not returning null here, which would make the two expectations above
   // read "Material: null" and agree with each other for the wrong reason.
   expect(formatTankMaterial('steel')).toBe('Steel');
+});
+
+it('names the cylinder gas fields from the one owner of those words, with the unit on the figure', async () => {
+  // The same drift as the material chips above, one row down and found the same way: this
+  // screen labelled the two gas fields `O2 %` and `He %` while DiveDetailScreen labelled them
+  // `O₂` and `He`. Asserted against `O2_LABEL`/`HE_LABEL` (format/display.ts) rather than
+  // against a literal, so a screen that re-inlines a spelling of its own fails here instead
+  // of quietly disagreeing with the detail page a diver reaches next.
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findTextInput(t, O2_LABEL)).toBeDefined();
+  expect(findTextInput(t, HE_LABEL)).toBeDefined();
+  // The constants are not empty strings, which would make the two queries above match the
+  // first unlabelled input in the tree and agree for the wrong reason.
+  expect(O2_LABEL).toBe('O₂');
+  expect(HE_LABEL).toBe('He');
+
+  // And the `%` the old label carried is on the FIGURE now, not lost in the rename — the
+  // same place `Size` keeps its `l` and `Working pressure` its `bar`, and the same place the
+  // detail screen has always kept it (`formatPercent` renders "32 %"). `unit` reaches an
+  // empty field as its placeholder (FormField.tsx, §0.6), which is what makes it readable
+  // here on a form nobody has typed into.
+  expect(findTextInput(t, O2_LABEL)?.props?.placeholder).toBe('%');
+  expect(findTextInput(t, HE_LABEL)?.props?.placeholder).toBe('%');
 });
 
 it('asks for whole cylinders with a keypad that has no separator on it', async () => {

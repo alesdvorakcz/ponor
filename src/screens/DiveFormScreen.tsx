@@ -31,7 +31,15 @@ import {
   type Dive,
   type DiveStatus,
 } from '../domain/types';
-import { formatEntry, formatSalinity, formatSuit, formatTankMaterial, formatWaterBody } from '../format/display';
+import {
+  formatEntry,
+  formatSalinity,
+  formatSuit,
+  formatTankMaterial,
+  formatWaterBody,
+  HE_LABEL,
+  O2_LABEL,
+} from '../format/display';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -1328,25 +1336,34 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit="bar"
           />
+          {/* `O2 %` and `He %` until M1d's closing fixes: the same two fields the detail
+              screen labels `O₂` and `He`, so one cylinder read two ways one screen apart —
+              the same defect `formatTankMaterial`'s own docblock records for "Steel"/"steel".
+              The label is the shared constant now and the `%` has moved onto the value as
+              `unit`, where every other numeric field on this form already keeps its unit
+              (`Size` `l`, `Working pressure` `bar`). `O2_LABEL` (format/display.ts) carries
+              the whole decision. */}
           <ControlledTextField
             control={control}
             name="tanks.0.o2Pct"
-            label="O2 %"
+            label={O2_LABEL}
             scheme={scheme}
             keyboardType="decimal-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
             mono
+            unit="%"
           />
           <ControlledTextField
             control={control}
             name="tanks.0.hePct"
-            label="He %"
+            label={HE_LABEL}
             scheme={scheme}
             keyboardType="decimal-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
             mono
+            unit="%"
           />
           <ControlledTextField
             control={control}

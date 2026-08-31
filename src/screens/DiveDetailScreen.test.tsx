@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
+import { HE_LABEL, O2_LABEL } from '../format/display';
 import { softDeleteDive } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 // Namespace import, not the usual named one: the completeness test below (`marks every
@@ -312,6 +313,12 @@ it('omits MOD alone on an otherwise fully-populated cylinder, when only its O₂
   expect(text).toContain('232 bar'); // Working pressure
   expect(text).toContain('0 %'); // O₂ — recorded, not absent, even though unusable for MOD
   expect(text).toContain('21 %'); // He
+  // ...and both are named by the shared constants, not by a literal this screen keeps to
+  // itself. The form used to label the same two fields `O2 %` and `He %` — one cylinder
+  // reading two ways one screen apart, the same shape as the "Steel"/'steel' drift above —
+  // and `O2_LABEL`/`HE_LABEL` (format/display.ts) is the single owner that closed it.
+  expect(textIn(t)).toContain(O2_LABEL);
+  expect(textIn(t)).toContain(HE_LABEL);
   expect(text).toContain('200 bar'); // Start pressure
   expect(text).toContain('50 bar'); // End pressure
   expect(text).toContain('150 bar'); // Used (computed: 200 - 50)

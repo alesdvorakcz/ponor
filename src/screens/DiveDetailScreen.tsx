@@ -15,6 +15,8 @@ import {
   diveSiteLabel,
   formatConditionScale,
   formatCoordinates,
+  HE_LABEL,
+  O2_LABEL,
   formatCount,
   formatDepth,
   formatDiveDate,
@@ -442,10 +444,14 @@ function tankFields(tank: Tank): Field[] {
   if (count !== null) fields.push({ label: 'Count', value: count, mono: true });
   const working = formatPressure(tank.workingBar);
   if (working !== null) fields.push({ label: 'Working pressure', value: working, mono: true });
+  // The two label constants, not two more string literals: the form spelled these `O2 %` and
+  // `He %` — one cylinder reading two ways one screen apart, the same defect
+  // `formatTankMaterial` above was introduced to close. See `O2_LABEL` (format/display.ts)
+  // for which spelling won and where the `%` went.
   const o2 = formatPercent(tank.o2Pct);
-  if (o2 !== null) fields.push({ label: 'O₂', value: o2, mono: true });
+  if (o2 !== null) fields.push({ label: O2_LABEL, value: o2, mono: true });
   const he = formatPercent(tank.hePct);
-  if (he !== null) fields.push({ label: 'He', value: he, mono: true });
+  if (he !== null) fields.push({ label: HE_LABEL, value: he, mono: true });
   const tankMod = formatDepth(mod(tank.o2Pct));
   if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true, computed: true });
   const start = formatPressure(tank.startBar);
