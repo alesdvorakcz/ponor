@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isCalendarDate } from './datetime';
-import type { Dive, Tank } from './types';
+import type { Dive, DiveStatus, Tank } from './types';
 
 /**
  * The coercion contract (DESIGN.md §10, derived.ts's COERCION CONTRACT block).
@@ -88,6 +88,34 @@ function optionalPicked<T extends string>(values: readonly T[]) {
 }
 
 /**
+ * Logged or planned (DESIGN.md §2.4) — the two-state control the form carries in its
+ * header row, and deliberately **not** part of §2.2's core strip (date, site, centre,
+ * max depth, duration): a dive's status is not one of its measurements.
+ *
+ * A field of this schema rather than a piece of screen state, and that is the whole
+ * mechanism: `toDivePatch` below diffs it exactly as it diffs every other field, so the
+ * patch names `status` precisely when the value the diver is looking at differs from the
+ * one the dive is stored with, and never otherwise. Editing a planned dive's site name
+ * therefore leaves it planned, while flipping the control to Logged *is* completing it —
+ * one control doing both jobs, with no second rule anywhere else deciding what an edit
+ * means. (There was one, keyed on the stored status inside `DiveFormScreen`, and it
+ * silently logged any planned dive whose typo a diver came back to fix.)
+ *
+ * `'logged'` is the default and the only default: §2.4 plans are the exception, so a form
+ * that never mentions status is logging a dive. null and undefined collapse to it for the
+ * same "an absent key and a present-but-empty one must mean the same thing" reason
+ * `optionalNumber` above gives — except that the shared meaning here is `'logged'` rather
+ * than `null`, because `status` is one of the three columns DESIGN.md §6 makes
+ * non-nullable. A value outside the two is still refused, exactly as `optionalPicked`
+ * refuses one and for the same reason: these are taps on a two-state control, never
+ * something a diver could type, so rejecting one catches a real bug upstream.
+ */
+const optionalStatus = z
+  .union([z.enum(['logged', 'planned']), z.null(), z.undefined()])
+  .transform((raw): DiveStatus => raw ?? 'logged')
+  .default('logged');
+
+/**
  * One cylinder's form fields. Every field goes through the same
  * absent-vs-typed rule as the rest of the form — see `optionalNumber` above —
  * so a blank size or count reaches `derived.ts` as null (that cylinder is
@@ -127,6 +155,19 @@ export type TankFormFieldsMatchTank = Assert<
 >;
 
 /**
+ * The same proof for the status control's two states: `optionalStatus` above spells them
+ * out as a Zod enum, which is the one shape `z.enum` accepts, so this is what keeps that
+ * literal list and `DiveStatus` from drifting. A third status added to the domain without
+ * being added here would be a compile error rather than a value the form silently has no
+ * way to hold — and, worse, one `toDivePatch` would report as a change on every save.
+ */
+export type StatusFormValuesMatchDive = Assert<
+  (z.infer<typeof optionalStatus> extends DiveStatus ? true : false) extends true
+    ? (DiveStatus extends z.infer<typeof optionalStatus> ? true : false)
+    : false
+>;
+
+/**
  * The dive-entry form (DESIGN.md §2.2), over the form's **string** values —
  * `optionalNumber`'s input side also accepts a bare `number` so that
  * carry-over defaults (already-typed values) and diver-typed `TextInput`
@@ -150,6 +191,9 @@ export type TankFormFieldsMatchTank = Assert<
  * block a save over a field that was never the one required one.
  */
 export const diveFormSchema = z.object({
+  // The header-row control (§2.4), not a core-strip field — see `optionalStatus` above.
+  status: optionalStatus,
+
   // Core strip (§2.2) — always visible.
   date: z.string().refine(isCalendarDate, { message: 'Enter a real date (YYYY-MM-DD).' }),
   siteId: optionalText,
@@ -221,6 +265,11 @@ export type DiveFormValues = z.infer<typeof diveFormSchema>;
  * always carries a real value for — required and defaulted respectively —
  * so they are set unconditionally rather than passing through the same
  * null-check as everything else.
+ *
+ * `status` needs no such exemption and gets none: it is never `null` either
+ * (§2.4's control always holds one of its two states), so the loop below copies
+ * it every time and a created dive states plainly which one it is, rather than
+ * leaning on `createDive`'s own `?? 'logged'` fallback to fill the gap.
  */
 export function toNewDiveInput(values: DiveFormValues): Partial<Dive> & Pick<Dive, 'date'> {
   const { date, tanks, ...rest } = values;
@@ -275,9 +324,13 @@ function sameTanks(before: readonly Tank[], after: readonly Tank[]): boolean {
  * something. Sending nothing for an emptied field is the opposite failure: the diver
  * deletes a value, the app says "saved", and the old value is still there.
  *
- * `status` is deliberately absent: it is not a form field, and completing a planned dive
- * (§2.4) is a decision the caller makes where that policy lives, not one this function
- * infers from the values it was handed.
+ * **`status` goes through that same diff, and through nothing else.** It is a form field
+ * now (`optionalStatus` above), so completing a planned dive (§2.4) is simply the case
+ * where the control the diver was looking at says `logged` and the stored dive says
+ * `planned` — a change like any other, named in the patch for the same reason a changed
+ * depth is. It is emphatically NOT inferred from the stored status: a caller that added
+ * `patch.status = 'logged'` whenever the dive was planned would complete a dive whose
+ * site name the diver only came back to correct, which is the bug this replaced.
  */
 export function toDivePatch(
   original: Dive,

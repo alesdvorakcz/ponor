@@ -11,6 +11,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 // test's own comment for why.
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
+import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -1064,7 +1065,11 @@ it('opens the edit form for the dive on screen', async () => {
   await pressControl(t, 'Edit');
   // The dive's OWN id — a control that always opened the first dive in the list, or the
   // route's own param, would be indistinguishable from this one on a one-dive logbook.
-  expect(mockPush).toHaveBeenCalledWith('/dive/target/edit');
+  expect(mockPush).toHaveBeenCalledWith(editDiveHref('target'));
+  // ...and it opens the form on the dive's own status, which is what "Edit" means. A plain
+  // edit that carried `openAs` would flip the form's §2.4 control for a diver who only
+  // asked to change a note.
+  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBeUndefined();
 });
 
 it('offers Complete dive rather than Edit for a planned dive, and opens the same form', async () => {
@@ -1075,7 +1080,20 @@ it('offers Complete dive rather than Edit for a planned dive, and opens the same
   expect(findControl(t, 'Edit')).toBeUndefined();
 
   await pressControl(t, 'Complete dive');
-  expect(mockPush).toHaveBeenCalledWith('/dive/p1/edit');
+  expect(mockPush).toHaveBeenCalledWith(completeDiveHref('p1'));
+});
+
+it('opens that form with the status control already on Logged, so saving completes the dive', async () => {
+  const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
+  await pressControl(t, 'Complete dive');
+
+  // The assertion the test above cannot make on its own: `completeDiveHref('p1')` and
+  // `editDiveHref('p1')` differ ONLY in this param, so a control that had quietly reverted
+  // to the plain edit link would still open the right dive's form — and would then leave
+  // the §2.4 control on Planned, so saving would complete nothing while the label promised
+  // it would. Read as the literal value the route will see, not as a re-derivation from the
+  // same function under test.
+  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBe('logged');
 });
 
 it('asks before deleting, and deletes nothing until the diver confirms', async () => {

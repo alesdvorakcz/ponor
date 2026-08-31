@@ -10,6 +10,7 @@ import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '.
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/backToDives';
+import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import {
   diveSiteLabel,
   formatConditionScale,
@@ -258,11 +259,21 @@ const DELETE_ERROR_MESSAGE = "Couldn't delete this dive. Try again.";
  * string, for the reason DESIGN.md §10 records for `splitPlanned`: that text is bound for
  * i18next, and a rule reading it would stop firing the day it becomes Czech.
  *
- * The route is absolute rather than relative, and that is the whole point: expo-router's
- * typed routes (app.config.ts) check an absolute path against the routes that actually
- * exist on disk, where a relative one is resolved at runtime and checked against nothing —
- * the same reasoning DivesScreen.tsx's own `logDive` records, and the same reason this
- * pushes rather than replaces (the diver goes back to this dive, not past it).
+ * **The two labels open that form differently, and must.** *Complete dive* sends
+ * `completeDiveHref`, which puts the form's Logged/Planned control on Logged so that
+ * saving actually finishes the dive; plain *Edit* sends `editDiveHref`, which leaves the
+ * control on whatever the dive already is, so editing a planned dive leaves it planned.
+ * Same route, same form, no second write path — `editDiveLink.ts` owns both ends of the
+ * link, and the form's own control is still the only thing that changes a status. Sending
+ * the plain edit link from under a "Complete dive" label would complete nothing while
+ * saying it did, which is the whole defect this pair exists to close.
+ *
+ * The route is a typed template plus params rather than an interpolated path, and that is
+ * the point: expo-router's typed routes (app.config.ts) check it against the routes that
+ * actually exist on disk — and additionally require `id` — where a relative or hand-built
+ * string is resolved at runtime and checked against nothing. Same reasoning
+ * DivesScreen.tsx's own `logDive` records, and the same reason this pushes rather than
+ * replaces (the diver goes back to this dive, not past it).
  */
 function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
   const planned = dive.status === 'planned';
@@ -270,7 +281,7 @@ function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
   return (
     <Pressable
       style={styles.detailAction}
-      onPress={() => router.push(`/dive/${dive.id}/edit`)}
+      onPress={() => router.push(planned ? completeDiveHref(dive.id) : editDiveHref(dive.id))}
       accessibilityRole="button"
       accessibilityLabel={label}
     >

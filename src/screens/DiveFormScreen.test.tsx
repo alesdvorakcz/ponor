@@ -16,7 +16,9 @@ import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
 import { type Dive, type Tank } from '../domain/types';
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { depthScale } from '../theme/tokens';
 import DiveFormScreen from './DiveFormScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -201,6 +203,35 @@ async function openGroup(t: RenderResult, title: string) {
   const header = findButton(t, title);
   if (!header) throw new Error(`no ${title} header found`);
   await fireEvent.press(header);
+}
+
+// --- §2.4: the Logged/Planned control ---
+//
+// Queried by the `switch` role rather than by `button`, which is exactly how the screen
+// declares it (the same idiom `BooleanField` uses for hood/gloves/boots) — and which means
+// `findButton(t, 'Save')` above can never accidentally land on it.
+
+/** The status control itself, or `undefined` when the screen renders none. */
+function findStatusControl(t: RenderResult) {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
+    (n) => String(n.props?.accessibilityLabel ?? '') === 'Planned dive',
+  );
+}
+
+/** Whether the control is currently on Planned, read from the state it ANNOUNCES rather
+ * than from the word on its face — a control that showed "Planned" while telling a screen
+ * reader it was off would pass a text assertion and be broken. The visible label is checked
+ * against this separately, once, below. */
+function plannedIsOn(t: RenderResult): boolean {
+  return findStatusControl(t)?.props?.accessibilityState?.checked === true;
+}
+
+/** Moves the control. Awaited like every other `fireEvent` in this file — see `pressSave`
+ * for what an un-awaited one does to the test that runs next. */
+async function toggleStatus(t: RenderResult) {
+  const control = findStatusControl(t);
+  if (!control) throw new Error('no Logged/Planned control found');
+  await fireEvent.press(control);
 }
 
 /** The DESIGN.md §0.6 `carried ×` control for one field, by FormField.tsx's own
@@ -1034,7 +1065,11 @@ it('completing a planned dive turns it into a logged one', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' });
   stubDives({ dives: [planned] });
   mockUpdate.mockResolvedValue(planned);
-  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+  // Arriving the way §2.4's *Complete dive* pill sends a diver: the control is already on
+  // Logged, so saving finishes the dive. This used to happen with no control at all — the
+  // screen logged any planned dive it was handed — which is what made the same save
+  // complete a dive whose site name the diver had only come back to correct.
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
   // §2.4: "Complete dive asks only for the missing numbers" — and this is the one that
   // makes the dive real.
   await typeInto(t, 'Duration', '44');
@@ -1047,13 +1082,35 @@ it('completing a planned dive turns it into a logged one', async () => {
   expect(writtenPatch().durationMin).toBe(44);
 });
 
-it('says it is completing a planned dive, rather than calling it an edit', async () => {
+it('says it is completing a planned dive when that is what the save will do', async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
   stubDives({ dives: [planned] });
-  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
-  // Saving is what logs the dive (§2.4), so the screen has to say so before it happens.
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
+  // Saving is what logs the dive (§2.4), so the screen has to say so before it happens —
+  // and all three of the things that say it agree: the heading, the control, and the
+  // button. The heading is a claim about THIS save now, not about the dive's stored status,
+  // which is why the control has to be on Logged for it to appear at all.
   expect(textIn(t).join(' ')).toContain('Complete dive');
   expect(textIn(t).join(' ')).not.toContain('Edit dive');
+  expect(plannedIsOn(t)).toBe(false);
+  expect(textIn(t).join(' ')).toContain('Save dive');
+});
+
+it('does not promise to complete a planned dive it is only going to edit', async () => {
+  const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
+  stubDives({ dives: [planned] });
+  // No `initialStatus`: this is the diver who opened the dive to fix something, not the one
+  // who came through the *Complete dive* pill. The heading said "Complete dive" here for as
+  // long as the save silently made it true; with that rule deleted, saying it would be a
+  // false promise — the exact defect §3 of this task removes.
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+
+  expect(plannedIsOn(t)).toBe(true);
+  expect(textIn(t).join(' ')).not.toContain('Complete dive');
+  // ...and it is not calling a plan a dive either: heading and button both say plan, which
+  // is what the control says and what the save will leave it as.
+  expect(textIn(t).join(' ')).toContain('Edit plan');
+  expect(textIn(t).join(' ')).toContain('Save plan');
 });
 
 it('leaves a logged dive logged — status is not written on every save', async () => {
@@ -1266,4 +1323,274 @@ it('shows a blocking field message as a line of text, not as a second empty fiel
   const ink = Object.assign({}, ...text) as { fontSize?: number; color?: string };
   expect(ink.fontSize).toBeLessThan(styles.formFieldInput.fontSize);
   expect(ink.color).toBe(styles.formFieldLabel.color);
+});
+
+// --- M1d: creating a planned dive — §2.4's missing producer ---
+//
+// Every CONSUMER of a planned dive shipped first: the "Up next" section, exclusion from
+// numbering and stats, the *Complete dive* pill, the completion flow. The producer never
+// did. `createDive` defaulted `status` to `'logged'`, this form's schema had no `status`
+// field at all, and the form is `createDive`'s only caller — so no diver could create a
+// planned dive, and the one visible in the dev database came from seed data, which is
+// exactly why the feature looked finished.
+//
+// One control now does both jobs (§2.4, and DESIGN.md §10's "one place changes a dive's
+// status"): setting a new dive to Planned, and completing a planned one by moving it back
+// to Logged. Everything below drives that control the way a diver does — pressing it —
+// rather than reaching into the form's state.
+
+/** The one View carrying a given `makeStyles` entry, so a test can ask what is INSIDE it. */
+function regionWith(t: RenderResult, style: object) {
+  return (t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).filter(Boolean).includes(style)) : [])[0];
+}
+
+it('puts the Logged/Planned control in the header row, beside the heading', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+
+  const header = regionWith(t, styles.formHeadingRow);
+  expect(header).toBeDefined();
+  // The heading and the control are one object: a control rendered somewhere else entirely
+  // would still satisfy "the control exists" below.
+  expect(header?.queryAll((n) => n.props?.accessibilityRole === 'switch')).toHaveLength(1);
+  expect(header?.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)).toContain('New dive');
+
+  // ...and emphatically NOT in the core strip, which §2.2 fixes as date, site, centre, max
+  // depth and duration. A dive's status is not one of its measurements, and a sixth slot
+  // there would say it was. This is the assertion that fails if the control is "just moved
+  // down a bit" into the strip, where the header-row check above would still pass.
+  const strip = regionWith(t, styles.formCoreStrip);
+  expect(strip).toBeDefined();
+  expect(strip?.queryAll((n) => n.props?.accessibilityRole === 'switch')).toHaveLength(0);
+});
+
+it('opens every new dive on Logged, and says so on its face', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  // Asserted explicitly, so a later change of default is caught here rather than found by a
+  // diver whose ordinary dives all filed themselves as plans.
+  expect(plannedIsOn(t)).toBe(false);
+  // The announced state and the visible word are checked against each other exactly once,
+  // here: everything below reads `plannedIsOn` alone, which would be satisfied by a control
+  // whose label never changed.
+  expect(textIn(t).join(' ')).toContain('Logged');
+  expect(textIn(t).join(' ')).not.toContain('Planned');
+});
+
+it('shows Planned on its face once moved, so the two readings cannot disagree', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await toggleStatus(t);
+  expect(plannedIsOn(t)).toBe(true);
+  expect(textIn(t).join(' ')).toContain('Planned');
+});
+
+it('moves back to Logged on a second press — it is a two-state control, not a one-way door', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await toggleStatus(t);
+  await toggleStatus(t);
+  expect(plannedIsOn(t)).toBe(false);
+});
+
+it("keeps the diver's thumb target at 48 dp, however small the control looks", async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+  // §0.5: "Tap targets never below 48 dp" — on the Pressable, not on the pill inside it,
+  // which is deliberately small (§0.6's quiet chip). Both halves asserted: that the control
+  // actually wears this style, and that the style actually meets the floor.
+  expect([findStatusControl(t)?.props?.style].flat(5)).toContain(styles.formStatus);
+  expect(styles.formStatus.minHeight).toBe(48);
+  expect(styles.formStatus.minWidth).toBe(48);
+});
+
+it('stays monochrome in both states — colour encodes depth and nothing else', async () => {
+  // 'light' throughout: this screen resolves its own scheme from `useColorScheme()`, which
+  // reports light under Jest, so the sheet and the palette compared against have to be the
+  // ones that actually rendered (the same note DivesScreen.test.tsx and
+  // DiveDetailScreen.test.tsx already carry).
+  const theme = themeFor('light');
+  const monochrome = [theme.bg, theme.surface, theme.border, theme.fg, theme.fgMuted, theme.action, theme.actionFg];
+  const hues = depthScale.light;
+
+  const coloursOf = (t: RenderResult): unknown[] => {
+    const control = findStatusControl(t);
+    const nodes = control ? [control, ...control.queryAll(() => true)] : [];
+    return nodes
+      .flatMap((n) => [n.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[])
+      .flatMap((s) => [s.backgroundColor, s.borderColor, s.color])
+      .filter((c) => c !== undefined);
+  };
+
+  const t = await render(<DiveFormScreen mode="create" />);
+  const atRest = coloursOf(t);
+  await toggleStatus(t);
+  const whenPlanned = coloursOf(t);
+
+  // Both states, because §0.1's rule is about the whole control and the "on" state is the
+  // one a designer would be tempted to give an accent. Non-empty first, so an empty list
+  // cannot pass this vacuously.
+  expect(atRest.length).toBeGreaterThan(0);
+  expect(whenPlanned.length).toBeGreaterThan(0);
+  for (const colour of [...atRest, ...whenPlanned]) {
+    expect(monochrome).toContain(colour);
+    expect(hues).not.toContain(colour);
+  }
+});
+
+it('says what the save will do, rather than making the diver remember the mode', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(textIn(t).join(' ')).toContain('Save dive');
+  expect(findButton(t, 'Save')?.props?.accessibilityLabel).toBe('Save dive');
+
+  await toggleStatus(t);
+  expect(textIn(t).join(' ')).toContain('Save plan');
+  expect(textIn(t).join(' ')).not.toContain('Save dive');
+  // The announced label moves with the visible one: a screen reader that went on saying
+  // "Save dive" would be the same false promise one sense over.
+  expect(findButton(t, 'Save')?.props?.accessibilityLabel).toBe('Save plan');
+});
+
+it('calls a new plan a plan in its heading too', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(textIn(t).join(' ')).toContain('New dive');
+  await toggleStatus(t);
+  expect(textIn(t).join(' ')).toContain('New plan');
+  expect(textIn(t).join(' ')).not.toContain('New dive');
+});
+
+it('creates a planned dive when the control is on Planned', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-09-05', status: 'planned' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickDate(t, '2026-09-05');
+  await toggleStatus(t);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  // The whole point of this task: `status: 'planned'` reaching the repository from the form,
+  // which nothing in this app could produce before.
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ status: 'planned', date: '2026-09-05' }));
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+});
+
+it("creates a logged dive when the control is left alone — the default is written, not assumed", async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickDate(t, '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  // Explicitly `'logged'`, not merely "not planned": `createDive` has a `?? 'logged'`
+  // fallback of its own, so an input that carried NO status at all would still store a
+  // logged dive and pass a weaker assertion — while leaving this form's own default
+  // untested and free to drift.
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ status: 'logged' }));
+});
+
+it('does not inherit Planned from the logbook — a plan is an exception, not a mode', async () => {
+  // Carry-over really does run here (the buddy proves it), and the control is still Logged.
+  // Nothing in this app may make the next dive default to planned: a diver who queues one
+  // dive on a boat is not switching the form into a planning mode.
+  //
+  // This is the SCREEN's half of that rule — that the form's own default survives a real
+  // carry-over rather than being overwritten by it. The other half, that `carryOverFrom`
+  // names no status at all to overwrite it with, cannot be proven from here (carry-over
+  // reads the most recent LOGGED dive, so the status it would copy is 'logged' either way)
+  // and is asserted directly in carryOver.test.ts instead.
+  stubDives({
+    dives: [
+      dive({ id: 'p', date: '2026-09-05', status: 'planned', buddy: 'Nobody' }),
+      dive({ id: 'l', date: '2026-08-16', buddy: 'Petra' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petra');
+  expect(plannedIsOn(t)).toBe(false);
+});
+
+it('saves a planned dive dated in the past without complaint', async () => {
+  // Not a hypothetical: a planned dive becomes past-dated by the clock moving. Plan three
+  // dives on a boat, do two, and at midnight the third is a past-dated plan with no diver
+  // involved — so a minimum date, or a warning, would be a rule that time itself violates.
+  mockCreate.mockResolvedValue(dive({ date: '2020-01-01', status: 'planned' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickDate(t, '2020-01-01');
+  await toggleStatus(t);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ status: 'planned', date: '2020-01-01' }));
+  // Nothing on screen argued with it, and the form left as a successful save does.
+  expect(textIn(t).join(' ').toLowerCase()).not.toContain("couldn't");
+  await waitFor(() => expect(router.back).toHaveBeenCalled());
+});
+
+it("leaves a planned dive planned when the diver only fixes its site name", async () => {
+  const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Sifra' });
+  stubDives({ dives: [planned] });
+  mockUpdate.mockResolvedValue(planned);
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+  await typeInto(t, 'Site', 'Silfra');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // THIS is the assertion, and the only one here that discriminates. `DiveFormScreen.tsx`
+  // used to run `if (target.status === 'planned') patch.status = 'logged'` on every save,
+  // so a diver correcting a typo silently completed the dive — and a test asserting only
+  // that the site name changed passes just as happily against that code. A patch that does
+  // not NAME `status` is the whole difference between the two.
+  expect(writtenPatch()).not.toHaveProperty('status');
+  expect(writtenPatch().siteName).toBe('Silfra');
+  // ...and the control still shows what the dive still is.
+  expect(plannedIsOn(t)).toBe(true);
+});
+
+it('completes a planned dive when the diver moves the control to Logged by hand', async () => {
+  const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned' });
+  stubDives({ dives: [planned] });
+  mockUpdate.mockResolvedValue(planned);
+  // No route param this time: the pill is one way in, and moving the control is the other.
+  // Both have to work, and they are different code paths — one seeds the form, the other
+  // changes it after it is on screen.
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+  expect(plannedIsOn(t)).toBe(true);
+  await toggleStatus(t);
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch().status).toBe('logged');
+  // Nothing else went with it: a save that rewrote the whole row would satisfy the line
+  // above while overwriting fields the diver never opened (§7's last-write-wins).
+  expect(Object.keys(writtenPatch())).toEqual(['status']);
+});
+
+it('turns a logged dive back into a plan when the diver moves the control the other way', async () => {
+  const logged = dive({ id: 'l1', date: '2026-08-16' });
+  stubDives({ dives: [logged] });
+  mockUpdate.mockResolvedValue(logged);
+  const t = await render(<DiveFormScreen mode="edit" diveId="l1" />);
+  expect(plannedIsOn(t)).toBe(false);
+  await toggleStatus(t);
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  // The mirror of the test above, and not a formality: a control wired to send `'logged'`
+  // whichever way it was pointing would pass that one and fail this one.
+  expect(writtenPatch().status).toBe('planned');
+  expect(Object.keys(writtenPatch())).toEqual(['status']);
+});
+
+it('opens on the state the route asked for, even when the dive arrives afterwards', async () => {
+  // `useDives()` starts empty and resolves later, so this is the ordinary case on a device:
+  // the *Complete dive* pill pushes, the form renders once with no dive, and the dive lands
+  // after. The screen re-seeds itself from that dive when it does — and the route's request
+  // has to survive that re-seed, or the control silently springs back to Planned and the
+  // pill completes nothing.
+  const t = await render(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
+  stubDives({ dives: [dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Silfra' })] });
+  await t.rerender(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
+
+  // The dive really did arrive (otherwise "still on Logged" would be true of a blank form)...
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+  // ...and the control still holds what the route asked for, over the dive's own status.
+  expect(plannedIsOn(t)).toBe(false);
 });

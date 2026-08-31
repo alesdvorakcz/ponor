@@ -17,6 +17,7 @@ import { type Dive } from '../domain/types';
 import { diveSiteLabel, formatDiveCount } from '../format/display';
 import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
@@ -215,10 +216,14 @@ export default function DivesScreen() {
   const logDive = () => router.push('/dive/new');
   // §2.4's *Complete dive*: "After surfacing, Complete dive asks only for the missing
   // numbers." It opens the SAME route the detail screen's own Edit control does — a planned
-  // dive is completed by editing it, and `DiveFormScreen` decides what that means from the
-  // dive's own `status` (DESIGN.md §10), so this list never has to say so a second time.
-  // Absolute, for the typed-routes reason `logDive` above records at length.
-  const completeDive = (id: string) => router.push(`/dive/${id}/edit`);
+  // dive is completed by editing it — with the form's Logged/Planned control already
+  // flipped to Logged, so that saving finishes the dive, which is exactly what this label
+  // promises. `completeDiveHref` (navigation/editDiveLink.ts) owns both ends of that link;
+  // this list writes nothing itself, because there is one place a dive's status changes and
+  // it is the form's own control (DESIGN.md §10). The href is the route TEMPLATE plus
+  // params rather than an interpolated string, which expo-router's typed routes check just
+  // as strictly — see that module and `logDive` above.
+  const completeDive = (id: string) => router.push(completeDiveHref(id));
 
   // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a
   // lazily-initialised ref, not a bare `useRef(createReorderGate())`, so a

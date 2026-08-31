@@ -173,8 +173,9 @@ describe('CARRIED_FIELDS matching the behaviour', () => {
     }
   });
 
-  it('never names date, or a field §2.1 calls fresh', () => {
+  it('never names date, status, or a field §2.1 calls fresh', () => {
     expect(CARRIED_FIELDS).not.toContain('date');
+    expect(CARRIED_FIELDS).not.toContain('status');
     for (const field of [
       'maxDepthM', 'avgDepthM', 'durationMin', 'timeIn', 'visibilityM',
       'waterTempC', 'airTempC', 'waves', 'current', 'surge', 'rating', 'title', 'notes',
@@ -182,6 +183,33 @@ describe('CARRIED_FIELDS matching the behaviour', () => {
     ]) {
       expect(CARRIED_FIELDS).not.toContain(field);
     }
+  });
+});
+
+describe('a plan is never inherited (§2.4)', () => {
+  it('carries no status forward from a planned dive, so the form keeps its own logged default', () => {
+    // The assertion that discriminates is the second one. `status` is neither carried nor
+    // blanked here — it is one of the two fields this module does not name at all (the
+    // other is `date`, which has the 48h rule instead) — so what a caller actually gets is
+    // whatever the form's own default survives as. Parsing through the real schema is what
+    // proves that end to end: if this module ever copied the previous dive's status, the
+    // parse below would say 'planned' and every dive after a planned one would default to
+    // being a plan. A diver who queues one dive on a boat is not switching modes.
+    const planned = dive({ date: '2026-08-16', status: 'planned', siteName: 'Silfra' });
+    const c = carryOverFrom(planned, new Date(2026, 7, 16, 18, 0));
+    expect(Object.prototype.hasOwnProperty.call(c, 'status')).toBe(false);
+    expect(diveFormSchema.parse(c).status).toBe('logged');
+    // ...and carry-over really did run, so "no status" above is not "nothing at all".
+    expect(c.siteName).toBe('Silfra');
+  });
+
+  it('does not blank it either, which would be a value the column cannot hold', () => {
+    // The other way this could go wrong: `FRESH_FIELDS` sets every field it names to `null`,
+    // and `status` is NOT NULL in the schema (§6). A null slipping through would be a value
+    // the form then has to guess its way back out of, and one `updateDive` would happily
+    // write.
+    const c = carryOverFrom(previous) as Record<string, unknown>;
+    expect(c.status).toBeUndefined();
   });
 });
 

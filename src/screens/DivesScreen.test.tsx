@@ -18,9 +18,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { dive } from '../domain/diveFixture';
+// The real numbering rule, not a stub: §2.5's numbers are computed, so a test that
+// hand-wrote them would be asserting its own arithmetic rather than the app's.
+import { assignDiveNumbers } from '../domain/diveNumber';
 import { reorderDivesForDate, type ReorderOutcome } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { completeDiveHref } from '../navigation/editDiveLink';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import DivesScreen from './DivesScreen';
@@ -1109,8 +1113,10 @@ it("does not render the detail screen's own back control when embedded beside th
 //
 // "After surfacing, Complete dive asks only for the missing numbers." It is the one action
 // a planned dive has and a logged one does not, and it opens the same `/dive/[id]/edit`
-// form the detail screen's Edit control does — DiveFormScreen decides what that means from
-// the dive's own status, so this list never states the rule a second time.
+// form the detail screen's Edit control does — with the form's Logged/Planned control
+// already flipped to Logged, which is the whole difference between the two links. This
+// list still writes nothing itself: a dive's status changes in one place, the form's own
+// control (DESIGN.md §10), and this only decides what that control opens on.
 
 /** One control by its exact accessibilityLabel — `undefined` when the screen renders none,
  * which the logged-row test below asserts directly. */
@@ -1134,7 +1140,35 @@ it('offers Complete dive on an "Up next" row, and opens that dive\'s own form', 
   const complete = findControl(t, 'Complete dive: Silfra');
   if (!complete) throw new Error('DivesScreen offered no Complete dive control');
   await fireEvent.press(complete);
-  expect(mockRouterPush).toHaveBeenCalledWith('/dive/p/edit');
+  expect(mockRouterPush).toHaveBeenCalledWith(completeDiveHref('p'));
+  // Nothing was written on the way. The pill is navigation, not a second path that changes
+  // a status behind the diver's back — that decision belongs to the form's own control, and
+  // to the save the diver then presses. `reorderDivesForDate` is this screen's ONLY write,
+  // so an untouched mock is the whole of "this list wrote nothing".
+  expect(mockReorderDivesForDate).not.toHaveBeenCalled();
+});
+
+it("opens that form with the status control on Logged, so the pill's label stays true", async () => {
+  stubDives({
+    dives: [dive({ id: 'p', date: '2026-09-01', status: 'planned', siteName: 'Silfra' })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const complete = findControl(t, 'Complete dive: Silfra');
+  if (!complete) throw new Error('DivesScreen offered no Complete dive control');
+  await fireEvent.press(complete);
+
+  // The one param that separates this from a plain edit — and the whole reason the pill
+  // still completes anything. The form no longer logs a planned dive just because it was
+  // handed one (that rule silently completed a dive whose site name a diver came back to
+  // fix), so a pill sending the plain edit link would open the control on Planned and
+  // complete nothing while saying it does. Read as the literal value the route will carry,
+  // not re-derived from the same helper the screen calls.
+  const href = mockRouterPush.mock.calls[0]?.[0] as { pathname?: string; params?: { id?: string; openAs?: string } };
+  expect(href?.pathname).toBe('/dive/[id]/edit');
+  expect(href?.params?.id).toBe('p');
+  expect(href?.params?.openAs).toBe('logged');
 });
 
 it('offers no Complete dive on a logged row', async () => {
@@ -1153,4 +1187,80 @@ it('offers no Complete dive on a logged row', async () => {
   // having gone missing.
   await fireEvent.press(findRow(t, 12));
   expect(mockRouterPush).toHaveBeenCalledWith('/dive/l');
+});
+
+// --- M1d: what a newly created planned dive actually looks like in the list ---
+//
+// §2.4's producer arrived last: until this milestone no diver could create a planned dive
+// at all, so everything below was only ever exercised against seed data. The numbers here
+// come from the real `assignDiveNumbers` rather than a hand-written Map — a stub would let
+// this test agree with whatever the screen happened to render, which is the opposite of
+// what it is for. §2.5's numbers are computed and never stored, so this is the whole of
+// what "a planned dive is excluded from numbering" means in practice.
+
+/** One row's announced label, by the site name in it — `DiveRow`'s own
+ * `accessibilityLabel`, which leads with "Dive N" only when the dive has a number, and so
+ * is the one place a row states whether it has one at all. */
+function rowLabelFor(t: RenderResult, site: string): string {
+  const row = (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : []).find((n) =>
+    String(n.props?.accessibilityLabel ?? '').includes(site),
+  );
+  if (!row) throw new Error(`DivesScreen rendered no row for ${site}`);
+  return String(row.props?.accessibilityLabel ?? '');
+}
+
+it('puts a new plan in "Up next" with no number, leaving every logged dive numbered as before', async () => {
+  const logged = [dive({ id: 'a', date: '2026-08-16', siteName: 'Blue Hole' }), dive({ id: 'b', date: '2026-08-17', siteName: 'Canyon' })];
+  const before = assignDiveNumbers(logged, 0);
+  expect([before.get('a'), before.get('b')]).toEqual([1, 2]);
+
+  // The same logbook, plus one dive the diver just planned for next month.
+  const withPlan = [dive({ id: 'p', date: '2026-09-05', status: 'planned', siteName: 'Silfra' }), ...logged];
+  stubDives({ dives: withPlan, numbers: assignDiveNumbers(withPlan, 0), error: undefined });
+  const t = await render(<DivesScreen />);
+  const text = textIn(t).join(' ');
+
+  // It landed in the queue, above the trips...
+  expect(text).toContain('Up next');
+  expect(text.indexOf('Up next')).toBeLessThan(text.indexOf('Blue Hole'));
+  expect(text.indexOf('Silfra')).toBeLessThan(text.indexOf('Blue Hole'));
+  // ...carrying no number of its own — a plan has none until it is completed (§2.4). Read
+  // off the row's own announced label, which lists "Dive N" first when there is one, so
+  // this is about THIS row rather than about a `#3` happening to be absent from the screen.
+  expect(rowLabelFor(t, 'Silfra')).not.toContain('Dive ');
+  expect(text).not.toContain('#3');
+  // ...and it shifted nothing: the two logged dives are still #1 and #2, which is the half
+  // that would fail if a planned dive were numbered and merely hidden from this section.
+  expect(rowLabelFor(t, 'Blue Hole')).toContain('Dive 1');
+  expect(rowLabelFor(t, 'Canyon')).toContain('Dive 2');
+});
+
+it('gives a completed plan its number back, and renumbers the dives above it', async () => {
+  // The other end of the same journey: the diver surfaces, opens the plan through *Complete
+  // dive*, moves the control to Logged and saves. Nothing migrates — the numbers are
+  // recomputed from the rows, so the dive slots into its own date and the later dive moves
+  // up. This is the list-level statement of what `diveNumber.test.ts` proves about the map.
+  const planned = dive({ id: 'p', date: '2026-08-17', status: 'planned', siteName: 'Silfra' });
+  const around = [dive({ id: 'later', date: '2026-08-18', siteName: 'Canyon' }), dive({ id: 'earlier', date: '2026-08-16', siteName: 'Blue Hole' })];
+
+  const queued = [planned, ...around];
+  stubDives({ dives: queued, numbers: assignDiveNumbers(queued, 0), error: undefined });
+  const before = await render(<DivesScreen />);
+  // Two logged dives, so the later one is #2 while the plan sits between them undated by
+  // any number at all.
+  expect(before.root ? before.root.queryAll((n) => n.type === 'Text' && n.children.includes('#2')) : []).toHaveLength(1);
+  expect(textIn(before).join(' ')).toContain('Up next');
+
+  const completed = [{ ...planned, status: 'logged' as const }, ...around];
+  stubDives({ dives: completed, numbers: assignDiveNumbers(completed, 0), error: undefined });
+  const after = await render(<DivesScreen />);
+  const text = textIn(after).join(' ');
+
+  // The queue is empty and gone, the completed dive took #2 by its own date, and the dive
+  // that used to be #2 is now #3 — the renumbering §2.5 promises, for free.
+  expect(text).not.toContain('Up next');
+  expect(text).toContain('#3');
+  expect(rowLabelFor(after, 'Blue Hole')).toContain('Dive 1');
+  expect(rowLabelFor(after, 'Silfra')).toContain('Dive 2');
+  expect(rowLabelFor(after, 'Canyon')).toContain('Dive 3');
 });

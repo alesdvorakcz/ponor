@@ -36,8 +36,27 @@ export const CARRIED_FIELDS: readonly (keyof DiveFormValues)[] = [
 const CARRIED_FIELD_SET: ReadonlySet<string> = new Set(CARRIED_FIELDS);
 
 /**
- * Every `DiveFormValues` key `CARRIED_FIELDS` does not name, other than
- * `date`. Read straight off `diveFormSchema`'s own shape rather than typed
+ * The two form fields this module carries neither forward nor blank, because
+ * "fresh" here means **`null`** and neither of them can hold one: `date` and
+ * `status` are two of the three columns DESIGN.md §6 makes non-nullable, so
+ * each owns a rule of its own instead. `date`'s is the 48-hour rule below;
+ * `status`'s belongs to the form, which opens every new entry on `logged`
+ * (`blankFormValues`, DiveFormScreen.tsx) and lets the diver say otherwise
+ * with §2.4's control.
+ *
+ * That is a decision, not an omission. A planned dive is the exception, not a
+ * mode: a diver who queues up one dive on a boat does not want every later
+ * entry defaulting to planned, and inheriting the last dive's status is
+ * exactly how that would happen. Naming them here — rather than letting
+ * `FRESH_FIELDS` blank them — is also what keeps `carryOverFrom`'s result
+ * parseable by `diveFormSchema`, since a `status: null` would be a value the
+ * form's own default then has to guess its way back out of.
+ */
+const NOT_CARRIED_OR_BLANKED: ReadonlySet<string> = new Set(['date', 'status']);
+
+/**
+ * Every `DiveFormValues` key `CARRIED_FIELDS` does not name, other than the
+ * two above. Read straight off `diveFormSchema`'s own shape rather than typed
  * out here a second time, so this can never quietly fall out of step with
  * either the schema or `CARRIED_FIELDS` — there is nothing left to forget to
  * update. `Object.keys` always returns `string[]`; the cast is safe because
@@ -46,7 +65,7 @@ const CARRIED_FIELD_SET: ReadonlySet<string> = new Set(CARRIED_FIELDS);
  */
 const FRESH_FIELDS: readonly (keyof DiveFormValues)[] = (
   Object.keys(diveFormSchema.shape) as (keyof DiveFormValues)[]
-).filter((field) => field !== 'date' && !CARRIED_FIELD_SET.has(field));
+).filter((field) => !NOT_CARRIED_OR_BLANKED.has(field) && !CARRIED_FIELD_SET.has(field));
 
 const HOURS_48_MS = 48 * 60 * 60 * 1000;
 

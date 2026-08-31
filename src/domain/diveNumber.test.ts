@@ -129,6 +129,27 @@ describe('assignDiveNumbers', () => {
     expect(numbers.has('planned')).toBe(false);
   });
 
+  it('renumbers the dives around one that changes status, in both directions', () => {
+    // §2.5's "computed, never stored" is what makes §2.4's control safe to give a diver:
+    // planning an already-logged dive, or completing a planned one, renumbers its
+    // neighbours by itself, with nothing to migrate and no stored number to go stale.
+    const trip = (middleStatus: 'logged' | 'planned') => [
+      dive({ id: 'a', date: '2026-08-16' }),
+      dive({ id: 'b', date: '2026-08-17', status: middleStatus }),
+      dive({ id: 'c', date: '2026-08-18' }),
+    ];
+
+    const allLogged = assignDiveNumbers(trip('logged'), 0);
+    expect([allLogged.get('a'), allLogged.get('b'), allLogged.get('c')]).toEqual([1, 2, 3]);
+
+    // The middle dive turns back into a plan: it loses its number outright, and the dive
+    // after it moves up rather than leaving a gap where 2 used to be. A hole at 2 — or a
+    // `c` still numbered 3 — would be the stored-number behaviour this design rejects.
+    const middlePlanned = assignDiveNumbers(trip('planned'), 0);
+    expect(middlePlanned.has('b')).toBe(false);
+    expect([middlePlanned.get('a'), middlePlanned.get('c')]).toEqual([1, 2]);
+  });
+
   it('renumbers everything after a backfilled dive', () => {
     const existing = [dive({ id: 'a', date: '2026-08-16' }), dive({ id: 'b', date: '2026-08-17' })];
     const before = assignDiveNumbers(existing, 0);

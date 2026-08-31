@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { Controller, useForm, type Control, type FieldPath } from 'react-hook-form';
+import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +14,7 @@ import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import { diveFormSchema, toDivePatch, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
-import { type Dive, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
+import { type Dive, type DiveStatus, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
 import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
@@ -62,9 +62,18 @@ const EMPTY_TANK: TankFormInput = {
  * `date` comes from `todayCalendarDate`, the same owner `carryOverDate` calls, and not
  * from a local `new Date().toISOString().slice(0, 10)` — that is the UTC day, and it
  * opened a night dive logged at 00:30 in Prague on *yesterday's* date (DESIGN.md §10).
+ *
+ * `status` is `'logged'`, and this is the one place that decides so. **Always**, and never
+ * inferred: not from the date (a dive dated next week is a perfectly ordinary backfill
+ * mistake to make and an awful thing to silently reclassify), not remembered from the last
+ * session, and not carried over from the previous dive — `carryOverFrom` deliberately
+ * names neither `status` nor `date`, so this default survives the merge in
+ * `initialFormValues` below. A diver who plans one dive on a boat does not want every
+ * later entry defaulting to planned; §2.4 is the exception, not a mode.
  */
 function blankFormValues(): DiveFormInput {
   return {
+    status: 'logged',
     date: todayCalendarDate(),
     siteId: null,
     siteName: null,
@@ -278,9 +287,17 @@ interface SeedState {
  * seed from different dives entirely (the previous dive versus this one); the ONE thing
  * that is not re-decided here is which dive create mode carries from, which stays
  * `carryOverSource`'s alone.
+ *
+ * `openAs` is §2.4's *Complete dive* arriving through the route (`editDiveLink.ts`): the
+ * state the Logged/Planned control should OPEN on, overriding the dive's own stored status
+ * for the control alone. It writes nothing and means nothing on its own — the diver still
+ * sees the flipped control and still has to save — which is precisely why it is a starting
+ * value here rather than a rule inside `onValid` about where the diver came from.
  */
-function seedStateFor(mode: 'create' | 'edit', seed: Dive | null): SeedState {
+function seedStateFor(mode: 'create' | 'edit', seed: Dive | null, openAs?: DiveStatus): SeedState {
   const sourceId = seed?.id ?? null;
+  const withOpenAs = (values: DiveFormInput): DiveFormInput =>
+    openAs === undefined ? values : { ...values, status: openAs };
   if (mode === 'edit') {
     return {
       sourceId,
@@ -288,11 +305,11 @@ function seedStateFor(mode: 'create' | 'edit', seed: Dive | null): SeedState {
       // empty) or the id names no live dive at all. Today's blank form is what shows in
       // that gap; `onValid` below refuses to write anything without a real dive, so a form
       // that opened blank can never save its blanks over a dive it never loaded.
-      values: seed === null ? blankFormValues() : diveToFormValues(seed),
+      values: withOpenAs(seed === null ? blankFormValues() : diveToFormValues(seed)),
       paths: new Set<string>(),
     };
   }
-  const values = initialFormValues(seed);
+  const values = withOpenAs(initialFormValues(seed));
   return { sourceId, values, paths: seed === null ? new Set<string>() : computeCarriedPaths(values) };
 }
 
@@ -619,11 +636,108 @@ function ControlledBooleanField({ control, name, label, scheme }: ControlledBool
   );
 }
 
+/**
+ * DESIGN.md §2.4's Logged/Planned control — the producer half of prepare-ahead planned
+ * dives, and the app's **only** way for a dive's status to change. Everything downstream
+ * of it was built first: the "Up next" section, exclusion from numbering and stats, the
+ * *Complete dive* pill. Nothing could reach `status: 'planned'` until this existed.
+ *
+ * **Quiet, on the owner's own words** — "most of the dives will not be created as planned
+ * so this feature should not scream too much." So it is §0.6's existing chip vocabulary
+ * (`actionPill`: small, uppercase, tracked, muted, bordered so it reads as a control
+ * rather than a label) sitting beside the heading, not a segmented control and not a new
+ * visual idiom, and emphatically not a sixth slot in §2.2's core strip — that strip is the
+ * dive's measurements, and a status is not one of them.
+ *
+ * A toggle, in the same `accessibilityRole="switch"` idiom `BooleanField` above already
+ * uses for hood/gloves/boots, because this is the same shape of question: one control,
+ * two states, the current one written on its face. Only the unusual state fills
+ * (`formStatusPillOn`) — §0.1's inverted ink, never a hue, since colour is spoken for.
+ *
+ * It carries no rule about what saving does. It is a plain form field
+ * (`optionalStatus`, diveFormSchema.ts), so `toDivePatch` diffs it like every other
+ * field: the patch names `status` when this differs from what the dive is stored with and
+ * at no other time. Editing a planned dive leaves it planned; flipping this to Logged
+ * *is* completing it.
+ */
+function StatusControl({ control, scheme }: { control: FormControl; scheme: ColorScheme }) {
+  const styles = makeStyles(scheme);
+  return (
+    <Controller
+      control={control}
+      name="status"
+      render={({ field }) => {
+        const planned = field.value === 'planned';
+        return (
+          <Pressable
+            style={styles.formStatus}
+            onPress={() => field.onChange(planned ? 'logged' : 'planned')}
+            accessibilityRole="switch"
+            // Names the QUESTION, not the current answer, which `accessibilityState`
+            // below carries instead — so a screen reader announces "Planned dive, switch,
+            // off" rather than a label that changes out from under the state it describes.
+            // Deliberately free of the word "Save", so it can never be mistaken — by a
+            // screen reader or by a test query — for the save control it changes the
+            // wording of.
+            accessibilityLabel="Planned dive"
+            accessibilityState={{ checked: planned }}
+          >
+            <View style={[styles.formStatusPill, planned && styles.formStatusPillOn]}>
+              <Text style={[styles.formStatusLabel, planned && styles.formStatusLabelOn]}>
+                {planned ? 'Planned' : 'Logged'}
+              </Text>
+            </View>
+          </Pressable>
+        );
+      }}
+    />
+  );
+}
+
+/**
+ * What this form says it is, given the mode, the dive's stored status and the state the
+ * control is currently on — and it must never say more than the save will actually do.
+ *
+ * That is not a stylistic point. The heading used to read "Complete dive" for any planned
+ * dive under edit, which was true only because the screen quietly logged it on save no
+ * matter what the diver came here for. With that rule gone (see `onValid`), "Complete
+ * dive" is a claim about this particular save, and it is true exactly when the control is
+ * on Logged over a dive stored as planned — which is what arriving through §2.4's
+ * *Complete dive* pill sets up (`editDiveLink.ts`), and what flipping the control by hand
+ * sets up too. The heading, the control and the save's own label are three views of one
+ * value, so they cannot disagree.
+ */
+function headingFor(mode: 'create' | 'edit', stored: DiveStatus | null, chosen: DiveStatus): string {
+  if (mode === 'create') return chosen === 'planned' ? 'New plan' : 'New dive';
+  if (stored === 'planned' && chosen === 'logged') return 'Complete dive';
+  return chosen === 'planned' ? 'Edit plan' : 'Edit dive';
+}
+
+/** What the save control says it will do — "the diver should never have to remember which
+ * mode they are in to know what the button does." Both the visible label and the
+ * accessibility one, from this one function, so the two cannot drift. */
+function saveLabelFor(chosen: DiveStatus): string {
+  return chosen === 'planned' ? 'Save plan' : 'Save dive';
+}
+
 export interface DiveFormScreenProps {
   mode: 'create' | 'edit';
   /** Which dive `mode="edit"` is for — found inside `useDives()`'s own list (Task 7), never
    * fetched with a second query, exactly as DiveDetailScreen.tsx finds the dive it shows. */
   diveId?: string;
+  /**
+   * Which state §2.4's Logged/Planned control OPENS on, overriding the dive's own stored
+   * status — `openAsStatus` (navigation/editDiveLink.ts) reading what the *Complete dive*
+   * pill put in the route. Nothing else about the form changes, and nothing is written:
+   * the diver sees a flipped control, fills in the missing numbers, and saving is still
+   * the one deliberate act that logs the dive.
+   *
+   * A prop rather than a second rule inside this screen, deliberately. "If the dive is
+   * planned, log it on save" is what this milestone deleted — it turned every edit of a
+   * planned dive into a completion, including the one where the diver only came back to
+   * fix a typo in the site name.
+   */
+  initialStatus?: DiveStatus;
 }
 
 /** Shown when `createDive`'s or `updateDive`'s write rejects (`onValid` below) — see
@@ -673,11 +787,18 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
  * (`diveToFormValues`) instead of from carry-over, saving through `updateDive` with a patch
  * of **only what changed** (`toDivePatch`, diveFormSchema.ts) rather than the whole row —
  * see that function for why the distinction between "left alone" and "cleared" is the
- * entire point. **Completing a planned dive (§2.4) is that same mode**: the patch gains
- * `status: 'logged'`, and the dive gains a number the moment it is logged, because
- * numbering is computed (§2.5) rather than stored.
+ * entire point.
+ *
+ * **Planned dives (§2.4) are the `StatusControl` above and nothing else.** Creating one is
+ * this form with the control on Planned; completing one is this form with the control
+ * moved to Logged, at which point the dive gains a number and renumbers its neighbours,
+ * because numbering is computed (§2.5) rather than stored. Both are the ordinary save
+ * path: the control is a form field, so the patch names `status` exactly when the diver
+ * moved it. What is deliberately absent is any rule keyed on the stored status or on the
+ * entry point — this screen used to log any planned dive it was handed, so editing one to
+ * fix a typo silently completed it.
  */
-export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
+export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveFormScreenProps) {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
@@ -719,8 +840,8 @@ export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
   // another fresh object, the gate re-opened, and create mode threw "Too many re-renders."
   // rather than ever committing a frame at all. Keyed on `sourceId`, the gate closes on the
   // second render and stays closed.
-  const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive));
-  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive));
+  const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, initialStatus));
+  if (carried.sourceId !== sourceId) setCarried(seedStateFor(mode, seedDive, initialStatus));
 
   const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
@@ -745,6 +866,14 @@ export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
     // nothing has touched yet is safe to re-sync.
     resetOptions: { keepDirtyValues: true },
   });
+
+  // The live value of §2.4's control, which the heading and the save's own label are the
+  // other two views of. `useWatch` rather than `formState`/`getValues`: it subscribes this
+  // component to that one field, so moving the control re-renders the heading and the
+  // button with it — reading `getValues('status')` during render would produce the right
+  // string once and then never change, which is the "says one thing, does another" defect
+  // this whole control exists to end, reintroduced one layer down.
+  const chosenStatus: DiveStatus = useWatch({ control, name: 'status' }) === 'planned' ? 'planned' : 'logged';
 
   const carriedPaths = carried.paths;
 
@@ -798,12 +927,15 @@ export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
         // Only what changed (`toDivePatch`), never the whole row: an untouched field must
         // stay untouched, and a field the diver emptied must be cleared — two different
         // instructions the repository tells apart by `undefined` versus `null`.
+        //
+        // **`status` is in that diff and gets no special case here.** This is where
+        // `if (target.status === 'planned') patch.status = 'logged'` used to sit, and it
+        // was wrong in the plainest way: found by using the app, a planned dive whose site
+        // name the diver came back to correct was silently logged by the save. §2.4's
+        // control is a form field now, so the patch names `status` exactly when the diver
+        // moved that control and never otherwise — completing a dive is a deliberate act,
+        // not a side effect of opening its form.
         const patch = toDivePatch(target, values);
-        // §2.4's "Complete dive": finishing a planned dive is this same form, and saving it
-        // is what logs it. Keyed on the dive's own `status`, never on which entry point the
-        // diver came through or on any label — the same discriminator `splitPlanned` uses
-        // (DESIGN.md §10), so a screen or a translation cannot change what this means.
-        if (target.status === 'planned') patch.status = 'logged';
         await updateDive(db, target.id, patch);
       } else {
         await createDive(db, toNewDiveInput(values));
@@ -846,13 +978,15 @@ export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
         <Text style={styles.formBackLabel}>‹ Cancel</Text>
       </Pressable>
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
-        {/* §2.4 again: a planned dive is not "edited", it is FINISHED — and the diver needs
-            to know before saving that this is the write that logs it. Keyed on the dive's
-            own status, so the heading and the patch above can never disagree; "Edit dive"
-            while the dive has not loaded yet, since nothing is known to complete. */}
-        <Text style={styles.formHeading}>
-          {mode === 'edit' ? (target?.status === 'planned' ? 'Complete dive' : 'Edit dive') : 'New dive'}
-        </Text>
+        {/* The header row (§2.4): what this form is, and the control that decides it. The
+            heading is `headingFor`'s alone — it reads what the SAVE will do, from the
+            control's live value and the dive's stored status together, so it can no longer
+            promise to complete a dive the save is going to leave planned. "Edit dive"
+            while the dive has not loaded yet, since nothing is yet known to complete. */}
+        <View style={styles.formHeadingRow}>
+          <Text style={styles.formHeading}>{headingFor(mode, target?.status ?? null, chosenStatus)}</Text>
+          <StatusControl control={control} scheme={scheme} />
+        </View>
 
         {/* Core strip (§2.2) — date, site, centre, max depth, duration, always visible. */}
         <View style={styles.formCoreStrip}>
@@ -1121,10 +1255,14 @@ export default function DiveFormScreen({ mode, diveId }: DiveFormScreenProps) {
           onPress={() => handleSubmit(onValid)()}
           disabled={saving}
           accessibilityRole="button"
-          accessibilityLabel="Save dive"
+          // "Save dive" or "Save plan", from the one place that decides (`saveLabelFor`) —
+          // the button says what it will do, so the diver never has to remember which state
+          // the control above is in to know what pressing this means. The visible label and
+          // the announced one are the same string for the same reason.
+          accessibilityLabel={saveLabelFor(chosenStatus)}
           accessibilityState={{ disabled: saving }}
         >
-          <Text style={styles.actionLabel}>Save dive</Text>
+          <Text style={styles.actionLabel}>{saveLabelFor(chosenStatus)}</Text>
         </Pressable>
       </View>
     </View>

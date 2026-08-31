@@ -77,12 +77,29 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // "This one is chosen", wherever a control shows which of a fixed set is on: the form's
+  // option chips (entry, salinity, suit, cylinder material) and its Logged/Planned control
+  // (§2.4). §0.1 leaves exactly one lever for that — inverted ink, the same `action` /
+  // `action-fg` pair the app's single button treatment uses — because a hue here would
+  // land in or beside a depth band and make a diver decide whether a coloured object is
+  // data or chrome. One definition rather than two identical literals, the same reasoning
+  // `noticeBanner` above records; `ratingDotFilled` marks state through fill for the same
+  // reason.
+  const selectedFill: ViewStyle = {
+    backgroundColor: theme.action,
+    borderColor: theme.action,
+  };
+  const selectedInk: TextStyle = {
+    color: theme.actionFg,
+  };
+
   // §0.6's quiet control: "a bordered pill in tracked uppercase, not plain text, so it
   // reads as a control rather than a label." Written once and used by the day strip's
-  // Reorder/Done and by an "Up next" row's *Complete dive* (§2.4) — one definition for the
-  // same object, the same reasoning `noticeBanner` and `backControl` above record. Archivo,
-  // not mono: §0.2 splits the two faces on content, and this is a UI control label, the
-  // same category as `actionLabel`, never a data figure.
+  // Reorder/Done, by an "Up next" row's *Complete dive* (§2.4), and by the form's own
+  // Logged/Planned control — one definition for the same object, the same reasoning
+  // `noticeBanner` and `backControl` above record. Archivo, not mono: §0.2 splits the two
+  // faces on content, and this is a UI control label, the same category as `actionLabel`,
+  // never a data figure.
   const actionPill: ViewStyle = {
     borderWidth: 1,
     borderColor: theme.border,
@@ -987,11 +1004,53 @@ function build(scheme: ColorScheme) {
     formCoreStrip: {
       gap: 4,
     },
+    // The form's header row: the heading, and §2.4's Logged/Planned control beside it.
+    // The control belongs HERE and not in `formCoreStrip` above, which §2.2 fixes as date,
+    // site, centre, max depth and duration — a dive's status is not one of its
+    // measurements, and giving it a sixth slot in that strip would say it was.
+    formHeadingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    // `flex: 1` so a longer heading wraps rather than squeezing the control off the row —
+    // §0.5's "Czech runs 20-30 % longer than English", the same requirement `tripTitle` and
+    // `formFieldLabel` already answer the same way.
     formHeading: {
+      flex: 1,
       fontFamily: fonts['sans-semibold'],
       fontSize: 20,
       color: theme.fg,
     },
+    // §2.4's Logged/Planned control (M1d). Quiet by construction, on the owner's own brief
+    // — "most of the dives will not be created as planned, so this feature should not
+    // scream too much" — so it borrows §0.6's existing chip vocabulary (`actionPill`, small
+    // and uppercase and tracked and muted) rather than inventing a segmented control this
+    // app has nowhere else. It reads as metadata about the form, which is what it is.
+    //
+    // §0.5's 48 dp floor sits on the Pressable, centred around the visually smaller pill
+    // inside it — the same "small visible control, generous hidden target" split
+    // `dayStripAction` and `plannedAction` above already use, and the reason the pill is
+    // nested rather than being the Pressable itself. `marginVertical: -8` claws back the
+    // slack that floor leaves above and below an 11 px pill, so the tap target stays 48 dp
+    // while the header row keeps the height its heading actually needs.
+    formStatus: {
+      minHeight: 48,
+      minWidth: 48,
+      marginVertical: -8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    formStatusPill: actionPill,
+    // Only the chosen-and-unusual state fills: a form on Logged is the ordinary case and
+    // stays a quiet outline, while Planned — which the diver had to ask for, and which
+    // changes what the save does — is visible at a glance. Same `selectedFill`/`selectedInk`
+    // pair as the option chips below, so this is not a second way of saying "on".
+    formStatusPillOn: selectedFill,
+    formStatusLabel: actionPillLabel,
+    formStatusLabelOn: selectedInk,
     // FormField.tsx's own root — one label-and-input row, repeated for every field on
     // this screen regardless of group.
     formField: {
@@ -1214,22 +1273,16 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: 14,
       backgroundColor: theme.surface,
     },
-    // Same `action`/`action-fg` inverted-ink pair the app's one button treatment already
-    // uses (§0.1) — reused here for "this option is currently selected" rather than
-    // inventing a second colour meaning, the same reasoning `ratingDotFilled` above
-    // gives for marking state through fill rather than a new token.
-    formChipSelected: {
-      backgroundColor: theme.action,
-      borderColor: theme.action,
-    },
+    // `selectedFill`/`selectedInk` at the top of this function — the §0.1 inverted-ink
+    // pair every "this one is chosen" state in the app shares, rather than a second
+    // colour meaning invented per control.
+    formChipSelected: selectedFill,
     formChipText: {
       fontFamily: fonts['sans-medium'],
       fontSize: 13.5,
       color: theme.fg,
     },
-    formChipTextSelected: {
-      color: theme.actionFg,
-    },
+    formChipTextSelected: selectedInk,
     // The save action's fixed footer (§0.5: "the primary action sits in the bottom
     // third"; brief step 4: never disabled). Sits OUTSIDE `formScroll` above as a
     // sibling, not inside it, so it stays reachable without scrolling to the end of a

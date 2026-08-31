@@ -35,6 +35,36 @@ describe('the coercion contract', () => {
   });
 });
 
+describe('the status control (§2.4)', () => {
+  it('logs a dive the form never said anything about', () => {
+    // A plan is the exception, not a mode: a form carrying no status at all is logging a
+    // dive. Asserted as the literal `'logged'` rather than "not planned", so a schema that
+    // let the key go missing entirely — leaving `createDive`'s own `?? 'logged'` to guess —
+    // fails here instead of passing on someone else's fallback.
+    expect(diveFormSchema.parse(base).status).toBe('logged');
+  });
+
+  it('keeps a plan a plan', () => {
+    expect(diveFormSchema.parse({ ...base, status: 'planned' }).status).toBe('planned');
+  });
+
+  it('reads an absent, empty or null control as logged rather than as nothing', () => {
+    // `status` is one of the three columns §6 makes non-nullable, so unlike every other
+    // optional field on this form there is no `null` for it to land on. M2 sync and
+    // carry-over both hand this schema objects it did not build.
+    expect(diveFormSchema.parse({ ...base, status: null }).status).toBe('logged');
+    expect(diveFormSchema.parse({ ...base, status: undefined }).status).toBe('logged');
+  });
+
+  it('refuses a status that is not one, because no diver could have typed it', () => {
+    // The same line `optionalPicked` draws for entry/salinity/suit: these are taps on a
+    // fixed control, so an out-of-range value is a bug upstream rather than a diver to be
+    // argued with (§1). Silently coercing it to 'logged' would hide an M2 sync writing a
+    // status this client has never heard of.
+    expect(() => diveFormSchema.parse({ ...base, status: 'draft' })).toThrow();
+  });
+});
+
 describe('never blocking a save', () => {
   it('accepts a dive carrying nothing but a date', () => {
     expect(() => diveFormSchema.parse({ date: '2026-08-16' })).not.toThrow();
@@ -51,6 +81,15 @@ describe('toNewDiveInput', () => {
     const input = toNewDiveInput(diveFormSchema.parse({ date: '2026-08-16' }));
     expect(input.date).toBe('2026-08-16');
     expect(Object.values(input).every((v) => v !== 0)).toBe(true);
+  });
+
+  it('carries the status the control was on, either way', () => {
+    // The producer half of §2.4, and the reason this task existed at all: nothing in the app
+    // could reach `status: 'planned'` before, because the form had no field for it and the
+    // form is `createDive`'s only caller. Both states asserted — an input that always said
+    // 'logged' would pass the second line alone, which is exactly the state it was in.
+    expect(toNewDiveInput(diveFormSchema.parse({ ...base, status: 'planned' })).status).toBe('planned');
+    expect(toNewDiveInput(diveFormSchema.parse(base)).status).toBe('logged');
   });
 });
 
@@ -90,10 +129,23 @@ describe('toDivePatch', () => {
     expect(patchAfterEditing({ weightsKg: 0 })).toEqual({});
   });
 
-  it('never sends status — completing a planned dive is the caller\'s decision', () => {
-    // `status` is not a form field, and inferring it here would make every edit of a planned
-    // dive complete it whether or not the screen meant to (DiveFormScreen owns that rule).
+  it('never sends status for a dive whose status the diver did not touch', () => {
+    // The bug this replaced lived one layer up: `DiveFormScreen` ran
+    // `if (target.status === 'planned') patch.status = 'logged'` on every save, so editing a
+    // planned dive to fix a typo silently completed it. `status` is a form field now, so it
+    // is diffed like everything else — unchanged means absent, for a plan exactly as for a
+    // logged dive, and both are checked because a rule keyed on either value would pass
+    // whichever half it agreed with.
     expect(patchAfterEditing({ status: 'planned' })).not.toHaveProperty('status');
+    expect(patchAfterEditing({ status: 'logged' })).not.toHaveProperty('status');
+  });
+
+  it('sends status when the diver moved the control, and nothing else with it', () => {
+    // §2.4's completion, and its opposite. Both directions, because a diff that always sent
+    // `'logged'` would satisfy the first line and fail the second — and that is precisely
+    // the shape of the rule this replaced.
+    expect(patchAfterEditing({ status: 'planned' }, { status: 'logged' })).toEqual({ status: 'logged' });
+    expect(patchAfterEditing({ status: 'logged' }, { status: 'planned' })).toEqual({ status: 'planned' });
   });
 
   const tank = (over: Partial<Tank> = {}): Tank => ({
