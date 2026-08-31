@@ -980,6 +980,32 @@ it('re-derives the carried set when useDives resolves after the first render', a
   expect(findClearCarried(t, 'Buddy')).toBeDefined();
 });
 
+// The other half of that re-sync, and the one thing that made it safe: `resetOptions:
+// { keepDirtyValues: true }`. Flipping it to `false` left the whole suite green, even though
+// a test comment already called it load-bearing — because every re-sync test above types
+// AFTER the hook has resolved, and by then there is nothing left to arrive.
+//
+// On a device the race is the ordinary case, not an edge one: `useDives()` starts empty and
+// resolves a frame or more later, and a diver who taps `+` and starts typing immediately is
+// typing into a form whose real defaults have not landed yet.
+it("keeps what the diver typed before carry-over landed, and still fills the fields they didn't", async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  await typeInto(t, 'Buddy', 'Jana');
+
+  // The async read lands, carrying a different buddy — the value that would overwrite what
+  // is already on screen.
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr', guide: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Jana');
+  // ...while Guide, which the diver never touched, does receive it. Both halves are the
+  // test: without this one, a form that simply stopped re-syncing at all — no `values`
+  // option, `defaultValues` alone — would pass the line above and silently drop carry-over
+  // for every diver whose hook resolves after the first render, which is all of them.
+  expect(findTextInput(t, 'Guide')?.props?.value).toBe('Ondra');
+});
+
 // --- M3: carrying over from a dive that recorded no cylinders ---
 //
 // `tanks` is the one Dive field that is never nullable, and `[]` is a legitimate value for
