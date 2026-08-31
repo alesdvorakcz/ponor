@@ -1,11 +1,15 @@
 import {
+  calendarDateToLocalDate,
   calendarDateToUtcMs,
   isCalendarDate,
   isTimeOfDay,
+  localDateToCalendarDate,
+  localDateToTimeOfDay,
   normaliseCalendarDate,
   normaliseTimeOfDay,
   storedCalendarDate,
   storedTimeOfDay,
+  timeOfDayToLocalDate,
   timeOfDayToMinutes,
 } from './datetime';
 
@@ -157,5 +161,88 @@ describe('the write-boundary policy', () => {
     expect(storedTimeOfDay('7:30')).toBe('07:30');
     expect(storedTimeOfDay('07:30')).toBe('07:30');
     expect(storedTimeOfDay('after lunch')).toBe('after lunch');
+  });
+});
+
+/**
+ * The picker boundary (M1d): a native picker hands back a JS `Date`, and this app stores
+ * `YYYY-MM-DD` / `HH:MM` strings. Everything below is zone-INDEPENDENT — spelling, refusal,
+ * and round-tripping — and runs in whatever zone the machine is in.
+ *
+ * The half that only means anything in a non-UTC zone lives in its own two files,
+ * `datetime.utc-plus-14.test.ts` and `datetime.utc-minus-11.test.ts`, which force the zone
+ * through a custom Jest environment (`jest/timeZoneEnvironment.js`). Both are needed, and
+ * neither belongs here: the naive `toISOString()` spelling of these functions passes every
+ * assertion in this file, in every zone, and is wrong in all of them.
+ */
+describe('the picker boundary', () => {
+  it('spells a picked date the way the rest of this module does', () => {
+    expect(localDateToCalendarDate(new Date(2026, 0, 7, 12, 0))).toBe('2026-01-07');
+    expect(localDateToCalendarDate(new Date(2026, 11, 31, 12, 0))).toBe('2026-12-31');
+    expect(localDateToCalendarDate(new Date(2024, 1, 29, 12, 0))).toBe('2024-02-29');
+  });
+
+  it('spells a picked time the way the rest of this module does', () => {
+    expect(localDateToTimeOfDay(new Date(2026, 7, 31, 7, 5))).toBe('07:05');
+    expect(localDateToTimeOfDay(new Date(2026, 7, 31, 12, 0))).toBe('12:00');
+  });
+
+  it('refuses anything that is not a real moment, rather than spelling out NaN', () => {
+    // `new Date('not a date').getFullYear()` is NaN, and a template string built from it
+    // reads 'NaN-NaN-NaN' — a value that would reach the database looking like a date.
+    expect(localDateToCalendarDate(new Date('not a date'))).toBeNull();
+    expect(localDateToTimeOfDay(new Date(Number.NaN))).toBeNull();
+    // A picker's own onChange hands back `Date | undefined`, so undefined is the ordinary
+    // dismissed-without-choosing case, not a contrived one.
+    expect(localDateToCalendarDate(undefined)).toBeNull();
+    expect(localDateToTimeOfDay(undefined)).toBeNull();
+    expect(localDateToCalendarDate(null)).toBeNull();
+    // A string is not a Date, however date-shaped it looks.
+    expect(localDateToCalendarDate('2026-08-31')).toBeNull();
+    expect(localDateToTimeOfDay('07:30')).toBeNull();
+  });
+
+  it('seeds the picker from a stored value, reading it as leniently as everything else here', () => {
+    expect(localDateToCalendarDate(calendarDateToLocalDate('2026-8-7'))).toBe('2026-08-07');
+    expect(localDateToTimeOfDay(timeOfDayToLocalDate('7:30'))).toBe('07:30');
+  });
+
+  it('round-trips every value a picker can hand back', () => {
+    for (const value of ['2026-08-31', '2026-01-01', '2024-02-29', '2026-12-31']) {
+      expect(localDateToCalendarDate(calendarDateToLocalDate(value))).toBe(value);
+    }
+    const base = new Date(2026, 7, 31, 12, 0);
+    for (const value of ['00:00', '07:30', '12:00', '23:59']) {
+      expect(localDateToTimeOfDay(timeOfDayToLocalDate(value, base))).toBe(value);
+    }
+  });
+
+  it('puts a seeded time on the base day, since a time picker shows no date of its own', () => {
+    // Deliberately a day that cannot be today, however long this project runs: an earlier
+    // draft used a base of "today", so an implementation that ignored `base` entirely and
+    // called `new Date()` passed it — a test that could only fail on other days of the year.
+    const seeded = timeOfDayToLocalDate('07:30', new Date(2019, 2, 4, 19, 45));
+    expect(seeded?.getFullYear()).toBe(2019);
+    expect(seeded?.getMonth()).toBe(2);
+    expect(seeded?.getDate()).toBe(4);
+    expect(seeded?.getHours()).toBe(7);
+    expect(seeded?.getMinutes()).toBe(30);
+  });
+
+  it('refuses to seed from a value naming no real date or time', () => {
+    expect(calendarDateToLocalDate('2026-02-30')).toBeNull();
+    expect(calendarDateToLocalDate('')).toBeNull();
+    expect(calendarDateToLocalDate(null)).toBeNull();
+    expect(timeOfDayToLocalDate('25:00')).toBeNull();
+    expect(timeOfDayToLocalDate('')).toBeNull();
+    expect(timeOfDayToLocalDate(null)).toBeNull();
+  });
+
+  it('keeps a two-digit year in its own century, where the Date constructor would not', () => {
+    // `new Date(99, 0, 1)` is 1999, not year 99 — the legacy two-digit-year mapping. A
+    // sync'd row dated '0099-01-01' is absurd but reachable, and silently becoming 1999
+    // would make the picker open on a different century than the one stored.
+    expect(calendarDateToLocalDate('0099-01-01')?.getFullYear()).toBe(99);
+    expect(localDateToCalendarDate(calendarDateToLocalDate('0099-01-01'))).toBe('0099-01-01');
   });
 });

@@ -974,6 +974,83 @@ function build(scheme: ColorScheme) {
       minHeight: 96,
       textAlignVertical: 'top',
     },
+    // DateTimeField.tsx's trigger (M1d, date/time pickers): the control that stands where a
+    // `formFieldInput` stands for every other field, so the core strip reads as one column
+    // of identically-sized rows rather than one odd row among six. Deliberately the same
+    // box as `formFieldInput` above — same 48 dp floor (§0.5), border, radius, fill and
+    // padding — because it IS that field, with a picker behind it instead of a keyboard.
+    //
+    // `justifyContent: 'center'` rather than the input's own text-centring: this holds a
+    // `Text`, not a `TextInput`, and a `Text` does not vertically centre itself in a box
+    // taller than its line.
+    formFieldPicker: {
+      minHeight: 48,
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: theme.surface,
+    },
+    // The value the trigger shows. Same face and size as `formFieldInput`'s own text, not
+    // the mono §0.2 gives a timestamp elsewhere: this sits inline in a column of typed
+    // fields, and one mono row among six sans ones reads as a different KIND of field
+    // rather than as data. (The dive list is the other way round — there a time is data in a
+    // row of data, and `diveRowMeta` above is mono accordingly.)
+    formFieldPickerText: {
+      fontFamily: fonts.sans,
+      fontSize: 15,
+      color: theme.fg,
+    },
+    // "Not set" — an optional field the diver never recorded (`timeIn`). Same muted ink
+    // `formFieldInput`'s own placeholder uses (FormField.tsx reads `formFieldLabel.color`
+    // for exactly this), so an unset picker field and an empty text field look equally
+    // empty rather than one of them looking filled in.
+    formFieldPickerTextUnset: {
+      fontFamily: fonts.sans,
+      fontSize: 15,
+      color: theme.fgMuted,
+    },
+    // The native picker itself, once the trigger opens it. `alignSelf: 'flex-start'` keeps
+    // the OS control at its own intrinsic width instead of stretching it across the form,
+    // and the height is the one thing an iOS inline (calendar) picker will NOT size for
+    // itself inside a ScrollView — without it the control lays out at zero height and the
+    // field looks like it simply did not open.
+    formFieldPickerControl: {
+      alignSelf: 'flex-start',
+      marginTop: 8,
+    },
+    // Colour handed to the picker's own iOS API (`textColor`, `accentColor`) — read as
+    // `.color` at the call site, the same way FormField.tsx already reads
+    // `formFieldLabel.color` for `placeholderTextColor`. A native control is OS chrome, like
+    // the keyboard, but where it exposes a colour that colour must still come from the
+    // tokens: §0.1 gives every hue in this app to depth, and a system accent (iOS's default
+    // blue) inside a form would be a second meaning for colour. Inverted ink for the
+    // selection, matching `formChipSelected` above; plain ink for the text.
+    formFieldPickerInk: {
+      color: theme.fg,
+    },
+    formFieldPickerAccent: {
+      color: theme.action,
+    },
+    // The `×` that clears an optional picker field back to "not set" (`timeIn`). Shares the
+    // `carried ×` chip's vocabulary above — `border` as a fill, mono, muted — because it is
+    // the same gesture on the same kind of chip, but it carries no `carried` label beside it
+    // and therefore no divider: `formFieldCarriedClear`'s left border exists to separate the
+    // `×` from that word, and drawn here it would be a line against nothing.
+    formFieldClear: {
+      borderRadius: 6,
+      backgroundColor: theme.border,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      overflow: 'hidden',
+    },
+    formFieldClearLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: theme.fgMuted,
+    },
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this

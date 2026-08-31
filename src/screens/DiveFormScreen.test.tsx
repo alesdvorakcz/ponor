@@ -140,6 +140,68 @@ function findTextInput(t: RenderResult, label: string) {
   );
 }
 
+// --- M1d: `date` and `timeIn` are pickers now, not text fields (DESIGN.md §10) ---
+//
+// A picker-backed field has no `TextInput` to type into and no `value` prop to read back, so
+// the three helpers below stand in for `typeInto`/`findTextInput` on exactly those two
+// fields. They drive the real control end to end — press the field, then post the same
+// `change` event the native side posts — rather than reaching for the component's props, so
+// a screen wired to a picker that could never be opened would fail here rather than pass.
+
+/** The field's own 48 dp control, by the `` `${label}: ${value}` `` shape `DateTimeField`
+ * announces. */
+function findPickerField(t: RenderResult, label: string) {
+  return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').startsWith(`${label}: `));
+}
+
+/** What a picker field currently shows the diver — the counterpart of `findTextInput(...)
+ * .props.value` for a control that holds no text of its own. */
+function shownIn(t: RenderResult, label: string): string {
+  const announced = String(findPickerField(t, label)?.props?.accessibilityLabel ?? '');
+  return announced.slice(`${label}: `.length);
+}
+
+/**
+ * Picks a value in a picker field, the way the device does: open the field, then post the
+ * native `change` event carrying an epoch timestamp, which the library's own JS layer turns
+ * into the `Date` the component converts.
+ *
+ * The timestamp is built from LOCAL calendar components — `new Date(year, month - 1, day)`
+ * — because that is what a real picker returns for a chosen day, and because building it
+ * with `Date.parse('2026-08-16')` (UTC midnight) would quietly hand the screen a moment on
+ * the previous day west of Greenwich and make this helper agree with a bug rather than
+ * catch one.
+ */
+async function pickInto(t: RenderResult, label: string, moment: Date) {
+  const field = findPickerField(t, label);
+  if (!field) throw new Error(`no ${label} field found`);
+  await fireEvent.press(field);
+  const picker = (t.root ? t.root.queryAll((n) => n.type === 'RNDateTimePicker') : [])[0];
+  if (!picker) throw new Error(`the ${label} field opened no picker`);
+  await fireEvent(picker, 'change', { nativeEvent: { timestamp: moment.getTime(), utcOffset: 0 } });
+  // Closed again afterwards, so only one picker is ever open at a time (the query above
+  // takes the first) and so this leaves the screen the way a diver would.
+  await fireEvent.press(field);
+}
+
+/**
+ * The moment is built from LOCAL calendar components — `new Date(year, month - 1, day)` —
+ * because that is what a real picker returns for a chosen day, and because building it with
+ * `Date.parse('2026-08-16')` (UTC midnight) would quietly hand the screen a moment on the
+ * previous day west of Greenwich, making this helper agree with a bug rather than catch one.
+ */
+async function pickDate(t: RenderResult, isoDate: string) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  await pickInto(t, 'Date', new Date(Number(year), Number(month) - 1, Number(day)));
+}
+
+/** Opens a collapsed §2.2 group, so a test can reach the fields inside it. */
+async function openGroup(t: RenderResult, title: string) {
+  const header = findButton(t, title);
+  if (!header) throw new Error(`no ${title} header found`);
+  await fireEvent.press(header);
+}
+
 /** The DESIGN.md §0.6 `carried ×` control for one field, by FormField.tsx's own
  * `` `Clear carried ${label}` `` accessibilityLabel — present only while that exact field
  * is in DiveFormScreen.tsx's own `carriedPaths`, which is what makes this the one query
@@ -287,7 +349,7 @@ it('shows an edit heading in edit mode, and a new-dive heading in create mode', 
 it('creates a dive and returns to the list', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ date: '2026-08-16' }));
@@ -322,7 +384,7 @@ function zeroPaths(value: unknown, path = ''): string[] {
 it('sends no zeros for fields the diver left empty, cylinders included', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   const input = mockCreate.mock.calls[0]?.[1] ?? {};
@@ -344,7 +406,7 @@ it('pops the navigation stack after a save, when there is history to go back to'
   (router.canGoBack as jest.Mock).mockReturnValue(true);
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(router.back).toHaveBeenCalledTimes(1));
   expect(router.replace).not.toHaveBeenCalled();
@@ -354,21 +416,42 @@ it('replaces to the dives list after a save reached by a deep link, with no hist
   (router.canGoBack as jest.Mock).mockReturnValue(false);
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/'));
   expect(router.back).not.toHaveBeenCalled();
 });
 
-// I3: a date the schema cannot read used to make Save do nothing at all — no dive, no
-// navigation, no message. `31.8.2026` is the Czech spelling of a real date, and this app
-// ships `cs`, so this is not a contrived input. What the schema ACCEPTS is unchanged and
-// deliberately out of scope here (the owner's call, DESIGN.md §1 vs §2.2); the only claim
-// below is that a refusal is visible.
+// --- I3, as it stands after M1d's pickers ---
+//
+// A date the schema cannot read used to make Save do nothing at all — no dive, no
+// navigation, no message — and `31.8.2026`, the Czech spelling of a real date in an app that
+// ships `cs`, was one keystroke away at any moment. Since `date` became a picker there is no
+// keystroke to make: the control cannot produce an unreadable value, which is the owner's
+// resolution of §1 versus §2.2 (DESIGN.md §10) — the case is removed rather than adjudicated.
+//
+// The three tests below therefore no longer type. They cover what is left, which is not
+// nothing: **the schema rule and the message it raises both stay**, because the schema is
+// the domain's guarantee rather than this form's, and a value the diver never entered can
+// still reach the field. Carry-over is the live path for that today — this form prefills
+// from the diver's own most recent logged dive (§2.1), and M2 sync will deliver those rows
+// from other clients — so a row whose `date` is real but not canonical (`2099-8-17`, which
+// `isCalendarDate` refuses and `normaliseCalendarDate` would accept) lands in the field
+// without this screen's controls ever touching it.
+//
+// The first test below is the one that would catch a future "the UI is safe now, delete the
+// rule" change; the second and third pin that the message clears and sits where it belongs.
 
-it('says why Save did nothing when the date cannot be read, instead of refusing silently', async () => {
+/** A logged dive whose stored date is real but not canonical — the shape an M2 sync from
+ * another client can deliver, and the only thing that still puts an unreadable value in
+ * front of this form. Dated far ahead so `carryOverDate`'s own 48-hour rule keeps it rather
+ * than substituting today: that is the mechanics of getting the value into the field, not
+ * the point being made. */
+const nonCanonicalSource = () => stubDives({ dives: [dive({ status: 'logged', date: '2099-8-17' })] });
+
+it('says why Save did nothing for a date this form itself could never have produced', async () => {
+  nonCanonicalSource();
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '31.8.2026');
   await pressSave(t);
 
   // The schema's own message (diveFormSchema.ts: "Enter a real date (YYYY-MM-DD)."), not a
@@ -378,60 +461,65 @@ it('says why Save did nothing when the date cannot be read, instead of refusing 
   expect(mockCreate).not.toHaveBeenCalled();
   expect(router.back).not.toHaveBeenCalled();
   expect(router.replace).not.toHaveBeenCalled();
-  // And §1's other direction: the diver's typing survives being told it is unreadable.
-  expect(findTextInput(t, 'Date')?.props?.value).toBe('31.8.2026');
+  // And §1's other direction: the value is shown as it stands rather than blanked or
+  // silently "corrected" into a different day.
+  expect(shownIn(t, 'Date')).toBe('2099-8-17');
 });
 
-it('clears the date message once the diver corrects it, rather than leaving a stale warning', async () => {
+it('clears the date message once the diver picks a real date, rather than leaving a stale warning', async () => {
+  nonCanonicalSource();
   mockCreate.mockResolvedValue(dive({ date: '2026-08-31' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '31.8.2026');
   await pressSave(t);
   await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
 
-  await typeInto(t, 'Date', '2026-08-31');
+  await pickDate(t, '2026-08-31');
   await waitFor(() => expect(textIn(t).join(' ')).not.toContain('Enter a real date'));
+  // Two taps in the picker is the whole repair — and the field now reads as a diver writes
+  // a date, through formatDiveDate.
+  expect(shownIn(t, 'Date')).toBe('31 Aug 2026');
 
   // And the save the message was blocking now goes through, so this proves a corrected
   // form recovers rather than merely that one string disappeared.
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ date: '2026-08-31' }));
 });
 
 it('shows a blocking field message under the field it belongs to, not somewhere else', async () => {
+  nonCanonicalSource();
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '31.8.2026');
   await pressSave(t);
   await waitFor(() => expect(textIn(t).join(' ')).toContain('Enter a real date'));
 
-  // The message is a sibling of the Date field's own `FormField` root, not a screen-level
-  // banner that happens to mention a date — "near the control that caused it" is the whole
-  // point, and a top-of-screen notice would satisfy a bare text assertion just as well.
+  // The message is a sibling of the Date field's own root, not a screen-level banner that
+  // happens to mention a date — "near the control that caused it" is the whole point, and a
+  // top-of-screen notice would satisfy a bare text assertion just as well.
   const message = textNodesOf(t).find((n) => String(n.children[0] ?? '').includes('Enter a real date'));
-  const dateInput = findTextInput(t, 'Date');
+  const dateField = findPickerField(t, 'Date');
   expect(message).toBeDefined();
-  expect(dateInput).toBeDefined();
-  // FormField.tsx renders `formField` > TextInput; the message sits next to that
+  expect(dateField).toBeDefined();
+  // DateTimeField.tsx renders `formField` > the control; the message sits next to that
   // `formField`, so the two share a grandparent-level container.
-  expect(message?.parent?.parent).toBe(dateInput?.parent?.parent);
+  expect(message?.parent?.parent).toBe(dateField?.parent?.parent);
 });
 
 it('tells the diver when a save fails instead of pretending it worked', async () => {
   mockCreate.mockRejectedValue(new Error('disk full'));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   // §1's "never block a save" does not mean "never admit a save failed"
   await waitFor(() => expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't"));
   expect(router.back).not.toHaveBeenCalled();
   // Added: "the form keeps its values on failure" (this task's own brief) is not actually
   // checked above — router.back() not firing only proves the screen didn't navigate away,
-  // not that the diver's typing survived. Verified by mutation: a catch branch that clears
+  // not that the diver's entry survived. Verified by mutation: a catch branch that clears
   // the date via `reset({ date: '' }, { keepDirtyValues: false })` still passes both
   // assertions above (a bare `reset()` alone does not — this screen's own `resetOptions:
   // { keepDirtyValues: true }`, DiveFormScreen.tsx, already protects a dirty field from
   // that simpler case) — only reading the field back catches the explicit-override one.
-  expect(findTextInput(t, 'Date')?.props?.value).toBe('2026-08-16');
+  expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
 });
 
 // --- Task 6 coverage: computeCarriedPaths and its ten ControlledTextField call sites
@@ -566,7 +654,7 @@ async function settle(times = 5) {
 it('creates one dive, not two, when Save is double-tapped while the write is in flight', async () => {
   const releaseWrite = hangingCreate(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
 
   // Deliberately not awaited: `fireEvent.press` only settles once the handler's whole
   // chain has, and this write is held open on purpose — awaiting here would rule out the
@@ -595,7 +683,7 @@ it('creates one dive, not two, when Save is double-tapped while the write is in 
 it('lets the diver try again after a failed save, rather than latching the control shut', async () => {
   mockCreate.mockRejectedValue(new Error('disk full'));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
 
@@ -609,7 +697,7 @@ it('lets the diver try again after a failed save, rather than latching the contr
 it('marks the save control disabled while a write is in flight, and only then', async () => {
   const releaseWrite = hangingCreate(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   // §1 binds the control itself: nothing about form validity may disable it.
   expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).not.toBe(true);
 
@@ -713,7 +801,7 @@ it('still holds its one blank cylinder when carrying over from a dive that logge
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [], buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
 
@@ -730,7 +818,7 @@ it('writes the same cylinder shape whether the previous dive logged none or ther
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [] })] });
   const carried = await render(<DiveFormScreen mode="create" />);
-  await typeInto(carried, 'Date', '2026-08-16');
+  await pickDate(carried, '2026-08-16');
   await pressSave(carried);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   const afterEmptyCarryOver = writtenTanks();
@@ -738,7 +826,7 @@ it('writes the same cylinder shape whether the previous dive logged none or ther
   mockCreate.mockClear();
   stubDives();
   const fresh = await render(<DiveFormScreen mode="create" />);
-  await typeInto(fresh, 'Date', '2026-08-16');
+  await pickDate(fresh, '2026-08-16');
   await pressSave(fresh);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
 
@@ -751,7 +839,7 @@ it('carries a real cylinder through unchanged, so the empty-tanks fix is not a b
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12, count: 2 })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
 
@@ -768,10 +856,114 @@ it('lets the diver fill the cylinder in, after carrying over from a dive that lo
   if (!gasHeader) throw new Error('no Gas & cylinders header found');
   await fireEvent.press(gasHeader);
   await typeInto(t, 'Size', '15');
-  await typeInto(t, 'Date', '2026-08-16');
+  await pickDate(t, '2026-08-16');
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
 
   expect(writtenTanks()).toHaveLength(1);
   expect(writtenTanks()?.[0]?.sizeL).toBe(15);
+});
+
+// --- M1d: date and time are pickers, so an invalid value cannot be entered (§10) ---
+//
+// The owner's call, and the reason this screen no longer has a text field for either: a
+// mistyped date was the one thing on this form that could refuse a save (§1), and a mistyped
+// time silently dropped a dive out of §2.5's time-ordering and voided its surface interval.
+// Every test below is about the SCREEN's wiring — that the right control is on the right
+// field and that what it produces reaches `createDive` in the stored string form.
+// `DateTimeField.test.tsx` owns the control's own behaviour, and does it in UTC+14.
+
+it('offers no free-text field for the date or the entry time', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  // The regression this whole task exists to prevent, stated directly: a future edit that
+  // put either field back on the keyboard fails here.
+  expect(findTextInput(t, 'Date')).toBeUndefined();
+  expect(findPickerField(t, 'Date')).toBeDefined();
+
+  await openGroup(t, 'Times & depth');
+  expect(findTextInput(t, 'Time in')).toBeUndefined();
+  expect(findPickerField(t, 'Time in')).toBeDefined();
+
+  // And the fields either side of them ARE still text fields, so none of the above is
+  // passing merely because `findTextInput` stopped finding anything.
+  expect(findTextInput(t, 'Site')).toBeDefined();
+  expect(findTextInput(t, 'Avg depth')).toBeDefined();
+});
+
+it('opens on a real date the diver can read, without anyone typing one', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  // The form's own default (today) reaches the field already formatted the way a diver
+  // writes a date — "16 Aug 2026", never the stored "2026-08-16" — and it is a date the
+  // schema accepts, which is why an untouched form saves.
+  expect(shownIn(t, 'Date')).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}$/);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+});
+
+it('stores a picked date as the YYYY-MM-DD string, never a Date', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickDate(t, '2026-08-16');
+  expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  // §10: the domain, the database and the sync protocol all speak the string form, so the
+  // `Date` the picker deals in must not survive as far as the write.
+  const written = (mockCreate.mock.calls[0]?.[1] ?? {}) as { date?: unknown };
+  expect(written.date).toBe('2026-08-16');
+  expect(typeof written.date).toBe('string');
+});
+
+it('stores a picked entry time as the HH:MM string the domain sorts and computes on', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Times & depth');
+  // 07:05 rather than a round hour: a single-digit hour and a leading-zero minute are
+  // exactly what used to be typed as '7:5' and sort after '19:00' (datetime.ts's own
+  // docblock), so this pins the canonical spelling and not just "some time".
+  await pickInto(t, 'Time in', new Date(2026, 7, 16, 7, 5));
+  expect(shownIn(t, 'Time in')).toBe('07:05');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ timeIn: '07:05' }));
+});
+
+it('saves a dive with no entry time at all, which stays optional', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Times & depth');
+  // §2.2: only the date is required. An untouched time field reads as unrecorded and must
+  // reach the write as nothing at all — `toNewDiveInput` omits a null rather than sending it.
+  expect(shownIn(t, 'Time in')).toBe('Not set');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0]?.[1]).not.toHaveProperty('timeIn');
+});
+
+it('clears a picked entry time back to unrecorded, and still saves', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Times & depth');
+  await pickInto(t, 'Time in', new Date(2026, 7, 16, 7, 5));
+
+  const clear = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === 'Clear Time in');
+  if (!clear) throw new Error('no clear control on the entry time');
+  await fireEvent.press(clear);
+  expect(shownIn(t, 'Time in')).toBe('Not set');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  // Cleared means absent, never a stored `''` — which used to sort an untimed dive to the
+  // head of its day instead of the tail (§2.5, storedTimeOfDay's own docblock).
+  expect(mockCreate.mock.calls[0]?.[1]).not.toHaveProperty('timeIn');
+});
+
+it('asks for no exit time, which is computed rather than entered', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Times & depth');
+  // §0.6: `timeOut` is derived from time in plus duration (derived.ts) and is marked as
+  // computed where it is shown. A control for it would be a second, contradictable source.
+  expect(findTextInput(t, 'Time out')).toBeUndefined();
+  expect(findPickerField(t, 'Time out')).toBeUndefined();
+  expect(textIn(t).join(' ')).not.toContain('Time out');
 });

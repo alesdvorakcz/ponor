@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
+import { DateTimeField } from '../components/DateTimeField';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { db } from '../db/client';
@@ -274,20 +275,48 @@ interface ControlledTextFieldProps {
 }
 
 /**
+ * The message under a field whose value stopped a save, or nothing at all when there is
+ * none. Shared by both controlled field wrappers below rather than written out in each, so
+ * "a blocking value says so, next to the control that caused it" is one rule in one place.
+ *
+ * Almost every field on this form accepts anything (§1), so almost none of them can ever
+ * produce one — but `date` can, and when it does `handleSubmit` refuses to call `onValid`
+ * for the WHOLE form. Before this existed, that refusal was completely silent: type
+ * `31.8.2026`, the Czech spelling of a real date in an app that ships `cs`, tap Save, and
+ * nothing happened — no dive, no navigation, no message, nothing to tell the app apart from
+ * a dead button.
+ *
+ * Since M1d's pickers, the date field can no longer *produce* an unreadable value, and this
+ * should never fire for anything a diver does on this screen. It stays regardless, for the
+ * same reason `diveFormSchema.ts` keeps the rule that raises it (DESIGN.md §10): the schema
+ * is the domain's guarantee rather than this form's, M2 sync will deliver rows this form
+ * never touched, and carry-over prefills this form from one of them — so the value shown in
+ * a field is not always a value this screen's own controls put there. Removing a backstop
+ * because one of its callers got safer is not the same as removing dead code.
+ */
+function FieldError({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
+  const styles = makeStyles(scheme);
+  if (message === undefined) return null;
+  return (
+    <View style={styles.formFieldError}>
+      {/* The schema's own message (`diveFormSchema.ts`), not a second sentence written
+          here: what makes a date unreadable is that file's rule to state, and a copy here
+          would drift the first time the rule changed. */}
+      <Text style={styles.formFieldErrorText}>{message}</Text>
+    </View>
+  );
+}
+
+/**
  * A free-text or numeric field, wired straight to `FormField` — `optionalNumber` and
  * `optionalText` (diveFormSchema.ts) both accept a bare string, so nothing here has to
  * pre-parse what the diver types.
  *
- * `fieldState.error` is rendered under the field when there is one. Almost every field on
- * this form accepts anything (§1), so almost none of them can ever produce one — but `date`
- * can, and when it does `handleSubmit` refuses to call `onValid` for the WHOLE form. Before
- * this, that refusal was completely silent: type `31.8.2026`, the Czech spelling of a real
- * date in an app that ships `cs`, tap Save, and nothing happened — no dive, no navigation,
- * no message, nothing to tell the app apart from a dead button. Read from the `Controller`'s
- * own `fieldState` rather than from `formState.errors` at the call site, so a field that
- * grows a blocking rule later is covered without this screen keeping a second list of which
- * fields can fail. Note this does NOT change whether the schema accepts or rejects anything;
- * it only makes the existing rejection visible.
+ * `fieldState.error` is read from the `Controller`'s own state rather than from
+ * `formState.errors` at the call site, so a field that grows a blocking rule later is
+ * covered without this screen keeping a second list of which fields can fail. Note this
+ * does NOT change whether the schema accepts or rejects anything; it only makes an existing
+ * rejection visible.
  */
 function ControlledTextField({
   control,
@@ -300,7 +329,6 @@ function ControlledTextField({
   carriedPaths,
   onDropCarried,
 }: ControlledTextFieldProps) {
-  const styles = makeStyles(scheme);
   return (
     <Controller
       control={control}
@@ -335,14 +363,72 @@ function ControlledTextField({
               field.onChange(text);
             }}
           />
-          {fieldState.error?.message !== undefined && (
-            <View style={styles.formFieldError}>
-              {/* The schema's own message (`diveFormSchema.ts`), not a second sentence
-                  written here: what makes a date unreadable is that file's rule to state,
-                  and a copy here would drift the first time the rule changed. */}
-              <Text style={styles.formFieldErrorText}>{fieldState.error.message}</Text>
-            </View>
-          )}
+          <FieldError message={fieldState.error?.message} scheme={scheme} />
+        </>
+      )}
+    />
+  );
+}
+
+/** What a picker field reads as while it holds nothing. Deliberately neutral — §1's "only
+ * the fields you use", no form-shaming — and deliberately not blank: an empty box would read
+ * as a control that failed to load rather than as a field with nothing in it. */
+const NOT_RECORDED = 'Not set';
+
+interface ControlledDateTimeFieldProps {
+  control: FormControl;
+  name: FieldPath<DiveFormInput>;
+  label: string;
+  mode: 'date' | 'time';
+  scheme: ColorScheme;
+  /**
+   * Whether the diver may leave this field unrecorded — which is what puts the `×` on it.
+   *
+   * `false` for `date`, the form's one required field (§2.2), which therefore gets no way
+   * to empty itself. `true` for `timeIn`, which stays `optionalText` in the schema — a diver
+   * who did not note an entry time saves without one, exactly as before.
+   *
+   * Note this gates the CLEAR affordance only, not the placeholder: both fields are given
+   * one, because "what this control says when it holds nothing" is a question even a
+   * required field has to answer if it is ever somehow empty, and an empty box would read as
+   * a control that failed to load.
+   */
+  optional?: boolean;
+}
+
+/**
+ * A field whose value comes from the platform's date/time picker (`DateTimeField`) instead
+ * of the keyboard — DESIGN.md §10, M1d: "Date and time are pickers, so an invalid value
+ * cannot be entered."
+ *
+ * **The form value stays the string.** `DiveFormValues` is untouched: `date` is still the
+ * `YYYY-MM-DD` string and `timeIn` still `HH:MM`/null, and the `Date` a picker deals in
+ * never reaches this screen — `DateTimeField` converts it through `domain/datetime.ts`,
+ * the single owner of both forms. A second representation on the form side is exactly the
+ * drift §10 exists to prevent.
+ */
+function ControlledDateTimeField({ control, name, label, mode, scheme, optional }: ControlledDateTimeFieldProps) {
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field, fieldState }) => (
+        <>
+          <DateTimeField
+            label={label}
+            value={toInputString(field.value)}
+            onChange={field.onChange}
+            mode={mode}
+            scheme={scheme}
+            placeholder={NOT_RECORDED}
+            // Same split `FormField` draws between typing and clearing, and the same `''`
+            // — `DateTimeField` passes the literal empty string, never a value derived from
+            // what the field holds, so `optionalText` turns a cleared time into `null`
+            // rather than storing a real time the diver just removed. Left `undefined` for a
+            // required field, which then shows no `×` at all.
+            onClear={optional === true ? field.onChange : undefined}
+          />
+          <FieldError message={fieldState.error?.message} scheme={scheme} />
         </>
       )}
     />
@@ -641,7 +727,11 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
 
         {/* Core strip (§2.2) — date, site, centre, max depth, duration, always visible. */}
         <View style={styles.formCoreStrip}>
-          <ControlledTextField control={control} name="date" label="Date" scheme={scheme} placeholder="YYYY-MM-DD" />
+          {/* A picker, not a text field (§10, M1d): `date` carried this form's only
+              blocking rule, so a mistyped one was the single thing that could refuse a save
+              — and a control that cannot produce `31.8.2026` removes that case rather than
+              adjudicating it. Required (§2.2), so no `optional`, and therefore no `×`. */}
+          <ControlledDateTimeField control={control} name="date" label="Date" mode="date" scheme={scheme} />
           <ControlledTextField
             control={control}
             name="siteName"
@@ -677,7 +767,13 @@ export default function DiveFormScreen({ mode }: DiveFormScreenProps) {
         </View>
 
         <FormGroup title="Times & depth" scheme={scheme}>
-          <ControlledTextField control={control} name="timeIn" label="Time in" scheme={scheme} placeholder="HH:MM" />
+          {/* Same treatment for a quieter version of the same defect: a typo in a typed
+              `HH:MM` never blocked a save, it silently dropped the dive out of §2.5's
+              time-ordering and voided its surface interval. `optional`, because `timeIn`
+              stays `optionalText` — a diver who did not note an entry time saves without
+              one. `timeOut` gets no control at all: it is computed from this plus duration
+              (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
+          <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional />
           <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" placeholder="m" />
         </FormGroup>
 

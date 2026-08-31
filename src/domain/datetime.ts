@@ -58,7 +58,9 @@ const pad = (value: number, width: number) => String(value).padStart(width, '0')
  * direction that function's own docblock names as unsafe next to a diver's
  * nitrogen-loading judgement.
  */
-function canonicalCalendarDate(value: unknown): { canonical: string; utcMs: number } | null {
+function canonicalCalendarDate(
+  value: unknown,
+): { canonical: string; utcMs: number; year: number; month: number; day: number } | null {
   if (typeof value !== 'string') return null;
   const match = DATE_PATTERN.exec(value.trim());
   if (match === null) return null;
@@ -74,7 +76,11 @@ function canonicalCalendarDate(value: unknown): { canonical: string; utcMs: numb
   const utcMs = Date.parse(`${canonical}T00:00:00.000Z`);
   if (Number.isNaN(utcMs)) return null;
   if (new Date(utcMs).toISOString().slice(0, 10) !== canonical) return null;
-  return { canonical, utcMs };
+  // The three integers come back out alongside the string so `calendarDateToLocalDate`
+  // below can build a LOCAL date from them without re-parsing what this function has
+  // already parsed — the same one-owner reasoning that put `utcMs` here rather than in a
+  // second parser next to `calendarDateToUtcMs`.
+  return { canonical, utcMs, year, month, day };
 }
 
 /** Both public time functions come from here, for the same reason. */
@@ -173,4 +179,107 @@ export function storedTimeOfDay(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
   return normaliseTimeOfDay(value) ?? value;
+}
+
+/**
+ * ---------------------------------------------------------------------------
+ * THE PICKER BOUNDARY (M1d) — a JS `Date` in, this module's strings out, and back.
+ *
+ * DESIGN.md §10: "the stored form is still the `YYYY-MM-DD` / `HH:MM` string —
+ * `domain/datetime.ts` remains its only owner, and the `Date` the picker returns is
+ * converted there from LOCAL components, never `toISOString()`."
+ *
+ * Every function below reads or writes `getFullYear()`/`getMonth()`/`getDate()` and
+ * `getHours()`/`getMinutes()` — the calendar the diver is actually looking at — and none of
+ * them goes near `toISOString()` or `new Date('2026-08-31')`, both of which are UTC:
+ *
+ *   - `toISOString()` on a picked date stores the UTC day. East of Greenwich a local
+ *     midnight is still yesterday in UTC, so a dive picked for 31 Aug is logged as the 30th.
+ *   - `new Date('2026-08-31')` parses as UTC midnight, which is 31 Dec-style *previous* day
+ *     west of Greenwich, so a picker seeded that way opens on the day before the stored one.
+ *
+ * Both are the same defect this codebase has now hit three times (`formatDiveDate`'s own
+ * docblock, `carryOverDate`'s, and this block). They are correct in UTC and wrong
+ * everywhere else, which is exactly why they survive an ordinary test suite —
+ * `datetime.utc-plus-14.test.ts` and `datetime.utc-minus-11.test.ts` force a zone on either
+ * side of Greenwich so that a naive spelling reddens instead of passing.
+ *
+ * Nothing here invents a value: every function returns null rather than a guess when it is
+ * handed something that is not a real moment (a dismissed picker's `undefined`, an invalid
+ * `Date`) or not a real date/time string, and the caller decides what "not set" looks like.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The one guard the two `localDateTo*` functions share. A picker's `onChange` is typed
+ * `(event, date?: Date)`, so `undefined` is its ordinary dismissed-without-choosing value,
+ * and an invalid `Date` reads back as `NaN` from every getter — which a template string
+ * would happily spell as `'NaN-NaN-NaN'`, a value that looks like a date all the way into
+ * the database.
+ */
+function realDate(value: unknown): Date | null {
+  if (!(value instanceof Date)) return null;
+  return Number.isFinite(value.getTime()) ? value : null;
+}
+
+/**
+ * The canonical `YYYY-MM-DD` of the day a `Date` falls on **in the device's own zone**, or
+ * null if it is not a real moment. This is what a date picker's chosen value is stored as.
+ */
+export function localDateToCalendarDate(value: unknown): string | null {
+  const date = realDate(value);
+  if (date === null) return null;
+  // Built and then re-read through this module's own parser rather than returned directly:
+  // that is what guarantees the result is a spelling `isCalendarDate` accepts, and it is
+  // the same reason `storedCalendarDate` routes through `normaliseCalendarDate` instead of
+  // trusting its input. A year outside 1000-9999 has no canonical spelling here and comes
+  // back null rather than as a string the rest of the app would then refuse.
+  return normaliseCalendarDate(
+    `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`,
+  );
+}
+
+/**
+ * The canonical `HH:MM` a `Date` reads as on **the device's own wall clock**, or null if it
+ * is not a real moment. This is what a time picker's chosen value is stored as.
+ */
+export function localDateToTimeOfDay(value: unknown): string | null {
+  const date = realDate(value);
+  if (date === null) return null;
+  return normaliseTimeOfDay(`${pad(date.getHours(), 2)}:${pad(date.getMinutes(), 2)}`);
+}
+
+/**
+ * Local midnight on a stored calendar date — what a date picker is *seeded* with so it
+ * opens on the day already recorded. Null when the value names no real date, which is the
+ * caller's cue to open the picker on today instead of on an invented day.
+ */
+export function calendarDateToLocalDate(value: unknown): Date | null {
+  const parsed = canonicalCalendarDate(value);
+  if (parsed === null) return null;
+  const date = new Date(parsed.year, parsed.month - 1, parsed.day);
+  // `new Date(99, 0, 1)` is 1999, not the year 99 — the constructor's legacy two-digit-year
+  // mapping, which applies to every year under 100. `setFullYear` is the documented way out
+  // of it, and this is not purely theoretical: `'0099-01-01'` is a spelling this module's
+  // own parser accepts, so a row carrying one must open the picker in its own century.
+  date.setFullYear(parsed.year);
+  return date;
+}
+
+/**
+ * A stored `HH:MM` as a real moment on `base`'s own day — what a time picker is *seeded*
+ * with. Null when the value names no real time, which is the caller's cue to open the
+ * picker on the current time rather than on an invented one.
+ *
+ * `base` defaults to now and is injectable for the same reason `carryOverFrom`'s `now` is:
+ * so the behaviour is testable without mocking the clock. Its date half never reaches
+ * storage — `localDateToTimeOfDay` above reads only the clock back off it — but it is not
+ * arbitrary either: a `Date` has to sit on some day, and putting it on a different one
+ * could move the wall-clock reading across that day's DST transition.
+ */
+export function timeOfDayToLocalDate(value: unknown, base: Date = new Date()): Date | null {
+  const minutes = timeOfDayToMinutes(value);
+  if (minutes === null) return null;
+  const day = realDate(base) ?? new Date();
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(minutes / 60), minutes % 60, 0, 0);
 }
