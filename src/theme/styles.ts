@@ -255,6 +255,14 @@ function build(scheme: ColorScheme) {
   // the row itself met it.
   const FIELD_EXTRA_CLEARANCE = 12;
 
+  // How far below the top of the display a screen's content begins — the status-bar
+  // clearance every screen in the app has used since M0, as a static number rather than a
+  // safe-area read. Written once now that three keys need it: `screen` and `wideListColumn`
+  // spend it as `paddingTop`, and `topActionRow` has to spend it again as an absolute
+  // `top`, because Yoga measures an absolute child's offsets from its containing block's
+  // border edge and never sees that padding (see `topActionRow`).
+  const SCREEN_TOP_INSET = 48;
+
   // A scrolling column of §0.6 rows — the dive form, and now Settings, which is the same
   // grammar asking about the app instead of about a dive. One definition rather than two,
   // so the two screens cannot drift on how far their first row sits from the heading above
@@ -273,7 +281,7 @@ function build(scheme: ColorScheme) {
     screen: {
       flex: 1,
       backgroundColor: theme.bg,
-      paddingTop: 48,
+      paddingTop: SCREEN_TOP_INSET,
     },
     // M1c task 11, DESIGN.md §0.6 rev 5: the Dives screen's search field used to live here
     // — a bordered/filled box at the TOP of the screen (`searchInput`, `searchBarCollapse`,
@@ -381,13 +389,13 @@ function build(scheme: ColorScheme) {
     // Fixed-width list column (task brief: "the list sits at a fixed column width"). Wide
     // enough for a row's number/site/depth to read comfortably without crowding the detail
     // pane out — the same width iPad split views commonly give a master column. Carries its
-    // own `paddingTop: 48`, the exact value `screen` applies, because `wideScreen` above
-    // deliberately doesn't: this column's content (search box, list, fab) is otherwise
-    // identical to the narrow layout's, so it needs the same top clearance `screen` would
-    // have given it, just supplied locally instead of by a shared ancestor.
+    // own `SCREEN_TOP_INSET`, the exact value `screen` applies, because `wideScreen` above
+    // deliberately doesn't: this column's content (the list, the floating capsule over it)
+    // is otherwise identical to the narrow layout's, so it needs the same top clearance
+    // `screen` would have given it, just supplied locally instead of by a shared ancestor.
     wideListColumn: {
       width: 360,
-      paddingTop: 48,
+      paddingTop: SCREEN_TOP_INSET,
       borderRightWidth: 1,
       borderRightColor: theme.border,
     },
@@ -559,16 +567,23 @@ function build(scheme: ColorScheme) {
     // capsule leaves. `justifyContent: 'flex-end'` is what pins the capsule to the RIGHT
     // while search is closed and the row holds only that one child.
     //
-    // `top: 0` rather than a safe-area term. Yoga positions an absolute child against its
-    // parent's padding box, and the parent here is `screen`/`wideListColumn`, both of which
-    // already carry `paddingTop: 48` — the same static status-bar clearance every other
-    // screen in the app uses. The bottom row needed `useSafeAreaInsets` because the home
-    // indicator's height genuinely varies by device and nothing else in the app had
-    // measured it; the top does not need a second, different answer to a question `screen`
-    // has been answering since M0.
+    // `top` is `SCREEN_TOP_INSET` — the same 48 `screen` and `wideListColumn` carry as
+    // `paddingTop`, and the same static status-bar clearance every screen in the app has
+    // used since M0 — rather than a safe-area term. The bottom row needed
+    // `useSafeAreaInsets` because the home indicator's height genuinely varies by device and
+    // nothing else in the app had measured it; the top does not need a second, different
+    // answer to a question `screen` has been answering all along.
+    //
+    // **It has to be repeated here, and that is not redundancy.** This was written `top: 0`
+    // on the reasoning that an absolute child is laid out inside its parent's padding, so
+    // `screen`'s own 48 would apply. It is not: React Native put the capsule flush against
+    // the top of the display, over the clock and the battery — seen on the simulator, not
+    // deduced. Yoga measures an absolute child's `top` from the containing block's border
+    // edge, so a parent's padding is invisible to it. Sharing the constant is what keeps the
+    // capsule aligned with the content beneath it now that both have to state it.
     topActionRow: {
       position: 'absolute',
-      top: 0,
+      top: SCREEN_TOP_INSET,
       left: 24,
       right: 24,
       flexDirection: 'row',

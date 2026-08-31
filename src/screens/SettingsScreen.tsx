@@ -123,7 +123,18 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent}>
+      {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's own ScrollView.
+          RN's default is `'never'`, under which the first tap anywhere while a field has
+          focus is spent dismissing the keyboard and never reaches what it landed on — so
+          with the count field open, tapping Metric or Imperial would do nothing visible and
+          need a second tap. `'handled'` lets a control that handles the tap have it, while
+          a tap on the background still dismisses the keyboard and blurs the field, which is
+          what runs `settleCount` below. */}
+      <ScrollView
+        style={styles.settingsScroll}
+        contentContainerStyle={styles.settingsContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.settingsHeading}>Settings</Text>
 
         <View>
