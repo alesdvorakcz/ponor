@@ -1,6 +1,7 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { View } from 'react-native';
 
+import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -21,6 +22,13 @@ function textIn(t: RenderResult): string[] {
 
 function inputsOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'TextInput') : [];
+}
+
+/** Every control this component declares to a screen reader — the same query
+ * DiveFormScreen.test.tsx uses, kept local per this codebase's own no-shared-test-utils
+ * convention (`src/testing/` is for guards, not for three-line queries). */
+function buttonsOf(t: RenderResult) {
+  return t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
 }
 
 // The §0.4/§0.1 guard now lives in `src/testing/unexpectedGraphics.ts` — one owner, because
@@ -350,4 +358,168 @@ it('clears to an empty string, never a zero', async () => {
   // with NO argument at all (`undefined ?? '' ` is not `0` either), which would prove
   // nothing about what value is actually reported. This pins the exact value down.
   expect(onClear).toHaveBeenCalledWith('');
+});
+
+// --- §2.3's autocomplete list, in the slot §0.6 fixes for it ---
+//
+// "Autocomplete's position is fixed here; its styling is not. The list belongs directly under
+// the focused row." Both halves of that are what these check: WHERE the list is and WHEN it
+// is drawn are this component's, and what it looks like is deliberately the least this can
+// get away with until M2 reworks site search around the shared catalogue.
+
+/** Two offers, one of each shape a `Suggestion` comes in — a site with a paired id (§6's
+ * snapshot pair) and one without. The id half is what proves the whole object reaches the
+ * caller rather than just the text. */
+const OFFERS: Suggestion[] = [
+  { value: 'Blue Hole', id: 'site-blue' },
+  { value: 'Silfra', id: null },
+];
+
+/** One suggestion row, by the label this component gives it. Queried by
+ * `accessibilityRole="button"` first, so a row of plain untappable text would fail here
+ * rather than be found by its words alone. */
+function findSuggestion(t: RenderResult, label: string) {
+  return t.root
+    ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button').find((n) => String(n.props?.accessibilityLabel ?? '') === label)
+    : undefined;
+}
+
+async function focusInput(t: RenderResult) {
+  const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
+  await fireEvent(input, 'focus');
+  return input;
+}
+
+// §0.6 gives the list to the FOCUSED row, so a form with four autocompleting fields shows one
+// list rather than four. Driven through the input's real focus/blur, exactly as the fill test
+// above is, so a list wired to a condition it could never satisfy fails here.
+it('draws the suggestion list only while its own row holds focus', async () => {
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} />,
+  );
+  expect(textIn(t)).not.toContain('Blue Hole');
+
+  const input = await focusInput(t);
+  expect(textIn(t)).toContain('Blue Hole');
+  expect(textIn(t)).toContain('Silfra');
+
+  await fireEvent(input, 'blur');
+  expect(textIn(t)).not.toContain('Blue Hole');
+});
+
+// An empty array is "nothing to offer", not "offer nothing visibly": no rows, and no empty
+// container left behind under the row either — which is the state most of a session is in,
+// since a field holding its carried value matches nothing but itself.
+it('draws nothing at all when there is nothing to suggest', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  const styles = makeStyles('light');
+  const containers = t.root ? t.root.queryAll((n) => stylesOn(n).includes(styles.formSuggestions)) : [];
+  expect(containers).toHaveLength(0);
+  expect(buttonsOf(t)).toHaveLength(0);
+});
+
+// The whole `Suggestion`, not its text: the id is half of §6's snapshot pair, and a component
+// that handed back `suggestion.value` alone would leave the screen with a name and no way to
+// know which site record it named. Both rows are pressed, because a handler wired to
+// `suggestions[0]` would pass an assertion about the first one.
+it('hands the caller the whole suggestion it pressed, id and all', async () => {
+  const onPick = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={onPick} />,
+  );
+  await focusInput(t);
+
+  const silfra = findSuggestion(t, 'Fill Site with Silfra');
+  if (!silfra) throw new Error('no Silfra suggestion found');
+  await fireEvent.press(silfra);
+  expect(onPick).toHaveBeenLastCalledWith({ value: 'Silfra', id: null });
+
+  const blueHole = findSuggestion(t, 'Fill Site with Blue Hole');
+  if (!blueHole) throw new Error('no Blue Hole suggestion found');
+  await fireEvent.press(blueHole);
+  expect(onPick).toHaveBeenLastCalledWith({ value: 'Blue Hole', id: 'site-blue' });
+});
+
+// Picking is NOT typing, and the difference is load-bearing one layer up: DiveFormScreen's
+// `onChange` clears the paired `siteId` (a typed name no longer refers to the carried id), so
+// a component that delivered a pick through `onChange` as well would set the id and clear it
+// again in the same gesture — a defect no assertion about the field's text could see.
+it('never routes a pick through the typing path', async () => {
+  const onChange = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="" onChange={onChange} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  const blueHole = findSuggestion(t, 'Fill Site with Blue Hole');
+  if (!blueHole) throw new Error('no Blue Hole suggestion found');
+  await fireEvent.press(blueHole);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+// The label names the FIELD as well as the value, so a screen reader hears which field a
+// suggestion fills — "Blue Hole, button" on its own says nothing about where it would land,
+// and the form has four autocompleting fields.
+it('names both the field and the value, so a screen reader hears where a pick lands', async () => {
+  const t = await render(
+    <FormField label="Buddy" value="" onChange={() => {}} scheme="light" suggestions={[{ value: 'Petr', id: null }]} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, 'Fill Buddy with Petr');
+  expect(row).toBeDefined();
+  expect(row?.props.accessibilityRole).toBe('button');
+});
+
+// DESIGN.md §0.5: "Tap targets never below 48 dp" — a suggestion row is a control like every
+// other, and it is one a diver taps with wet hands on a rocking boat. Read off the style the
+// row composes, exactly as the clear control's geometry above is: there is no Yoga here.
+it('gives a suggestion row §0.5\'s 48 dp floor', async () => {
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  const styles = makeStyles('light');
+  const row = findSuggestion(t, 'Fill Site with Silfra');
+  expect(stylesOn(row)).toContain(styles.formSuggestion);
+  expect(styles.formSuggestion.minHeight).toBe(48);
+});
+
+// §0.6 froze the list's styling until M2, which means it borrows treatments this sheet
+// already has rather than inventing any — so the same §0.4/§0.1 guard the rest of this file
+// runs must hold with a list on screen. Nothing here may reach for an inline style.
+it('draws nothing outside its own treatment with a list showing either (§0.4/§0.1)', async () => {
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+});
+
+// The two props are opt-in, and every other field on the form — plus every field on Settings,
+// plus the cylinder-preset work landing beside this — passes neither. A focused field with no
+// suggestions must render exactly what it rendered before they existed.
+it('is unchanged by the new props when a caller passes neither', async () => {
+  const bare = await render(<FormField label="Size" value="12" onChange={() => {}} scheme="light" mono unit="l" />);
+  const bareAtRest = JSON.stringify(bare.toJSON());
+  await focusInput(bare);
+  const bareFocused = JSON.stringify(bare.toJSON());
+
+  // Focusing draws the fill and nothing else: no list, no control, no extra text.
+  expect(buttonsOf(bare)).toHaveLength(0);
+  expect(textIn(bare)).toEqual(['Size', 'l']);
+
+  // ...and the same field GIVEN both props, with nothing to offer, renders the identical
+  // tree in both states — so a call site that passes them and one that does not cannot
+  // diverge, and no empty container is left behind when the list is empty. Whole-tree
+  // equality rather than a query, because "renders exactly as before" is a claim about
+  // everything, including the props a query would not think to ask about.
+  const offered = await render(
+    <FormField label="Size" value="12" onChange={() => {}} scheme="light" mono unit="l" suggestions={[]} onPickSuggestion={() => {}} />,
+  );
+  expect(JSON.stringify(offered.toJSON())).toBe(bareAtRest);
+  await focusInput(offered);
+  expect(JSON.stringify(offered.toJSON())).toBe(bareFocused);
 });

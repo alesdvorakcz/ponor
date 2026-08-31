@@ -1736,6 +1736,40 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       color: theme.fgMuted,
     },
+    // §2.3's autocomplete list (FormField.tsx), in the slot §0.6 fixes for it: "The list
+    // belongs directly under the focused row" — the same second line `formChipRow` above puts
+    // its chips in and an open picker takes. `paddingBottom` is `FIELD_EXTRA_CLEARANCE` for
+    // the reason that constant records: anything under a row owns its own clearance to the
+    // next row's hairline.
+    //
+    // **It is deliberately the least this can be, and that is a decision rather than an
+    // omission.** §0.6, in the same sentence that fixes the position: "How it looks waits for
+    // M2, which reworks site search around the shared site database and adding new sites —
+    // designing it now means designing it twice." So there is no new token, no border, no
+    // fill and no radius here; the rows borrow `rowLabel`, the treatment a field's own label
+    // already wears, which reads as an offer rather than as data the diver has entered. The
+    // focused row's `surface` fill (`formFieldFocused`) is already behind all of it, which is
+    // what visually attaches the list to the field it belongs to — one more reason it needs
+    // no ground of its own.
+    formSuggestions: {
+      paddingBottom: FIELD_EXTRA_CLEARANCE,
+    },
+    // One offer. `minHeight` is §0.5's floor, and it is the only number here that is not a
+    // borrowed treatment: a suggestion is a control a diver taps with wet hands on a rocking
+    // deck, so it gets the same 48 dp every other control in this app does. `justifyContent`
+    // centres the text in it, since a `Text` does not centre itself in a box taller than its
+    // own line — the same note `formFieldPicker` above carries.
+    formSuggestion: {
+      minHeight: 48,
+      justifyContent: 'center',
+    },
+    // `rowLabel` — Archivo 15 muted, the field label's own treatment, and leading rather than
+    // trailing. Both halves borrowed on purpose. Muted, because an offer is not yet a value.
+    // Leading, on `formChipRow`'s own recorded reasoning one style down: a list of options is
+    // "a set of options to read through, not a value to read off, and a set reads
+    // left-to-right." Trailing it would put every offer in the value column, where the value
+    // it has not yet become already sits.
+    formSuggestionText: rowLabel,
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this

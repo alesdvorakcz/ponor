@@ -1,6 +1,7 @@
 import { forwardRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
+import { type Suggestion } from '../domain/suggest';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -86,6 +87,36 @@ export interface FormFieldProps {
    * but through one shared path — still can.
    */
   onClear?: (value: string) => void;
+  /**
+   * DESIGN.md §2.3's autocomplete, for the four fields that have it — what `suggestFrom`
+   * (domain/suggest.ts) offered for this field's current text. **Optional, and omitted at
+   * every other call site**: a field given neither this nor `onPickSuggestion` renders
+   * exactly what it rendered before either existed, which is what lets the 24 other fields on
+   * the dive form, both fields on Settings, and the cylinder-preset work landing beside this
+   * one go on passing neither.
+   *
+   * This component decides only WHERE the list goes and WHEN it is drawn; it has no opinion
+   * on what belongs in it or in what order — the same split `carried` above draws, where the
+   * caller knows WHY a value is carried and this knows how to show that it is. §0.6 makes the
+   * position a fact about the row ("The list belongs directly under the focused row"), which
+   * is why it is drawn here at all rather than by the screen: a list positioned by the caller
+   * would be positioned four times.
+   */
+  suggestions?: Suggestion[];
+  /**
+   * Fired with the **whole** `Suggestion` the diver tapped, never just its text.
+   *
+   * The id half is DESIGN.md §6's `site_id` + `site_name` snapshot pair, and handing back the
+   * text alone would leave the caller with a name and no way to know which site record it
+   * named — §10, for this task: "picking a suggestion sets both together... otherwise a dive
+   * carries one site's id under another's name."
+   *
+   * Deliberately NOT routed through `onChange`, exactly as `onClear` above is not: a caller
+   * that has to tell "the diver typed this" from "the diver picked this" still can, and
+   * DiveFormScreen does — typing over a site name CLEARS the paired id, so delivering a pick
+   * through the typing path would set the id and clear it again in one gesture.
+   */
+  onPickSuggestion?: (suggestion: Suggestion) => void;
 }
 
 /**
@@ -165,7 +196,7 @@ export const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, onClear },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, onClear, suggestions, onPickSuggestion },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -176,6 +207,13 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // unreadable — so this follows it there: the label keeps its row, and the box drops to the
   // full width beneath it, in the slot §0.6 gives a field's second line.
   const stacked = multiline === true;
+
+  // §0.6 gives the list to the FOCUSED row, and the same `focused` state the fill already
+  // reads is what says which row that is — so a form with four autocompleting fields shows
+  // one list, under the field the diver is actually in, rather than four stacked lists. An
+  // empty array draws nothing at all rather than an empty container: a field holding its
+  // carried value matches nothing but itself, which is most of a logging session.
+  const offered = focused && suggestions !== undefined ? suggestions : [];
 
   const input = (
     <TextInput
@@ -235,6 +273,42 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
         )}
       </View>
       {stacked && input}
+      {/* §2.3's autocomplete list, in the slot §0.6 fixes for it — "directly under the
+          focused row", the same second line `OptionChips` fills with chips and `stacked`
+          notes fills with its box. Inside this field's own View rather than beside it, so
+          the focused row's `surface` fill runs behind the list and visually attaches it to
+          the field it will fill.
+
+          **A tap reaches it while the keyboard is up** because both ScrollViews that host a
+          `FormField` set `keyboardShouldPersistTaps="handled"` — DiveFormScreen.tsx's form
+          scroll and SettingsScreen.tsx's — so a touch on a child that handles it is
+          delivered rather than being swallowed as a keyboard dismissal. Without that the
+          input would blur first, `focused` would go false, and this list would unmount out
+          from under the finger that was pressing it. It is a property of the hosts, not of
+          this component, which is why it is named here rather than assumed. */}
+      {offered.length > 0 && (
+        <View style={styles.formSuggestions}>
+          {offered.map((suggestion) => (
+            <Pressable
+              // The value, not an index: `suggestFrom` yields values that are distinct
+              // case-insensitively, and a key by position would re-use a row's identity for a
+              // different suggestion each keystroke.
+              key={suggestion.value}
+              style={styles.formSuggestion}
+              // The whole suggestion, id and all — see `onPickSuggestion` for why the pair
+              // must not be split, and why this is not `onChange`.
+              onPress={() => onPickSuggestion?.(suggestion)}
+              accessibilityRole="button"
+              // Names the field as well as the value: the form has four autocompleting
+              // fields, and "Blue Hole, button" on its own says nothing about where a pick
+              // would land.
+              accessibilityLabel={`Fill ${label} with ${suggestion.value}`}
+            >
+              <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 });
