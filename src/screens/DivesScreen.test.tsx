@@ -1037,6 +1037,16 @@ it('dims every other row to 32% opacity once a day is active, and restores full 
 // directly rather than a real window width, the same way every other external read in this
 // file is stubbed at its own hook.
 
+// I4: the `+` pushes an ABSOLUTE, typed-route-checked href. Pinned here as well as by the
+// type checker, because the two catch different regressions: `tsc` catches the route file
+// being renamed, this catches the `+` being wired to some other destination entirely.
+it('opens the new-dive route from the "+"', async () => {
+  stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
+  const t = await render(<DivesScreen />);
+  await fireEvent.press(findFab(t));
+  expect(mockRouterPush).toHaveBeenCalledWith('/dive/new');
+});
+
 it('navigates to the dive detail route on a narrow layout, without embedding it inline', async () => {
   mockUseWideLayout.mockReturnValue(false);
   stubDives({
@@ -1046,7 +1056,7 @@ it('navigates to the dive detail route on a narrow layout, without embedding it 
   });
   const t = await render(<DivesScreen />);
   await fireEvent.press(findRow(t, 1));
-  expect(mockRouterPush).toHaveBeenCalledWith('./dive/a');
+  expect(mockRouterPush).toHaveBeenCalledWith('/dive/a');
   // DiveDetailScreen is never embedded on a narrow layout — "Date & time" is one of its own
   // cluster titles (DiveDetailScreen.tsx), never something DivesScreen renders itself.
   expect(textIn(t).join(' ')).not.toContain('Date & time');

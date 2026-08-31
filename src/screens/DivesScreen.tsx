@@ -194,19 +194,25 @@ export default function DivesScreen() {
     if (wide) {
       setSelectedId(id);
     } else {
-      router.push(`./dive/${id}`);
+      // Absolute for the same reason `logDive` below is: `/dive/[id]` is a real typed
+      // route, and the template form is what expo-router's typed routes actually checks.
+      router.push(`/dive/${id}`);
     }
   };
   // `src/app/dive/new.tsx` (M1d task 6) is a thin route onto DiveFormScreen.tsx's
-  // `mode="create"`, the same relationship `openDive` above has with `/dive/[id]`. A
-  // relative href, rather than an absolute one, is what lets this compile under
-  // expo-router's typed routes (app.config.js's experiments.typedRoutes) without a
-  // type-check suppression: typed routes validates an absolute path against the routes
-  // that actually exist on disk, but a relative path is resolved at runtime against
-  // whatever screen is current, so it deliberately isn't checked against that list.
-  // Verified: an absolute `router.push('/dive/new')` here did not typecheck before that
-  // route file existed; the relative form did, and still does now that it does.
-  const logDive = () => router.push('./dive/new');
+  // `mode="create"`, the same relationship `openDive` above has with `/dive/[id]`.
+  // ABSOLUTE, and that is the whole point: expo-router's typed routes
+  // (app.config.ts's experiments.typedRoutes) validates an absolute path against the routes
+  // that actually exist on disk, where a relative one is resolved at runtime and so is
+  // deliberately not checked against anything. The relative form was correct only while
+  // `/dive/new` did not exist and an absolute reference could not compile; the route is real
+  // now, so the relative spelling buys nothing and costs the check. Measured, not assumed:
+  // `router.push('/dives/new')` — a route that does not exist — is a TS2345 here, while
+  // `router.push('./dives/new')` compiles perfectly happily, because `RelativePathString` is
+  // `` `.${string}` `` and accepts any string at all. One limit worth knowing: `[id].tsx` next
+  // door makes `/dive/<anything>` a valid href, so this catches a misspelt or moved SEGMENT
+  // but not this file alone being renamed — that would silently resolve to the detail route.
+  const logDive = () => router.push('/dive/new');
 
   // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a
   // lazily-initialised ref, not a bare `useRef(createReorderGate())`, so a
