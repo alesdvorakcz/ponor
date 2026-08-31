@@ -6,6 +6,7 @@ import { formatDuration, formatTimeRange } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { DiveRow } from './DiveRow';
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
@@ -51,19 +52,12 @@ function textIn(t: RenderResult): string[] {
 // reuse DiveRow's. `known` is every value `makeStyles` actually hands out, not a hand-picked
 // subset, so this can't go stale as DiveRow's own styling evolves — only a style DiveRow was
 // never given trips it.
-const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
-
-function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'dark') {
-  if (!t.root) return [];
-  const known = Object.values(makeStyles(scheme));
-  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
-  const byAdHocStyle = t.root.queryAll((n) => {
-    if (n.type !== 'View') return false;
-    const style = [n.props?.style].flat(5).filter(Boolean);
-    return style.length > 0 && !style.some((s) => known.includes(s));
-  });
-  return [...byName, ...byAdHocStyle];
-}
+//
+// It lives in `src/testing/unexpectedGraphics.ts` now rather than here. Five files carried
+// this same copy and all five shared a second defect the account above did not reach: the
+// check read `!style.some(known.includes)`, so one known style excused every literal beside
+// it — `[styles.diveRowTop, { backgroundColor: '#f00' }]` passed, which is exactly how a
+// dropped-in chart's own styling would arrive, and is the only shape anyone writes.
 
 it('shows the dive number, site and depth', async () => {
   const t = await render(
@@ -219,7 +213,7 @@ it('draws no graphic for a dive, because no dive has a sample series', async () 
   const t = await render(
     <DiveRow dive={dive({ maxDepthM: 32.4, rating: 4 })} number={1} scheme="dark" onPress={() => {}} />,
   );
-  expect(unexpectedGraphics(t)).toHaveLength(0);
+  expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
 });
 
 it('passes the dive id to onPress', async () => {

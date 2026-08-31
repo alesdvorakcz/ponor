@@ -15,6 +15,7 @@ import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveDetailScreen from './DiveDetailScreen';
 
 // Same two mocks every test in this file needs: the one read (useDives, per db/useDives.ts's
@@ -65,19 +66,10 @@ function textIn(t: RenderResult): string[] {
 // `makeStyles(scheme)` didn't hand out. `known` is every value `makeStyles` returns, not a
 // hand-picked list of this screen's dozen-plus View styles, so it can't go stale as the
 // screen's own clusters change.
-const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
-
-function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'dark') {
-  if (!t.root) return [];
-  const known = Object.values(makeStyles(scheme));
-  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
-  const byAdHocStyle = t.root.queryAll((n) => {
-    if (n.type !== 'View') return false;
-    const style = [n.props?.style].flat(5).filter(Boolean);
-    return style.length > 0 && !style.some((s) => known.includes(s));
-  });
-  return [...byName, ...byAdHocStyle];
-}
+//
+// Shared now (`src/testing/unexpectedGraphics.ts`), and fixed there: all five copies read
+// `!style.some(known.includes)`, so one known style excused every literal beside it and
+// `[styles.detailRow, { backgroundColor: '#f00' }]` passed.
 
 /**
  * M1c task 5 helpers, updated for task 7's `=` mark (DESIGN.md §0.6, revised): a computed

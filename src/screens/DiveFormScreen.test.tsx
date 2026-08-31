@@ -28,6 +28,7 @@ import {
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveFormScreen from './DiveFormScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -251,21 +252,11 @@ function findClearCarried(t: RenderResult, label: string) {
   return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear carried ${label}`);
 }
 
-// Same guard DiveRow.test.tsx and DiveDetailScreen.test.tsx already carry (§0.4/§0.1),
-// copied rather than imported per this codebase's own no-shared-test-utils convention.
-const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
-
-function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'light') {
-  if (!t.root) return [];
-  const known = Object.values(makeStyles(scheme));
-  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
-  const byAdHocStyle = t.root.queryAll((n) => {
-    if (n.type !== 'View') return false;
-    const style = [n.props?.style].flat(5).filter(Boolean);
-    return style.length > 0 && !style.some((s) => known.includes(s));
-  });
-  return [...byName, ...byAdHocStyle];
-}
+// The §0.4/§0.1 guard now lives in `src/testing/unexpectedGraphics.ts` — one owner, because
+// five files carried the same copy and all five were wrong in the same way: the check read
+// `!style.some(known.includes)`, so one known style excused every literal beside it and
+// `[styles.x, { backgroundColor: '#f00' }]` — the only shape anyone writes — passed. See that
+// module and its own test for what it enforces and why the scheme is now explicit here.
 
 // --- Task 4 brief, Step 1, verbatim ---
 
@@ -366,11 +357,11 @@ it('lets the save control actually be pressed, with nothing set but the default 
 
 it('draws nothing outside its own makeStyles treatment, collapsed or expanded', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  expect(unexpectedGraphics(t)).toHaveLength(0);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
   const header = findButton(t, 'Gas & cylinders');
   if (!header) throw new Error('no Gas & cylinders header found');
   await fireEvent.press(header);
-  expect(unexpectedGraphics(t)).toHaveLength(0);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
 });
 
 // --- mode is a real prop, not a dead one, even though Task 7 owns loading the dive ---

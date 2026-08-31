@@ -2,6 +2,7 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 import { View } from 'react-native';
 
 import { makeStyles } from '../theme/styles';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { FormField } from './FormField';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
@@ -21,23 +22,11 @@ function inputsOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'TextInput') : [];
 }
 
-// Same guard DiveRow.test.tsx and DiveDetailScreen.test.tsx already carry (§0.4/§0.1):
-// no graphical element, and no `View` styled with anything outside this file's own
-// `makeStyles(scheme)`. Copied rather than imported — this codebase has no shared
-// test-utils module, and every test file that needs this owns its own copy.
-const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
-
-function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'light') {
-  if (!t.root) return [];
-  const known = Object.values(makeStyles(scheme));
-  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
-  const byAdHocStyle = t.root.queryAll((n) => {
-    if (n.type !== 'View') return false;
-    const style = [n.props?.style].flat(5).filter(Boolean);
-    return style.length > 0 && !style.some((s) => known.includes(s));
-  });
-  return [...byName, ...byAdHocStyle];
-}
+// The §0.4/§0.1 guard now lives in `src/testing/unexpectedGraphics.ts` — one owner, because
+// five files carried the same copy and all five were wrong in the same way: the check read
+// `!style.some(known.includes)`, so one known style excused every literal beside it and
+// `[styles.x, { backgroundColor: '#f00' }]` — the only shape anyone writes — passed. See that
+// module and its own test for what it enforces and why the scheme is now explicit here.
 
 it('shows the label and the current value, and labels its input for typeInto helpers', async () => {
   const t = await render(<FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" />);
@@ -96,7 +85,7 @@ it('lets a long label wrap instead of truncating it', async () => {
 
 it('draws nothing outside its own label-and-input treatment (§0.4/§0.1)', async () => {
   const t = await render(<FormField label="Notes" value="" onChange={() => {}} scheme="light" multiline />);
-  expect(unexpectedGraphics(t)).toHaveLength(0);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
 });
 
 // Beyond the brief's own sample: the check above never renders a chip (`multiline`, no
@@ -106,7 +95,7 @@ it('draws nothing outside its own treatment when a chip is showing either (§0.4
   const t = await render(
     <FormField label="Weights" value="6" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
   );
-  expect(unexpectedGraphics(t)).toHaveLength(0);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
 });
 
 // --- Task 5 brief, Step 1, adapted rather than pasted verbatim — see the two notes below. ---

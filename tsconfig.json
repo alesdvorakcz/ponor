@@ -42,6 +42,7 @@
     "android",
     "ios",
     "src/db/testDb.ts",
+    "src/testing/unexpectedGraphics.ts",
     "**/*.test.ts",
     "**/*.test.tsx"
   ]

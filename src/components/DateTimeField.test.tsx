@@ -6,6 +6,7 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
 import { makeStyles } from '../theme/styles';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { DateTimeField } from './DateTimeField';
 
 /**
@@ -76,22 +77,11 @@ async function choose(picker: ReturnType<typeof pickerOf>, moment: Date) {
   await fireEvent(picker, 'change', { nativeEvent: { timestamp: moment.getTime(), utcOffset: 14 * 60 } });
 }
 
-// Same guard DiveRow.test.tsx and FormField.test.tsx carry (§0.4/§0.1): no graphical
-// element, and no `View` styled outside `makeStyles(scheme)`. Copied rather than imported,
-// per this codebase's own no-shared-test-utils convention.
-const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
-
-function unexpectedGraphics(t: RenderResult, scheme: 'dark' | 'light' = 'light') {
-  if (!t.root) return [];
-  const known = Object.values(makeStyles(scheme));
-  const byName = t.root.queryAll((n) => typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type));
-  const byAdHocStyle = t.root.queryAll((n) => {
-    if (n.type !== 'View') return false;
-    const style = [n.props?.style].flat(5).filter(Boolean);
-    return style.length > 0 && !style.some((s) => known.includes(s));
-  });
-  return [...byName, ...byAdHocStyle];
-}
+// The §0.4/§0.1 guard now lives in `src/testing/unexpectedGraphics.ts` — one owner, because
+// five files carried the same copy and all five were wrong in the same way: the check read
+// `!style.some(known.includes)`, so one known style excused every literal beside it and
+// `[styles.x, { backgroundColor: '#f00' }]` — the only shape anyone writes — passed. See that
+// module and its own test for what it enforces and why the scheme is now explicit here.
 
 const noop = () => {};
 
