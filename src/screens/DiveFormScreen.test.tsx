@@ -1046,6 +1046,147 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
   });
 });
 
+// --- The eight fields that were dead to this suite ---
+//
+// `ControlledOptionField`'s `onChange={field.onChange}` and `ControlledBooleanField`'s could
+// both be replaced by `() => {}` with all 772 tests green, and so could `OptionChips`'
+// "tapping the selected chip clears it" and `BooleanField`'s `!checked`. Between them that
+// is entry, salinity, water body, suit, cylinder material, hood, gloves and boots: eight
+// fields that could silently never save, or save but never clear, with nothing to say so.
+//
+// The seam is between the control and the WRITE, so every assertion below reads the payload
+// `createDive` was handed and not the component's own state — a control that updates itself
+// and never reaches the form is exactly the failure, and reading the chip back would report
+// it as working. Driven per field rather than once for the wrapper, because `name` is a
+// per-call-site prop: a chip row wired to the wrong field would save the wrong column.
+
+/** One of a field's chips, by its position in the domain's own `*_VALUES` order — never by
+ * its display string, which `format/display.ts` owns and this file has no business pinning
+ * a second time. */
+function findChip(t: RenderResult, label: string, index: number) {
+  return buttonsOf(t).filter((n) => String(n.props?.accessibilityLabel ?? '').startsWith(`${label}: `))[index];
+}
+
+async function pressChip(t: RenderResult, label: string, index: number) {
+  const chip = findChip(t, label, index);
+  if (!chip) throw new Error(`no ${label} chip at position ${index}`);
+  await fireEvent.press(chip);
+}
+
+/** A yes/no field's own control (`BooleanField`), which declares itself a `switch` exactly
+ * as §2.4's status control does — so this can never land on that one, which is labelled
+ * "Planned dive". */
+function findBooleanField(t: RenderResult, label: string) {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
+    (n) => String(n.props?.accessibilityLabel ?? '') === label,
+  );
+}
+
+async function pressBooleanField(t: RenderResult, label: string) {
+  const control = findBooleanField(t, label);
+  if (!control) throw new Error(`no ${label} control found`);
+  await fireEvent.press(control);
+}
+
+/** The input `createDive` was handed on the nth save of this test. */
+function writtenInput(call = 0): Record<string, unknown> {
+  return (mockCreate.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
+}
+
+it.each([
+  ['Entry', 'Conditions', 'entry', ENTRY_VALUES],
+  ['Salinity', 'Conditions', 'salinity', SALINITY_VALUES],
+  ['Water body', 'Conditions', 'waterBody', WATER_BODY_VALUES],
+  ['Suit', 'Equipment', 'suit', SUIT_VALUES],
+] as const)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, group);
+
+  // Deliberately not the first chip: an `onChange` hard-wired to `options[0]` would pass
+  // against index 0 and be wrong for every other value the field can hold.
+  await pressChip(t, label, 1);
+  expect(findChip(t, label, 1)?.props?.accessibilityState?.selected).toBe(true);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenInput(0)[field]).toBe(values[1]);
+
+  // The same chip again, which §2.2's "only the fields you use" needs to mean "and unuse":
+  // `OptionChips` hands back `''`, `optionalPicked` turns that into `null`, and
+  // `toNewDiveInput` omits a null outright. A chip that could only ever be set would leave
+  // a diver who mis-tapped with no way back to "not recorded".
+  await pressChip(t, label, 1);
+  expect(findChip(t, label, 1)?.props?.accessibilityState?.selected).toBe(false);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  expect(writtenInput(1)).not.toHaveProperty(field);
+});
+
+it("saves the cylinder material a diver picked, which lives inside the dive's tanks", async () => {
+  // The fifth option field, and the only one whose value is not a column of its own: it is
+  // `tanks.0.material` inside §6's one JSON blob, so it reaches the write through a
+  // different path from the four above and a wrapper wired only for top-level fields would
+  // still leave this one dead.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  await pressChip(t, 'Material', 1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenTanks()?.[0]).toEqual(expect.objectContaining({ material: TANK_MATERIAL_VALUES[1] }));
+
+  await pressChip(t, 'Material', 1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  const cleared = (mockCreate.mock.calls[1]?.[1] as { tanks?: { material?: unknown }[] })?.tanks;
+  expect(cleared?.[0]?.material).toBeNull();
+});
+
+it.each([
+  ['Hood', 'hood'],
+  ['Gloves', 'gloves'],
+  ['Boots', 'boots'],
+] as const)('saves %s as yes and then as no — a boolean is not a one-way door', async (label, field) => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Equipment');
+
+  await pressBooleanField(t, label);
+  expect(findBooleanField(t, label)?.props?.accessibilityState?.checked).toBe(true);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenInput(0)[field]).toBe(true);
+
+  await pressBooleanField(t, label);
+  expect(findBooleanField(t, label)?.props?.accessibilityState?.checked).toBe(false);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  // `false`, not absent: "no hood worn" is a real recorded answer, and DiveDetailScreen
+  // renders it as "No" precisely because it is not the same claim as never having said.
+  expect(writtenInput(1)[field]).toBe(false);
+});
+
+it('carries an option and a boolean into an edit through the same two controls', async () => {
+  // The write is `updateDive` here, not `createDive`, and the diff (`toDivePatch`) is what
+  // decides whether either field is named at all — so the create-mode tests above cannot
+  // stand in for this one. Both fields start unset on the stored dive, so a patch that
+  // names them is the control having reached the form.
+  const target = existing();
+  stubLogbookFor(target);
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Conditions');
+  await pressChip(t, 'Entry', 1);
+  await openGroup(t, 'Equipment');
+  await pressBooleanField(t, 'Gloves');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch()).toHaveProperty('entry', ENTRY_VALUES[1]);
+  expect(writtenPatch()).toHaveProperty('gloves', true);
+});
+
 it('labels the material chips from the one owner of that string, not a private copy', async () => {
   // The drift this closes was visible: this screen's own `materialLabel` said "Steel"
   // while DiveDetailScreen rendered the raw stored 'steel', so one cylinder read two ways
