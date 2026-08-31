@@ -103,6 +103,12 @@ Both recede as the list scrolls down and return on the way up. A logbook is scan
 - **A field error is text, not a field.** Muted, trailing, under the row it belongs to. Shipped once as a white rounded box the same height as an input, which read as a second empty field rather than a message.
 - **Autocomplete's position is fixed here; its styling is not.** The list belongs directly under the focused row. How it looks waits for M2, which reworks site search around the shared site database and adding new sites — designing it now means designing it twice.
 
+**Option chips and the group header** (owner's calls, after seeing the form built):
+
+- **A chip is filled.** `surface` behind an unselected chip, `action` ink behind the selected one — the same invert the save control uses, so "the chosen thing is the inverted thing" is one rule across the app. This does put a `surface` fill on two different things (a chip, and the focused row); they are told apart by shape and scale rather than by colour, a small pill inside a row against a full-bleed fill. Recorded as a known trade-off, not an oversight.
+- **An icon appears only where the value has one.** *Shore* and *boat* do. *Salt*, *fresh* and *brackish* do not, and neither do *wet*, *semidry* and *dry* or *steel* and *alu* — drawn as icons those collapse into near-identical droplets and suits separated by tally marks, which is a legend. §10's computed-value square is the precedent: a symbol that needs a legend has already failed. So the icon is information, not decoration, and it **supplements the label rather than replacing it** — never an icon alone. SF Symbols through `expo-symbols` with a Material Symbol on Android, exactly as `SearchCapsule`'s magnifier already works.
+- **A collapsible group is marked by a chevron, not by the words "Show"/"Hide".** **Drawn, not typed** — the same reason §0.6 already gives for rating marks: a glyph's size varies by typeface, so a typed chevron looks broken somewhere. It rotates to show state, needs no translation, and drops a word from a row that is otherwise pure structure.
+
 Unchanged, and deliberately: the save control stays filled inverted ink (§10), the Logged/Planned chip and `‹ Cancel` keep the treatments agreed during M1d, and the `carried ×` chip stays a filled chip on `border` with its `×` behind a divider.
 
 ---
