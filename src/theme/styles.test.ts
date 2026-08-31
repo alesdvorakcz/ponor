@@ -1,4 +1,5 @@
-import { makeStyles } from './styles';
+import { themeFor } from './resolve';
+import { divesBarTopInset, makeStyles } from './styles';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
 // fresh StyleSheet each time, `styles` would get a new object identity on every render,
@@ -113,16 +114,19 @@ describe('the reorder arrows row', () => {
 });
 
 // DESIGN.md §4.1: what a screen calls itself is one rule, so it has one owner. Three screens
-// draw a title — the dive form, Settings, and (this task) the Dives list — and two of them
-// put a control on the line beside it. The face, size and ink come from one `screenHeading`
-// definition and the row's shape from one `headingRow`; each screen supplies only the column
-// it indents to, which genuinely differs (the form and Settings use the form row's 20, the
-// Dives list its own rows' 16). Pinned as agreement rather than as values, so the three can
-// still be restyled together and can no longer drift apart one at a time.
+// draw a title — the dive form, Settings, and the Dives list — and the face, size and ink of
+// all three come from one `screenHeading` definition; each screen supplies only the column it
+// indents to, which genuinely differs (the form and Settings use the form row's 20, the Dives
+// list its own rows' 16). Pinned as agreement rather than as values, so the three can still
+// be restyled together and can no longer drift apart one at a time.
+//
+// The Dives list's title is a native LARGE title now — it lives in the scroll content and
+// scrolls away — and it still reads at this one size rather than at UIKit's 34: taking that
+// would have split this rule three ways for one screen.
 describe('a screen title', () => {
   it('reads the same on every screen that draws one', () => {
     const styles = makeStyles('dark');
-    const dives = styles.divesHeading as Record<string, unknown>;
+    const dives = styles.divesTitle as Record<string, unknown>;
     for (const other of [styles.formHeading, styles.settingsHeading] as Record<string, unknown>[]) {
       expect(dives.fontFamily).toBe(other.fontFamily);
       expect(dives.fontSize).toBe(other.fontSize);
@@ -130,14 +134,83 @@ describe('a screen title', () => {
     }
   });
 
-  it('sits in the same row shape wherever something shares its line', () => {
+  // A title with nothing on its line must not carry the `flex: 1` that lets one wrap beside a
+  // control (§0.5's Czech): the form's heading shares its line with §2.4's Logged/Planned
+  // control and needs it, Settings' and the Dives list's have the line to themselves and
+  // would be claiming membership of a row they are not in. Written as the contrast rather
+  // than as two separate assertions, since it is the difference that is the rule.
+  it('takes the wrapping flex only where something shares its line', () => {
     const styles = makeStyles('dark');
-    const dives = styles.divesHeadingRow as Record<string, unknown>;
-    const form = styles.formHeadingRow as Record<string, unknown>;
-    for (const prop of ['flexDirection', 'alignItems', 'justifyContent', 'gap'] as const) {
-      expect(dives[prop]).toBe(form[prop]);
+    expect((styles.formHeading as Record<string, unknown>).flex).toBe(1);
+    expect((styles.divesTitle as Record<string, unknown>).flex).toBeUndefined();
+    expect((styles.settingsHeading as Record<string, unknown>).flex).toBeUndefined();
+  });
+});
+
+// The Dives screen's pinned bar (DESIGN.md §0.6, rewritten again for the native large-title
+// arrangement). Two properties, and each is a defect that has already shipped once.
+describe('the Dives screen pinned bar', () => {
+  // The clearance the owner measured on iOS 26 — Files and Photos both put their trailing
+  // controls at ~66 pt on this phone, ours sat at ~52 and read as touching the Dynamic
+  // Island. Pinned as the RULE (the greater of the device's inset and the app's own 48)
+  // rather than as 66, which is one phone's answer: a hard-coded 66 would be wrong on every
+  // device without an island, and the reason this is a function of `insets.top` at all.
+  it('clears the greater of the device safe area and the app top inset', () => {
+    // A Dynamic Island phone (iPhone 17 Pro reports 62): the device wins, and the glass
+    // capsule's material — drawn ~3.5 pt inside the 48 dp box it is given — lands at ~66.
+    expect(divesBarTopInset(62)).toBe(62);
+    // A notched phone, an iPad (24) and an iPhone SE (20): the app's own inset wins, so
+    // nothing moves from where it has sat since M0, and the wide layout's two columns stay
+    // aligned (the detail pane beside the list is `screen`, i.e. that same 48).
+    expect(divesBarTopInset(47)).toBe(48);
+    expect(divesBarTopInset(24)).toBe(48);
+    expect(divesBarTopInset(0)).toBe(48);
+    // It is a floor, not a clamp: a device with a deeper inset than any shipped today gets
+    // its own clearance rather than being cropped back to 48.
+    expect(divesBarTopInset(100)).toBe(100);
+  });
+
+  // **The `…16` defect, as a property of the sheet.** The capsule floated over the list once
+  // and covered the trailing slot of every sticky trip header — where a trip's date range
+  // lives — and `UNNAMED SITE`'s range read as `…16` on the simulator. DivesScreen.test.tsx
+  // pins the structural half (the list is the bar's sibling, so nothing passes beneath it);
+  // this is the second lock: the bar is opaque, in the app's own ground, so even an overlap
+  // introduced later could not be seen through. A transparent bar is exactly the shape that
+  // regression takes.
+  it('draws an opaque ground, in the theme the screen under it is painted in', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const styles = makeStyles(scheme);
+      const bar = styles.divesBar as Record<string, unknown>;
+      expect(bar.backgroundColor).toBe(themeFor(scheme).bg);
+      expect(bar.backgroundColor).toBe((styles.divesScreen as Record<string, unknown>).backgroundColor);
     }
-    // ...and only the column differs, which is the one thing that should.
-    expect(dives.paddingHorizontal).not.toBe(form.paddingHorizontal);
+  });
+
+  // The capsule's two glyphs are 48 dp boxes (§0.5), and the bar has to be able to hold them
+  // — as a floor, since a `height` here is the one way to clip a tap target while every other
+  // test still passes. The floor sits on the bar's CONTENT row rather than on the bar, and
+  // that is not interchangeable: Yoga measures `minHeight` on the border box, so a floor on
+  // the bar itself would be swallowed whole by its safe-area `paddingTop` and reserve
+  // nothing — which is what would let the title jump 48 pt between the branches that render
+  // a capsule and the two that do not.
+  it('reserves the glyphs their floor below the safe-area inset, not inside it', () => {
+    const row = makeStyles('dark').divesBarRow as Record<string, unknown>;
+    expect(row.minHeight).toBeGreaterThanOrEqual(48);
+    expect(row.height).toBeUndefined();
+    // ...and the bar itself carries no floor, which would be the version that reserves
+    // nothing.
+    expect((makeStyles('dark').divesBar as Record<string, unknown>).minHeight).toBeUndefined();
+  });
+
+  // The bar, the large title and the list all indent to this screen's own 16 dp column
+  // (§0.6), so the capsule's trailing edge lines up with the date ranges it used to cover and
+  // the title with the trip titles below it. Read off the sheet as a relation, so moving the
+  // list's inset moves both with it rather than silently splitting them.
+  it('shares the list rows own column with the title beneath it', () => {
+    const styles = makeStyles('dark');
+    const inset = (styles.divesBar as Record<string, unknown>).paddingHorizontal;
+    expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
+    expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
+    expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
   });
 });

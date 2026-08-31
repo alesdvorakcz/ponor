@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, SectionList, Text, View, useColorScheme } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
 import { DayStrip } from '../components/DayStrip';
@@ -17,7 +18,7 @@ import { diveSiteLabel, formatDiveCount } from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles } from '../theme/styles';
+import { divesBarTopInset, makeStyles } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
 /**
@@ -123,12 +124,12 @@ function entryKey(entry: ListEntry): string {
  *
  * **Wide (tablet) layout** (DESIGN.md §3, `useWideLayout.ts`): `wide` splits the render
  * into a fixed-width list column plus a detail pane for whichever dive is `selectedId`.
- * The list column's own JSX — the title row and its capsule, the notices, the section list —
- * is identical to the narrow layout's; it is written ONCE (`listPane`, below) and reused in
- * both branches, rather than kept as two copies that could quietly drift apart. That is also
- * what keeps the title inside the COLUMN rather than across the window: it is part of the
- * pane, not of the wrapper the two panes sit in, so at 900 px the heading names the list and
- * not the dive beside it. The detail
+ * The list column's own JSX — the pinned bar and its capsule, the notices, the section list
+ * with the large title at the head of its content — is identical to the narrow layout's; it
+ * is written ONCE (`listPane`, below) and reused in both branches, rather than kept as two
+ * copies that could quietly drift apart. That is also what keeps the title inside the COLUMN
+ * rather than across the window: it is part of the pane, not of the wrapper the two panes sit
+ * in, so at 900 px the heading names the list and not the dive beside it. The detail
  * pane reuses `DiveDetailScreen` itself, the exact component `/dive/[id]` renders, rather
  * than a second view that redraws a dive's fields a second way — see that file's own
  * docblock for the two props (`id`, `showBackButton`) this needed and why. `openDive`
@@ -160,6 +161,11 @@ export default function DivesScreen() {
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
+  // The device's own safe area, read for exactly one value: how far down the pinned bar
+  // starts (`bar`, below, through `divesBarTopInset`). The Dynamic Island is the whole
+  // reason — a static inset that clears a notch does not clear an island, and there is no
+  // way for a scheme-only stylesheet to know which one this phone has.
+  const insets = useSafeAreaInsets();
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -276,46 +282,68 @@ export default function DivesScreen() {
   };
 
   /**
-   * The screen's title row (DESIGN.md §0.6) — the line this screen calls itself on, with
-   * §3's search/`+` capsule in its trailing slot.
+   * The screen's pinned bar — the **native iOS large-title arrangement** (owner's call, made
+   * on the device after seeing both this and the single title row it replaces): the capsule
+   * stays in a bar that does not scroll, and the large title (`title`, below) lives in the
+   * list's own content and scrolls away.
    *
-   * **It exists because Settings had one and this screen did not**, and the inconsistency
-   * cost more than a missing line: with no title row, the capsule had nowhere to sit but on
-   * top of the list, and a capsule floating over a list of STICKY trip headers occludes
-   * every one of their date ranges in turn (§0.6's type table puts the range in exactly the
-   * slot the capsule floated in). That was patched by making the capsule recede on scroll
-   * (`useHideOnScroll`); a row in flow removes the collision instead of timing around it —
-   * see `divesHeadingRow` (theme/styles.ts) for the geometry.
+   * **The capsule floated over the list once, and both problems that caused are answered
+   * here structurally.** A capsule floating over a list of STICKY trip headers occludes every
+   * one of their date ranges in turn (§0.6's type table puts the range in exactly the slot
+   * the capsule floated in) — observed on the simulator as `UNNAMED SITE`'s range reading
+   * `…16`. That was first patched by making the capsule recede on scroll (`useHideOnScroll`,
+   * since deleted), then fixed by putting it in a row in flow. This bar keeps the fix and
+   * does not reopen it: the SectionList is the bar's SIBLING, so its viewport begins at the
+   * bar's bottom edge and a sticky header sticks THERE, not under the capsule. The bar is
+   * also opaque (`divesBar`, theme/styles.ts), so even if it ever did overlap the list,
+   * nothing could be read through it.
    *
-   * **The recede went with the float, and the hook went with the recede.** It had exactly
-   * one caller, this screen, and one reason to exist, this occlusion; with the list's
-   * viewport starting below the row there is no offset at which a header can reach the
-   * capsule, so there is nothing left for it to schedule. Keeping it would have left a
-   * tested module wired to nothing, and the capsule is now MORE reachable than the recede
-   * ever made it: it never leaves, so a diver deep in a long logbook no longer has to scroll
-   * up to log a dive. `git log` has the hook, its threshold and its boundary suite if a later
-   * screen wants the same behaviour for a reason of its own. DESIGN.md §0.6's recede
-   * paragraph describes this screen as it was and needs replacing with this row.
+   * **The top clearance is the device's, not a number.** `divesBarTopInset(insets.top)` —
+   * see it in theme/styles.ts. The old row inherited `screen`'s static 48, which on a
+   * Dynamic Island phone put the capsule at ~52 pt where iOS 26's own Files and Photos put
+   * their trailing controls at ~66; reading the safe area gives 66 there and leaves every
+   * other device on the app's own 48.
+   *
+   * **No compact title.** Nothing fades in to replace the title once it has scrolled off —
+   * the owner's deliberate choice, on the grounds that the tab bar already says which screen
+   * this is, so the screen is never left unidentified.
    *
    * `actions` is optional, and the two branches that omit it are saying something. A failed
    * read has no logbook to search and no dive worth adding to a database that would not
    * read it back; an empty logbook has nothing to search either, and §3 already gives that
    * branch the full-size "Log your first dive" in the thumb zone (§0.5) rather than a
    * 19 px glyph at the far corner. Both keep the TITLE, so the screen names itself in every
-   * state, and `divesHeadingRow`'s own `minHeight` keeps that name in the same place
-   * whether or not a capsule is beside it.
+   * state, and `divesBarRow`'s own `minHeight` holds the bar at the height the capsule gives
+   * it so that name does not move between branches.
    */
-  const headingRow = (actions?: readonly CapsuleAction[]) => (
-    <View style={styles.divesHeadingRow}>
-      <Text style={styles.divesHeading}>Dives</Text>
-      {actions !== undefined && <ActionCapsule scheme={scheme} actions={actions} />}
+  const bar = (actions?: readonly CapsuleAction[]) => (
+    <View style={[styles.divesBar, { paddingTop: divesBarTopInset(insets.top) }]}>
+      <View style={styles.divesBarRow}>
+        {actions !== undefined && <ActionCapsule scheme={scheme} actions={actions} />}
+      </View>
     </View>
   );
 
+  /**
+   * The large title, and on the list branch it is handed to the SectionList as its
+   * `ListHeaderComponent` — content, not chrome, which is what makes it scroll away.
+   *
+   * An ELEMENT rather than a `() => JSX` component: `ListHeaderComponent` treats a function
+   * as a component type, and an inline arrow is a new type on every render, which remounts
+   * the header each time. As an element it simply re-renders, like any other child.
+   *
+   * The branches with no list (a failed read, an empty logbook) render this same element
+   * directly under the bar. There is nothing to scroll there, so "in the scroll content" has
+   * no meaning; what matters is that the screen names itself in the same words, the same
+   * treatment and the same place in all three states.
+   */
+  const title = <Text style={styles.divesTitle}>Dives</Text>;
+
   if (error) {
     return (
-      <View style={styles.screen}>
-        {headingRow()}
+      <View style={styles.divesScreen}>
+        {bar()}
+        {title}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>
             Couldn&apos;t open your logbook. Try closing and reopening the app.
@@ -327,8 +355,9 @@ export default function DivesScreen() {
 
   if (dives.length === 0) {
     return (
-      <View style={styles.screen}>
-        {headingRow()}
+      <View style={styles.divesScreen}>
+        {bar()}
+        {title}
         <EmptyState scheme={scheme} onPress={logDive} />
       </View>
     );
@@ -446,15 +475,24 @@ export default function DivesScreen() {
     );
   };
 
-  // Everything the narrow layout has always rendered inside `styles.screen`, unchanged —
-  // written once and reused by both branches below, rather than kept as two copies of the
-  // same list that could quietly drift apart (this file's own top docblock). It opens with
-  // the title row, so on the wide layout the title belongs to the LIST COLUMN rather than to
-  // the window: `wideListColumn` renders this same fragment, and the detail pane beside it
-  // gets its own heading from `DiveDetailScreen` exactly as it does full-screen.
+  // Everything the narrow layout renders inside `styles.divesScreen` — written once and
+  // reused by both branches below, rather than kept as two copies of the same list that
+  // could quietly drift apart (this file's own top docblock). It opens with the pinned bar
+  // and carries the title inside its list, so on the wide layout BOTH belong to the LIST
+  // COLUMN rather than to the window: `wideListColumn` renders this same fragment, and the
+  // detail pane beside it gets its own heading from `DiveDetailScreen` exactly as it does
+  // full-screen.
+  //
+  // **The two notices sit between the bar and the list, and stay pinned there** rather than
+  // joining the title in the scrolling content. Both are things a diver has to actually see:
+  // a reorder is started from deep in a long logbook, so a message about one that failed
+  // would be reported somewhere already scrolled past, and `settingsError` is a standing
+  // condition rather than a moment. Under the bar and above the title is where a banner
+  // attached to a bar belongs; with neither showing — the ordinary case — the bar is
+  // followed directly by the list and its title.
   const listPane = (
     <>
-      {headingRow(capsuleActions)}
+      {bar(capsuleActions)}
       {reorderMessage !== null && (
         <Pressable
           style={styles.reorderNotice}
@@ -478,9 +516,14 @@ export default function DivesScreen() {
         </View>
       )}
       {sections.length === 0 ? (
-        <View style={styles.centerFill}>
-          <Text style={styles.messageText}>No dives match your search.</Text>
-        </View>
+        // No list to put the title in, so it is a block here, exactly as on the two branches
+        // above that return early.
+        <>
+          {title}
+          <View style={styles.centerFill}>
+            <Text style={styles.messageText}>No dives match your search.</Text>
+          </View>
+        </>
       ) : (
         // Order, grouping and filtering all already happened above
         // (searchDives/splitPlanned/groupIntoTrips/toListEntries); renderListEntry above
@@ -500,6 +543,11 @@ export default function DivesScreen() {
             />
           )}
           stickySectionHeadersEnabled
+          // The large title, as CONTENT — the whole of the native arrangement (`title`
+          // above). It scrolls away with the logbook, and the sticky trip headers then stick
+          // to the top of this list's viewport, which is the bar's bottom edge and not the
+          // capsule.
+          ListHeaderComponent={title}
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -507,7 +555,7 @@ export default function DivesScreen() {
   );
 
   if (!wide) {
-    return <View style={styles.screen}>{listPane}</View>;
+    return <View style={styles.divesScreen}>{listPane}</View>;
   }
 
   return (
