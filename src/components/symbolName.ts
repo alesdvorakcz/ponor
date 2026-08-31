@@ -66,10 +66,14 @@ export function symbolName(symbol: PlatformSymbol): PlatformSymbol & { web: Andr
  * **No `web` key, and its absence is a finding rather than an oversight.** expo-router's
  * web implementation of native tabs (`NativeTabsView.web.js`) renders each tab as a Radix
  * `TabsTrigger` containing a single `<span>` of the tab's title, and reads no icon field at
- * all: `props.tabs.map(tab => <TabItem title={tab.options.title ?? tab.name} …/>)`. So a
- * browser draws the tab bar as words, with no glyph to name. `symbolName` above still
- * derives `web` for `SymbolView`, which does use it — that is a different component with a
- * different gap.
+ * all: `props.tabs.map(tab => <TabItem title={tab.options.title ?? tab.name} …/>)`. There is
+ * simply no web key for it to be asked under.
+ *
+ * That is also half of why the browser does not render native tabs any more: `(tabs)/
+ * _layout.web.tsx` hands the same `TAB_ROUTES` to expo-router's JS `Tabs` instead, and gets
+ * its glyphs through `symbolName` above and the ordinary `SymbolView` — which does read
+ * `web`, and which the action capsule was already using there. So the browser has icons; it
+ * just does not get them through this function.
  */
 export function nativeTabSymbol(symbol: PlatformSymbol): { sf: SFSymbol; md: AndroidSymbol } {
   return { sf: symbol.ios, md: symbol.android };

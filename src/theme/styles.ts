@@ -270,6 +270,18 @@ function build(scheme: ColorScheme) {
   // or heading's own 48 dp floor leaves ~17 px of slack, and a second 20 on top read as a
   // gap nothing asked for); `paddingBottom` clears the form's fixed footer, and on Settings
   // is simply the room a last row wants above the tab bar.
+  // What a tab label is made of, minus its ink. Two bars now render one — the device's
+  // native one and the browser's JS one (`(tabs)/_layout.tsx` and `_layout.web.tsx`) — and
+  // they take their colour through different mechanisms: the native bar wants the resting
+  // ink baked into the style, while the JS navigator supplies it as a tint prop and would
+  // be overridden by a `color` here (see `webTabBarLabel` below). The face and the size are
+  // the same rule either way, so they are written once and the two keys differ only in the
+  // one thing that genuinely differs.
+  const tabBarLabelType: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 11,
+  };
+
   const rowScroll: ViewStyle = { flex: 1 };
   const rowScrollContent: ViewStyle = {
     paddingTop: 4,
@@ -1851,9 +1863,52 @@ function build(scheme: ColorScheme) {
     // tab's is `tintColor`, a prop rather than a style, because that is the shape the
     // navigator's own options take (navigation/tabs.ts).
     tabBarLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 11,
+      ...tabBarLabelType,
       color: theme.fgMuted,
+    },
+    // ------------------------------------------------------------------------------------
+    // The browser's tab bar (`(tabs)/_layout.web.tsx`)
+    // ------------------------------------------------------------------------------------
+    // **Web draws its own bar, so this sheet has to say what the native one says for itself.**
+    // `NativeTabs`' web implementation is a Radix tab list fixed at `top: 24px`, centred
+    // (`expo-router/assets/native-tabs.module.css`), which is §3's "tabs go to the bottom"
+    // turned upside down and, at a narrow viewport, sits underneath the top-right capsule.
+    // The browser gets expo-router's ordinary JS `Tabs` instead — a real bottom bar — and
+    // everything UIKit supplies on the device has to be named here.
+    //
+    // `bg`, not `surface`: this bar is docked to the bottom edge with the list running up to
+    // it, so it is the ground continuing rather than an object resting on it (§0.2). The
+    // hairline above it is the app's own `border`, drawn on the bar's TOP edge — the same
+    // rule §0.6 gives every other separator in the app, and it has to be stated because
+    // react-navigation's default would otherwise draw its own theme's hairline, which knows
+    // nothing about the scheme (the same class of defect as the `#272727` the native web bar
+    // fell back to).
+    //
+    // The height is react-navigation's, deliberately, exactly as the native bar's is UIKit's:
+    // §0.5's 48 dp floor is the navigator's to keep, and a `height` here would be this sheet
+    // second-guessing it in one place out of two.
+    // `borderColor`, not `borderTopColor`, and that is empirical rather than stylistic: only
+    // the top edge has a width, so the two say the same thing here — but react-navigation
+    // sets the shorthand `borderColor` from ITS theme, and react-native-web resolves a
+    // shorthand against a longhand by generated-CSS order rather than by the order of the
+    // style array, so the longhand lost and the hairline came out `rgb(216, 216, 216)` (the
+    // navigator's own literal) on BOTH schemes. Seen in the browser with `getComputedStyle`,
+    // not deduced. Matching the property the navigator uses is what lets the app's own token
+    // win, since `tabBarStyle` is last in that array.
+    webTabBar: {
+      backgroundColor: theme.bg,
+      borderTopWidth: 1,
+      borderColor: theme.border,
+    },
+    // The same tab label, minus the colour — and the omission is the whole reason this is a
+    // second key rather than `tabBarLabel` above. The JS navigator composes
+    // `[{ color: activeOrInactiveTint }, tabBarLabelStyle]` in that order
+    // (`BottomTabItem.js`), so a `color` here would win over `tabBarActiveTintColor` and the
+    // selected tab's label would never change ink — silently, since both are valid colours.
+    // The face and the size are shared rather than retyped, so the two bars cannot drift on
+    // what a tab label looks like.
+    webTabBarLabel: {
+      ...tabBarLabelType,
     },
   });
 }
