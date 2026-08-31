@@ -590,11 +590,11 @@ describe('updateDive', () => {
   });
 });
 
-describe('manual order is a real integer at rest', () => {
-  const storageClass = async (id: string) =>
+describe('every INTEGER column is a real integer at rest', () => {
+  const storageClass = async (id: string, column = 'manual_order') =>
     (
       (await db.all(
-        sql`select typeof(manual_order) as t from dives where id = ${id}`,
+        sql`select typeof(${sql.raw(column)}) as t from dives where id = ${id}`,
       )) as { t: string }[]
     )[0]?.t;
 
@@ -632,6 +632,71 @@ describe('manual order is a real integer at rest', () => {
     await expect(
       createDive(db, { date: '2026-08-16', manualOrder: 'nine' as unknown as number }),
     ).resolves.toBeTruthy();
+  });
+
+  // The other five INTEGER columns, which had the identical affinity problem and none of
+  // the treatment: `duration_min`, `rating`, `waves`, `current` and `surge`. Named
+  // alongside their SQL column so the storage class is read off the database rather than
+  // inferred from what the repository handed back — the whole point is what Postgres will
+  // find in M2's `push_changes`, not what JavaScript remembers.
+  const otherIntegerColumns = [
+    ['durationMin', 'duration_min'],
+    ['rating', 'rating'],
+    ['waves', 'waves'],
+    ['current', 'current'],
+    ['surge', 'surge'],
+  ] as const;
+
+  it.each(otherIntegerColumns)('rounds a fractional %s instead of storing a REAL', async (field, column) => {
+    const created = await createDive(db, { date: '2026-08-16', [field]: 47.5 });
+    expect(created[field]).toBe(48);
+    expect(await storageClass(created.id, column)).toBe('integer');
+
+    const down = await createDive(db, { date: '2026-08-16', [field]: 47.4 });
+    expect(down[field]).toBe(47);
+    expect(await storageClass(down.id, column)).toBe('integer');
+  });
+
+  it.each(otherIntegerColumns)('rounds %s on the edit path too, not just on creation', async (field, column) => {
+    // `updateDive` normalises through the same boundary, and it has to: a diver correcting
+    // a duration is the ordinary way a fractional value reaches an existing row.
+    const created = await createDive(db, { date: '2026-08-16', [field]: 40 });
+    const updated = await updateDive(db, created.id, { [field]: 47.5 });
+    expect(updated[field]).toBe(48);
+    expect(await storageClass(created.id, column)).toBe('integer');
+  });
+
+  it('leaves the REAL columns fractional, which is what they are for', async () => {
+    // The assertion that keeps the rounding scoped: depths, temperatures, visibility and
+    // weights are REAL columns and a diver's 18.4 m must survive exactly. A fix that
+    // rounded "numbers bound for the dives table" rather than "numbers bound for an INTEGER
+    // column" would pass every test above and quietly destroy the one field this milestone
+    // has already lost once.
+    const created = await createDive(db, {
+      date: '2026-08-16',
+      maxDepthM: 18.4,
+      avgDepthM: 9.7,
+      waterTempC: 26.5,
+      visibilityM: 12.5,
+      weightsKg: 6.5,
+      latitude: 50.12345,
+    });
+    expect(created.maxDepthM).toBe(18.4);
+    expect(created.avgDepthM).toBe(9.7);
+    expect(created.waterTempC).toBe(26.5);
+    expect(created.visibilityM).toBe(12.5);
+    expect(created.weightsKg).toBe(6.5);
+    expect(created.latitude).toBe(50.12345);
+  });
+
+  it('leaves the boolean columns alone, though SQL stores them as INTEGER too', async () => {
+    // Drizzle types these as SQLiteBoolean rather than SQLiteInteger, which is what keeps
+    // them out of the rounding by construction — asserted, because "they are integers in
+    // SQL" is exactly the reasoning that would sweep them in.
+    const created = await createDive(db, { date: '2026-08-16', hood: true, gloves: false, boots: null });
+    expect(created.hood).toBe(true);
+    expect(created.gloves).toBe(false);
+    expect(created.boots).toBeNull();
   });
 });
 

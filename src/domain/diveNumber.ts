@@ -65,34 +65,15 @@ function manualOrderKey(value: unknown): number {
 }
 
 /**
- * The storage half of the same field's rules, kept next to the ordering half
- * above so the two cannot drift.
- *
- * DESIGN.md §2.5 calls `manual_order` a nullable **integer**, and it needs to
- * be literally true rather than nearly true. SQLite's INTEGER is a type
- * *affinity*, not a constraint: it converts a REAL to INTEGER only when the
- * conversion is lossless, so `1.5` written through the repository reads back
- * as `1.5` with storage class `real` (verified against a real migrated
- * database — the earlier note that "the column is INTEGER so SQLite coerces"
- * is simply false). §6 says the same schema lives in Postgres, where an
- * `integer` column has no such laxity, so a fractional value would round or
- * error on its way through M2's `push_changes` — and under whole-row LWW that
- * means a diver's hand-ordering silently changing when it syncs.
- *
- * Rounds rather than rejects. §1 says logging is never blocked, and this is a
- * tie-break whose worst case is a cosmetically odd order, never a lost dive;
- * refusing the save would be a far worse trade than moving a value half a
- * place. A value that is not a real number at all cannot be rounded into one,
- * so it becomes null — which is not a discarded value but the truthful
- * reading of "this dive has no hand-set order", and exactly how
- * `manualOrderKey` above already treats it when sorting.
- *
- * Negative integers pass through untouched. They sort before 1, which is
- * coherent, and clamping them would invent a rule DESIGN.md does not state.
+ * The storage half of this field's rules used to live here, next to the
+ * ordering half above. It has moved to `storedInteger` (db/dives.ts), which is
+ * the same rule — DESIGN.md §10's "non-integers are rounded rather than
+ * rejected, per §1" — applied to every INTEGER column rather than to this one
+ * alone: `duration_min`, `rating` and the three condition scales have the exact
+ * same SQLite-affinity-versus-Postgres problem, and the reasoning §10 recorded
+ * was never specific to hand order. The predicate above stays here, because
+ * what makes a hand order *usable for sorting* really is this module's to say.
  */
-export function storedManualOrder(value: unknown): number | null {
-  return isUsableManualOrder(value) ? Math.round(value) : null;
-}
 
 /**
  * True for a value that can be a count of dives — the diver's pre-Ponor total

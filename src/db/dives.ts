@@ -1,6 +1,6 @@
 import { and, eq, getTableColumns, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
-import { compareDiveOrder, storedManualOrder } from '../domain/diveNumber';
+import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
@@ -238,18 +238,62 @@ function withoutUndefinedFields<T extends object>(patch: T): T {
 }
 
 /**
- * The write boundary for the three fields whose stored form the rest of the
- * app relies on. `date` and `timeIn` are plain `text` columns and
- * `manual_order` is an INTEGER *affinity*, so nothing at the schema level makes
- * DESIGN.md §6's `YYYY-MM-DD` / `HH:MM` contract or §2.5's "nullable integer"
- * true; this is the one place that does. `domain/datetime.ts` owns what the
- * string forms are and `domain/diveNumber.ts` owns what a hand order is.
+ * Every `dives` column whose SQL type is INTEGER and whose value is a plain
+ * number — today `manual_order`, `duration_min`, `rating`, `waves`, `current`
+ * and `surge`.
+ *
+ * Read off the schema rather than typed out here, so a column added to
+ * `schema.ts` as an `integer()` is covered the day it exists instead of the day
+ * someone remembers this list. Drizzle gives the three boolean columns
+ * (`hood`/`gloves`/`boots`) their own `columnType` — `SQLiteBoolean`, not
+ * `SQLiteInteger` — even though they are INTEGER in SQL, so they fall out of
+ * this filter by construction and never reach the rounding below, which would
+ * be nonsense for them.
+ */
+const INTEGER_COLUMNS: readonly string[] = Object.entries(getTableColumns(dives))
+  .filter(([, column]) => column.columnType === 'SQLiteInteger')
+  .map(([name]) => name);
+
+/**
+ * DESIGN.md §10's `manual_order` rule — "non-integers are rounded rather than
+ * rejected, per §1" — applied to every INTEGER column, because none of the
+ * reasoning recorded there was ever specific to that one field.
+ *
+ * SQLite's INTEGER is an *affinity*, not a constraint: it converts a REAL to
+ * INTEGER only when the conversion is lossless, so `1.5` written through this
+ * repository reads back as `1.5` with storage class `real`. §6 puts the same
+ * schema in Postgres, where an `integer` column has no such laxity, so a
+ * fractional value would round or error on its way through M2's `push_changes`
+ * — and under §7's whole-row last-write-wins a value that changes shape in
+ * transit is a value that silently changes on the diver's other device. The
+ * rounding happens here, once, where the app can see it, instead of there.
+ *
+ * A value that is not a number at all cannot be rounded into one and becomes
+ * null, which is what the column already means by null. That includes a
+ * numeric-looking *string*: `'45'` is not a number, and this is deliberately
+ * not the "lenient about spelling" boundary `storedCalendarDate` is — nothing
+ * a diver types reaches an INTEGER column without going through the form's own
+ * coercion first (`optionalNumber`, domain/diveFormSchema.ts). It also keeps
+ * the save alive, which is the §1 half: an object or a boolean handed to
+ * better-sqlite3 throws, and a dive lost to a bound-parameter error is a far
+ * worse trade than a tie-break or a rating reading null.
+ */
+function storedInteger(value: unknown): number | null {
+  return Number.isFinite(value) ? Math.round(value as number) : null;
+}
+
+/**
+ * The write boundary for every field whose stored form the rest of the app
+ * relies on. `date` and `timeIn` are plain `text` columns and the six above are
+ * INTEGER *affinities*, so nothing at the schema level makes DESIGN.md §6's
+ * `YYYY-MM-DD` / `HH:MM` contract or §2.5's "nullable integer" true; this is
+ * the one place that does. `domain/datetime.ts` owns what the string forms are.
  *
  * It canonicalises rather than validates, because §1 says logging a dive is
  * never blocked: a real date or time spelled loosely ('2026-8-17', '7:30') is
  * rewritten to the canonical form, an empty timeIn becomes the null the column
- * already uses for "no time", a fractional hand order is rounded, and anything
- * else is stored exactly as given.
+ * already uses for "no time", a fractional integer field is rounded, and
+ * anything else is stored exactly as given.
  *
  * Only keys carrying a real value are touched. `undefined` is checked as well
  * as `in`, so this holds for a key present with `undefined` and not merely for
@@ -263,7 +307,9 @@ function withNormalisedFields<T extends object>(input: T): T {
   const out = { ...input } as Record<string, unknown>;
   if (out.date !== undefined) out.date = storedCalendarDate(out.date);
   if (out.timeIn !== undefined) out.timeIn = storedTimeOfDay(out.timeIn);
-  if (out.manualOrder !== undefined) out.manualOrder = storedManualOrder(out.manualOrder);
+  for (const column of INTEGER_COLUMNS) {
+    if (out[column] !== undefined) out[column] = storedInteger(out[column]);
+  }
   return out as T;
 }
 
