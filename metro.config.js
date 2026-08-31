@@ -33,4 +33,22 @@ config.resolver.useWatchman = false;
 // load-bearing, and do not delete it without running that experiment.
 config.resolver.sourceExts.push('sql');
 
+// expo-sqlite's web build imports `wa-sqlite.wasm`, and Metro will not resolve a .wasm
+// specifier unless it is registered as an asset. Without this line `expo export --platform
+// web` dies at "Unable to resolve module ./wa-sqlite/wa-sqlite.wasm" — the file DOES ship
+// inside expo-sqlite, it simply cannot be required. Harmless on native: nothing in the
+// native graph imports a .wasm, and the iOS export is byte-for-byte unaffected (verified).
+//
+// This does NOT make the web app work, and is not claimed to. With it, the web bundle
+// builds and boots; then two things still block it, both verified in a browser:
+//   1. wa-sqlite needs SharedArrayBuffer, so the HOST must send cross-origin isolation
+//      headers (COOP: same-origin, COEP: require-corp). Any static host will do, but it
+//      is a deployment requirement, not a code one.
+//   2. With those headers set, the SQLite worker never completes its handshake —
+//      "Sync operation timeout" from invokeWorker. The app's data layer is synchronous
+//      (`openDatabaseSync` through drizzle-orm/expo-sqlite) and the web shim bridges that
+//      to a worker; that bridge is where it stops. Not a config problem.
+// The web app is a v1.1 item (§9). This line is kept because it is a real, tested step and
+// costs nothing, not because web is close to working.
+
 module.exports = config;
