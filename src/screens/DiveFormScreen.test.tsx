@@ -2691,3 +2691,184 @@ describe('the unit setting', () => {
     expect(unitOf(t, 'Max depth')).toBe('ft');
   });
 });
+
+// --- §2.3: autocomplete from the diver's own history ---
+//
+// The list itself is FormField.test.tsx's, and the ranking is suggest.test.ts's. What is
+// this screen's, and is tested here, is the wiring: which four fields get a list, which
+// dives it is drawn from, and — the correctness half — that §6's `site_id` + `site_name`
+// snapshot pair moves together in both directions.
+
+/** Focuses a field the way a diver does, which is what draws its list (§0.6: the list
+ * belongs under the FOCUSED row). `fireEvent(input, 'focus')` rather than a prop, so a
+ * field wired to a condition it could never satisfy fails here instead of passing. */
+async function focusField(t: RenderResult, label: string) {
+  const input = findTextInput(t, label);
+  if (!input) throw new Error(`no field labelled ${label}`);
+  await fireEvent(input, 'focus');
+  return input;
+}
+
+/** What one field is currently offering, in the order it offers it — read off the
+ * `` `Fill ${label} with ${value}` `` label FormField gives each row, so this sees exactly
+ * what a screen reader would and can tell one field's list from another's. */
+function suggestionsUnder(t: RenderResult, label: string): string[] {
+  const prefix = `Fill ${label} with `;
+  return buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((announced) => announced.startsWith(prefix))
+    .map((announced) => announced.slice(prefix.length));
+}
+
+async function pickSuggestion(t: RenderResult, label: string, value: string) {
+  const row = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Fill ${label} with ${value}`);
+  if (!row) throw new Error(`no suggestion offering ${value} under ${label}`);
+  await fireEvent.press(row);
+}
+
+/** A two-dive logbook whose older dive holds a different value in every autocompleting
+ * field, so each field can be asked for a value only IT could supply — a screen that
+ * suggested from one column for every field would fail on the value, not just on a count. */
+const historyOfTwo = () => [
+  dive({ date: '2026-08-20', siteName: 'Silfra', centerName: 'Dive.is', buddy: 'Petr', guide: 'Jana', title: 'Best dive yet', notes: 'Arch at 30 m' }),
+  dive({ date: '2026-08-10', siteName: 'Blue Hole', centerName: 'Aqua Divers', buddy: 'Anna', guide: 'Karel' }),
+];
+
+it('offers each of §2.3\'s four fields its own column of the diver\'s history', async () => {
+  stubDives({ dives: historyOfTwo() });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole']);
+
+  await focusField(t, 'Centre');
+  await typeInto(t, 'Centre', 'aq');
+  expect(suggestionsUnder(t, 'Centre')).toEqual(['Aqua Divers']);
+
+  await openGroup(t, 'People');
+  await focusField(t, 'Buddy');
+  await typeInto(t, 'Buddy', 'ann');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Anna']);
+
+  await focusField(t, 'Guide');
+  await typeInto(t, 'Guide', 'kar');
+  expect(suggestionsUnder(t, 'Guide')).toEqual(['Karel']);
+});
+
+// The other half of the same rule, and the one that fails for a screen that handed every
+// `ControlledTextField` a list: §2.3 names four fields, and title and notes are prose a
+// diver wrote about one dive rather than names they reuse. `Max depth` stands for the
+// numeric fields, which have nothing to autocomplete from at all.
+it('offers nothing to the fields §2.3 does not name', async () => {
+  stubDives({ dives: historyOfTwo() });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await focusField(t, 'Max depth');
+  expect(suggestionsUnder(t, 'Max depth')).toEqual([]);
+
+  await openGroup(t, 'Notes & rating');
+  await focusField(t, 'Title');
+  await typeInto(t, 'Title', 'best');
+  expect(suggestionsUnder(t, 'Title')).toEqual([]);
+
+  await focusField(t, 'Notes');
+  await typeInto(t, 'Notes', 'arch');
+  expect(suggestionsUnder(t, 'Notes')).toEqual([]);
+});
+
+// **The correctness half of this task** (DESIGN.md §10, written for it): "picking a
+// suggestion sets both together... otherwise a dive carries one site's id under another's
+// name, which is latent while every id is null and becomes wrong the day M2 fills them in."
+//
+// Asserted on the WRITE, not on the screen, because that is the level where it can fail:
+// `siteId` has no row of its own — it is not a field a diver types — so nothing on screen
+// would ever show the mismatch. The carried id belongs to a *different* site from the one
+// picked, which is what makes the assertion about provenance rather than about not-null.
+it('fills a site and its paired id from the same suggestion, not from carry-over', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra' }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  // Carry-over opened the form on the most recent dive's site — name AND id.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSuggestion(t, 'Site', 'Blue Hole');
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Blue Hole');
+  // The id of the dive the NAME came from. `site-silfra` here — the id carry-over opened
+  // with, under a name the diver has since replaced — is the exact defect.
+  expect(writtenInput().siteId).toBe('site-blue');
+});
+
+// The other direction, and the one no existing test could fail on: a typed name no longer
+// refers to the carried id, so the id must be cleared rather than left pointing at a site
+// the dive is no longer at. Both pairs, so the rule is not wired to `site` alone.
+it('clears the paired id when a name is typed over by hand', async () => {
+  const target = dive({
+    id: 'target', date: '2026-08-16',
+    siteName: 'Blue Hole', siteId: 'site-blue',
+    centerName: 'Aqua Divers', centerId: 'centre-aqua',
+  });
+  stubLogbookFor(target);
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  await typeInto(t, 'Site', 'Somewhere else');
+  await typeInto(t, 'Centre', 'Another centre');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+
+  expect(writtenPatch().siteName).toBe('Somewhere else');
+  expect(writtenPatch().centerName).toBe('Another centre');
+  // `null`, not absent: absent means "don't touch" to the repository (db/dives.ts's patch
+  // contract), which would leave one site's id under another site's name in the row.
+  expect(writtenPatch()).toHaveProperty('siteId', null);
+  expect(writtenPatch()).toHaveProperty('centerId', null);
+});
+
+// §0.6: "overwriting is just typing, and drops the chip" — and picking a suggestion is
+// overwriting by another gesture. The carried value is a PREFIX of the offered one, which
+// is what lets a field still holding its carried text have anything to offer at all (a
+// suggestion never repeats the value the field already holds).
+it('drops the carried mark when a suggestion is picked, not only when one is typed', async () => {
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', buddy: 'Petr' }),
+      dive({ date: '2026-08-10', buddy: 'Petra' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findClearCarried(t, 'Buddy')).toBeDefined();
+
+  await focusField(t, 'Buddy');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Petra']);
+  await pickSuggestion(t, 'Buddy', 'Petra');
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petra');
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+});
+
+// Edit mode reads the same one list every screen reads, so the dive under edit is IN it —
+// and it must not offer its own values back to the field they came from. Its spelling would
+// also be the most recent one, so it would decide how every other dive's version of that
+// name is displayed, which is the wrong dive to ask.
+it('does not offer the dive under edit its own values back', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole' });
+  stubDives({ dives: [target, dive({ date: '2026-08-01', siteName: 'Blue Lagoon' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Lagoon']);
+});

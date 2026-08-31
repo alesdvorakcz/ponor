@@ -59,6 +59,36 @@ const PAIRED_ID_FIELD: Record<SuggestedField, 'siteId' | 'centerId' | null> = {
   guide: null,
 };
 
+const SUGGESTED_FIELD_SET: ReadonlySet<string> = new Set(SUGGESTED_FIELDS);
+
+/**
+ * Whether a form field is one of the four that autocomplete, and which one — so a caller
+ * wiring up a row asks this about the field name it already has rather than repeating that
+ * name a second time beside it.
+ *
+ * `DiveFormScreen`'s own `carriedPaths` docblock draws the same line for the same reason:
+ * "asking each call site to repeat its own field name a second time as a plain string next
+ * to the `name` prop it already has" is the hand-maintained second list §4.1 warns about,
+ * one call site over from the module that owns it. A row can therefore neither claim
+ * autocomplete for a field §2.3 does not name, nor draw from the wrong column.
+ *
+ * Takes a plain `string` rather than a form-field type, so `domain/` does not have to know
+ * what a `FieldPath` is; the narrowing is what the caller wanted anyway.
+ */
+export function asSuggestedField(name: string): SuggestedField | null {
+  return SUGGESTED_FIELD_SET.has(name) ? (name as SuggestedField) : null;
+}
+
+/**
+ * The column holding a suggested field's paired id, or `null` for the two fields that have
+ * none. The public half of `PAIRED_ID_FIELD` above — a caller writing the id back into a
+ * form needs the same pairing this module reads it with, and a second answer to "which id
+ * goes with which name" is exactly the mismatch §10 records for this task.
+ */
+export function pairedIdField(field: SuggestedField): 'siteId' | 'centerId' | null {
+  return PAIRED_ID_FIELD[field];
+}
+
 /** How many offers a caller gets unless it asks for a different number. Five is what fits
  * under a focused row without pushing the next field off a phone screen; it is the default
  * rather than a hard cap because the number is a layout judgement, not a rule about what a
@@ -86,7 +116,7 @@ interface Tally {
  * rather than a `''` every later reader would have to learn to treat as absent.
  */
 function pairedId(dive: Dive, field: SuggestedField): string | null {
-  const idField = PAIRED_ID_FIELD[field];
+  const idField = pairedIdField(field);
   if (idField === null) return null;
   const id = dive[idField];
   return typeof id === 'string' && id.trim() !== '' ? id : null;

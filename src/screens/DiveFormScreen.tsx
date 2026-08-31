@@ -26,6 +26,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
+import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -423,6 +424,30 @@ interface ControlledTextFieldProps {
    */
   carriedPaths?: ReadonlySet<string>;
   onDropCarried?: (name: FieldPath<DiveFormInput>) => void;
+  /**
+   * The dives DESIGN.md §2.3's autocomplete draws on — `useDives()`'s own list, minus the
+   * dive being edited (see the render body). Passed at the four call sites §2.3 names and
+   * omitted at the other twenty-four.
+   *
+   * **Which column it draws from is decided by `name` alone**, through `asSuggestedField`
+   * (domain/suggest.ts), never by a second prop spelling the field's name out again beside
+   * the `name` this row already has — the same reasoning `carriedPaths` above records for
+   * `onDropCarried`. So a call site cannot ask for autocomplete on a field §2.3 does not
+   * name, and cannot wire a row to the wrong column.
+   */
+  history?: Dive[];
+  /**
+   * Sets, or clears, the id paired with this field's name — DESIGN.md §6's `site_id` +
+   * `site_name` snapshot pair, and §10's own note on this task: "picking a suggestion sets
+   * both together and typing over a name clears the id — otherwise a dive carries one
+   * site's id under another's name."
+   *
+   * Both directions run through this one callback rather than through two, because they are
+   * one rule: the id belongs to whatever gesture last set the name. A no-op for `buddy` and
+   * `guide`, which have no id column (`pairedIdField` returns `null`), so this row does not
+   * have to know which of the four it is.
+   */
+  onPairedId?: (field: SuggestedField, id: string | null) => void;
 }
 
 /**
@@ -485,46 +510,85 @@ function ControlledTextField({
   unit,
   carriedPaths,
   onDropCarried,
+  history,
+  onPairedId,
 }: ControlledTextFieldProps) {
+  // Which of §2.3's four fields this row is, if it is one at all — read off the `name` this
+  // row already carries. See `history` above for why it is not a prop.
+  const suggested = asSuggestedField(name);
   return (
     <Controller
       control={control}
       name={name}
-      render={({ field, fieldState }) => (
-        <>
-          <FormField
-            ref={field.ref}
-            label={label}
-            value={toInputString(field.value)}
-            // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
-            // drops the chip") — dropping first, then forwarding, so a field currently
-            // showing `carried` never renders even one frame of the new text next to a
-            // chip that no longer describes it.
-            onChange={(text) => {
-              onDropCarried?.(name);
-              field.onChange(text);
-            }}
-            onBlur={field.onBlur}
-            scheme={scheme}
-            keyboardType={keyboardType}
-            multiline={multiline}
-            placeholder={placeholder}
-            mono={mono}
-            unit={unit}
-            carried={carriedPaths?.has(name)}
-            // The `×`: same drop, same forward, but with FormField's own `''` — never
-            // this field's current (possibly numeric-looking) value — so a cleared
-            // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
-            // coercion contract) as the same empty string `optionalNumber` turns into
-            // `null`, not a derived `0`.
-            onClear={(text) => {
-              onDropCarried?.(name);
-              field.onChange(text);
-            }}
-          />
-          <FieldNote message={fieldState.error?.message} scheme={scheme} />
-        </>
-      )}
+      render={({ field, fieldState }) => {
+        const text = toInputString(field.value);
+        // §2.3's own history, ranked by `suggestFrom` — this row decides nothing about what
+        // a suggestion is or what order they come in, only that this field's current text is
+        // the query. Computed per render rather than memoised: it is a sort over the diver's
+        // own logbook (a few thousand dives at most, DESIGN.md §4.1's own figure), and a
+        // `Controller`'s render prop is a plain function call, so a hook here would be
+        // illegal rather than merely unnecessary.
+        const suggestions =
+          suggested !== null && history !== undefined ? suggestFrom(history, suggested, text) : undefined;
+        return (
+          <>
+            <FormField
+              ref={field.ref}
+              label={label}
+              value={text}
+              // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
+              // drops the chip") — dropping first, then forwarding, so a field currently
+              // showing `carried` never renders even one frame of the new text next to a
+              // chip that no longer describes it.
+              //
+              // It also clears the paired id: a name the diver typed no longer refers to the
+              // site the carried id names, and leaving the id behind is how a dive ends up
+              // carrying one site's id under another's name (§10). Nothing on screen would
+              // ever show that, which is why it happens on the same keystroke rather than
+              // being reconciled later.
+              onChange={(newText) => {
+                onDropCarried?.(name);
+                if (suggested !== null) onPairedId?.(suggested, null);
+                field.onChange(newText);
+              }}
+              onBlur={field.onBlur}
+              scheme={scheme}
+              keyboardType={keyboardType}
+              multiline={multiline}
+              placeholder={placeholder}
+              mono={mono}
+              unit={unit}
+              carried={carriedPaths?.has(name)}
+              // The `×`: same drop, same forward, but with FormField's own `''` — never
+              // this field's current (possibly numeric-looking) value — so a cleared
+              // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
+              // coercion contract) as the same empty string `optionalNumber` turns into
+              // `null`, not a derived `0`. An emptied name refers to no site at all, so the
+              // paired id goes with it for the same reason typing clears it.
+              onClear={(cleared) => {
+                onDropCarried?.(name);
+                if (suggested !== null) onPairedId?.(suggested, null);
+                field.onChange(cleared);
+              }}
+              suggestions={suggestions}
+              // Picking is the one gesture that SETS the pair, and it sets both halves from
+              // the same suggestion — which `suggestFrom` already guarantees came from one
+              // dive. Deliberately not routed through `onChange` above, which would clear the
+              // id in the same breath as setting it.
+              onPickSuggestion={
+                suggested === null
+                  ? undefined
+                  : (suggestion) => {
+                      onDropCarried?.(name);
+                      onPairedId?.(suggested, suggestion.id);
+                      field.onChange(suggestion.value);
+                    }
+              }
+            />
+            <FieldNote message={fieldState.error?.message} scheme={scheme} />
+          </>
+        );
+      }}
     />
   );
 }
@@ -937,7 +1001,26 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed));
   }
 
-  const { control, handleSubmit } = useForm<DiveFormInput, unknown, DiveFormValues>({
+  // §2.3's "your own history", out of the one read every screen uses — never a second query
+  // (useDives.ts's own docblock, and this screen's for `dives` above).
+  //
+  // **The dive under edit is excluded, and that is a decision.** It is in `dives` like any
+  // other, so without this it would suggest its own values back to the field they came from
+  // — a row offering the diver what they are in the middle of replacing. Worse than useless,
+  // in fact: being (usually) the most recent dive at that site, its spelling would also be
+  // the one every OTHER dive's version of that name is shown under, and the dive being
+  // rewritten is the wrong one to ask how a name is spelled. In create mode nothing is
+  // excluded — the dive carry-over came from is exactly the history a diver reuses.
+  //
+  // **Planned dives count**, and deliberately: §2.4's whole point is setting up the coming
+  // dives on the boat, so the site a diver queued up an hour ago is the site they are most
+  // likely to type next. This is the opposite call from `carryOverSource` above, which takes
+  // the most recent LOGGED dive — but that is one dive's values being copied wholesale,
+  // where this is a name the diver typed themselves and may want again. Tombstoned dives are
+  // already absent: `useDives()` never hands one back.
+  const history = target === null ? dives : dives.filter((d) => d.id !== target.id);
+
+  const { control, handleSubmit, setValue } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
     defaultValues: carried.values,
     // `values`, not a second `defaultValues`: react-hook-form only ever reads
@@ -1007,6 +1090,34 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       return { ...prev, paths, typed };
     });
   }, []);
+
+  // The id half of DESIGN.md §6's `site_id` + `site_name` snapshot pair, moved by whatever
+  // gesture last set the name: a picked suggestion's own id, or `null` when the diver typed
+  // or cleared the name by hand. Shared by all four autocompleting fields, like `dropCarried`
+  // above, so there is one place that can get the pairing wrong rather than four.
+  //
+  // **`siteId` and `centerId` gain no visible row from this.** They are not fields a diver
+  // types — §6 stores them as the app's half of a snapshot — so they are written straight
+  // into the form through `setValue`, exactly as `blankFormValues` already seeds them.
+  // `shouldDirty` is what keeps a picked id through a reseed: `useDives()` can resolve after
+  // this gesture, and `resetOptions.keepDirtyValues` only protects a field react-hook-form
+  // knows the diver moved.
+  //
+  // `dropCarried` goes with it so the id leaves the carried set with its name. Nothing draws
+  // a chip for an id today (`computeCarriedPaths` marks it, nothing reads that mark), but a
+  // set that still called the id carried after the diver replaced it would be wrong in the
+  // quiet way that only shows up the day something does read it.
+  const setPairedId = useCallback(
+    (field: SuggestedField, id: string | null) => {
+      const idField = pairedIdField(field);
+      // `buddy` and `guide` have no id column at all (§2.3: "they stay private text, not
+      // user accounts"), so there is nothing to pair and nothing to clear.
+      if (idField === null) return;
+      setValue(idField, id, { shouldDirty: true });
+      dropCarried(idField);
+    },
+    [setValue, dropCarried],
+  );
 
   // Non-null only while a save attempt has failed and not yet been retried — cleared at
   // the START of the next attempt (below), never on a timer or a dismiss tap, so it
@@ -1120,6 +1231,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               — and a control that cannot produce `31.8.2026` removes that case rather than
               adjudicating it. Required (§2.2), so no `optional`, and therefore no `×`. */}
           <ControlledDateTimeField control={control} name="date" label="Date" mode="date" scheme={scheme} />
+          {/* Two of §2.3's four autocompleting fields. `history` and `onPairedId` are what
+              turn autocomplete on here; which column each draws from, and which id pairs
+              with it, come from the `name` above — see `ControlledTextFieldProps.history`. */}
           <ControlledTextField
             control={control}
             name="siteName"
@@ -1127,6 +1241,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            history={history}
+            onPairedId={setPairedId}
           />
           <ControlledTextField
             control={control}
@@ -1135,6 +1251,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            history={history}
+            onPairedId={setPairedId}
           />
           <ControlledTextField
             control={control}
@@ -1367,6 +1485,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         </FormGroup>
 
         <FormGroup title="People" scheme={scheme}>
+          {/* §2.3's other two: "Buddies and guides autocomplete from your own past entries
+              only — they stay private text, not user accounts." So they autocomplete exactly
+              as site and centre do, and `onPairedId` finds no id column to move. */}
           <ControlledTextField
             control={control}
             name="buddy"
@@ -1374,6 +1495,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            history={history}
+            onPairedId={setPairedId}
           />
           <ControlledTextField
             control={control}
@@ -1382,6 +1505,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
+            history={history}
+            onPairedId={setPairedId}
           />
         </FormGroup>
 
