@@ -69,25 +69,32 @@ export interface FormFieldProps {
  * reason: the chip sits inline in a field's label row, and a 48 x 48 visible box would
  * make that row far taller than the 14 px label text beside it.
  *
- * **Slop is only delivered where every ancestor also contains the point**, which is what
- * these numbers used to get wrong: they were `{ top: 14, bottom: 14, left: 12, right: 12 }`
- * on a `formFieldHeader` about 24 dp tall, so the vertical slop fell outside the row and
- * the right-hand slop outside the chip — a target of roughly 27 x 24 under a comment
- * promising 48. Two things make the current numbers real. `formFieldHeader` now carries
- * `minHeight: 48` (theme/styles.ts), which is where the 14 above and below is spent, and
- * clipping it to the row is the point: whatever the glyph's exact metrics, the target is
- * the row's full 48 dp. And the horizontal slop goes INWARD only — the chip's trailing
- * edge is the header's trailing edge, so anything to the right of it is outside every
- * ancestor there is, while 21 dp to the left lands over the chip's own "carried" label and
- * brings the `×` to 48 dp wide.
+ * **All of it points away from the label.** The previous numbers were
+ * `{ top: 14, bottom: 14, left: 21, right: 0 }`, which reached the floor by extending the
+ * clear target 21 dp INWARD — over the word "carried" — so tapping that word cleared the
+ * field. The owner asked for a visible cross specifically so that clearing would be a
+ * deliberate act ("a label you are expected to guess is tappable is not an affordance"),
+ * and a target covering the label undoes exactly that, the more so because the word sits
+ * inside the same filled chip and reads as part of the same object.
  *
- * That does mean a tap on the right of the word "carried" clears the field. The owner's
- * objection to the whole chip being tappable was that it offered no affordance —
- * "a label you are expected to guess is tappable is not an affordance" — and the visible
- * `×` and its divider answer that; what is behind them is a touch target, and the
- * alternative is a control below §0.5's floor on a boat, in the wet.
+ * **What made inward look like the only direction, and why it was not.** The reasoning
+ * recorded here was "slop is only delivered where every ancestor also contains the point",
+ * so anything right of a chip flush with the row's trailing edge is delivered to nobody.
+ * That is not what React Native does: `RCTView.hitTest` descends into a view's subviews
+ * for a point outside that view whenever the view does **not** clip to bounds
+ * (`if (![self clipsToBounds] || isPointInside)`). Every ancestor here is unclipped except
+ * one — `formFieldCarried` carried `overflow: 'hidden'`, clipping nothing visible and the
+ * slop with it. Dropping that property (theme/styles.ts) is what makes outward real.
+ *
+ * **The arithmetic.** The `×` zone is `formFieldCarriedClear`'s own `paddingHorizontal: 14`
+ * plus one mono glyph at fontSize 11 — call it 35 dp — and 14 dp of slop to its right
+ * brings it past 48. That 14 has somewhere to go: `formScrollContent`'s `padding: 20`
+ * (theme/styles.ts) is the room between the field's trailing edge and the ScrollView's own,
+ * and the ScrollView is the first ancestor that clips. Vertically the 14 above and below is
+ * spent inside `formFieldHeader`'s `minHeight: 48`, which is what makes the target the
+ * row's full height whatever the glyph's exact metrics turn out to be.
  */
-const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 21, right: 0 };
+const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
 /**
  * One form row (DESIGN.md §2.2): a label above an input, with the label's own row left

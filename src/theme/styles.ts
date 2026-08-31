@@ -1136,14 +1136,21 @@ function build(scheme: ColorScheme) {
     // colour" — the same monochrome rule `depthValue` exists to be the one exception to
     // (§0.1: colour encodes depth and nothing else). `theme.border` as a FILL, not just
     // the 1 px hairline it draws everywhere else in this file, is what "on border" means
-    // here; `overflow: 'hidden'` clips the clear zone's own corner and any Android press
-    // ripple to the chip's rounded shape rather than a square peeking out of it.
+    // here.
+    //
+    // **No `overflow: 'hidden'`, and that is load-bearing rather than an omission.** It
+    // clipped nothing visible — the chip's two children are `Text` nodes with no fill and
+    // no radius of their own, and no `android_ripple` is configured — but it did clip the
+    // `×`'s `hitSlop`. React Native only descends into a view's subviews for a point
+    // outside that view when the view does NOT clip to bounds (`RCTView.hitTest`), so this
+    // one property was the whole reason the clear target could not extend past the chip,
+    // and therefore the reason it was pointed INWARD over the word "carried" instead. See
+    // `CLEAR_HIT_SLOP` (FormField.tsx).
     formFieldCarried: {
       flexDirection: 'row',
       alignItems: 'center',
       borderRadius: 6,
       backgroundColor: theme.border,
-      overflow: 'hidden',
     },
     formFieldCarriedLabel: {
       fontFamily: fonts.mono,
@@ -1160,10 +1167,16 @@ function build(scheme: ColorScheme) {
     // `CLEAR_HIT_SLOP`, not a bigger box here — same "small visible control, generous
     // hidden target" split `reorderButton`/`dayStripActionPill` above already use, so
     // this compact chip does not blow out the label row it sits inline with.
+    //
+    // `paddingHorizontal` is 14 rather than 10 so that the visible zone plus the slop the
+    // layout can actually deliver OUTWARD reaches §0.5's floor without any of it reaching
+    // back over the word "carried" — see `CLEAR_HIT_SLOP` (FormField.tsx) for the whole
+    // arithmetic. Four dp is what separates a compact chip from a control that clears a
+    // field when a diver taps its label.
     formFieldCarriedClear: {
       borderLeftWidth: 1,
       borderLeftColor: theme.fgMuted,
-      paddingHorizontal: 10,
+      paddingHorizontal: 14,
       paddingVertical: 5,
     },
     formFieldCarriedClearLabel: {
@@ -1267,12 +1280,15 @@ function build(scheme: ColorScheme) {
     // the same gesture on the same kind of chip, but it carries no `carried` label beside it
     // and therefore no divider: `formFieldCarriedClear`'s left border exists to separate the
     // `×` from that word, and drawn here it would be a line against nothing.
+    // `paddingHorizontal` and the absent `overflow` match `formFieldCarriedClear` above for
+    // the same reason: this `×` reaches §0.5's floor through slop pointed outward, and a
+    // clipping ancestor — or this view's own clip, for the subviews it does not have — is
+    // what decides whether that slop is delivered at all.
     formFieldClear: {
       borderRadius: 6,
       backgroundColor: theme.border,
-      paddingHorizontal: 10,
+      paddingHorizontal: 14,
       paddingVertical: 5,
-      overflow: 'hidden',
     },
     formFieldClearLabel: {
       fontFamily: fonts.mono,

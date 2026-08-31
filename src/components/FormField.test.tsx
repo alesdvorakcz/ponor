@@ -127,26 +127,33 @@ it('marks a carried field and leaves a typed one unmarked', async () => {
   expect(chips).toHaveLength(1);
 });
 
-// DESIGN.md §0.5: "Tap targets never below 48 dp." The `×` is a 27 x 24 chip segment that
-// gets there through `hitSlop`, and hitSlop is only delivered where every ANCESTOR of the
-// control also contains the point — so the numbers alone prove nothing. What this checks is
-// the pair: the slop reaches 48 in both directions AND it reaches it in a direction the
-// layout can actually deliver.
-//
-// There is no Yoga in this environment (react-test-renderer never lays anything out), so
-// the geometry is read off the styles the component composes, exactly as
-// ReorderControls.test.tsx reads its arrows'. The two facts that made this target 27 x 24
-// while its comment said 48: the label row was as tall as its 14 px text, and the chip sits
-// flush against that row's trailing edge, so the right-hand slop had nothing to extend into.
-it('reaches a 48 dp target for the clear control, in directions the layout can deliver', async () => {
-  const t = await render(
-    <FormField label="Weights" value="6" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
-  );
-  const clear = t.root
+/** The chip's own `×`, by the label `FormField` gives it. */
+function findClearCarried(t: RenderResult) {
+  return t.root
     ? t.root
         .queryAll((n) => n.props?.accessibilityRole === 'button')
         .find((n) => String(n.props?.accessibilityLabel ?? '').includes('Clear carried'))
     : undefined;
+}
+
+// DESIGN.md §0.5: "Tap targets never below 48 dp." The `×` is a small chip segment that gets
+// there through `hitSlop`, and hitSlop reaches only where the layout can deliver it — so the
+// numbers alone prove nothing. What this checks is the pair: the target reaches 48 in both
+// directions AND every dp of it points AWAY from the word "carried".
+//
+// That second half is the fix this test exists for. The slop used to be
+// `{ top: 14, bottom: 14, left: 21, right: 0 }`, reaching the floor by extending 21 dp
+// INWARD over the chip's own label — so tapping the word "carried" cleared the field, which
+// is precisely what the owner asked a visible cross to prevent.
+//
+// There is no Yoga in this environment (react-test-renderer never lays anything out), so the
+// geometry is read off the styles the component composes, exactly as ReorderControls.test.tsx
+// reads its arrows'.
+it('reaches a 48 dp target for the clear control, all of it pointing away from the label', async () => {
+  const t = await render(
+    <FormField label="Weights" value="6" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  const clear = findClearCarried(t);
   if (!clear) throw new Error('no clear control found');
   const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
   const styles = makeStyles('light');
@@ -157,15 +164,53 @@ it('reaches a 48 dp target for the clear control, in directions the layout can d
   expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
   expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
 
-  // Horizontal: the `×` zone is its own `paddingHorizontal` plus one mono glyph — call it
-  // 27 dp at fontSize 11 — and every dp of the shortfall has to come from the LEFT, inward
-  // over the chip's own label, because the chip's right edge is the header's right edge and
-  // nothing outside it is an ancestor of anything.
+  // Nothing to the left. This is the assertion the fix is: any left slop at all lands on the
+  // word "carried", which sits inside the same filled chip and reads as part of the same
+  // object, and clearing a field by tapping its label is the opposite of deliberate.
+  expect(slop.left ?? 0).toBe(0);
+
+  // Horizontal: the `×` zone is its own `paddingHorizontal` plus one mono glyph — call it 7
+  // dp at fontSize 11 — and the rest comes from the right.
   const clearZoneWidth = styles.formFieldCarriedClear.paddingHorizontal * 2 + 7;
-  expect(clearZoneWidth + (slop.left ?? 0)).toBeGreaterThanOrEqual(48);
-  // Stated, not implied: slop to the right is spent outside every ancestor, so a fix that
-  // "reached 48" by splitting the shortfall across both sides would be back where it began.
-  expect(slop.right ?? 0).toBe(0);
+  expect(clearZoneWidth + (slop.right ?? 0)).toBeGreaterThanOrEqual(48);
+
+  // ...and that right-hand slop has somewhere to be delivered. `formScrollContent`'s padding
+  // is the room between a field's trailing edge and the ScrollView's own, and the ScrollView
+  // is the first ancestor that clips — so slop wider than it would be spent on nothing,
+  // which is the mistake the previous numbers were a reaction to.
+  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formScrollContent.padding);
+});
+
+// The chip must not clip, or none of the slop above leaves it. React Native descends into a
+// view's subviews for a point outside that view only when the view does NOT clip to bounds
+// (`RCTView.hitTest`), so `overflow: 'hidden'` here would silently take back both the
+// outward slop and the vertical slop — and the target would be the visible zone alone.
+// Pinned as a property of the chip rather than left to a comment, because it clips nothing
+// visible and so reads as free to add back.
+it('leaves the chip unclipped, which is what lets the slop leave it at all', async () => {
+  const styles = makeStyles('light') as unknown as Record<string, Record<string, unknown>>;
+  expect(styles.formFieldCarried?.overflow).toBeUndefined();
+});
+
+it('clears when the × is pressed, and not when the word carried is', async () => {
+  // The behaviour the geometry above exists for, stated directly. `fireEvent` does not model
+  // hitSlop, so this cannot see the slop itself — what it does catch is the other way this
+  // has been built and rejected: making the whole chip the Pressable, which the owner turned
+  // down because "a label you are expected to guess is tappable is not an affordance."
+  const onClear = jest.fn();
+  const t = await render(
+    <FormField label="Weights" value="6" carried onChange={() => {}} onClear={onClear} scheme="light" />,
+  );
+
+  const carriedWord = textNodesOf(t).find((n) => String(n.children[0] ?? '') === 'carried');
+  if (!carriedWord) throw new Error('the chip rendered no "carried" label');
+  await fireEvent.press(carriedWord);
+  expect(onClear).not.toHaveBeenCalled();
+
+  const clear = findClearCarried(t);
+  if (!clear) throw new Error('no clear control found');
+  await fireEvent.press(clear);
+  expect(onClear).toHaveBeenCalledWith('');
 });
 
 it('clears to an empty string, never a zero', async () => {
