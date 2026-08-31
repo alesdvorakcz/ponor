@@ -37,18 +37,24 @@ config.resolver.sourceExts.push('sql');
 // specifier unless it is registered as an asset. Without this line `expo export --platform
 // web` dies at "Unable to resolve module ./wa-sqlite/wa-sqlite.wasm" — the file DOES ship
 // inside expo-sqlite, it simply cannot be required. Harmless on native: nothing in the
-// native graph imports a .wasm, and the iOS export is byte-for-byte unaffected (verified).
+// native graph imports a .wasm, and the iOS bundle is unchanged — same Metro content hash
+// (`entry-4e6eb16d…`) before and after. Not "byte-for-byte": three iOS exports of identical
+// source produce three different `.hbc` files, so the content hash is the identity to check.
 //
-// This does NOT make the web app work, and is not claimed to. With it, the web bundle
-// builds and boots; then two things still block it, both verified in a browser:
-//   1. wa-sqlite needs SharedArrayBuffer, so the HOST must send cross-origin isolation
-//      headers (COOP: same-origin, COEP: require-corp). Any static host will do, but it
-//      is a deployment requirement, not a code one.
-//   2. With those headers set, the SQLite worker never completes its handshake —
-//      "Sync operation timeout" from invokeWorker. The app's data layer is synchronous
-//      (`openDatabaseSync` through drizzle-orm/expo-sqlite) and the web shim bridges that
-//      to a worker; that bridge is where it stops. Not a config problem.
-// The web app is a v1.1 item (§9). This line is kept because it is a real, tested step and
-// costs nothing, not because web is close to working.
+// The host also has to send cross-origin isolation headers (COOP: same-origin, COEP:
+// require-corp) — wa-sqlite needs `SharedArrayBuffer`. That is a deployment requirement, not
+// a code one, and `dev/coopserve.py` is not in this repo: see .superpowers/sdd/
+// web-spike-report.md for the server used to test it.
+//
+// The rest of what web needs lives in `src/db/client.web.ts` (why `openDatabaseSync` cannot
+// be the browser's entry point) and `patches/expo-sqlite+57.0.2.patch` (why any sync result
+// over 255 bytes came back truncated). This line only makes the bundle build.
+//
+// It is here now because it was not before: 6350908 committed eighteen lines of comment
+// explaining this fix and never committed the fix, so `expo export --platform web` went on
+// dying at exactly the error the comment said it prevented, while the comment, the commit
+// message and DESIGN.md §9 all described a repo state that did not exist. If a comment tells
+// you something is verified, check that the code under it is there.
+config.resolver.assetExts.push('wasm');
 
 module.exports = config;
