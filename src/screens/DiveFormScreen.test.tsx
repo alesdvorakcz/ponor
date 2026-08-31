@@ -762,6 +762,40 @@ it('prefills and marks a carried cylinder field too, not just top-level ones', a
   expect(findClearCarried(t, 'He %')).toBeUndefined();
 });
 
+// `hasCarriedValue`'s whole reason to exist is that `0` is a real answer and `null` is not,
+// yet `if (!value) return false;` was a green mutation: every test above happens to carry a
+// truthy value, so the function was only ever asked the easy question. The two cases below
+// are the ones a diver actually produces — `hePct: 0` is how air is recorded on a cylinder
+// that also records a real O₂ percentage, and `weightsKg: 0` is a dive done with no weight
+// at all — and both are the previous dive's genuine answer, which is what the chip means.
+it('marks a carried 0 as carried — a zero is an answer, an empty field is not', async () => {
+  stubDives({
+    dives: [dive({ date: '2026-08-10', weightsKg: 0, tanks: [tank({ o2Pct: 21, hePct: 0 })] })],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await openGroup(t, 'Equipment');
+  expect(findTextInput(t, 'Weights')?.props?.value).toBe('0');
+  expect(findClearCarried(t, 'Weights')).toBeDefined();
+
+  await openGroup(t, 'Gas & cylinders');
+  expect(findTextInput(t, 'He %')?.props?.value).toBe('0');
+  expect(findClearCarried(t, 'He %')).toBeDefined();
+});
+
+it('still marks nothing on a field the previous dive left empty, beside one it filled with 0', async () => {
+  // The control for the test above. "Mark everything" would satisfy it just as well, and
+  // would put a `×` on fields carry-over never touched — so the same render has to show a
+  // 0-valued field marked and a null one not.
+  stubDives({ dives: [dive({ date: '2026-08-10', weightsKg: 0, buddy: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await openGroup(t, 'Equipment');
+  expect(findClearCarried(t, 'Weights')).toBeDefined();
+  await openGroup(t, 'People');
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+});
+
 // --- C2: a double-tapped Save must not log the dive twice ---
 //
 // DESIGN.md §10 names this in as many words: "the save control also needs an in-flight
