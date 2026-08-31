@@ -591,14 +591,30 @@ function build(scheme: ColorScheme) {
       justifyContent: 'flex-end',
       gap: 12,
     },
-    // Composed onto topActionRow above exactly while useHideOnScroll's `hidden` is true
-    // (DivesScreen.tsx) — opacity only, unlike the long-gone top `searchBarHidden`, which
-    // also zeroed `height` to reclaim the space a document-flow element was taking.
-    // `topActionRow` is already `position: 'absolute'` — out of flow, nothing to reclaim —
-    // and animating its height to 0 would visibly squash the capsule as it faded, rather
-    // than it simply receding in place.
-    topActionRowHidden: {
-      opacity: 0,
+    // ------------------------------------------------------------------------------------
+    // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
+    // ------------------------------------------------------------------------------------
+    // The dock the field sits in, at the BOTTOM of the screen, where the keyboard rises. It
+    // mirrors `topActionRow` above turned the other way up — the same 24 dp clear either
+    // side, the same 12 dp gap between the field and the capsule beside it — because it is
+    // the same pair of objects: a capsule that fills the width and a capsule sized by its
+    // glyphs. It is IN FLOW rather than absolutely positioned, which is what lets
+    // `KeyboardAvoidingView` lift it; `paddingBottom` is composed in at the call site from
+    // `insets.bottom`, the one value a scheme-only sheet cannot know (the same composition
+    // `formFooter` already makes).
+    searchDock: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 24,
+      paddingTop: 12,
+      gap: 12,
+    },
+    // The results list's contentContainer. No top padding: nothing floats over this list —
+    // the dock is a sibling below it, in flow — so the first result starts at the top of the
+    // screen's own inset. A little at the bottom so the last row is not flush against the
+    // dock's hairline-free edge.
+    searchResults: {
+      paddingBottom: 12,
     },
     // DiveRow (§3: "row = number, site, depth · time chips, rating"). §0.5's tap-target
     // floor applies to the row as a whole, not just its icon-sized controls, hence
@@ -1800,32 +1816,24 @@ function build(scheme: ColorScheme) {
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------
-    // Ponor's ground with a hairline on its top edge, which is the same seam every row in
-    // the app draws and the same reason: without it the bar floats on the list it is meant
-    // to be beneath. Monochrome throughout — §0.1 spends every hue on depth, and §10 is
-    // explicit that the `+` gets no accent, which binds the bar it now sits above just as
-    // hard. What separates the current tab from the others is `fg` against `fgMuted`, the
-    // one lever §0.6 already uses for "Up next" against a trip title; the tints themselves
-    // are props rather than styles (navigation/tabs.tsx), because that is the shape the
-    // navigator's own options take.
-    tabBar: {
-      backgroundColor: theme.bg,
-      borderTopWidth: 1,
-      borderTopColor: theme.border,
-    },
-    // §0.5's floor on one tab, stated here rather than left to the navigator's default. The
-    // default is 49 dp of bar and would clear it — except on an iPhone in landscape, where
-    // the vendored BottomTabBar drops to a 32 dp "compact" bar whenever labels sit BESIDE
-    // icons. `tabScreenOptions` pins the label below the icon so that branch is never taken
-    // (see there); this is the second half of the same guarantee, on the item itself.
-    tabBarItem: {
-      minHeight: 48,
-    },
-    // Archivo, small: a tab label is UI chrome, the same category as `actionLabel` and
-    // `actionPillLabel`, never a data figure (§0.2 splits the two faces on content).
+    // **One key, and that is the point.** The bar is the platform's own — `NativeTabs`
+    // (expo-router/unstable-native-tabs) renders a real `UITabBarController` on iOS, so its
+    // ground, its hairline, its height and its tap targets are UIKit's and not this sheet's.
+    // This file previously carried a `tabBar` fill-plus-hairline and a `tabBarItem` with
+    // §0.5's 48 dp floor, and both are gone rather than merely unused: painting a ground
+    // would replace the Liquid Glass material the native bar exists to give us, and
+    // asserting a minimum height would be this app second-guessing metrics a diver's thumb
+    // is already calibrated to.
+    //
+    // The label stays here, because type is the app's (§0.2 splits the two faces on
+    // content, and a tab label is UI chrome — the same category as `actionLabel` and
+    // `actionPillLabel`, never a data figure). `fgMuted` is the resting ink; the selected
+    // tab's is `tintColor`, a prop rather than a style, because that is the shape the
+    // navigator's own options take (navigation/tabs.ts).
     tabBarLabel: {
       fontFamily: fonts['sans-medium'],
       fontSize: 11,
+      color: theme.fgMuted,
     },
   });
 }

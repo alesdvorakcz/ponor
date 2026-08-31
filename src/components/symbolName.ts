@@ -51,3 +51,26 @@ export interface PlatformSymbol {
 export function symbolName(symbol: PlatformSymbol): PlatformSymbol & { web: AndroidSymbol } {
   return { ...symbol, web: symbol.android };
 }
+
+/**
+ * The same one symbol, under the keys **`expo-router`'s native tab bar** asks for: `sf` for
+ * the SF Symbol and `md` for the Material one (`NativeTabs.Trigger.Icon`,
+ * expo-router/unstable-native-tabs).
+ *
+ * It lives here rather than at the tab layout, because this file is §4.1's owner of "the
+ * per-platform key an SF/Material symbol is requested by" and the native tab bar simply
+ * spells those keys differently from `SymbolView`. Two names for the same two values is
+ * exactly the shape that drifts, and the fix is one place that knows both — not one place
+ * that knows `SymbolView`'s names and another that knows the tab bar's.
+ *
+ * **No `web` key, and its absence is a finding rather than an oversight.** expo-router's
+ * web implementation of native tabs (`NativeTabsView.web.js`) renders each tab as a Radix
+ * `TabsTrigger` containing a single `<span>` of the tab's title, and reads no icon field at
+ * all: `props.tabs.map(tab => <TabItem title={tab.options.title ?? tab.name} …/>)`. So a
+ * browser draws the tab bar as words, with no glyph to name. `symbolName` above still
+ * derives `web` for `SymbolView`, which does use it — that is a different component with a
+ * different gap.
+ */
+export function nativeTabSymbol(symbol: PlatformSymbol): { sf: SFSymbol; md: AndroidSymbol } {
+  return { sf: symbol.ios, md: symbol.android };
+}
