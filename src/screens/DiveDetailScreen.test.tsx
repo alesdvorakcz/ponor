@@ -311,7 +311,11 @@ it('omits MOD alone on an otherwise fully-populated cylinder, when only its O₂
   const t = await render(<DiveDetailScreen id={d.id} />);
   const text = textIn(t).join(' ');
   // Every other tank field the fixture recorded is still on screen...
-  expect(text).toContain('steel'); // Material
+  // "Steel", not the stored 'steel'. This assertion used to pin the raw word, which is the
+  // side that was wrong: the form's own chip has always said "Steel", so the same cylinder
+  // read two ways one screen apart, and a test naming the lowercase form made the drift
+  // look intended. `formatTankMaterial` (format/display.ts) owns the string for both now.
+  expect(text).toContain('Steel'); // Material
   expect(text).toContain('12 l'); // Size
   expect(text).toContain('232 bar'); // Working pressure
   expect(text).toContain('0 %'); // O₂ — recorded, not absent, even though unusable for MOD

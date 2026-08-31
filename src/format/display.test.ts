@@ -16,6 +16,7 @@ import {
   formatRmv,
   formatSalinity,
   formatSuit,
+  formatTankMaterial,
   formatSurfaceInterval,
   formatTemperature,
   formatTimeRange,
@@ -181,6 +182,18 @@ describe('formatSuit', () => {
   });
   it('returns null for an unrecorded suit', () => {
     expect(formatSuit(null)).toBeNull();
+  });
+});
+
+// The fifth field of the same kind, added once the rule had already drifted on screen: the
+// dive form's own chip said "Steel" while the detail page rendered the raw stored 'steel'.
+describe('formatTankMaterial', () => {
+  it('capitalises the stored value', () => {
+    expect(formatTankMaterial('steel')).toBe('Steel');
+    expect(formatTankMaterial('alu')).toBe('Alu');
+  });
+  it('returns null for a cylinder whose material was never recorded', () => {
+    expect(formatTankMaterial(null)).toBeNull();
   });
 });
 

@@ -29,6 +29,7 @@ import {
   formatSalinity,
   formatSuit,
   formatSurfaceInterval,
+  formatTankMaterial,
   formatTemperature,
   formatVolume,
   formatWaterBody,
@@ -408,8 +409,8 @@ function equipmentFields(dive: Dive): Field[] {
  * One cylinder's own fields, plus the pressure it used and that mix's own MOD.
  * `usedBar` is read from derived.ts, never recomputed here as `startBar - endBar`:
  * that arithmetic already lives there, along with the guards that make it refuse a
- * transposed or negative reading rather than report a false figure. `sizeL`, `count`,
- * `o2Pct` and `hePct` go through `format/display.ts`'s
+ * transposed or negative reading rather than report a false figure. `material`, `sizeL`,
+ * `count`, `o2Pct` and `hePct` go through `format/display.ts`'s `formatTankMaterial`/
  * `formatVolume`/`formatCount`/`formatPercent` like every other field on this screen —
  * the module's own docblock is the single owner of turning an SI value into a string,
  * and a dedicated formatter per field is what closes that even for a field with no unit
@@ -429,7 +430,12 @@ function equipmentFields(dive: Dive): Field[] {
  */
 function tankFields(tank: Tank): Field[] {
   const fields: Field[] = [];
-  if (tank.material !== null) fields.push({ label: 'Material', value: tank.material, mono: false });
+  // `formatTankMaterial`, never the raw stored word: `material` is the same closed
+  // lowercase vocabulary as entry/salinity/suit, and this line used to render it as it is
+  // stored while the form's own chip said "Steel" — the same cylinder reading two ways one
+  // screen apart. format/display.ts owns that string for all five now.
+  const material = formatTankMaterial(tank.material);
+  if (material !== null) fields.push({ label: 'Material', value: material, mono: false });
   const size = formatVolume(tank.sizeL);
   if (size !== null) fields.push({ label: 'Size', value: size, mono: true });
   const count = formatCount(tank.count);

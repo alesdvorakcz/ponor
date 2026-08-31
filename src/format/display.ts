@@ -1,6 +1,14 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
-import { type Dive, type DiveStatus, type Entry, type Salinity, type Suit, type WaterBody } from '../domain/types';
+import {
+  type Dive,
+  type DiveStatus,
+  type Entry,
+  type Salinity,
+  type Suit,
+  type TankMaterial,
+  type WaterBody,
+} from '../domain/types';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -303,13 +311,13 @@ export function formatTimeRange(timeIn: string | null, durationMin: number | nul
 }
 
 /**
- * Categorical fields — entry, salinity, water body, suit — are stored as the closed
- * lowercase vocabulary `domain/types.ts` declares (`Entry`, `Salinity`, `WaterBody`,
- * `Suit`): the database's vocabulary, not the diver's. This module is the one other place
- * a stored value becomes a displayed string in this app, so that's where these live too,
- * rather than each screen capitalising inline.
+ * Categorical fields — entry, salinity, water body, suit, cylinder material — are stored
+ * as the closed lowercase vocabulary `domain/types.ts` declares (`Entry`, `Salinity`,
+ * `WaterBody`, `Suit`, `TankMaterial`): the database's vocabulary, not the diver's. This
+ * module is the one other place a stored value becomes a displayed string in this app, so
+ * that's where these live too, rather than each screen capitalising inline.
  *
- * Every member of those four unions is a single lowercase word, so one shared
+ * Every member of those five unions is a single lowercase word, so one shared
  * capitalise-first-letter helper covers all of them — no per-value table that could fall
  * out of sync as a union grows a new member; a new value just capitalises like the rest.
  * English-only, like every other string this file returns: the app has no i18n framework
@@ -337,6 +345,22 @@ export function formatWaterBody(waterBody: WaterBody | null): string | null {
 /** The exposure suit worn, e.g. "Semidry". */
 export function formatSuit(suit: Suit | null): string | null {
   return suit === null ? null : capitalize(suit);
+}
+
+/**
+ * What a cylinder is made of, e.g. "Steel".
+ *
+ * The fifth member of the set above, and it arrives late because the rule was written
+ * twice and had **already drifted on screen**: `DiveFormScreen`'s option chips carried a
+ * private `materialLabel` that produced "Steel"/"Alu", while `DiveDetailScreen` rendered
+ * the raw stored `tank.material` — so the same cylinder read "Steel" on the form a diver
+ * had just filled in and "steel" on the detail page they landed on. `TankMaterial` is the
+ * same closed lowercase vocabulary as `Entry`/`Salinity`/`WaterBody`/`Suit`, the module's
+ * own docblock above already claims this file is where a stored value becomes a displayed
+ * string, and one shared `capitalize` covers it exactly as it covers the other four.
+ */
+export function formatTankMaterial(material: TankMaterial | null): string | null {
+  return material === null ? null : capitalize(material);
 }
 
 /**

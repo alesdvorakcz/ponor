@@ -15,7 +15,7 @@ import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import { diveFormSchema, toDivePatch, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
 import { type Dive, type DiveStatus, type Entry, type Salinity, type Suit, type TankMaterial, type WaterBody } from '../domain/types';
-import { formatEntry, formatSalinity, formatSuit, formatWaterBody } from '../format/display';
+import { formatEntry, formatSalinity, formatSuit, formatTankMaterial, formatWaterBody } from '../format/display';
 import { backToDives } from '../navigation/backToDives';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -318,10 +318,6 @@ const SALINITY_OPTIONS: readonly Salinity[] = ['salt', 'fresh', 'brackish'];
 const WATER_BODY_OPTIONS: readonly WaterBody[] = ['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'];
 const SUIT_OPTIONS: readonly Suit[] = ['none', 'shorty', 'wet', 'semidry', 'dry'];
 const MATERIAL_OPTIONS: readonly TankMaterial[] = ['steel', 'alu'];
-
-function materialLabel(material: TankMaterial): string {
-  return material === 'alu' ? 'Alu' : 'Steel';
-}
 
 type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 
@@ -1103,7 +1099,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="tanks.0.material"
             label="Material"
             options={MATERIAL_OPTIONS}
-            displayLabel={materialLabel}
+            displayLabel={(option) => formatTankMaterial(option) ?? option}
             scheme={scheme}
           />
           <ControlledTextField

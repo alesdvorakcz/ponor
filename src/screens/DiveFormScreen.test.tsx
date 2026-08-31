@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
+import { formatTankMaterial } from '../format/display';
 import { type Dive, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -898,6 +899,26 @@ it('carries a real cylinder through unchanged, so the empty-tanks fix is not a b
   expect(writtenTanks()).toHaveLength(1);
   expect(writtenTanks()?.[0]?.sizeL).toBe(12);
   expect(writtenTanks()?.[0]?.count).toBe(2);
+});
+
+it('labels the material chips from the one owner of that string, not a private copy', async () => {
+  // The drift this closes was visible: this screen's own `materialLabel` said "Steel"
+  // while DiveDetailScreen rendered the raw stored 'steel', so one cylinder read two ways
+  // one screen apart. Asserted against `formatTankMaterial` itself rather than against the
+  // literal "Steel", so the day that formatter changes — a unit/locale pass, an i18next
+  // milestone — this screen either follows it or fails here.
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const labels = buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((label) => label.startsWith('Material: '));
+  expect(labels).toEqual([
+    `Material: ${formatTankMaterial('steel')}`,
+    `Material: ${formatTankMaterial('alu')}`,
+  ]);
+  // The formatter is not returning null here, which would make the two expectations above
+  // read "Material: null" and agree with each other for the wrong reason.
+  expect(formatTankMaterial('steel')).toBe('Steel');
 });
 
 it('asks for whole cylinders with a keypad that has no separator on it', async () => {
