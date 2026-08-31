@@ -1066,7 +1066,7 @@ function build(scheme: ColorScheme) {
     detailCompleteLabel: actionPillLabel,
     // Deleting a dive (M1d task 7, DESIGN.md §6's tombstone): "a plain muted label, not a
     // red one" — §0.1 spends every hue on depth, so the destructive colour belongs to the
-    // OS's own confirmation Alert (`style: 'destructive'`, DiveDetailScreen.tsx) exactly as
+    // OS's own confirmation dialog (`style: 'destructive'`, platform/confirmDestructive.ts) exactly as
     // the keyboard's colours do, and never to a surface this app draws. It sits at the END
     // of the scrolled content, below every cluster, rather than in the top bar beside Edit:
     // a deliberate act on one dive should take a deliberate reach, and the top bar is where

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 
 import { DepthValue } from '../components/DepthValue';
 import { db } from '../db/client';
@@ -37,6 +37,7 @@ import {
   formatWaterBody,
   formatWeight,
 } from '../format/display';
+import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -108,7 +109,8 @@ import { type ColorScheme } from '../theme/tokens';
  * *Edit* at the trailing edge of the top bar, for **every** dive, opening `/dive/[id]/edit` on
  * the dive's own status; *Complete dive* (§2.4) at the end of the content for a **planned**
  * dive only, opening that same form with the Logged/Planned control already on Logged; and
- * *Delete*, last, which confirms through the platform's own `Alert` and then tombstones the
+ * *Delete*, last, which confirms through platform chrome (`platform/confirmDestructive.ts`:
+ * the OS `Alert` on a device, the browser's own dialog on web) and then tombstones the
  * dive (`softDeleteDive`). All three are described where they are built (`EditButton`,
  * `CompleteButton`, `runDelete`/`confirmDelete` below). The two links are `editDiveHref` and
  * `completeDiveHref` respectively — one module owns both ends of each (editDiveLink.ts), and
@@ -612,16 +614,24 @@ export default function DiveDetailScreen({
     }
   };
 
-  // The platform's own Alert, with a `style: 'destructive'` button (M1d task 7, amendment
-  // C). That is what resolves the tension with §0.1: the app's own surfaces stay
-  // monochrome, and the red belongs to OS chrome — the same way the keyboard's colours do
-  // — so this screen's own control stays a plain muted label. Confirmation is not optional
-  // for this one: it is the only action in the app that removes something.
+  // A confirmation drawn by the platform, not by this app (M1d task 7, amendment C). That
+  // is what resolves the tension with §0.1: the app's own surfaces stay monochrome, and the
+  // danger signal belongs to OS chrome — the same way the keyboard's colours do — so this
+  // screen's own control stays a plain muted label. Confirmation is not optional for this
+  // one: it is the only action in the app that removes something.
+  //
+  // `platform/confirmDestructive.ts` owns *which* chrome: the platform `Alert` and its
+  // `style: 'destructive'` button on a device, the browser's own dialog on web, where
+  // `Alert` is an empty function and the dive was never deleted at all. This screen states
+  // the question and what to do with the answer, and nothing about where it is drawn.
   const confirmDelete = () => {
-    Alert.alert(DELETE_TITLE, DELETE_BODY, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => void runDelete() },
-    ]);
+    confirmDestructive({
+      title: DELETE_TITLE,
+      body: DELETE_BODY,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      onConfirm: () => void runDelete(),
+    });
   };
 
   const timeOutValue = timeOut(dive.timeIn, dive.durationMin);
@@ -784,7 +794,7 @@ export default function DiveDetailScreen({
           {/* Deleting (M1d task 7, amendment C). At the END of the content and inside the
               scroll, below every cluster: a deliberate act on one dive you are looking at,
               which is also why it lives here rather than on a row in the list. A plain muted
-              label — the red is the Alert's, not this app's (§0.1). */}
+              label — the red is the confirmation dialog's, not this app's (§0.1). */}
           {deleteError !== null && (
             <View style={styles.detailDeleteError}>
               <Text style={styles.detailDeleteErrorText}>{deleteError}</Text>
