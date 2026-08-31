@@ -1,5 +1,5 @@
 import type { ExpoConfig } from 'expo/config';
-import { tokens } from './src/theme/tokens';
+import { fontFiles, tokens } from './src/theme/tokens';
 
 const config: ExpoConfig = {
   name: 'Ponor',
@@ -21,19 +21,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
-    [
-      'expo-font',
-      {
-        fonts: [
-          './node_modules/@expo-google-fonts/archivo/400Regular/Archivo_400Regular.ttf',
-          './node_modules/@expo-google-fonts/archivo/500Medium/Archivo_500Medium.ttf',
-          './node_modules/@expo-google-fonts/archivo/600SemiBold/Archivo_600SemiBold.ttf',
-          './node_modules/@expo-google-fonts/archivo/700Bold/Archivo_700Bold.ttf',
-          './node_modules/@expo-google-fonts/ibm-plex-mono/400Regular/IBMPlexMono_400Regular.ttf',
-          './node_modules/@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf',
-        ],
-      },
-    ],
+    // The six .ttf paths are DERIVED from tokens.js's `fonts` map (see `fontFiles` there),
+    // not listed again here: this array and that map have to agree, and until now nothing
+    // made them. Same six files as before, in the same order — checked against the array
+    // this replaced. expo-font's config plugin is native-only, so this embeds the faces in
+    // the iOS/Android binary and does nothing at all for web, which registers the same list
+    // at runtime instead (src/theme/loadFonts.web.ts).
+    ['expo-font', { fonts: Object.values(fontFiles) }],
     [
       'expo-splash-screen',
       {

@@ -30,3 +30,9 @@ export declare const tokens: Record<ColorScheme, ThemeTokens>;
 export declare const depthScale: Record<ColorScheme, DepthScale>;
 export declare const depthBandLimits: DepthBandLimits;
 export declare const fonts: Record<string, string>;
+/**
+ * Family name -> the `.ttf` that carries it, derived in tokens.js from `fonts` above.
+ * Keyed by family name rather than by role because two roles could share a face; the key
+ * set is therefore `fonts`' distinct values, which is exactly what has to be registered.
+ */
+export declare const fontFiles: Record<string, string>;
