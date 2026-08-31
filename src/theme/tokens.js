@@ -58,4 +58,37 @@ const fonts = {
   'mono-medium': 'IBMPlexMono_500Medium',
 };
 
-module.exports = { tokens, depthScale, depthBandLimits, fonts };
+/**
+ * The `.ttf` behind each family name above, **derived from that map rather than listed a
+ * second time**. `app.config.ts` feeds these paths to expo-font's config plugin, which is
+ * what puts the faces in the native binary.
+ *
+ * It used to be a hand-written array of six paths in `app.config.ts`, sitting beside a
+ * hand-written map of six names here, with nothing tying them together — §4.1's defining
+ * defect ("one rule written in two places, then drifting"), and the exact pair that already
+ * needed "three coordinated edits" when `mono-semibold` was dropped in M1c. There is now one
+ * list of faces in this file and everything else reads it.
+ *
+ * The derivation is @expo-google-fonts' own file layout, which is mechanical:
+ * `Archivo_500Medium` lives at `@expo-google-fonts/archivo/500Medium/Archivo_500Medium.ttf`,
+ * i.e. `<package>/<variant>/<name>.ttf`, where the package name is the family in kebab-case
+ * (`IBMPlexMono` -> `ibm-plex-mono`, acronym and all). A family that ever broke that
+ * convention would produce a path that does not exist, and the config plugin fails the build
+ * on a missing font file — loud, at build time, not a silent fallback to San Francisco.
+ *
+ * Names, not paths, stay the source of truth because the names are what the app renders
+ * with (`fonts.ts`, `styles.ts`) and what the browser must register (`loadFonts.web.ts`);
+ * the path is only how one platform's packager finds the bytes.
+ */
+const fontFiles = Object.fromEntries(
+  [...new Set(Object.values(fonts))].map((name) => {
+    const [family, variant] = name.split('_');
+    const pkg = family
+      .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+      .toLowerCase();
+    return [name, `./node_modules/@expo-google-fonts/${pkg}/${variant}/${name}.ttf`];
+  }),
+);
+
+module.exports = { tokens, depthScale, depthBandLimits, fonts, fontFiles };

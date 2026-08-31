@@ -1,6 +1,19 @@
 import { Platform } from 'react-native';
 
+import { loadAppFonts } from './loadFonts';
 import { fonts as androidFonts } from './tokens';
+
+/**
+ * Make this platform's faces available before anything asks for one.
+ *
+ * At module scope rather than in a hook or a screen: this file is what every consumer of a
+ * font name already imports (through `styles.ts`), so the request starts as the bundle
+ * evaluates and no component has to remember to trigger it. On iOS and Android this is a
+ * no-op — expo-font's config plugin already embedded the faces (`loadFonts.ts`). In a
+ * browser it is the only thing that loads them at all (`loadFonts.web.ts`), because that
+ * config plugin has no web half.
+ */
+loadAppFonts();
 
 /**
  * Platform layer over tokens.js's `fonts` map.
