@@ -135,26 +135,65 @@ const optionalText = z
   })
   .default(null);
 
-const NOT_A_YES_NO = 'This is a yes/no field. Tap it to set it, then save.';
+/**
+ * What a diver reads next to a yes/no field holding something that is not one, and next to a
+ * fixed-choice field holding a value this client has never heard of.
+ *
+ * **They are notes, not refusals** (DESIGN.md §10, settled after M1d): "a value outside the
+ * expected range is saved and can be flagged; it is not refused", and §1 binds the form as
+ * hard as it binds the database. These two fields used to reject such a value, which
+ * `handleSubmit` turns into a refusal to call `onValid` for the WHOLE form — so a diver who
+ * opened a dive to fix a typo in its notes found a Save button that did nothing, over a
+ * value they never entered and cannot see. A row written by a newer client, arriving through
+ * M2 sync and then through carry-over, is the live source.
+ *
+ * Both say the same three things: where the value came from, that it is kept, and what to do
+ * about it. "Kept" is the half that makes the note honest rather than alarming — nothing is
+ * dropped and nothing is silently rewritten.
+ */
+export const UNKNOWN_OPTION_NOTE =
+  'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.';
+export const UNKNOWN_BOOLEAN_NOTE =
+  'This value came from a newer version of Ponor. It is saved as it is — this is a yes/no field, so tap it to replace it.';
+
+/**
+ * The note for one fixed-choice field's current value, or `undefined` when there is nothing
+ * to say — which is every value this form's own chips can produce, plus "nothing picked".
+ *
+ * A plain function rather than a Zod issue, and that is the whole point: Zod has one verdict
+ * per value and it is accept-or-reject, while §10 asks for a third answer — accepted, kept,
+ * and flagged. The schema does the accepting; this does the flagging; `DiveFormScreen`'s
+ * `FieldNote` shows it in the same place a blocking message would have appeared.
+ */
+export function unknownOptionNote<T extends string>(options: readonly T[], value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  return (options as readonly unknown[]).includes(value) ? undefined : UNKNOWN_OPTION_NOTE;
+}
+
+/** The same, for hood/gloves/boots. */
+export function unknownBooleanNote(value: unknown): string | undefined {
+  if (value === null || value === undefined || typeof value === 'boolean') return undefined;
+  return UNKNOWN_BOOLEAN_NOTE;
+}
 
 /**
  * Optional checkbox/switch field, normalised to null rather than undefined when unset.
  *
- * Carries a message for the same reason `optionalPicked` below does: a value that is
- * neither true, false nor absent can only reach this form from outside it, and a rejection
- * with nothing to read is a save that does nothing and says nothing (§1).
+ * **It refuses nothing** (§1, §10 — see `UNKNOWN_BOOLEAN_NOTE` above). Anything that is not
+ * `null`/`undefined` passes through exactly as it arrived, so a value this client cannot
+ * represent survives the round trip instead of blocking the save or being quietly dropped;
+ * `unknownBooleanNote` is what tells the diver it is there.
+ *
+ * The cast is the same one `db/dives.ts`'s `toDive` already makes and for the same reason:
+ * the type is a label on what this client can produce, not a runtime guarantee about what
+ * the network delivers. Typing it as `unknown` instead would push that cast out to every
+ * reader of a `Dive`, which is the opposite trade — DESIGN.md §10 makes exactly this call
+ * for `rating` and the 0-3 scales.
  */
 const optionalBoolean = z
-  // On the union AND on the member that actually fails. `zodResolver` does not report a
-  // failed union's own message: it descends into the member errors and hands react-hook-form
-  // the first one, so a message set only on the union is the one the diver never sees, while
-  // a message set only on the member is the one `diveFormSchema.parse()` never reports. One
-  // string, both places, so the two readings cannot drift into different sentences.
-  .union([z.boolean({ error: NOT_A_YES_NO }), z.null(), z.undefined()], { error: NOT_A_YES_NO })
-  .transform((raw) => raw ?? null)
+  .unknown()
+  .transform((raw) => (raw === null || raw === undefined ? null : (raw as boolean)))
   .default(null);
-
-const NOT_AN_OPTION = 'This value came from a newer version of Ponor. Pick one of the options to save.';
 
 /**
  * A picker-backed field restricted to a fixed option set (entry, salinity,
@@ -163,31 +202,31 @@ const NOT_AN_OPTION = 'This value came from a newer version of Ponor. Pick one o
  * empty string rather than either of those — and all three collapse to null
  * so a never-touched picker looks the same as a numeric field left blank.
  *
- * Unlike `date`, an out-of-range value here is never something a diver could
- * type — these are taps on a fixed list, not free text — so rejecting one is
- * catching a real bug upstream, not "arguing with a diver on a boat".
+ * **A value outside the list is kept, not refused** (§1, §10 — see `UNKNOWN_OPTION_NOTE`
+ * above). It is still never something a diver could type: these are taps on a fixed list.
+ * But rejecting one made `handleSubmit` refuse to call `onValid` for the whole form, so an
+ * `entry` written by a newer client — delivered by M2 sync, and carried into a fresh dive by
+ * carry-over — turned Save into a dead button on a dive the diver had opened to change
+ * something else entirely. It passes through exactly as it arrived, and
+ * `unknownOptionNote` flags it beside the chips.
+ *
+ * `values` is still read, and still matters: it is what makes a KNOWN value parse as the
+ * union's own enum member rather than as a bare string, and it is what
+ * `unknownOptionNote` compares against. The cast on the way out is the one `db/dives.ts`'s
+ * `toDive` already makes for the same reason — the domain type says what this client can
+ * produce, not what the network delivers.
  *
  * **Every caller passes one of `domain/types.ts`'s own `*_VALUES` arrays**, never a
  * literal list written out here. Those arrays are what the matching union types are
  * derived FROM, so a member added to `Entry` reaches this schema and the form's chips
- * by construction — where a second list here would have rejected it (blocking the save
- * §1 forbids blocking) for a value the domain calls legal, with nothing failing to
- * compile. Same rule `TankFormFieldsMatchTank` and `StatusFormValuesMatchDive` below
+ * by construction. Same rule `TankFormFieldsMatchTank` and `StatusFormValuesMatchDive` below
  * enforce for the two shapes that genuinely do have to exist twice.
  */
 function optionalPicked<T extends string>(values: readonly T[]) {
   const literal = values as [T, ...T[]];
   return z
-    // Written for the diver, not for the developer, because it is now shown to one
-    // (`ControlledOptionField`, DiveFormScreen.tsx). Zod's own wording for this is
-    // `Invalid option: expected one of "shore"|"boat"|"other"`, which tells a diver on a
-    // boat nothing; the message has to say what to DO, and tapping any chip replaces the
-    // unreadable value and lets the save through. Set on the union and on the enum for the
-    // reason `optionalBoolean` above gives at length.
-    .union([z.enum(literal, { error: NOT_AN_OPTION }), z.literal(''), z.null(), z.undefined()], {
-      error: NOT_AN_OPTION,
-    })
-    .transform((raw) => (raw === null || raw === undefined || raw === '' ? null : raw))
+    .union([z.enum(literal), z.literal(''), z.null(), z.undefined(), z.unknown()])
+    .transform((raw) => (raw === null || raw === undefined || raw === '' ? null : (raw as T)))
     .default(null);
 }
 

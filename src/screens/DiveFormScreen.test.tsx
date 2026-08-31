@@ -518,11 +518,15 @@ it('says why Save did nothing for a date this form itself could never have produ
   expect(shownIn(t, 'Date')).toBe('2099-8-17');
 });
 
-// §1 again, one field over. `date` was not the only value that could refuse a save in
-// silence: an option or boolean field holding something outside its fixed list fails
-// `zodResolver` too, and `handleSubmit` then refuses to call `onValid` for the WHOLE form.
-// Those two field types rendered no message at all, so the diver got a dead Save button on
-// a dive they had opened to change something else entirely.
+// §1 again, one field over — and the policy behind it, settled after M1d (DESIGN.md §10:
+// "a value outside the expected range is saved and can be flagged; it is not refused").
+//
+// An option or boolean field holding something outside its fixed list used to fail
+// `zodResolver`, and `handleSubmit` then refuses to call `onValid` for the WHOLE form. Wave
+// A gave that refusal a message, which turned silence into an explanation but left the
+// diver's save refused over a value they never entered and cannot see. The refusal itself is
+// what had to go: a value from a future client that this one cannot represent must not stop
+// a diver saving a note on that dive.
 //
 // The value has to come from outside the form, because that is the only place it can come
 // from: `OptionChips` hands back a member of its own list or `''`, and the boolean chip
@@ -534,47 +538,85 @@ describe('a value the form itself could not have produced, in a field that is no
   const fromANewerClient = (over: Record<string, unknown>) =>
     dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', ...over } as Parameters<typeof dive>[0]);
 
-  it('says why Save did nothing when an option field holds an unknown value', async () => {
-    stubLogbookFor(fromANewerClient({ entry: 'liveaboard' }));
-    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await openGroup(t, 'Conditions');
-    await pressSave(t);
-
-    // The schema's own message (diveFormSchema.ts), not a sentence written in the screen.
-    await waitFor(() => expect(textIn(t).join(' ')).toContain('Pick one of the options'));
-    // The save really was refused — so this is a message appearing where there was
-    // silence, not a message appearing beside a save that worked anyway.
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  it('says why Save did nothing when a boolean field holds something that is not one', async () => {
-    stubLogbookFor(fromANewerClient({ hood: 'sometimes' }));
-    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await openGroup(t, 'Equipment');
-    await pressSave(t);
-
-    await waitFor(() => expect(textIn(t).join(' ')).toContain('yes/no field'));
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  it('lets the diver clear the block by tapping a chip, which is what the message tells them to do', async () => {
-    // A message that names no way out is only a politer dead end. Picking any option
-    // replaces the unreadable value, and the save this diver came for goes through.
+  it('flags an option field holding an unknown value, and still saves the dive', async () => {
     const target = fromANewerClient({ entry: 'liveaboard' });
     stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Conditions');
+
+    // The schema's own sentence (diveFormSchema.ts), not one written in the screen — and it
+    // is there before anything is pressed, because the value is already on screen.
+    expect(textIn(t).join(' ')).toContain('saved as it is');
+
+    // The diver came here for something else entirely, and gets it.
+    await typeInto(t, 'Max depth', '28');
     await pressSave(t);
-    await waitFor(() => expect(textIn(t).join(' ')).toContain('Pick one of the options'));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(writtenPatch()).toHaveProperty('maxDepthM', 28);
+    // Kept, not cleared: the patch does not NAME `entry`, so the stored value stands. A
+    // patch carrying `entry: null` would be the other way to "not refuse" — dropping a
+    // column the diver never touched — and it would satisfy an assertion about the save
+    // succeeding just as well.
+    expect(writtenPatch()).not.toHaveProperty('entry');
+    await waitFor(() => expect(router.back).toHaveBeenCalled());
+  });
+
+  it('flags a boolean field holding something that is not one, and still saves the dive', async () => {
+    const target = fromANewerClient({ hood: 'sometimes' });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Equipment');
+    expect(textIn(t).join(' ')).toContain('yes/no field');
+
+    await typeInto(t, 'Max depth', '28');
+    await pressSave(t);
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(writtenPatch()).toHaveProperty('maxDepthM', 28);
+    expect(writtenPatch()).not.toHaveProperty('hood');
+  });
+
+  it('carries an unknown option into a NEW dive rather than dropping it on the way', async () => {
+    // Carry-over is the path that turns one synced row into a value on a form the diver is
+    // filling in now, and `toNewDiveInput` writes every non-null field — so this is where
+    // "kept" would quietly become "dropped" without the patch diff to hide behind.
+    mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+    stubDives({ dives: [fromANewerClient({ entry: 'liveaboard' })] });
+    const t = await render(<DiveFormScreen mode="create" />);
+    await pressSave(t);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+    expect(mockCreate.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ entry: 'liveaboard' }));
+  });
+
+  it('lets the diver replace the flagged value by tapping a chip, and drops the note with it', async () => {
+    // The note names a way out, and it has to work: picking any option replaces the value
+    // this client cannot represent, and the note goes with it.
+    const target = fromANewerClient({ entry: 'liveaboard' });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Conditions');
+    expect(textIn(t).join(' ')).toContain('saved as it is');
 
     const boat = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Entry: Boat'));
     if (!boat) throw new Error('no Entry chip found');
     await fireEvent.press(boat);
-    await pressSave(t);
+    expect(textIn(t).join(' ')).not.toContain('saved as it is');
 
+    await pressSave(t);
     await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
     expect(writtenPatch()).toHaveProperty('entry', 'boat');
+  });
+
+  it('says nothing at all about a field holding a value this client knows', async () => {
+    // The control that stops the note from being a permanent fixture under every option and
+    // boolean row: an ordinary dive shows none of it.
+    stubLogbookFor(fromANewerClient({ entry: 'boat', hood: true }));
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Conditions');
+    await openGroup(t, 'Equipment');
+    expect(textIn(t).join(' ')).not.toContain('saved as it is');
   });
 });
 

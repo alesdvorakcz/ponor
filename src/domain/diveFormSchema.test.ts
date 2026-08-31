@@ -1,5 +1,13 @@
 import { dive } from './diveFixture';
-import { diveFormSchema, toDivePatch, toNewDiveInput } from './diveFormSchema';
+import {
+  diveFormSchema,
+  toDivePatch,
+  toNewDiveInput,
+  unknownBooleanNote,
+  unknownOptionNote,
+  UNKNOWN_BOOLEAN_NOTE,
+  UNKNOWN_OPTION_NOTE,
+} from './diveFormSchema';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -108,38 +116,54 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     }
   });
 
-  it('says something a diver can act on when it refuses one, at every layer that reports it', () => {
-    // The refusal is shown on screen now (`ControlledOptionField`, DiveFormScreen.tsx), so
-    // the message is diver-facing text, not developer text — Zod's own wording is
-    // `Invalid option: expected one of "shore"|"boat"|"other"`. The union's own message and
-    // its enum member's have to be the SAME sentence: `zodResolver` reports the member's and
-    // `parse` reports the union's, so a message set on only one of them is a message
-    // somebody never sees.
-    /** The union's own message, and the FIRST member's — the two a reader can land on.
-     * `zodResolver` ignores the former and hands react-hook-form the latter; `parse` reports
-     * the former. The other members ('' / null / undefined) fail only as collateral of the
-     * first and keep Zod's own wording, which nothing ever displays. */
-    const bothLayers = (field: string, value: unknown) => {
-      const issue = diveFormSchema.safeParse({ ...base, [field]: value }).error?.issues[0];
-      const members = (issue as { errors?: { message: string }[][] } | undefined)?.errors ?? [];
-      return [issue?.message, members[0]?.[0]?.message];
-    };
+  // --- A value no vocabulary contains: kept and flagged, never refused ---
+  //
+  // DESIGN.md §10, settled after M1d: "a value outside the expected range is saved and can be
+  // flagged; it is not refused", and §1 binds this form as hard as it binds the database.
+  // These two fields used to reject one, which makes `handleSubmit` decline to call
+  // `onValid` for the WHOLE form — so a row written by a newer client, delivered by M2 sync
+  // and carried into a fresh dive by carry-over, turned Save into a dead button on a dive the
+  // diver had opened to change something else. Wave A gave that refusal a message; the
+  // refusal itself is what had to go.
 
-    for (const message of bothLayers('entry', 'by helicopter')) {
-      expect(message).toContain('Pick one of the options');
+  it('keeps a fixed-choice value it has never heard of, rather than refusing the dive', () => {
+    // 'by helicopter' is absurd on purpose, and 'liveaboard' — the kind of member `Entry`
+    // might genuinely grow one day — is checked beside it: the rule is about values this
+    // client cannot represent, not about values that look silly.
+    for (const entry of ['by helicopter', 'liveaboard']) {
+      expect(diveFormSchema.parse({ ...base, entry }).entry).toBe(entry);
     }
-    for (const message of bothLayers('hood', 'sometimes')) {
-      expect(message).toContain('yes/no field');
-    }
+    // Not silently dropped either, which would be the other way to "not refuse": a null here
+    // clears a column the diver never touched, on a dive they opened to fix a note.
+    expect(diveFormSchema.parse({ ...base, entry: 'liveaboard' }).entry).not.toBeNull();
   });
 
-  it('still refuses a value no vocabulary contains', () => {
-    // The guard that keeps the loops above from passing for a schema that accepts anything:
-    // `optionalPicked`'s own docblock rests on these being taps on a fixed list.
-    // Deliberately absurd rather than merely absent: 'liveaboard' is the kind of value
-    // `Entry` might genuinely grow one day, and a sentinel that becomes real turns this
-    // guard red for a change that is actually correct.
-    expect(() => diveFormSchema.parse({ ...base, entry: 'by helicopter' })).toThrow();
+  it('keeps a yes/no value that is not one, for the same reason', () => {
+    expect(() => diveFormSchema.parse({ ...base, hood: 'sometimes' })).not.toThrow();
+    expect(diveFormSchema.parse({ ...base, hood: 'sometimes' }).hood).toBe('sometimes');
+  });
+
+  it('flags exactly the values it cannot represent, and nothing a chip can produce', () => {
+    // The flag replaces the rejection, so it is what a diver actually sees. Both directions
+    // are the test: a note on a value from a newer client, and NO note on any value this
+    // form's own controls hand back — including the three "nothing picked" spellings, which
+    // is how an untouched field reaches this and must never be flagged.
+    expect(unknownOptionNote(ENTRY_VALUES, 'liveaboard')).toBe(UNKNOWN_OPTION_NOTE);
+    for (const value of ENTRY_VALUES) expect(unknownOptionNote(ENTRY_VALUES, value)).toBeUndefined();
+    for (const empty of [null, undefined, '']) expect(unknownOptionNote(ENTRY_VALUES, empty)).toBeUndefined();
+
+    expect(unknownBooleanNote('sometimes')).toBe(UNKNOWN_BOOLEAN_NOTE);
+    for (const value of [true, false, null, undefined]) expect(unknownBooleanNote(value)).toBeUndefined();
+  });
+
+  it('tells the diver the value is kept, rather than that the save was refused', () => {
+    // The sentence is the whole difference between the old policy and this one, so it is
+    // asserted rather than left to whoever edits it next: a note reading "pick one of the
+    // options to save" would describe a refusal that no longer happens.
+    for (const note of [UNKNOWN_OPTION_NOTE, UNKNOWN_BOOLEAN_NOTE]) {
+      expect(note).toContain('saved as it is');
+      expect(note).not.toContain('to save.');
+    }
   });
 });
 

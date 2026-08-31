@@ -13,7 +13,14 @@ import { createDive, updateDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
-import { diveFormSchema, toDivePatch, toNewDiveInput, type DiveFormValues } from '../domain/diveFormSchema';
+import {
+  diveFormSchema,
+  toDivePatch,
+  toNewDiveInput,
+  unknownBooleanNote,
+  unknownOptionNote,
+  type DiveFormValues,
+} from '../domain/diveFormSchema';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -359,33 +366,37 @@ interface ControlledTextFieldProps {
 }
 
 /**
- * The message under a field whose value stopped a save, or nothing at all when there is
- * none. Shared by both controlled field wrappers below rather than written out in each, so
- * "a blocking value says so, next to the control that caused it" is one rule in one place.
+ * The line of text under a field that has something to say about its own value, or nothing
+ * at all when it has not. Shared by every controlled field wrapper below rather than written
+ * out in each, so "a field speaks next to the control it belongs to" is one rule in one
+ * place.
  *
- * Almost every field on this form accepts anything (§1), so almost none of them can ever
- * produce one — but `date` can, and when it does `handleSubmit` refuses to call `onValid`
- * for the WHOLE form. Before this existed, that refusal was completely silent: type
- * `31.8.2026`, the Czech spelling of a real date in an app that ships `cs`, tap Save, and
- * nothing happened — no dive, no navigation, no message, nothing to tell the app apart from
- * a dead button.
+ * It carries two different kinds of sentence, and the difference is worth stating because
+ * the treatment is identical (§0.6: "a field error is text, not a field").
  *
- * Since M1d's pickers, the date field can no longer *produce* an unreadable value, and this
- * should never fire for anything a diver does on this screen. It stays regardless, for the
- * same reason `diveFormSchema.ts` keeps the rule that raises it (DESIGN.md §10): the schema
- * is the domain's guarantee rather than this form's, M2 sync will deliver rows this form
- * never touched, and carry-over prefills this form from one of them — so the value shown in
- * a field is not always a value this screen's own controls put there. Removing a backstop
- * because one of its callers got safer is not the same as removing dead code.
+ * **A refusal.** `date` is the one field on this form that can still stop a save, and when
+ * it does `handleSubmit` refuses to call `onValid` for the WHOLE form. Before this existed
+ * that refusal was completely silent: type `31.8.2026`, the Czech spelling of a real date in
+ * an app that ships `cs`, tap Save, and nothing happened. Since M1d's pickers the field can
+ * no longer *produce* an unreadable value, and this should never fire for anything a diver
+ * does here; it stays because the schema is the domain's guarantee rather than this form's,
+ * and carry-over prefills this form from rows M2 sync delivered.
+ *
+ * **A note.** The option and boolean fields no longer refuse anything at all (DESIGN.md §10,
+ * settled after M1d: "a value outside the expected range is saved and can be flagged; it is
+ * not refused"). A value from a newer client is kept and saved, and `unknownOptionNote` /
+ * `unknownBooleanNote` (diveFormSchema.ts) say so here — where a refusal used to be a dead
+ * Save button and, before that, silence.
+ *
+ * Both sentences come from `diveFormSchema.ts` rather than being written here, for the same
+ * reason: what a value means is that file's rule to state, and a copy here would drift the
+ * first time the rule changed.
  */
-function FieldError({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
+function FieldNote({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
   const styles = makeStyles(scheme);
   if (message === undefined) return null;
   return (
     <View style={styles.formFieldError}>
-      {/* The schema's own message (`diveFormSchema.ts`), not a second sentence written
-          here: what makes a date unreadable is that file's rule to state, and a copy here
-          would drift the first time the rule changed. */}
       <Text style={styles.formFieldErrorText}>{message}</Text>
     </View>
   );
@@ -447,7 +458,7 @@ function ControlledTextField({
               field.onChange(text);
             }}
           />
-          <FieldError message={fieldState.error?.message} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message} scheme={scheme} />
         </>
       )}
     />
@@ -517,7 +528,7 @@ function ControlledDateTimeField({ control, name, label, mode, scheme, optional,
             // required field, which then shows no `×` at all.
             onClear={optional === true ? field.onChange : undefined}
           />
-          <FieldError message={fieldState.error?.message} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message} scheme={scheme} />
         </>
       )}
     />
@@ -582,23 +593,24 @@ interface ControlledOptionFieldProps<T extends string> {
 }
 
 /**
- * A fixed-choice field, plus the message its value can produce — the same `FieldError`
- * `ControlledTextField` above renders, and it was missing here.
+ * A fixed-choice field, plus whatever its current value has to say for itself.
  *
- * Nothing a diver can do on this screen produces one: `OptionChips` only ever hands back a
- * member of `options` or `''`. A value from anywhere else can, though, and edit mode is
- * full of values from somewhere else — M2 sync will deliver rows this form never touched,
- * from a client whose `Entry` has a member this one has never heard of, and carry-over
- * prefills a new dive from one of them. `zodResolver` then rejects that ONE field and
- * `handleSubmit` refuses to call `onValid` for the WHOLE form: the diver taps Save on a
- * dive they came to fix a note on, and nothing happens. No dive, no navigation, no message
- * — the exact dead button §1 forbids, and the same one `FieldError`'s own docblock says
- * `date` used to be.
+ * Nothing a diver can do on this screen produces a value outside `options`: `OptionChips`
+ * only ever hands back a member of it or `''`. A value from anywhere else can, though, and
+ * edit mode is full of values from somewhere else — M2 sync will deliver rows this form
+ * never touched, from a client whose `Entry` has a member this one has never heard of, and
+ * carry-over prefills a new dive from one of them.
  *
- * Surfacing it is the minimum, and it is what this does. Whether such a value should block
- * at all is a live question — §10's range decision says an out-of-range value "is saved and
- * can be flagged; it is not refused", which points the other way — but that is the owner's
- * call to make, not one to slip in behind a rendering fix.
+ * That value used to be REFUSED, which made `handleSubmit` decline to call `onValid` for the
+ * WHOLE form: the diver tapped Save on a dive they came to fix a note on, and nothing
+ * happened. Wave A gave the refusal a message; §10 has since settled the policy behind it —
+ * "a value outside the expected range is saved and can be flagged; it is not refused", and
+ * §1 binds this form as hard as it binds the database. So the value is now kept, saved, and
+ * flagged: `unknownOptionNote` (diveFormSchema.ts) supplies the sentence, `FieldNote` shows
+ * it, and tapping any chip replaces it.
+ *
+ * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
+ * rule later is covered without this screen keeping a second list of which fields can fail.
  */
 function ControlledOptionField<T extends string>({ control, name, label, options, displayLabel, scheme }: ControlledOptionFieldProps<T>) {
   return (
@@ -615,7 +627,7 @@ function ControlledOptionField<T extends string>({ control, name, label, options
             onChange={field.onChange}
             scheme={scheme}
           />
-          <FieldError message={fieldState.error?.message} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message ?? unknownOptionNote(options, field.value)} scheme={scheme} />
         </>
       )}
     />
@@ -661,10 +673,11 @@ interface ControlledBooleanFieldProps {
   scheme: ColorScheme;
 }
 
-/** hood/gloves/boots, and the same `FieldError` for the same reason `ControlledOptionField`
- * above carries one: this control can only ever produce `true` or `false`, so a value the
- * schema refuses arrived from outside the form — and a refusal nothing displays is a Save
- * button that does nothing at all. */
+/** hood/gloves/boots, and the same `FieldNote` for the same reason `ControlledOptionField`
+ * above carries one: this control can only ever produce `true` or `false`, so a value that is
+ * neither arrived from outside the form. It is kept and saved rather than refused (§10),
+ * with `unknownBooleanNote` saying so — a refusal here was a Save button that did nothing at
+ * all, on a dive whose yes/no field the diver never touched. */
 function ControlledBooleanField({ control, name, label, scheme }: ControlledBooleanFieldProps) {
   return (
     <Controller
@@ -673,7 +686,7 @@ function ControlledBooleanField({ control, name, label, scheme }: ControlledBool
       render={({ field, fieldState }) => (
         <>
           <BooleanField label={label} value={field.value as unknown as boolean | null | undefined} onChange={field.onChange} scheme={scheme} />
-          <FieldError message={fieldState.error?.message} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message ?? unknownBooleanNote(field.value)} scheme={scheme} />
         </>
       )}
     />
