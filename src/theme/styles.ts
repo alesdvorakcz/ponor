@@ -1563,10 +1563,16 @@ function build(scheme: ColorScheme) {
     // The at-rest/chosen pair is still exactly `actionPill`/`selectedFill`'s, the one §2.4's
     // Logged/Planned control one row up already wears, rather than a second way of saying
     // the same thing; only the at-rest ground is new.
+    // `flexDirection: 'row'` and the 6 dp gap are what let §0.6's icon stand BESIDE the
+    // label rather than over it — "it supplements the label rather than replacing it, never
+    // an icon alone." A chip with no icon (four of the five fields, and `other` on the
+    // fifth) is a row of one child, which lays out exactly as the centred column did.
     formChip: {
       minHeight: 48,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 6,
       borderWidth: 1,
       borderColor: theme.border,
       borderRadius: 10,

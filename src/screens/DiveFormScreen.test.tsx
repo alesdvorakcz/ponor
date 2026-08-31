@@ -1388,6 +1388,80 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
   });
 });
 
+// --- §0.6: "An icon appears only where the value has one" ---
+
+/** The SF Symbols drawn inside one chip. Same `SymbolModule` host-node match
+ * SearchCapsule.test.tsx and EntryIcon.test.tsx use — see either for why that name, and not
+ * "some icon-shaped element", is what tells a real SF Symbol from a drawn approximation. */
+function symbolsInside(node: TestNode | undefined) {
+  return node ? node.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
+}
+
+// DESIGN.md §0.6: "*Shore* and *boat* do. *Salt*, *fresh* and *brackish* do not, and neither
+// do *wet*, *semidry* and *dry* or *steel* and *alu* — drawn as icons those collapse into
+// near-identical droplets and suits separated by tally marks, which is a legend."
+//
+// Both halves in one test, because the rule is a boundary and either half alone is
+// satisfiable by the wrong implementation: an icon on every chip passes "shore has one", and
+// an icon on none passes "salinity has none". Asserted through the real screen rather than
+// against `EntryIcon` directly — that component can be perfectly correct and still be wired
+// to no chip at all, or to all five fields' chips.
+it('draws an icon on the two entry chips that have one, and on no other chip anywhere', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Equipment');
+  await openGroup(t, 'Gas & cylinders');
+
+  // shore, boat, other — in ENTRY_VALUES' own order, which `findChip` indexes by.
+  expect(symbolsInside(findChip(t, 'Entry', 0))).toHaveLength(1);
+  expect(symbolsInside(findChip(t, 'Entry', 1))).toHaveLength(1);
+  // "*other* does not [have one]" — the value §0.6 names as the one that must stay bare.
+  expect(symbolsInside(findChip(t, 'Entry', 2))).toHaveLength(0);
+
+  for (const [label, values] of [
+    ['Salinity', SALINITY_VALUES],
+    ['Water body', WATER_BODY_VALUES],
+    ['Suit', SUIT_VALUES],
+    ['Material', TANK_MATERIAL_VALUES],
+  ] as const) {
+    for (let index = 0; index < values.length; index += 1) {
+      expect(symbolsInside(findChip(t, label, index))).toHaveLength(0);
+    }
+  }
+});
+
+// §0.6: the icon "**supplements the label rather than replacing it** — never an icon alone."
+// The failure this guards is a chip that swapped its word for a picture, which would still
+// draw an icon in the right place and still save the right value: only the word's presence,
+// and what a screen reader is told, tell the two apart.
+it('keeps the word on an entry chip that has an icon, and announces it unchanged', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  const shore = findChip(t, 'Entry', 0);
+
+  expect(symbolsInside(shore)).toHaveLength(1);
+  expect(shore?.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)).toContain('Shore');
+  // The announcement is the label alone — an icon that added its own accessibility label
+  // would have a screen reader read the same control twice over.
+  expect(String(shore?.props?.accessibilityLabel)).toBe('Entry: Shore');
+});
+
+// The icon is a companion to the label, so it inverts with it (§0.6's chip rule): on the
+// selected chip both are `action-fg`, everywhere else both are `fg`. An icon holding its own
+// colour would be `fg` ink on an `action` ground — invisible on exactly the one chip the
+// diver picked, which is the state nobody tests by accident.
+it('inverts the entry icon along with the label it sits beside', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  const theme = themeFor('light');
+
+  expect(symbolsInside(findChip(t, 'Entry', 1))[0]?.props?.tintColor).toBe(theme.fg);
+  await pressChip(t, 'Entry', 1);
+  expect(symbolsInside(findChip(t, 'Entry', 1))[0]?.props?.tintColor).toBe(theme.actionFg);
+  // ...and its unselected neighbour did not invert with it.
+  expect(symbolsInside(findChip(t, 'Entry', 0))[0]?.props?.tintColor).toBe(theme.fg);
+});
+
 // --- The eight fields that were dead to this suite ---
 //
 // `ControlledOptionField`'s `onChange={field.onChange}` and `ControlledBooleanField`'s could

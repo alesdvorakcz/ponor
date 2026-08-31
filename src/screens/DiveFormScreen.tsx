@@ -1,11 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
 import { DateTimeField } from '../components/DateTimeField';
+import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { db } from '../db/client';
@@ -584,6 +585,24 @@ interface OptionChipsProps<T extends string> {
   displayLabel: (option: T) => string;
   onChange: (value: T | '') => void;
   scheme: ColorScheme;
+  /**
+   * DESIGN.md §0.6: "**An icon appears only where the value has one.** ... the icon is
+   * information, not decoration, and it **supplements the label rather than replacing it** —
+   * never an icon alone."
+   *
+   * Optional, and omitted at four of the five call sites — only `entry` has values with
+   * conventional symbols (`EntryIcon`, which owns that judgement and returns nothing for
+   * `other`). A render prop rather than a `Record` this component looks values up in,
+   * because the mapping is per FIELD, not per chip row: a table here would have to be keyed
+   * by both field and value, which is a second hand-maintained list of exactly the shape
+   * §4.1 warns about, one call site away from the file that already owns it.
+   *
+   * `tintColor` is handed OUT rather than taken in: which ink a chip's contents wear depends
+   * on whether that chip is selected, and this component is the only thing that knows. A
+   * call site choosing the colour itself would have to be told the selection state, and
+   * would then own a rule ("the icon matches the label beside it") that belongs here.
+   */
+  icon?: (option: T, tintColor: ColorValue) => ReactNode;
 }
 
 /**
@@ -597,7 +616,7 @@ interface OptionChipsProps<T extends string> {
  * screen exists to avoid. Tapping the already-selected chip clears it back to `''`,
  * which `optionalPicked` treats identically to never having picked anything.
  */
-function OptionChips<T extends string>({ label, value, options, displayLabel, onChange, scheme }: OptionChipsProps<T>) {
+function OptionChips<T extends string>({ label, value, options, displayLabel, onChange, scheme, icon }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   return (
     // The same `formField` row as every other field (§0.6), with the chips in the slot §0.6
@@ -612,15 +631,25 @@ function OptionChips<T extends string>({ label, value, options, displayLabel, on
       <View style={styles.formChipRow}>
         {options.map((option) => {
           const selected = value === option;
+          // The ink the chip's own label is about to wear, read off the style rather than
+          // from the theme directly — the same "take the colour from the style you are
+          // matching" move `DateTimeField` makes for the native picker's `textColor`. It is
+          // handed to `icon` so a symbol beside the label inverts with it (§0.6), instead of
+          // staying `fg` on an `action` ground where it would vanish.
+          const ink = (selected ? styles.formChipTextSelected.color : styles.formChipText.color) as ColorValue;
           return (
             <Pressable
               key={option}
               style={[styles.formChip, selected && styles.formChipSelected]}
               onPress={() => onChange(selected ? '' : option)}
               accessibilityRole="button"
+              // Unchanged by the icon, deliberately: §0.6 makes the icon a supplement to the
+              // label, so what a screen reader hears is exactly what it heard before — the
+              // symbol adds nothing to say that the words do not already say.
               accessibilityLabel={`${label}: ${displayLabel(option)}`}
               accessibilityState={{ selected }}
             >
+              {icon?.(option, ink)}
               <Text style={[styles.formChipText, selected && styles.formChipTextSelected]}>{displayLabel(option)}</Text>
             </Pressable>
           );
@@ -637,6 +666,9 @@ interface ControlledOptionFieldProps<T extends string> {
   options: readonly T[];
   displayLabel: (option: T) => string;
   scheme: ColorScheme;
+  /** Forwarded untouched to `OptionChips` — see that component's own prop for why an icon is
+   * a render prop and why only `entry` passes one. */
+  icon?: (option: T, tintColor: ColorValue) => ReactNode;
 }
 
 /**
@@ -659,7 +691,7 @@ interface ControlledOptionFieldProps<T extends string> {
  * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
  * rule later is covered without this screen keeping a second list of which fields can fail.
  */
-function ControlledOptionField<T extends string>({ control, name, label, options, displayLabel, scheme }: ControlledOptionFieldProps<T>) {
+function ControlledOptionField<T extends string>({ control, name, label, options, displayLabel, scheme, icon }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
@@ -673,6 +705,7 @@ function ControlledOptionField<T extends string>({ control, name, label, options
             displayLabel={displayLabel}
             onChange={field.onChange}
             scheme={scheme}
+            icon={icon}
           />
           <FieldNote message={fieldState.error?.message ?? unknownOptionNote(options, field.value)} scheme={scheme} />
         </>
@@ -1208,6 +1241,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={ENTRY_VALUES}
             displayLabel={(option) => formatEntry(option) ?? option}
             scheme={scheme}
+            // The only field on this form that passes one (§0.6: "*Shore* and *boat* do.
+            // *Salt*, *fresh* and *brackish* do not..."). `EntryIcon` owns which values
+            // actually have a symbol and draws nothing for the ones that do not, so this
+            // call site does not repeat that judgement.
+            icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
           />
           <ControlledOptionField
             control={control}
