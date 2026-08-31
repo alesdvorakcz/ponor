@@ -7,6 +7,7 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
+import { CLEAR_HIT_SLOP } from './FormField';
 import { DateTimeField } from './DateTimeField';
 
 /**
@@ -245,6 +246,14 @@ it('reaches a 48 dp target for the clear control, all of it pointing away from t
   if (!clear) throw new Error('no clear control on a set optional field');
   const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
   const styles = makeStyles('light');
+
+  // The same object `FormField`'s chip uses, not a second one that happens to hold the same
+  // four numbers (§4.1: one owner). Reference equality is the assertion, because value
+  // equality is exactly what two byte-identical declarations already had — and what they had
+  // right up until one of them was retuned. Everything below stays as it was: it describes
+  // the geometry this control needs, and it must keep holding for whatever the shared
+  // definition says, not merely agree with it by construction.
+  expect(slop).toBe(CLEAR_HIT_SLOP);
 
   // `formField` since §0.6's design pass collapsed the label row and the trigger into one
   // row; it was `formFieldHeader`, the same floor on the ancestor that no longer exists.

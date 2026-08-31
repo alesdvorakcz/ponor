@@ -89,19 +89,35 @@ export interface FormFieldProps {
 }
 
 /**
- * 48 dp (§0.5's own floor) around the chip's `×`, via `hitSlop` rather than an inflated
+ * 48 dp (§0.5's own floor) around a form row's `×`, via `hitSlop` rather than an inflated
  * visible box — the same "small visible control, generous hidden target" split
  * `ReorderControls.tsx`'s own `ARROW_HIT_SLOP` documents at length, and for the same
- * reason: the chip sits inline in a field's row, and a 48 x 48 visible box would make that
- * row far taller than the 15 px label text beside it.
+ * reason: the control sits inline in a field's row, and a 48 x 48 visible box would make
+ * that row far taller than the 15 px label text beside it.
  *
- * **All of it points away from the label.** The previous numbers were
- * `{ top: 14, bottom: 14, left: 21, right: 0 }`, which reached the floor by extending the
- * clear target 21 dp INWARD — over the word "carried" — so tapping that word cleared the
- * field. The owner asked for a visible cross specifically so that clearing would be a
- * deliberate act ("a label you are expected to guess is tappable is not an affordance"),
- * and a target covering the label undoes exactly that, the more so because the word sits
- * inside the same filled chip and reads as part of the same object.
+ * **Exported, because two components clear a form row**: this file's `carried ×` chip and
+ * `DateTimeField`'s picker `×`. They are the same control in the same row and were two
+ * byte-identical `const CLEAR_HIT_SLOP` declarations, each under its own copy of the
+ * reasoning below — §4.1's "one rule written in two places, then drifting", with the
+ * drift still pending. One definition now, imported there; a number that has to move
+ * moves once.
+ *
+ * **All of it points away from the label. That is the load-bearing property, not the
+ * numbers.** The previous values were `{ top: 14, bottom: 14, left: 21, right: 0 }`, which
+ * reached the floor by extending the clear target 21 dp INWARD — over the word "carried" —
+ * so tapping that word cleared the field. The owner asked for a visible cross specifically
+ * so that clearing would be a deliberate act ("a label you are expected to guess is
+ * tappable is not an affordance"), and a target covering the label undoes exactly that, the
+ * more so because the word sits inside the same filled chip and reads as part of the same
+ * object. `left: 0` is therefore not a spare zero to be balanced away if the numbers are
+ * ever retuned; both components' tests assert it directly.
+ *
+ * Inward is worse still on `DateTimeField`'s copy of this control, and for a second reason:
+ * since §0.6's design pass the picker's own trigger sits immediately to that `×`'s LEFT, so
+ * left slop would put "clear the field" over "open the picker" — the same mistake with a
+ * control in place of a word. There it was never merely wasteful; on a field whose `×` sits
+ * alone the old inward slop fell across empty space in the label row and cost nothing, which
+ * is why that copy went unnoticed while this one was being fixed.
  *
  * **What made inward look like the only direction, and why it was not.** The reasoning
  * recorded here was "slop is only delivered where every ancestor also contains the point",
@@ -120,9 +136,11 @@ export interface FormFieldProps {
  * from `formScrollContent`'s padding, outside the field entirely; the room moved inward with
  * the inset and got no smaller. Vertically the 14 above and below is spent inside
  * `formField`'s `minHeight: 48`, which is what makes the target the row's full height
- * whatever the glyph's exact metrics turn out to be.
+ * whatever the glyph's exact metrics turn out to be. `DateTimeField`'s row is the same
+ * `formField`, so the arithmetic holds there unchanged — which is what made the two
+ * declarations identical in the first place.
  */
-const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
+export const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
 /**
  * One form field (DESIGN.md §2.2, restyled to §0.6): **a row, not a box** — the label at the

@@ -12,6 +12,13 @@ import {
 import { formatDiveDate } from '../format/display';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+// §0.5's 48 dp target for a form row's `×`, defined once beside the other one that uses it
+// (§4.1: one owner). This file used to declare a byte-identical copy under a second copy of
+// the reasoning. Read `FormField.tsx`'s docblock for the whole account — including the part
+// that is specifically about THIS control: none of the slop may point left, because since
+// §0.6's design pass the picker's own trigger sits immediately there, and left slop would
+// draw "clear the field" over "open the picker".
+import { CLEAR_HIT_SLOP } from './FormField';
 
 export interface DateTimeFieldProps {
   /** Wraps rather than truncates, same as `FormField`'s (DESIGN.md §0.5, Czech). */
@@ -56,26 +63,6 @@ export interface DateTimeFieldProps {
    */
   day?: string | null;
 }
-
-/**
- * 48 dp (§0.5) around the `×`, via `hitSlop` rather than a bigger visible box — the same
- * split `FormField`'s own `CLEAR_HIT_SLOP` documents, and the same numbers, because it is
- * the same chip in the same label row. Read that one for the whole account: the horizontal
- * slop points OUTWARD, away from the label, and the reason it can is that no ancestor
- * between this control and the ScrollView clips to bounds.
- *
- * The numbers moved with `FormField`'s for consistency rather than to fix a defect here:
- * this `×` sits alone, so its old inward slop fell over the empty space between a
- * left-aligned field label and the chip rather than over anything a diver reads as a label
- * of its own. Kept identical because the two are the same control in the same row, and two
- * spellings of one rule is how they would drift.
- *
- * Since §0.6's design pass the inward direction is no longer merely wasteful here either:
- * the picker's own trigger now sits immediately to this chip's LEFT, so left slop would put
- * "clear the field" over "open the picker" — the same mistake `FormField`'s slop was pointed
- * away from, with a control in place of a word.
- */
-const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
 /**
  * A form row whose value comes from the platform's own date/time picker instead of the
