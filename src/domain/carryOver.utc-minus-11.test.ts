@@ -4,6 +4,7 @@
  */
 
 import { carryOverFrom } from './carryOver';
+import { todayCalendarDate } from './datetime';
 import { dive } from './diveFixture';
 
 /**
@@ -37,6 +38,24 @@ describe('carry-over falling back to today, forced into Pacific/Niue (UTC-11)', 
   it('prefills the day the diver is living in, not the UTC day, once 48 hours have passed', () => {
     const c = carryOverFrom(dive({ date: '2020-01-01' }), LATE_WRITE_UP_LOCAL);
     expect(c.date).toBe('2026-08-31');
+  });
+
+  it("keeps yesterday's date, which the mixed-frame window threw away west of Greenwich", () => {
+    // The same defect as the +14 file's, and the reason both sides are needed: a real
+    // instant compared against UTC midnight runs the window LONG east of Greenwich and
+    // SHORT west of it. Here the second dive of a trip is being logged the evening after
+    // the first, and 2026-08-18 20:00 local is already 2026-08-19 07:00 in UTC — 55 h past
+    // UTC midnight on the 17th, so the old comparison declared yesterday's dive too old
+    // and blanked the site, centre, cylinder and suit the diver was about to reuse.
+    const now = new Date(2026, 7, 18, 20, 0);
+    const c = carryOverFrom(dive({ date: '2026-08-17' }), now);
+    expect(c.date).toBe('2026-08-17');
+    expect(todayCalendarDate(now)).toBe('2026-08-18');
+  });
+
+  it('still moves to today for a dive two days back here, so the window did not simply widen', () => {
+    const now = new Date(2026, 7, 18, 20, 0);
+    expect(carryOverFrom(dive({ date: '2026-08-16' }), now).date).toBe('2026-08-18');
   });
 
   it('lands on that same local day when the previous date is one it refuses to read', () => {

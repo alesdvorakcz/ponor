@@ -1,4 +1,4 @@
-import { calendarDateToUtcMs, todayCalendarDate } from './datetime';
+import { todayCalendarDate } from './datetime';
 import { dive } from './diveFixture';
 import { CARRIED_FIELDS, carryOverFrom } from './carryOver';
 import { diveFormSchema } from './diveFormSchema';
@@ -106,39 +106,53 @@ describe('no previous dive', () => {
   });
 });
 
-describe('the 48-hour date rule', () => {
-  it('keeps the previous date when it is less than 48 hours old', () => {
-    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date('2026-08-17T10:00:00Z'));
+describe('the carry-over date window', () => {
+  // Every `now` below is built from LOCAL components, and so is every expectation about
+  // which day "today" is: today is the day `now` falls on in the DEVICE's zone, so a
+  // `Date.parse('...T10:00:00Z')` moment would name a different day depending on where the
+  // suite runs — which is how a boundary test can quietly assert nothing. The zone-forced
+  // proofs live in carryOver.utc-plus-14.test.ts and carryOver.utc-minus-11.test.ts; this
+  // file only has to stop depending on a zone.
+
+  it('keeps the previous date when the previous dive was today', () => {
+    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(2026, 7, 16, 18, 0));
     expect(c.date).toBe('2026-08-16');
   });
 
-  it('moves to today once the previous dive is older than 48 hours', () => {
-    // `now` built from LOCAL components, and so are the two below it that assert which day
-    // "today" is: since the fix, today is the day `now` falls on in the DEVICE's zone, so a
-    // `Date.parse('...T10:00:00Z')` moment would name a different day here depending on
-    // where the suite runs. The zone-forced proof lives in carryOver.utc-plus-14.test.ts
-    // and carryOver.utc-minus-11.test.ts; this file only has to stop depending on a zone.
+  it('keeps the previous date when the previous dive was yesterday', () => {
+    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(2026, 7, 17, 10, 0));
+    expect(c.date).toBe('2026-08-16');
+  });
+
+  it('moves to today once the previous dive is older than that', () => {
     const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(2026, 7, 20, 10, 0));
     expect(c.date).toBe('2026-08-20');
   });
 
-  it('still keeps the previous date one millisecond before the 48h boundary', () => {
-    const midnight = calendarDateToUtcMs('2026-08-16');
-    if (midnight === null) throw new Error('fixture date failed to parse');
-    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(midnight + 48 * 60 * 60 * 1000 - 1));
+  it('still keeps the previous date at the last millisecond of the following day', () => {
+    // The window closes at the diver's own midnight, not 48 h after some other zone's — so
+    // the boundary is stated in local wall-clock terms, which is the only way to state it
+    // once and have it hold everywhere.
+    const c = carryOverFrom(dive({ date: '2026-08-16' }), new Date(2026, 7, 17, 23, 59, 59, 999));
     expect(c.date).toBe('2026-08-16');
   });
 
-  it('treats exactly 48 hours as "not less than", and moves to today', () => {
-    const midnight = calendarDateToUtcMs('2026-08-16');
-    if (midnight === null) throw new Error('fixture date failed to parse');
-    const now = new Date(midnight + 48 * 60 * 60 * 1000);
+  it('moves to today the instant the day after that begins', () => {
+    const now = new Date(2026, 7, 18, 0, 0, 0, 0);
     const c = carryOverFrom(dive({ date: '2026-08-16' }), now);
     // The boundary is what this test is about, not which day today is, so the expectation
-    // asks the same owner the code does. `not.toBe` below is the assertion that discriminates
-    // — no zone can make the local day of 2026-08-18T00:00Z come out as the 16th.
+    // asks the same owner the code does. `not.toBe` below is the assertion that
+    // discriminates — the 16th is two days back whatever zone this runs in.
     expect(c.date).toBe(todayCalendarDate(now));
     expect(c.date).not.toBe('2026-08-16');
+  });
+
+  it('keeps a previous date that is somehow ahead of today', () => {
+    // A dive dated tomorrow — a device whose clock or zone moved, a date typed a day out —
+    // is not "more than 48 h old" by any reading, so it carries. Stated because a window
+    // written as a day COUNT rather than a signed difference would silently drop it.
+    const c = carryOverFrom(dive({ date: '2026-08-18' }), new Date(2026, 7, 17, 10, 0));
+    expect(c.date).toBe('2026-08-18');
   });
 
   it("computes today from the day now falls on where the diver is, not the UTC day", () => {
@@ -154,7 +168,7 @@ describe('the 48-hour date rule', () => {
   it('falls back to today rather than trusting a rolled invalid date', () => {
     // calendarDateToUtcMs refuses '2026-02-30' outright; Date.parse instead
     // silently rolls it forward to 2026-03-02 (datetime.ts's own docblock).
-    // Trusting that roll would treat 2026-03-01 as within 48h of a dive
+    // Trusting that roll would put 2026-03-01 inside the window of a dive
     // dated two days later than what was actually stored; refusing it and
     // falling back to today is the safe reading.
     const corrupt = dive({ date: '2026-02-30' });
@@ -190,7 +204,7 @@ describe('a plan is never inherited (§2.4)', () => {
   it('carries no status forward from a planned dive, so the form keeps its own logged default', () => {
     // The assertion that discriminates is the second one. `status` is neither carried nor
     // blanked here — it is one of the two fields this module does not name at all (the
-    // other is `date`, which has the 48h rule instead) — so what a caller actually gets is
+    // other is `date`, which has `carryOverDate`'s window instead) — so what a caller gets is
     // whatever the form's own default survives as. Parsing through the real schema is what
     // proves that end to end: if this module ever copied the previous dive's status, the
     // parse below would say 'planned' and every dive after a planned one would default to
