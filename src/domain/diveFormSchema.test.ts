@@ -108,6 +108,31 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     }
   });
 
+  it('says something a diver can act on when it refuses one, at every layer that reports it', () => {
+    // The refusal is shown on screen now (`ControlledOptionField`, DiveFormScreen.tsx), so
+    // the message is diver-facing text, not developer text — Zod's own wording is
+    // `Invalid option: expected one of "shore"|"boat"|"other"`. The union's own message and
+    // its enum member's have to be the SAME sentence: `zodResolver` reports the member's and
+    // `parse` reports the union's, so a message set on only one of them is a message
+    // somebody never sees.
+    /** The union's own message, and the FIRST member's — the two a reader can land on.
+     * `zodResolver` ignores the former and hands react-hook-form the latter; `parse` reports
+     * the former. The other members ('' / null / undefined) fail only as collateral of the
+     * first and keep Zod's own wording, which nothing ever displays. */
+    const bothLayers = (field: string, value: unknown) => {
+      const issue = diveFormSchema.safeParse({ ...base, [field]: value }).error?.issues[0];
+      const members = (issue as { errors?: { message: string }[][] } | undefined)?.errors ?? [];
+      return [issue?.message, members[0]?.[0]?.message];
+    };
+
+    for (const message of bothLayers('entry', 'by helicopter')) {
+      expect(message).toContain('Pick one of the options');
+    }
+    for (const message of bothLayers('hood', 'sometimes')) {
+      expect(message).toContain('yes/no field');
+    }
+  });
+
   it('still refuses a value no vocabulary contains', () => {
     // The guard that keeps the loops above from passing for a schema that accepts anything:
     // `optionalPicked`'s own docblock rests on these being taps on a fixed list.

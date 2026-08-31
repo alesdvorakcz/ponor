@@ -135,11 +135,26 @@ const optionalText = z
   })
   .default(null);
 
-/** Optional checkbox/switch field, normalised to null rather than undefined when unset. */
+const NOT_A_YES_NO = 'This is a yes/no field. Tap it to set it, then save.';
+
+/**
+ * Optional checkbox/switch field, normalised to null rather than undefined when unset.
+ *
+ * Carries a message for the same reason `optionalPicked` below does: a value that is
+ * neither true, false nor absent can only reach this form from outside it, and a rejection
+ * with nothing to read is a save that does nothing and says nothing (§1).
+ */
 const optionalBoolean = z
-  .union([z.boolean(), z.null(), z.undefined()])
+  // On the union AND on the member that actually fails. `zodResolver` does not report a
+  // failed union's own message: it descends into the member errors and hands react-hook-form
+  // the first one, so a message set only on the union is the one the diver never sees, while
+  // a message set only on the member is the one `diveFormSchema.parse()` never reports. One
+  // string, both places, so the two readings cannot drift into different sentences.
+  .union([z.boolean({ error: NOT_A_YES_NO }), z.null(), z.undefined()], { error: NOT_A_YES_NO })
   .transform((raw) => raw ?? null)
   .default(null);
+
+const NOT_AN_OPTION = 'This value came from a newer version of Ponor. Pick one of the options to save.';
 
 /**
  * A picker-backed field restricted to a fixed option set (entry, salinity,
@@ -163,7 +178,15 @@ const optionalBoolean = z
 function optionalPicked<T extends string>(values: readonly T[]) {
   const literal = values as [T, ...T[]];
   return z
-    .union([z.enum(literal), z.literal(''), z.null(), z.undefined()])
+    // Written for the diver, not for the developer, because it is now shown to one
+    // (`ControlledOptionField`, DiveFormScreen.tsx). Zod's own wording for this is
+    // `Invalid option: expected one of "shore"|"boat"|"other"`, which tells a diver on a
+    // boat nothing; the message has to say what to DO, and tapping any chip replaces the
+    // unreadable value and lets the save through. Set on the union and on the enum for the
+    // reason `optionalBoolean` above gives at length.
+    .union([z.enum(literal, { error: NOT_AN_OPTION }), z.literal(''), z.null(), z.undefined()], {
+      error: NOT_AN_OPTION,
+    })
     .transform((raw) => (raw === null || raw === undefined || raw === '' ? null : raw))
     .default(null);
 }

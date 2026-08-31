@@ -527,6 +527,66 @@ it('says why Save did nothing for a date this form itself could never have produ
   expect(shownIn(t, 'Date')).toBe('2099-8-17');
 });
 
+// §1 again, one field over. `date` was not the only value that could refuse a save in
+// silence: an option or boolean field holding something outside its fixed list fails
+// `zodResolver` too, and `handleSubmit` then refuses to call `onValid` for the WHOLE form.
+// Those two field types rendered no message at all, so the diver got a dead Save button on
+// a dive they had opened to change something else entirely.
+//
+// The value has to come from outside the form, because that is the only place it can come
+// from: `OptionChips` hands back a member of its own list or `''`, and the boolean chip
+// hands back true or false. M2 sync is the real source — a row written by a client whose
+// `Entry` has a member this one has never heard of — and edit mode is where it lands.
+describe('a value the form itself could not have produced, in a field that is not the date', () => {
+  /** A dive carrying a value from a newer client. Cast, because the whole point is that the
+   * domain types say this cannot happen and the network does not care. */
+  const fromANewerClient = (over: Record<string, unknown>) =>
+    dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', ...over } as Parameters<typeof dive>[0]);
+
+  it('says why Save did nothing when an option field holds an unknown value', async () => {
+    stubDives({ dives: [fromANewerClient({ entry: 'liveaboard' })] });
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Conditions');
+    await pressSave(t);
+
+    // The schema's own message (diveFormSchema.ts), not a sentence written in the screen.
+    await waitFor(() => expect(textIn(t).join(' ')).toContain('Pick one of the options'));
+    // The save really was refused — so this is a message appearing where there was
+    // silence, not a message appearing beside a save that worked anyway.
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('says why Save did nothing when a boolean field holds something that is not one', async () => {
+    stubDives({ dives: [fromANewerClient({ hood: 'sometimes' })] });
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Equipment');
+    await pressSave(t);
+
+    await waitFor(() => expect(textIn(t).join(' ')).toContain('yes/no field'));
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('lets the diver clear the block by tapping a chip, which is what the message tells them to do', async () => {
+    // A message that names no way out is only a politer dead end. Picking any option
+    // replaces the unreadable value, and the save this diver came for goes through.
+    const target = fromANewerClient({ entry: 'liveaboard' });
+    stubDives({ dives: [target] });
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Conditions');
+    await pressSave(t);
+    await waitFor(() => expect(textIn(t).join(' ')).toContain('Pick one of the options'));
+
+    const boat = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Entry: Boat'));
+    if (!boat) throw new Error('no Entry chip found');
+    await fireEvent.press(boat);
+    await pressSave(t);
+
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(writtenPatch()).toHaveProperty('entry', 'boat');
+  });
+});
+
 it('clears the date message once the diver picks a real date, rather than leaving a stale warning', async () => {
   nonCanonicalSource();
   mockCreate.mockResolvedValue(dive({ date: '2026-08-31' }));

@@ -576,20 +576,42 @@ interface ControlledOptionFieldProps<T extends string> {
   scheme: ColorScheme;
 }
 
+/**
+ * A fixed-choice field, plus the message its value can produce — the same `FieldError`
+ * `ControlledTextField` above renders, and it was missing here.
+ *
+ * Nothing a diver can do on this screen produces one: `OptionChips` only ever hands back a
+ * member of `options` or `''`. A value from anywhere else can, though, and edit mode is
+ * full of values from somewhere else — M2 sync will deliver rows this form never touched,
+ * from a client whose `Entry` has a member this one has never heard of, and carry-over
+ * prefills a new dive from one of them. `zodResolver` then rejects that ONE field and
+ * `handleSubmit` refuses to call `onValid` for the WHOLE form: the diver taps Save on a
+ * dive they came to fix a note on, and nothing happens. No dive, no navigation, no message
+ * — the exact dead button §1 forbids, and the same one `FieldError`'s own docblock says
+ * `date` used to be.
+ *
+ * Surfacing it is the minimum, and it is what this does. Whether such a value should block
+ * at all is a live question — §10's range decision says an out-of-range value "is saved and
+ * can be flagged; it is not refused", which points the other way — but that is the owner's
+ * call to make, not one to slip in behind a rendering fix.
+ */
 function ControlledOptionField<T extends string>({ control, name, label, options, displayLabel, scheme }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
       name={name}
-      render={({ field }) => (
-        <OptionChips
-          label={label}
-          value={field.value as unknown as T | '' | null | undefined}
-          options={options}
-          displayLabel={displayLabel}
-          onChange={field.onChange}
-          scheme={scheme}
-        />
+      render={({ field, fieldState }) => (
+        <>
+          <OptionChips
+            label={label}
+            value={field.value as unknown as T | '' | null | undefined}
+            options={options}
+            displayLabel={displayLabel}
+            onChange={field.onChange}
+            scheme={scheme}
+          />
+          <FieldError message={fieldState.error?.message} scheme={scheme} />
+        </>
       )}
     />
   );
@@ -634,13 +656,20 @@ interface ControlledBooleanFieldProps {
   scheme: ColorScheme;
 }
 
+/** hood/gloves/boots, and the same `FieldError` for the same reason `ControlledOptionField`
+ * above carries one: this control can only ever produce `true` or `false`, so a value the
+ * schema refuses arrived from outside the form — and a refusal nothing displays is a Save
+ * button that does nothing at all. */
 function ControlledBooleanField({ control, name, label, scheme }: ControlledBooleanFieldProps) {
   return (
     <Controller
       control={control}
       name={name}
-      render={({ field }) => (
-        <BooleanField label={label} value={field.value as unknown as boolean | null | undefined} onChange={field.onChange} scheme={scheme} />
+      render={({ field, fieldState }) => (
+        <>
+          <BooleanField label={label} value={field.value as unknown as boolean | null | undefined} onChange={field.onChange} scheme={scheme} />
+          <FieldError message={fieldState.error?.message} scheme={scheme} />
+        </>
       )}
     />
   );
