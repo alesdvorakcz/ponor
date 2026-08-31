@@ -112,8 +112,9 @@ import { type ColorScheme } from '../theme/tokens';
  *   elsewhere already name as a repeat mistake.
  * - `showBackButton` (default `true`, so the routed case is unaffected) hides BackButton
  *   when `false`. Side by side, there is nothing to go back TO — the list is still on
- *   screen the entire time — and BackButton's `router.back()`/`canGoBack()` read the
- *   app's real navigation stack, which embedding never pushed anything onto; showing it
+ *   screen the entire time — and the `router.back()`/`canGoBack()` behind BackButton
+ *   (`backToDives`, navigation/backToDives.ts) reads the app's real navigation stack,
+ *   which embedding never pushed anything onto; showing it
  *   would either do nothing a diver could make sense of or, worse, leave the Dives screen
  *   entirely, since `canGoBack()` reports on whatever brought the app to `/`, not on
  *   whether a detail pane happens to be open next to it.

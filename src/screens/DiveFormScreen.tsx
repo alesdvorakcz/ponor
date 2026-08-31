@@ -128,6 +128,16 @@ function carryOverSource(mode: 'create' | 'edit', dives: Dive[]): Dive | null {
  * `carryOverFrom(null)` returns `{}`, so a `null` source (a first-ever dive, or edit mode)
  * leaves the blank baseline exactly as it is.
  *
+ * `tanks` is re-asserted after the merge rather than taken from the spread. `[]` is a
+ * legitimate value on the previous dive — "an empty array already means no cylinders
+ * recorded" (DESIGN.md §6) — and `carryOverFrom` copies it faithfully, but carrying it
+ * through here would drop the single blank cylinder `blankFormValues()` guarantees and leave
+ * this screen's `tanks.0.*` fields bound to an array element that does not exist: the form
+ * would go on SHOWING one cylinder (§6: it shows exactly one until "+ add cylinder" exists)
+ * while HOLDING none, and two divers who both left the cylinder group untouched would write
+ * different data purely because of what their previous dives happened to record. What the
+ * previous dive recorded is a fact about that dive, not about this one.
+ *
  * Callers must not treat this as a one-shot read: `useDives()` starts empty and resolves
  * asynchronously (`useLiveQuery`'s own initial state, well after this screen's first
  * render), so `source` — and therefore this function's result — can change after mount. See
@@ -135,7 +145,9 @@ function carryOverSource(mode: 'create' | 'edit', dives: Dive[]): Dive | null {
  * option rather than `defaultValues` alone.
  */
 function initialFormValues(source: Dive | null): DiveFormInput {
-  return { ...blankFormValues(), ...carryOverFrom(source) };
+  const blank = blankFormValues();
+  const values = { ...blank, ...carryOverFrom(source) };
+  return values.tanks !== undefined && values.tanks.length > 0 ? values : { ...values, tanks: blank.tanks };
 }
 
 /**

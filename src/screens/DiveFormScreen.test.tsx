@@ -692,3 +692,86 @@ it('re-derives the carried set when useDives resolves after the first render', a
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
   expect(findClearCarried(t, 'Buddy')).toBeDefined();
 });
+
+// --- M3: carrying over from a dive that recorded no cylinders ---
+//
+// `tanks` is the one Dive field that is never nullable, and `[]` is a legitimate value for
+// it — "an empty array already means no cylinders recorded" (DESIGN.md §6, diveFormSchema's
+// own comment). `carryOverFrom` copies it faithfully, which used to overwrite the single
+// blank cylinder `blankFormValues()` guarantees, leaving this screen's `tanks.0.*` fields
+// bound to an array element that does not exist: the form went on SHOWING one cylinder
+// (§6 — it shows exactly one until "+ add cylinder" exists) while HOLDING none, and two
+// divers who both left the cylinder group untouched wrote different data purely because of
+// what their previous dives happened to record.
+
+/** The `tanks` a save actually wrote, from the one `createDive` call. */
+function writtenTanks(): { sizeL?: number | null; count?: number | null }[] | undefined {
+  return (mockCreate.mock.calls[0]?.[1] as { tanks?: { sizeL?: number | null; count?: number | null }[] })?.tanks;
+}
+
+it('still holds its one blank cylinder when carrying over from a dive that logged none', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [], buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  // Untouched on purpose: this is the shape the form was already showing, so it is the
+  // shape the write has to carry. Typing into the cylinder first would hide the defect —
+  // react-hook-form creates `tanks[0]` on the first keystroke either way.
+  expect(writtenTanks()).toHaveLength(1);
+  // And nothing was invented to get there: an empty cylinder is all-null, never 0 (§10 —
+  // a 0 size or count is *contradictory* and voids the dive's whole gas figure).
+  expect(zeroPaths(mockCreate.mock.calls[0]?.[1] ?? {})).toEqual([]);
+});
+
+it('writes the same cylinder shape whether the previous dive logged none or there was no previous dive', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [] })] });
+  const carried = await render(<DiveFormScreen mode="create" />);
+  await typeInto(carried, 'Date', '2026-08-16');
+  await pressSave(carried);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const afterEmptyCarryOver = writtenTanks();
+
+  mockCreate.mockClear();
+  stubDives();
+  const fresh = await render(<DiveFormScreen mode="create" />);
+  await typeInto(fresh, 'Date', '2026-08-16');
+  await pressSave(fresh);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  // Two divers, the same untouched form, the same write — the previous dive having
+  // recorded no cylinders is not a fact about THIS dive.
+  expect(afterEmptyCarryOver).toEqual(writtenTanks());
+});
+
+it('carries a real cylinder through unchanged, so the empty-tanks fix is not a blanket override', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12, count: 2 })] })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  expect(writtenTanks()).toHaveLength(1);
+  expect(writtenTanks()?.[0]?.sizeL).toBe(12);
+  expect(writtenTanks()?.[0]?.count).toBe(2);
+});
+
+it('lets the diver fill the cylinder in, after carrying over from a dive that logged none', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [] })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const gasHeader = findButton(t, 'Gas & cylinders');
+  if (!gasHeader) throw new Error('no Gas & cylinders header found');
+  await fireEvent.press(gasHeader);
+  await typeInto(t, 'Size', '15');
+  await typeInto(t, 'Date', '2026-08-16');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  expect(writtenTanks()).toHaveLength(1);
+  expect(writtenTanks()?.[0]?.sizeL).toBe(15);
+});
