@@ -481,6 +481,13 @@ describe('ReorderControls', () => {
     // §0.5's 48 dp tap-target floor still applies to a 34 x 26 button — just via
     // `hitSlop`, which (unlike the box's own width/height) has no effect on layout, so
     // the touch target can stay generous without the row growing to fit it.
+    //
+    // The arithmetic below is necessary and was never sufficient: it sums a box and its
+    // slop and asks whether the total reaches 48, which is true of numbers that are never
+    // delivered. A touch reaches a view only when every ancestor contains the point as
+    // well, and `reorderArrows` used to be exactly as tall as its 26 dp buttons and flush
+    // against `diveRowTop`'s trailing edge — so the real target was about 37 x 41 while
+    // this test went on passing. The container's own room is asserted right after.
     it('still reaches a 48 dp touch target via hitSlop, even though the visible box is smaller', async () => {
       const t = await render(
         <ReorderControls dives={[d1, d2]} numbers={new Map()} scheme="dark" onPress={() => {}} onReorder={() => {}} />,
@@ -498,6 +505,17 @@ describe('ReorderControls', () => {
       const boxHeight = 26;
       expect(boxWidth + (hitSlop.left ?? 0) + (hitSlop.right ?? 0)).toBeGreaterThanOrEqual(48);
       expect(boxHeight + (hitSlop.top ?? 0) + (hitSlop.bottom ?? 0)).toBeGreaterThanOrEqual(48);
+
+      // The half the sum cannot see: the container the buttons sit in has to hold that
+      // slop, or none of it is delivered. `minHeight` covers the 11 above and below;
+      // `paddingHorizontal` covers the 7 at each outer end; the gap keeps the two buttons'
+      // facing slops from overlapping, which matters more here than anywhere else on the
+      // screen — the down arrow is drawn later, so it is hit-tested first, and an overlap
+      // would send a press aimed at "up" to "down".
+      const arrows = makeStyles('dark').reorderArrows;
+      expect(arrows.minHeight).toBeGreaterThanOrEqual(boxHeight + (hitSlop.top ?? 0) + (hitSlop.bottom ?? 0));
+      expect(arrows.paddingHorizontal).toBeGreaterThanOrEqual(Math.max(hitSlop.left ?? 0, hitSlop.right ?? 0));
+      expect(arrows.gap).toBeGreaterThanOrEqual((hitSlop.left ?? 0) + (hitSlop.right ?? 0));
     });
 
     // The trap the task brief names by name: an assertion that arrows are PRESENT would

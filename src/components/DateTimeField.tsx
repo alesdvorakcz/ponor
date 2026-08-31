@@ -46,9 +46,13 @@ export interface DateTimeFieldProps {
 /**
  * 48 dp (§0.5) around the `×`, via `hitSlop` rather than a bigger visible box — the same
  * split `FormField`'s own `CLEAR_HIT_SLOP` documents, and the same numbers, because it is
- * the same chip in the same label row.
+ * the same chip in the same label row. Read that one for why the vertical slop needs
+ * `formFieldHeader`'s `minHeight: 48` to be delivered at all, and why the horizontal slop
+ * reaches inward only: a chip at the header's trailing edge has no ancestor to its right,
+ * so slop spent there is spent on nothing. The 21 dp to the left lands over the field's own
+ * label, which is not a control, and brings this `×` to 48 dp wide.
  */
-const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 12, right: 12 };
+const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 21, right: 0 };
 
 /**
  * A form row whose value comes from the platform's own date/time picker instead of the

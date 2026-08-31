@@ -67,13 +67,27 @@ export interface FormFieldProps {
  * visible box — the same "small visible control, generous hidden target" split
  * `ReorderControls.tsx`'s own `ARROW_HIT_SLOP` documents at length, and for the same
  * reason: the chip sits inline in a field's label row, and a 48 x 48 visible box would
- * make that row far taller than the 14 px label text beside it. Unlike `ARROW_HIT_SLOP`,
- * there is no fixed visible box to subtract from here — the `×` is one mono glyph inside
- * `formFieldCarriedClear`'s own padding, which sizes itself to the text — so these numbers
- * are deliberately generous rather than measured precisely, to clear 48 dp with margin
- * regardless of exact glyph metrics on a given device.
+ * make that row far taller than the 14 px label text beside it.
+ *
+ * **Slop is only delivered where every ancestor also contains the point**, which is what
+ * these numbers used to get wrong: they were `{ top: 14, bottom: 14, left: 12, right: 12 }`
+ * on a `formFieldHeader` about 24 dp tall, so the vertical slop fell outside the row and
+ * the right-hand slop outside the chip — a target of roughly 27 x 24 under a comment
+ * promising 48. Two things make the current numbers real. `formFieldHeader` now carries
+ * `minHeight: 48` (theme/styles.ts), which is where the 14 above and below is spent, and
+ * clipping it to the row is the point: whatever the glyph's exact metrics, the target is
+ * the row's full 48 dp. And the horizontal slop goes INWARD only — the chip's trailing
+ * edge is the header's trailing edge, so anything to the right of it is outside every
+ * ancestor there is, while 21 dp to the left lands over the chip's own "carried" label and
+ * brings the `×` to 48 dp wide.
+ *
+ * That does mean a tap on the right of the word "carried" clears the field. The owner's
+ * objection to the whole chip being tappable was that it offered no affordance —
+ * "a label you are expected to guess is tappable is not an affordance" — and the visible
+ * `×` and its divider answer that; what is behind them is a touch target, and the
+ * alternative is a control below §0.5's floor on a boat, in the wet.
  */
-const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 12, right: 12 };
+const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 21, right: 0 };
 
 /**
  * One form row (DESIGN.md §2.2): a label above an input, with the label's own row left

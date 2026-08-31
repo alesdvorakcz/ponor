@@ -138,6 +138,47 @@ it('marks a carried field and leaves a typed one unmarked', async () => {
   expect(chips).toHaveLength(1);
 });
 
+// DESIGN.md §0.5: "Tap targets never below 48 dp." The `×` is a 27 x 24 chip segment that
+// gets there through `hitSlop`, and hitSlop is only delivered where every ANCESTOR of the
+// control also contains the point — so the numbers alone prove nothing. What this checks is
+// the pair: the slop reaches 48 in both directions AND it reaches it in a direction the
+// layout can actually deliver.
+//
+// There is no Yoga in this environment (react-test-renderer never lays anything out), so
+// the geometry is read off the styles the component composes, exactly as
+// ReorderControls.test.tsx reads its arrows'. The two facts that made this target 27 x 24
+// while its comment said 48: the label row was as tall as its 14 px text, and the chip sits
+// flush against that row's trailing edge, so the right-hand slop had nothing to extend into.
+it('reaches a 48 dp target for the clear control, in directions the layout can deliver', async () => {
+  const t = await render(
+    <FormField label="Weights" value="6" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  const clear = t.root
+    ? t.root
+        .queryAll((n) => n.props?.accessibilityRole === 'button')
+        .find((n) => String(n.props?.accessibilityLabel ?? '').includes('Clear carried'))
+    : undefined;
+  if (!clear) throw new Error('no clear control found');
+  const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
+  const styles = makeStyles('light');
+
+  // Vertical: the row is the ancestor, and it is 48 dp, so slop of at least half the
+  // difference on each side claims all of it whatever the glyph metrics turn out to be.
+  expect(styles.formFieldHeader.minHeight).toBe(48);
+  expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
+  expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
+
+  // Horizontal: the `×` zone is its own `paddingHorizontal` plus one mono glyph — call it
+  // 27 dp at fontSize 11 — and every dp of the shortfall has to come from the LEFT, inward
+  // over the chip's own label, because the chip's right edge is the header's right edge and
+  // nothing outside it is an ancestor of anything.
+  const clearZoneWidth = styles.formFieldCarriedClear.paddingHorizontal * 2 + 7;
+  expect(clearZoneWidth + (slop.left ?? 0)).toBeGreaterThanOrEqual(48);
+  // Stated, not implied: slop to the right is spent outside every ancestor, so a fix that
+  // "reached 48" by splitting the shortfall across both sides would be back where it began.
+  expect(slop.right ?? 0).toBe(0);
+});
+
 it('clears to an empty string, never a zero', async () => {
   const onClear = jest.fn();
   const t = await render(

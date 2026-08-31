@@ -207,6 +207,31 @@ it('takes every colour it gives the OS control from the theme, in both schemes',
   }
 });
 
+// The same pairing FormField.test.tsx checks for its own chip, and for the same reason:
+// this `×` is a ~27 x 24 chip reaching §0.5's 48 dp through `hitSlop`, and hitSlop is only
+// delivered where every ANCESTOR contains the point. The row's height and the direction of
+// the horizontal slop are what make the numbers real; both were wrong here, under a comment
+// that said "48 dp (§0.5) around the ×".
+it('reaches a 48 dp target for the clear control, in directions the layout can deliver', async () => {
+  const t = await render(
+    <DateTimeField label="Time in" value="07:30" onChange={noop} mode="time" scheme="light" onClear={noop} />,
+  );
+  const clear = clearOf(t, 'Time in');
+  if (!clear) throw new Error('no clear control on a set optional field');
+  const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
+  const styles = makeStyles('light');
+
+  expect(styles.formFieldHeader.minHeight).toBe(48);
+  expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
+  expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
+
+  // Inward only: this chip sits at the header row's trailing edge, so slop to its right
+  // extends past every ancestor there is and is delivered to nobody.
+  const clearZoneWidth = styles.formFieldClear.paddingHorizontal * 2 + 7;
+  expect(clearZoneWidth + (slop.left ?? 0)).toBeGreaterThanOrEqual(48);
+  expect(slop.right ?? 0).toBe(0);
+});
+
 it('clears an optional field back to unrecorded, with the empty string and never a value', async () => {
   const onClear = jest.fn();
   const t = await render(

@@ -541,9 +541,21 @@ function build(scheme: ColorScheme) {
     // the exact slot DepthValue occupies (DiveRow.tsx's `depthSlot` prop). `reorderArrows`
     // is that slot's content: just the two buttons side by side, sized to fit beside a
     // site name rather than to dictate the row's own height.
+    //
+    // It is also what supplies the room `ARROW_HIT_SLOP` (ReorderControls.tsx) needs. A
+    // touch is delivered only to a view whose every ANCESTOR contains the point too, so
+    // slop reaching outside this box does nothing at all: with this row sized to its 26 dp
+    // children and sitting flush against `diveRowTop`'s trailing edge, the arrows' real
+    // target was about 37 x 41, not the 48 x 48 both their comments claimed. `minHeight`
+    // plus `paddingHorizontal` put that slack INSIDE this view, where it counts; the 14 dp
+    // gap keeps the two buttons' slop from meeting, so a tap just to the right of the up
+    // arrow still moves the dive up rather than landing on the down arrow drawn over it.
     reorderArrows: {
+      minHeight: 48,
       flexDirection: 'row',
-      gap: 8,
+      alignItems: 'center',
+      gap: 14,
+      paddingHorizontal: 7,
     },
     // 34 x 26 (task brief's Constraints), not the 48 x 48 box this used to be: at 48 x 48
     // PER button, two of them beside a row made that row roughly 1.5x taller than its
@@ -1070,13 +1082,19 @@ function build(scheme: ColorScheme) {
     // §0.5's 48 dp floor sits on the Pressable, centred around the visually smaller pill
     // inside it — the same "small visible control, generous hidden target" split
     // `dayStripAction` and `plannedAction` above already use, and the reason the pill is
-    // nested rather than being the Pressable itself. `marginVertical: -8` claws back the
-    // slack that floor leaves above and below an 11 px pill, so the tap target stays 48 dp
-    // while the header row keeps the height its heading actually needs.
+    // nested rather than being the Pressable itself.
+    //
+    // **No negative margin.** This carried `marginVertical: -8`, said to "claw back the
+    // slack that floor leaves... so the tap target stays 48 dp while the header row keeps
+    // the height its heading actually needs" — and that is not what a negative margin
+    // does. It shrinks the box the PARENT lays out to 32 dp while leaving this view's own
+    // bounds at 48, so the control overhangs `formHeadingRow` by 8 dp top and bottom, and
+    // a touch is only ever delivered to a view whose every ancestor also contains the
+    // point. The overhanging 16 dp were dead on both platforms: the real target was 32 dp,
+    // under the floor the comment claimed it was keeping. The row is simply 48 dp tall now.
     formStatus: {
       minHeight: 48,
       minWidth: 48,
-      marginVertical: -8,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 4,
@@ -1096,7 +1114,19 @@ function build(scheme: ColorScheme) {
     },
     // Holds the label with room at its trailing edge for the `carried ×` chip below
     // (§0.6) — `justifyContent: 'space-between'` is what reserves that space.
+    //
+    // **`minHeight: 48` because this is a control row, not a caption.** Three different
+    // controls land in it — §0.6's `carried ×` (FormField.tsx), the picker fields' own `×`
+    // (DateTimeField.tsx), and `BooleanField`'s Yes/No chip, which is a `formChip` and has
+    // therefore always made this row 48 dp on hood/gloves/boots. The other two are small
+    // chips that reach §0.5's floor through `hitSlop`, and hitSlop only ever extends a
+    // target within its ancestors: on a 24 dp label row the slop above and below simply
+    // was not delivered, so both `×` controls were roughly 24 dp tall while their own
+    // comments claimed 48. The floor lives here, on every field, rather than only on the
+    // rows currently showing a chip — a conditional height would move the input out from
+    // under the diver's finger the moment typing dropped the chip.
     formFieldHeader: {
+      minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',

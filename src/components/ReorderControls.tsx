@@ -239,7 +239,16 @@ interface ReorderControlsProps {
  * "Constraints"), split per edge: `(48 - 34) / 2 = 7` horizontally, `(48 - 26) / 2 = 11`
  * vertically. `hitSlop` only ever extends where a PRESS is *recognised* — unlike
  * width/height, it has no effect on layout — so the touch target can stay generous
- * without the visible box, and therefore the row it sits in, growing to fit it.
+ * without the visible box growing to fit it.
+ *
+ * **These numbers only mean anything because `reorderArrows` (theme/styles.ts) is sized to
+ * hold them.** A touch reaches a view only if every ANCESTOR contains the point as well, so
+ * slop spilling outside the container is not a bigger target, it is nothing: this row used
+ * to be exactly as tall as the 26 dp buttons and flush against `diveRowTop`'s trailing
+ * edge, which left the arrows at roughly 37 x 41 while this comment said 48 x 48. That
+ * container now carries `minHeight: 48` and 7 dp of horizontal padding — precisely the
+ * slack these numbers ask for — and a 14 dp gap between the two buttons, so their facing
+ * slops meet without overlapping and a tap beside the up arrow cannot move the dive down.
  */
 const ARROW_HIT_SLOP = { top: 11, bottom: 11, left: 7, right: 7 };
 
