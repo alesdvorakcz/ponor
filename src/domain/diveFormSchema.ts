@@ -82,6 +82,34 @@ const optionalNumber = z
   .default(null);
 
 /**
+ * A numeric field that counts things rather than measuring them — today the
+ * cylinder `count` (DESIGN.md §6: "count (twinset = 2)") and nothing else.
+ *
+ * Everything `optionalNumber` above does, then rounded. A fractional count is
+ * not merely odd, it is *contradictory* in `derived.ts`'s sense: `countGas`
+ * classifies a non-integer count exactly as it classifies a zero or negative
+ * one, and a contradictory field on any cylinder voids **the whole dive's** gas
+ * figure rather than skipping that cylinder. So 1.5 cylinders costs a diver
+ * their RMV and gas-used figures with nothing on screen to say why — the same
+ * silent-blanking failure the coercion contract above exists to prevent,
+ * arriving through a different door. The form asks for a whole-number keypad
+ * (`DiveFormScreen.tsx`), which is what stops a diver typing one; this is what
+ * stops carry-over, an M2 sync row, or a device whose keypad offers a separator
+ * anyway from doing it behind the keypad's back.
+ *
+ * Rounds rather than rejects, per §1 and on the same reasoning DESIGN.md §10
+ * records for `manual_order`: a value moved half a place is a far better trade
+ * than a save turned away.
+ */
+const wholeNumber = optionalNumber.transform((value) =>
+  // `Math.round(-0.4)` is `-0`, which `Object.is` reports as different from `0`
+  // — enough on its own to make `toDivePatch` write a "change" on every save of
+  // a dive whose count JSON round-tripped through `JSON.stringify`, which
+  // spells both as `0`.
+  value === null ? null : Math.round(value) + 0,
+);
+
+/**
  * Free text (title, notes, names, ids). Blank or whitespace-only becomes
  * null, matching the numeric rule's "empty means absent, not a value" —
  * everything else passes through untouched, including its own surrounding
@@ -160,7 +188,8 @@ const optionalStatus = z
 const tankFormSchema = z.object({
   material: optionalPicked(['steel', 'alu'] as const),
   sizeL: optionalNumber,
-  count: optionalNumber,
+  // The one field on this form that counts rather than measures — see `wholeNumber`.
+  count: wholeNumber,
   workingBar: optionalNumber,
   o2Pct: optionalNumber,
   hePct: optionalNumber,

@@ -330,7 +330,7 @@ interface ControlledTextFieldProps {
   name: FieldPath<DiveFormInput>;
   label: string;
   scheme: ColorScheme;
-  keyboardType?: 'default' | 'decimal-pad';
+  keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
   multiline?: boolean;
   placeholder?: string;
   /**
@@ -1121,7 +1121,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="tanks.0.count"
             label="Count"
             scheme={scheme}
-            keyboardType="decimal-pad"
+            // Whole cylinders, so a keypad with no separator key on it (§6: "count
+            // (twinset = 2)"). `decimal-pad` offered one — a comma, on the Czech device
+            // this app's first diver holds — and `derived.ts` reads a fractional count as
+            // *contradictory*, which voids the dive's entire gas figure rather than
+            // skipping the cylinder. `wholeNumber` (diveFormSchema.ts) rounds whatever
+            // reaches the schema anyway; this is what stops it being typed.
+            keyboardType="number-pad"
             carriedPaths={carriedPaths}
             onDropCarried={dropCarried}
           />

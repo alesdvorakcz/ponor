@@ -20,9 +20,18 @@ export interface FormFieldProps {
   onChange: (text: string) => void;
   onBlur?: () => void;
   scheme: ColorScheme;
-  /** Numeric fields get the decimal-pad keyboard (M1d task 4 brief); every other field
-   * takes this input's own default keyboard. */
-  keyboardType?: 'default' | 'decimal-pad';
+  /**
+   * Numeric fields get the decimal-pad keyboard (M1d task 4 brief); every other field
+   * takes this input's own default keyboard.
+   *
+   * `'number-pad'` is the third option and it is not decoration: a field that counts
+   * whole things — the cylinder `count`, "twinset = 2" (DESIGN.md §6) — must not offer a
+   * separator key at all. `decimal-pad` shows one, and on a Czech, German or French device
+   * it types a comma, so the keypad was inviting a value `derived.ts` treats as
+   * *contradictory*: a fractional count voids the whole dive's gas figure rather than
+   * skipping one cylinder. `number-pad` has no separator to press.
+   */
+  keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
   multiline?: boolean;
   placeholder?: string;
   /**

@@ -65,16 +65,22 @@ it("calls onChange with what the diver typed, not a stale value it already held"
 // the same value. A real `<View>` root (not a bare `<>...</>` Fragment) is required here:
 // `render().root` is literally `container.children[0]`, so two top-level siblings behind
 // a Fragment would leave `root.queryAll` searching only inside the first one.
-it('gives a numeric field the decimal-pad keyboard, and leaves a text field on the default one', async () => {
+it('gives each field the keyboard it asked for, decimal-pad and whole-number apart', async () => {
   const t = await render(
     <View>
       <FormField label="Max depth" value="" onChange={() => {}} scheme="light" keyboardType="decimal-pad" />
+      <FormField label="Count" value="" onChange={() => {}} scheme="light" keyboardType="number-pad" />
       <FormField label="Site" value="" onChange={() => {}} scheme="light" />
     </View>,
   );
-  const [numeric, text] = inputsOf(t);
+  const [numeric, whole, text] = inputsOf(t);
   expect(numeric?.props.keyboardType).toBe('decimal-pad');
+  // A field that counts whole things must not be handed the keypad with a separator on it
+  // — `decimal-pad` types a comma on a Czech device, and a fractional cylinder count is
+  // *contradictory* in derived.ts: it voids the dive's whole gas figure.
+  expect(whole?.props.keyboardType).toBe('number-pad');
   expect(text?.props.keyboardType).not.toBe('decimal-pad');
+  expect(text?.props.keyboardType).not.toBe('number-pad');
 });
 
 // DESIGN.md §0.5: "Czech runs 20-30% longer than English. Labels wrap to two lines

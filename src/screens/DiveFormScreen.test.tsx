@@ -900,6 +900,37 @@ it('carries a real cylinder through unchanged, so the empty-tanks fix is not a b
   expect(writtenTanks()?.[0]?.count).toBe(2);
 });
 
+it('asks for whole cylinders with a keypad that has no separator on it', async () => {
+  // §6: "count (twinset = 2)". A fractional count is *contradictory* in derived.ts — it
+  // voids the dive's whole gas figure rather than skipping the cylinder — so this field
+  // must not be handed `decimal-pad`, whose separator key types a comma on the Czech
+  // device this app's first diver holds. Checked against Size in the same render, so a
+  // screen that gave every cylinder field the same keyboard fails here.
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findTextInput(t, 'Count')?.props?.keyboardType).toBe('number-pad');
+  expect(findTextInput(t, 'Size')?.props?.keyboardType).toBe('decimal-pad');
+});
+
+it('rounds a cylinder count that reaches it fractional anyway, rather than voiding the gas figure', async () => {
+  // The keypad stops a diver typing 1.5; this is the value arriving from somewhere the
+  // keypad does not govern — carry-over from a row an M2 client wrote, a device keypad
+  // that offers a separator regardless. `countGas` (derived.ts) reads a non-integer count
+  // exactly as it reads 0: contradictory, and the whole dive's RMV and gas-used figures
+  // disappear with no message anywhere.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-16', tanks: [tank({ sizeL: 12, count: 1.5 })] })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  expect(writtenTanks()?.[0]?.count).toBe(2);
+  expect(Number.isInteger(writtenTanks()?.[0]?.count)).toBe(true);
+  // Not rounded into the OTHER contradictory value: `sizeL` is a real measurement and
+  // 11.1 l is an ordinary cylinder, so the rounding must be scoped to the count alone.
+  expect(writtenTanks()?.[0]?.sizeL).toBe(12);
+});
+
 it('lets the diver fill the cylinder in, after carrying over from a dive that logged none', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [] })] });
