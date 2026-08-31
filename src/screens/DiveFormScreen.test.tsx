@@ -1334,6 +1334,59 @@ it("opens both pickers on the dive's own date and time, not on today", async () 
   expect(shownIn(t, 'Time in')).toBe('07:05');
 });
 
+it("seeds the entry-time picker on the dive's own day, not on today", async () => {
+  // What the field SHOWS and what its picker OPENS on are two different values, and only
+  // the first was ever checked. `timeOfDayToLocalDate` has to put an `HH:MM` on some day so
+  // the picker has a moment to open at, and it used to be today: on the two Sundays a year
+  // the clocks move, that day has no 02:30 in it, `new Date(y, m, d, 2, 30)` normalises to
+  // 03:30, and confirming the picker unchanged wrote the hour back changed (Android).
+  //
+  // Asserted on the seed's calendar day rather than by moving the clock: today is not
+  // 2026-08-16, so a picker seeded from today fails this outright, in every zone and on
+  // every day of the year. `datetime.dst.test.ts` covers the hour itself, in a forced zone
+  // whose clocks actually move.
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Times & depth');
+
+  const field = findPickerField(t, 'Time in');
+  if (!field) throw new Error('no Time in field found');
+  await fireEvent.press(field);
+  const picker = (t.root ? t.root.queryAll((n) => n.type === 'RNDateTimePicker') : [])[0];
+  if (!picker) throw new Error('the Time in field opened no picker');
+
+  // The native side takes the seed as an epoch number on the `date` prop, not as the `Date`
+  // the JS component is given — read back through `new Date(...)` and local getters, because
+  // "which day did it open on" is a question about the diver's own calendar.
+  const seed = new Date(picker.props.date as number);
+  expect(seed.getFullYear()).toBe(2026);
+  expect(seed.getMonth()).toBe(7);
+  expect(seed.getDate()).toBe(16);
+  // And it is still the dive's own time on that day, not merely the right day at midnight.
+  expect(seed.getHours()).toBe(2);
+  expect(seed.getMinutes()).toBe(30);
+});
+
+it('follows the date the diver just picked, rather than the one the dive was loaded with', async () => {
+  // The seed is the form's LIVE date, not the stored one: a diver who corrects the date
+  // before setting the entry time must get a picker that already knows the new day, or the
+  // rewrite this fix closes simply moves to the corrected date.
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await pickDate(t, '2026-03-08');
+  await openGroup(t, 'Times & depth');
+
+  const field = findPickerField(t, 'Time in');
+  if (!field) throw new Error('no Time in field found');
+  await fireEvent.press(field);
+  const picker = (t.root ? t.root.queryAll((n) => n.type === 'RNDateTimePicker') : [])[0];
+  if (!picker) throw new Error('the Time in field opened no picker');
+
+  const seed = new Date(picker.props.date as number);
+  expect(seed.getMonth()).toBe(2);
+  expect(seed.getDate()).toBe(8);
+});
+
 it('marks nothing as carried in edit mode — a dive already holds its own values', async () => {
   stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);

@@ -156,6 +156,41 @@ it('opens the picker on the day already stored, in local time', async () => {
   expect(picker.props.mode).toBe('date');
 });
 
+it("opens a time picker on the dive's own day, which is the only day that time is true of", async () => {
+  // The seed's DATE half never reaches storage — only the clock is read back off it — and
+  // that is exactly why it went unnoticed that it was today's. A wall-clock time is not
+  // independent of its day: on a spring-forward date there is no 02:30, so a seed built on
+  // that day normalises to 03:30 and an Android picker confirmed unchanged writes the hour
+  // back changed. Seeded from today, that hit any dive edited on one of the two transition
+  // Sundays; from the dive's own date it can only reach a dive whose own day lacked the
+  // hour it records. `datetime.dst.test.ts` covers the hour, in a zone whose clocks move.
+  const t = await render(
+    <DateTimeField label="Time in" value="02:30" onChange={noop} mode="time" scheme="light" day="2026-08-16" />,
+  );
+  const picker = await openPicker(t, 'Time in');
+  const seeded = new Date(picker.props.date);
+  expect(seeded.getFullYear()).toBe(2026);
+  expect(seeded.getMonth()).toBe(7);
+  expect(seeded.getDate()).toBe(16);
+  // Today is not 2026-08-16 on any day this suite will ever run, so the three assertions
+  // above fail outright for a seed built on `new Date()`. The hour is checked too, because a
+  // seed on the right day at the wrong time would be its own bug.
+  expect(seeded.getHours()).toBe(2);
+  expect(seeded.getMinutes()).toBe(30);
+});
+
+it('falls back to today when it is given no day, rather than inventing one', async () => {
+  // The default still has to be usable: a caller with no date to offer gets a picker that
+  // opens at the stored time on the current day, exactly as before.
+  const t = await render(<DateTimeField label="Time in" value="07:05" onChange={noop} mode="time" scheme="light" />);
+  const picker = await openPicker(t, 'Time in');
+  const seeded = new Date(picker.props.date);
+  const today = new Date();
+  expect(seeded.getDate()).toBe(today.getDate());
+  expect(seeded.getHours()).toBe(7);
+  expect(seeded.getMinutes()).toBe(5);
+});
+
 it('stores the day the diver picked, not the UTC day that instant falls in', async () => {
   const onChange = jest.fn();
   const t = await render(<DateTimeField label="Date" value="2026-08-31" onChange={onChange} mode="date" scheme="light" />);

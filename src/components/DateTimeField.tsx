@@ -41,6 +41,20 @@ export interface DateTimeFieldProps {
    * affordance.
    */
   onClear?: (value: string) => void;
+  /**
+   * `mode="time"` only: the dive's own `YYYY-MM-DD`, which is the day this time falls on.
+   *
+   * It decides what the picker OPENS on and nothing else — the stored value stays the
+   * `HH:MM` string. Without it `timeOfDayToLocalDate` puts the time on today, and a
+   * wall-clock time is not independent of its day: on a spring-forward date 02:30 does not
+   * exist, so the seed normalises to 03:30 and confirming the picker unchanged rewrites the
+   * dive's entry time by an hour (Android). Seeded from today, that hit any dive edited on
+   * one of the two transition Sundays; seeded from the dive's own date it can only ever
+   * affect a dive whose recorded time its own day genuinely did not have.
+   *
+   * Optional, and unread for `mode="date"`: a date picker is seeded from the value itself.
+   */
+  day?: string | null;
 }
 
 /**
@@ -85,7 +99,7 @@ const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 21, right: 0 };
  * paper logbooks, so it is routinely far in the past. A clamp to "today" would make
  * planning a dive impossible; there is no range to enforce here.
  */
-export function DateTimeField({ label, value, onChange, mode, scheme, placeholder, onClear }: DateTimeFieldProps) {
+export function DateTimeField({ label, value, onChange, mode, scheme, placeholder, onClear, day }: DateTimeFieldProps) {
   const styles = makeStyles(scheme);
   const [open, setOpen] = useState(false);
 
@@ -111,8 +125,13 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
     : (placeholder ?? '');
 
   // Seeded with the stored value, or with now when there is none to read — never with an
-  // invented value the field would then be showing without having stored it.
-  const picked = mode === 'date' ? calendarDateToLocalDate(stored) : timeOfDayToLocalDate(stored);
+  // invented value the field would then be showing without having stored it. A time is
+  // seeded onto the DIVE's day (`day`), not onto today: see that prop for the hour a
+  // spring-forward date used to cost.
+  const picked =
+    mode === 'date'
+      ? calendarDateToLocalDate(stored)
+      : timeOfDayToLocalDate(stored, calendarDateToLocalDate(day) ?? undefined);
   const seed = picked ?? new Date();
 
   const commit = (chosen: Date | undefined) => {

@@ -478,6 +478,10 @@ interface ControlledDateTimeFieldProps {
    * a control that failed to load.
    */
   optional?: boolean;
+  /** `mode="time"` only: the date the form currently holds, which is the day this time
+   * belongs to — see `DateTimeField`'s own `day` prop for the hour a spring-forward date
+   * cost when the picker was seeded on today instead. */
+  day?: string | null;
 }
 
 /**
@@ -491,7 +495,7 @@ interface ControlledDateTimeFieldProps {
  * the single owner of both forms. A second representation on the form side is exactly the
  * drift §10 exists to prevent.
  */
-function ControlledDateTimeField({ control, name, label, mode, scheme, optional }: ControlledDateTimeFieldProps) {
+function ControlledDateTimeField({ control, name, label, mode, scheme, optional, day }: ControlledDateTimeFieldProps) {
   return (
     <Controller
       control={control}
@@ -504,6 +508,7 @@ function ControlledDateTimeField({ control, name, label, mode, scheme, optional 
             onChange={field.onChange}
             mode={mode}
             scheme={scheme}
+            day={day}
             placeholder={NOT_RECORDED}
             // Same split `FormField` draws between typing and clearing, and the same `''`
             // — `DateTimeField` passes the literal empty string, never a value derived from
@@ -914,6 +919,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // this whole control exists to end, reintroduced one layer down.
   const chosenStatus: DiveStatus = useWatch({ control, name: 'status' }) === 'planned' ? 'planned' : 'logged';
 
+  // The date the form currently holds, watched for the same reason `chosenStatus` above is:
+  // the entry-time picker is seeded onto THIS dive's day (`DateTimeField`'s `day` prop), so
+  // a diver who corrects the date before setting the time must get a picker that already
+  // knows it. Read through `useWatch` rather than `getValues`, which would produce the right
+  // day once and then never change.
+  const watchedDate = useWatch({ control, name: 'date' });
+  const chosenDate = typeof watchedDate === 'string' ? watchedDate : null;
+
   const carriedPaths = carried.paths;
 
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
@@ -1075,7 +1088,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               stays `optionalText` — a diver who did not note an entry time saves without
               one. `timeOut` gets no control at all: it is computed from this plus duration
               (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
-          <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional />
+          <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
           <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" placeholder="m" />
         </FormGroup>
 

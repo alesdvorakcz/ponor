@@ -316,11 +316,25 @@ export function calendarDateToLocalDate(value: unknown): Date | null {
  * with. Null when the value names no real time, which is the caller's cue to open the
  * picker on the current time rather than on an invented one.
  *
- * `base` defaults to now and is injectable for the same reason `carryOverFrom`'s `now` is:
- * so the behaviour is testable without mocking the clock. Its date half never reaches
- * storage — `localDateToTimeOfDay` above reads only the clock back off it — but it is not
- * arbitrary either: a `Date` has to sit on some day, and putting it on a different one
- * could move the wall-clock reading across that day's DST transition.
+ * **`base` must be the dive's own date, and a caller that leaves it out is asking for
+ * today's.** Its date half never reaches storage — `localDateToTimeOfDay` above reads only
+ * the clock back off it — but that does not make it arbitrary, because a wall-clock time is
+ * not a fact independent of the day it falls on. `new Date(y, m, d, 2, 30)` on a
+ * spring-forward date is 03:30: 02:30 did not happen that day, so the constructor
+ * normalises past the gap, and the picker then opens on 03:30 over a stored 02:30. On
+ * Android confirming that picker without touching it writes 03:30 back, and a dive's entry
+ * time is silently moved an hour.
+ *
+ * Seeded from `new Date()` — which is what this used to do at every call site
+ * (`DateTimeField.tsx` passed no base) — the day being asked about is TODAY, so the dive
+ * whose time gets rewritten is not the one on the transition date but any dive edited ON
+ * one: two Sundays a year, every dive in the logbook has a 02:30 that reads as 03:30. Seeded
+ * from the dive's own date the case shrinks to what it actually is — a dive that claims a
+ * time its own day did not have, which is a value no clock ever showed and which this
+ * function cannot invent an answer for.
+ *
+ * The default remains for callers that genuinely have no date to offer, and because
+ * `carryOverFrom`'s `now` is injectable for the same testability reason.
  */
 export function timeOfDayToLocalDate(value: unknown, base: Date = new Date()): Date | null {
   const minutes = timeOfDayToMinutes(value);
