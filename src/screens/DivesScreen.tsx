@@ -14,7 +14,6 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
 import { diveSiteLabel, formatDiveCount } from '../format/display';
-import { useHideOnScroll } from '../hooks/useHideOnScroll';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
@@ -124,9 +123,12 @@ function entryKey(entry: ListEntry): string {
  *
  * **Wide (tablet) layout** (DESIGN.md §3, `useWideLayout.ts`): `wide` splits the render
  * into a fixed-width list column plus a detail pane for whichever dive is `selectedId`.
- * The list column's own JSX — search box, notice, the section list, the "+" fab — is
- * identical to the narrow layout's; it is written ONCE (`listPane`, below) and reused in
- * both branches, rather than kept as two copies that could quietly drift apart. The detail
+ * The list column's own JSX — the title row and its capsule, the notices, the section list —
+ * is identical to the narrow layout's; it is written ONCE (`listPane`, below) and reused in
+ * both branches, rather than kept as two copies that could quietly drift apart. That is also
+ * what keeps the title inside the COLUMN rather than across the window: it is part of the
+ * pane, not of the wrapper the two panes sit in, so at 900 px the heading names the list and
+ * not the dive beside it. The detail
  * pane reuses `DiveDetailScreen` itself, the exact component `/dive/[id]` renders, rather
  * than a second view that redraws a dive's fields a second way — see that file's own
  * docblock for the two props (`id`, `showBackButton`) this needed and why. `openDive`
@@ -158,26 +160,6 @@ export default function DivesScreen() {
   const styles = makeStyles(scheme);
   const { dives, numbers, error, settingsError } = useDives();
   const wide = useWideLayout();
-  // DESIGN.md §0.6: "Both recede as the list scrolls down and return on the way up. A
-  // logbook is scanned far more often than searched, so neither earns its space until
-  // reached for." That paragraph was written for the bottom capsule and was dropped when
-  // §3's note moved it to the top right; the recede came back with the capsule, because the
-  // reason it existed is a top-right problem too. The list's trip headers are STICKY and
-  // their trailing slot holds the trip's date range (§0.6), so every header in turn slides
-  // under a persistent capsule and loses its date — seen on the simulator, not deduced.
-  // `useHideOnScroll.ts` holds the mechanism (a threshold, not a raw delta sign) and its
-  // own boundary tests.
-  //
-  // **`forceVisible` is `false`, and that is a statement rather than a placeholder.** The
-  // argument exists for a state in which receding would leave the diver unable to reach the
-  // capsule back, and while search lived on this screen there was one: a query that narrowed
-  // the list to zero swapped the SectionList for a static message, leaving nothing to scroll
-  // up on. Search has its own screen now (SearchScreen.tsx), this screen holds no query, and
-  // its only listless branches — a failed read and an empty logbook — both return above
-  // without rendering the capsule at all. So there is no such state here to name, and
-  // `nextScrollVisibility`'s unconditional "visible at the top of the list" rule is the whole
-  // guarantee this screen needs.
-  const hideOnScroll = useHideOnScroll(false);
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -293,9 +275,47 @@ export default function DivesScreen() {
     });
   };
 
+  /**
+   * The screen's title row (DESIGN.md §0.6) — the line this screen calls itself on, with
+   * §3's search/`+` capsule in its trailing slot.
+   *
+   * **It exists because Settings had one and this screen did not**, and the inconsistency
+   * cost more than a missing line: with no title row, the capsule had nowhere to sit but on
+   * top of the list, and a capsule floating over a list of STICKY trip headers occludes
+   * every one of their date ranges in turn (§0.6's type table puts the range in exactly the
+   * slot the capsule floated in). That was patched by making the capsule recede on scroll
+   * (`useHideOnScroll`); a row in flow removes the collision instead of timing around it —
+   * see `divesHeadingRow` (theme/styles.ts) for the geometry.
+   *
+   * **The recede went with the float, and the hook went with the recede.** It had exactly
+   * one caller, this screen, and one reason to exist, this occlusion; with the list's
+   * viewport starting below the row there is no offset at which a header can reach the
+   * capsule, so there is nothing left for it to schedule. Keeping it would have left a
+   * tested module wired to nothing, and the capsule is now MORE reachable than the recede
+   * ever made it: it never leaves, so a diver deep in a long logbook no longer has to scroll
+   * up to log a dive. `git log` has the hook, its threshold and its boundary suite if a later
+   * screen wants the same behaviour for a reason of its own. DESIGN.md §0.6's recede
+   * paragraph describes this screen as it was and needs replacing with this row.
+   *
+   * `actions` is optional, and the two branches that omit it are saying something. A failed
+   * read has no logbook to search and no dive worth adding to a database that would not
+   * read it back; an empty logbook has nothing to search either, and §3 already gives that
+   * branch the full-size "Log your first dive" in the thumb zone (§0.5) rather than a
+   * 19 px glyph at the far corner. Both keep the TITLE, so the screen names itself in every
+   * state, and `divesHeadingRow`'s own `minHeight` keeps that name in the same place
+   * whether or not a capsule is beside it.
+   */
+  const headingRow = (actions?: readonly CapsuleAction[]) => (
+    <View style={styles.divesHeadingRow}>
+      <Text style={styles.divesHeading}>Dives</Text>
+      {actions !== undefined && <ActionCapsule scheme={scheme} actions={actions} />}
+    </View>
+  );
+
   if (error) {
     return (
       <View style={styles.screen}>
+        {headingRow()}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>
             Couldn&apos;t open your logbook. Try closing and reopening the app.
@@ -308,6 +328,7 @@ export default function DivesScreen() {
   if (dives.length === 0) {
     return (
       <View style={styles.screen}>
+        {headingRow()}
         <EmptyState scheme={scheme} onPress={logDive} />
       </View>
     );
@@ -427,9 +448,13 @@ export default function DivesScreen() {
 
   // Everything the narrow layout has always rendered inside `styles.screen`, unchanged —
   // written once and reused by both branches below, rather than kept as two copies of the
-  // same list that could quietly drift apart (this file's own top docblock).
+  // same list that could quietly drift apart (this file's own top docblock). It opens with
+  // the title row, so on the wide layout the title belongs to the LIST COLUMN rather than to
+  // the window: `wideListColumn` renders this same fragment, and the detail pane beside it
+  // gets its own heading from `DiveDetailScreen` exactly as it does full-screen.
   const listPane = (
     <>
+      {headingRow(capsuleActions)}
       {reorderMessage !== null && (
         <Pressable
           style={styles.reorderNotice}
@@ -476,38 +501,8 @@ export default function DivesScreen() {
           )}
           stickySectionHeadersEnabled
           contentContainerStyle={styles.listContent}
-          // The capsule above yields to this list (§0.6). `stickySectionHeadersEnabled` is
-          // directly above for a reason: it is what makes the recede necessary rather than
-          // merely nice, since a sticky TripHeader parks its date range under the capsule's
-          // corner for as long as its trip is on screen.
-          onScroll={hideOnScroll.onScroll}
-          // 16ms matches the screen's refresh rate (RN's own docs note no benefit below it).
-          // The default, 0, fires one event per gesture — far too coarse for the hook's
-          // accumulator to read a direction from.
-          scrollEventThrottle={16}
         />
       )}
-      {/* DESIGN.md §3's note: "Tabs go to the bottom; search and `+` move to a top-right
-          capsule." It floats on the list's first rows and comes AFTER the SectionList in
-          sibling order deliberately: React Native stacks siblings by render order regardless
-          of `position: absolute`, so a floating row placed before an in-flow SectionList
-          would paint UNDER its rows, not over them, as soon as any scrolled past it.
-          `styles.listContent` keeps the list's own first row clear of it.
-
-          **It recedes as the list scrolls down and returns on the way up** — §0.6, and the
-          reason that sentence was written: the list's sticky trip headers carry each trip's
-          date range in their trailing slot, so a capsule that never moved would sit on top
-          of every one of them in turn. `hidden` gates pointerEvents and accessibility as
-          well as the style, so a diver can never tap into, or have a screen reader land on,
-          a capsule that has faded to nothing. */}
-      <View
-        style={[styles.topActionRow, hideOnScroll.hidden ? styles.topActionRowHidden : undefined]}
-        pointerEvents={hideOnScroll.hidden ? 'none' : 'auto'}
-        importantForAccessibility={hideOnScroll.hidden ? 'no-hide-descendants' : 'auto'}
-        accessibilityElementsHidden={hideOnScroll.hidden}
-      >
-        <ActionCapsule scheme={scheme} actions={capsuleActions} />
-      </View>
     </>
   );
 

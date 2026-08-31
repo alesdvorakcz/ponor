@@ -41,11 +41,13 @@ const GLYPH_SIZE = 19;
  * top-right glass capsule carrying view-toggle, magnifier and `+` as **equal monochrome
  * glyphs**, with the bottom left to navigation. Ponor follows that."
  *
- * This component owns the capsule's shape, its material and the glyphs inside it;
- * `DivesScreen.tsx` owns where it sits (`topActionRow`) and whether it is currently hidden
- * (`useHideOnScroll`) — the same division of labour `SearchCapsule` next door already has
- * with the same screen, so the two floating objects are positioned by one file and drawn by
- * two.
+ * This component owns the capsule's shape, its material and the glyphs inside it; its caller
+ * owns where it sits — the same division of labour `SearchCapsule` next door has, which is
+ * what lets one capsule serve two screens. On the Dives screen it is the trailing half of
+ * that screen's title row (`divesHeadingRow`, theme/styles.ts); on the search screen it sits
+ * in the dock beside the field. It floated over the dive list until the title row existed to
+ * hold it, and carried a recede-on-scroll while it did — see `divesHeadingRow` for why an
+ * in-flow row retired that.
  *
  * **Equal glyphs, and that settles a question §3 left open**: "Whether `+` is an equal glyph
  * or carries some emphasis is decided when it is built; §10's 'no accent on the `+`' binds

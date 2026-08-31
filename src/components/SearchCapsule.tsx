@@ -25,11 +25,11 @@ interface SearchCapsuleProps {
 
 /**
  * DESIGN.md §0.6 — the Dives screen's search field, moved off the top of the screen (M1c
- * task 11) into a floating capsule at the bottom, beside the "+". This component owns only
- * the capsule's own shape and material; DivesScreen.tsx owns where it sits (the floating
- * row beside the fab, positioned off `useSafeAreaInsets`) and whether it is currently
- * hidden (`useHideOnScroll`) — this component has no opinion on either, so it renders the
- * same way regardless of where its caller puts it.
+ * task 11) into a floating capsule at the bottom, beside the "+", and moved again with it
+ * onto a screen of its own (SearchScreen.tsx — §3's note). This component owns only the
+ * capsule's own shape and material; its caller owns where it sits — today `searchDock`, at
+ * the bottom of the search screen where the keyboard rises. It has no opinion on that, so it
+ * renders the same way regardless of where it is put.
  *
  * Measured off iOS 26 Messages rather than recalled, per the task brief: no bar, no top
  * rule, no border — separation from the list comes entirely from `floatingShadow`

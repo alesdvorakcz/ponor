@@ -111,3 +111,33 @@ describe('the reorder arrows row', () => {
     expect(makeStyles('dark').reorderArrows.gap).toBeGreaterThanOrEqual(7 * 2);
   });
 });
+
+// DESIGN.md §4.1: what a screen calls itself is one rule, so it has one owner. Three screens
+// draw a title — the dive form, Settings, and (this task) the Dives list — and two of them
+// put a control on the line beside it. The face, size and ink come from one `screenHeading`
+// definition and the row's shape from one `headingRow`; each screen supplies only the column
+// it indents to, which genuinely differs (the form and Settings use the form row's 20, the
+// Dives list its own rows' 16). Pinned as agreement rather than as values, so the three can
+// still be restyled together and can no longer drift apart one at a time.
+describe('a screen title', () => {
+  it('reads the same on every screen that draws one', () => {
+    const styles = makeStyles('dark');
+    const dives = styles.divesHeading as Record<string, unknown>;
+    for (const other of [styles.formHeading, styles.settingsHeading] as Record<string, unknown>[]) {
+      expect(dives.fontFamily).toBe(other.fontFamily);
+      expect(dives.fontSize).toBe(other.fontSize);
+      expect(dives.color).toBe(other.color);
+    }
+  });
+
+  it('sits in the same row shape wherever something shares its line', () => {
+    const styles = makeStyles('dark');
+    const dives = styles.divesHeadingRow as Record<string, unknown>;
+    const form = styles.formHeadingRow as Record<string, unknown>;
+    for (const prop of ['flexDirection', 'alignItems', 'justifyContent', 'gap'] as const) {
+      expect(dives[prop]).toBe(form[prop]);
+    }
+    // ...and only the column differs, which is the one thing that should.
+    expect(dives.paddingHorizontal).not.toBe(form.paddingHorizontal);
+  });
+});

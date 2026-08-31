@@ -198,14 +198,33 @@ function build(scheme: ColorScheme) {
   // What a screen calls itself: the form's "Log a dive" / "Edit dive", and Settings' own
   // title. Archivo SemiBold 20 in full ink — the largest type in the app that is not a
   // depth, which is what makes it read as the name of the thing rather than as part of it.
-  // One definition rather than two, the same reasoning `noticeBanner` and `backControl`
-  // above record: the two call sites differ only in how they are placed (the form's sits in
-  // a flex row beside §2.4's status control and so takes `flex: 1`; Settings' is a block and
-  // takes the row inset directly), and neither may quietly pick a different size.
+  // One definition rather than three, the same reasoning `noticeBanner` and `backControl`
+  // above record: the call sites differ only in how they are placed (the form's and the
+  // Dives list's each sit in a flex row beside a control; Settings' is a block and takes the
+  // row inset directly), and none of them may quietly pick a different size.
   const screenHeading: TextStyle = {
     fontFamily: fonts['sans-semibold'],
     fontSize: 20,
     color: theme.fg,
+  };
+
+  // The row that title sits in on the two screens where something shares its line: §2.4's
+  // Logged/Planned control on the form, and the search/`+` capsule on the Dives list (§3's
+  // note — "search and `+` move to a top-right capsule", which is this row's trailing slot).
+  // Written once for the reason `screenHeading` itself is: the two rows differ only in the
+  // column their screen indents to, and neither may pick its own gap or alignment.
+  const headingRow: ViewStyle = {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  };
+  // The title inside that row. `flex: 1` so a longer heading wraps rather than squeezing the
+  // control beside it off the row — §0.5's "Czech runs 20–30 % longer than English", the
+  // same requirement `tripTitle` and `formFieldLabel` already answer the same way.
+  const headingTitle: TextStyle = {
+    ...screenHeading,
+    flex: 1,
   };
 
   // A row's leading half (§0.6: "Label at the leading edge in Archivo 15 muted — the detail
@@ -257,10 +276,15 @@ function build(scheme: ColorScheme) {
 
   // How far below the top of the display a screen's content begins — the status-bar
   // clearance every screen in the app has used since M0, as a static number rather than a
-  // safe-area read. Written once now that three keys need it: `screen` and `wideListColumn`
-  // spend it as `paddingTop`, and `topActionRow` has to spend it again as an absolute
-  // `top`, because Yoga measures an absolute child's offsets from its containing block's
-  // border edge and never sees that padding (see `topActionRow`).
+  // safe-area read. Written once because two keys need it — `screen` and `wideListColumn`
+  // both spend it as `paddingTop`, one per column, and the wide layout would otherwise stack
+  // it twice over the detail pane (see `wideListColumn`).
+  //
+  // It was spent a third time, as an absolute `top`, while the action capsule floated over
+  // the list: Yoga measures an absolute child's offsets from its containing block's BORDER
+  // edge, so `screen`'s padding was invisible to it and a `top: 0` capsule landed over the
+  // clock and the battery (seen on the simulator, not deduced). `divesHeadingRow` is in flow
+  // now, inside that padding like everything else, so the constant has one meaning again.
   const SCREEN_TOP_INSET = 48;
 
   // A scrolling column of §0.6 rows — the dive form, and now Settings, which is the same
@@ -372,20 +396,17 @@ function build(scheme: ColorScheme) {
     },
     // SectionList's contentContainerStyle.
     //
-    // The padding moved from the bottom to the TOP when the floating row did (§3's note,
-    // built with Settings): the capsule now rests on the list's first rows instead of its
-    // last, so that is where the list needs room. 60 = the capsule's own 48 plus the 12
-    // `TOP_ACTION_ROW_MARGIN` (DivesScreen.tsx) below it, which is the whole of what the row
-    // occupies now that it sits inside `screen`'s own `paddingTop` rather than against the
-    // device's bottom edge — no `useSafeAreaInsets` term to guess at any more, because the
-    // home indicator is the tab bar's problem and the tab bar handles its own insets.
+    // **No top padding, and its absence is the point.** This carried 60 — the capsule's own
+    // 48 plus the gap below it — for as long as the capsule floated over the list's first
+    // rows and the list had to open clear of it. `divesHeadingRow` below now holds the
+    // capsule IN FLOW above this list, so there is nothing overhead to clear: the list's
+    // viewport begins where the title row ends, and the first trip header's own `paddingTop:
+    // 20` is the only space wanted between them.
     //
-    // The bottom keeps a smaller allowance: nothing floats there now (the tab bar is a
-    // sibling of the whole screen, not an overlay on this list), so this is only the
-    // breathing room a last row wants before the bar rather than clearance for something
-    // drawn on top of it.
+    // The bottom keeps its allowance: the tab bar is a sibling of the whole screen, not an
+    // overlay on this list, so this is the breathing room a last row wants before the bar
+    // rather than clearance for something drawn on top of it.
     listContent: {
-      paddingTop: 60,
       paddingBottom: 24,
     },
     // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
@@ -569,71 +590,54 @@ function build(scheme: ColorScheme) {
       color: theme.actionFg,
     },
     // DESIGN.md §3's note (owner's call, recorded during M1d, built with Settings): "Tabs go
-    // to the bottom; search and `+` move to a top-right capsule." This is that row — the
-    // same floating strip M1c task 11 put at the bottom, turned the other way up, because
-    // the tab bar now wants the space it stood in.
+    // to the bottom; search and `+` move to a top-right capsule." This is the row that
+    // capsule sits in — the Dives screen's TITLE row, `headingRow` above plus this screen's
+    // own column, with the title leading and the capsule trailing.
     //
-    // `position: 'absolute'` with `left`/`right` (not a fixed `width`) keeps the "roughly
-    // 24 dp clear either side" the bottom row had, and gives the search field somewhere to
-    // grow when it opens: `searchCapsuleShape`'s `flex: 1` takes the width the action
-    // capsule leaves. `justifyContent: 'flex-end'` is what pins the capsule to the RIGHT
-    // while search is closed and the row holds only that one child.
+    // **It is in flow, and that is the whole fix.** The capsule used to be an absolutely
+    // positioned strip floating over the list's first rows (`topActionRow`, `git log` has
+    // it), which is why it needed `useHideOnScroll`: this list's trip headers are sticky and
+    // carry their date range in the trailing slot (§0.6's type table), so every header in
+    // turn slid under the capsule and lost its date — `UNNAMED SITE`'s range read as `…16` on
+    // the simulator. A row in flow ends the collision outright rather than timing it: the
+    // list's viewport starts BELOW this row, so no header can reach it, at any scroll offset,
+    // and the capsule stops having to disappear to make room for one. The row draws no ground
+    // of its own because it needs none — nothing ever passes behind it, and `screen`'s opaque
+    // `bg` is already underneath. The recede went with the float; see DivesScreen.tsx.
     //
-    // `top` is `SCREEN_TOP_INSET` — the same 48 `screen` and `wideListColumn` carry as
-    // `paddingTop`, and the same static status-bar clearance every screen in the app has
-    // used since M0 — rather than a safe-area term. The bottom row needed
-    // `useSafeAreaInsets` because the home indicator's height genuinely varies by device and
-    // nothing else in the app had measured it; the top does not need a second, different
-    // answer to a question `screen` has been answering all along.
+    // `paddingHorizontal: 16` is this screen's own column — `tripHeader` and `diveRow` below
+    // both use it — so the title lands in the same column as the trip titles beneath it and
+    // the capsule's trailing edge lines up with the date ranges it used to cover. (It is NOT
+    // `FORM_ROW_INSET`: that is the form's and Settings' column, and `detailBack` records the
+    // same choice one screen over — a screen's title aligns to that screen's own rows.)
     //
-    // **It has to be repeated here, and that is not redundancy.** This was written `top: 0`
-    // on the reasoning that an absolute child is laid out inside its parent's padding, so
-    // `screen`'s own 48 would apply. It is not: React Native put the capsule flush against
-    // the top of the display, over the clock and the battery — seen on the simulator, not
-    // deduced. Yoga measures an absolute child's `top` from the containing block's border
-    // edge, so a parent's padding is invisible to it. Sharing the constant is what keeps the
-    // capsule aligned with the content beneath it now that both have to state it.
-    topActionRow: {
-      position: 'absolute',
-      top: SCREEN_TOP_INSET,
-      left: 24,
-      right: 24,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'flex-end',
-      gap: 12,
+    // `minHeight: 48` holds the row at the height the capsule gives it, so the title sits in
+    // exactly the same place on the branches that render no capsule (a failed read, an empty
+    // logbook — DivesScreen.tsx). It is a floor and never a `height`: §0.5's tap targets are
+    // the capsule's two 48 dp glyphs, and a fixed height here would be the one way to clip
+    // them.
+    divesHeadingRow: {
+      ...headingRow,
+      minHeight: 48,
+      paddingHorizontal: 16,
     },
-    // Composed onto `topActionRow` above exactly while `useHideOnScroll`'s `hidden` is true
-    // (DivesScreen.tsx). §0.6: "Both recede as the list scrolls down and return on the way
-    // up. A logbook is scanned far more often than searched, so neither earns its space
-    // until reached for."
-    //
-    // **The recede is load-bearing, not decorative, and that was found by using the app.**
-    // The list's trip headers are sticky and their trailing slot carries the trip's date
-    // range (§0.6's type table), so a persistent capsule sits exactly where every header's
-    // date arrives as it slides up — on the simulator `UNNAMED SITE`'s range read as `…16`
-    // with the rest behind the capsule. Nothing here can fix that by moving: the capsule and
-    // the date want the same corner, and §0.6 already answered which of them yields.
-    //
-    // Opacity only, exactly as the bottom row's `floatingRowHidden` was before it (`git log`
-    // has that key): `topActionRow` is already `position: 'absolute'` — out of flow, with no
-    // space to reclaim — and animating its height to 0 would visibly squash the capsule as it
-    // faded rather than let it recede in place. It is also the one property
-    // `useHideOnScroll`'s `LayoutAnimation` config actually animates.
-    topActionRowHidden: {
-      opacity: 0,
-    },
+    // The title itself — `headingTitle` above, i.e. `screenHeading` in a row, the exact
+    // definition the form's own heading reads. §4.1: the Dives screen calls itself the same
+    // way every other screen does, or it is a second treatment of one rule.
+    divesHeading: headingTitle,
     // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------
     // The dock the field sits in, at the BOTTOM of the screen, where the keyboard rises. It
-    // mirrors `topActionRow` above turned the other way up — the same 24 dp clear either
-    // side, the same 12 dp gap between the field and the capsule beside it — because it is
-    // the same pair of objects: a capsule that fills the width and a capsule sized by its
-    // glyphs. It is IN FLOW rather than absolutely positioned, which is what lets
-    // `KeyboardAvoidingView` lift it; `paddingBottom` is composed in at the call site from
-    // `insets.bottom`, the one value a scheme-only sheet cannot know (the same composition
-    // `formFooter` already makes).
+    // mirrors the Dives screen's own top row turned the other way up — the same 12 dp gap
+    // between the field and the capsule beside it — because it is the same pair of objects: a
+    // capsule that fills the width and a capsule sized by its glyphs. Its own 24 dp either
+    // side is what that row carried while it floated; `divesHeadingRow` has since moved into
+    // the dive list's 16 dp column, and this screen has no list of rows to line up with. It
+    // is IN FLOW rather than absolutely positioned, which is what lets `KeyboardAvoidingView`
+    // lift it; `paddingBottom` is composed in at the call site from `insets.bottom`, the one
+    // value a scheme-only sheet cannot know (the same composition `formFooter` already
+    // makes).
     searchDock: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1267,20 +1271,17 @@ function build(scheme: ColorScheme) {
     // The control belongs HERE and not in `formCoreStrip` above, which §2.2 fixes as date,
     // site, centre, max depth and duration — a dive's status is not one of its
     // measurements, and giving it a sixth slot in that strip would say it was.
+    //
+    // `headingRow` at the top of this function is the shape, shared with the Dives screen's
+    // own title row (`divesHeadingRow` above) — the two differ in the column their screen
+    // indents to and in nothing else.
     formHeadingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 12,
+      ...headingRow,
       paddingHorizontal: FORM_ROW_INSET,
     },
-    // `flex: 1` so a longer heading wraps rather than squeezing the control off the row —
-    // §0.5's "Czech runs 20-30 % longer than English", the same requirement `tripTitle` and
-    // `formFieldLabel` already answer the same way.
-    formHeading: {
-      ...screenHeading,
-      flex: 1,
-    },
+    // `headingTitle`, the same definition `divesHeading` reads — see it for why the title
+    // takes `flex: 1`.
+    formHeading: headingTitle,
     // §2.4's Logged/Planned control (M1d). Quiet by construction, on the owner's own brief
     // — "most of the dives will not be created as planned, so this feature should not
     // scream too much" — so it borrows §0.6's existing chip vocabulary (`actionPill`, small
