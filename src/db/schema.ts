@@ -128,16 +128,36 @@ export const dives = sqliteTable('dives', {
   deletedAt: text('deleted_at'),
 });
 
-/** Named equipment sets — "cold water", "tropical" — applied to a dive in one tap (§2.1). */
+/**
+ * Named cylinder sets — "twin 12 steel", "alu 80 nitrox" — applied to a dive in one tap
+ * (DESIGN.md §2.1).
+ *
+ * **Cylinders and gas, and nothing else** (§10, owner's call in M1e). The table was
+ * specified as "cylinder/gas/suit/weights" and shipped with `suit`, `hood`, `gloves`,
+ * `boots` and `weights_kg` columns; migration 0001 drops all five. They were the half that
+ * did not need it: carry-over already fills every one of them from the previous dive
+ * (§2.1), so a preset carrying them too would be a **second, staler source for fields
+ * something else already fills correctly** — §4.1's defining defect arriving as a feature.
+ * They are dropped rather than left unwritten because a column DESIGN.md no longer
+ * describes is exactly the drift this project keeps paying for.
+ *
+ * **The name stays `gear_presets`.** §6 and §7 both name it that, and M2's `push_changes`
+ * will push it by that name, so renaming buys a better word for the cost of a migration
+ * plus a sync-protocol edit.
+ *
+ * `tanks` is the same `tanksJson` above the `dives` table uses, not a second decoder: one
+ * corrupt blob must degrade to `[]` here for exactly the reason it must there — see that
+ * type's own docblock for the list it once took down.
+ *
+ * **The pressures are not stored** — `startBar`/`endBar` are stripped on the way in by
+ * `withoutPressures` (domain/carryOver.ts), the same rule carry-over applies. Nothing at
+ * the schema level can say so, because a JSON blob's interior has no columns; `db/gearPresets.ts`
+ * is the one write path, and it is where that is enforced.
+ */
 export const gearPresets = sqliteTable('gear_presets', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   tanks: tanksJson('tanks').notNull().default(sql`'[]'`),
-  suit: text('suit').$type<Suit>(),
-  hood: integer('hood', { mode: 'boolean' }),
-  gloves: integer('gloves', { mode: 'boolean' }),
-  boots: integer('boots', { mode: 'boolean' }),
-  weightsKg: real('weights_kg'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
