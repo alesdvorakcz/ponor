@@ -94,6 +94,17 @@ Both recede as the list scrolls down and return on the way up. A logbook is scan
 
 **Hand-ordering lives on a day strip, not a row.** A trip spans several days but only one may be reorderable, so a control on the trip header would be ambiguous. Days that qualify get a strip — `18 Aug · 2 dives, no times` — which also states *why* they qualify; without it a diver who adds a time watches the control vanish for no visible reason. Entering the mode dims the rest and puts the arrows in the slot the depth value occupies, so row heights do not change.
 
+**The form is the dive detail you can type into** (designed after M1d, for the same reason the rest of §0.6 was designed after M1b: the screen was built to §2.2's structure and then styled by default, and it ended up speaking a different visual language from the rest of the app for identical content — a depth typed in Archivo and read back in Plex Mono). The form borrows the detail screen's grammar rather than inventing one:
+
+- **A field is a row, not a box.** Label at the leading edge in Archivo 15 muted — the detail screen's own row label — and the value trailing. Separated by a hairline on each row's **top** edge, the same rule dive rows follow. Five bordered boxes down the core strip was the heaviest chrome in the app, drawn in advance for every field whether or not it was being used.
+- **Figures in mono, names in sans.** A depth, duration, pressure or temperature is a data figure and takes Plex Mono 15 with tabular figures (§0.2); a site, centre or buddy is a name and stays Archivo. The unit follows the figure as a muted suffix, exactly as `12.2 m` reads on the detail, and an empty numeric field shows that unit as its placeholder so the row still says what belongs in it.
+- **Focus is what draws the affordance.** The focused row fills with `surface`; nothing else does. The box appears where it is wanted instead of five times over.
+- **A group header is a cluster label** — Plex Mono 10.5, uppercase, +0.14 em, muted. *Conditions* and *Gas & cylinders* name the same groups on both screens and used to carry two different treatments.
+- **A field error is text, not a field.** Muted, trailing, under the row it belongs to. Shipped once as a white rounded box the same height as an input, which read as a second empty field rather than a message.
+- **Autocomplete's position is fixed here; its styling is not.** The list belongs directly under the focused row. How it looks waits for M2, which reworks site search around the shared site database and adding new sites — designing it now means designing it twice.
+
+Unchanged, and deliberately: the save control stays filled inverted ink (§10), the Logged/Planned chip and `‹ Cancel` keep the treatments agreed during M1d, and the `carried ×` chip stays a filled chip on `border` with its `×` behind a divider.
+
 ---
 
 ## 1. Product & principles
