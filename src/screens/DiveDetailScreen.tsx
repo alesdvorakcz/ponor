@@ -101,10 +101,15 @@ import { type ColorScheme } from '../theme/tokens';
  * that globally would also put a header on the Dives list, which the design does not call
  * for. See BackButton's own docblock for the rest of the reasoning.
  *
- * The screen also owns the dive's two write actions (M1d task 7): *Edit* — *Complete dive*
- * for a planned dive (§2.4) — which opens `/dive/[id]/edit`, and *Delete*, which confirms
- * through the platform's own `Alert` and then tombstones the dive (`softDeleteDive`). Both
- * are described where they are built (`EditButton`, `runDelete`/`confirmDelete` below).
+ * The screen also owns the dive's write actions (M1d tasks 7 and 8), and each says one thing:
+ * *Edit* at the trailing edge of the top bar, for **every** dive, opening `/dive/[id]/edit` on
+ * the dive's own status; *Complete dive* (§2.4) at the end of the content for a **planned**
+ * dive only, opening that same form with the Logged/Planned control already on Logged; and
+ * *Delete*, last, which confirms through the platform's own `Alert` and then tombstones the
+ * dive (`softDeleteDive`). All three are described where they are built (`EditButton`,
+ * `CompleteButton`, `runDelete`/`confirmDelete` below). The two links are `editDiveHref` and
+ * `completeDiveHref` respectively — one module owns both ends of each (editDiveLink.ts), and
+ * which control sends which is the single fact this area's tests exist to pin.
  *
  * **Three optional props, the first two added for M1b's wide (tablet) layout and the third
  * for the delete it needs, DivesScreen.tsx's own job to use — every other caller, i.e. the
@@ -253,20 +258,19 @@ const DELETE_ERROR_MESSAGE = "Couldn't delete this dive. Try again.";
  * control is the leading edge of the same row. Deleting deliberately does NOT sit beside it:
  * see `detailDelete` (theme/styles.ts) for why it lives at the end of the content instead.
  *
- * *Edit* — or ***Complete dive*** for a planned one (§2.4: "After surfacing, Complete dive
- * asks only for the missing numbers") — opens the same form either way, at
- * `/dive/[id]/edit`; the label is keyed on the dive's own `status`, never on any display
- * string, for the reason DESIGN.md §10 records for `splitPlanned`: that text is bound for
- * i18next, and a rule reading it would stop firing the day it becomes Czech.
+ * **It reads *Edit* for every dive, and sends `editDiveHref` for every dive** (M1d task 8).
+ * There is no conditional here any more. It used to read *Complete dive* over
+ * `completeDiveHref` for a planned dive, which left a planned dive with **no plain-edit
+ * affordance at all**: a diver fixing a typo in a plan had to press "Complete dive" and then
+ * flip the form's §2.4 control back to Planned. Reversible, and still the only button on the
+ * screen saying something other than what they wanted. §2.4's *Complete dive* is now its own
+ * control — `CompleteButton` below — so each label states one act and this one is honest for
+ * a planned dive and a logged one alike.
  *
- * **The two labels open that form differently, and must.** *Complete dive* sends
- * `completeDiveHref`, which puts the form's Logged/Planned control on Logged so that
- * saving actually finishes the dive; plain *Edit* sends `editDiveHref`, which leaves the
- * control on whatever the dive already is, so editing a planned dive leaves it planned.
- * Same route, same form, no second write path — `editDiveLink.ts` owns both ends of the
- * link, and the form's own control is still the only thing that changes a status. Sending
- * the plain edit link from under a "Complete dive" label would complete nothing while
- * saying it did, which is the whole defect this pair exists to close.
+ * `editDiveHref` carries no `openAs`, which is exactly what "Edit" means: the form's
+ * Logged/Planned control opens on whatever the dive already is, so editing a planned dive
+ * leaves it planned. `editDiveLink.ts` owns both ends of that link — nothing here hand-builds
+ * a route, and the form's own control is still the one place a status changes.
  *
  * The route is a typed template plus params rather than an interpolated path, and that is
  * the point: expo-router's typed routes (app.config.ts) check it against the routes that
@@ -276,17 +280,58 @@ const DELETE_ERROR_MESSAGE = "Couldn't delete this dive. Try again.";
  * replaces (the diver goes back to this dive, not past it).
  */
 function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
-  const planned = dive.status === 'planned';
-  const label = planned ? 'Complete dive' : 'Edit';
   return (
     <Pressable
       style={styles.detailAction}
-      onPress={() => router.push(planned ? completeDiveHref(dive.id) : editDiveHref(dive.id))}
+      onPress={() => router.push(editDiveHref(dive.id))}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel="Edit"
     >
-      <Text style={styles.detailActionLabel}>{label}</Text>
+      <Text style={styles.detailActionLabel}>Edit</Text>
     </Pressable>
+  );
+}
+
+/**
+ * §2.4's *Complete dive* — "After surfacing, Complete dive asks only for the missing
+ * numbers" — for a planned dive and no other (M1d task 8). Rendered at the END of the
+ * content, immediately above *Delete dive*, on the reasoning `detailDelete` (theme/styles.ts)
+ * already records for itself: the two acts that operate on the whole dive belong together at
+ * the end of a deliberate reach, not in the top bar where the thumb already is. Completing
+ * does not thereby become harder to reach — the prominent pill on an "Up next" row in
+ * DivesScreen is untouched, and that is the on-the-boat path.
+ *
+ * **It sends `completeDiveHref`, and that is the difference that matters.** That href puts
+ * the form's Logged/Planned control on Logged, so saving actually finishes the dive; the
+ * *Edit* control above sends `editDiveHref`, which carries no `openAs` at all. Sending the
+ * plain edit link from under a "Complete dive" label would complete nothing while saying it
+ * did — twice-shipped, and the whole defect this pair exists to close (DESIGN.md §10).
+ * `editDiveLink.ts` owns both ends of both links; neither is hand-built here, and neither is
+ * a second write path — the form's own §2.4 control remains the one place a status changes.
+ *
+ * Whether it renders at all is keyed at the call site on the dive's own `status`, never on
+ * any display string, for the reason DESIGN.md §10 records for `splitPlanned`: that text is
+ * bound for i18next and a rule reading it would stop firing the day it becomes Czech.
+ *
+ * The label is plain *Complete dive*, where DivesScreen's own pill names the dive it belongs
+ * to (`Complete dive: Blue Hole`): there, a screen reader moves down a queue of planned dives
+ * and needs to tell one from the next; here there is exactly one dive on screen, and it is
+ * the one the heading above already named.
+ */
+function CompleteButton({ dive, styles }: { dive: Dive; styles: Styles }) {
+  return (
+    <View style={styles.detailCompleteRow}>
+      <Pressable
+        style={styles.detailComplete}
+        onPress={() => router.push(completeDiveHref(dive.id))}
+        accessibilityRole="button"
+        accessibilityLabel="Complete dive"
+      >
+        <View style={styles.detailCompletePill}>
+          <Text style={styles.detailCompleteLabel}>Complete dive</Text>
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -716,6 +761,13 @@ export default function DiveDetailScreen({
               {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
             </Cluster>
           )}
+
+          {/* §2.4's *Complete dive*, for a planned dive only (M1d task 8) — see
+              CompleteButton above for why it sits here rather than in the top bar, and why
+              it sends `completeDiveHref` where the top bar's *Edit* sends `editDiveHref`.
+              Above Delete, not below it: finishing a dive is the ordinary next thing to do
+              with a plan, and the one destructive act stays last. */}
+          {dive.status === 'planned' && <CompleteButton dive={dive} styles={styles} />}
 
           {/* Deleting (M1d task 7, amendment C). At the END of the content and inside the
               scroll, below every cluster: a deliberate act on one dive you are looking at,

@@ -928,9 +928,10 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: 16,
     },
     // The detail screen's top bar (M1d task 7): the way out at its leading edge, the dive's
-    // own action ("Edit", or "Complete dive" for a planned one — DiveDetailScreen.tsx) at
-    // its trailing edge. A row rather than two stacked controls, because the second one is
-    // a peer of the first, not a heading: both are chrome above the hero, and §0.6 already
+    // own action at its trailing edge — always "Edit" since task 8, for a planned dive as
+    // much as a logged one; §2.4's "Complete dive" is its own control at the end of the
+    // content (`detailComplete` below). A row rather than two stacked controls, because the
+    // second one is a peer of the first, not a heading: both are chrome above the hero, and §0.6 already
     // fixes that treatment — mono, small, quiet. No `justifyContent: 'space-between'`,
     // because the back control is hidden in the wide (tablet) layout and the action must
     // stay at the trailing edge regardless of how many children the row has; `detailAction`
@@ -953,6 +954,43 @@ function build(scheme: ColorScheme) {
       ...backControlLabel,
       color: theme.fg,
     },
+    // §2.4's *Complete dive* on the detail screen (M1d task 8). It sits at the END of the
+    // content, immediately above `detailDelete` below, for the reason that style already
+    // records for itself: the two acts that operate on the whole dive belong together, at the
+    // end of a deliberate reach, rather than crowding the top bar where the thumb already is.
+    // The top bar's own action is now always plain *Edit* — a planned dive used to have no
+    // plain-edit affordance at all, because that one control read "Complete dive" instead.
+    //
+    // The treatment is `actionPill`/`actionPillLabel` (this function's own top): §0.6's "a
+    // bordered pill in tracked uppercase, not plain text, so it reads as a control rather
+    // than a label", and the very treatment this same action already wears on an "Up next"
+    // row (`plannedActionPill`). That is what gives it its own weight without inventing
+    // anything: §0.1 spends every hue on depth, so a colour is out; the filled `action`
+    // button would make finishing a plan louder than the hero above it; and borrowing
+    // `detailDeleteLabel`'s plain muted label would make a non-destructive act look exactly
+    // like the one destructive act in the app, two indistinguishable rows in one column.
+    // Centred rather than trailing-aligned (where `plannedActions` puts it) because here it
+    // stacks with `detailDelete`, which is centred, not with a column of other dives' rows.
+    // This wrapper is what keeps the Pressable below at the pill's own width: `detailContent`
+    // is a column, so without it the 48 dp target would span the full screen and sit directly
+    // above `detailDelete`'s own — two full-width targets stacked, one of them the only
+    // destructive act in the app, with the boundary between them invisible.
+    detailCompleteRow: {
+      alignItems: 'center',
+    },
+    // §0.5's 48 dp floor on the Pressable, centred around the visually smaller pill inside
+    // it — the same "small visible control, generous hidden target" split `plannedAction` and
+    // `dayStripAction` above already use, and the reason the pill is nested rather than being
+    // the Pressable itself.
+    detailComplete: {
+      minHeight: 48,
+      minWidth: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    detailCompletePill: actionPill,
+    detailCompleteLabel: actionPillLabel,
     // Deleting a dive (M1d task 7, DESIGN.md §6's tombstone): "a plain muted label, not a
     // red one" — §0.1 spends every hue on depth, so the destructive colour belongs to the
     // OS's own confirmation Alert (`style: 'destructive'`, DiveDetailScreen.tsx) exactly as

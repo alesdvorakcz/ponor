@@ -1072,28 +1072,143 @@ it('opens the edit form for the dive on screen', async () => {
   expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBeUndefined();
 });
 
-it('offers Complete dive rather than Edit for a planned dive, and opens the same form', async () => {
+// --- M1d task 8: the top-right action is always *Edit*; *Complete dive* is its own control ---
+//
+// It used to be one control wearing two labels: *Edit* over `editDiveHref` for a logged dive,
+// *Complete dive* over `completeDiveHref` for a planned one. That left a planned dive with no
+// plain-edit affordance at all — fixing a typo in a plan meant pressing "Complete dive" and
+// then flipping the form's §2.4 control back to Planned. The two acts are now two controls:
+// *Edit* at the trailing edge of the top bar for EVERY dive, and, for a planned dive only,
+// *Complete dive* at the end of the content above *Delete dive* — the same place, and for the
+// same reason, `detailDelete` already sits there (theme/styles.ts).
+//
+// Every test below asserts WHICH HREF a named control sends, not merely that some link was
+// pushed: this pair's whole history is a label and a link disagreeing (§10 — "Complete dive"
+// wired to the plain edit link completes nothing while saying it did), and an assertion on
+// labels alone, or on `mockPush` having been called, survives the two hrefs being swapped.
+it('offers Edit for a planned dive too, not only Complete dive', async () => {
   const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
-  // §2.4: a planned dive is finished, not edited — and the label is keyed on `status`, never
-  // on any display string (DESIGN.md §10).
+  expect(findControl(t, 'Edit')).toBeDefined();
+
+  await pressControl(t, 'Edit');
+  // The plain edit link, from the plain edit label. A planned dive edited to fix a typo must
+  // still be planned when the form opens — `openAs` absent is what leaves the §2.4 control
+  // on the dive's own status.
+  expect(mockPush).toHaveBeenCalledWith(editDiveHref('p1'));
+  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBeUndefined();
+});
+
+it('also offers Complete dive for a planned dive, opening the same form on Logged', async () => {
+  const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
   expect(findControl(t, 'Complete dive')).toBeDefined();
-  expect(findControl(t, 'Edit')).toBeUndefined();
 
   await pressControl(t, 'Complete dive');
   expect(mockPush).toHaveBeenCalledWith(completeDiveHref('p1'));
+  // `completeDiveHref('p1')` and `editDiveHref('p1')` differ ONLY in this param, so read it
+  // as the literal value the route will see rather than trusting the object comparison above
+  // to have distinguished them: a control quietly reverted to the plain edit link would still
+  // open the right dive's form, and would then leave the §2.4 control on Planned.
+  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBe('logged');
 });
 
-it('opens that form with the status control already on Logged, so saving completes the dive', async () => {
+// The discriminating test, and the one the brief names: BOTH controls pressed in ONE render,
+// each asserted against its OWN href. Swapping the two hrefs in DiveDetailScreen.tsx leaves
+// every label, every control's presence, and `mockPush.toHaveBeenCalled()` untouched — this
+// is what reddens.
+it('sends each control its own link, never the other’s', async () => {
   const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
+
+  await pressControl(t, 'Edit');
   await pressControl(t, 'Complete dive');
 
-  // The assertion the test above cannot make on its own: `completeDiveHref('p1')` and
-  // `editDiveHref('p1')` differ ONLY in this param, so a control that had quietly reverted
-  // to the plain edit link would still open the right dive's form — and would then leave
-  // the §2.4 control on Planned, so saving would complete nothing while the label promised
-  // it would. Read as the literal value the route will see, not as a re-derivation from the
-  // same function under test.
-  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBe('logged');
+  expect(mockPush).toHaveBeenCalledTimes(2);
+  expect(mockPush.mock.calls[0]?.[0]).toEqual(editDiveHref('p1'));
+  expect(mockPush.mock.calls[1]?.[0]).toEqual(completeDiveHref('p1'));
+  // Spelled out param by param as well, because the two hrefs share a pathname and an id: an
+  // `toEqual` pair that had both sides wrong in the same way would still be two distinct
+  // objects, and this says which is which in the terms the route reads.
+  expect(mockPush.mock.calls[0]?.[0]?.params?.openAs).toBeUndefined();
+  expect(mockPush.mock.calls[1]?.[0]?.params?.openAs).toBe('logged');
+});
+
+it('offers no Complete dive anywhere for a logged dive, only Edit', async () => {
+  const t = await renderDetailTree(dive({ id: 'target', status: 'logged', siteName: 'Blue Hole' }));
+  expect(findControl(t, 'Edit')).toBeDefined();
+  expect(findControl(t, 'Complete dive')).toBeUndefined();
+  // Not just "no control with that accessibility label" — the words themselves are absent, so
+  // a Complete control rendered without a label (or as a plain, unpressable line of text)
+  // can't slip past. §2.4 gives this action to a planned dive and to nothing else.
+  expect(textIn(t)).not.toContain('Complete dive');
+});
+
+// Where each control sits is half of the decision, and neither label nor href can see it.
+// `textIn` walks the tree in render order, so "before the first cluster" and "between the last
+// cluster and Delete" are readable directly from that order: *Edit* is top-bar chrome above
+// the hero, *Complete dive* is the end of the scrolled content, immediately above *Delete
+// dive* — the two whole-dive acts grouped where a deliberate act takes a deliberate reach.
+it('puts Edit above the hero and Complete dive at the end of the content, above Delete', async () => {
+  const d = dive({ id: 'p1', status: 'planned', siteName: 'Blue Hole', date: '2026-09-01' });
+  stubDives({ dives: [d], numbers: new Map(), error: undefined });
+  mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+  const texts = textIn(await render(<DiveDetailScreen id={d.id} />));
+
+  const edit = texts.indexOf('Edit');
+  const site = texts.indexOf('Blue Hole'); // the hero heading
+  const status = texts.indexOf('Status'); // the first cluster's first label
+  const complete = texts.indexOf('Complete dive');
+  const del = texts.indexOf('Delete dive');
+
+  expect(edit).toBeGreaterThanOrEqual(0);
+  expect(complete).toBeGreaterThanOrEqual(0);
+  expect(del).toBeGreaterThanOrEqual(0);
+  // Edit is chrome above the hero...
+  expect(edit).toBeLessThan(site);
+  // ...and Complete dive is past every cluster, immediately before Delete.
+  expect(complete).toBeGreaterThan(status);
+  expect(complete).toBeLessThan(del);
+});
+
+// §0.1: colour encodes depth and nothing else, so this control gets no hue — and it is not
+// destructive, so it must not read as *Delete dive* either. §0.6's existing quiet-control
+// vocabulary is what separates them: "a bordered pill in tracked uppercase, not plain text,
+// so it reads as a control rather than a label" — the same `actionPill` this exact action
+// already wears on an "Up next" row, versus Delete's deliberately plain muted label.
+it('gives Complete dive the bordered-pill control treatment, not Delete’s plain label', async () => {
+  const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
+  if (!t.root) throw new Error('DiveDetailScreen did not render a root element');
+  // 'light' is the scheme useColorScheme() reports under Jest — the same note every other
+  // style assertion in this file carries.
+  const styles = makeStyles('light');
+  const theme = themeFor('light');
+
+  const complete = textNode(t, 'Complete dive');
+  const del = textNode(t, 'Delete dive');
+  expect(complete).toBeDefined();
+  expect(del).toBeDefined();
+
+  // A bordered pill wraps the label, and Delete has no such wrapper — that is the whole
+  // difference in weight, and it is a shape the app already owns rather than new vocabulary.
+  const pills = t.root.queryAll((n) => [n.props?.style].flat(3).filter(Boolean).includes(styles.detailCompletePill));
+  expect(pills).toHaveLength(1);
+  expect(pills[0]!.props.style.borderWidth).toBeGreaterThan(0);
+  expect(pills[0]!.props.style.borderColor).toBe(theme.border);
+
+  // Monochrome on both: whatever ink each carries, neither may be a hue.
+  for (const colour of [colorOf(complete), colorOf(del)]) {
+    expect([theme.fg, theme.fgMuted]).toContain(colour);
+  }
+});
+
+// §0.5's floor, on the Pressable rather than on the visually smaller pill inside it — the
+// same "small visible control, generous hidden target" split `plannedAction`/`dayStripAction`
+// already use, and the reason the pill is nested rather than being the Pressable itself.
+it('gives Complete dive a 48 dp tap target, not just a pill-sized one', async () => {
+  const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
+  const control = findControl(t, 'Complete dive');
+  expect(control).toBeDefined();
+  const minHeight = [control!.props.style].flat(3).filter(Boolean)
+    .reduce((a: unknown, s: any) => (typeof s?.minHeight === 'number' ? s.minHeight : a), undefined);
+  expect(minHeight).toBeGreaterThanOrEqual(48);
 });
 
 it('asks before deleting, and deletes nothing until the diver confirms', async () => {
@@ -1171,9 +1286,10 @@ it('offers neither action for a dive it could not find', async () => {
   mockUseLocalSearchParams.mockReturnValue({ id: 'no-such-id' });
   const t = await render(<DiveDetailScreen />);
 
-  // The not-found branch has no dive to edit or delete, and a control there would either do
-  // nothing or act on the wrong id.
+  // The not-found branch has no dive to edit, complete or delete, and a control there would
+  // either do nothing or act on the wrong id.
   expect(findControl(t, 'Edit')).toBeUndefined();
+  expect(findControl(t, 'Complete dive')).toBeUndefined();
   expect(findControl(t, 'Delete dive')).toBeUndefined();
   expect(textIn(t).join(' ')).toContain('Dive not found');
 });
