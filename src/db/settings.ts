@@ -52,12 +52,24 @@ export function divesBeforeQuery(db: Db) {
  * wrong number.
  *
  * Shared by `getDivesBefore` (which turns a NaN/negative/fractional result
- * into a thrown error) and `readDivesBefore` (which leaves it for
- * `isDiveCount` to reject during a render) — one copy of the coercion rule
- * for both, rather than a second hand-written regex behind the one
- * `getDivesBefore` already had.
+ * into a thrown error), `readDivesBefore` (which leaves it for `isDiveCount`
+ * to reject during a render) and the Settings screen (which leaves it for
+ * `isDiveCount` too, and declines to write anything the diver has half-typed)
+ * — one copy of the coercion rule for all three, rather than a second
+ * hand-written regex behind the one `getDivesBefore` already had.
+ *
+ * **Exported for that third caller, and the reasoning above is why it may be
+ * shared rather than re-derived.** A number typed into Settings and a number
+ * read back out of this column are the same question asked at two moments:
+ * both are text that either spells a dive count or does not. Web makes that
+ * concrete — `number-pad` restricts a phone keyboard but a browser `<input>`
+ * takes anything at all, so "0x10" is genuinely typeable there, and it must
+ * come back NaN in a text field for exactly the reason it must come back NaN
+ * out of the database. What each caller then DOES with a NaN still differs,
+ * which is the split `isDiveCount`'s own docblock draws between owning a
+ * predicate and owning an action.
  */
-function coerceStoredCount(value: string): number {
+export function parseDiveCount(value: string): number {
   const raw = value.trim();
   return /^\d+$/.test(raw) ? Number(raw) : NaN;
 }
@@ -78,7 +90,7 @@ export async function getDivesBefore(db: Db): Promise<number> {
   const row = rows.at(0);
   if (row === undefined) return 0;
 
-  const parsed = coerceStoredCount(row.value);
+  const parsed = parseDiveCount(row.value);
   if (!isDiveCount(parsed)) {
     throw new Error(
       `settings.${DIVES_BEFORE_KEY} is not a non-negative integer: ${JSON.stringify(row.value)}`,
@@ -90,7 +102,7 @@ export async function getDivesBefore(db: Db): Promise<number> {
 /**
  * The raw `dives_before` value out of `divesBeforeQuery`'s rows: `null` when
  * the row is absent or unreadable, otherwise the stored text coerced toward
- * a number the same way `getDivesBefore` is (see `coerceStoredCount`).
+ * a number the same way `getDivesBefore` is (see `parseDiveCount`).
  *
  * "Coerced" and "interpreted" are deliberately different steps. This only
  * turns the column's *text* representation into a candidate number — it does
@@ -111,7 +123,7 @@ export function readDivesBefore(rows: unknown[]): unknown {
   const row = Array.isArray(rows) ? rows.at(0) : undefined;
   const value =
     row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
-  return typeof value === 'string' ? coerceStoredCount(value) : null;
+  return typeof value === 'string' ? parseDiveCount(value) : null;
 }
 
 /**

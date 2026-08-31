@@ -476,3 +476,27 @@ export function formatTankMaterial(material: TankMaterial | null): string | null
 export function formatDiveStatus(status: DiveStatus): string {
   return capitalize(status);
 }
+
+/**
+ * The diver's unit system, "Metric" or "Imperial" — the words the Settings screen (§3) puts
+ * on its two chips.
+ *
+ * It lands here rather than in `format/units.ts` because the split §4.1 draws between the
+ * two modules is *what number and which word* versus *what string a diver reads*, and this
+ * is the second of those: `unitLabel` one file over answers "what does depth call itself in
+ * imperial" (`ft`), which is a fact about the pair; "Imperial" is a name for the system
+ * itself, shown to a person choosing between them and to nothing else. Putting it there
+ * would also make that module the owner of two different kinds of string.
+ *
+ * `capitalize`, like the five formatters above it, rather than a two-entry lookup table:
+ * `UnitSystem`'s members are single lowercase words exactly as `Entry`'s and `Suit`'s are,
+ * and a table would be a second list to keep in step with `UNIT_SYSTEMS` — §4.1's
+ * "derive, or tie at compile time". A third system added there would capitalise like the
+ * other two instead of silently rendering nothing.
+ *
+ * Never null: `readUnitSystem` (db/settings.ts) degrades an absent or unreadable preference
+ * to `DEFAULT_UNIT_SYSTEM`, so there is no "no system chosen" state for this to describe.
+ */
+export function formatUnitSystem(system: UnitSystem): string {
+  return capitalize(system);
+}

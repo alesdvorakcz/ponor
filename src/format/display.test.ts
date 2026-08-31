@@ -9,6 +9,7 @@ import {
   formatDiveDate,
   isDisplayableDepth,
   formatDiveStatus,
+  formatUnitSystem,
   formatEntry,
   formatGasUsed,
   formatPercent,
@@ -27,6 +28,7 @@ import {
   diveSiteLabel,
   UNNAMED_SITE,
 } from './display';
+import { UNIT_SYSTEMS } from './units';
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
@@ -447,5 +449,24 @@ describe('formatSurfaceInterval', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatSurfaceInterval(Number.NaN)).toBeNull();
+  });
+});
+
+// DESIGN.md §3's Settings entry: the two words a diver chooses between. Derived from
+// `UNIT_SYSTEMS` rather than asserted as a hand-written pair, for the reason §4.1 gives —
+// a third system added to `format/units.ts` must not be able to render as nothing here
+// while a two-case test went on passing. The two spellings are then pinned individually,
+// so "capitalises whatever it is given" cannot pass while returning the wrong words.
+describe('formatUnitSystem', () => {
+  it('names every system format/units.ts declares', () => {
+    for (const system of UNIT_SYSTEMS) {
+      const label = formatUnitSystem(system);
+      expect(label).not.toBe('');
+      expect(label).toBe(label.charAt(0).toUpperCase() + label.slice(1));
+    }
+  });
+  it('reads "Metric" and "Imperial"', () => {
+    expect(formatUnitSystem('metric')).toBe('Metric');
+    expect(formatUnitSystem('imperial')).toBe('Imperial');
   });
 });
