@@ -18,6 +18,33 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
 >)[] = ['siteName', 'centerName', 'buddy', 'guide', 'title', 'notes'];
 
 /**
+ * How text is read before it is matched — the query and the value alike, and the one
+ * owner of that rule (§4.1).
+ *
+ * Trimmed, then lowercased with `toLowerCase()` rather than `toLocaleLowerCase()`:
+ * matching must not depend on the viewing device's OS locale, which is independent of
+ * the app's content languages (English and Czech). Czech diacritics fold identically
+ * under both functions, so nothing is lost by avoiding the locale-sensitive form.
+ *
+ * **Both sides go through it**, which is what makes this a rule rather than a
+ * convenience: a query folded one way and a value folded another is a matcher that
+ * disagrees with itself. Trimming the value changes no `includes` result — a needle
+ * cannot carry the outer whitespace a trim would remove, because it was trimmed too —
+ * so this is exactly the same search it was before the fold was extracted.
+ *
+ * `domain/suggest.ts` reads the same function for autocomplete (§2.3), deliberately
+ * rather than writing the same two calls out again. They answer different questions —
+ * `searchDives` below asks which DIVES match, `suggestFrom` asks which VALUES of one
+ * field to offer — but what a typed string *means* before either of them compares
+ * anything is one question, and M2 has a change queued for it: §10 puts diacritic
+ * folding (so `zelezna` finds `Železná`) in M2 alongside `pg_trgm`. Written twice, that
+ * change lands in one place and quietly leaves the other behind.
+ */
+export function foldForMatching(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+/**
  * DESIGN.md §3: the Dives list has search. Pure filtering over an
  * already-loaded, in-memory list — a personal logbook is small enough that
  * there is no reason to push this into SQL, and staying in memory means it
@@ -28,12 +55,10 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * `dives` itself, unfiltered — search is treated as inactive, not as a
  * needle that happens to be a substring of every string.
  *
- * A dive matches when the trimmed, lowercased query is a substring of any of
- * `SEARCHABLE_FIELDS`, compared with `toLowerCase()` rather than
- * `toLocaleLowerCase()` — matching must not depend on the viewing device's
- * OS locale, which is independent of the app's content languages (English
- * and Czech). Czech diacritics fold identically under both functions, so
- * nothing is lost by avoiding the locale-sensitive form.
+ * A dive matches when the folded query is a substring of any of
+ * `SEARCHABLE_FIELDS`, both sides read through `foldForMatching` above — see
+ * it for why the fold is `toLowerCase()` and why it is one function rather
+ * than a pair of calls repeated per matcher.
  *
  * All six searchable fields are nullable, and `null` is skipped rather than
  * coerced to a string: `String(null)` is `"null"`, which would make an
@@ -47,14 +72,13 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * special-casing on either side.
  */
 export function searchDives(dives: Dive[], query: string): Dive[] {
-  const trimmed = query.trim();
-  if (trimmed === '') return dives;
+  const needle = foldForMatching(query);
+  if (needle === '') return dives;
 
-  const needle = trimmed.toLowerCase();
   return dives.filter((d) =>
     SEARCHABLE_FIELDS.some((field) => {
       const value = d[field];
-      return value !== null && value.toLowerCase().includes(needle);
+      return value !== null && foldForMatching(value).includes(needle);
     }),
   );
 }
