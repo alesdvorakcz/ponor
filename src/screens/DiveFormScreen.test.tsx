@@ -187,6 +187,21 @@ function stubOpenGroups(remembered: Record<string, boolean> = {}, resolved = tru
  * test stubs when it wants to see one group's own behaviour with no default underneath it. */
 const COLLAPSE_DEFAULT_OPEN = { times: false, gas: false } as const;
 
+/**
+ * A logbook that is not empty, holding one dive that recorded nothing.
+ *
+ * `stubDives()`'s own default is an **empty** logbook, and since M1j that is a rule of its own:
+ * §2.2's "the first dive opens everything" opens all seven groups, so a test whose subject is
+ * which groups are open has to say which of the two worlds it means. This is the ordinary one —
+ * a diver who has logged before — and the dive it holds records nothing at all, so carry-over
+ * carries nothing and the value rule has nothing to act on. **The form's values are therefore
+ * identical to the empty logbook's**, which is the whole point: what differs is the logbook, and
+ * that is the distinction the rule turns on (`defaultOpenGroups`' own docblock).
+ */
+function stubReturningDiver() {
+  stubDives({ dives: [dive({ date: '2026-08-10' })] });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   stubDives();
@@ -499,6 +514,7 @@ it('keeps the core strip to what identifies the dive, with no measurement in it'
 });
 
 it('keeps the deeper groups collapsed until asked', async () => {
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   const text = textIn(t).join(' ');
   expect(text).toContain('Conditions'); // the group's header shows
@@ -525,6 +541,7 @@ it('saves a dive carrying nothing but a date', async () => {
 // then expanded, is what tells a real disclosure from a permanently-hidden one.
 
 it("reveals Conditions' fields on press — the header text alone was never proof they exist", async () => {
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   expect(textIn(t).join(' ')).not.toContain('Water temp');
   const header = findButton(t, 'Conditions');
@@ -537,6 +554,7 @@ it("reveals Conditions' fields on press — the header text alone was never proo
 // group the brief's own sample happens to check. (Four of the six are collapsed by default;
 // which two are not, and why, is the `startsOpen` block much further down.)
 it('keeps a second group collapsed by default, not only the one the sample test checks', async () => {
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   expect(textIn(t).join(' ')).not.toContain('Buddy');
   const header = findButton(t, 'People');
@@ -733,6 +751,7 @@ it.each(FORM_GROUP_IDS)(
     // The two groups that start open are stubbed collapsed to get "five shut": left undecided
     // they would be open on every row of this sweep, and the comparison would then be satisfied
     // by any field of theirs appearing anywhere.
+    stubReturningDiver();
     stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, FORM_GROUPS[id].title);
@@ -755,6 +774,7 @@ it.each(SECTION_ORDER)(
     //
     // One group at a time, with the two default-open ones stubbed collapsed, so the sequence
     // read back belongs to this group alone and the failure names one group's rows.
+    stubReturningDiver();
     stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, title);
@@ -870,6 +890,13 @@ describe('defaultOpenGroups', () => {
    * exactly the state `startsOpen` answers. */
   const NOTHING_STARTS_OPEN = { times: false, gas: false } as const;
 
+  /** The third argument, named at every call site below rather than left as a bare `false`
+   * beside two objects. §2.2's empty-logbook rule (M1j) opens EVERY group, so a sweep that
+   * passed it by accident would open all seven and stop being a claim about the rule under
+   * test — it is the one input in this block that can make every assertion here vacuous. */
+  const HAS_DIVES = false;
+  const EMPTY_LOGBOOK = true;
+
   it.each(FORM_GROUP_IDS.flatMap((id) => FORM_GROUPS[id].fields.map((field) => [field, id] as const)))(
     'opens the group %s belongs to, and only that one',
     (field, id) => {
@@ -877,29 +904,33 @@ describe('defaultOpenGroups', () => {
       // Every placed field needs a sample; a new one added to a group without one would
       // otherwise sweep through as "nothing recorded" and prove nothing.
       expect(sample).toBeDefined();
-      expect([...defaultOpenGroups(valuesWith(field, sample), NOTHING_STARTS_OPEN)]).toEqual([id]);
+      expect([...defaultOpenGroups(valuesWith(field, sample), NOTHING_STARTS_OPEN, HAS_DIVES)]).toEqual([id]);
     },
   );
 
   it('opens nothing for a dive that records nothing, once the two default groups are collapsed', () => {
-    expect([...defaultOpenGroups(blankFormValues(), NOTHING_STARTS_OPEN)]).toEqual([]);
+    expect([...defaultOpenGroups(blankFormValues(), NOTHING_STARTS_OPEN, HAS_DIVES)]).toEqual([]);
   });
 
   it('does not open Equipment for an accessory set that records no accessories', () => {
     // The one input on which this rule and the carried-mark rule deliberately disagree
     // (`holdsValue` vs `hasCarriedValue`): `[]` is a real carried answer, and it is also what
     // every untouched form holds — so opening the group for it would open it on every dive.
-    expect([...defaultOpenGroups(valuesWith('equipment', []), NOTHING_STARTS_OPEN)]).toEqual([]);
+    expect([...defaultOpenGroups(valuesWith('equipment', []), NOTHING_STARTS_OPEN, HAS_DIVES)]).toEqual([]);
   });
 
   it('opens a group the diver left open last time even though this dive has nothing in it', () => {
-    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, people: true })]).toEqual(['people']);
+    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, people: true }, HAS_DIVES)]).toEqual([
+      'people',
+    ]);
   });
 
   it('keeps an id it has never heard of, so an older build cannot forget a newer one’s group', () => {
     // §10's "kept, not refused". The set is what gets written back, so an id dropped here is a
     // memory deleted for the build that understands it.
-    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, profile: true })]).toEqual(['profile']);
+    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, profile: true }, HAS_DIVES)]).toEqual([
+      'profile',
+    ]);
   });
 
   // --- §2.2's third state, as a rule (M1i) ---
@@ -908,20 +939,44 @@ describe('defaultOpenGroups', () => {
   // about does not, in EITHER direction. The two `false` cases are the ones that did not exist
   // before this milestone and the ones that a set-of-open-ids could not have stored.
   it('opens the groups that start open when the diver has decided nothing at all', () => {
-    expect([...defaultOpenGroups(blankFormValues(), {})].sort()).toEqual(['gas', 'times']);
+    expect([...defaultOpenGroups(blankFormValues(), {}, HAS_DIVES)].sort()).toEqual(['gas', 'times']);
   });
 
   it('leaves a group the diver collapsed shut, though it is one that starts open', () => {
-    expect([...defaultOpenGroups(blankFormValues(), { times: false })]).toEqual(['gas']);
+    expect([...defaultOpenGroups(blankFormValues(), { times: false }, HAS_DIVES)]).toEqual(['gas']);
   });
 
   it('does not reopen a collapsed group merely because a second one was left open', () => {
     // The two halves of the memory are read per group, not as one flag: a `true` for Conditions
     // must not drag Times open, and a `false` for Times must not shut Gas.
-    expect([...defaultOpenGroups(blankFormValues(), { times: false, conditions: true })].sort()).toEqual([
+    expect([...defaultOpenGroups(blankFormValues(), { times: false, conditions: true }, HAS_DIVES)].sort()).toEqual([
       'conditions',
       'gas',
     ]);
+  });
+
+  // --- §2.2's empty logbook (M1j) ---
+  //
+  // "The first dive opens everything." An addition to the STARTING STATE, in the same place
+  // `startsOpen` sits, so the diver's own memory still outranks it in both directions.
+  it('opens every group for an empty logbook, on the very same values that open two when it is not', () => {
+    // The pair is the assertion, and neither half means anything alone. **Nothing about the
+    // FORM differs between these two calls** — same blank values, same empty memory — so what
+    // is measured is exactly the condition the rule turns on, and a version of it that read
+    // "this form holds nothing" would pass the first line and fail the second.
+    const blank = blankFormValues();
+    expect([...defaultOpenGroups(blank, {}, EMPTY_LOGBOOK)].sort()).toEqual([...FORM_GROUP_IDS].sort());
+    expect([...defaultOpenGroups(blank, {}, HAS_DIVES)].sort()).toEqual(['gas', 'times']);
+  });
+
+  it('leaves a group the first-time diver collapsed shut, though the logbook is empty', () => {
+    // The precedence, unchanged: a diver who collapses a group on their very first dive has
+    // DECIDED something, and reopening it on the next form would be exactly the defect M1i's
+    // third state was built to close. `notes` because it starts closed anyway — the assertion
+    // is that the empty logbook did not open it, not that something else kept it shut.
+    expect([...defaultOpenGroups(blankFormValues(), { notes: false }, EMPTY_LOGBOOK)].sort()).toEqual(
+      [...FORM_GROUP_IDS].filter((id) => id !== 'notes').sort(),
+    );
   });
 
   // The boundary M1i deliberately did NOT move (`defaultOpenGroups`' own docblock): where the
@@ -929,9 +984,9 @@ describe('defaultOpenGroups', () => {
   // decision with a visible cost — cylinders carry over, so a collapse of *Gas & cylinders*
   // will not survive to the next dive — and a silent flip of it should fail here.
   it('opens a collapsed group that this dive has a value in, which is the settled union', () => {
-    expect([...defaultOpenGroups(valuesWith('buddy', 'Petr'), { people: false, ...NOTHING_STARTS_OPEN })]).toEqual([
-      'people',
-    ]);
+    expect([
+      ...defaultOpenGroups(valuesWith('buddy', 'Petr'), { people: false, ...NOTHING_STARTS_OPEN }, HAS_DIVES),
+    ]).toEqual(['people']);
   });
 });
 
@@ -1005,7 +1060,72 @@ it('opens the group carry-over filled, which is the case §2.2 says makes this m
   expect(expandedGroups(t).sort()).toEqual(['Equipment', 'People']);
 });
 
+// --- §2.2's empty logbook, on the screen (M1j) ---
+
+it('opens every group on a first-ever dive, which is the one time nobody knows what the form holds', async () => {
+  // `stubDives()`'s default is the empty logbook, and this is the one block that means it. Read
+  // against `SECTION_ORDER` rather than a count, so "all seven" cannot be satisfied by seven of
+  // something else, and unsorted, because `expandedGroups` reads them in the order they are
+  // drawn.
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(SECTION_ORDER.map(([title]) => title));
+  // ...and the bodies are really there, not seven headers announcing a state they do not have.
+  expect(findTextInput(t, 'Buddy')).toBeDefined();
+});
+
+it('opens only the two default groups once one dive exists, though the form holds exactly the same nothing', async () => {
+  // The discrimination, at the screen: the previous dive records NOTHING, so carry-over carries
+  // nothing and this form's values are identical to the first-ever dive's above. The only thing
+  // that changed is that the logbook has a dive in it — which is what §2.2 says the rule is
+  // about, and what a condition written as "the form has no values" would get wrong.
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['Times & depth', 'Gas & cylinders']);
+});
+
+it('does not treat an edit of the only dive there is as an empty logbook', async () => {
+  // The other way to get this wrong: a logbook of one is not a logbook of none, and the dive
+  // being edited is itself in `useDives()`'s list. Stubbed WITHOUT this file's decoys, so
+  // `dives` really does hold exactly one row.
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-16', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  expect(expandedGroups(t)).toEqual(['People']);
+});
+
+it('holds the seven open until the dives read answers, rather than opening them on an unread logbook', async () => {
+  // `dives` is `[]` before the read resolves, which is indistinguishable from an empty logbook
+  // — so an ungated rule would open all seven for one frame under EVERY diver and then shut
+  // five of them. Gated, the unresolved frame shows the ordinary starting state and the
+  // first-ever diver's groups grow into place instead.
+  stubDives({ resolved: false });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['Times & depth', 'Gas & cylinders']);
+});
+
+it('keeps a group the first-time diver collapsed shut, which is a decision like any other', async () => {
+  // The interaction that would actually break: the empty logbook opens everything, the diver
+  // disagrees about one group, and the collapse has to reach the memory as a `false` and hold
+  // on screen. A rule applied over the top of the diver's own gesture would spring it open
+  // again — M1i's whole point, one starting state later.
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'Notes & rating');
+  if (!header) throw new Error('no Notes & rating header found');
+  await fireEvent.press(header);
+
+  expect(expandedGroups(t)).toEqual(SECTION_ORDER.map(([title]) => title).filter((title) => title !== 'Notes & rating'));
+  expect(lastRemembered()).toEqual({ notes: false });
+});
+
+it('leaves a group the first-time diver already collapsed shut on the next form', async () => {
+  // ...and the same collapse arriving from the memory, which is where the next dive reads it.
+  stubOpenGroups({ notes: false });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(SECTION_ORDER.map(([title]) => title).filter((title) => title !== 'Notes & rating'));
+});
+
 it('opens a group the diver left open last time, though this dive has nothing in it', async () => {
+  stubReturningDiver();
   stubOpenGroups({ ...COLLAPSE_DEFAULT_OPEN, people: true });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual(['People']);
@@ -1026,6 +1146,7 @@ it('lets the diver close a group the dive has a value in, which is what a contro
 });
 
 it('remembers a group the diver opens, alongside everything it already remembered', async () => {
+  stubReturningDiver();
   stubOpenGroups({ conditions: true });
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'People');
@@ -1039,6 +1160,7 @@ it('remembers a group the diver opens, alongside everything it already remembere
 });
 
 it('composes one memory out of two presses, rather than losing the first', async () => {
+  stubReturningDiver();
   // The race this exists for: a write built from the STORED set plus the single group just
   // pressed is computed from a row the first write has not landed in yet, so opening two groups
   // in a second would store only the second. Every toggle of this form goes into every write.
@@ -1065,6 +1187,7 @@ it('writes a group the diver closes as closed, not as forgotten', async () => {
 });
 
 it('writes an id it has never heard of straight back, rather than deleting it', async () => {
+  stubReturningDiver();
   // §10's "kept, not refused" at the write end, which is where it actually costs something: an
   // older build opening one form would otherwise wipe a newer build's memory of its own group.
   stubOpenGroups({ profile: true, atmosphere: false });
@@ -1079,6 +1202,7 @@ it('writes an id it has never heard of straight back, rather than deleting it', 
 });
 
 it('writes nothing at all before the read has answered', async () => {
+  stubReturningDiver();
   // `{}` is what the hook reads before it has looked, and it is also what "the diver has decided
   // about nothing" looks like — so a write composed then would store a memory built on an answer
   // nobody has, erasing whatever was really there. The press still opens the group; only the
@@ -1110,6 +1234,7 @@ it('draws its groups without waiting for a memory that has not arrived', async (
 });
 
 it('opens a remembered group when the memory arrives after the first render', async () => {
+  stubReturningDiver();
   stubOpenGroups(COLLAPSE_DEFAULT_OPEN, false);
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual([]);
@@ -1123,6 +1248,7 @@ it('opens a remembered group when the memory arrives after the first render', as
 // open because nothing is known, and the memory then says the diver collapsed it. A screen that
 // read the memory as "the open ones" would leave it open for ever.
 it('closes a group the arriving memory says the diver collapsed', async () => {
+  stubReturningDiver();
   stubOpenGroups({}, false);
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'Times & depth']);
@@ -1133,6 +1259,7 @@ it('closes a group the arriving memory says the diver collapsed', async () => {
 });
 
 it('never lets a late memory reopen a group the diver has closed', async () => {
+  stubReturningDiver();
   // The diver's own gesture outranks both rules, and it has to outrank them across a read that
   // answers afterwards — otherwise a group they shut springs open again for no visible reason.
   stubOpenGroups(COLLAPSE_DEFAULT_OPEN, false);
@@ -1206,6 +1333,7 @@ it.each([
 // reader and would pass over a body that never rendered — the failure `FormGroup`'s own test
 // warns about, one level up.
 it('draws the fields of the groups that start open, without a gesture and without a memory', async () => {
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'Times & depth']);
   for (const label of ['Max depth', 'Avg depth', 'Duration', 'Start pressure', 'End pressure']) {
@@ -1220,6 +1348,7 @@ it('draws the fields of the groups that start open, without a gesture and withou
 // diver does to a default-open group reaches the row that has to remember it. Without the
 // `false` this writes, the collapse would be undone by the very default it disagreed with.
 it('writes a collapse of a group that starts open, so the next dive keeps it collapsed', async () => {
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'Times & depth');
   if (!header) throw new Error('no Times & depth header found');

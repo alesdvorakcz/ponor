@@ -727,6 +727,23 @@ function valueAtPath(values: DiveFormInput, path: string): unknown {
  * of it, and the alternative that costs nothing (a collapsed group saying on its header that it
  * holds carried values) is a design job rather than an inversion.
  *
+ * **An empty logbook opens every group** (§2.2, M1j), and it is an addition to the *starting
+ * state* rather than a change to any of the above. With no dives at all nothing carries and
+ * nothing has been remembered, so the two rules that answer for an ordinary dive would leave a
+ * first-time diver looking at five closed groups on the one occasion nobody knows what they
+ * hold. It sits inside the same `remembered[id] === undefined` guard `startsOpen` does, which is
+ * what keeps the precedence untouched: a diver who collapses a group on their very first dive
+ * has decided something, and reopening it would be exactly the defect M1i's third state exists
+ * to close. The condition decays on its own — it can never be true again once one dive is saved.
+ *
+ * `logbookEmpty` is asked of the caller rather than inferred from `values`, and the difference is
+ * the point: **"the logbook is empty" is not "this form holds nothing".** A new dive on a
+ * populated logbook whose previous dive recorded nothing at all holds nothing either, and it must
+ * follow the ordinary rule; so must an edit of the only dive there is. The screen answers it from
+ * `useDives()`, which it already reads for carry-over — see the call site for why it is gated on
+ * that read having resolved. Required rather than optional for `startsOpen`'s own reason: a
+ * caller has to state which world it is in instead of inheriting a default nobody chose.
+ *
  * **An id in `remembered` that names no group is kept in the returned set and simply matches
  * nothing.** It is a newer build's group (§10's "kept, not refused" — see `readOpenFormGroups`),
  * and the form writes it back untouched rather than deleting a memory it does not understand.
@@ -735,10 +752,14 @@ function valueAtPath(values: DiveFormInput, path: string): unknown {
  * the screen's own test then proves each `FormGroup` is actually wired to its own entry, which
  * is the half a pure test cannot see.
  */
-export function defaultOpenGroups(values: DiveFormInput, remembered: Readonly<Record<string, boolean>>): Set<string> {
+export function defaultOpenGroups(
+  values: DiveFormInput,
+  remembered: Readonly<Record<string, boolean>>,
+  logbookEmpty: boolean,
+): Set<string> {
   const open = new Set<string>(Object.keys(remembered).filter((id) => remembered[id] === true));
   for (const id of FORM_GROUP_IDS) {
-    if (remembered[id] === undefined && FORM_GROUPS[id].startsOpen) open.add(id);
+    if (remembered[id] === undefined && (logbookEmpty || FORM_GROUPS[id].startsOpen)) open.add(id);
     if (FORM_GROUPS[id].fields.some((field) => holdsValue(valueAtPath(values, field)))) open.add(id);
   }
   return open;
@@ -2080,7 +2101,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // it.
   const cylinderSpecOpen = resolved && cylinderSpecText(carried.values.tanks, units) === null;
 
-  // §2.2's "groups remember themselves", in three layers that must be applied in this order.
+  // §2.2's "groups remember themselves", in four layers that must be applied in this order.
   //
   // `remembered` is the persisted half — which groups the diver last left open — and it lands
   // asynchronously like every other read on this screen. **The groups are drawn before it
@@ -2103,9 +2124,23 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // gating the default on `resolved` would open a group on every diver who has not. The rule is
   // the same one this paragraph already applies to the remembered half — correct late beats
   // moving more on screen.
+  //
+  // **The empty logbook is the fourth layer and it is a starting state too** (§2.2, M1j): with
+  // no dives at all, every group opens. It is read off `dives` — the same `useDives()` call
+  // carry-over already needs, never a second query — rather than off `carried.values`, because
+  // the two are not the same question: a second dive whose predecessor recorded nothing holds
+  // exactly what a first dive holds, and it must follow the ordinary rule. `dives` also answers
+  // it correctly in edit mode without a branch, since a dive being edited is itself in the list.
+  //
+  // **Gated on `resolved`, unlike the two layers above**, and the asymmetry is deliberate:
+  // `dives` is `[]` before the read answers, so an ungated condition would be true for one
+  // frame for EVERY diver and then close five groups under all of them — the direction this
+  // screen's own rule rejects. Gated, the only frame anyone sees wrong is the first-ever
+  // diver's, and it grows content rather than hiding it, which is the same call
+  // `cylinderSpecOpen` above makes in the same words.
   const { remembered, resolved: rememberedResolved } = useOpenFormGroups();
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
-  const openByRule = defaultOpenGroups(carried.values, remembered);
+  const openByRule = defaultOpenGroups(carried.values, remembered, resolved && dives.length === 0);
 
   /**
    * A diver's press on a group header: shown at once, and written back so the next dive opens
