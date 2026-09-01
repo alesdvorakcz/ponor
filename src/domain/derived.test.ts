@@ -241,23 +241,49 @@ describe('nitrogenPct', () => {
     expect(nitrogenPct(0, 0)).toBe(100);
   });
 
-  it('is null when EITHER fraction was not recorded — a blank helium is not a zero', () => {
-    // The decision that costs the common case: nitrox 32 with He left blank is obviously
-    // 68 % N2 to a human, and this app still says nothing, because "did not say" is not
-    // "zero" and inventing the difference understates inert gas — the unsafe direction.
-    expect(nitrogenPct(32, null)).toBeNull();
+  it('reads a blank helium as none, which is the whole logbook: air is 79', () => {
+    // The case the rule exists for. Nobody writes "He: 0" for air, so requiring both
+    // fractions would show nitrogen only on trimix — the one mix whose diver least needs the
+    // arithmetic done for them. Air and nitrox are asserted separately because they are the
+    // two spellings of the same omission, and both are the common case.
+    expect(nitrogenPct(21, null)).toBe(79);
+    expect(nitrogenPct(32, null)).toBe(68);
+    expect(nitrogenPct(21, undefined)).toBe(79);
+  });
+
+  it('leaves a mix that states both fractions exactly as it was', () => {
+    // The other half: reading an absent helium as none must not disturb a helium the diver
+    // did state, including a deliberate `0`. Without this, a rule that ignored `hePct`
+    // entirely would satisfy the test above and silently strip helium from every trimix.
+    expect(nitrogenPct(18, 45)).toBe(37);
+    expect(nitrogenPct(21, 0)).toBe(79);
+  });
+
+  it('still requires the oxygen fraction, which nobody omits', () => {
+    // Only helium gets the absent-means-none reading. An unrecorded O2 leaves nothing to
+    // subtract from, and 100 % nitrogen is not a mix anyone dived.
     expect(nitrogenPct(null, 0)).toBeNull();
     expect(nitrogenPct(null, null)).toBeNull();
     expect(nitrogenPct(undefined, undefined)).toBeNull();
-  });
-
-  it('is null for a fraction that is not a real number', () => {
     expect(nitrogenPct(NaN, 0)).toBeNull();
-    expect(nitrogenPct(21, Number.POSITIVE_INFINITY)).toBeNull();
     expect(nitrogenPct('21' as unknown as number, 0)).toBeNull();
   });
 
-  it('is null for a fraction outside 0-100, which is not a percentage of anything', () => {
+  it('treats a helium that is not a real number as absent, on this file\'s own definition', () => {
+    // `TankGas` above defines absent as "null/undefined, or not a real number at all (NaN,
+    // Infinity, wrong type)... Nothing a diver could have deliberately entered." A NaN out
+    // of an empty form field and a corrupt Infinity are the same claim as a blank, so they
+    // take the same path rather than a second definition of "the diver did not say".
+    expect(nitrogenPct(21, NaN)).toBe(79);
+    expect(nitrogenPct(21, Number.POSITIVE_INFINITY)).toBe(79);
+    expect(nitrogenPct(21, '45' as unknown as number)).toBe(79);
+  });
+
+  it('is null for a RECORDED fraction outside 0-100, which is not a percentage of anything', () => {
+    // Absent-means-none does not extend to a helium the diver actually wrote down: -1 and
+    // 101 are recorded values that cannot be fractions, so they refuse rather than falling
+    // through to zero. That is the line between "did not say" and "said something impossible"
+    // — the same line `countGas` above draws for a cylinder's own fields.
     expect(nitrogenPct(-1, 0)).toBeNull();
     expect(nitrogenPct(101, 0)).toBeNull();
     expect(nitrogenPct(21, -1)).toBeNull();

@@ -225,28 +225,46 @@ const FULL_MIX_PCT = 100;
  * prefix, beside surface interval and RMV, because anything in this file is marked as
  * computed.
  *
- * **Both fractions are required, and a missing helium is NOT read as zero.** That is the
- * decision worth stating, because it costs the common case: a diver who records 32 % O₂ and
- * leaves He blank gets no nitrogen figure, even though nitrox 32 is obviously 68 % N₂ to a
- * human reading it. Defaulting the blank to 0 would be this file inventing a reading — the
- * thing every other function here refuses to do — and it would be inventing it in the
- * direction that *understates* inert gas, which is the unsafe one for a diver eyeing
- * narcosis or a deco plan. An absent field means the diver did not say, and "did not say"
- * is not "zero"; the same distinction `countGas` above keeps between a rig nobody recorded
- * and a single cylinder.
+ * **Oxygen is required; an absent helium is read as none** (owner's ruling, M1h). This is the
+ * one place in this file where a missing field is given a value rather than refusing, so it
+ * needs its reason stated and its cost named.
+ *
+ * The reason: **nobody writes "He: 0" for air.** A diver logging an air or nitrox dive fills
+ * in O₂ and leaves helium blank, so requiring both would hide nitrogen from very nearly
+ * every dive in a logbook and show it only on trimix — the one mix whose diver least needs
+ * the arithmetic done for them. `100 − 21 − 0` is 79, which is what every dive planner shows
+ * for air, and it is what this returns.
+ *
+ * The cost, stated rather than hidden: a **trimix** diver who records O₂ and omits He gets a
+ * nitrogen figure that is **too high**, because absent-means-zero is wrong for them
+ * specifically. That is a real loss and it is the smaller one — it takes a diver who logged
+ * a helium mix and then did not say how much, against a rule that otherwise blanks the
+ * figure on every air and nitrox dive ever logged. §0.6's muted `=` prefix is what keeps it
+ * honest on screen: the value is already marked as something the app worked out rather than
+ * something the diver stated, so it never reads as a recorded fact.
+ *
+ * "Absent" here is this file's own definition, the one `TankGas` above sets out — null,
+ * undefined, or not a real number at all (NaN, Infinity, a wrong type), none of which is
+ * "nothing a diver could have deliberately entered". A helium that IS a real number is
+ * believed exactly as it is written, including a `0` the diver typed on purpose.
  *
  * Refuses a mix that is not a real one rather than a number a diver might act on, in the
- * same shape `mod` below does: a fraction outside [0, 100] is not a percentage of anything,
- * and O₂ + He above 100 leaves a *negative* nitrogen fraction, which is not a mix — it is a
- * typo in one of the two fields it was computed from.
+ * same shape `mod` below does: a *recorded* fraction outside [0, 100] is not a percentage of
+ * anything, and O₂ + He above 100 leaves a **negative** nitrogen fraction, which is not a
+ * mix — it is a typo in one of the two fields it was computed from.
  */
 export function nitrogenPct(
   o2Pct: number | null | undefined,
   hePct: number | null | undefined,
 ): number | null {
-  if (!isNumber(o2Pct) || !isNumber(hePct)) return null;
-  if (o2Pct < 0 || o2Pct > FULL_MIX_PCT || hePct < 0 || hePct > FULL_MIX_PCT) return null;
-  const nitrogen = FULL_MIX_PCT - o2Pct - hePct;
+  if (!isNumber(o2Pct)) return null;
+  // The absent-means-none branch. `isNumber` is the same test the rest of this file uses to
+  // decide whether a field was recorded at all, so a blank, a NaN out of an empty form field
+  // and a corrupt Infinity all take the one path — there is no second definition of "the
+  // diver did not say" here.
+  const helium = isNumber(hePct) ? hePct : 0;
+  if (o2Pct < 0 || o2Pct > FULL_MIX_PCT || helium < 0 || helium > FULL_MIX_PCT) return null;
+  const nitrogen = FULL_MIX_PCT - o2Pct - helium;
   return nitrogen >= 0 ? nitrogen : null;
 }
 

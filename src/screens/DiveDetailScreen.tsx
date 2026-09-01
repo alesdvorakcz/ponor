@@ -492,10 +492,11 @@ function tankFields(tank: Tank, units: UnitSystem): Field[] {
   const he = formatPercent(tank.hePct);
   if (he !== null) fields.push({ label: HE_LABEL, value: he, mono: true });
   // Nitrogen is never stored — it is 100 − O₂ − He (§10) — so it is `computed: true` like
-  // MOD and `Used` below, and sits with the two fractions it is derived from. `nitrogenPct`
-  // needs BOTH of them and refuses to read a blank helium as zero, so an air or nitrox
-  // cylinder with He left empty shows no N₂ row at all rather than a figure this app
-  // invented; see that function for why that is the safe direction.
+  // MOD and `Used` below, and sits with the two fractions it is derived from. An air or
+  // nitrox cylinder shows it too: `nitrogenPct` reads a blank helium as none, because nobody
+  // writes "He: 0" for air and requiring both fractions would show N₂ on trimix alone. That
+  // function names the cost of the reading; the `=` prefix beside the value is what keeps it
+  // honest here, marking it as something the app worked out rather than something recorded.
   const n2 = formatPercent(nitrogenPct(tank.o2Pct, tank.hePct));
   if (n2 !== null) fields.push({ label: N2_LABEL, value: n2, mono: true, computed: true });
   const tankMod = formatDepth(mod(tank.o2Pct), units);

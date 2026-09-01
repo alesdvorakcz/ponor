@@ -14,7 +14,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
-import { HE_LABEL, O2_LABEL } from '../format/display';
+import { HE_LABEL, N2_LABEL, O2_LABEL } from '../format/display';
 import { softDeleteDive } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -255,6 +255,22 @@ it('shows the computed values a diver cannot see in the raw fields', async () =>
   expect(text).toContain('MOD');
 });
 
+it('shows nitrogen on an ordinary air cylinder, which is the whole point of reading a blank helium as none', async () => {
+  // The owner's ruling, at the place a diver actually meets it. A cylinder recording O2 21
+  // and nothing about helium is what every air dive in a logbook looks like, and it reads
+  // N2 79 — the figure every dive planner shows. Asserted as label, mark and value together
+  // rather than as a bare "79" that could belong to anything: the `=` between them is §0.6's
+  // computed prefix, and it is what makes the reading honest, since a figure this app
+  // inferred from a field the diver left blank must never read as one they stated.
+  const air = (await renderDetail(dive({ date: '2026-08-16', tanks: [tank({ o2Pct: 21, hePct: null })] }))).join(' ');
+  expect(air).toContain(`${N2_LABEL} = 79 %`);
+
+  // ...and a mix that states both is untouched by that reading: 18/45 is 37, not 82. A rule
+  // that ignored helium entirely would satisfy the line above and strip it from every trimix.
+  const trimix = (await renderDetail(dive({ date: '2026-08-16', tanks: [tank({ o2Pct: 18, hePct: 45 })] }))).join(' ');
+  expect(trimix).toContain(`${N2_LABEL} = 37 %`);
+});
+
 it('shows every cylinder its own MOD, because there is no single dive MOD', async () => {
   const d = dive({
     date: '2026-06-04',
@@ -488,7 +504,9 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // here, so a value added to that module is counted automatically too.
 //
 // The fixture below is built so all seven of today's exports return non-null and each renders
-// as exactly one row: one tank (not two) keeps MOD, N2 and Used from doubling up the way task
+// as exactly one row — the default cylinder's blank helium is read as none (`nitrogenPct`),
+// so N2 is present without the fixture having to state a fraction no diver writes for air:
+// one tank (not two) keeps MOD, N2 and Used from doubling up the way task
 // 4's "shows every cylinder its own MOD" test deliberately exercises elsewhere, and the
 // earlier/target pair is the same shape "marks the surface interval..." above already
 // proves resolves to a non-null interval. Marked-count and export-count coincide at 7 today
@@ -507,11 +525,7 @@ it('marks every value this screen reads from derived.ts as computed, not just si
     durationMin: 45,
     avgDepthM: 20,
     maxDepthM: 25,
-    // `hePct: 0` rather than the fixture's `null`, and it is not a detail: `nitrogenPct`
-    // needs BOTH fractions and refuses to read a blank helium as zero, so the default
-    // cylinder produces no N2 row at all. A fixture that left it null would keep this count
-    // one short and read as a screen that had forgotten to mark something.
-    tanks: [tank({ hePct: 0 })],
+    tanks: [tank()],
   });
   stubDives({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
