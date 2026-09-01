@@ -412,3 +412,49 @@ describe('the first-run mark', () => {
     }
   });
 });
+
+// **The first-run block hangs off one edge** (M1h, the owner's drawing, settled against the
+// build). The first version centred it — mark, cluster label, paragraph, legend and both reason
+// lines — and that was the one visible departure from the design: every other screen in Ponor
+// hangs its content off a single column, so a centred block is the one place the eye has to find
+// a new starting point.
+//
+// Swept over the whole first-run block rather than asserted for the container, because the way
+// this breaks is a MIXTURE and not a reversal: somebody adds a caption, reaches for
+// `textAlign: 'center'` because a first-run screen "usually is", and the screen ends up with two
+// left edges. Nothing about the rendering looks broken; it just stops being one composition.
+describe('the first-run block alignment', () => {
+  // Every style this screen draws text with. Listed rather than derived from a prefix, because
+  // the legend's own two are not named `emptyState*` and are exactly the ones a sweep by name
+  // would miss — the same reason `unexpectedGraphics` names its exemptions instead of matching
+  // them.
+  const FIRST_RUN_TEXT = ['emptyStateLabel', 'emptyStateText', 'emptyStateReason', 'depthLegendLabel'];
+
+  it('starts every line of it at the same edge, in both schemes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const container = sheet.emptyStateContent ?? {};
+      expect(container.alignItems).toBe('flex-start');
+      // The sweep is worth nothing if it sweeps nothing — a renamed style would otherwise leave
+      // this passing over an empty list.
+      const found = FIRST_RUN_TEXT.filter((name) => sheet[name] !== undefined);
+      expect(found).toEqual(FIRST_RUN_TEXT);
+      const centred = found.filter((name) => sheet[name]?.textAlign === 'center');
+      expect(centred).toEqual([]);
+    }
+  });
+
+  // **The legend has to claim the width the container stopped handing out**, and this is one
+  // relation rather than two facts. While the block was centred, a legend with no `alignSelf`
+  // was at least centred at its content width; under `flex-start` its six `flex: 1` columns have
+  // nothing to divide and the whole scale collapses to the width of its six labels. So the two
+  // properties are asserted together: change the container's alignment without the legend's and
+  // this fails, which is the point at which somebody would otherwise ship a squashed scale.
+  it('still lets the legend span that column, which a sized child would not', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      expect(sheet.emptyStateContent?.alignItems).toBe('flex-start');
+      expect(sheet.depthLegend?.alignSelf).toBe('stretch');
+    }
+  });
+});

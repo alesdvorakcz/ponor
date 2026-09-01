@@ -118,8 +118,49 @@ fs.mkdirSync(out, { recursive: true });
 // exactly one place (the stylesheet) and there is no second number here to keep
 // in step with it. 360 is 3× the 120 pt the empty state draws today, which is
 // the densest screen this app runs on.
-await sharp(Buffer.from(monoText)).resize(360, 360).png().toFile(path.join(out, 'mark-mono.png'));
-console.log('wrote assets/images/mark-mono.png (360px, transparent, one colour)');
+//
+// **Trimmed to the ink, which the icons deliberately are not.** mark.svg's 64×64
+// frame leaves roughly a fifth of its height empty above the wave and a quarter
+// below the profile, and on a tile that emptiness is doing real work — it is what
+// insets the mark from the icon's edge. In a text column it is not padding, it is
+// a hole: left-aligned under the owner's design the block runs on a 16 pt rhythm
+// and the mark sat 49 pt clear of the label beneath it, two and a half times every
+// other gap. Measured off the simulator, not estimated.
+//
+// Trimming here rather than cropping at the call site is what keeps the geometry
+// in one place: `resizeMode: 'cover'` with a shorter box would clip the mark the
+// day the drawing changes, and a hand-computed `aspectRatio` in the sheet would be
+// the drawing's proportions written down a second time. A trimmed asset carries
+// its own aspect ratio, so `emptyStateMark` states a width and nothing else.
+//
+// Two passes, not one chain: sharp applies `trim` early in its own fixed pipeline
+// order, so a `.resize().trim()` chain trims the source and then scales the
+// untrimmed frame back over it — it returns 360×360 and looks exactly like a trim
+// that did nothing. Rasterise, trim, then scale the trimmed result to width.
+const monoFull = await sharp(Buffer.from(monoText)).png().toBuffer();
+const monoScaled = await sharp(monoFull).trim().resize({ width: 360 }).png().toBuffer();
+const { width: monoWidth, height: monoHeight } = await sharp(monoScaled).metadata();
+
+// **The drawing is put entirely in the alpha channel, and the colour is laid down
+// flat underneath it.** Not a tidy-up: resampling a white stroke over transparency
+// mixes the two, and the downscale above produced pixels at `254,254,254` — one
+// step off the ink, invisible to any eye and enough to make "this asset carries
+// exactly one colour" false. Loosening the test to a tolerance was the wrong
+// direction, because that property is §0.1 stated about a file: `tintColor`
+// repaints RGB and keeps alpha, so the ink is a placeholder and the ALPHA is the
+// mark. Building it that way makes the claim true by construction rather than by
+// inspection, and `markAsset.test.ts` can go on asserting it exactly.
+const monoAlpha = await sharp(monoScaled).extractChannel('alpha').toBuffer();
+await sharp({
+  create: { width: monoWidth, height: monoHeight, channels: 3, background: MONO },
+})
+  .joinChannel(monoAlpha)
+  .png()
+  .toFile(path.join(out, 'mark-mono.png'));
+const monoMeta = { width: monoWidth, height: monoHeight };
+console.log(
+  `wrote assets/images/mark-mono.png (${monoMeta.width}×${monoMeta.height}, transparent, one colour)`,
+);
 
 const targets = [
   // Full-bleed store and home-screen icon.

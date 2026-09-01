@@ -733,10 +733,23 @@ function build(scheme: ColorScheme) {
     // taller than the screen makes the container taller than the frame, which leaves
     // `justifyContent` no free space to distribute — so it lays out from the top and every
     // element stays scrollable to. One property could not do both.
+    //
+    // **`flex-start`, not `center` — the owner's drawing, settled against the build.** Every
+    // element of the first-run block begins at the same left edge: the cluster label, the
+    // local-first paragraph, the legend's first bar and both reason lines. That is the app's
+    // own rhythm rather than a preference — every other screen in Ponor hangs its content off
+    // one column, and a centred block here would have been the single place the eye has to
+    // find a new starting point. The first build centred it, which was the one visible
+    // departure from the drawing.
+    //
+    // It also puts a load on `depthLegend` below: the moment this stops centring, a child sized
+    // by its content is a child that has to claim the width itself, and the legend is six
+    // `flex: 1` columns with nothing to divide. `styles.test.ts` pins the two as one relation
+    // for that reason.
     emptyStateContent: {
       flexGrow: 1,
       justifyContent: 'flex-end',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 16,
     },
     // **The mark, drawn once, monochrome — and the monochrome is §0.1 enforcing itself.**
@@ -754,13 +767,27 @@ function build(scheme: ColorScheme) {
     // lever for "quieter than the ink it is drawn in". `fgMuted` was the alternative and is
     // the wrong token — §0.2 gives it to "labels, units, metadata", and this is a graphic.
     //
-    // The asset is 360 px square and drawn at 120 (`assets/images/mark-mono.png`,
-    // scripts/build-icons.mjs): a source rather than a sprite, so the display size lives here
-    // and nowhere else. `resizeMode: 'contain'` keeps the drawing's own 64×64 frame, which is
-    // the icon's frame — the on-screen mark is the same composition, not a re-cropped one.
+    // **120 wide, and the height is the drawing's own proportion — tied, not guessed.**
+    // `assets/images/mark-mono.png` is trimmed to its ink (scripts/build-icons.mjs), so 120
+    // means the mark rather than the frame around it. mark.svg's 64×64 box leaves a fifth of
+    // its height empty above the wave and a quarter below the profile; on an icon that
+    // emptiness insets the mark from the tile's edge, and in a left-aligned column it is simply
+    // a hole — the block runs on a 16 pt rhythm and the untrimmed mark sat 49 pt clear of the
+    // label under it. Looked at on the simulator, then measured off the screenshot.
+    //
+    // **The height has to be stated, and that was established by rendering it.** A `width`
+    // alone does not give React Native an aspect ratio to solve for: it takes the asset's
+    // INTRINSIC height in points, so the trimmed 360×209 asset laid out as 120×209 and
+    // `contain` letterboxed the mark inside it — a bigger hole than the one the trim closed.
+    //
+    // So the ratio is written here, which makes it the drawing's geometry in a second file, and
+    // `markAsset.test.ts` closes that by requiring these two numbers to agree with the shipped
+    // asset's own — §4.1's "derive, or tie", tied at test time because the asset is a build
+    // artifact this sheet cannot read. The failure mode of a stale pair is benign in the
+    // meantime: `contain` letterboxes, so the worst case is air, never a clipped mark.
     emptyStateMark: {
       width: 120,
-      height: 120,
+      height: 70,
       resizeMode: 'contain',
       tintColor: theme.fg,
       opacity: 0.5,
@@ -775,7 +802,6 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.sans,
       fontSize: 16,
       color: theme.fgMuted,
-      textAlign: 'center',
     },
     // The two lines under the legend that give the rule its reason. Mono, because they are a
     // caption to a data legend and they carry the scale's own figures — §0.2 splits the faces
@@ -787,14 +813,16 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       lineHeight: 16,
       color: theme.fgMuted,
-      textAlign: 'center',
     },
     // **The depth legend** (§0.6, M1h) — six bars in the six band colours, each under its own
     // range. The one place in Ponor where a depth colour appears without a depth beside it,
     // and the only thing a first-run screen can teach that the app then keeps using.
     //
-    // `alignSelf: 'stretch'` because its parent centres its children: a legend is a scale and
-    // has to span the column, or the six bands stop reading as one continuous run of water.
+    // `alignSelf: 'stretch'` because its parent aligns its children to one edge rather than
+    // sizing them: a legend is a scale and has to span the column, or the six `flex: 1` bands
+    // have nothing to divide and collapse to the width of their own labels. It was needed under
+    // the centred first build for the same reason and is needed under `flex-start` for a
+    // sharper one — `center` at least left the row a content width to be centred at.
     depthLegend: {
       alignSelf: 'stretch',
       flexDirection: 'row',
@@ -817,14 +845,19 @@ function build(scheme: ColorScheme) {
     },
     // The range beneath it. Mono with tabular figures because these are depths — the same face
     // and the same reason `depthValue` takes it — and muted, because the bar above is the part
-    // that is meant to be looked at. Centred under its own bar so the numbers read as labels
-    // of the swatches rather than as a row of their own.
+    // that is meant to be looked at.
+    //
+    // Aligned to its own bar's LEADING edge rather than centred under it, with the rest of the
+    // block (`emptyStateContent`). That is not only consistency: each label names the depth its
+    // band STARTS at, so a number sitting where its colour starts reads as a ruler, where a
+    // centred one floats between the boundary above it and the one below. The trailing edge is
+    // ragged as a result — `40+ m` is wider than `0–6` — and that is the honest shape of a scale
+    // whose bands are not equal.
     depthLegendLabel: {
       fontFamily: fonts.mono,
       fontSize: 10.5,
       fontVariant: ['tabular-nums'],
       color: theme.fgMuted,
-      textAlign: 'center',
     },
     // depthValue is the anchor of a dive row (§0.6): the value that actually differs
     // dive to dive, set apart from every other row element by size, weight and colour so

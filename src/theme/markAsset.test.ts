@@ -2,6 +2,8 @@ import path from 'node:path';
 
 import sharp from 'sharp';
 
+import { makeStyles } from './styles';
+
 // **The one graphic Ponor ships, checked as a graphic** (DESIGN.md §0.1/§0.3, M1h).
 //
 // It lives beside the theme because what it pins is a claim about COLOUR, and colour is this
@@ -76,5 +78,26 @@ describe('the mark the first-run screen draws', () => {
     }
     expect(solid).toBeGreaterThan(2000);
     expect(translucent).toBeGreaterThan(2000);
+  });
+
+  // **The box the mark is drawn in has to be the shape the mark actually is.** `emptyStateMark`
+  // states a width and a height (theme/styles.ts records why a width alone does not work), which
+  // makes the drawing's proportions a fact in two files — the sheet cannot read a build
+  // artifact, so the tie is made here instead of in the type system. §4.1's "derive, or tie at
+  // compile time", one step later.
+  //
+  // Asserted as a rendered height rather than as a ratio, because that is the thing that goes
+  // wrong: an untrimmed or reshaped asset in the same box does not distort — `resizeMode:
+  // 'contain'` letterboxes it — so the mark simply acquires a band of empty space above and
+  // below and every test that looks at colour, ink or alpha stays green. The whole defect is
+  // dead vertical air, which is exactly what the trim was added to remove.
+  it('is drawn in a box of its own proportions, so nothing is letterboxed', async () => {
+    const { width, height } = await sharp(MARK).metadata();
+    const mark = makeStyles('dark').emptyStateMark as Record<string, unknown>;
+    expect(typeof mark.width).toBe('number');
+    expect(typeof mark.height).toBe('number');
+    // Within a point: the sheet rounds to a whole number and the asset does not.
+    const proportional = (mark.width as number) * (height / width);
+    expect(Math.abs((mark.height as number) - proportional)).toBeLessThan(1);
   });
 });
