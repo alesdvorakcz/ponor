@@ -28,6 +28,19 @@ export type DiveStatus = 'logged' | 'planned';
  * recorded here as well as in §10 because it is the one value in this file that was ever
  * *shipped and then removed* — a column already held it — as opposed to never built.
  *
+ * **Every member is one lowercase word that means itself, and `WEATHER_VALUES` was made to
+ * obey that rather than excused from it** (M1h). It shipped from Task 1 holding `partly`,
+ * which is half a phrase: a diver means *partly cloudy*, and the chip reading "Partly" beside
+ * one reading "Cloudy" only makes sense because of what stands next to it. Two ways out were
+ * rejected. A lookup table in `formatWeather` puts the missing word in the *formatter*, which
+ * is the per-value map `capitalize`'s own docblock exists to avoid and would leave the stored
+ * value still meaning nothing on its own. Storing `'partly cloudy'` — with the space — shapes
+ * the vocabulary so that `capitalize` happens to work, which is the tail wagging the dog, and
+ * every other member here is a single token. So the SCALE changed instead: the two cloud
+ * levels are `cloudy` (some cloud, what `partly` was reaching for) and `overcast` (solid
+ * grey). `semidry` is the precedent — a two-word concept compressed into one token rather
+ * than spelled out with a separator.
+ *
  * `as const` on each, so the arrays are readonly tuples of literals — without it every
  * member widens to `string` and the derived type says nothing at all.
  */
@@ -36,7 +49,7 @@ export const SALINITY_VALUES = ['salt', 'fresh'] as const;
 export const WATER_BODY_VALUES = ['ocean', 'lake', 'river', 'quarry', 'cave', 'pool'] as const;
 export const TANK_MATERIAL_VALUES = ['steel', 'alu'] as const;
 export const CONFIGURATION_VALUES = ['single', 'twinset', 'sidemount'] as const;
-export const WEATHER_VALUES = ['sunny', 'partly', 'cloudy', 'rainy', 'windy', 'foggy'] as const;
+export const WEATHER_VALUES = ['sunny', 'cloudy', 'overcast', 'rainy', 'windy', 'foggy'] as const;
 export const VISIBILITY_VALUES = ['high', 'average', 'low'] as const;
 export const SUIT_VALUES = ['none', 'shorty', 'wet', 'semidry', 'dry'] as const;
 export const WEIGHTS_FEEL_VALUES = ['under', 'good', 'over'] as const;

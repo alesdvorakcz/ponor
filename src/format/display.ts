@@ -557,13 +557,15 @@ export function formatConfiguration(configuration: Configuration | null): string
 /**
  * The weather above the dive, e.g. "Cloudy".
  *
- * `partly` renders as "Partly", which is the one member of these vocabularies that reads as
- * half a phrase rather than a word — a diver means "partly cloudy". It is left that way
- * deliberately: giving this one value a lookup table would reintroduce exactly the
- * per-value map `capitalize`'s docblock above exists to avoid, for one string, and the chip
- * row it sits in already supplies the missing half by having "Cloudy" next to it. If the
- * word has to change it should change in `WEATHER_VALUES` (domain/types.ts), where the
- * vocabulary is declared, not here.
+ * **No special case for any member, and that is the point.** This function used to carry a
+ * paragraph explaining that `partly` renders as "Partly" — half a phrase, since a diver means
+ * *partly cloudy* — and that the chip row supplied the missing word by having "Cloudy" beside
+ * it. The explanation was sound and the conclusion was wrong: a value that only means
+ * something because of what stands next to it means nothing when it is read back alone, in a
+ * search result, or by a screen reader. §10 changed the SCALE rather than teaching the
+ * formatter a lookup table for one string — `cloudy` and `overcast` are the two cloud levels
+ * now, both single words that mean themselves. The vocabulary is the source
+ * (`WEATHER_VALUES`, domain/types.ts); nothing about the weather is decided here.
  */
 export function formatWeather(weather: Weather | null): string | null {
   return weather === null ? null : capitalize(weather);

@@ -2,7 +2,9 @@ import {
   CONFIGURATION_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
+  SUIT_VALUES,
   VISIBILITY_VALUES,
+  WATER_BODY_VALUES,
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   cylinderCount,
@@ -67,5 +69,34 @@ describe('the vocabularies', () => {
 
   it('holds every accessory the equipment set can record', () => {
     expect(EQUIPMENT_VALUES).toEqual(['hood', 'gloves', 'boots', 'torch', 'camera']);
+  });
+
+  // M1h: `WEATHER_VALUES` shipped holding `partly`, which is half a phrase — a diver means
+  // *partly cloudy* — and the two ways of finishing the phrase in place were both rejected:
+  // a lookup table inside `formatWeather` puts the missing word in the formatter and leaves
+  // the stored value meaning nothing on its own, and `'partly cloudy'` with a space shapes
+  // the vocabulary so that `capitalize` happens to work. The scale changed instead, to
+  // `cloudy` (some cloud) and `overcast` (solid grey).
+  //
+  // **What is actually checkable is the convention, not the judgement.** No test can say that
+  // `partly` fails to mean itself; that is recorded in `domain/types.ts` and §10. This pins the
+  // half a machine can see — every member of every vocabulary is one lowercase word — which
+  // is what forbids the rejected `'partly cloudy'` and `'partly_cloudy'` spellings, and what
+  // `semidry` already obeys by compressing a two-word concept into one token.
+  it('spells every member as a single lowercase word, with no separator standing in for one', () => {
+    for (const vocabulary of [
+      SALINITY_VALUES,
+      WATER_BODY_VALUES,
+      WEATHER_VALUES,
+      VISIBILITY_VALUES,
+      SUIT_VALUES,
+      WEIGHTS_FEEL_VALUES,
+      CONFIGURATION_VALUES,
+      EQUIPMENT_VALUES,
+    ] as readonly (readonly string[])[]) {
+      for (const member of vocabulary) {
+        expect(member).toMatch(/^[a-z]+$/);
+      }
+    }
   });
 });

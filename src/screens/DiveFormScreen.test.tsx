@@ -1555,12 +1555,25 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
       .map((announced) => announced.slice(`${label}: `.length));
   }
 
+  // **Four rows were missing from this table until M1h's structure pass**, and they are the
+  // same hole the field sweep further down was rewritten for: `Visibility`, `Weather`,
+  // `Weighting` and `Configuration` all arrived in Task 1 and joined the *write* sweep without
+  // joining this one. A chip row offering five of a vocabulary's six values passes every other
+  // test in this file — the write sweep taps `values[1]` and never looks at how many chips
+  // there are — so a member could be added to the domain and never reach a diver's thumb,
+  // which is precisely the defect the paragraph above this describes for the copy that used to
+  // live in the screen. The rule is the same: a fixed-choice field added to this form joins
+  // this table on the same commit.
   it.each([
     ['Entry', 'Conditions', ENTRY_VALUES],
     ['Salinity', 'Conditions', SALINITY_VALUES],
     ['Water body', 'Conditions', WATER_BODY_VALUES],
+    ['Visibility', 'Conditions', VISIBILITY_VALUES],
+    ['Weather', 'Conditions', WEATHER_VALUES],
     ['Suit', 'Equipment', SUIT_VALUES],
+    ['Weighting', 'Equipment', WEIGHTS_FEEL_VALUES],
     ['Material', 'Gas & cylinders', TANK_MATERIAL_VALUES],
+    ['Configuration', 'Gas & cylinders', CONFIGURATION_VALUES],
   ] as const)('offers one %s chip per value the domain declares', async (label, group, values) => {
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, group);
