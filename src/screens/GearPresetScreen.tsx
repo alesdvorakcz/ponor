@@ -26,7 +26,7 @@ import { unitLabel, type UnitSystem } from '../format/units';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 
 /**
  * Shown when the id names nothing live — deleted on another device, or a stale deep link.
@@ -514,7 +514,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
  * to Settings for a cold deep link — never to the dives list, which is not the screen this
  * one sits on top of.
  */
-function BackControl({ styles }: { styles: ReturnType<typeof makeStyles> }) {
+function BackControl({ styles }: { styles: Styles }) {
   return (
     <Pressable
       style={styles.formBack}
