@@ -1,5 +1,5 @@
 import { themeFor } from './resolve';
-import { makeStyles, screenTopInset } from './styles';
+import { makeStyles, screenBottomInset, screenTopInset } from './styles';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
 // fresh StyleSheet each time, `styles` would get a new object identity on every render,
@@ -190,6 +190,53 @@ describe('the screen top inset', () => {
       expect(screen.paddingTop).toBeUndefined();
       expect(screen.padding).toBeUndefined();
       expect(screen.paddingVertical).toBeUndefined();
+    }
+  });
+});
+
+// **Where the bottom of a screen is — the other edge, and the same rule** (DESIGN.md §4.1,
+// M1h). The empty state's "Log your first dive" sat behind the iOS 26 Liquid Glass tab bar
+// for a release: `emptyStateWrap` carried `paddingBottom: 48`, and a screen inside `(tabs)`
+// reports 83 pt of bottom safe area on an iPhone 17 Pro — 34 of home indicator plus a 49 pt
+// `UITabBar`, measured on the device against the same app's dive form, which is drawn over
+// the tabs and reports 34. §0.6 leaves the top-right capsule off the empty logbook on
+// purpose, so the hidden button was a first-run diver's only way into the form.
+//
+// The helper is what these pin, for the reason the top's own tests give: it IS the rule, and
+// restating the padding each screen ends up with would be assertions that can only fail by
+// being edited. What no assertion in this file can do is SEE a tab bar — that is a fact
+// about a real UITabBarController, not about a stylesheet — so these pin the arithmetic and
+// DivesScreen.test.tsx pins that the screen actually asks for it.
+describe('the screen bottom inset', () => {
+  // Pinned as the RULE (the greater of the device's inset and the app's own floor) rather
+  // than as 83, which is one phone's answer on one kind of screen.
+  it('clears the greater of the device safe area and the app floor', () => {
+    // A tab screen on an iPhone 17 Pro: home indicator plus the Liquid Glass bar in front of
+    // it, which UIKit reports as one inset. The device wins, and the button clears the bar.
+    expect(screenBottomInset(83)).toBe(83);
+    // The same phone with no tab bar over the screen (the dive form reports exactly this),
+    // and an Android gesture strip: the app's own floor wins.
+    expect(screenBottomInset(34)).toBe(48);
+    // The browser, where the tab bar is a sibling below the screen and obscures nothing:
+    // the empty state keeps the 48 it has had since M0, so nothing moves there.
+    expect(screenBottomInset(0)).toBe(48);
+    // A floor, not a clamp: a device with a deeper inset than anything shipped today gets
+    // its own clearance instead of being cropped back to 48 and hidden all over again.
+    expect(screenBottomInset(120)).toBe(120);
+  });
+
+  // **The constant, as a property of the sheet.** `emptyStateWrap` held `paddingBottom: 48`
+  // — a second answer to the question the helper above owns, and the one the button was
+  // actually getting. Asserted as "no bottom padding at all" rather than as some particular
+  // number, because any number here is the defect regardless of which one it is: 83 typed
+  // into the sheet would look fixed on the one phone it was measured on and be wrong on
+  // every other, which is the whole reason this is a function of `insets.bottom`.
+  it('is not also written into the sheet, where the device cannot be read', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const wrap = makeStyles(scheme).emptyStateWrap as Record<string, unknown>;
+      expect(wrap.paddingBottom).toBeUndefined();
+      expect(wrap.padding).toBeUndefined();
+      expect(wrap.paddingVertical).toBeUndefined();
     }
   });
 });

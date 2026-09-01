@@ -26,7 +26,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { themeFor } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
 import DivesScreen from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -615,6 +615,70 @@ it('spends the device safe-area inset on the bar, so the capsule clears a Dynami
   const paddingTop = style.map((s) => s.paddingTop).find((value) => value !== undefined);
   expect(paddingTop).toBe(screenTopInset(62));
   expect(paddingTop).toBe(62);
+});
+
+/** The empty logbook's wrapper — `EmptyState`'s outer View — located by the base style only
+ * it wears, exactly as `findBar` above locates the pinned bar and for the same reason: its
+ * `paddingBottom` is composed in at the call site from the device's safe area, so the base
+ * style is the half that is stable enough to match on. */
+function findEmptyStateWrap(t: RenderResult) {
+  const [node] = t.root
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').emptyStateWrap))
+    : [];
+  if (!node) throw new Error('DivesScreen did not render its empty state');
+  return node;
+}
+
+// **The clearance the owner found on the device** (M1h), as the value this screen actually
+// composes rather than as the arithmetic `styles.test.ts` pins next door. `emptyStateWrap`
+// carried a flat `paddingBottom: 48`; a screen inside `(tabs)` reports 83 on an iPhone 17 Pro
+// — 34 pt of home indicator plus a 49 pt `UITabBar` — so "Log your first dive" rendered
+// UNDERNEATH the iOS 26 Liquid Glass bar, its label illegible through the material and only
+// its left edge exposed. It still opened the form when that sliver was tapped, which is why
+// nothing anywhere went red. §0.6 leaves the capsule off this branch on purpose, so that
+// button is a first-run diver's ONLY way into the form: the hidden control was the one the
+// screen exists for.
+//
+// **Rendered under two different devices, and required to follow both.** A single-device
+// assertion is one a constant passes by accident — and 48 is precisely the constant that
+// would have passed a check written against a phone with no tab bar. Asserted against
+// `screenBottomInset` rather than against 83 and 48, so what this pins is that the screen
+// asks the owner, not that someone retyped its arithmetic here. No unit test can see the tab
+// bar itself; this is the closest a Jest tree gets, and the screenshot is the rest.
+it('spends the device bottom inset on the empty state, so the first-run action clears the tab bar', async () => {
+  const clearanceOn = async (bottom: number) => {
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 62, left: 0, right: 0, bottom } }}
+      >
+        <DivesScreen />
+      </SafeAreaProvider>,
+    );
+    const style = [findEmptyStateWrap(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    const paddingBottom = style.map((s) => s.paddingBottom).find((value) => value !== undefined);
+    // No clearance anywhere on the wrapper is its own defect — the button flush against the
+    // bottom edge — and it would otherwise reach the comparisons below as `undefined` and
+    // read as a type error rather than as the failure it is.
+    if (typeof paddingBottom !== 'number') throw new Error('EmptyState composed no bottom clearance');
+    return paddingBottom;
+  };
+
+  // The phone the defect was found on, with the tab bar in front of the button.
+  const underTabBar = await clearanceOn(83);
+  // The browser, where the tab bar is a sibling below the screen and obscures nothing.
+  const underNothing = await clearanceOn(0);
+
+  // **The defect, stated as the rule and not as a number**: the button gives back at least
+  // everything the device reports as obscured. This is the assertion the shipped 48 fails,
+  // and it stays true whatever gap the call site composes on top — pinning the exact sum
+  // would just be this test retyping the call site's own arithmetic and agreeing with it.
+  expect(underTabBar).toBeGreaterThanOrEqual(83);
+  // The floor still holds where the device reports nothing, so nothing moves in the browser.
+  expect(underNothing).toBeGreaterThanOrEqual(screenBottomInset(0));
+  // ...and the two devices genuinely disagree, which IS the rule: no one number can satisfy
+  // both, so a constant — any constant, including a corrected one — fails here.
+  expect(underTabBar).toBeGreaterThan(underNothing);
 });
 
 // The bar, and the title beneath it, land in the list's own column, not the form's: §0.6's

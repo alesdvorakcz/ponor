@@ -82,6 +82,77 @@ export function screenTopInset(safeAreaTop: number): number {
   return Math.max(safeAreaTop, MIN_SCREEN_TOP_INSET);
 }
 
+/**
+ * The **floor** under `screenBottomInset` below, and a deliberate near-duplicate of
+ * `MIN_SCREEN_TOP_INSET` above rather than a second use of it (§4.1: "a deliberate
+ * near-duplicate names its siblings"). The two hold the same number and answer different
+ * questions. The top's 48 is what a phone with neither notch nor island needs to clear its
+ * status bar. This one is the breathing room a control wants above the bottom edge on the
+ * platforms whose tab bar is IN FLOW beneath the screen instead of drawn over it — the
+ * browser's JS bar (`(tabs)/_layout.web.tsx`) and Android's, where `insets.bottom` is 0 or a
+ * thin gesture strip and nothing at all is obscured. Sharing one constant would assert that
+ * a future device moving one edge must move the other, and nothing here has measured that.
+ */
+const MIN_SCREEN_BOTTOM_INSET = 48;
+
+/**
+ * **How far above the bottom of the display a control must sit: the greater of the device's
+ * own bottom safe-area inset and the app's floor above.** `screenTopInset`'s sibling in
+ * every sense — same shape, same reason, other edge — and, like it, one function rather than
+ * a number any screen is free to guess at.
+ *
+ * **The inset already contains the tab bar, and that was measured rather than reasoned.**
+ * Running on an iPhone 17 Pro, `useSafeAreaInsets().bottom` reports **83** on a screen inside
+ * `(tabs)` and **34** on the dive form, which is a root-Stack screen drawn over the tabs:
+ * 34 pt of home indicator, plus the 49 pt `UITabBar` wherever there is one. `NativeTabs`
+ * ((tabs)/_layout.tsx) renders a real `UITabBarController`, UIKit folds that bar into the
+ * child controller's `safeAreaInsets`, and react-native-screens reports each screen's own
+ * insets rather than the window's — so a screen under the tab bar asks this one function and
+ * gets the bar and the home indicator together. There is no bar height to look up and none
+ * to keep in step with when iOS changes it.
+ *
+ * **The defect it exists to prevent.** `emptyStateWrap` carried a flat `paddingBottom: 48`
+ * — 35 pt short of the 83 the device reports — so "Log your first dive" rendered UNDERNEATH
+ * the iOS 26 Liquid Glass tab bar: the label illegible through the material, only the
+ * button's left edge exposed. The exposed sliver still opened the form, which is the worst
+ * version of this — nothing was broken, so nothing failed. §0.6 leaves the top-right capsule
+ * off the empty logbook on purpose, so that button is a brand-new diver's ONLY way to log a
+ * dive, and the constant hid the one control the screen exists for.
+ *
+ * It survived because the development database has held dives since M1a, so the branch had
+ * never once rendered on a device; and no unit test can see it, because a tab bar is a
+ * layout fact of a real `UITabBarController` and not of a Jest tree. That is why the tests
+ * next door pin that the number comes from the device AT ALL rather than restating whichever
+ * number one phone produces, and why the fix was looked at on a simulator before it was
+ * called done.
+ *
+ * The `max` is a floor and not a clamp, exactly as at the top: in the browser and on Android
+ * the tab bar is a sibling below the screen rather than glass over it, `insets.bottom` is 0
+ * or a gesture strip, and the empty state keeps the 48 it has had since M0.
+ *
+ * **A caller with its own gap composes it into the argument**, not onto the result:
+ * `screenBottomInset(insets.bottom + 24)` is what `EmptyState` asks, so the gap is spent
+ * over the tab bar where there is one, and the app's floor still wins where the device
+ * reports nothing at all. Added to the result instead, the browser would gain 24 pt it has
+ * never had and never needed. The gap itself is the call site's business and is written
+ * there, exactly as `DiveFormScreen`'s footer and `SearchScreen`'s dock write theirs — this
+ * function owns the clearance, never how much air a particular control wants above it.
+ *
+ * **One call site today, and the two queued behind it.** Only `EmptyState` asks — it is the
+ * app's only control pinned to the bottom of a tab screen. Two constants are the same rule
+ * waiting to be asked and are deliberately NOT converted here, because each is a scroll
+ * view's content padding rather than a fixed child, which is a different question (a list may
+ * legitimately scroll its last row under a bar that has a scroll-edge effect): `listContent`'s
+ * 24 on the Dives list, and `rowScrollContent`'s 40, which Settings shares with the dive form
+ * — one screen under the bar and one over it, so that definition has to be split before
+ * either can ask. **The moment either is converted this stops being a local fix and this
+ * function is the owner they both ask**, which is the whole reason it is a function here and
+ * not a `Math.max` written inline in a component.
+ */
+export function screenBottomInset(safeAreaBottom: number): number {
+  return Math.max(safeAreaBottom, MIN_SCREEN_BOTTOM_INSET);
+}
+
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
@@ -606,11 +677,20 @@ function build(scheme: ColorScheme) {
     },
     // EmptyState. `justifyContent: 'flex-end'` is what puts the message and
     // the primary action in the bottom third of the screen (§0.5).
+    //
+    // **`paddingBottom` is deliberately absent**, and composed in at the call site from
+    // `screenBottomInset(insets.bottom)` — the same shape, and the same reason, as `screen`
+    // above carrying no `paddingTop`. It was a flat 48 until M1h, which is 35 pt short of
+    // what an iPhone 17 Pro reports under the native tab bar, and that put "Log your first
+    // dive" behind the Liquid Glass with its label unreadable (see `screenBottomInset`). A
+    // number here would be a second answer to a question only the device can be asked, and
+    // it would be the answer this component actually got. Its absence makes a caller that
+    // forgets to compose one fail visibly — the button flush against the bottom edge —
+    // instead of quietly sitting under a bar and still responding to taps.
     emptyStateWrap: {
       flex: 1,
       justifyContent: 'flex-end',
       paddingHorizontal: 20,
-      paddingBottom: 48,
       gap: 16,
     },
     emptyStateText: {
