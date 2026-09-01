@@ -186,8 +186,9 @@ describe('a screen title', () => {
 });
 
 // **Where the top of a screen is — one owner, one answer** (DESIGN.md §4.1). The Dives
-// screen's pinned bar got this rule first and the other five roots kept the sheet's flat 48
-// for a release, which is INSIDE the safe area on a Dynamic Island phone: measured on an
+// screen got this rule first, in the pinned bar it has since lost, and the other five roots
+// kept the sheet's flat 48 for a release, which is INSIDE the safe area on a Dynamic Island
+// phone: measured on an
 // iPhone 17 Pro, the capsule sat at 62 pt (exactly where iOS 26's Files puts its trailing
 // `•••`) while "Settings" sat at 56.3 and crowded the island. Two screens of one app
 // disagreeing about where the top is, and only one agreeing with iOS.
@@ -317,7 +318,9 @@ describe('what a scrolling screen clears at its bottom edge', () => {
 
   // **The Dives list's contentContainer is empty on purpose**, and both absences are a defect
   // that has already shipped. `paddingTop` was 60 — clearance for a capsule that floated over
-  // the list and has since moved into a sibling bar above it, leaving a hole at the top.
+  // the TOP of the list's content. The capsule floats again (M1k) and this must stay 0
+  // anyway, because it floats BESIDE the title rather than above it: 60 here would open the
+  // list with a hole and push the title back down by more than the pinned bar ever did.
   // `paddingBottom` was 24, described in the sheet as "a last row's breathing room above the
   // tab bar", which is the claim it could not keep: 24 against an 83 pt inset put the last
   // dive 59 pt inside the bar, its site name cut mid-word.
@@ -332,48 +335,76 @@ describe('what a scrolling screen clears at its bottom edge', () => {
   });
 });
 
-// The Dives screen's pinned bar (DESIGN.md §0.6, rewritten again for the native large-title
-// arrangement). Two properties, and each is a defect that has already shipped once.
-describe('the Dives screen pinned bar', () => {
-  // **The `…16` defect, as a property of the sheet.** The capsule floated over the list once
-  // and covered the trailing slot of every sticky trip header — where a trip's date range
-  // lives — and `UNNAMED SITE`'s range read as `…16` on the simulator. DivesScreen.test.tsx
-  // pins the structural half (the list is the bar's sibling, so nothing passes beneath it);
-  // this is the second lock: the bar is opaque, in the app's own ground, so even an overlap
-  // introduced later could not be seen through. A transparent bar is exactly the shape that
-  // regression takes.
-  it('draws an opaque ground, in the theme the screen under it is painted in', () => {
+// The Dives screen's floating capsule (DESIGN.md §0.6 and §10, the owner's call, M1k —
+// replacing the pinned bar these tests used to describe). Three properties, and each is a
+// defect this screen has already shipped in one direction or the other.
+describe('the Dives screen floating capsule', () => {
+  // **It floats, and it floats over a corner.** `position: absolute` is what takes it out of
+  // flow — in flow it is the bar again, and the title goes back to sitting a bar's height too
+  // low. `top: 0` is the region's own top edge (`divesListArea`), which is the title's, so
+  // "beside the title" needs no arithmetic and no inset read twice.
+  //
+  // **No `left` and no `width`**, and that is the half that keeps it a capsule rather than a
+  // strip: either one would stretch this wrapper across the screen, which would put an
+  // invisible 48 pt band over the full width of the first row — swallowing taps meant for it —
+  // and would be the pinned bar rebuilt as an overlay, which is the arrangement §10 rejected.
+  it('floats out of flow at the top trailing corner, sized by the capsule and not by the screen', () => {
     for (const scheme of ['dark', 'light'] as const) {
-      const styles = makeStyles(scheme);
-      const bar = styles.divesBar as Record<string, unknown>;
-      expect(bar.backgroundColor).toBe(themeFor(scheme).bg);
-      expect(bar.backgroundColor).toBe((styles.divesScreen as Record<string, unknown>).backgroundColor);
+      const float = makeStyles(scheme).divesCapsuleFloat as Record<string, unknown>;
+      expect(float.position).toBe('absolute');
+      expect(float.top).toBe(0);
+      expect(float.left).toBeUndefined();
+      expect(float.width).toBeUndefined();
+      // ...and it paints nothing. A ground here would be the opaque bar again, drawn over a
+      // capsule whose own material is deliberately glass.
+      expect(float.backgroundColor).toBeUndefined();
+      // The region it floats in is a containing block and nothing else: give it padding or a
+      // ground and `top: 0` stops meaning "the title's own top edge".
+      expect(makeStyles(scheme).divesListArea).toEqual({ flex: 1 });
     }
   });
 
-  // The capsule's two glyphs are 48 dp boxes (§0.5), and the bar has to be able to hold them
-  // — as a floor, since a `height` here is the one way to clip a tap target while every other
-  // test still passes. The floor sits on the bar's CONTENT row rather than on the bar, and
-  // that is not interchangeable: Yoga measures `minHeight` on the border box, so a floor on
-  // the bar itself would be swallowed whole by its safe-area `paddingTop` and reserve
-  // nothing — which is what would let the title jump 48 pt between the branches that render
-  // a capsule and the two that do not.
-  it('reserves the glyphs their floor below the safe-area inset, not inside it', () => {
-    const row = makeStyles('dark').divesBarRow as Record<string, unknown>;
-    expect(row.minHeight).toBeGreaterThanOrEqual(48);
-    expect(row.height).toBeUndefined();
-    // ...and the bar itself carries no floor, which would be the version that reserves
-    // nothing.
-    expect((makeStyles('dark').divesBar as Record<string, unknown>).minHeight).toBeUndefined();
+  // **The title lands where every other screen's title lands** — the owner's whole complaint
+  // (M1k): "Dives" sat a pinned bar's height below "Settings" on the same phone, which nothing
+  // could see because each screen's own spacing was correct in isolation. Written as the
+  // relation rather than as 4: every root composes `screenTopInset`, so what remains is what
+  // each screen puts between that inset and its first line, and the three must agree.
+  //
+  // The two zeroes are the rest of the sum, and each is a real way to break it: a `paddingTop`
+  // on the Dives root's sheet entry (`screen`) would move that screen alone, and one on the
+  // list's contentContainer would push the title down inside the scroll.
+  it('starts the Dives title the same distance below the safe area as Settings', () => {
+    // Every `paddingTop` between a screen's safe-area inset and its title, added up. Written
+    // as a sum over the named layers rather than as one lookup, because the two screens reach
+    // the same distance through different objects — a scroll's content padding on Settings, the
+    // title's own on Dives — and it is the DISTANCE that has to agree.
+    const topPadding = (sheet: Record<string, Record<string, unknown>>, keys: readonly string[]) =>
+      keys.reduce((total, key) => {
+        const value = sheet[key]?.paddingTop;
+        return total + (typeof value === 'number' ? value : 0);
+      }, 0);
+
+    for (const scheme of ['dark', 'light'] as const) {
+      const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const dives = topPadding(styles, ['listContent', 'divesTitle']);
+      const settings = topPadding(styles, ['settingsContent', 'settingsHeading']);
+      // A sum of two absent paddings is 0 and would agree with anything, including a Dives
+      // title that had lost its own spacing entirely.
+      expect(dives).toBeGreaterThan(0);
+      expect(dives).toBe(settings);
+      // Neither screen's ROOT adds any of its own: both compose the device's inset and
+      // nothing else (`screen` carries no `paddingTop` at all — the test above pins that).
+      expect(styles.screen?.paddingTop).toBeUndefined();
+    }
   });
 
-  // The bar, the large title and the list all indent to this screen's own 16 dp column
-  // (§0.6), so the capsule's trailing edge lines up with the date ranges it used to cover and
+  // The capsule, the large title and the list rows all sit on this screen's own 16 dp column
+  // (§0.6), so the capsule's trailing edge lines up with the date ranges it floats near and
   // the title with the trip titles below it. Read off the sheet as a relation, so moving the
-  // list's inset moves both with it rather than silently splitting them.
+  // list's inset moves all of them rather than silently splitting them.
   it('shares the list rows own column with the title beneath it', () => {
     const styles = makeStyles('dark');
-    const inset = (styles.divesBar as Record<string, unknown>).paddingHorizontal;
+    const inset = (styles.divesCapsuleFloat as Record<string, unknown>).right;
     expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
@@ -516,12 +547,14 @@ describe('the first-run block alignment', () => {
   });
 });
 
-// **The pair this sheet's own comment calls load-bearing, defended** (M1h). `emptyStateContent`
-// carries `flexGrow: 1` and `justifyContent: 'flex-end'` and the comment beside them explains
-// what each does: short content is pushed down against the button, so the composition keeps
-// §0.5's thumb zone; tall content makes the container taller than its frame, which leaves
-// `justifyContent` no free space and lays the block out from the TOP, so nothing overflows off
-// the top edge unreachable. Deleting both left 86 tests green.
+// **The pair this sheet's own comment calls load-bearing, defended** (M1h; the second half
+// re-aimed in M1k). `emptyStateContent` carries `flexGrow: 1` and `justifyContent: 'center'`
+// and the comment beside them explains what each does: short content is centred in the space
+// above the button (it was pushed down against it until the owner asked for the block to move
+// up); tall content makes the container taller than its frame, which leaves `justifyContent`
+// no free space and lays the block out from the TOP, so nothing overflows off the top edge
+// unreachable — which is true of `center` exactly as it was of `flex-end`, because the
+// container grows to its content rather than clipping it. Deleting both left 86 tests green.
 //
 // A comment asserting a guarantee that nothing defends is this project's signature defect, and
 // neither half can be checked by rendering: Jest has no layout, and the failure only appears on a
@@ -536,9 +569,11 @@ describe('the first-run block scroll', () => {
       // space to distribute even on a tall screen, and the block floats at the top of the
       // scroll with the button far below it.
       expect(content.flexGrow).toBe(1);
-      // Without this the block sits at the top of a full-height container — §0.5's thumb zone
-      // emptied out, and the mark stranded under the title.
-      expect(content.justifyContent).toBe('flex-end');
+      // Without this the block sits at the top of a full-height container, hard under "0
+      // dives", with every point of the screen's slack in one hole above the button. The
+      // owner's call is that the slack is split, not spent at one end — it was all at the top
+      // before M1k and would be all at the bottom without this.
+      expect(content.justifyContent).toBe('center');
     }
   });
 

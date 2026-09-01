@@ -22,8 +22,11 @@ interface TripHeaderProps {
 }
 
 /**
- * Sticky section header for the Dives list (DESIGN.md §3): a logged trip's place and date
- * range, or "Up next" above the planned dives.
+ * Section header for the Dives list (DESIGN.md §3): a logged trip's place and date range, or
+ * "Up next" above the planned dives. It scrolls with the list rather than sticking (§10, M1k):
+ * a sticky one parks under the capsule that floats beside the title for a whole trip's scroll
+ * extent, and the trailing slot below is exactly what that covered — `…16`. DivesScreen.tsx
+ * owns that decision; this component draws the header either way.
  *
  * The two are NOT the same object and no longer render as though they were. A trip is an
  * archive heading — everything under it already happened — so it keeps §0.6's "uppercase,

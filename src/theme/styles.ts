@@ -47,9 +47,9 @@ const MIN_SCREEN_TOP_INSET = 48;
 /**
  * **How far below the top of the display any screen's content begins: the greater of the
  * device's own top safe-area inset and the app's floor above.** One function for the whole
- * app — the pinned bar on Dives, and the root `View` of every other screen — because it is
- * one rule (§4.1), and a second helper computing the same clearance for a different screen
- * is the drift this project keeps paying for.
+ * app — every screen's root `View`, the Dives list's included since M1k took away the pinned
+ * bar that used to spend it — because it is one rule (§4.1), and a second helper computing
+ * the same clearance for a different screen is the drift this project keeps paying for.
  *
  * The one number in this sheet's vocabulary that cannot be baked into a scheme-only
  * stylesheet: it depends on the device, not the theme. So `screen` below deliberately
@@ -358,11 +358,26 @@ function build(scheme: ColorScheme) {
     color: theme.fg,
   };
 
+  // **How far below the safe area a screen's title begins** — the "ordinary heading padding"
+  // §0.6 names, and the second half of `screenTopInset`'s rule rather than a spacing choice
+  // of anyone's. Every root in the app composes that inset; this is what each of them then
+  // puts between it and the first line of the page, so the form's, Settings' and the Dives
+  // list's titles land on one line across the app.
+  //
+  // **One constant because the owner made it a requirement** (M1k): the Dives title sat a
+  // whole pinned bar — 56 pt — below every other screen's, which he found by putting Dives
+  // and Settings side by side. The form and Settings reach it through their scroll's own
+  // `rowScrollContent` below; the Dives title carries it itself, since its scroll's content
+  // padding has to stay at nothing (`listContent`). Two spellings of one distance is exactly
+  // how the 56 pt gap became invisible, so there is one number and both read it.
+  const SCREEN_HEADING_TOP = 4;
+
   // The row that title sits in on the one screen where something shares its line: §2.4's
   // Logged/Planned control on the dive form. The Dives list used to be the second — the
-  // search/`+` capsule sat at this row's trailing edge — until the capsule moved into a
-  // pinned bar of its own and the title dropped below it into the scroll content
-  // (`divesBar`/`divesTitle` below). Kept as its own definition rather than folded into
+  // search/`+` capsule sat at this row's trailing edge — until the capsule stopped being IN
+  // that line: it floats over the list beside the title now (`divesCapsuleFloat`/`divesTitle`
+  // below), which is a different arrangement from sharing a flex row with it and needs none
+  // of this. Kept as its own definition rather than folded into
   // `formHeadingRow`, because `headingTitle` beneath it is the half that matters: a title
   // sharing its line with a control has to be told to wrap, and a title that has the line to
   // itself must not be.
@@ -458,11 +473,17 @@ function build(scheme: ColorScheme) {
     fontSize: 11,
   };
 
-  // The app's ground, under three names. One definition rather than three literals, the same
-  // reasoning `noticeBanner` above records: `screen`, `divesScreen` and `wideScreen` are the
-  // roots of every screen in the app, they must paint the same ground and fill the same way,
-  // and each of the three says at its own definition what makes it a distinct name (what the
-  // call site adds on top, §4.1's "a deliberate near-duplicate names its siblings").
+  // The app's ground, under two names. One definition rather than two literals, the same
+  // reasoning `noticeBanner` above records: `screen` and `wideScreen` are the roots of every
+  // screen in the app, they must paint the same ground and fill the same way, and each says
+  // at its own definition what makes it a distinct name (what the call site adds on top,
+  // §4.1's "a deliberate near-duplicate names its siblings").
+  //
+  // **There were three until M1k**: the Dives screen had a `divesScreen` of its own, whose
+  // entire reason for existing was that its call site composed NO top inset — the pinned bar
+  // under it spent that clearance instead. The bar is gone and that screen's root now
+  // composes exactly what the other five compose, so the third name had nothing left to
+  // distinguish it and was deleted rather than left as a second spelling of `screen`.
   const screenGround: ViewStyle = { flex: 1, backgroundColor: theme.bg };
 
   const rowScroll: ViewStyle = { flex: 1 };
@@ -476,7 +497,10 @@ function build(scheme: ColorScheme) {
   // screens are the same column of §0.6 rows — so they stay here, and each alias states what
   // it meets at its own end (`formScrollContent`, `settingsContent` below).
   const rowScrollContent: ViewStyle = {
-    paddingTop: 4,
+    // `SCREEN_HEADING_TOP` above, not a 4 of its own: what this padding actually decides is
+    // where the screen's title sits under the safe area, and the Dives list has to land on
+    // the same line without sharing this style.
+    paddingTop: SCREEN_HEADING_TOP,
     gap: 20,
   };
 
@@ -567,25 +591,17 @@ function build(scheme: ColorScheme) {
       fontSize: 12.5,
       color: theme.fg,
     },
-    // SectionList's contentContainerStyle.
-    //
-    // **No top padding, and its absence is the point.** This carried 60 — the capsule's own
-    // 48 plus the gap below it — for as long as the capsule floated over the list's first
-    // rows and the list had to open clear of it. `divesBar` below now holds the capsule IN
-    // FLOW above this list, so there is nothing overhead to clear: the list's viewport begins
-    // where the bar ends, and the first thing in the content is the large title
-    // (`divesTitle`, the `ListHeaderComponent`), which brings its own spacing.
-    //
-    // The bottom keeps its allowance: the tab bar is a sibling of the whole screen, not an
-    // overlay on this list, so this is the breathing room a last row wants before the bar
-    // rather than clearance for something drawn on top of it.
     // The Dives list's contentContainer, and it is **empty on purpose** — a record of two
     // absences rather than a style with nothing to say. Neither may quietly come back.
     //
-    // **No `paddingTop`:** the capsule is in a pinned bar that is a SIBLING above this list
-    // (`divesBar`), not an overlay on it, so there is nothing overhead to clear. It carried
-    // 60 — the capsule's 48 plus the gap under it — while the capsule floated, and a list
-    // that kept it would open with a 60 px hole above its title.
+    // **No `paddingTop`, and M1k is the second arrangement to need that said.** The capsule
+    // floats over this list again (`divesCapsuleFloat` below) — but it floats BESIDE the
+    // large title, in the space a five-letter heading leaves empty at the trailing edge, not
+    // above it. So there is still nothing overhead for the first row to clear. It carried 60
+    // — the capsule's 48 plus the gap under it — the first time the capsule floated, when it
+    // sat over the top of the content rather than beside its first line; a list that took
+    // that back would open with a 60 px hole above its title and would push the title down
+    // by exactly the height this arrangement exists to give back.
     //
     // **No `paddingBottom`:** composed at the call site from `screenBottomInset(insets.bottom)`
     // (M1h). It was 24, described here as "a last row's breathing room above the tab bar" —
@@ -595,24 +611,23 @@ function build(scheme: ColorScheme) {
     // once the logbook had enough dives to scroll; the branch that shows it is the one every
     // returning diver sees, and nothing in 1400 tests could.
     listContent: {},
-    // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
-    // `divesScreen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the
-    // one thing it adds. Neither carries a top inset: the list column's own pinned bar and
-    // the detail pane's own `screen` each compose theirs from `screenTopInset`, one per
-    // column, so a padding here would stack a second one over the detail pane (see
-    // `wideListColumn`).
+    // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces `screen`
+    // as the outer wrapper only on that branch — `flexDirection: 'row'` is the one thing it
+    // adds. It carries no top inset: the list column and the detail pane's own `screen` each
+    // compose theirs from `screenTopInset`, one per column, so a padding here would stack a
+    // second one over the detail pane (see `wideListColumn`).
     wideScreen: { ...screenGround, flexDirection: 'row' },
     // Fixed-width list column (task brief: "the list sits at a fixed column width"). Wide
     // enough for a row's number/site/depth to read comfortably without crowding the detail
     // pane out — the same width iPad split views commonly give a master column.
     //
-    // **No `paddingTop`.** It carried the app's flat top inset while the list column began
-    // with a title row that had no clearance of its own; the pinned bar it now begins with
-    // owns that clearance and derives it from the device (`screenTopInset`), so a padding
-    // here would stack under it. The two columns line up by construction now rather than by
-    // two numbers happening to agree: the bar asks `screenTopInset(insets.top)` and the
-    // `DiveDetailScreen` in the pane beside it asks the same function the same question, so
-    // an iPad's 24 pt inset floors to 48 on both sides and any future device moves both.
+    // **No `paddingTop`**, and composed at the call site from `screenTopInset(insets.top)`
+    // exactly as `screen` next door is — the column is this layout's list root, so it asks
+    // the device the same question every other root asks (M1k; the pinned bar it used to
+    // begin with asked it instead, and before that the column carried the app's flat 48).
+    // The two columns line up by construction rather than by two numbers happening to agree:
+    // this one and the `DiveDetailScreen` in the pane beside it ask one function, so an
+    // iPad's 24 pt inset floors to 48 on both sides and any future device moves both.
     wideListColumn: {
       width: 360,
       borderRightWidth: 1,
@@ -706,8 +721,8 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       color: theme.fgMuted,
     },
-    // EmptyState. `justifyContent: 'flex-end'` is what puts the message and
-    // the primary action in the bottom third of the screen (§0.5).
+    // EmptyState's outer wrapper: the scrolling teaching block, and the primary action pinned
+    // under it in the bottom third of the screen (§0.5).
     //
     // **`paddingBottom` is deliberately absent**, and composed in at the call site from
     // `screenBottomInset(insets.bottom)` — the same shape, and the same reason, as `screen`
@@ -719,10 +734,11 @@ function build(scheme: ColorScheme) {
     // forgets to compose one fail visibly — the button flush against the bottom edge —
     // instead of quietly sitting under a bar and still responding to taps.
     //
-    // `justifyContent` went with M1h's first-run rewrite: the wrap is now a scroll and a
-    // button, the scroll takes the slack (`flex: 1` on `emptyStateScroll`), and it is
-    // `emptyStateContent` that decides where the teaching block sits inside it. Left here,
-    // `flex-end` would have been a second, contradicting answer to the same question.
+    // **A `justifyContent` of its own went with M1h's first-run rewrite** (it was `flex-end`
+    // here): the wrap is now a scroll and a button, the scroll takes the slack (`flex: 1` on
+    // `emptyStateScroll`), and it is `emptyStateContent` that decides where the teaching block
+    // sits inside it. Left here, it would have been a second, contradicting answer to the same
+    // question — and M1k, which moved that block, would have had to find both.
     // **16, matching `divesTitle` and `divesCount` above it — one column, not two.**
     // It was 20 from M0, when the only thing in here was a sentence and a button and there was
     // nothing above them to line up with. The first-run block put five more elements under a
@@ -747,20 +763,31 @@ function build(scheme: ColorScheme) {
     // overflow goes somewhere reachable instead, and the button stays exactly where the device
     // says it may be, which is the guarantee that has already shipped broken once.
     emptyStateScroll: { flex: 1 },
-    // **`flexGrow: 1` with `justifyContent: 'flex-end'` is the pair that makes that work.**
-    // Content shorter than the screen is pushed to the bottom, against the button, so the
-    // composition keeps §0.5's thumb zone and the mark sits where the drawing puts it. Content
-    // taller than the screen makes the container taller than the frame, which leaves
-    // `justifyContent` no free space to distribute — so it lays out from the top and every
-    // element stays scrollable to. One property could not do both.
+    // **`flexGrow: 1` with `justifyContent: 'center'` is the pair that makes that work.**
+    // Content shorter than the screen is centred in the space above the button, so the block
+    // reads as the page rather than as something resting on the action. Content taller than
+    // the screen makes the container taller than the frame, which leaves `justifyContent` no
+    // free space to distribute — so it lays out from the top and every element stays
+    // scrollable to. One property could not do both.
     //
-    // **`flex-start`, not `center` — the owner's drawing, settled against the build.** Every
-    // element of the first-run block begins at the same left edge: the cluster label, the
-    // local-first paragraph, the legend's first bar and both reason lines. That is the app's
-    // own rhythm rather than a preference — every other screen in Ponor hangs its content off
-    // one column, and a centred block here would have been the single place the eye has to
-    // find a new starting point. The first build centred it, which was the one visible
-    // departure from the drawing.
+    // **`center` rather than `flex-end`** (M1k, the owner's call: *"lets just move the content
+    // a bit more up"*). It was `flex-end`, which pushed the whole teaching block down against
+    // the button and left every point of slack in one hole between "0 dives" and the mark —
+    // 264 pt of it on an iPhone 17 Pro, and 56 more once the title stopped sitting under a
+    // pinned bar. The slack is split evenly now. What did NOT move is the button: it is a
+    // sibling below this scroll, and its clearance is the device's (`screenBottomInset`, and
+    // the `+ 24` EmptyState composes into it) — §0.5's thumb zone is that clearance's job and
+    // was never this property's, whatever the sentence here used to claim.
+    //
+    // **Across the block, `flex-start` and not `center` — the owner's drawing, settled
+    // against the build.** `alignItems` is the other axis from the two properties above, and
+    // the two answers differ on purpose: the block is centred vertically in the space it has
+    // and left-aligned horizontally. Every element of it begins at the same left edge — the
+    // cluster label, the local-first paragraph, the legend's first bar and both reason lines.
+    // That is the app's own rhythm rather than a preference: every other screen in Ponor hangs
+    // its content off one column, and a centred column here would have been the single place
+    // the eye has to find a new starting point. The first build centred it, which was the one
+    // visible departure from the drawing.
     //
     // It also puts a load on `depthLegend` below: the moment this stops centring, a child sized
     // by its content is a child that has to claim the width itself, and the legend is six
@@ -768,7 +795,7 @@ function build(scheme: ColorScheme) {
     // for that reason.
     emptyStateContent: {
       flexGrow: 1,
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
       alignItems: 'flex-start',
       gap: 16,
     },
@@ -933,80 +960,52 @@ function build(scheme: ColorScheme) {
       fontSize: 16,
       color: theme.actionFg,
     },
-    // The Dives screen's root. **A deliberate near-duplicate that names its siblings**
-    // (§4.1): it is `screenGround`, exactly as `screen` above is, and the difference is not
-    // in the style but in what the call site adds. Every other screen composes
-    // `screenTopInset(insets.top)` onto `screen`; this one composes nothing, because the
-    // pinned bar immediately below (`divesBar`) spends that clearance itself, and a padding
-    // here would stack a second one under it. Unifying the two names would delete that
-    // distinction and leave a bare `styles.screen` meaning "no top inset here" on one screen
-    // and "someone forgot the inset" on the other five. `wideScreen` is the third sibling:
-    // the same ground plus a row direction, for the same reason.
-    divesScreen: screenGround,
-    // DESIGN.md §3's note (owner's call, recorded during M1d, built with Settings): "Tabs go
-    // to the bottom; search and `+` move to a top-right capsule." This is the bar that
-    // capsule is pinned in — the **native iOS large-title arrangement** the owner chose after
-    // seeing both on the device: the controls stay in a bar that does not scroll, and the
-    // large title lives in the list's own content and scrolls away beneath it (`divesTitle`
-    // below). Measured on iOS 26, not recalled: Files pins its trailing `•••` at ~66 pt and
-    // puts "Shared" at ~140 pt INSIDE the scroll view; Photos pins its trailing controls at
-    // the same ~66. No compact title fades in to replace the scrolled-away one — the owner's
-    // deliberate call, on the grounds that the tab bar already says which screen this is.
+    // **The region the capsule floats in** (M1k) — the large title and the list beneath it,
+    // which on this screen are one object: the title is the list's `ListHeaderComponent`.
+    // Nothing but `flex: 1`, and its whole job is to be a containing block whose TOP EDGE is
+    // the title's own top edge, so `divesCapsuleFloat` below can say `top: 0` and mean
+    // "beside the title" rather than "this far down the screen".
     //
-    // **It is in flow, above the list, and that is what makes the occlusion impossible.**
-    // The capsule used to be an absolutely positioned strip floating over the list's first
-    // rows (`topActionRow`, `git log` has it), which is why it needed `useHideOnScroll`: this
-    // list's trip headers are sticky and carry their date range in the trailing slot (§0.6's
-    // type table), so every header in turn slid under the capsule and lost its date —
-    // `UNNAMED SITE`'s range read as `…16` on the simulator. A pinned bar in flow ends that
-    // outright rather than timing around it: the SectionList is this bar's SIBLING, so its
-    // viewport — and therefore where a sticky header sticks — begins at the bar's bottom
-    // edge, at every scroll offset. Overlaying the list and insetting its content instead
-    // would have put the sticky headers back under the capsule, since a sticky header sticks
-    // to the scroll view's own frame and not to its content inset.
+    // That is what makes the float survive the two notices (DivesScreen.tsx), which stay
+    // pinned ABOVE this region: when one is showing it pushes the title down, and the capsule
+    // goes with it instead of landing on the banner. The alternative — an absolute capsule
+    // against the screen root, offset by `screenTopInset` — would have been a second answer
+    // to a question the root's own padding already answers, and would sit on a notice.
+    divesListArea: { flex: 1 },
+    // **The search-and-`+` capsule floats beside the title** (DESIGN.md §0.6 and §10, the
+    // owner's call, M1k — reversing the pinned bar this replaces). §3's note put the capsule
+    // top-right when the tab bar landed; the bar it was pinned in cost the large title the
+    // height every other screen's title has, which is what the owner saw comparing Dives
+    // against Settings. So the capsule is an overlay again and the title takes the ordinary
+    // heading position (`divesTitle` below, `SCREEN_HEADING_TOP` above).
     //
-    // **`backgroundColor` is not decoration.** It is the scroll-edge effect, in its plainest
-    // form: an opaque ground on the pinned bar, so that nothing the list draws can ever be
-    // read through or behind it. It is `bg`, the same ground `divesScreen` above paints, so
-    // at rest the bar is invisible and the capsule reads as sitting on the page — and the
-    // moment a row or a header scrolls up to meet it, it is the bar that wins. Always
-    // present rather than appearing on scroll: iOS fades one in because its bar is
-    // translucent and its title has to show THROUGH it, and neither is true here, so a
-    // scroll listener would only be a second way for the `…16` defect to come back.
+    // **At rest it covers nothing, and that is the acceptance test rather than a hope**: a
+    // five-letter heading leaves the whole trailing half of its line empty, and the capsule
+    // sits in it. A ROW that passes under it while scrolling is fine — the owner's own
+    // reasoning, because you scroll on. A STICKY trip header is not, because it parks there
+    // for a whole trip's scroll extent instead of passing beneath, and that is exactly how a
+    // trip's trailing date range came to read `…16` twice (§10). Which is why the list this
+    // floats over does not stick its headers any more (DivesScreen.tsx); the two decisions
+    // are one decision and neither is safe alone.
     //
-    // `paddingHorizontal: 16` is this screen's own column — `tripHeader` and `diveRow` below
-    // both use it, and so does `divesTitle` — so the capsule's trailing edge lines up with
-    // the date ranges it used to cover. (It is NOT `FORM_ROW_INSET`: that is the form's and
+    // `top: 0` is the region's own top edge, not a distance from the display: see
+    // `divesListArea` above. `right: 16` is this screen's column — `tripHeader`, `diveRow`
+    // and `divesTitle` all use the same 16 — so the capsule's trailing edge lines up with the
+    // date ranges it floats near. (It is NOT `FORM_ROW_INSET`: that is the form's and
     // Settings' column, and `detailBack` records the same choice one screen over.)
     //
-    // `paddingTop` is deliberately absent and composed in at the call site from
-    // `screenTopInset(insets.top)` — the same owner every other screen's root asks, so this
-    // bar and the Settings title beside it can no longer disagree about where the top of the
-    // screen is. See that function for why the clearance is read off
-    // the device rather than written here.
-    divesBar: {
-      backgroundColor: theme.bg,
-      paddingHorizontal: 16,
-      paddingBottom: 8,
-    },
-    // The bar's content, under that inset: one row, capsule trailing.
-    //
-    // A child of `divesBar` rather than `divesBar` itself, because the 48 dp floor has to
-    // apply BELOW the safe-area padding and Yoga measures `minHeight` on the border box —
-    // a `minHeight: 48` on the bar would be swallowed whole by a 62 pt `paddingTop` and
-    // reserve nothing. What it reserves is the height the capsule gives the bar, so the
-    // title beneath sits in exactly the same place on the branches that render no capsule (a
-    // failed read, an empty logbook — DivesScreen.tsx). A floor and never a `height`: §0.5's
-    // tap targets are the capsule's two 48 dp glyphs, and a fixed height here would be the
-    // one way to clip them.
-    divesBarRow: {
-      minHeight: 48,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'flex-end',
+    // No ground of its own: the capsule inside it draws its own material (`actionCapsuleGlass`
+    // /`actionCapsulePlain`), and a fill here would put a second opaque shape behind a shape
+    // that is deliberately glass. Nothing the list draws needs to be hidden by this wrapper —
+    // the list is clipped by the screen root's own safe-area padding, which is what keeps
+    // content out of the status bar now that there is no bar to do it.
+    divesCapsuleFloat: {
+      position: 'absolute',
+      top: 0,
+      right: 16,
     },
     // The large title, and it is a **block in the list's own content** — the SectionList's
-    // `ListHeaderComponent` — not a row in the bar above. That is the whole of the native
+    // `ListHeaderComponent` — not a row in a bar above. That is the whole of the native
     // arrangement: it scrolls away with the logbook and nothing takes its place.
     //
     // `screenHeading` rather than `headingTitle`: nothing shares its line any more, so the
@@ -1016,13 +1015,19 @@ function build(scheme: ColorScheme) {
     // title is 34 pt bold, and taking that here would have split that rule three ways for
     // one screen.
     //
-    // Same 16 dp column as `divesBar` above and the rows below, so the title, the capsule
-    // and every trip title line up. `paddingTop` is the gap under the capsule; `paddingBottom`
-    // is what separates the title from the first trip header, which brings its own 20.
+    // Same 16 dp column as the rows below and as `divesCapsuleFloat`'s trailing edge, so the
+    // title, the capsule and every trip title line up.
+    //
+    // **`paddingTop` is `SCREEN_HEADING_TOP`, and that is the owner's M1k call in one
+    // property**: the list's content begins at the screen root's safe-area padding and this is
+    // the whole of what sits above the first line, so "Dives" lands exactly where "Settings"
+    // does. It used to be a 4 of its own under a bar that had already spent 56 pt, which is
+    // the gap the owner found. `paddingBottom` separates the title from the first trip header,
+    // which brings its own 20.
     divesTitle: {
       ...screenHeading,
       paddingHorizontal: 16,
-      paddingTop: 4,
+      paddingTop: SCREEN_HEADING_TOP,
       paddingBottom: 8,
     },
     // **The count under the title, and it exists on one branch only** (M1h): the empty
@@ -1049,8 +1054,8 @@ function build(scheme: ColorScheme) {
     // mirrors the Dives screen's own top row turned the other way up — the same 12 dp gap
     // between the field and the capsule beside it — because it is the same pair of objects: a
     // capsule that fills the width and a capsule sized by its glyphs. Its own 24 dp either
-    // side is what that row carried while it floated; `divesHeadingRow` has since moved into
-    // the dive list's 16 dp column, and this screen has no list of rows to line up with. It
+    // side is what that row carried while it floated; the Dives capsule has since moved into
+    // the dive list's own 16 dp column, and this screen has no list of rows to line up with. It
     // is IN FLOW rather than absolutely positioned, which is what lets `KeyboardAvoidingView`
     // lift it; `paddingBottom` is composed in at the call site from `insets.bottom`, the one
     // value a scheme-only sheet cannot know (the same composition `formFooter` already
@@ -1719,9 +1724,9 @@ function build(scheme: ColorScheme) {
     // site and centre — that strip says which dive this is, and whether the dive has happened
     // yet is not one of the things that say so.
     //
-    // `headingRow` at the top of this function is the shape, shared with the Dives screen's
-    // own title row (`divesHeadingRow` above) — the two differ in the column their screen
-    // indents to and in nothing else.
+    // `headingRow` at the top of this function is the shape, and this is now its one caller:
+    // the Dives screen's title had the identical row until its capsule left the line
+    // altogether (`headingRow`'s own comment, and `divesCapsuleFloat`).
     formHeadingRow: {
       ...headingRow,
       paddingHorizontal: FORM_ROW_INSET,

@@ -1,5 +1,5 @@
 // The package's own official Jest mock. DivesScreen calls `useSafeAreaInsets()` again — the
-// pinned bar's top clearance is read off the device (`screenTopInset`, theme/styles.ts) so
+// screen root's top clearance is read off the device (`screenTopInset`, theme/styles.ts) so
 // that it clears a Dynamic Island rather than a notch — and the real hook throws without a
 // Provider ancestor, which a bare render has none of. Imported first, and named `mock...`,
 // for the babel-plugin-jest-hoist reason DiveFormScreen.test.tsx records: a jest.mock()
@@ -154,31 +154,45 @@ async function pressToggleAndSettle(node: NonNullable<RenderResult['root']>) {
  * `VirtualizedList` attaches to it internally.
  *
  * This screen used to set that prop itself, wiring `useHideOnScroll` to it so the floating
- * capsule could recede off the sticky trip headers it covered. The capsule is in flow now
- * (`findHeadingRow` below) and this screen listens to the scroll for nothing at all — which
- * is exactly why the lookup is still worth having: it is what lets a test scroll the list
- * and check that the capsule did NOT move. */
+ * capsule could recede off the sticky trip headers it covered. The capsule floats again and
+ * this screen still listens to the scroll for nothing at all — because the headers no longer
+ * stick (M1k), which is what made the recede unnecessary rather than the capsule moving. So
+ * the lookup is still worth having: it is what lets a test scroll the list and check that the
+ * capsule did NOT move. */
 function findScrollable(t: RenderResult) {
   const [node] = t.root ? t.root.queryAll((n) => typeof n.props?.onScroll === 'function') : [];
   if (!node) throw new Error('DivesScreen did not render a scrollable node');
   return node;
 }
 
-/** The screen's PINNED BAR — §3's search/`+` capsule on the branches that offer it, and
- * nothing else. Located by the base style only that wrapper wears; its `paddingTop` is
- * composed in at the call site from the device's safe area, so the base style is the half
- * that is stable.
+/** **Which of the list's rows are stuck to the top of its viewport**, read off the rendered
+ * scroll node as `stickyHeaderIndices` — the EFFECT of `stickySectionHeadersEnabled` rather
+ * than the prop.
  *
- * Named `findFloatingRow` through three homes while the capsule floated (a strip at the
- * bottom of the screen, then the same strip turned the other way up over the list's first
- * rows), then `findHeadingRow` while the capsule shared the title's line. The title has
- * since dropped into the list's own content — the native large-title arrangement — so the
- * name follows the object rather than what used to be beside it. */
-function findBar(t: RenderResult) {
+ * That distinction is the whole guarantee. RN resolves the prop inside SectionList as
+ * `props.stickySectionHeadersEnabled ?? Platform.OS === 'ios'` (SectionList.js:244), so
+ * omitting it is not "off", it is "on" everywhere this app has ever been looked at. Measured
+ * on this tree, not assumed: with sticky headers the array is each header's index (`[1, 4]`
+ * for two sections under a list header), with them off it is `[]`, and with the prop DELETED
+ * it is `[1, 4]` again. Nothing about the source line looks different in the third case. */
+function stickyIndices(t: RenderResult): unknown {
+  return findScrollable(t).props.stickyHeaderIndices;
+}
+
+/** The screen's FLOATING CAPSULE — §3's search/`+` capsule on the branches that offer it, and
+ * nothing else. Located by the one style its wrapper wears, which carries the whole of its
+ * position (theme/styles.ts) rather than composing anything at the call site.
+ *
+ * Named `findFloatingRow` through three homes while the capsule floated the first time (a
+ * strip at the bottom of the screen, then the same strip turned the other way up over the
+ * list's first rows), then `findHeadingRow` while it shared the title's line, then `findBar`
+ * while it sat in a pinned bar of its own. It floats again (M1k) — beside the title this
+ * time, over a list whose headers no longer stick. */
+function findCapsule(t: RenderResult) {
   const [node] = t.root
-    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesBar))
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat))
     : [];
-  if (!node) throw new Error('DivesScreen did not render its pinned bar');
+  if (!node) throw new Error('DivesScreen did not render its floating capsule');
   return node;
 }
 
@@ -468,16 +482,16 @@ it('opens the search screen from the magnifier, and holds no search field of its
   expect(text).toContain('Shark Reef');
 });
 
-// --- DESIGN.md §0.6: the pinned bar, and the large title that scrolls away below it ---
+// --- DESIGN.md §0.6: the large title, and the capsule floating beside it ---
 //
-// **The native iOS large-title arrangement**, the owner's call after seeing on the device
-// both this and the single title row it replaces: the capsule stays in a bar that does not
-// scroll, and the title lives in the list's own content. Measured on iOS 26, not recalled —
-// Files pins its trailing `•••` at ~66 pt and puts "Shared" at ~140 inside the scroll view.
-// Two things had to be true at once and each is a defect that has already shipped: the
-// capsule has to clear the Dynamic Island (it sat at ~52 and read as touching it), and
-// nothing the list draws may pass under it (the capsule floated over the sticky trip headers
-// once and took their date ranges with it, `…16`).
+// **The capsule floats and the sticky trip header is what gave way** (§10, the owner's call,
+// M1k). The arrangement before it was a pinned bar holding the capsule, with the title in the
+// list's content below it — which put the large title a whole bar's height (56 pt) below every
+// other screen's, the owner's own comparison being Settings. The capsule is an overlay again;
+// the title takes the ordinary heading position; and the reason that is safe this time is that
+// nothing sticks under it. A ROW passing beneath while scrolling is recoverable — you scroll
+// on — and a STICKY header is not, because it parks there for a trip's whole scroll extent,
+// which is exactly how `UNNAMED SITE`'s date range came to read `…16` on the simulator, twice.
 //
 // **No compact title.** Deliberate, not an omission — the tab bar already says which screen
 // this is — so a second "Dives" appearing on scroll is a defect here and tested for as one.
@@ -504,27 +518,84 @@ it('titles the screen, in the same treatment Settings gives its own title', asyn
 });
 
 // §3's note: "search and `+` move to a top-right capsule" — and the arrangement that answers
-// it now is a pinned bar carrying the capsule and NOTHING ELSE. Proven structurally, so a
-// capsule that merely rendered somewhere near the top would fail: both glyphs must be
-// genuine descendants of the bar, and the title must not be — it belongs to the content
-// below, and a title left up here is the previous arrangement rather than this one.
-it('seats both capsule glyphs in the pinned bar, and leaves the title out of it', async () => {
+// it now is an overlay carrying the capsule and NOTHING ELSE. Proven structurally, so a
+// capsule that merely rendered somewhere near the top would fail: both glyphs must be genuine
+// descendants of the float, and the title must not be — it belongs to the scroll content
+// beneath, and a title inside the overlay is a pinned bar rebuilt under a new name.
+it('seats both capsule glyphs in the floating overlay, and leaves the title out of it', async () => {
   stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
   const t = await render(<DivesScreen />);
-  const bar = findBar(t);
+  const capsule = findCapsule(t);
 
-  expect(bar.queryAll((n) => n.props?.accessibilityLabel === 'Search dives')).toHaveLength(1);
-  expect(bar.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive')).toHaveLength(1);
-  expect(bar.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(0);
-  // The capsule is at the bar's trailing edge, not centred or leading — the one thing the
-  // bar's own layout decides, since the capsule is its only child.
-  expect((makeStyles('light').divesBarRow as Record<string, unknown>).justifyContent).toBe('flex-end');
+  expect(capsule.queryAll((n) => n.props?.accessibilityLabel === 'Search dives')).toHaveLength(1);
+  expect(capsule.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive')).toHaveLength(1);
+  expect(capsule.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(0);
 });
 
-// **The half of the arrangement that is new**: the large title is inside the scroll view, so
-// it scrolls away with the logbook. A title rendered as a sibling of the list — which is
-// exactly what this screen did until now, and what a "pinned bar plus a heading" would
-// reintroduce — is a descendant of no scrollable node and fails this.
+// **The float is an overlay, and it is the LIST it overlays — not the screen.** Both halves
+// are the arrangement: rendered inside `divesListArea`, whose top edge is the title's own, it
+// sits beside the title at every state of the screen, including the one where a notice above
+// the list has pushed the title down. Rendered against the screen root instead it would need
+// the safe-area inset read a second time and would land on that notice.
+//
+// The render ORDER is the other half. An overlay written before the list is behind it: on iOS
+// the later sibling paints on top, so a capsule moved above the SectionList is a capsule the
+// first row can cover — which is the `…16` defect with the objects swapped.
+it('floats the capsule over the list, inside the region the title heads', async () => {
+  stubDives({
+    dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const styles = makeStyles('light');
+
+  const [area] = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesListArea)) : [];
+  if (!area) throw new Error('DivesScreen rendered no list region');
+  // The list and the capsule are both inside it, so the capsule is positioned against the
+  // list's own top edge rather than against the screen's. **Containment is the assertion**:
+  // moved out to be a sibling of the notices, the float still renders, still comes last, and
+  // still holds no list — every weaker check passes while `top: 0` starts meaning the top of
+  // the display and a notice gets a capsule dropped on it.
+  expect(area.queryAll((n) => typeof n.props?.onScroll === 'function').length).toBeGreaterThan(0);
+  const float = findCapsule(t);
+  const siblings = area.children;
+  expect(siblings).toContain(float);
+  // Last, so nothing the list draws paints over it: on iOS the later sibling wins.
+  expect(siblings.indexOf(float)).toBe(siblings.length - 1);
+  expect(siblings.length).toBeGreaterThan(1);
+  // ...and the list is genuinely one of the earlier siblings rather than something nested
+  // inside the float (which would make "last child" true and meaningless).
+  expect(float.queryAll((n) => typeof n.props?.onScroll === 'function')).toHaveLength(0);
+});
+
+// **Sticky trip headers are off, and `false` is not the same as absent** (§10, M1k). This is
+// the half of the arrangement that is not optional: a row passing under the floating capsule
+// is recoverable, a header parked under it for a whole trip's scroll extent is the `…16`
+// clipping, twice observed. Asserted as the EFFECT — `stickyHeaderIndices`, see the helper —
+// because RN defaults the prop to on for iOS, so deleting the line leaves this screen sticky
+// on the one platform the defect was seen on while the source reads as if it said nothing.
+it('lets the trip headers scroll away rather than parking one under the capsule', async () => {
+  stubDives({
+    dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+
+  expect(stickyIndices(t)).toEqual([]);
+  // ...and there really are trip headers under this claim: with no sections the list would
+  // hand down an empty array too, and this would be asserting nothing at all.
+  const headers = t.root
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').tripHeader))
+    : [];
+  expect(headers.length).toBeGreaterThan(0);
+});
+
+// **The large title is inside the scroll view**, so it scrolls away with the logbook. A title
+// rendered as a sibling of the list — which is what this screen did before the large-title
+// arrangement, and what "a heading pinned above the list" would reintroduce at any point — is
+// a descendant of no scrollable node and fails this.
 it('puts the large title inside the scroll content, so it scrolls away with the list', async () => {
   stubDives({
     dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
@@ -536,7 +607,7 @@ it('puts the large title inside the scroll content, so it scrolls away with the 
   const scrollable = findScrollable(t);
   expect(scrollable.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(1);
   // ...and it is genuinely the screen's ONE title, rather than a copy inside the list beside
-  // a second one still pinned in the bar.
+  // a second one pinned above it.
   expect(findTitles(t)).toHaveLength(1);
 });
 
@@ -556,45 +627,16 @@ it('never fades a second, compact title in as the large one scrolls away', async
   await fireEvent.scroll(findScrollable(t), { nativeEvent: { contentOffset: { y: 400 } } });
 
   expect(findTitles(t)).toHaveLength(1);
-  expect(findBar(t).queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(0);
+  expect(findCapsule(t).queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(0);
 });
 
-// The occlusion, as the property that makes it unreachable rather than merely unlikely: the
-// bar is in flow — no `position` anywhere in its style — and it is rendered BEFORE the list,
-// so the list's viewport, and therefore where a sticky header sticks, starts under it. Both
-// halves matter. A bar with no `position` that came after the list would sit below it on
-// screen; an absolutely positioned one is the defect this task exists to remove, whichever
-// side it is written on, and is exactly what "pin the bar and inset the list" would produce.
-it('puts the pinned bar in flow above the list, where no sticky header can reach it', async () => {
-  stubDives({
-    dives: Array.from({ length: 12 }, (_, i) => dive({ id: `d${i}`, date: `2026-08-${10 + i}`, siteName: `Site ${i}` })),
-    numbers: new Map(),
-    error: undefined,
-  });
-  const t = await render(<DivesScreen />);
-  const bar = findBar(t);
-
-  const style = [bar.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-  expect(style.some((s) => s.position !== undefined)).toBe(false);
-
-  // Render order inside the pane both layouts share: the bar is the FIRST child of it, so
-  // everything the list draws is laid out beneath the bar rather than behind it. A bar
-  // written after the list would still pass the `position` check above and sit under the
-  // whole logbook on screen.
-  const siblings = bar.parent?.children ?? [];
-  expect(siblings.indexOf(bar)).toBe(0);
-  expect(siblings.length).toBeGreaterThan(1);
-  // ...and the list really is one of those later siblings, rather than something nested
-  // inside the bar (which would make "first child" true and meaningless).
-  expect(bar.queryAll((n) => typeof n.props?.onScroll === 'function')).toHaveLength(0);
-  expect(findScrollable(t)).toBeTruthy();
-});
-
-// ...and the list stops paying for the float. Its contentContainer carried `paddingTop: 60`
-// — the capsule's 48 plus the gap under it — purely so the first rows would not open
-// underneath it. With the capsule in a bar above the list there is nothing overhead to
-// clear, and a list that kept the padding would open with a 60 px hole above its title.
-it('reserves no clearance in the list for a capsule that no longer floats over it', async () => {
+// ...and the list still does not pay for the float, which is the half of M1k that is easiest
+// to get backwards. Its contentContainer carried `paddingTop: 60` — the capsule's 48 plus the
+// gap under it — when the capsule floated over the TOP of the content. It floats over the
+// content again, but BESIDE the title rather than above it, so the clearance would be spent
+// on nothing: a list that reintroduced it would open with a 60 px hole and would push the
+// title further down than the pinned bar this replaces ever did.
+it('reserves no clearance in the list for a capsule that floats beside the title, not above it', async () => {
   const styles = makeStyles('dark');
   const list = styles.listContent as Record<string, unknown>;
   const capsuleHeight = (styles.actionCapsulePlain as Record<string, unknown>).height;
@@ -608,14 +650,28 @@ it('reserves no clearance in the list for a capsule that no longer floats over i
   expect(list.paddingBottom).toBeUndefined();
 });
 
+/** This screen's root View, found by the `screen` entry every screen root in the app wears —
+ * which is itself part of what the test below checks: until M1k the Dives screen had a
+ * `divesScreen` of its own, whose whole reason for existing was that its call site composed
+ * no inset. */
+function findRoot(t: RenderResult) {
+  // `queryAll` walks DESCENDANTS only and never returns the instance it is called on, and the
+  // screen root is exactly that instance — the same hole `unexpectedGraphics` records closing.
+  const nodes = t.root ? [t.root, ...t.root.queryAll(() => true)] : [];
+  const node = nodes.find((n) => [n.props?.style].flat(5).includes(makeStyles('light').screen));
+  if (!node) throw new Error('DivesScreen did not render a screen root');
+  return node;
+}
+
 // **The clearance the owner measured**, as the value this screen actually composes rather
 // than as the rule `styles.test.ts` pins next door. `SafeAreaProvider` reports the inset an
-// iPhone 17 Pro does (62), and the bar has to spend it: the arrangement before it inherited
-// `screen`'s static 48 and landed the capsule at ~52, crowding the Dynamic Island, where
-// iOS 26's own Files and Photos put their trailing controls at 62. Composed at the call
-// site, so a bar that read the sheet and never the device would fail here while every
-// stylesheet assertion still passed.
-it('spends the device safe-area inset on the bar, so the capsule clears a Dynamic Island', async () => {
+// iPhone 17 Pro does (62), and this screen's ROOT has to spend it (M1k): the pinned bar that
+// used to spend it instead is what pushed the large title 56 pt below every other screen's,
+// and before the bar this screen inherited a static 48 that landed the capsule at ~52 and
+// crowded the Dynamic Island, where iOS 26's own Files and Photos put their trailing controls
+// at 62. Composed at the call site, so a root that read the sheet and never the device would
+// fail here while every stylesheet assertion still passed.
+it('spends the device safe-area inset on the screen root, so the title clears a Dynamic Island', async () => {
   stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
   const t = await render(
     <SafeAreaProvider
@@ -625,16 +681,28 @@ it('spends the device safe-area inset on the bar, so the capsule clears a Dynami
     </SafeAreaProvider>,
   );
 
-  const style = [findBar(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  const root = findRoot(t);
+  const style = [root.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
   const paddingTop = style.map((s) => s.paddingTop).find((value) => value !== undefined);
   expect(paddingTop).toBe(screenTopInset(62));
   expect(paddingTop).toBe(62);
+  // ...and the title is inside what that inset pushes down, which is the whole point of
+  // spending it here: nothing else stands between the safe area and the first line of the
+  // page. A root that composed the inset while the title sat in some pinned sibling above it
+  // would satisfy every assertion above and be the arrangement this replaces.
+  expect(root.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(1);
+  // **And so is the list, which is the pinned bar's SECOND job inherited** (M1k). That bar
+  // painted an opaque ground so nothing the list drew could be read behind it in the status
+  // bar. Padding on the root does that structurally instead: the scroll view's frame begins
+  // at the padding edge, so a row scrolling up is clipped there — the arrangement Settings and
+  // the form have always had. A list hoisted out of this root would scroll under the clock.
+  expect(root.queryAll((n) => typeof n.props?.onScroll === 'function').length).toBeGreaterThan(0);
 });
 
 /** The empty logbook's wrapper — `EmptyState`'s outer View — located by the base style only
- * it wears, exactly as `findBar` above locates the pinned bar and for the same reason: its
- * `paddingBottom` is composed in at the call site from the device's safe area, so the base
- * style is the half that is stable enough to match on. */
+ * it wears, exactly as `findCapsule` and `findRoot` above locate theirs and for the same
+ * reason: its `paddingBottom` is composed in at the call site from the device's safe area, so
+ * the base style is the half that is stable enough to match on. */
 function findEmptyStateWrap(t: RenderResult) {
   const [node] = t.root
     ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').emptyStateWrap))
@@ -698,7 +766,7 @@ it('spends the device bottom inset on the empty state, so the first-run action c
 });
 
 /** The list's `contentContainerStyle`, read off the scrollable host node rather than looked up
- * by style identity the way `findBar` and `findEmptyStateWrap` are. It is not a rendered View's
+ * by style identity the way `findCapsule` and `findEmptyStateWrap` are. It is not a rendered View's
  * `style` at all — ScrollView keeps it as a prop and applies it to a content container of its
  * own — so the identity lookup those two use finds nothing here. */
 function findListContentStyle(t: RenderResult) {
@@ -747,24 +815,26 @@ it('spends the device bottom inset on the list, so the last dive clears the tab 
   expect(underTabBar).toBeGreaterThan(underNothing);
 });
 
-// The bar, and the title beneath it, land in the list's own column, not the form's: §0.6's
-// dive rows and trip headers are inset 16, so a title at any other inset would read as
+// The capsule, and the title it floats beside, land in the list's own column, not the form's:
+// §0.6's dive rows and trip headers are inset 16, so a title at any other inset would read as
 // belonging to a different screen — and the capsule's trailing edge would stop lining up with
-// the date ranges it used to cover. Read off the sheet as a relation, so moving the list's
+// the date ranges it floats near. Read off the sheet as a relation, so moving the list's
 // inset moves both with it rather than silently splitting them.
-it('aligns the bar and the title to the same column the list rows use', async () => {
+it('aligns the capsule and the title to the same column the list rows use', async () => {
   const styles = makeStyles('dark');
-  const inset = (styles.divesBar as Record<string, unknown>).paddingHorizontal;
+  const inset = (styles.divesCapsuleFloat as Record<string, unknown>).right;
   expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
   expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
   expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
 });
 
 // **This replaces the two recede tests, and it asserts the opposite of what they did.** The
-// capsule used to fade out on a sustained downward scroll and come back on the way up,
-// because it was sitting on the headers; it is not sitting on anything now, so it stays.
+// capsule used to fade out on a sustained downward scroll and come back on the way up, because
+// it was sitting on the sticky headers. It floats again (M1k) and still does not recede: what
+// changed is underneath it — nothing sticks — so the `+` stays reachable exactly when a diver
+// deep in a long logbook wants it, which is what killed the recede in the first place.
 // The scroll is what makes this able to fail rather than pass by construction: under the
-// receding version the bar is hidden, unhittable and hidden from screen readers by this
+// receding version the capsule is hidden, unhittable and hidden from screen readers by this
 // point, and every assertion below goes red.
 it('keeps the capsule reachable however far the list is scrolled', async () => {
   stubDives({
@@ -776,11 +846,11 @@ it('keeps the capsule reachable however far the list is scrolled', async () => {
 
   await fireEvent.scroll(findScrollable(t), { nativeEvent: { contentOffset: { y: 400 } } });
 
-  const row = findBar(t);
-  const style = [row.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  const float = findCapsule(t);
+  const style = [float.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
   expect(style.some((s) => s.opacity !== undefined)).toBe(false);
-  expect(row.props.pointerEvents ?? 'auto').toBe('auto');
-  expect(row.props.accessibilityElementsHidden ?? false).toBe(false);
+  expect(float.props.pointerEvents ?? 'auto').toBe('auto');
+  expect(float.props.accessibilityElementsHidden ?? false).toBe(false);
   expect(findSearchToggle(t)).toBeTruthy();
   expect(findLogDive(t)).toBeTruthy();
 });
@@ -791,9 +861,13 @@ it('keeps the capsule reachable however far the list is scrolled', async () => {
 // search, and §3 gives this branch the full-size "Log your first dive" in the thumb zone
 // (§0.5) precisely so the `+` does not have to be the first-run affordance.
 //
-// The bar is still drawn, empty, and that is what `divesBarRow`'s floor is for: without it
-// the title would sit 48 pt higher here than on a logbook with one dive in it, and the first
-// thing a diver ever saw would move the moment they logged that dive.
+// **The title lands in the same place with no capsule as with one**, and M1k made that
+// structural rather than reserved: the bar this replaces had a `minHeight` on its content row
+// purely so the title would not jump 48 pt between the branches that draw a capsule and the
+// two that do not. The capsule is out of flow now, so there is nothing to reserve — the title
+// is the first child of the root here and the first content of the list there, and the root's
+// own inset is the same on both. Asserted as the title's containment, since the position
+// itself is a layout fact no Jest tree has.
 it('names the screen on an empty logbook, with no capsule beside it', async () => {
   stubDives({ dives: [], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
@@ -804,8 +878,12 @@ it('names the screen on an empty logbook, with no capsule beside it', async () =
   expect(text.join(' ')).toContain('Log your first dive');
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : []).toHaveLength(0);
-  // The bar is there, holding the title where a populated logbook holds it.
-  expect(findBar(t)).toBeTruthy();
+  // Nothing floats here, so nothing may be laid out to make room for it either: the title is
+  // the root's first child, exactly as it is the list's first content on the branch next door.
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat)) : []).toHaveLength(0);
+  const root = findRoot(t);
+  const [firstText] = root.queryAll((n) => n.type === 'Text');
+  expect(firstText?.children).toContain('Dives');
 });
 
 // **§0.4/§0.1's guard, on the screen rather than on the components it is made of** (M1h).
@@ -862,8 +940,8 @@ it('teaches the depth scale in the diver own units, not in the units it is store
 
 // **"0 dives" under the title, and the reason it is worth a line at all is the branch it must
 // NOT appear on** (M1h, owner's design). §10's "a screen with no answer must not state one"
-// gave this screen a waiting state that draws the bar and the title and nothing else — which
-// is right, and which makes the two branches look identical for as long as a read is slow.
+// gave this screen a waiting state that draws the title and nothing else — which is right,
+// and which makes the two branches look identical for as long as a read is slow.
 // The count is the difference, said where a diver is already looking: this logbook HAS been
 // read, and it holds nothing.
 //
@@ -895,7 +973,8 @@ it('names the screen on a failed read, with no capsule beside it', async () => {
   expect(textIn(t)).toContain('Dives');
   expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't open your logbook");
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
-  expect(findBar(t)).toBeTruthy();
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat)) : []).toHaveLength(0);
+  expect(findRoot(t)).toBeTruthy();
 });
 
 // DESIGN.md §0.6 gave the "+" and the search capsule the same shadow so the two floating
@@ -1427,14 +1506,21 @@ it('keeps the title inside the list column on a wide layout, not across the wind
 
   const [column] = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.wideListColumn)) : [];
   if (!column) throw new Error('the wide layout rendered no list column');
-  expect(column.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesBar))).toHaveLength(1);
-  // The title itself, which is no longer in that bar but in the column's list — so it is the
-  // list it names on a wide layout, not the dive beside it.
+  expect(column.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesCapsuleFloat))).toHaveLength(1);
+  // The title itself, in the column's own list — so it is the list it names on a wide layout,
+  // not the dive beside it.
   expect(column.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(1);
-  // ...and each is the only one on screen, so the detail pane did not grow a second bar or a
-  // second title of its own out of the shared fragment.
-  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesBar)) : []).toHaveLength(1);
+  // ...and each is the only one on screen, so the detail pane did not grow a second capsule or
+  // a second title of its own out of the shared fragment.
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesCapsuleFloat)) : []).toHaveLength(1);
   expect(findTitles(t)).toHaveLength(1);
+  // **The column composes the top inset itself** (M1k). The pinned bar it used to begin with
+  // spent that clearance; without it the column would start its title at the very top of the
+  // display while the detail pane beside it — which composes `screenTopInset` through
+  // `DiveDetailScreen`'s own root — started 62 pt down, and the two columns would disagree
+  // about where the top of the screen is.
+  const columnStyle = [column.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  expect(columnStyle.map((s) => s.paddingTop).find((value) => value !== undefined)).toBe(screenTopInset(0));
 });
 
 // DiveDetailScreen.test.tsx already pins showBackButton's own effect in isolation; this is

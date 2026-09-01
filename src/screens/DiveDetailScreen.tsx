@@ -618,7 +618,7 @@ export default function DiveDetailScreen({
   // How far down this screen's content begins, read off the device (`screenTopInset`,
   // theme/styles.ts — the app's one owner of that rule) rather than baked into the sheet.
   // Read here even when embedded in the wide layout's detail pane: the same provider answers
-  // both, so this root and the list column's pinned bar beside it land on one line.
+  // both, so this root and the list column beside it land on one line.
   //
   // The back control moves down ~14 pt on an island phone as a result. That is the
   // correction, not a regression: this container used to START inside the safe area, and the

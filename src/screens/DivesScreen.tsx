@@ -127,8 +127,8 @@ function entryKey(entry: ListEntry): string {
  *
  * **Wide (tablet) layout** (DESIGN.md §3, `useWideLayout.ts`): `wide` splits the render
  * into a fixed-width list column plus a detail pane for whichever dive is `selectedId`.
- * The list column's own JSX — the pinned bar and its capsule, the notices, the section list
- * with the large title at the head of its content — is identical to the narrow layout's; it
+ * The list column's own JSX — the notices, the section list with the large title at the head
+ * of its content, and the capsule floating beside it — is identical to the narrow layout's; it
  * is written ONCE (`listPane`, below) and reused in both branches, rather than kept as two
  * copies that could quietly drift apart. That is also what keeps the title inside the COLUMN
  * rather than across the window: it is part of the pane, not of the wrapper the two panes sit
@@ -175,12 +175,12 @@ export default function DivesScreen() {
   // signal is `updatedAt` rather than an empty `data`.
   const { dives, numbers, error, settingsError, resolved } = useDives();
   const wide = useWideLayout();
-  // The device's own safe area, read for how far down this screen's content begins: the
-  // pinned bar in the narrow layout (`bar`, below) and the wide layout's "nothing selected"
-  // pane, both through `screenTopInset` — the one owner every screen in the app asks. The
-  // Dynamic Island is the whole reason — a static inset that clears a notch does not clear
-  // an island, and there is no way for a scheme-only stylesheet to know which one this
-  // phone has.
+  // The device's own safe area, read for how far down this screen's content begins: this
+  // screen's root (`root` below), the wide layout's list column, and the wide layout's
+  // "nothing selected" pane, all three through `screenTopInset` — the one owner every screen
+  // in the app asks. The Dynamic Island is the whole reason — a static inset that clears a
+  // notch does not clear an island, and there is no way for a scheme-only stylesheet to know
+  // which one this phone has.
   const insets = useSafeAreaInsets();
   // Wide layout only: which dive's detail shows beside the list (this screen's own
   // docblock, above). Narrow layout never reads this — openDive navigates instead.
@@ -298,51 +298,25 @@ export default function DivesScreen() {
   };
 
   /**
-   * The screen's pinned bar — the **native iOS large-title arrangement** (owner's call, made
-   * on the device after seeing both this and the single title row it replaces): the capsule
-   * stays in a bar that does not scroll, and the large title (`title`, below) lives in the
-   * list's own content and scrolls away.
+   * **This screen's root, composing the one top clearance every other screen's root composes**
+   * (`screenTopInset`, theme/styles.ts — §4.1's owner). Written once here rather than at each
+   * of the four branch returns below, so no branch can be the one that forgets it.
    *
-   * **The capsule floated over the list once, and both problems that caused are answered
-   * here structurally.** A capsule floating over a list of STICKY trip headers occludes every
-   * one of their date ranges in turn (§0.6's type table puts the range in exactly the slot
-   * the capsule floated in) — observed on the simulator as `UNNAMED SITE`'s range reading
-   * `…16`. That was first patched by making the capsule recede on scroll (`useHideOnScroll`,
-   * since deleted), then fixed by putting it in a row in flow. This bar keeps the fix and
-   * does not reopen it: the SectionList is the bar's SIBLING, so its viewport begins at the
-   * bar's bottom edge and a sticky header sticks THERE, not under the capsule. The bar is
-   * also opaque (`divesBar`, theme/styles.ts), so even if it ever did overlap the list,
-   * nothing could be read through it.
+   * **It is what puts the title where every other screen's title is** (M1k, the owner's call,
+   * DESIGN.md §0.6/§10). Until now this screen composed nothing here and a pinned bar below it
+   * spent the inset instead — which cost the large title the bar's whole height, 56 pt lower
+   * than "Settings" on the same phone. The bar is gone; the inset is the root's, exactly as on
+   * Settings, and `divesTitle`'s `SCREEN_HEADING_TOP` is the only thing between it and the
+   * first line of the page.
    *
-   * **The top clearance is the device's, not a number.** `screenTopInset(insets.top)` —
-   * see it in theme/styles.ts. The old row inherited `screen`'s static 48, which on a
-   * Dynamic Island phone put the capsule at ~52 pt where iOS 26's own Files and Photos put
-   * their trailing controls at 62; reading the safe area gives 62 there and leaves every
-   * other device on the app's own 48. Every other screen's root now asks that same
-   * function, so this bar is no longer the one place in the app that clears the island.
-   *
-   * **No compact title.** Nothing fades in to replace the title once it has scrolled off —
-   * the owner's deliberate choice, on the grounds that the tab bar already says which screen
-   * this is, so the screen is never left unidentified.
-   *
-   * `actions` is optional, and the three branches that omit it are saying something. A failed
-   * read has no logbook to search and no dive worth adding to a database that would not
-   * read it back; an empty logbook has nothing to search either, and §3 already gives that
-   * branch the full-size "Log your first dive" in the thumb zone (§0.5) rather than a
-   * 19 px glyph at the far corner; and a read that has not answered (M1f) knows neither, so
-   * offering a search that could only answer "No dives match your search" would be the same
-   * false statement the branch below it was fixed for. All three keep the TITLE, so the
-   * screen names itself in every
-   * state, and `divesBarRow`'s own `minHeight` holds the bar at the height the capsule gives
-   * it so that name does not move between branches.
+   * **It is also what keeps the list out of the status bar**, which was the pinned bar's
+   * second job (it painted an opaque ground for it). Padding on the root means the
+   * SectionList's frame BEGINS below the safe area, so a row scrolling up is clipped at that
+   * line rather than passing behind a translucent nothing — the arrangement Settings and the
+   * form have always had. An overlay bar with the list full-bleed underneath would have needed
+   * that opaque ground back; this needs no chrome at all.
    */
-  const bar = (actions?: readonly CapsuleAction[]) => (
-    <View style={[styles.divesBar, { paddingTop: screenTopInset(insets.top) }]}>
-      <View style={styles.divesBarRow}>
-        {actions !== undefined && <ActionCapsule scheme={scheme} actions={actions} />}
-      </View>
-    </View>
-  );
+  const root = [styles.screen, { paddingTop: screenTopInset(insets.top) }];
 
   /**
    * The large title, and on the list branch it is handed to the SectionList as its
@@ -353,17 +327,18 @@ export default function DivesScreen() {
    * the header each time. As an element it simply re-renders, like any other child.
    *
    * The three branches with no list (a failed read, a read that has not answered, an empty
-   * logbook) render this same element directly under the bar. There is nothing to scroll
-   * there, so "in the scroll content" has no meaning; what matters is that the screen names
-   * itself in the same words, the same treatment and the same place in all four states — and
-   * on the waiting branch it is, with the bar, the only thing on screen.
+   * logbook) render this same element directly under the root's inset. There is nothing to
+   * scroll there, so "in the scroll content" has no meaning; what matters is that the screen
+   * names itself in the same words, the same treatment and the same place in all four states.
+   * It lands in the same place by construction now rather than by a bar reserving the height:
+   * it is the first child of the root on three branches and the first content of the list on
+   * the fourth, and the list's content has no top padding (`listContent`).
    */
   const title = <Text style={styles.divesTitle}>Dives</Text>;
 
   if (error) {
     return (
-      <View style={styles.divesScreen}>
-        {bar()}
+      <View style={root}>
         {title}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>
@@ -382,20 +357,19 @@ export default function DivesScreen() {
   // slow first read stretches the frame, and a diver whose logbook appears to have vanished is
   // the one who goes hunting for a restore button.
   //
-  // What is drawn instead is the same frame the two branches around it draw — the bar and the
-  // large title, this screen naming itself in every state (`bar`'s own docblock) — with nothing
-  // under it. So the title does not move when the logbook, or the prompt, lands beneath it.
-  // `bar()` carries no actions here for the reason the branches either side of it carry none:
-  // there is nothing yet to search, and a search run against a list that has not been read
-  // would answer "No dives match your search", which is the same lie one screen further in.
+  // What is drawn instead is the same frame the two branches around it draw — the large title
+  // at the top of the root, this screen naming itself in every state — with nothing under it.
+  // So the title does not move when the logbook, or the prompt, lands beneath it. No capsule
+  // here, for the reason the branches either side of it carry none: there is nothing yet to
+  // search, and a search run against a list that has not been read would answer "No dives
+  // match your search", which is the same lie one screen further in.
   //
   // Below the fatal `error` branch rather than above it, and it makes no difference which:
   // a failed read counts as resolved (`isResolved`, db/liveQuery.ts) precisely so that the two
   // orderings are equivalent instead of one of them silently never reporting the failure.
   if (!resolved) {
     return (
-      <View style={styles.divesScreen}>
-        {bar()}
+      <View style={root}>
         {title}
       </View>
     );
@@ -403,12 +377,11 @@ export default function DivesScreen() {
 
   if (dives.length === 0) {
     return (
-      <View style={styles.divesScreen}>
-        {bar()}
+      <View style={root}>
         {title}
         {/* **"0 dives" is what makes this branch distinguishable from the one above it**
-            (M1h, the owner's design). The waiting branch draws the bar and the title and
-            nothing else, deliberately — §10's "a screen with no answer must not state one" —
+            (M1h, the owner's design). The waiting branch draws the title and nothing else,
+            deliberately — §10's "a screen with no answer must not state one" —
             and until now the empty branch's only extra was a sentence at the bottom of the
             screen, a whole thumb's reach from the title it belongs to. The count says, right
             under the heading, that the logbook HAS been read and holds nothing.
@@ -536,24 +509,25 @@ export default function DivesScreen() {
     );
   };
 
-  // Everything the narrow layout renders inside `styles.divesScreen` — written once and
-  // reused by both branches below, rather than kept as two copies of the same list that
-  // could quietly drift apart (this file's own top docblock). It opens with the pinned bar
-  // and carries the title inside its list, so on the wide layout BOTH belong to the LIST
-  // COLUMN rather than to the window: `wideListColumn` renders this same fragment, and the
-  // detail pane beside it gets its own heading from `DiveDetailScreen` exactly as it does
-  // full-screen.
+  // Everything the narrow layout renders inside the root — written once and reused by both
+  // branches below, rather than kept as two copies of the same list that could quietly drift
+  // apart (this file's own top docblock). It carries the title inside its list and the capsule
+  // floating beside that title, so on the wide layout BOTH belong to the LIST COLUMN rather
+  // than to the window: `wideListColumn` renders this same fragment, and the detail pane beside
+  // it gets its own heading from `DiveDetailScreen` exactly as it does full-screen.
   //
-  // **The two notices sit between the bar and the list, and stay pinned there** rather than
-  // joining the title in the scrolling content. Both are things a diver has to actually see:
-  // a reorder is started from deep in a long logbook, so a message about one that failed
-  // would be reported somewhere already scrolled past, and `settingsError` is a standing
-  // condition rather than a moment. Under the bar and above the title is where a banner
-  // attached to a bar belongs; with neither showing — the ordinary case — the bar is
-  // followed directly by the list and its title.
+  // **The two notices stay pinned above the list** rather than joining the title in the
+  // scrolling content. Both are things a diver has to actually see: a reorder is started from
+  // deep in a long logbook, so a message about one that failed would be reported somewhere
+  // already scrolled past, and `settingsError` is a standing condition rather than a moment.
+  // With neither showing — the ordinary case — the root's inset is followed directly by the
+  // list and its title, which is what puts the title at Settings' own height. **When one IS
+  // showing it pushes the title down, and that is accepted rather than solved**: the capsule
+  // goes down with it (it floats inside `divesListArea`, not against the screen), so nothing
+  // lands on the banner, and a screen carrying a failure notice is not the state the owner
+  // measured the title against.
   const listPane = (
     <>
-      {bar(capsuleActions)}
       {reorderMessage !== null && (
         <Pressable
           style={styles.reorderNotice}
@@ -585,62 +559,91 @@ export default function DivesScreen() {
           </Text>
         </View>
       )}
-      {sections.length === 0 ? (
-        // No list to put the title in, so it is a block here, exactly as on the two branches
-        // above that return early.
-        <>
-          {title}
-          <View style={styles.centerFill}>
-            <Text style={styles.messageText}>No dives match your search.</Text>
-          </View>
-        </>
-      ) : (
-        // Order, grouping and filtering all already happened above
-        // (searchDives/splitPlanned/groupIntoTrips/toListEntries); renderListEntry above
-        // just renders whatever ListEntry each section ended up with — a DayStrip, a
-        // plain DiveRow (dimmed while another day is active), or a ReorderControls block
-        // for the one active hand-orderable day.
-        <SectionList
-          sections={sections}
-          keyExtractor={entryKey}
-          renderItem={({ item }) => renderListEntry(item)}
-          renderSectionHeader={({ section }) => (
-            <TripHeader
-              title={section.title}
-              trailing={section.trailing}
-              variant={section.variant}
-              scheme={scheme}
-            />
-          )}
-          stickySectionHeadersEnabled
-          // The large title, as CONTENT — the whole of the native arrangement (`title`
-          // above). It scrolls away with the logbook, and the sticky trip headers then stick
-          // to the top of this list's viewport, which is the bar's bottom edge and not the
-          // capsule.
-          ListHeaderComponent={title}
-          // **The last row's clearance is the device's, not a number** (M1h) —
-          // `screenBottomInset(insets.bottom)`, the same owner the empty state below asks and
-          // the bottom-edge sibling of the `screenTopInset` this screen's bar spends above.
-          // Under `unstable-native-tabs` that inset already contains the tab bar: 83 pt on an
-          // iPhone 17 Pro, against the flat 24 this carried, so the last dive scrolled to sat
-          // 59 pt under the Liquid Glass with its site name cut mid-word. No gap is added on
-          // top, unlike the empty state's button: a row's own `paddingVertical` already keeps
-          // its text 10 pt off its bottom edge, and a scrolling list whose content ends exactly
-          // at the bar is what iOS itself does — extra air here would read as a hole under the
-          // last dive at rest rather than as breathing room.
-          contentContainerStyle={[styles.listContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
-        />
-      )}
+      {/* **The region the capsule floats in**, and it is a wrapper with one job: its top edge
+          is the title's top edge, so `divesCapsuleFloat` can position against it and land
+          beside the title rather than at a measured distance from the display. Both branches
+          below are inside it, because both draw the title. See theme/styles.ts. */}
+      <View style={styles.divesListArea}>
+        {sections.length === 0 ? (
+          // No list to put the title in, so it is a block here, exactly as on the two branches
+          // above that return early.
+          <>
+            {title}
+            <View style={styles.centerFill}>
+              <Text style={styles.messageText}>No dives match your search.</Text>
+            </View>
+          </>
+        ) : (
+          // Order, grouping and filtering all already happened above
+          // (searchDives/splitPlanned/groupIntoTrips/toListEntries); renderListEntry above
+          // just renders whatever ListEntry each section ended up with — a DayStrip, a
+          // plain DiveRow (dimmed while another day is active), or a ReorderControls block
+          // for the one active hand-orderable day.
+          <SectionList
+            sections={sections}
+            keyExtractor={entryKey}
+            renderItem={({ item }) => renderListEntry(item)}
+            renderSectionHeader={({ section }) => (
+              <TripHeader
+                title={section.title}
+                trailing={section.trailing}
+                variant={section.variant}
+                scheme={scheme}
+              />
+            )}
+            // **Trip headers scroll like everything else** (§0.6 and §10, owner's call, M1k).
+            // The capsule floats over this list beside the title, and the owner's argument for
+            // that is about a ROW: one passes under the capsule while scrolling and you scroll
+            // on. It is not true of a STICKY header, which parks under the capsule for a whole
+            // trip's scroll extent — §0.6's type table puts a trip's date range in exactly the
+            // trailing slot the capsule occupies, and that is how `UNNAMED SITE`'s range came
+            // to read `…16` on the simulator, twice. So stickiness is what gave way.
+            //
+            // **`={false}`, not deleted**, and the difference is the whole guarantee: RN's
+            // SectionList defaults this to `Platform.OS === 'ios'` (SectionList.js:244), so
+            // dropping the prop turns stickiness back ON for every diver on the platform this
+            // was observed breaking on. The section list itself stays — §4 chose it for
+            // sections, grouping and section headers, and stickiness was one line of that
+            // reasoning rather than all of it.
+            stickySectionHeadersEnabled={false}
+            // The large title, as CONTENT — the whole of the native arrangement (`title`
+            // above). It scrolls away with the logbook, and nothing sticks in its place.
+            ListHeaderComponent={title}
+            // **The last row's clearance is the device's, not a number** (M1h) —
+            // `screenBottomInset(insets.bottom)`, the same owner the empty state below asks and
+            // the bottom-edge sibling of the `screenTopInset` this screen's root spends above.
+            // Under `unstable-native-tabs` that inset already contains the tab bar: 83 pt on an
+            // iPhone 17 Pro, against the flat 24 this carried, so the last dive scrolled to sat
+            // 59 pt under the Liquid Glass with its site name cut mid-word. No gap is added on
+            // top, unlike the empty state's button: a row's own `paddingVertical` already keeps
+            // its text 10 pt off its bottom edge, and a scrolling list whose content ends exactly
+            // at the bar is what iOS itself does — extra air here would read as a hole under the
+            // last dive at rest rather than as breathing room.
+            contentContainerStyle={[styles.listContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
+          />
+        )}
+        {/* **The capsule, floating at the title's trailing side** (§0.6, §10 — the owner's
+            call, M1k). Rendered AFTER the list so it paints over it, and last inside this
+            region so nothing it overlaps can cover it back.
+            `styles.divesCapsuleFloat` is the whole of its position; there is no inset
+            arithmetic here, because the region's own top edge is where it belongs. */}
+        <View style={styles.divesCapsuleFloat}>
+          <ActionCapsule scheme={scheme} actions={capsuleActions} />
+        </View>
+      </View>
     </>
   );
 
   if (!wide) {
-    return <View style={styles.divesScreen}>{listPane}</View>;
+    return <View style={root}>{listPane}</View>;
   }
 
   return (
     <View style={styles.wideScreen}>
-      <View style={styles.wideListColumn}>{listPane}</View>
+      {/* The list column composes the top inset itself, exactly as `root` does above and as
+          the detail pane beside it does — one per column, so the two line up by construction
+          and neither stacks under the other (theme/styles.ts, `wideListColumn`). */}
+      <View style={[styles.wideListColumn, { paddingTop: screenTopInset(insets.top) }]}>{listPane}</View>
       <View style={styles.wideDetailColumn}>
         {selectedId === null ? (
           // Composes screen + the top inset + centerFill itself (rather than
