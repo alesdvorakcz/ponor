@@ -195,11 +195,13 @@ Four tabs plus a full-screen dive form. Onboarding is two steps — pick units a
 | Cloud client | `@supabase/supabase-js` + `expo-secure-store` | Auth session in the keychain, not AsyncStorage |
 | Crash reporting | `@sentry/react-native` | Free developer tier; familiar tooling |
 | Builds & CI | EAS Build + GitHub Actions | Free tier quota plus unlimited local builds |
-| Web app (post-release) | `react-native-web` via Expo · MapLibre | Same codebase in the browser; free static hosting; maps swap to MapLibre + OSM tiles |
+| Web app — **a testing target from M1, a product after release** (§9) | `react-native-web` via Expo · `wa-sqlite` in OPFS · MapLibre | Same codebase in the browser. It already runs and logs real dives, which is the point: the blocker was the data layer M2's sync builds on, so finding it out now was cheap. Maps swap to MapLibre + OSM tiles when the Map tab lands; free static hosting, but only somewhere that sets COOP/COEP (§9) |
 
 **Development builds, not Expo Go:** maps and Sign in with Apple are native modules, so we build with `expo-dev-client` from the start. Slightly more setup in M0, no surprises later.
 
-**The web app** comes from the same codebase — Expo Router already targets the browser. Two platform splits are expected: maps (MapLibre with free OSM tiles instead of `react-native-maps`) and storage (the browser starts in online mode against Supabase; a local cache can follow). It ships right after the store release, hosted free as a static site, and the future admin area lives inside it.
+**The web app** comes from the same codebase — Expo Router already targets the browser. **It is built and working now**, as a testing target rather than a supported platform; §9 records why it was pulled forward and what the data layer learned, and that is the authoritative account. What still waits for after the store release is the web app as a *product*: hosted, linked and promised, with the admin area inside it.
+
+Two platform splits were expected here and one of them turned out backwards, which is worth keeping. Maps split as predicted — MapLibre with free OSM tiles instead of `react-native-maps`, still owed when the Map tab lands. **Storage did not:** this paragraph used to say the browser would start "in online mode against Supabase, a local cache can follow", and the opposite is what shipped — real `wa-sqlite` in OPFS, offline-first exactly as the device is, with no Supabase involved at all. A prediction recorded and then falsified is more useful than a prediction quietly deleted, so it stays.
 
 ### 4.1 One owner per rule
 
@@ -226,7 +228,7 @@ This project's defining defect is one rule written in two places, then drifting.
 | `src/platform/` | Behaviour that genuinely differs by platform, so a screen never branches on platform itself. |
 | `components/symbolName.ts` | The per-platform key an SF/Material symbol is requested by. |
 
-**Two rules keep it that way.**
+**Three rules keep it that way.**
 
 *Derive, or tie at compile time.* A list that can be computed from another is computed — `FRESH_FIELDS` is the schema's keys minus `CARRIED_FIELDS`, not a second list. One that cannot be gets a type-level assertion that fails the build when the two diverge; `TankFormFieldsMatchTank` and `StatusFormValuesMatchDive` in `diveFormSchema.ts` are the pattern to copy. Adding a member to a hand-maintained option list used to produce a save-blocking rejection and a missing chip, silently.
 
