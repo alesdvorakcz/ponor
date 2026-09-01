@@ -36,7 +36,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { PRESET_SAVE_FAILED, presetRefusal } from '../domain/presets';
+import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   CONFIGURATION_VALUES,
@@ -911,10 +911,21 @@ function cylinderSpecText(tanks: DiveFormInput['tanks'], units: UnitSystem): str
  * resolving after the first render) must reach a row nobody has touched, and must never
  * overrule one they have.
  *
- * **A `Controller` around `tanks`, not a `useWatch` in the screen.** Both would re-render on
- * every keystroke in a cylinder field; only this one confines that re-render to this subtree
- * rather than to all thirty of the form's rows. It is the same reason `ControlledEquipmentField`
- * above holds one `Controller` for the whole accessory set.
+ * **`useWatch` inside this component, not in the screen, and deliberately not a `Controller`.**
+ * The position is what matters first: reading the cylinders here rather than in the render body
+ * confines a re-render to this subtree instead of firing all thirty of the form's rows on every
+ * keystroke in a cylinder field.
+ *
+ * Which of the two subscriptions is a **measured** finding rather than a preference, and the
+ * mechanism is worth recording because it is invisible from the code. `Controller`'s own
+ * `field.value` is `get(formValues, 'tanks')` — react-hook-form mutates that array **in place**
+ * when a child path like `tanks.0.sizeL` is written, so the reference never changes and React
+ * bails out of the re-render. It works until something calls `setValue('tanks', ...)` — which
+ * applying a preset does — and from that point the summary silently freezes on the applied
+ * cylinder while the diver edits the fields underneath it. `useWatch` clones what it hands back,
+ * so a mutated array still arrives as a new reference and the row follows the fields. Found by a
+ * test that applied a preset and then changed the size; the version without it was green
+ * everywhere else.
  *
  * The row is `DateTimeField`'s own shape — a label, a value trailing as text, the whole 48 dp
  * row pressable — because it is the same kind of thing: a field whose value is read rather than
@@ -937,41 +948,33 @@ function ControlledCylinderSpec({
   const styles = makeStyles(scheme);
   const [toggled, setToggled] = useState<boolean | null>(null);
   const expanded = toggled ?? defaultExpanded;
+  const summary = cylinderSpecText(useWatch({ control, name: 'tanks' }), units);
   return (
-    <Controller
-      control={control}
-      name="tanks"
-      render={({ field }) => {
-        const summary = cylinderSpecText(field.value as DiveFormInput['tanks'], units);
-        return (
-          <>
-            <Pressable
-              style={styles.formField}
-              onPress={() => setToggled(!expanded)}
-              accessibilityRole="button"
-              // The `label: value` shape every read-back field on this form announces
-              // (`DateTimeField`), so a screen reader hears what the cylinder is and not merely
-              // that there is a control here. The open/closed state travels as STATE beside it,
-              // exactly as `FormGroup`'s header carries it, rather than as a word in the label
-              // that would then have to change out from under it.
-              accessibilityLabel={`${CYLINDER_LABEL}: ${summary ?? NOT_RECORDED}`}
-              accessibilityState={{ expanded }}
-            >
-              <View style={styles.formFieldRow}>
-                <Text style={styles.formFieldLabel}>{CYLINDER_LABEL}</Text>
-                <View style={styles.formFieldPicker}>
-                  <Text style={summary === null ? styles.formFieldPickerTextUnset : styles.formFieldPickerText}>
-                    {summary ?? NOT_RECORDED}
-                  </Text>
-                </View>
-                <View style={[styles.formGroupChevron, expanded && styles.formGroupChevronExpanded]} />
-              </View>
-            </Pressable>
-            {expanded ? children : null}
-          </>
-        );
-      }}
-    />
+    <>
+      <Pressable
+        style={styles.formField}
+        onPress={() => setToggled(!expanded)}
+        accessibilityRole="button"
+        // The `label: value` shape every read-back field on this form announces
+        // (`DateTimeField`), so a screen reader hears what the cylinder is and not merely
+        // that there is a control here. The open/closed state travels as STATE beside it,
+        // exactly as `FormGroup`'s header carries it, rather than as a word in the label
+        // that would then have to change out from under it.
+        accessibilityLabel={`${CYLINDER_LABEL}: ${summary ?? NOT_RECORDED}`}
+        accessibilityState={{ expanded }}
+      >
+        <View style={styles.formFieldRow}>
+          <Text style={styles.formFieldLabel}>{CYLINDER_LABEL}</Text>
+          <View style={styles.formFieldPicker}>
+            <Text style={summary === null ? styles.formFieldPickerTextUnset : styles.formFieldPickerText}>
+              {summary ?? NOT_RECORDED}
+            </Text>
+          </View>
+          <View style={[styles.formGroupChevron, expanded && styles.formGroupChevronExpanded]} />
+        </View>
+      </Pressable>
+      {expanded ? children : null}
+    </>
   );
 }
 
@@ -1150,6 +1153,48 @@ function PresetCapture({
       </View>
     </>
   );
+}
+
+/**
+ * *Save as preset*, offered only while there is something new to save.
+ *
+ * The owner's complaint, verbatim: *"there is 'Save as preset' button even I already selected a
+ * preset. It's not intuitive."* He is right — a control offering to store what he had just
+ * loaded from storage. `presetMatching` (domain/presets.ts) decides what "already selected" is
+ * and states at length why it is a comparison rather than a remembered tap; the consequence
+ * that matters here is that **editing the cylinders after applying a preset brings the control
+ * back**, because at that point there really is a new cylinder block to name.
+ *
+ * **Absent, not disabled.** A greyed-out control still occupies the row and still invites the
+ * press it will refuse, which is the "told nothing, can do nothing" shape §1 keeps ruling out;
+ * and this screen already has a control that vanishes when it has nothing to offer — the preset
+ * chips themselves, absent entirely for a diver who has saved none, "so an empty row can never
+ * read as a control that failed to load".
+ *
+ * **`useWatch` in a component of its own rather than in the screen**, for both of the reasons
+ * `ControlledCylinderSpec` above records at length: it keeps a cylinder keystroke from
+ * re-rendering the whole form, and a `Controller` on this path would freeze on the applied
+ * preset the moment one was applied.
+ */
+function ControlledPresetCapture({
+  control,
+  presets,
+  units,
+  onSave,
+  scheme,
+}: {
+  control: FormControl;
+  presets: readonly GearPreset[];
+  units: UnitSystem;
+  onSave: (name: string) => Promise<string | null>;
+  scheme: ColorScheme;
+}) {
+  // Asked of the raw form values and the diver's own units, because `presetMatching` converts
+  // each candidate preset's way (domain/presets.ts): an imperial diver's `3002` in a `psi` field
+  // has to compare equal to the `207 bar` their own preset holds, and converting once here would
+  // turn it into 206.98… and never match anything again.
+  const applied = presetMatching(presets, useWatch({ control, name: 'tanks' }), units);
+  return applied === null ? <PresetCapture onSave={onSave} scheme={scheme} /> : null;
 }
 
 /**
@@ -2097,7 +2142,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           {/* And capturing one, at the END of the group — the position `Delete dive` occupies
               on the detail screen, for the same reason it does there: a deliberate act, not
               part of the flow down the fields. */}
-          <PresetCapture onSave={savePreset} scheme={scheme} />
+          <ControlledPresetCapture control={control} presets={presets} units={units} onSave={savePreset} scheme={scheme} />
         </FormGroup>
 
         <FormGroup title="Equipment" scheme={scheme}>

@@ -1,5 +1,6 @@
+import { type UnitSystem } from '../format/units';
 import { withoutPressures } from './carryOver';
-import { isRecordedTank } from './diveFormSchema';
+import { isRecordedTank, sameTanks, toStoredTanks, type DiveFormInput } from './diveFormSchema';
 import type { GearPreset, Tank } from './types';
 
 /**
@@ -101,6 +102,67 @@ export function presetNamed(
 ): GearPreset | null {
   const key = presetNameKey(name);
   return presets.find((preset) => preset.id !== exceptId && presetNameKey(preset.name) === key) ?? null;
+}
+
+/**
+ * The saved preset a cylinder block currently **is**, or `null` — the app's answer to "has a
+ * preset been applied here".
+ *
+ * The owner's complaint, verbatim: *"there is 'Save as preset' button even I already selected a
+ * preset. It's not intuitive."* Offering to save what you just loaded is noise, so the dive
+ * form hides its capture control while this returns a preset.
+ *
+ * **"Applied" is a fact about the cylinders, not a remembered gesture, and that is the whole
+ * design.** A flag set when a chip is tapped would go on claiming a preset was applied after
+ * the diver changed the size — when there really *is* something new to save — and would say
+ * nothing at all about a block that carry-over filled with the same cylinders. Comparing the
+ * block itself makes the control reappear exactly when it has something to offer, with no
+ * state to keep in sync and nothing to reset when the form reseeds.
+ *
+ * **Asked of the cylinders as a preset would STORE them**, which is why `withoutPressures`
+ * (domain/carryOver.ts) runs on both sides: a preset keeps no gauge readings (§10), so a diver
+ * who applied one and then typed the pressures from their gauge — which is the ordinary next
+ * thing they do — has not made a new preset by doing it. Idempotent on the preset's own side,
+ * which already holds none. `sameTanks` (domain/diveFormSchema.ts) is the comparison, the same
+ * one `db/gearPresets.ts` uses to decide whether a save changed anything, so "is this the same
+ * cylinder block" has one answer in the app rather than two.
+ *
+ * **It takes the FORM's raw cylinders and converts them once per candidate, and that is the
+ * part that would otherwise be silently broken for every imperial diver.** Converting the block
+ * to SI once and comparing the result is the obvious shape and it does not work: 207 bar renders
+ * as 3002 psi, and 3002 psi converts back to 206.98…, so a diver who had *just tapped the chip*
+ * would never match their own preset and the control would never disappear for them. It is
+ * §10's "the editor converts against the stored cylinders" rule, arriving through a third door
+ * — so each candidate's own cylinders are handed to `toStoredTanks` as the figures being
+ * compared against, and a displayed value that still represents the stored one stays exactly
+ * that stored number. Metric divers are unaffected either way, which is exactly why this would
+ * have shipped.
+ *
+ * **A block recording nothing matches nothing**, deliberately, even though a cylinderless
+ * preset can exist — `createGearPreset` stores what it is handed and M2's `pull_changes` writes
+ * rows this client never composed. Two reasons, and only the second is about tidiness. A diver
+ * whose block is empty has nothing to save, so the honest thing is to leave the control there
+ * and let `presetRefusal` below say why when they press it; and hiding the control against an
+ * empty preset that arrived from another device would remove a diver's only way to author one,
+ * for a reason nothing on screen explains. Asked without a candidate to convert against, since
+ * "is there anything here" is not a question any one preset gets a say in.
+ *
+ * The FIRST match, on `comparePresets`' order, because two presets holding identical cylinders
+ * under different names are both correct answers to "which one is this" and the list the diver
+ * is looking at has one of them first.
+ */
+export function presetMatching(
+  presets: readonly GearPreset[],
+  tanks: DiveFormInput['tanks'],
+  units: UnitSystem,
+): GearPreset | null {
+  if (!toStoredTanks(tanks, units).some((tank) => isRecordedTank(withoutPressures(tank)))) return null;
+  return (
+    presets.find((preset) => {
+      const stored = toStoredTanks(tanks, units, preset.tanks).map(withoutPressures);
+      return sameTanks(preset.tanks.map(withoutPressures), stored);
+    }) ?? null
+  );
 }
 
 /**

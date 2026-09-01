@@ -2,6 +2,7 @@ import {
   comparePresets,
   duplicatePresetMessage,
   EMPTY_PRESET_MESSAGE,
+  presetMatching,
   presetNamed,
   presetRefusal,
   UNNAMED_PRESET_MESSAGE,
@@ -189,5 +190,76 @@ describe('presetRefusal', () => {
     expect(presetRefusal([], '', REAL_CYLINDER).refused).toBe(true);
     expect(presetRefusal([], 'ok', []).refused).toBe(true);
     expect(presetRefusal([], 'ok', REAL_CYLINDER).refused).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// presetMatching — "has a preset already been applied here" (M1h)
+// ---------------------------------------------------------------------------------------
+//
+// The owner's complaint: "there is 'Save as preset' button even I already selected a preset."
+// The dive form hides its capture control while this returns a preset, so what this decides is
+// when the control is offered at all.
+
+describe('presetMatching', () => {
+  const alu80 = () => preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, workingBar: 207 })] });
+
+  it('finds the preset a cylinder block already is', () => {
+    const stored = alu80();
+    expect(presetMatching([stored], stored.tanks, 'metric')).toBe(stored);
+  });
+
+  it('finds nothing once the diver has changed one field of it', () => {
+    // The half that makes this a comparison rather than a remembered tap: after an edit there
+    // really is a new cylinder block to name, so the control has to come back.
+    const stored = alu80();
+    expect(presetMatching([stored], [tank({ material: 'alu', sizeL: 15, workingBar: 207 })], 'metric')).toBeNull();
+  });
+
+  it('still finds it once the diver has read their gauge', () => {
+    // A preset stores no pressures (§10), so typing the start and end — the ordinary next
+    // thing a diver does after applying one — has not made a new preset. Both sides are
+    // compared as they would be STORED.
+    const stored = alu80();
+    const withGauge = [tank({ material: 'alu', sizeL: 11.1, workingBar: 207, startBar: 210, endBar: 60 })];
+    expect(presetMatching([stored], withGauge, 'metric')).toBe(stored);
+  });
+
+  it('finds nothing for a block that records nothing, even against a preset holding as little', () => {
+    // A cylinderless — or blank-cylindered — preset can arrive from M2 sync, and matching one
+    // would take away a diver's only way to author a preset of their own, for a reason nothing
+    // on screen explains. They have nothing to save either way; `presetRefusal` above is what
+    // says so when they press.
+    expect(presetMatching([preset({ tanks: [tank()] })], [tank()], 'metric')).toBeNull();
+    expect(presetMatching([preset({ tanks: [] })], [], 'metric')).toBeNull();
+  });
+
+  it('tells two presets apart by their cylinders rather than by their names', () => {
+    const other = preset({ name: 'twin 12', tanks: [tank({ material: 'steel', sizeL: 12, workingBar: 232 })] });
+    const stored = alu80();
+    expect(presetMatching([other, stored], stored.tanks, 'metric')).toBe(stored);
+  });
+
+  // §10's "the editor converts against the stored cylinders", arriving through a third door.
+  // Converting the block to SI once and comparing would be wrong for every imperial diver:
+  // 207 bar renders as 3002 psi and 3002 psi converts back to 206.98…, so a diver who had just
+  // tapped the chip would never match their own preset. Metric is unaffected, which is exactly
+  // why this would have shipped.
+  it('matches an imperial diver’s own figures against the bar their preset holds', () => {
+    const stored = alu80();
+    // What the form actually holds after applying that preset in an imperial session — strings,
+    // as typed, in psi and litres.
+    const asDisplayed = [{ material: 'alu', configuration: null, sizeL: '11.1', workingBar: '3002', o2Pct: null, hePct: null, startBar: null, endBar: null }];
+    expect(presetMatching([stored], asDisplayed, 'imperial')).toBe(stored);
+    // ...and a figure the diver really did change still does not match.
+    const edited = [{ ...asDisplayed[0]!, workingBar: '3100' }];
+    expect(presetMatching([stored], edited, 'imperial')).toBeNull();
+  });
+
+  it('does not match a one-cylinder block against a two-cylinder preset', () => {
+    // `sameTanks` compares index-wise and refuses two arrays of different lengths — a bottom
+    // mix plus a deco stage is not the same rig as the bottom mix alone.
+    const twin = preset({ tanks: [tank({ sizeL: 12 }), tank({ sizeL: 11.1 })] });
+    expect(presetMatching([twin], [tank({ sizeL: 12 })], 'metric')).toBeNull();
   });
 });

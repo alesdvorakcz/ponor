@@ -3567,6 +3567,95 @@ it('puts the chips above the cylinder fields and the capture below them', async 
   expect(labels.indexOf('Save as preset')).toBeGreaterThan(material);
 });
 
+// --- The capture control disappears once a preset is applied (M1h) ---
+//
+// The owner, verbatim: "there is 'Save as preset' button even I already selected a preset.
+// It's not intuitive." `presetMatching` (domain/presets.ts) owns what "applied" means and its
+// own tests pin the rule; these pin that the SCREEN asks it, of the live cylinder block, in
+// the diver's own units — the seam, not the rule.
+
+/** A preset holding one fully-specified cylinder and no gauge readings, which is what
+ * `createGearPreset` actually stores (§10: a preset keeps no pressures). */
+const alu80 = () =>
+  preset({
+    name: 'alu 80',
+    tanks: [tank({ material: 'alu', configuration: 'single', sizeL: 11.1, workingBar: 207, o2Pct: 32, hePct: null, startBar: null, endBar: null })],
+  });
+
+it('stops offering to save a preset the diver just applied, and offers again the moment they change it', async () => {
+  stubPresets([alu80()]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findButton(t, 'Save as preset')).toBeDefined();
+
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+  expect(findButton(t, 'Save as preset')).toBeUndefined();
+
+  // ...and back, because now there really is a new cylinder block to name. This is the half a
+  // remembered "a chip was tapped" flag would get wrong.
+  await openCylinder(t);
+  await typeInto(t, 'Size', '15');
+  expect(findButton(t, 'Save as preset')).toBeDefined();
+});
+
+it('stays hidden while the diver types the gauge readings a preset never stores', async () => {
+  // The ordinary next gesture after applying a preset. `withoutPressures` on both sides is what
+  // keeps this from reading as a new cylinder block (§10: a preset keeps no pressures).
+  stubPresets([alu80()]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  await typeInto(t, 'Start pressure', '210');
+  await typeInto(t, 'End pressure', '60');
+  expect(findButton(t, 'Save as preset')).toBeUndefined();
+});
+
+it('hides it for a block carry-over filled, which no remembered tap could know about', async () => {
+  // "Applied" is a fact about the cylinders rather than a gesture: the second dive of a trip
+  // arrives holding the same cylinders as the first without anybody tapping a chip, and the
+  // control has exactly as little to offer there.
+  const stored = alu80();
+  stubPresets([stored]);
+  stubDives({ dives: [dive({ date: '2026-08-16', tanks: [{ ...stored.tanks[0]!, startBar: 200, endBar: 50 }] })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  expect(findButton(t, 'Save as preset')).toBeUndefined();
+});
+
+it('keeps offering it over a block that records nothing, whatever presets exist', async () => {
+  // A preset holding one blank cylinder is a row M2 sync can deliver, and the form's own
+  // untouched block is byte-for-byte that. Matching it would take away the diver's only way to
+  // author a preset at all — so the control stays, and `presetRefusal` is what explains itself
+  // when they press it.
+  stubPresets([preset({ name: 'from another device', tanks: [tank({ material: null, configuration: null, sizeL: null, workingBar: null, o2Pct: null, hePct: null, startBar: null, endBar: null })] })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  expect(findButton(t, 'Save as preset')).toBeDefined();
+});
+
+it('compares the block as it would be stored, not as an imperial diver reads it', async () => {
+  // The form holds `3002 psi` where the preset holds `207 bar`, so a comparison made against
+  // the displayed figures would never match and the control would never disappear for an
+  // imperial diver. `toStoredTanks` is the same conversion *Save as preset* itself makes.
+  mockUseUnitSystem.mockReturnValue('imperial');
+  stubPresets([alu80()]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('3002');
+  expect(findButton(t, 'Save as preset')).toBeUndefined();
+});
+
 // Two controls, one word, and no ambiguity about which of them writes a dive. Worth pinning
 // because the preset control was first named AROUND this collision ("Add to my presets")
 // rather than for the diver: `formFooter` is a sibling AFTER `formScroll`, so a query that
