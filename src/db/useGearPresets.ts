@@ -4,10 +4,31 @@ import { useMemo } from 'react';
 import { type GearPreset } from '../domain/types';
 import { db } from './client';
 import { gearPresetRowsQuery, toGearPresets } from './gearPresets';
+import { isResolved } from './liveQuery';
 
 export interface GearPresetListState {
   /** Every live preset, by name (`toGearPresets`' own order — see `comparePresets`). */
   presets: GearPreset[];
+  /**
+   * Whether the preset read has produced an answer yet — rows, or a failure (`isResolved`,
+   * db/liveQuery.ts, which owns the mechanism and both words' exact meaning).
+   *
+   * **The same name and the same meaning as `useDives`' own `resolved`, and that is the
+   * requirement, not a coincidence.** Two hooks growing two vocabularies for one fact is §4.1's
+   * defining defect, and this fact is shared: both screens that read a preset by id are the
+   * same shape as the screen that reads a dive by id, and both said the same kind of false
+   * thing before this existed.
+   *
+   * **`presets` alone cannot say it.** `[]` means "you have no presets" and "nothing has been
+   * read yet" at once, which is precisely the conflation `error` below was added to break in
+   * the other direction — so `GearPresetScreen` told a diver their preset "may have been
+   * deleted" before it had looked, every single time, and Settings' "save one from a dive"
+   * line stood over a list that had not been read.
+   *
+   * Unlike `useDives` there is only one query here, so there is nothing for this to have to
+   * decide between; that hook's own field records the decision it did have to make.
+   */
+  resolved: boolean;
   /**
    * Set when the presets could not be read at all.
    *
@@ -42,8 +63,14 @@ export interface GearPresetListState {
  * Its whole pipeline is `toGearPresets(gearPresetRowsQuery(db))`, both of which
  * `db/gearPresets.test.ts` exercises against a real database — the same split `useDives`
  * documents, where the pure half is tested directly and `useLiveQuery` itself is left to the
- * app. There is nothing here beyond that call, the `?? []` for the first render before the
- * query resolves, and the memo below.
+ * app. There is nothing here beyond that call, the `?? []`, `isResolved` and the memo below.
+ *
+ * That `?? []` is a type-level guard and nothing more, which is a correction: this line used
+ * to claim it was "for the first render before the query resolves", and it never was.
+ * `useLiveQuery` seeds `data` with `[]` itself for a `db.select()` builder, so it is an empty
+ * array from the first render onwards and this coalesce has never once fired — which is
+ * exactly why the first render was indistinguishable from an empty logbook of presets, and
+ * why `resolved` above had to exist. See `isResolved` (db/liveQuery.ts) for the mechanism.
  *
  * `toGearPresets` is memoised on the raw row array for the reason `useDives` records: it is
  * `rows.map(...).sort(...)`, so without this every consumer would get a brand-new array on
@@ -60,5 +87,5 @@ export function useGearPresets(): GearPresetListState {
   const rows = useLiveQuery(gearPresetRowsQuery(db));
   const rowData = rows.data;
   const presets = useMemo(() => toGearPresets(rowData ?? []), [rowData]);
-  return { presets, error: rows.error };
+  return { presets, resolved: isResolved(rows), error: rows.error };
 }

@@ -5,11 +5,47 @@ import { assignDiveNumbers } from '../domain/diveNumber';
 import { type Dive } from '../domain/types';
 import { db } from './client';
 import { diveRowsQuery, toDives } from './dives';
+import { isResolved } from './liveQuery';
 import { divesBeforeQuery, readDivesBefore } from './settings';
 
 export interface DiveListState {
   dives: Dive[];
   numbers: Map<string, number>;
+  /**
+   * Whether the DIVES read has produced an answer yet — rows, or a failure (`isResolved`,
+   * db/liveQuery.ts, which is also where the mechanism and the two words' exact meaning live).
+   * `false` only on the renders before the query first returns; `useGearPresets` carries the
+   * same field, under the same name, meaning the same thing.
+   *
+   * **`dives` alone cannot say this**, which is the defect it exists to close: `[]` means "no
+   * dives" and "not looked yet" at once, and three screens asserted the first while the second
+   * was true — "Dive not found." over a dive that was there (DiveDetailScreen), and a blank
+   * edit form over a real dive (DiveFormScreen). A screen with no answer must not state one.
+   *
+   * **It reports on the dives query alone, and deliberately does NOT follow the two-field
+   * split below.** Two separate claims, both worth stating:
+   *
+   * One field rather than two, because no caller has anything to do with "the settings read
+   * has not answered yet". What that read produces is a numbering OFFSET; a dive list that has
+   * arrived is a complete answer to "which dives are there" whether or not the offset has
+   * landed, and until it does the numbers simply start from 1 — `assignDiveNumbers`' own
+   * documented degradation for an offset it cannot use, and exactly what `settingsError`
+   * degrades to permanently. There is no false sentence for a screen to say from it, so there
+   * is nothing for a second field to gate.
+   *
+   * And this one field ignores the settings query rather than waiting on both, because waiting
+   * on both is the mirror image of the defect the hook's own docblock records below. Merging
+   * the two ERRORS let a failed settings read blank the entire logbook; merging the two
+   * LOADING states would let a slow settings read hold the entire logbook back. Same shape,
+   * same wrongness, one render earlier — a display preference deciding whether the dives are
+   * shown at all.
+   *
+   * The cost, stated rather than hidden: a logbook whose settings read lands after its dives
+   * read numbers from offset 0 for those renders and then renumbers. That flash is real, and
+   * it is the smaller of the two — a number that corrects itself, against a list that is not
+   * shown.
+   */
+  resolved: boolean;
   /**
    * Set when the dives themselves could not be read. Fatal — DivesScreen.tsx blanks the
    * whole screen for this one, because there is nothing honest to show in its place.
@@ -41,7 +77,10 @@ export interface DiveListState {
  * rather than kept as a defensive-but-redundant copy, per this file's own "make reuse
  * easier than re-deriving" stance below.
  */
-export function composeDives(rows: unknown[], divesBefore: unknown): Omit<DiveListState, 'error' | 'settingsError'> {
+export function composeDives(
+  rows: unknown[],
+  divesBefore: unknown,
+): Omit<DiveListState, 'resolved' | 'error' | 'settingsError'> {
   const dives = toDives(rows);
   return { dives, numbers: assignDiveNumbers(dives, divesBefore) };
 }
@@ -87,5 +126,7 @@ export function useDives(): DiveListState {
     [rowData, settingsData],
   );
 
-  return { dives, numbers, error: rows.error, settingsError: settingsRows.error };
+  // `isResolved(rows)`, not `isResolved(settingsRows)` and not both — see `DiveListState`'s
+  // own field for why the loading signal deliberately parts company with the error split.
+  return { dives, numbers, resolved: isResolved(rows), error: rows.error, settingsError: settingsRows.error };
 }

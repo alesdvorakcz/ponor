@@ -23,7 +23,14 @@ import { readUnitSystem, unitSystemQuery } from './settings';
  * Its whole pipeline is `readUnitSystem(unitSystemQuery(db))`, which `db/settings.test.ts`
  * exercises against a real database — the same split `useDives` documents, where the pure
  * half is tested directly and `useLiveQuery` itself is left to the app. There is nothing
- * here beyond that call and the `?? []` for the first render, before the query resolves.
+ * here beyond that call and the `?? []`, which is a type-level guard and nothing more —
+ * a correction, since this line used to call it "for the first render, before the query
+ * resolves". It never was: `useLiveQuery` seeds `data` with `[]` itself for a `db.select()`
+ * builder (`isResolved`, db/liveQuery.ts), so the coalesce has never once fired. This hook
+ * needs no `resolved` of its own for that gap all the same — `readUnitSystem` degrades an
+ * absent row to metric on purpose, so a caller has nothing to do differently while it waits
+ * and no false sentence to say; the two screens that would be mislabelled by a late answer
+ * already reseed on the value itself changing (`SeedState.units`, DiveFormScreen.tsx).
  *
  * **Screens call this; components take the answer as a prop.** Exactly the shape `scheme`
  * already has in this codebase — `resolveScheme(useColorScheme())` at the top of each
