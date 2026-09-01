@@ -76,8 +76,11 @@ export const EQUIPMENT_VALUES = ['hood', 'gloves', 'boots', 'torch', 'camera'] a
  * one who widens this to `number` has offered the diver an infinite chip row.**
  *
  * The out-of-scale value that follows from keeping the column wide is not swallowed: it is
- * kept, saved and flagged in words beside the control (`OUT_OF_SCALE_NOTE`,
- * `domain/diveFormSchema.ts`), which is the half §10 recorded as still owed until M1h.
+ * kept, saved and flagged in words beside the control (`outOfScaleNote`,
+ * `domain/diveFormSchema.ts` — a function of the vocabulary and the value, since the sentence
+ * has to quote the number; there is no constant of that name, and the earlier
+ * `OUT_OF_SCALE_NOTE` written here named nothing that exists), which is the half §10 recorded
+ * as still owed until M1h.
  *
  * **The order is the order the chips appear in**, ascending, because these are the one
  * vocabulary in this file with an order that is not an editorial choice: 2 is more than 1.

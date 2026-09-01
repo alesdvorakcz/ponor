@@ -264,18 +264,63 @@ describe('outOfScaleNote', () => {
     expect(outOfScaleNote(RATING_VALUES, 0)).toContain('0');
   });
 
+  /**
+   * **Does this sentence say where the value came from?**
+   *
+   * The property DESIGN.md §10 asks of this note is that it attributes the value to nobody:
+   * these four fields are the only ones in the app where the diver could have typed the bad
+   * number himself, so `UNKNOWN_OPTION_NOTE`'s "came from a newer version of Ponor" would
+   * blame a future build for the owner's own keypad, on his own dive, in his own logbook. The
+   * intent was always "assert the ABSENCE of attribution, so rewording stays free and
+   * re-blaming does not".
+   *
+   * **The first defence of it was backwards in both directions, and measured so.** It banned
+   * the sibling's two distinctive words (`'newer version'`, `'Ponor'`) and pinned one literal
+   * phrase of its own (`'saved as it is'`). So a differently-worded blame passed — *"9 was
+   * written by another app, not by you. It is saved as it is …"* was green — while an innocent
+   * rewording failed — *"9 is not offered here. Your entry is kept exactly as recorded …"* was
+   * red. It banned two spellings of one blame and pinned one spelling of one promise; neither
+   * of those is the rule, and between them they protected the opposite of what was wanted.
+   *
+   * The rule is grammatical, and it is small enough to state: **a sentence can only attribute
+   * a value by putting it in the past or somewhere else.** Authorship is a claim about history
+   * ("was written", "came from", "created", "typed") or about provenance ("*from* a newer
+   * version", "*by* another app"). A note that says only what is true here and now — this
+   * number is not one of the options, it is kept, tap to replace it — has no grammar left to
+   * blame anybody with. So the ban is on that class of word rather than on any one sentence,
+   * and a rewrite that stays in the present tense about the value in front of the diver is
+   * free to say it however it likes.
+   *
+   * **It is proved rather than assumed.** The same predicate runs against
+   * `UNKNOWN_OPTION_NOTE` below — the one note in this app that deliberately DOES attribute —
+   * and it has to say so. A list of words nothing would ever contain passes for ever and
+   * defends nothing, which is precisely how the version this replaces went wrong.
+   */
+  const ORIGIN_WORDS =
+    /\b(was|were|came|come|comes|written|wrote|created|sent|arrived|imported|synced|typed|entered|made|from|by)\b/i;
+  const attributesAnOrigin = (note: string | undefined) => ORIGIN_WORDS.test(note ?? '');
+
   it('attributes the value to nobody, unlike its sibling', () => {
-    // The whole reason this is a second sentence rather than a reuse of the first. These four
-    // fields are the only ones in the app where the diver could have typed the bad value
-    // themselves, so `UNKNOWN_OPTION_NOTE`'s "came from a newer version of Ponor" would blame
-    // a future build for the owner's own keypad. Asserted as the ABSENCE of attribution rather
-    // than as an exact string, so rewording stays free and re-blaming does not.
-    const note = outOfScaleNote(RATING_VALUES, 9) ?? '';
-    expect(note).not.toContain('newer version');
-    expect(note).not.toContain('Ponor');
-    // ...while still carrying the half that makes it honest rather than alarming: §1 means the
-    // value is kept, and the note has to say so.
-    expect(note).toContain('saved as it is');
+    expect(attributesAnOrigin(outOfScaleNote(RATING_VALUES, 9))).toBe(false);
+    expect(attributesAnOrigin(outOfScaleNote(CONDITION_SCALE_VALUES, 7))).toBe(false);
+    // The teeth. `UNKNOWN_OPTION_NOTE` names a source on purpose and is right to — a value
+    // outside a closed vocabulary was never typeable, so it can only have come from another
+    // client. If the predicate cannot see the attribution in *that* sentence, it is not
+    // seeing attribution at all and the two assertions above mean nothing.
+    expect(attributesAnOrigin(UNKNOWN_OPTION_NOTE)).toBe(true);
+  });
+
+  it('promises the value is kept, in whichever words it chooses to', () => {
+    // The other half of what makes the note honest rather than alarming: §1 means nothing is
+    // refused and nothing is rewritten, and the sentence has to say so, or a diver reading
+    // "9 is not one of these options" is left assuming their dive lost it.
+    //
+    // A disjunction rather than a literal, deliberately, and it is the correction to the same
+    // mistake the predicate above replaces: pinning `'saved as it is'` made every rewording of
+    // this promise a test failure, including ones that keep it perfectly ("your entry is
+    // *kept* exactly as recorded"). What must not change is that the promise is there at all —
+    // dropping it is red, saying it differently is not.
+    expect(outOfScaleNote(RATING_VALUES, 9)).toMatch(/\b(saved|kept|keeps|stays|stored|unchanged)\b/i);
   });
 });
 
@@ -360,6 +405,45 @@ describe('toNewDiveInput', () => {
     const input = toNewDiveInput(diveFormSchema.parse({ date: '2026-08-16' }), 'metric');
     expect(input.date).toBe('2026-08-16');
     expect(Object.values(input).every((v) => v !== 0)).toBe(true);
+  });
+
+  it('keeps a recorded zero, which is a value and not an absence', () => {
+    // `toDivePatch`'s own "sends a real zero" test, from the creation side — and the half
+    // that was undefended until this round. The loop in `toNewDiveInput` omits a field whose
+    // value is `null`; narrowing that by one falsy step (`value !== null && value !== 0`)
+    // left the whole suite green, so nothing anywhere said that a zero must survive a save.
+    //
+    // M1h is what made it reachable by a thumb rather than only by a keypad: the three 0–3
+    // scales became chip rows, so *Flat* water and *no* current are level 0 — a value a
+    // diver picks deliberately and would have watched save as "not recorded".
+    expect(CONDITION_SCALE_VALUES).toContain(0); // or the three assertions below prove nothing
+    const input = toNewDiveInput(
+      diveFormSchema.parse({ ...base, waves: 0, current: 0, surge: 0, weightsKg: '0' }),
+      'metric',
+    );
+    expect(input).toEqual(expect.objectContaining({ waves: 0, current: 0, surge: 0, weightsKg: 0 }));
+    // Named explicitly as well as valued, because `undefined` and `0` are both falsy and
+    // `objectContaining` is the assertion that would notice — but only if the key is there.
+    for (const field of ['waves', 'current', 'surge', 'weightsKg']) expect(Object.keys(input)).toContain(field);
+  });
+
+  it.each([
+    ['waves', CONDITION_SCALE_VALUES],
+    ['current', CONDITION_SCALE_VALUES],
+    ['surge', CONDITION_SCALE_VALUES],
+    ['rating', RATING_VALUES],
+  ] as const)('carries every level %s offers, top to bottom', (field, values) => {
+    // The same guarantee swept over the vocabularies themselves rather than over one
+    // hand-picked level, because **which scales have a zero is `domain/types.ts`'s answer
+    // and not this file's**: a scale that gains one is covered on the day it does, and a
+    // scale that is reordered or widened cannot quietly lose a level on the way to the
+    // database. `RATING_VALUES` is in the table despite starting at 1 — an unrated dive is
+    // `null`, not zero stars — so that the two kinds of scale are stated side by side and
+    // the next reader can see which one carries the falsy member.
+    for (const level of values) {
+      const input = toNewDiveInput(diveFormSchema.parse({ ...base, [field]: level }), 'metric');
+      expect(input[field]).toBe(level);
+    }
   });
 
   it('carries the status the control was on, either way', () => {

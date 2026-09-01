@@ -757,6 +757,25 @@ export function toNewDiveInput(
     tanks: tanks.map((tank) => toStoredTank(tank, undefined, units)),
   };
   for (const [key, value] of Object.entries(rest) as [keyof typeof rest, (typeof rest)[keyof typeof rest]][]) {
+    // **`!== null`, never a falsy test**, and this line is worth reading twice because the
+    // shorter spellings are one keystroke away and both are wrong: `if (value)` and
+    // `if (value !== null && value !== 0)` drop every recorded **zero**, which is a reading
+    // here and not an absence. `optionalNumber`'s own contract is "empty means null, never
+    // zero" precisely so that a zero arriving here is one the diver actually entered; a
+    // falsy check throws that away again at the far end of the same path.
+    //
+    // It was always live for `weightsKg: 0` (a dive done with no weight at all) and
+    // `airTempC: 0`. **M1h put it under a thumb**: §0.6's chip rows made *Flat* water and
+    // *no* current level 0 of `CONDITION_SCALE_VALUES`, so the first chip of Waves, Current
+    // and Surge is now a falsy value a diver taps on purpose — and a dropped 0 would save
+    // that reading as "not recorded" while the chip sat lit until the screen was left.
+    // Which is the silent-wrong-value failure this codebase keeps paying for, arriving from
+    // the direction nothing was watching.
+    //
+    // Defended in `diveFormSchema.test.ts` ("keeps a recorded zero...", and every level of
+    // every scale) and again at the screen, where the write sweep taps `values[1]` by
+    // design and so is blind to level 0 by construction — its level-0 sibling exists for
+    // exactly this line.
     if (value !== null) {
       (input as Record<string, unknown>)[key] = storedFieldValue(
         diveFieldQuantity(key),
