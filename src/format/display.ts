@@ -340,6 +340,20 @@ export const HE_LABEL = 'He';
 export const METADATA_SEPARATOR = ' · ';
 
 /**
+ * U+00A0, and it is here so that the one place that needs it can be read (`formatLogbookSummary`,
+ * M1m). A middot list is normally set on a line that cannot wrap — a dive row's metadata, a
+ * cylinder spec — and the header summary is the exception: §0.6 caps its column at the floating
+ * capsule, so the line has a measure and the platform's own line-break rule decides where it
+ * folds. This is what takes that decision back: joined into a figure's own spaces it makes the
+ * figure one word, so the only places left to break are the separator above.
+ *
+ * **Named, and written as the escape.** Typed as itself it is one invisible character, identical
+ * to a space in every editor and in every diff — which is the one thing a reader of this rule has
+ * to be able to see. Both test files import this name for the same reason.
+ */
+export const NON_BREAKING_SPACE = '\u00A0';
+
+/**
  * The third fraction, which is never stored and never typed — `derived.ts`'s `nitrogenPct`
  * computes it as 100 − O₂ − He (§10). It joins the two above because it is the same kind of
  * string for the same reason: a label for a gas fraction, spelled once so two screens cannot
@@ -650,6 +664,25 @@ export function formatTimeUnderwater(minutes: number | null): string | null {
  * `divesSummary`). §0.1 makes colour encode depth and §0.6 makes a dive's depth the anchor of
  * its row — but this figure is an aggregate over a whole logbook, and a single band colour
  * would be a claim about a set no one band is true of.
+ *
+ * **This line is the one in the app that WRAPS, so it is also the one that has to say where**
+ * (M1m). §0.6 caps the Dives header's column at the floating capsule's leading edge, which is
+ * about 253 pt on an iPhone 17 Pro — the sheet's own `128 dives · 96 h 12 min · deepest 41.2 m`
+ * needs 276, so it takes two lines, and the sheet draws them as `128 dives · 96 h 12 min ·`
+ * above `deepest 41.2 m`. Left to ordinary spaces it does not break there: the wrap lands
+ * wherever the width runs out, which was seen on the simulator as `… · deepest 41.2` above a
+ * line holding nothing but `m`, and one word earlier at the sheet's own example. Either way a
+ * figure loses its unit or its label, which is a worse line than the one the cap prevents.
+ *
+ * So **a figure is one unbreakable unit and the middots are the only break opportunities**:
+ * every space INSIDE a figure is U+00A0, and `METADATA_SEPARATOR`'s are left ordinary. That is a
+ * rule about the line rather than about any one string, so it holds for `1 dive · 47 min`, for
+ * feet, and for §0.5's Czech, which is 20–30 % longer and is the case that wraps first.
+ *
+ * It belongs here rather than in `formatDiveCount` and friends because those figures are read
+ * inside rows that do not wrap, where a non-breaking space would be an invisible difference
+ * with no consequence — and §4.1's rule is that a shared owner keeps the shared meaning. What
+ * is specific to the header is that the line has a measure.
  */
 export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): string {
   const parts: string[] = [formatDiveCount(stats.dives)];
@@ -660,7 +693,7 @@ export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): s
   const deepest = formatDepth(stats.deepestM, system);
   if (deepest !== null) parts.push(`deepest ${deepest}`);
 
-  return parts.join(METADATA_SEPARATOR);
+  return parts.map((figure) => figure.replace(/ /gu, NON_BREAKING_SPACE)).join(METADATA_SEPARATOR);
 }
 
 /**

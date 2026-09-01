@@ -329,12 +329,40 @@ function build(scheme: ColorScheme) {
   // sized by the glyphs inside it. The difference between them is width and padding and
   // nothing else — split below rather than written out twice, so the height, the rounding
   // and the shadow cannot drift between two objects a diver sees side by side.
-  // **How tall a floating capsule is**, and therefore how far down the screen it reaches. One
-  // number because two things depend on it now: the capsule itself, and the Dives title, which
-  // has to be at least this tall so the summary line under it starts BELOW the capsule floating
-  // beside it rather than behind it (`divesTitle`, M1l). Two spellings of that distance would
-  // put a long logbook's figures behind the glass, and only on a long logbook.
+  // **How tall a floating capsule is.** §0.5's 48 dp tap floor, met with nothing to spare, and
+  // the radius above is half of it. It was briefly the Dives title's `minHeight` as well (M1l,
+  // reversed in M1m — the clearance the summary line needs comes out of WIDTH now, see
+  // `DIVES_HEADER_TRAILING_INSET` below), so this is a name with one consumer again; it stays
+  // named because the three lines beneath it are geometry too and a bare 48 among them would be
+  // the only one that could not be pointed at.
   const CAPSULE_HEIGHT = 48;
+  // **One glyph's box inside a capsule** — §0.5's floor as a real target rather than `hitSlop`
+  // (`capsuleGlyph` below), and a square: the ink is the glyph, so the box is as wide as it is
+  // tall. Its own 48 is a deliberate near-duplicate of `CAPSULE_HEIGHT` above rather than a
+  // second use of it (§4.1's rule, `MIN_SCREEN_BOTTOM_INSET`'s own note): both are §0.5's floor,
+  // and a capsule that ever gained vertical padding would move one and not the other.
+  const CAPSULE_GLYPH = 48;
+  // The hairline BETWEEN two glyphs, never leading or trailing (`capsuleDivider` below, and
+  // ActionCapsule.tsx renders it only for `index > 0`) — which is why `actionCapsuleWidth`
+  // counts one fewer of these than it counts glyphs.
+  const CAPSULE_DIVIDER = 1;
+  // The action capsule's own inner padding, the whole of what it adds around its glyphs.
+  const ACTION_CAPSULE_PADDING = 4;
+  /**
+   * **How wide the action capsule is with `glyphs` glyphs in it**, and it is a function because
+   * the capsule is sized BY its glyphs rather than told a width: `actionCapsuleShape` carries no
+   * `flex` and no `width`, so this is Yoga's own sum written down, not a second opinion about it.
+   *
+   * It exists because something outside the capsule now has to know where its leading edge is —
+   * the Dives header's text column, which must stop short of it (`DIVES_HEADER_TRAILING_INSET`).
+   * Written as a function of the glyph count rather than as the 105 pt the capsule measures
+   * today, because §3 expects a third glyph (M2's Map, M3's Stats, Calendar's view toggle) and
+   * that addition must move the header column with it. DivesScreen.test.tsx pins the count this
+   * screen actually renders against the count the inset assumes, which is the half of that a
+   * stylesheet cannot check.
+   */
+  const actionCapsuleWidth = (glyphs: number) =>
+    ACTION_CAPSULE_PADDING * 2 + glyphs * CAPSULE_GLYPH + Math.max(glyphs - 1, 0) * CAPSULE_DIVIDER;
   const capsuleBase: ViewStyle = {
     height: CAPSULE_HEIGHT,
     borderRadius: 24,
@@ -358,7 +386,7 @@ function build(scheme: ColorScheme) {
   // Calendar carries alongside them — additions rather than a re-measure.
   const actionCapsuleShape: ViewStyle = {
     ...capsuleBase,
-    paddingHorizontal: 4,
+    paddingHorizontal: ACTION_CAPSULE_PADDING,
   };
 
   // ---------------------------------------------------------------------------------------
@@ -412,6 +440,42 @@ function build(scheme: ColorScheme) {
   // padding has to stay at nothing (`listContent`). Two spellings of one distance is exactly
   // how the 56 pt gap became invisible, so there is one number and both read it.
   const SCREEN_HEADING_TOP = 4;
+
+  // **How much air the Dives header's text keeps beside the floating capsule.** A distance
+  // between two objects rather than one inside either, so it is its own number: a deliberate
+  // near-duplicate of `searchDock`'s own 12 — the gap between the search field and the action
+  // capsule on the search screen — and NOT a shared constant with it, because that one is a
+  // flex `gap` between two capsules in a row and this is clearance from a floating shape to
+  // text underneath it. §4.1's "a deliberate near-duplicate names its siblings"; sharing would
+  // assert that restyling the search dock must move the Dives header, which nothing has decided.
+  //
+  // It is not zero, though §0.6 says the column stops "at the capsule's leading edge": at zero
+  // the sheet's own three-digit example fits `128 dives · 96 h 12 min · deepest 41.2` on the
+  // first line and orphans the `m`, which is the arithmetic being right about the wrong question
+  // one more time. Text needs air from glass; 12 is what the app already gives it.
+  const CAPSULE_CLEARANCE = 12;
+
+  // **How far the Dives header's text column stops short of the screen's trailing edge** (§0.6,
+  // M1m — the correction to M1l). The floating capsule's trailing edge sits at `CONTENT_INSET`
+  // (`divesCapsuleFloat`), so its LEADING edge is that plus its own width, and the header's text
+  // stops one `CAPSULE_CLEARANCE` before that. The summary line then wraps under the capsule
+  // instead of into it, which is what the owner's sheet draws.
+  //
+  // **Derived from the capsule, never typed.** `actionCapsuleWidth` above is the capsule's own
+  // geometry summed; the 105 pt it currently returns appears nowhere. That matters twice: §3
+  // expects a third glyph in this capsule, which widens it, and §0.5's 48 dp floor could move
+  // under both. A hand-typed number here is the two-spellings-of-one-distance defect
+  // `SCREEN_HEADING_TOP` and `CONTENT_INSET` were each written about — and this screen has now
+  // been bitten by it twice.
+  //
+  // **The glyph count is the one part that is not derived**, because the capsule's glyphs are a
+  // prop (DivesScreen.tsx's `capsuleActions`) and a scheme-only sheet cannot read a render.
+  // DivesScreen.test.tsx closes that by counting the glyphs the screen actually renders and
+  // requiring this inset to clear a capsule of that many — so §3's third glyph fails here rather
+  // than arriving as a header line back under the glass.
+  const DIVES_CAPSULE_GLYPHS = 2;
+  const DIVES_HEADER_TRAILING_INSET =
+    CONTENT_INSET + actionCapsuleWidth(DIVES_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
 
   // The row that title sits in on the one screen where something shares its line: §2.4's
   // Logged/Planned control on the dive form. The Dives list used to be the second — the
@@ -617,8 +681,8 @@ function build(scheme: ColorScheme) {
     // A square, not a circle: the ink is the glyph, and a rounded fill behind it would be a
     // second object competing with the capsule that already surrounds it.
     capsuleGlyph: {
-      width: 48,
-      height: 48,
+      width: CAPSULE_GLYPH,
+      height: CAPSULE_GLYPH,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -629,7 +693,7 @@ function build(scheme: ColorScheme) {
     // app is drawn in, and short of the capsule's full height so it separates without
     // cutting the shape in two.
     capsuleDivider: {
-      width: 1,
+      width: CAPSULE_DIVIDER,
       height: 20,
       backgroundColor: theme.border,
     },
@@ -1101,27 +1165,41 @@ function build(scheme: ColorScheme) {
     // the gap the owner found. `paddingBottom` separates the title from the first trip header,
     // which brings its own 20.
     //
-    // **`minHeight` is `CAPSULE_HEIGHT`, and it is what keeps the summary line out from under
-    // the glass** (M1l). The capsule floats at `top: 0` of the region this title heads, so it
-    // reaches 48 pt down — past this title's own ~36 and into the line beneath it. Measured on
-    // the device, not deduced: at eight dives the summary ends 10 pt short of the capsule's
-    // leading edge, so the first logbook to reach three figures — or the first Czech
-    // translation, §0.5's 20–30 % — puts `41.2 m` behind it. A trailing inset on the summary
-    // was the alternative and is worse: reserving the capsule's own 105 pt leaves 36 characters,
-    // which the eight-dive line already exceeds, so the common case would wrap to buy the rare
-    // one. Reserving the HEIGHT costs one gap under the title and gives the line the full
-    // column at every length and in every language.
+    // **`paddingRight` is `DIVES_HEADER_TRAILING_INSET`, and it is what keeps the summary line
+    // out from under the glass** (§0.6, M1m). The capsule floats at `top: 0` of the region this
+    // title heads and reaches 48 pt down — past this title's own ~36 and into the line beneath
+    // it — so the two objects overlap in the vertical and the clearance has to come out of the
+    // horizontal. The header's text column stops at the capsule's leading edge; the summary
+    // wraps to a second line under the capsule, which is what the owner's sheet draws.
     //
-    // Stated as a `minHeight` rather than a bigger `paddingBottom` on purpose: what has to be
-    // true is "as tall as the capsule", and the title's own text height is a font metric this
-    // sheet does not get to assume. `justifyContent` is not needed — a `Text` lays its line out
-    // from the top of its box, so the extra height falls below the title where it is wanted.
+    // It sits BESIDE `paddingHorizontal` rather than replacing it, and that is not sloppiness:
+    // Yoga resolves the edge-specific property over the axis one, so the left edge is still
+    // `CONTENT_INSET` and still the app's one column — which is what the column sweep in
+    // styles.test.ts reads, and what has to stay true of the title's own left edge.
+    //
+    // **M1l reserved the capsule's HEIGHT here instead** — `minHeight: CAPSULE_HEIGHT`, so the
+    // line was pushed below the capsule rather than narrowed beside it — and rejected the width
+    // with arithmetic: 257 pt of remaining room for a line already 255 pt long. The arithmetic
+    // was right; the constraint it was handed was not. Nothing in §0.6 asks this line to fit on
+    // one, and the sheet it came from wraps it. What the reserve actually cost, measured on the
+    // device either side of this change, is **14 pt** of extra gap between "Dives" and the line
+    // under it — the summary's ink started at 113.3 pt down the screen and starts at 99.3 now —
+    // on the one screen whose title height the owner had just spent M1k measuring. See §10,
+    // "Right arithmetic, wrong question".
+    //
+    // **The title is inside the cap too, and that is deliberate**: it is one column, not a
+    // narrow line under a full-width one. Measured, "Dives" sets 50 pt wide at this heading's
+    // 20 pt Archivo SemiBold and Czech's "Ponory" is one character more — neither is near the
+    // ~253 pt this leaves on a 402 pt phone, so nothing wraps today. If a title ever did, it
+    // would wrap to two lines beside the capsule and push the summary down with it, which is the
+    // correct failure: §0.5 already says labels wrap rather than truncate, and a title running
+    // under the glass is the defect this whole entry is about.
     divesTitle: {
       ...screenHeading,
       paddingHorizontal: CONTENT_INSET,
+      paddingRight: DIVES_HEADER_TRAILING_INSET,
       paddingTop: SCREEN_HEADING_TOP,
       paddingBottom: 8,
-      minHeight: CAPSULE_HEIGHT,
     },
     // **The summary line under the title** (§0.6, M1l — the owner's sheet): `128 dives ·
     // 96 h 12 min · deepest 41.2 m`, the three figures §3 gives the Stats tab, said once at
@@ -1146,11 +1224,23 @@ function build(scheme: ColorScheme) {
     // band — but the depth here is an aggregate over a whole logbook, and one band colour
     // would be a claim about a set that no single band is true of. `fgMuted`, like the rest of
     // the line.
+    // **The same trailing cap as the title above it** (M1m), because the cap is on the header's
+    // COLUMN and not on one line of it. This is the line the cap exists for: it is the one that
+    // grows with the logbook, and it is what was rendering behind the glass.
+    //
+    // **A third line is capped too, and that is accepted.** A summary long enough to need three
+    // lines puts the third below the capsule, where the full width is actually free, and it will
+    // still stop at `DIVES_HEADER_TRAILING_INSET` — a slightly short line where a longer one
+    // would have fitted. That is invisible; a line running under the capsule is not, and buying
+    // the second with a per-line rule would mean measuring text, which is neither a stylesheet's
+    // job nor worth a layout pass for a case no logbook reaches (three lines needs ~68 characters
+    // where the three-digit example is 40).
     divesSummary: {
       fontFamily: fonts.mono,
       fontSize: 11.5,
       color: theme.fgMuted,
       paddingHorizontal: CONTENT_INSET,
+      paddingRight: DIVES_HEADER_TRAILING_INSET,
       paddingBottom: 8,
     },
     // ------------------------------------------------------------------------------------

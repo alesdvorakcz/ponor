@@ -42,6 +42,8 @@ import {
   formatWeather,
   formatWeightsFeel,
   formatLogbookSummary,
+  METADATA_SEPARATOR,
+  NON_BREAKING_SPACE,
   formatSurfaceInterval,
   formatTemperature,
   formatTimeUnderwater,
@@ -834,8 +836,17 @@ describe('formatTimeUnderwater', () => {
 // Assembled from the owners that already have each piece; what is decided here is the order,
 // the word "deepest", and which figures appear at all.
 describe('formatLogbookSummary', () => {
+  // **The spaces inside a figure are U+00A0** (M1m), so this line — the one line in the app
+  // that wraps — can only fold at a middot. Every assertion below except `breaks only between
+  // figures` is a claim about WORDS, so it reads the line back with its spaces normalised: a
+  // non-breaking space is indistinguishable from a space on screen and in a diff, and pasting
+  // invisible ones into eight expectations would make every one of them unreadable and fragile
+  // for a reason none of them is about. The rule itself gets its own test, which is where the
+  // characters are named out loud.
+  const words = (line: string) => line.replaceAll(NON_BREAKING_SPACE, ' ');
+
   it('reads the three figures §3 gives the Stats tab, in that order', () => {
-    expect(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric')).toBe(
+    expect(words(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric'))).toBe(
       '128 dives · 96 h 12 min · deepest 41.2 m',
     );
   });
@@ -844,7 +855,7 @@ describe('formatLogbookSummary', () => {
   // and never a second conversion. §10 gives imperial whole feet, so the ragged figure is what
   // proves the line went through the pair rather than round it.
   it('reads the depth in the diver own units', () => {
-    expect(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'imperial')).toBe(
+    expect(words(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'imperial'))).toBe(
       '128 dives · 96 h 12 min · deepest 135 ft',
     );
   });
@@ -852,13 +863,13 @@ describe('formatLogbookSummary', () => {
   // **A figure with nothing behind it is omitted, not drawn as an em dash** — this module's
   // standing rule (its own top docblock), and what every other middot list in the app does.
   it('omits a figure nothing recorded rather than printing a placeholder', () => {
-    expect(formatLogbookSummary({ dives: 28, minutes: null, deepestM: 18 }, 'metric')).toBe(
+    expect(words(formatLogbookSummary({ dives: 28, minutes: null, deepestM: 18 }, 'metric'))).toBe(
       '28 dives · deepest 18.0 m',
     );
-    expect(formatLogbookSummary({ dives: 28, minutes: 640, deepestM: null }, 'metric')).toBe(
+    expect(words(formatLogbookSummary({ dives: 28, minutes: 640, deepestM: null }, 'metric'))).toBe(
       '28 dives · 10 h 40 min',
     );
-    expect(formatLogbookSummary({ dives: 28, minutes: null, deepestM: null }, 'metric')).toBe('28 dives');
+    expect(words(formatLogbookSummary({ dives: 28, minutes: null, deepestM: null }, 'metric'))).toBe('28 dives');
   });
 
   // **The count never drops out**, including at zero. On the empty logbook this line is the
@@ -866,20 +877,59 @@ describe('formatLogbookSummary', () => {
   // and it must still be exactly the words `formatDiveCount` gives it, since the screen's own
   // test asserts that pair through this function.
   it('still says how many dives when there are none, and says only that', () => {
-    expect(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric')).toBe('0 dives');
-    expect(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric')).toBe(formatDiveCount(0));
+    expect(words(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric'))).toBe('0 dives');
+    expect(words(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric'))).toBe(formatDiveCount(0));
   });
 
   it('says one dive in the singular, like every other count in the app', () => {
-    expect(formatLogbookSummary({ dives: 1, minutes: 47, deepestM: 18.4 }, 'metric')).toBe(
+    expect(words(formatLogbookSummary({ dives: 1, minutes: 47, deepestM: 18.4 }, 'metric'))).toBe(
       '1 dive · 47 min · deepest 18.4 m',
     );
+  });
+
+  // **Where this line is allowed to fold** (§0.6, M1m). It is the one line in the app with a
+  // measure — the header column stops at the floating capsule's leading edge — so it wraps, and
+  // the owner's sheet draws the fold at a middot: `128 dives · 96 h 12 min ·` above `deepest
+  // 41.2 m`. Nothing in the string says that on its own; with ordinary spaces throughout, the
+  // device folds wherever the width happens to run out — seen on the simulator as `8 dives · 5 h
+  // 19 min · deepest 41.2` above a line holding nothing but `m`, and one word earlier at this
+  // example, which tears `deepest` off the figure it labels. Either way a figure loses its unit
+  // or its label, which is a worse line than the one the cap was added to prevent.
+  //
+  // Asserted as the SET OF BREAK OPPORTUNITIES rather than as the finished string, because that
+  // is the actual rule and it holds in every language: split the line on ordinary spaces and
+  // what comes back must be the figures and the middots, whole. Pasting the expected line with
+  // invisible U+00A0s in it would assert the same thing in a form no reader could check.
+  it('breaks only between figures, never inside one', () => {
+    const line = formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric');
+    expect(line.split(' ')).toEqual([
+      `128${NON_BREAKING_SPACE}dives`,
+      '·',
+      `96${NON_BREAKING_SPACE}h${NON_BREAKING_SPACE}12${NON_BREAKING_SPACE}min`,
+      '·',
+      `deepest${NON_BREAKING_SPACE}41.2${NON_BREAKING_SPACE}m`,
+    ]);
+    // The separator itself keeps its ordinary spaces — it is the whole of what may break, so a
+    // `METADATA_SEPARATOR` that ever went non-breaking would leave the line no fold at all and
+    // put it straight back under the capsule.
+    expect(METADATA_SEPARATOR).not.toContain(NON_BREAKING_SPACE);
+    expect(line).toContain(METADATA_SEPARATOR);
+  });
+
+  // **The shortest possible line cannot wrap at all**, which is the empty logbook's (§10, M1h):
+  // "0 dives" is two words and one space, and that space is non-breaking like every other space
+  // inside a figure — so the branch whose whole job is to say the logbook was read and holds
+  // nothing says it on one line, at any column width, in any language.
+  it('leaves the empty logbook line with nowhere to break', () => {
+    const line = formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric');
+    expect(line).not.toContain(' ');
+    expect(words(line)).toBe(formatDiveCount(0));
   });
 
   // A depth the app would refuse to draw is refused here too, because the figure goes through
   // `formatDepth` — so the line can never name a depth no screen in the app would print.
   it('drops a depth that is not a depth', () => {
-    expect(formatLogbookSummary({ dives: 3, minutes: 120, deepestM: Number.NaN }, 'metric')).toBe(
+    expect(words(formatLogbookSummary({ dives: 3, minutes: 120, deepestM: Number.NaN }, 'metric'))).toBe(
       '3 dives · 2 h',
     );
   });

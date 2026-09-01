@@ -410,28 +410,62 @@ describe('the Dives screen floating capsule', () => {
     expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
   });
 
-  // **The capsule reaches past the title, and the summary line under it has to start below
-  // where it reaches** (M1l). The float is 48 pt tall at `top: 0` of the region the title
-  // heads; the title's own block is about 36, so without this the second line of the heading
-  // is laid out straight under the glass. It does not LOOK broken at eight dives — measured on
-  // the device, the line ends 10 pt short of the capsule's leading edge — and it starts hiding
-  // figures at three-digit dive counts, or in Czech (§0.5: 20–30 % longer), which is a defect
-  // that arrives with the diver's hundredth dive and with nobody's edit.
+  // **The capsule reaches past the title, so the header's text column has to stop short of it**
+  // (§0.6, M1m — the correction to M1l). The float is 48 pt tall at `top: 0` of the region the
+  // title heads and the title's own block is about 36, so the two overlap in the vertical
+  // whatever either does; the clearance can only come out of the horizontal. Measured on the
+  // device with this cap removed and the sheet's own 128-dive line rendered: the capsule's
+  // leading edge is at 281.0 pt and the line's ink ends at 291.3, so it runs 10 pt UNDER the
+  // glass. It clears at one dive, which is why this arrives with the diver's hundredth and with
+  // nobody's edit — or sooner, in Czech (§0.5: 20–30 % longer).
   //
-  // A relation, not a number: the reserve is *the capsule's own height*, so changing one moves
-  // the other. Both the height and the offset are read off the sheet, since a float starting
-  // lower would need a taller reserve for the same reason.
-  it('keeps the title at least as tall as the capsule that floats beside it', () => {
+  // **A relation, not a number, and the capsule's own geometry is what it is read from**: the
+  // two glyph boxes, the hairline between them and the capsule's inner padding, summed here the
+  // way Yoga sums them rather than restated as the 105 pt they currently make. So widening
+  // §0.5's tap floor, or the capsule's padding, moves the requirement — and a hand-typed inset
+  // in the sheet fails this the moment either moves, which is the whole reason the sheet derives
+  // it. What this cannot see is how many glyphs the capsule holds (a prop, not a style); §3
+  // expects a third, and DivesScreen.test.tsx counts the rendered ones against this same sum.
+  it('stops the header text column short of the capsule that floats beside it', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
-      const capsuleBottom =
-        (sheet.divesCapsuleFloat?.top as number) + (sheet.actionCapsulePlain?.height as number);
-      expect(typeof capsuleBottom).toBe('number');
-      expect(capsuleBottom).toBeGreaterThan(0);
-      expect(sheet.divesTitle?.minHeight).toBeGreaterThanOrEqual(capsuleBottom);
-      // The glass capsule is the same object on a device that has Liquid Glass, so it may not
-      // be the taller of the two either.
+      const capsuleWidth =
+        (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 +
+        (sheet.capsuleGlyph?.width as number) * 2 +
+        (sheet.capsuleDivider?.width as number);
+      const leadingEdge = (sheet.divesCapsuleFloat?.right as number) + capsuleWidth;
+      expect(leadingEdge).toBeGreaterThan(0);
+
+      // Both lines of the header, because the cap is on the COLUMN. `divesSummary` is the line
+      // that was rendering behind the glass; `divesTitle` is the one that would if a translation
+      // ever made it long, and capping only the line that misbehaves today is how this screen
+      // acquires a second answer to one question.
+      const short = ['divesTitle', 'divesSummary'].filter((name) => {
+        const inset = sheet[name]?.paddingRight;
+        return typeof inset !== 'number' || inset < leadingEdge;
+      });
+      expect(short).toEqual([]);
+      // One column, so one cap: two different values would be a visible step between two lines
+      // that read as one block.
+      expect(sheet.divesSummary?.paddingRight).toBe(sheet.divesTitle?.paddingRight);
+      // The LEADING edge is untouched by any of it — still the app's one content column, which
+      // is what the sweep further down reads off `paddingHorizontal`.
+      expect(sheet.divesTitle?.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
+
+      // **And the height is not reserved any more.** M1l bought this same clearance out of
+      // vertical space — `minHeight: CAPSULE_HEIGHT` on the title, so the line wrapped below the
+      // capsule — and the cost, measured on the device either side of the change, was 14 pt of
+      // extra gap between "Dives" and the line under it, which was the owner's actual complaint.
+      // A `minHeight` reappearing here would pay for the clearance twice and undo the fix while
+      // every other assertion above stayed green.
+      expect(sheet.divesTitle?.minHeight).toBeUndefined();
+
+      // The glass capsule is the same object on a device that has Liquid Glass, so neither the
+      // height nor the padding this width is summed from may differ between the two materials.
       expect(sheet.actionCapsuleGlass?.height).toBe(sheet.actionCapsulePlain?.height);
+      expect(sheet.actionCapsuleGlass?.paddingHorizontal).toBe(
+        sheet.actionCapsulePlain?.paddingHorizontal,
+      );
     }
   });
 });
@@ -759,6 +793,23 @@ describe('the app content column', () => {
       for (const name of ['reorderNotice', 'settingsNotice', 'formSaveError', 'presetNotice']) {
         expect([name, sheet[name]?.marginHorizontal]).toEqual([name, column]);
       }
+    }
+  });
+
+  // **Which styles override that column's own trailing edge, named** (M1m). `paddingHorizontal`
+  // sets both edges, and an edge-specific `paddingRight` beside it wins on the right — which is
+  // how the Dives header stops short of the floating capsule while its left edge stays in the
+  // column. The sweep above reads only `paddingHorizontal`, so it would stay green over a style
+  // whose real right edge is anywhere at all; this is the half that says only two styles are
+  // allowed to be doing that, and which two.
+  it('lets only the Dives header override that column trailing edge', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const overriding = Object.entries(sheet)
+        .filter(([, style]) => style?.paddingRight !== undefined || style?.paddingEnd !== undefined)
+        .map(([name]) => name)
+        .sort();
+      expect(overriding).toEqual(['divesSummary', 'divesTitle']);
     }
   });
 

@@ -26,7 +26,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { formatDiveCount } from '../format/display';
+import { formatDiveCount, NON_BREAKING_SPACE } from '../format/display';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { depthBandColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
@@ -78,7 +78,22 @@ function textNodesOf(t: RenderResult) {
 function textIn(t: RenderResult): string[] {
   return textNodesOf(t)
     .flatMap((n) => n.children)
-    .filter((c): c is string => typeof c === 'string');
+    .filter((c): c is string => typeof c === 'string')
+    .map(words);
+}
+
+/**
+ * A line read back with its non-breaking spaces normalised to ordinary ones.
+ *
+ * The summary line under the title sets every space INSIDE a figure as U+00A0 so it can only
+ * wrap at a middot (§0.6, M1m — `formatLogbookSummary` owns that and display.test.ts pins it).
+ * On screen and in a diff a U+00A0 is a space, so every assertion in this file about what the
+ * screen SAYS reads through this: the alternative is expectations carrying invisible characters
+ * that no reader can verify, failing for a reason none of them is about. Where a line may break
+ * is not this file's claim to make.
+ */
+function words(line: string): string {
+  return line.replaceAll(NON_BREAKING_SPACE, ' ');
 }
 
 /** The capsule's leading glyph — the magnifier that opens `/search`. Matched on the label
@@ -829,6 +844,38 @@ it('aligns the capsule and the title to the same column the list rows use', asyn
   expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
 });
 
+// **The header's cap has to clear the capsule this screen ACTUALLY renders** (§0.6, M1m).
+// theme/styles.ts derives the header's trailing inset from the capsule's own geometry — two
+// glyph boxes, the hairline between them, the capsule's padding — and there is exactly one term
+// it cannot derive, because it is a prop and not a style: how many glyphs are in there.
+//
+// §3 expects a third (M2's Map, M3's Stats, Calendar's view toggle), and adding one to
+// `capsuleActions` widens the capsule by a glyph plus a hairline while touching no style at all.
+// That is the summary line back under the glass, arriving with a feature rather than with an
+// edit to this screen's layout — which is the same shape as the defect M1l found by looking and
+// no test could see. So the count is read from the render and the sum is done here.
+it('caps the header wide enough for every glyph the capsule actually renders', async () => {
+  stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  const glyphs = findCapsule(t).queryAll((n) => n.props?.accessibilityRole === 'button').length;
+  // A capsule that rendered nothing would make every inequality below vacuously true.
+  expect(glyphs).toBeGreaterThan(0);
+
+  const styles = makeStyles('light') as unknown as Record<string, Record<string, unknown>>;
+  // Yoga's own sum for a row of `glyphs` boxes with a hairline between each pair, inside the
+  // capsule's padding — the same relation styles.test.ts asserts against two, computed here
+  // against however many the screen hands the capsule.
+  const capsuleWidth =
+    (styles.actionCapsulePlain?.paddingHorizontal as number) * 2 +
+    glyphs * (styles.capsuleGlyph?.width as number) +
+    (glyphs - 1) * (styles.capsuleDivider?.width as number);
+  const leadingEdge = (styles.divesCapsuleFloat?.right as number) + capsuleWidth;
+
+  expect(styles.divesTitle?.paddingRight).toBeGreaterThanOrEqual(leadingEdge);
+  expect(styles.divesSummary?.paddingRight).toBeGreaterThanOrEqual(leadingEdge);
+});
+
 // **This replaces the two recede tests, and it asserts the opposite of what they did.** The
 // capsule used to fade out on a sustained downward scroll and come back on the way up, because
 // it was sitting on the sticky headers. It floats again (M1k) and still does not recede: what
@@ -1039,7 +1086,7 @@ it('says a logbook holding only plans holds no dives', async () => {
   expect(textIn(t)).toContain(formatDiveCount(0));
   // And only that: the plan's own 90 minutes and 45 m belong to a dive that has not happened.
   const [summary] = findSummary(t);
-  expect(summary && textOf(summary)).toBe('0 dives');
+  expect(summary && words(textOf(summary))).toBe('0 dives');
 });
 
 // **The count is this logbook's, never the diver's dive number** (§2.5). A diver with 100
@@ -1095,7 +1142,7 @@ it('draws the summary as one muted line, giving the deepest depth no band colour
   expect(summaries).toHaveLength(1);
   const [summary] = summaries;
   // The whole line, in this one node — nothing broken out to be styled on its own.
-  expect(summary && textOf(summary)).toBe('2 dives · 1 h 25 min · deepest 41.2 m');
+  expect(summary && words(textOf(summary))).toBe('2 dives · 1 h 25 min · deepest 41.2 m');
   expect(summary?.children.every((c) => typeof c === 'string')).toBe(true);
   // ...and the ink is the sheet's muted, which is what every band colour is not. `themeFor`
   // rather than a literal, so this cannot drift from the tokens.
