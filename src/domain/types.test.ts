@@ -1,15 +1,26 @@
+import * as domain from './types';
 import {
   CONFIGURATION_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
-  SUIT_VALUES,
   VISIBILITY_VALUES,
-  WATER_BODY_VALUES,
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   cylinderCount,
   type Configuration,
 } from './types';
+
+/**
+ * Every closed vocabulary `domain/types.ts` declares, found by its own naming convention
+ * rather than listed here — so a vocabulary added there is swept on the commit that adds it,
+ * and a list of the lists cannot go stale the way the first version of this file's sweep did.
+ *
+ * The count is asserted alongside the sweep for the reason a derived list always needs one: a
+ * filter that matched nothing would pass every assertion below without running one.
+ */
+const VOCABULARIES: [string, readonly string[]][] = Object.entries(
+  domain as Record<string, unknown>,
+).filter((entry): entry is [string, readonly string[]] => entry[0].endsWith('_VALUES') && Array.isArray(entry[1]));
 
 /**
  * `domain/types.ts` is almost entirely types and lists, which a test cannot meaningfully
@@ -84,16 +95,13 @@ describe('the vocabularies', () => {
   // is what forbids the rejected `'partly cloudy'` and `'partly_cloudy'` spellings, and what
   // `semidry` already obeys by compressing a two-word concept into one token.
   it('spells every member as a single lowercase word, with no separator standing in for one', () => {
-    for (const vocabulary of [
-      SALINITY_VALUES,
-      WATER_BODY_VALUES,
-      WEATHER_VALUES,
-      VISIBILITY_VALUES,
-      SUIT_VALUES,
-      WEIGHTS_FEEL_VALUES,
-      CONFIGURATION_VALUES,
-      EQUIPMENT_VALUES,
-    ] as readonly (readonly string[])[]) {
+    // **Derived, not listed.** The first version of this test typed out eight of the ten
+    // vocabularies and quietly omitted `ENTRY_VALUES` and `TANK_MATERIAL_VALUES` — a
+    // hand-maintained list of the lists, which is §4.1's defect one level up and exactly what
+    // this file exists to catch one level down. Every `*_VALUES` export is swept, so a
+    // vocabulary added to `domain/types.ts` is covered on the commit that adds it.
+    expect(VOCABULARIES.map(([name]) => name)).toHaveLength(10);
+    for (const [, vocabulary] of VOCABULARIES) {
       for (const member of vocabulary) {
         expect(member).toMatch(/^[a-z]+$/);
       }
