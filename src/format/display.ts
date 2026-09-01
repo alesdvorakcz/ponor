@@ -260,6 +260,25 @@ export const O2_LABEL = 'O₂';
 export const HE_LABEL = 'He';
 
 /**
+ * **The middot this app puts between small facts on one line**, and the one place it is
+ * spelled.
+ *
+ * §0.6 makes it the treatment for a row's metadata — "Time · duration · rating,
+ * middot-separated" — and everything that lists facts inline follows it: a dive row's
+ * metadata, the detail screen's own inline list, a cylinder's fields, an accessory set. Three
+ * of those already said in prose that they were obeying one rule, which is precisely how a
+ * rule ends up written five times and changed in four places: the WORDS on either side of this
+ * had an owner and the separator between them did not. Found in review, on the two functions
+ * that had just been split apart — `formatCylinderSpec` and `formatCylinder` state the same
+ * join one line of code apart.
+ *
+ * The spaces are part of it. `12 l Steel·232 bar` is a different mark from `12 l Steel · 232
+ * bar`, and a caller that had to remember to pad it would be the same defect one character
+ * over.
+ */
+export const METADATA_SEPARATOR = ' · ';
+
+/**
  * The third fraction, which is never stored and never typed — `derived.ts`'s `nitrogenPct`
  * computes it as 100 − O₂ − He (§10). It joins the two above because it is the same kind of
  * string for the same reason: a label for a gas fraction, spelled once so two screens cannot
@@ -343,7 +362,7 @@ export function formatCylinderSpec(tank: Tank, system: UnitSystem): string | nul
   const working = formatPressure(tank.workingBar, system);
   if (working !== null) parts.push(working);
 
-  return parts.length === 0 ? null : parts.join(' · ');
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /**
@@ -372,7 +391,7 @@ function formatCylinder(tank: Tank, system: UnitSystem): string | null {
   const he = formatPercent(tank.hePct);
   if (he !== null) parts.push(`${HE_LABEL} ${he}`);
 
-  return parts.length === 0 ? null : parts.join(' · ');
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /**
@@ -658,7 +677,7 @@ export function formatWeightsFeel(weightsFeel: WeightsFeel | null): string | nul
  */
 export function formatEquipment(equipment: readonly Equipment[]): string | null {
   if (!Array.isArray(equipment) || equipment.length === 0) return null;
-  return equipment.map((token) => formatEquipmentToken(token)).join(' · ');
+  return equipment.map((token) => formatEquipmentToken(token)).join(METADATA_SEPARATOR);
 }
 
 /**

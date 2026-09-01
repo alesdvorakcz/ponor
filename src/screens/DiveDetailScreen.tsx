@@ -44,6 +44,7 @@ import {
   formatWeather,
   formatWeight,
   formatWeightsFeel,
+  METADATA_SEPARATOR,
 } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { confirmDestructive } from '../platform/confirmDestructive';
@@ -573,7 +574,7 @@ function heroSubline(dive: Dive, number: number | undefined): string {
   const centre = diveSiteLabel(dive) === dive.centerName ? null : dive.centerName;
   return [number !== undefined ? `#${number}` : null, formatDiveDate(dive.date), centre]
     .filter((part): part is string => part !== null)
-    .join(' · ');
+    .join(METADATA_SEPARATOR);
 }
 
 interface DiveDetailScreenProps {

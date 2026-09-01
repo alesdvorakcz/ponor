@@ -2,7 +2,14 @@ import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
-import { diveSiteLabel, formatDepth, formatDiveDate, formatDuration, formatTimeRange } from '../format/display';
+import {
+  diveSiteLabel,
+  formatDepth,
+  formatDiveDate,
+  formatDuration,
+  formatTimeRange,
+  METADATA_SEPARATOR,
+} from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { makeStyles, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -143,7 +150,7 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
   // beside a chip that isn't actually there. `dive.rating` stays out of this join: §0.6
   // draws rating as circles, not text (task 7's `RatingDots`), so it is added as a fourth,
   // separately middot-joined element below rather than folded into one string.
-  const metaText = [plannedDate, timeRange, duration].filter((part): part is string => part !== null).join(' · ');
+  const metaText = [plannedDate, timeRange, duration].filter((part): part is string => part !== null).join(METADATA_SEPARATOR);
   const hasMetaText = metaText !== '';
   const hasMeta = hasMetaText || dive.rating !== null;
 
@@ -169,11 +176,11 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
       {hasMeta && (
         <View style={styles.diveRowBottom}>
           {hasMetaText && <Text style={styles.diveChip}>{metaText}</Text>}
-          {/* The one separator `.join(' · ')` above can't supply: RatingDots is a row of
+          {/* The one separator `.join(METADATA_SEPARATOR)` above can't supply: RatingDots is a row of
               drawn circles (§0.6: "drawn, not typed", task 7), not a string, so it can't
               join into `metaText` the way the three text chips do. Rendered only when both
               sides actually exist, so the line never opens or closes on a stray middot. */}
-          {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{' · '}</Text>}
+          {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{METADATA_SEPARATOR}</Text>}
           {dive.rating !== null && <RatingDots rating={dive.rating} styles={styles} />}
         </View>
       )}
