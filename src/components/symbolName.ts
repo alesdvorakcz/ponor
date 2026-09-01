@@ -12,9 +12,14 @@ export interface PlatformSymbol {
 }
 
 /**
- * **The one owner of what `SymbolView`'s `name` prop must contain.** Both call sites — the
- * search capsule's magnifier and the `entry` chips' walk/ferry pair — go through here, so
- * the answer is stated once rather than agreed twice.
+ * **The one owner of what `SymbolView`'s `name` prop must contain.** Every call site goes
+ * through here rather than building the object itself, so the answer is stated once rather
+ * than agreed at each. (This sentence used to enumerate the call sites, which was true when
+ * it was written and false by the time the weather glyphs, the action capsule and M1h's
+ * condition marks had been added. A list of callers in the callee's own docblock is a second
+ * copy of something the call graph already knows, and it goes stale the same way §4.1's
+ * duplicated rules do. `symbolName.test.tsx` names the ones it actually renders, because
+ * *that* list is a claim about coverage and has to be exact.)
  *
  * It exists because of a specific hole. `expo-symbols` ships two implementations:
  * `SymbolView.ios.tsx`, which reads `name.ios`, and `SymbolView.tsx`, used by **both Android
