@@ -140,7 +140,17 @@ export default function SettingsScreen() {
   // wrote — the same discipline DivesScreen keeps with `useDives()`. A write below is never
   // read back from its own return value.
   const units = useUnitSystem();
-  const divesBefore = useDivesBefore();
+  // `resolved` alongside the count for the reason that hook's own field states: `count` reads 0
+  // before the read answers, which is indistinguishable from a diver who genuinely has none —
+  // and this is the one screen where that 0 is not merely shown but typed over.
+  const { count: divesBefore, resolved: divesBeforeResolved } = useDivesBefore();
+  // The text the stored count reads as, in one place, because two things restore the field from
+  // it — the reseed gate below and `settleCount` — and they must not disagree about what an
+  // unknown count looks like. `''` covers all three ways there is nothing to show: a read that
+  // has not answered, a stored value that could not be read (`null`), and the two together.
+  // The row's `0` placeholder then says what belongs there without asserting a value (§0.6).
+  const storedCountText = () =>
+    !divesBeforeResolved || divesBefore === null ? '' : String(divesBefore);
   // §2.1's cylinder presets, from their own hook rather than a field on either read above —
   // see db/useGearPresets.ts for why a failed preset read must not be able to blank anything
   // else. Its `error` IS read here, and this is the screen it was carried for.
@@ -155,17 +165,49 @@ export default function SettingsScreen() {
   // typed something that may not be a count yet ("", "2" on the way to "24"), and the field
   // has to show that rather than snapping to whatever is currently in the database.
   const [countText, setCountText] = useState('');
-  // What `countText` was last seeded from. `useDivesBefore()` resolves asynchronously — the
-  // first render of this screen always sees the "no row yet" answer and the real value
-  // arrives a moment later — so the field has to reseed when it does, or an imperial diver
-  // with 247 prior dives would sit here looking at a 0 that is not what is stored. Compared
-  // as a scalar and adjusted during render rather than in an Effect, which is React's own
-  // documented pattern for this and is what `DiveFormScreen`'s reseed gate already does;
-  // `undefined` is "never seeded", distinct from a stored `null` (unreadable) and from 0.
+  /**
+   * Whether the diver has typed into the count field at all — the one thing that survives every
+   * reseed below, and the reason this field is not `DiveFormScreen`'s problem all over again.
+   *
+   * `SeedState.typed` (DiveFormScreen.tsx) and `PresetDraft` (GearPresetScreen.tsx) both state
+   * the same rule for the same reason: **once a diver has touched a field, their draft wins over
+   * a later answer from the database**, because "the alternative is a diver's half-typed edit
+   * being overwritten mid-keystroke". Having been typed is a fact that does not expire, so this
+   * is never cleared.
+   *
+   * Sticky is safe here specifically because nothing else writes this row: `setDivesBefore`
+   * (below) is the only writer, and it is this field's own keystrokes. A reseed after the
+   * diver's own write only ever restores the text they just typed, so refusing it costs nothing;
+   * `settleCount` below still reads the stored value directly, which is what restores an
+   * unusable entry.
+   */
+  const [countTyped, setCountTyped] = useState(false);
+  // What `countText` was last seeded from. Compared as a scalar and adjusted during render
+  // rather than in an Effect, which is React's own documented pattern for this and is what
+  // `DiveFormScreen`'s reseed gate already does; `undefined` is "never seeded", distinct from a
+  // stored `null` (unreadable) and from 0.
+  //
+  // **Both extra conditions are M1f, and between them they close a defect that DESTROYED a
+  // diver's input rather than merely asserting something false.** `useDivesBefore` reported 0
+  // before the read had answered, indistinguishable from a diver who never answered the
+  // onboarding question — so this gate seeded the field with a `0` nobody had entered, and then
+  // fired again when the real value landed and replaced whatever had been typed over it.
+  // Silently, with no error and nothing on screen to say so, and §2.5 makes this row the offset
+  // every dive number in the logbook is computed from, so it is not a display detail.
+  //
+  // `divesBeforeResolved` is what stops the false seed: until the read answers there is nothing
+  // to seed FROM, and the row shows its `0` placeholder instead, which says what belongs there
+  // without claiming it is the value (§0.6). `countTyped` is what stops the destruction, and it
+  // is needed on its own — without it the first real answer still lands on top of anything typed
+  // while waiting, and the wait is exactly what §7's sync makes longer.
+  //
+  // It must still reseed in the two cases it exists for, and it does: a diver who has typed
+  // nothing gets the real value the moment it arrives (`countTyped` false), and a diver who
+  // changes the count writes it themselves through `editCount`.
   const [seededFrom, setSeededFrom] = useState<number | null | undefined>(undefined);
-  if (seededFrom !== divesBefore) {
+  if (divesBeforeResolved && !countTyped && seededFrom !== divesBefore) {
     setSeededFrom(divesBefore);
-    setCountText(divesBefore === null ? '' : String(divesBefore));
+    setCountText(storedCountText());
     // A reseed means the database's own answer changed; whatever the last write said about
     // itself is stale.
     setCountError(null);
@@ -184,6 +226,11 @@ export default function SettingsScreen() {
 
   const editCount = (text: string) => {
     setCountText(text);
+    // From here on the field holds the diver's own text, and no later answer from the database
+    // may replace it — see `countTyped` above for the rule and for the two screens that already
+    // state it. Set on every keystroke, including the ones that are not yet a count, because a
+    // diver halfway through "247" has typed just as surely as one who finished.
+    setCountTyped(true);
     const parsed = parseDiveCount(text);
     if (!isDiveCount(parsed)) {
       // Nothing is written for text that is not yet a count, and the row keeps whatever it
@@ -206,9 +253,19 @@ export default function SettingsScreen() {
   // hence the note — except for a simply-empty field, which is what retyping looks like and
   // says nothing about the diver's intent.
   const settleCount = () => {
+    // A valid count returns early, and `countTyped` stays set with it: that value is the
+    // diver's, `editCount` has already written it, and it must keep winning over any later
+    // answer from the database.
     if (isDiveCount(parseDiveCount(countText))) return;
     if (countText.trim() !== '') setCountError('Whole dives only, 0 or more — nothing was saved.');
-    setCountText(divesBefore === null ? '' : String(divesBefore));
+    // Past here the draft is being DISCARDED — the text was not a count and nothing was saved —
+    // so there is no draft left for `countTyped` to protect, and leaving it set would make this
+    // field permanently unfillable: a diver who typed something unusable before the read
+    // answered would be left with an empty row the real value could never afterwards reach.
+    setCountTyped(false);
+    // Through the same `storedCountText` the reseed uses, so an unusable entry left before the
+    // read has answered restores to an empty row rather than to a `0` nothing has read.
+    setCountText(storedCountText());
   };
 
   return (

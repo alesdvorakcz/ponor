@@ -93,15 +93,21 @@ function stubSettings({
   presets = [],
   presetsError,
   presetsResolved = true,
+  divesBeforeResolved = true,
 }: {
   units?: string;
   divesBefore?: number | null;
   presets?: GearPreset[];
   presetsError?: Error;
   presetsResolved?: boolean;
+  divesBeforeResolved?: boolean;
 } = {}) {
   mockUseUnitSystem.mockImplementation(() => units);
-  mockUseDivesBefore.mockImplementation(() => divesBefore);
+  // Both `*Resolved` flags default to TRUE — the read has answered — because that is what every
+  // test in this file is about. Spelled out rather than left `undefined` so this stub keeps
+  // modelling a state the real hooks can actually be in, and so the two describe-less cases
+  // that set them `false` cannot be re-hidden by the default.
+  mockUseDivesBefore.mockImplementation(() => ({ count: divesBefore, resolved: divesBeforeResolved }));
   // `presetsResolved` defaults to TRUE — the read has answered — because that is what every
   // test in this file is about. Spelled out rather than left `undefined` so this stub keeps
   // modelling a state the real hook can actually be in.
@@ -252,19 +258,89 @@ it('says so when a unit write fails, rather than leaving the chip to explain its
 // dives_before (DESIGN.md §2.5: "asked once at onboarding, editable in settings any time")
 // ---------------------------------------------------------------------------------------
 
-// `useDivesBefore()` resolves asynchronously — the first render always sees the "no row yet"
-// answer and the real value arrives a moment later — so a field seeded once on mount would
-// leave a diver with 247 prior dives looking at a 0 that is not what is stored. Proven by
-// rendering, then changing what the hook returns and re-rendering, which is exactly the
-// sequence the real hook produces.
-it('shows the stored count, and follows it when it arrives late', async () => {
-  stubSettings({ divesBefore: 0 });
+// `useDivesBefore()` answers asynchronously — so a field seeded once on mount would leave a
+// diver with 247 prior dives looking at a 0 that is not what is stored. Proven by rendering,
+// then changing what the hook returns and re-rendering, which is exactly the sequence the real
+// hook produces.
+//
+// The first render is stubbed the way the hook actually behaves there — no answer yet (M1f) —
+// which is also the half this test used to model wrongly, as an answered read of a diver with
+// no stored count. Those are two different facts now: `0` is a real answer, and the field shows
+// it (the test below).
+it('shows nothing until the stored count arrives, then shows it', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: false });
   const t = await render(<SettingsScreen />);
-  expect(findCountField(t).props.value).toBe('0');
+  expect(findCountField(t).props.value).toBe('');
 
-  stubSettings({ divesBefore: 247 });
+  stubSettings({ divesBefore: 247, divesBeforeResolved: true });
   await t.rerender(<SettingsScreen />);
   expect(findCountField(t).props.value).toBe('247');
+});
+
+// The other half, and it is the common case: a diver who never answered the onboarding question
+// has a genuine stored 0 (`useDivesBefore`'s own "an absent row is a diver who has never
+// answered, whose honest answer is 0"), and the field must show it rather than sit empty.
+it('shows a stored zero as a zero, once the read has answered', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: true });
+  const t = await render(<SettingsScreen />);
+  expect(findCountField(t).props.value).toBe('0');
+});
+
+/**
+ * M1f, and the sixth site of the same rule — the one that does not merely say something false
+ * but **destroys a diver's input**.
+ *
+ * Two halves, one guard. The field showed `0` before anything had been read, which is a number
+ * nobody entered standing in a field the diver is about to act on — and §2.5 makes this one the
+ * offset every dive number in the logbook is computed from, so it is not a display detail. And
+ * the reseed then fired unconditionally when the real value landed, replacing whatever had been
+ * typed over that fake zero. Silently, with no error and nothing on screen to say so, which is
+ * the hazard `withoutUndefinedFields` (db/dives.ts) exists for one layer down.
+ *
+ * `useUnitSystem`'s degradation to metric is NOT the same thing and this file used to imply it
+ * was: metric is a convention standing in for an absent preference and nobody typed it, where
+ * `0` stands in for a number the diver entered.
+ */
+it('does not show a count of zero before anything has been read', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: false });
+  const t = await render(<SettingsScreen />);
+  // Empty, so §0.6's placeholder says what belongs in the row without asserting a value.
+  expect(findCountField(t).props.value).toBe('');
+});
+
+/**
+ * The transition the two guards have to survive TOGETHER, and the one a naive fix breaks: an
+ * unanswered read reports `count: 0`, and so does the genuine answer for a diver who never
+ * answered the onboarding question — which is the common case, not an edge one.
+ *
+ * A gate that only emptied the TEXT while unresolved, without also refusing to record what it
+ * seeded from, would set `seededFrom = 0` on the first render; the real answer of 0 would then
+ * compare equal, no reseed would fire, and the field would sit empty for ever over a stored
+ * count of 0. This test is what fails for that, and nothing above it does — every other case
+ * here either starts resolved or crosses from 0 to a different number.
+ */
+it('fills in a stored zero when the read answers with the same zero it showed nothing for', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: false });
+  const t = await render(<SettingsScreen />);
+  expect(findCountField(t).props.value).toBe('');
+
+  stubSettings({ divesBefore: 0, divesBeforeResolved: true });
+  await t.rerender(<SettingsScreen />);
+  expect(findCountField(t).props.value).toBe('0');
+});
+
+it('does not replace a count the diver is typing when the stored one lands', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: false });
+  const t = await render(<SettingsScreen />);
+  await fireEvent.changeText(findCountField(t), '2');
+
+  stubSettings({ divesBefore: 247, divesBeforeResolved: true });
+  await t.rerender(<SettingsScreen />);
+
+  // The diver's draft wins over a later answer — `SeedState.typed` (DiveFormScreen.tsx) and
+  // `PresetDraft` (GearPresetScreen.tsx) both state the same rule for the same reason: "the
+  // alternative is a diver's half-typed edit being overwritten mid-keystroke".
+  expect(findCountField(t).props.value).toBe('2');
 });
 
 // §2.5's whole point: this offsets every dive number in the logbook, so it has to reach the
@@ -303,6 +379,32 @@ it('restores the stored count when the diver leaves an unusable value, and says 
   await fireEvent(findCountField(t), 'blur');
   expect(findCountField(t).props.value).toBe('12');
   expect(textIn(t).join(' ')).toContain('Whole dives only');
+});
+
+/**
+ * The hole that "the diver's draft wins" opens if it is left unqualified, and the reason
+ * settling clears it.
+ *
+ * A draft is what `countTyped` protects. `settleCount` is the act of DISCARDING a draft — the
+ * text was not a count and nothing was saved — so after it there is no draft left to protect,
+ * and going on protecting one would leave this field permanently unfillable: a diver who typed
+ * something unusable before the read answered would get an empty row that the real value could
+ * never afterwards reach, for the life of the screen.
+ *
+ * Only the discard path clears it. A blur over a valid count returns early (the test above),
+ * because that value is the diver's, is already written, and must keep winning.
+ */
+it('fills in the stored count after an unusable entry made before the read answered', async () => {
+  stubSettings({ divesBefore: 0, divesBeforeResolved: false });
+  const t = await render(<SettingsScreen />);
+  await fireEvent.changeText(findCountField(t), 'abc');
+  await fireEvent(findCountField(t), 'blur');
+  // Nothing was read, so there is nothing to restore to — an empty row, not a `0`.
+  expect(findCountField(t).props.value).toBe('');
+
+  stubSettings({ divesBefore: 247, divesBeforeResolved: true });
+  await t.rerender(<SettingsScreen />);
+  expect(findCountField(t).props.value).toBe('247');
 });
 
 // An emptied field is what retyping looks like, so it restores without accusing the diver of
