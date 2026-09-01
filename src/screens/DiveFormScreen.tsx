@@ -2215,7 +2215,17 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               estimate one. They carry two different labels because two rows both reading
               "Visibility" would be unreadable in a column and identical to a screen reader —
               the same pair of labels `DiveDetailScreen`'s `conditionsFields` uses, so one
-              subject reads the same way on both screens. */}
+              subject reads the same way on both screens.
+
+              **`Visibility distance` was re-examined in M1h and kept**, which is worth
+              recording because it reads as clumsy and the clumsiness is the point. It is the
+              only wording available that survives being read ALONE: a row labelled `Distance`
+              means what it means only because a Visibility row happens to sit above it, which
+              is the same "half a phrase" objection that moved `partly` out of `WEATHER_VALUES`
+              this milestone, and a screen reader reaches this row without the one above it.
+              Nothing shorter is honest, and the label lives on two screens, so a change costs a
+              matched edit for a word that would still say less. `Weights`/`Weighting` is the
+              same pair one group down and reads no better. */}
           <ControlledOptionField
             control={control}
             name="visibility"

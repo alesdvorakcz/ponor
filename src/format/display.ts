@@ -307,6 +307,16 @@ export function formatSuitThickness(mm: number | null): string | null {
  * has to say. `Twinset 12 l Steel` is how the design's own example preset names ("twin 12
  * steel") already read.
  *
+ * **`Single` was re-examined in M1h, once the dive form began showing this line back to the
+ * diver, and kept.** The objection is real — `Single 12 l Steel` puts a word in front of the
+ * cylinder that most divers would not say out loud — but suppressing it needs a fallback and
+ * has no good one: a cylinder that records nothing but its rig would summarise to nothing at
+ * all, so the form would draw an empty labelled row for a cylinder that does hold a fact. The
+ * example in the paragraph above also read `12 l steel` until M1h and was simply wrong about
+ * what this function produces: `formatTankMaterial` capitalises, so the line has always ended
+ * `Steel`. Corrected rather than accommodated — if sentence case is wanted it belongs in that
+ * formatter, where the material chips read it too.
+ *
  * **Exported because the dive form reads back the spec on its own** (M1h, §2.2): the four
  * fields collapse into one row there and expand when a diver wants to correct them on this
  * dive, while the gas and the two pressures stay directly editable beside it — they are

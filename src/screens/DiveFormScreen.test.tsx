@@ -1002,8 +1002,11 @@ it('rules every field on its top edge, the way a dive row is ruled', async () =>
 
   const rows = strip?.queryAll((n) => [n.props?.style].flat(5).filter(Boolean).includes(styles.formField)) ?? [];
   // Date, site, centre, max depth, duration, time in, start and end pressure (§2.2, as M1h
-  // amended it). Five until the three the owner had to open a group for joined the strip.
-  expect(rows).toHaveLength(8);
+  // amended it) — counted from the layout the screen itself declares rather than from an 8
+  // written here, so a field added to the strip is a row this test expects rather than one it
+  // reports as a surprise. Five until the three the owner had to open a group for joined it.
+  expect(rows).toHaveLength(CORE_STRIP_FIELDS.length);
+  expect(CORE_STRIP_FIELDS).toHaveLength(8);
   expect(styles.formField.borderTopWidth).toBe(1);
   expect(styles.formField.borderTopColor).toBe(themeFor('light').border);
   // ...and no bottom edge beside it, which would double every rule between two rows and
