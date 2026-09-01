@@ -228,6 +228,11 @@ const mockUseDives = useDives as jest.Mock;
  */
 function stubDives(state: Partial<DiveListState>) {
   mockUseDives.mockImplementation(() => ({
+    // `resolved` defaults to TRUE — the read has answered — because that is what every test in
+    // this file is about. It is spelled out rather than left `undefined` so this stub keeps
+    // modelling a state the real hook can actually be in. See "the empty state is an answer,
+    // not a default" below for what this screen does and does not key on it.
+    resolved: true,
     ...state,
     dives: [...(state.dives ?? [])],
     numbers: new Map(state.numbers ?? []),
@@ -258,6 +263,30 @@ it('shows the empty state when there are no dives', async () => {
   stubDives({ dives: [], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   expect(textIn(t).join(' ')).toContain('Log your first dive');
+});
+
+/**
+ * M1f. `resolved` (useDives.ts) exists because `dives: []` means "no dives" and "not read yet"
+ * at once, and three screens asserted the first while the second was true. **This screen is
+ * deliberately not one of them**, and that is a decision rather than an omission, so it is
+ * pinned here: an empty logbook is the ANSWER "Log your first dive" is correct for, and it must
+ * keep arriving the instant that answer does.
+ *
+ * The failure this guards against is the fix for the other three screens being copied here by
+ * symmetry — a gate on `resolved` that never opens, or opens on the wrong polarity, leaving a
+ * first-run diver looking at a bar, a title and nothing else, with no way to log anything at
+ * all. `EmptyState`'s action is the entire first-run experience (the test below), and §3 gives
+ * this branch that full-size control in the thumb zone precisely because it is the only way in.
+ */
+it('shows the empty state as soon as the read answers with no dives, rather than waiting for more', async () => {
+  stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: true });
+  const t = await render(<DivesScreen />);
+  expect(textIn(t).join(' ')).toContain('Log your first dive');
+  // And it is the real control, not just the words: a gate that left the text but dropped the
+  // action would read as fixed and be unusable.
+  expect(
+    (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : []).length,
+  ).toBeGreaterThan(0);
 });
 
 // Review task 7, Important #4: EmptyState's primary action is the entire first-run

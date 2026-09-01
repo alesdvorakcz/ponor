@@ -92,15 +92,24 @@ function stubSettings({
   divesBefore = 0,
   presets = [],
   presetsError,
+  presetsResolved = true,
 }: {
   units?: string;
   divesBefore?: number | null;
   presets?: GearPreset[];
   presetsError?: Error;
+  presetsResolved?: boolean;
 } = {}) {
   mockUseUnitSystem.mockImplementation(() => units);
   mockUseDivesBefore.mockImplementation(() => divesBefore);
-  mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error: presetsError }));
+  // `presetsResolved` defaults to TRUE — the read has answered — because that is what every
+  // test in this file is about. Spelled out rather than left `undefined` so this stub keeps
+  // modelling a state the real hook can actually be in.
+  mockUseGearPresets.mockImplementation(() => ({
+    presets: [...presets],
+    error: presetsError,
+    resolved: presetsResolved,
+  }));
 }
 
 beforeEach(() => {
@@ -407,6 +416,25 @@ it('says the read failed rather than claiming the diver has none', async () => {
   const t = await render(<SettingsScreen />);
   expect(textIn(t).join(' ')).toContain("Couldn't load your presets");
   expect(textIn(t).join(' ')).not.toContain('Save one from a dive’s Gas & cylinders group');
+});
+
+/**
+ * M1f. `resolved` (useGearPresets.ts) exists because `presets: []` means "you have none" and
+ * "nothing read yet" at once, and `GearPresetScreen` one route deeper asserted the first while
+ * the second was true. **This screen is deliberately not gated on it**, and that is a decision
+ * rather than an omission, so it is pinned here: an empty list is the ANSWER this line is
+ * correct for, and it must keep arriving the instant that answer does.
+ *
+ * The failure this guards against is the fix for the deeper screen being copied here by
+ * symmetry — a gate that never opens, or opens on the wrong polarity, leaving the *Cylinder
+ * presets* heading standing over nothing at all. That section has no other affordance: a preset
+ * is created in the dive form (§10), so this line is the only thing on this screen that says
+ * where one comes from, and without it the section is a mystery.
+ */
+it('shows the empty line as soon as the read answers with no presets, rather than waiting for more', async () => {
+  stubSettings({ presets: [], presetsResolved: true });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t).join(' ')).toContain('Save one from a dive’s Gas & cylinders group');
 });
 
 // The other direction of the same line: a diver who HAS presets is told nothing about where
