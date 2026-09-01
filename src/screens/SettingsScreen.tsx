@@ -16,7 +16,7 @@ import { type GearPreset } from '../domain/types';
 import { formatCylinders, formatUnitSystem } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
+import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
 /** Shown when a settings write rejects. §1's "never block a save" cuts both ways, and this
  * is the other one: a diver who changes a setting and is not told the change failed is
@@ -295,7 +295,16 @@ export default function SettingsScreen() {
           what runs `settleCount` below. */}
       <ScrollView
         style={styles.settingsScroll}
-        contentContainerStyle={styles.settingsContent}
+        // **The last row's clearance is the device's** (M1h — `screenBottomInset`,
+        // theme/styles.ts). This ScrollView is its root's only child, so it runs to the
+        // bottom of the display and its content scrolls under the tab bar; the 40 pt it
+        // inherited while `settingsContent` was shared with the dive form is 43 short of the
+        // 83 a screen inside `(tabs)` reports. The form's copy keeps its constant and is
+        // right to: its scroll stops at `formFooter`, which spends the inset itself. Nothing
+        // stops this one. Not yet visible with two settings and no presets — the content does
+        // not reach the bottom — which is exactly how the same defect stayed hidden on the
+        // Dives list until a logbook was long enough to scroll.
+        contentContainerStyle={[styles.settingsContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.settingsHeading}>Settings</Text>

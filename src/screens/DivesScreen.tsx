@@ -18,7 +18,7 @@ import { diveSiteLabel, formatDiveCount } from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
 import DiveDetailScreen from './DiveDetailScreen';
 
 /**
@@ -597,7 +597,17 @@ export default function DivesScreen() {
           // to the top of this list's viewport, which is the bar's bottom edge and not the
           // capsule.
           ListHeaderComponent={title}
-          contentContainerStyle={styles.listContent}
+          // **The last row's clearance is the device's, not a number** (M1h) —
+          // `screenBottomInset(insets.bottom)`, the same owner the empty state below asks and
+          // the bottom-edge sibling of the `screenTopInset` this screen's bar spends above.
+          // Under `unstable-native-tabs` that inset already contains the tab bar: 83 pt on an
+          // iPhone 17 Pro, against the flat 24 this carried, so the last dive scrolled to sat
+          // 59 pt under the Liquid Glass with its site name cut mid-word. No gap is added on
+          // top, unlike the empty state's button: a row's own `paddingVertical` already keeps
+          // its text 10 pt off its bottom edge, and a scrolling list whose content ends exactly
+          // at the bar is what iOS itself does — extra air here would read as a hole under the
+          // last dive at rest rather than as breathing room.
+          contentContainerStyle={[styles.listContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
         />
       )}
     </>

@@ -4,13 +4,15 @@
 // Imported first, and named `mock...`, for the babel-plugin-jest-hoist reason
 // DiveFormScreen.test.tsx records: a jest.mock() factory may only close over out-of-scope
 // identifiers starting with `mock`/`require`, and every jest.mock() call is hoisted above
-// every import regardless. Left on the mock's own zero insets by every test in this file:
-// where the clearance actually LANDS is `styles.test.ts`'s rule to pin, not a number to
-// restate here.
+// every import regardless. Left on the mock's own zero insets by every test in this file
+// except the last, which supplies a real `SafeAreaProvider` on purpose: this screen's scroll
+// runs to the bottom of the display and now spends the device's bottom inset there (M1h), and
+// a zero-inset render cannot tell a screen that asks the device from one that never does.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '../db/client';
 import { setDivesBefore, setUnitSystem } from '../db/settings';
@@ -21,7 +23,7 @@ import { type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
 import { themeFor } from '../theme/resolve';
-import { makeStyles } from '../theme/styles';
+import { makeStyles, screenBottomInset } from '../theme/styles';
 import SettingsScreen from './SettingsScreen';
 
 // The two live reads, mocked per module exactly as DivesScreen.test.tsx mocks `useDives` and
@@ -631,4 +633,48 @@ it('gives the first group’s label the same room off the rule as the second’s
     expect([rowOf(label).props.style].flat(5)).toContain(styles.formFieldRow);
   }
   expect(styles.formFieldRow.minHeight).toBe(48);
+});
+
+// **Settings is the other screen under the tab bar, and it was carrying the form's number**
+// (M1h). `settingsContent` and `formScrollContent` were one definition with `paddingBottom: 40`
+// — right for the form, whose scroll stops at a `formFooter` that spends `insets.bottom + 24`
+// itself, and 43 pt short here, where the ScrollView is its root's only child and runs to the
+// bottom of the display. On the Dives list that same mistake put the last row under the Liquid
+// Glass with its site name cut mid-word; here it is invisible today only because two settings
+// and no presets do not reach the bottom of the screen. That is not a reason to leave it —
+// it is precisely how the list's copy survived until a logbook grew long enough to scroll.
+//
+// Two devices, and the clearance required to follow both, exactly as the Dives list's own test
+// does it: a constant — including a corrected constant — satisfies neither pair.
+it('spends the device bottom inset on its scroll, so the last row clears the tab bar', async () => {
+  const clearanceOn = async (bottom: number) => {
+    stubSettings();
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 62, left: 0, right: 0, bottom } }}
+      >
+        <SettingsScreen />
+      </SafeAreaProvider>,
+    );
+    // Found by the prop itself rather than by `onScroll`: this is a plain ScrollView, and RN
+    // attaches no scroll handler to one that was given none.
+    const [scroll] = t.root ? t.root.queryAll((n) => n.props?.contentContainerStyle !== undefined) : [];
+    if (!scroll) throw new Error('SettingsScreen did not render a scrollable node');
+    const style = [scroll.props.contentContainerStyle].flat(5).filter(Boolean) as Record<string, unknown>[];
+    // LAST wins, the order RN resolves a style array in.
+    const paddingBottom = style.reduce<unknown>((acc, s) => (s.paddingBottom !== undefined ? s.paddingBottom : acc), undefined);
+    // None at all is its own defect — the last row flush against the bottom of the display.
+    if (typeof paddingBottom !== 'number') throw new Error('SettingsScreen composed no clearance');
+    return paddingBottom;
+  };
+
+  const underTabBar = await clearanceOn(83);
+  const underNothing = await clearanceOn(0);
+
+  // The rule: at least everything the device reports as obscured. The inherited 40 fails it.
+  expect(underTabBar).toBeGreaterThanOrEqual(83);
+  // The floor still holds where the device reports nothing.
+  expect(underNothing).toBeGreaterThanOrEqual(screenBottomInset(0));
+  // ...and it tracks the device, which is the half no constant can do.
+  expect(underTabBar).toBeGreaterThan(underNothing);
 });

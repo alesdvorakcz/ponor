@@ -11,6 +11,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -4417,4 +4418,58 @@ it('offers a site from a dive that is only planned, though carry-over skips it',
   await focusField(t, 'Site');
   await typeInto(t, 'Site', 'kot');
   expect(suggestionsUnder(t, 'Site')).toEqual(['Kotelna']);
+});
+
+// **The form is the screen that does NOT read the device at its bottom, and this is why**
+// (M1h, DESIGN.md §4.1's "a deliberate near-duplicate names its siblings"). Its scroll content
+// and Settings' were one style with `paddingBottom: 40` until Settings' copy was found to be
+// 43 pt short of what a screen under the tab bar reports. The obvious follow-up — give the
+// form the same device-read fix — would be wrong, and wrong invisibly: this scroll is a
+// SIBLING ABOVE `formFooter`, and that footer already composes `insets.bottom + 24`, so the
+// scroll's frame stops at the footer's top edge and nothing the device puts at the bottom of
+// the display is ever in front of it. Reading the safe area here would spend the tab bar's
+// height a second time and open a gap the size of a tab bar above the save button.
+//
+// So the assertion is the unusual one: the scroll's own clearance must be the SAME under two
+// very different devices, while the footer beside it must differ under exactly those two. One
+// test, both halves, because separately either reads as an arbitrary claim about a number.
+it('leaves the form scroll indifferent to the device, and its footer is what spends the inset', async () => {
+  const measure = async (bottom: number) => {
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 62, left: 0, right: 0, bottom } }}
+      >
+        <DiveFormScreen mode="create" />
+      </SafeAreaProvider>,
+    );
+    const [scroll] = t.root ? t.root.queryAll((n) => n.props?.contentContainerStyle !== undefined) : [];
+    if (!scroll) throw new Error('DiveFormScreen did not render its scroll');
+    const scrollStyle = [scroll.props.contentContainerStyle].flat(5).filter(Boolean) as Record<string, unknown>[];
+    const [footer] = t.root
+      ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFooter))
+      : [];
+    if (!footer) throw new Error('DiveFormScreen did not render its footer');
+    const footerStyle = [footer.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    // LAST wins, not first: RN resolves a style array in order, and `formFooter` carries a
+    // base `paddingBottom` that the call site's device value overrides. Reading the first
+    // would report the sheet's number and quietly conclude the footer ignores the device.
+    const pick = (style: Record<string, unknown>[]) => {
+      const value = style.reduce<unknown>((acc, s) => (s.paddingBottom !== undefined ? s.paddingBottom : acc), undefined);
+      if (typeof value !== 'number') throw new Error('no paddingBottom composed');
+      return value;
+    };
+    return { scroll: pick(scrollStyle), footer: pick(footerStyle) };
+  };
+
+  const underTabBar = await measure(83);
+  const underNothing = await measure(0);
+
+  // The scroll does not move, because what is below it is the footer and not the device.
+  expect(underTabBar.scroll).toBe(underNothing.scroll);
+  // The footer does, because it is the thing actually standing on the bottom edge. Without
+  // this half the assertion above would also pass on a form that had simply stopped asking
+  // the device anywhere at all.
+  expect(underTabBar.footer).toBeGreaterThan(underNothing.footer);
+  expect(underTabBar.footer).toBeGreaterThanOrEqual(83);
 });

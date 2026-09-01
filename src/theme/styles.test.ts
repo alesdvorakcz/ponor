@@ -241,6 +241,59 @@ describe('the screen bottom inset', () => {
   });
 });
 
+// **What each scrolling screen meets at its bottom edge, and why one constant could not
+// serve two of them** (M1h, DESIGN.md §4.1's "a deliberate near-duplicate names its
+// siblings"). `rowScrollContent` carried `paddingBottom: 40` for both the dive form and
+// Settings. The form's scroll is a SIBLING ABOVE `formFooter`, which composes
+// `insets.bottom + 24` itself, so its frame stops at the footer and 40 is internal spacing.
+// Settings' scroll is its root's only child and runs to the bottom of the display, where 40
+// is 43 pt short of the 83 a screen inside `(tabs)` reports — a last row under the Liquid
+// Glass, invisible only because Settings has too few rows to reach the bottom. The Dives
+// list had the same defect at 24 and enough rows to show it.
+//
+// Written as RELATIONS between the two styles rather than as their numbers: what matters is
+// that they agree where they are one rule and differ where they are two, so re-merging them
+// fails here, and so does splitting the half that was never in dispute.
+describe('what a scrolling screen clears at its bottom edge', () => {
+  it('shares the row rhythm between the form and Settings, and nothing about the bottom', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const styles = makeStyles(scheme);
+      const form = styles.formScrollContent as Record<string, unknown>;
+      const settings = styles.settingsContent as Record<string, unknown>;
+
+      // One rule, and it stays one: both screens are the same column of §0.6 rows, so where
+      // their first row starts and how far apart their groups sit must not drift.
+      expect(form.paddingTop).toBe(settings.paddingTop);
+      expect(form.gap).toBe(settings.gap);
+
+      // Two rules, and they must stay two. The form's bottom is a constant because a footer
+      // that already spent the device's inset is what sits below it — reading the safe area
+      // there would spend the tab bar twice, in the one place it is already spent.
+      expect(typeof form.paddingBottom).toBe('number');
+      // Settings' is the device's, so the sheet cannot hold it. Any number here is the
+      // defect regardless of which one it is.
+      expect(settings.paddingBottom).toBeUndefined();
+      expect(settings.paddingVertical).toBeUndefined();
+    }
+  });
+
+  // **The Dives list's contentContainer is empty on purpose**, and both absences are a defect
+  // that has already shipped. `paddingTop` was 60 — clearance for a capsule that floated over
+  // the list and has since moved into a sibling bar above it, leaving a hole at the top.
+  // `paddingBottom` was 24, described in the sheet as "a last row's breathing room above the
+  // tab bar", which is the claim it could not keep: 24 against an 83 pt inset put the last
+  // dive 59 pt inside the bar, its site name cut mid-word.
+  it('leaves the Dives list no clearance of its own at either end', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const list = makeStyles(scheme).listContent as Record<string, unknown>;
+      expect(list.paddingTop ?? 0).toBe(0);
+      expect(list.paddingBottom).toBeUndefined();
+      expect(list.padding).toBeUndefined();
+      expect(list.paddingVertical).toBeUndefined();
+    }
+  });
+});
+
 // The Dives screen's pinned bar (DESIGN.md §0.6, rewritten again for the native large-title
 // arrangement). Two properties, and each is a defect that has already shipped once.
 describe('the Dives screen pinned bar', () => {

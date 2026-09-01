@@ -457,9 +457,17 @@ function build(scheme: ColorScheme) {
   const screenGround: ViewStyle = { flex: 1, backgroundColor: theme.bg };
 
   const rowScroll: ViewStyle = { flex: 1 };
+  // **The shared part only, and the bottom is deliberately not in it** (M1h). This carried
+  // `paddingBottom: 40` while it served both the form and Settings, and one number could
+  // never have been right for both: the form's scroll is a SIBLING ABOVE `formFooter`, which
+  // spends `insets.bottom + 24` itself, so 40 there is internal spacing and the device's edge
+  // is somebody else's problem; Settings' scroll is the last child of its root and runs to the
+  // bottom of the display, where 40 is 43 pt short of what a screen under the tab bar reports
+  // and the last row scrolls under the glass. The top and the gap ARE one rule — the two
+  // screens are the same column of §0.6 rows — so they stay here, and each alias states what
+  // it meets at its own end (`formScrollContent`, `settingsContent` below).
   const rowScrollContent: ViewStyle = {
     paddingTop: 4,
-    paddingBottom: 40,
     gap: 20,
   };
 
@@ -561,9 +569,22 @@ function build(scheme: ColorScheme) {
     // The bottom keeps its allowance: the tab bar is a sibling of the whole screen, not an
     // overlay on this list, so this is the breathing room a last row wants before the bar
     // rather than clearance for something drawn on top of it.
-    listContent: {
-      paddingBottom: 24,
-    },
+    // The Dives list's contentContainer, and it is **empty on purpose** — a record of two
+    // absences rather than a style with nothing to say. Neither may quietly come back.
+    //
+    // **No `paddingTop`:** the capsule is in a pinned bar that is a SIBLING above this list
+    // (`divesBar`), not an overlay on it, so there is nothing overhead to clear. It carried
+    // 60 — the capsule's 48 plus the gap under it — while the capsule floated, and a list
+    // that kept it would open with a 60 px hole above its title.
+    //
+    // **No `paddingBottom`:** composed at the call site from `screenBottomInset(insets.bottom)`
+    // (M1h). It was 24, described here as "a last row's breathing room above the tab bar" —
+    // which is exactly the claim it could not keep: a screen inside `(tabs)` reports 83, so
+    // the last dive row ended 59 pt INSIDE the bar and scrolled under the Liquid Glass with
+    // its site name cut mid-word and its duration line lost entirely. Seen on the device,
+    // once the logbook had enough dives to scroll; the branch that shows it is the one every
+    // returning diver sees, and nothing in 1400 tests could.
+    listContent: {},
     // DivesScreen's wide (tablet) layout (DESIGN.md §3, useWideLayout.ts). Replaces
     // `divesScreen` as the outer wrapper only on that branch — `flexDirection: 'row'` is the
     // one thing it adds. Neither carries a top inset: the list column's own pinned bar and
@@ -1467,7 +1488,16 @@ function build(scheme: ColorScheme) {
     // the screen's real edges the way a dive row's do while the text inside still lands on
     // 20.
     formScroll: rowScroll,
-    formScrollContent: rowScrollContent,
+    // **`paddingBottom` is a constant here, and that is the correct answer rather than the
+    // unconverted one** — the near-duplicate `settingsContent` names below, and the reason
+    // the two stopped sharing a number (§4.1). This scroll never reaches the bottom of the
+    // display: `formFooter` is a sibling below it, in flow, and that footer composes
+    // `insets.bottom + 24` from the device. So the scroll's frame ends at the footer's top
+    // edge, nothing the device puts at the bottom is in front of it, and 40 is what it has
+    // always been — the gap between the last group and the footer's hairline. Reading the
+    // safe area here would spend the tab bar's height a second time, in the one place it is
+    // already spent. `GearPresetScreen` has the identical arrangement and the same answer.
+    formScrollContent: { ...rowScrollContent, paddingBottom: 40 },
     // The core strip (§2.2: "date, site, center, max depth, duration" — always visible,
     // never behind a group).
     //
@@ -2145,6 +2175,15 @@ function build(scheme: ColorScheme) {
     // literally the form's, read through the shared components; only the three keys below
     // are its own, and each is a thing the form has no equivalent of.
     settingsScroll: rowScroll,
+    // **`paddingBottom` is deliberately absent**, and composed at the call site from
+    // `screenBottomInset(insets.bottom)` — the near-duplicate of `formScrollContent` above,
+    // and the half of the old shared pair that genuinely needed the device (§4.1: a
+    // deliberate near-duplicate names its siblings). This ScrollView is the only child of
+    // this screen's root, so it runs to the bottom of the display and its content scrolls
+    // under the tab bar; the form's is a sibling above a footer that already spent the inset.
+    // The 40 they shared was right for the form and 43 pt short here, which is a last row
+    // under the Liquid Glass — the same defect `screenBottomInset` was written for, in a
+    // screen that simply had too few rows to reach the bottom and show it.
     settingsContent: rowScrollContent,
     // The screen's title — `screenHeading` at the top of this function, the form's own, plus
     // the row inset so it lands in the same column as the labels beneath it. The tab bar

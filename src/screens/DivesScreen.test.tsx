@@ -589,9 +589,12 @@ it('reserves no clearance in the list for a capsule that no longer floats over i
   const capsuleHeight = (styles.actionCapsulePlain as Record<string, unknown>).height;
   expect(typeof capsuleHeight).toBe('number');
   expect(list.paddingTop ?? 0).toBe(0);
-  // The bottom allowance is a different thing and stays: a last row's breathing room above
-  // the tab bar, never clearance for something drawn on top.
-  expect(list.paddingBottom).toBeGreaterThan(0);
+  // The bottom allowance used to be here too, at 24, under a comment calling it "a last row's
+  // breathing room above the tab bar" — the claim that turned out false, since a screen inside
+  // `(tabs)` reports 83 (M1h). It is the device's now and composed at the call site, so the
+  // sheet must hold nothing: this end of the assertion flipped from "some number" to "no
+  // number", and the test below is what checks where the number actually comes from.
+  expect(list.paddingBottom).toBeUndefined();
 });
 
 // **The clearance the owner measured**, as the value this screen actually composes rather
@@ -656,7 +659,9 @@ it('spends the device bottom inset on the empty state, so the first-run action c
       </SafeAreaProvider>,
     );
     const style = [findEmptyStateWrap(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
-    const paddingBottom = style.map((s) => s.paddingBottom).find((value) => value !== undefined);
+    // LAST wins, the order RN resolves a style array in, so a base value in the sheet could
+    // never be mistaken for the one the call site composed over it.
+    const paddingBottom = style.reduce<unknown>((acc, s) => (s.paddingBottom !== undefined ? s.paddingBottom : acc), undefined);
     // No clearance anywhere on the wrapper is its own defect — the button flush against the
     // bottom edge — and it would otherwise reach the comparisons below as `undefined` and
     // read as a type error rather than as the failure it is.
@@ -678,6 +683,56 @@ it('spends the device bottom inset on the empty state, so the first-run action c
   expect(underNothing).toBeGreaterThanOrEqual(screenBottomInset(0));
   // ...and the two devices genuinely disagree, which IS the rule: no one number can satisfy
   // both, so a constant — any constant, including a corrected one — fails here.
+  expect(underTabBar).toBeGreaterThan(underNothing);
+});
+
+/** The list's `contentContainerStyle`, read off the scrollable host node rather than looked up
+ * by style identity the way `findBar` and `findEmptyStateWrap` are. It is not a rendered View's
+ * `style` at all — ScrollView keeps it as a prop and applies it to a content container of its
+ * own — so the identity lookup those two use finds nothing here. */
+function findListContentStyle(t: RenderResult) {
+  return [findScrollable(t).props.contentContainerStyle].flat(5).filter(Boolean) as Record<string, unknown>[];
+}
+
+// **The populated list had the same defect as the empty state, and enough rows to show it**
+// (M1h). `listContent` carried `paddingBottom: 24` under a comment calling it "a last row's
+// breathing room above the tab bar"; a screen inside `(tabs)` reports 83, so the last dive
+// scrolled to sat 59 pt INSIDE the bar — site name cut mid-word, duration line gone. This is
+// the branch every returning diver sees, and nothing in 1400 tests could see it, because a
+// tab bar is a fact about a real UITabBarController and not about a Jest tree.
+//
+// Pinned the same way the empty state's is, and for the same reason: two devices, and the
+// clearance required to follow both. A constant satisfies neither pair.
+it('spends the device bottom inset on the list, so the last dive clears the tab bar', async () => {
+  const clearanceOn = async (bottom: number) => {
+    stubDives({ dives: [dive({ id: 'a', siteName: 'Blue Hole' })], numbers: new Map([['a', 1]]), error: undefined });
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 62, left: 0, right: 0, bottom } }}
+      >
+        <DivesScreen />
+      </SafeAreaProvider>,
+    );
+    // LAST wins, as above.
+    const paddingBottom = findListContentStyle(t).reduce<unknown>(
+      (acc, s) => (s.paddingBottom !== undefined ? s.paddingBottom : acc),
+      undefined,
+    );
+    // None at all is its own defect — the last row flush against the bottom of the display —
+    // and it would otherwise reach the comparisons below as `undefined`.
+    if (typeof paddingBottom !== 'number') throw new Error('DivesScreen composed no list clearance');
+    return paddingBottom;
+  };
+
+  const underTabBar = await clearanceOn(83);
+  const underNothing = await clearanceOn(0);
+
+  // The rule: the list gives back at least everything the device reports as obscured. The
+  // shipped 24 fails this, and so does any other number typed into the sheet.
+  expect(underTabBar).toBeGreaterThanOrEqual(83);
+  // The floor still holds where the device reports nothing, so the browser keeps its footing.
+  expect(underNothing).toBeGreaterThanOrEqual(screenBottomInset(0));
+  // ...and it tracks the device, which is what no constant can do.
   expect(underTabBar).toBeGreaterThan(underNothing);
 });
 
@@ -1536,3 +1591,4 @@ it('gives a completed plan its number back, and renumbers the dives above it', a
   expect(rowLabelFor(after, 'Silfra')).toContain('Dive 2');
   expect(rowLabelFor(after, 'Canyon')).toContain('Dive 3');
 });
+
