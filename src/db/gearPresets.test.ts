@@ -6,7 +6,6 @@ import {
   gearPresetRowsQuery,
   getGearPreset,
   listGearPresets,
-  presetNamed,
   softDeleteGearPreset,
   toGearPresets,
   updateGearPreset,
@@ -298,29 +297,5 @@ describe('softDeleteGearPreset', () => {
     const created = await createGearPreset(db, { name: 'gone' });
     await softDeleteGearPreset(db, created.id);
     await expect(softDeleteGearPreset(db, created.id)).rejects.toThrow(/not found/);
-  });
-});
-
-describe('presetNamed', () => {
-  it('finds a preset whose name differs only by case or surrounding space', async () => {
-    const created = await createGearPreset(db, { name: 'Alu 80' });
-    const presets = await listGearPresets(db);
-    expect(presetNamed(presets, '  alu 80 ')?.id).toBe(created.id);
-  });
-
-  it('finds nothing for a name no preset holds', async () => {
-    await createGearPreset(db, { name: 'Alu 80' });
-    expect(presetNamed(await listGearPresets(db), 'twin 12')).toBeNull();
-  });
-
-  /**
-   * Task 3's editor renames a preset, and a preset is not a duplicate of itself — without
-   * the exception, saving a preset under the name it already has would report a collision
-   * with itself.
-   */
-  it('does not count the preset being edited as its own duplicate', async () => {
-    const created = await createGearPreset(db, { name: 'Alu 80' });
-    const presets = await listGearPresets(db);
-    expect(presetNamed(presets, 'alu 80', created.id)).toBeNull();
   });
 });

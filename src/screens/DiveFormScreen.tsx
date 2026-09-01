@@ -11,7 +11,7 @@ import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
-import { createGearPreset, presetNamed } from '../db/gearPresets';
+import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -37,6 +37,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
+import { presetNamed } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   ENTRY_VALUES,
@@ -1099,7 +1100,7 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
  * from an empty cylinder block stores nothing useful, and a chip that fills a dive with
  * nothing is worse than no chip. And two chips reading "alu 80" with different cylinders is
  * a row the diver cannot tell apart and cannot fix by looking, so a duplicate name is
- * refused by name — `presetNamed` (db/gearPresets.ts) owns the question of when two names
+ * refused by name — `presetNamed` (domain/presets.ts) owns the question of when two names
  * are the same name, and the sentence quotes the preset that already holds it rather than
  * saying "that name is taken" about a name the diver may have spelled differently.
  *
