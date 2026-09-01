@@ -93,6 +93,28 @@ function normaliseDecimalSeparator(value: string): string {
  * saved nothing on entry, while on the edit path it emitted
  * `patch.maxDepthM = null` and **cleared a depth that was already there**.
  */
+/**
+ * The coercion contract read from the other end: what a stored or seeded value looks like in
+ * a field the diver types into. Always a string, because `FormField`'s `value` is one —
+ * that component's own docblock states why ("this component never has to hold or format a
+ * `number | null` itself") and leaves the bridge to whoever wires it up.
+ *
+ * **Here, because there are two who wire it up.** The dive form's `Controller` render props
+ * and §3's cylinder-preset editor both bridge a nullable form value to that string, and a
+ * second copy is free to disagree — `String(null)` is the text `"null"`, which is what a
+ * field would then show a diver in place of an empty box. It sits beside `optionalNumber`
+ * and `optionalText` above deliberately: those two turn `''` back into `null` at the write
+ * boundary, so this is the same rule's other direction and the pair has to stay honest.
+ *
+ * `unknown` rather than a narrower type: react-hook-form's `field.value` is typed by path
+ * and a preset editor holds raw `TankFormInput` fields, which may already be strings — both
+ * arrive here, and neither needs a cast to do so.
+ */
+export function toInputString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
 const optionalNumber = z
   .union([z.string(), z.number(), z.null(), z.undefined()])
   .transform((raw) => {

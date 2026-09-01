@@ -3,6 +3,7 @@ import {
   diveFormSchema,
   toDisplayUnits,
   toDivePatch,
+  toInputString,
   toNewDiveInput,
   toStoredTanks,
   unknownBooleanNote,
@@ -66,6 +67,20 @@ describe('the coercion contract', () => {
 
   it('turns unparseable text into null rather than NaN reaching the database', () => {
     expect(diveFormSchema.parse({ ...base, maxDepthM: 'abc' }).maxDepthM).toBeNull();
+  });
+
+  // The same contract read from the other end, and the reason it is one function rather than
+  // one per screen: `String(null)` is the text "null", which is what a field would show a
+  // diver in place of an empty box.
+  it('shows an unrecorded value as an empty field, never as the word null', () => {
+    expect(toInputString(null)).toBe('');
+    expect(toInputString(undefined)).toBe('');
+  });
+
+  it('shows a recorded value exactly as it is, including a zero', () => {
+    expect(toInputString(232)).toBe('232');
+    expect(toInputString(0)).toBe('0');
+    expect(toInputString('12,5')).toBe('12,5');
   });
 });
 

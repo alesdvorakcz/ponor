@@ -30,6 +30,7 @@ import {
   toDisplayUnits,
   toDivePatch,
   toNewDiveInput,
+  toInputString,
   toStoredTanks,
   unknownBooleanNote,
   unknownOptionNote,
@@ -63,11 +64,6 @@ import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-
-function toInputString(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  return String(value);
-}
 
 const EMPTY_TANK: TankFormInput = {
   material: null,
