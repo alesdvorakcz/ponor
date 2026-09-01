@@ -473,6 +473,57 @@ function toStoredTank(tank: Tank, stored: Tank | undefined, units: UnitSystem): 
 }
 
 /**
+ * The form's cylinders as the database stores them: parsed through this file's own coercion
+ * contract, then converted to SI. What a **cylinder preset** saves (DESIGN.md §2.1, M1e).
+ *
+ * **This is the trap this task exists inside, and it is why there is no second conversion.**
+ * The form holds what the diver reads — a working pressure of `3365` in a field labelled
+ * `psi` — while §6 stores SI and nothing else. `toNewDiveInput` below records the same rule
+ * for a whole dive ("`units` is what the diver typed in, and this is where it stops being
+ * true of the data"), and an imperial diver's preset silently stored in psi would be that
+ * failure with no dive attached to notice it by: it would then be applied to every later
+ * dive, converting a psi number a second time on the way in.
+ *
+ * `units` is required rather than defaulted, for exactly the reason `toNewDiveInput`'s own
+ * docblock gives: a defaulted `'metric'` "would let a call site that forgot it write feet
+ * into a metres column with nothing failing anywhere".
+ *
+ * Takes the form's RAW cylinders (`DiveFormInput['tanks']` — strings, as typed) rather than
+ * parsed ones, because the only thing a screen can read out of react-hook-form mid-form is
+ * the raw values; `toNewDiveInput` gets its parsed by `handleSubmit`, and saving a preset is
+ * not a submit. Parsing here is `diveFormSchema`'s own `tanks` field, not a second schema,
+ * so `optionalNumber`'s "empty means null, never 0" contract holds identically. A value that
+ * is not an array at all cannot be parsed into cylinders and comes back `[]` — which is what
+ * the column already means by "no cylinders recorded", and which the form's own
+ * empty-cylinder refusal then catches before anything is written.
+ *
+ * `stored` is `undefined` for every cylinder: there is no stored preset cylinder to preserve
+ * a figure against — the same "nothing is stored yet, so every recorded figure simply
+ * converts" case `toNewDiveInput` is in.
+ */
+export function toStoredTanks(tanks: DiveFormInput['tanks'], units: UnitSystem): Tank[] {
+  const parsed = diveFormSchema.shape.tanks.safeParse(tanks);
+  return (parsed.success ? parsed.data : []).map((tank) => toStoredTank(tank, undefined, units));
+}
+
+/**
+ * One stored cylinder as the figures a diver working in `units` expects to find in the
+ * fields — `toStoredTank`'s mirror, and the cylinder half of `toDisplayUnits` below.
+ *
+ * Extracted so that applying a **cylinder preset** to the form (DiveFormScreen.tsx) converts
+ * through the same code the form's own seeding does. A preset holds SI, the form holds the
+ * diver's own numbers, and the conversion between them is one rule: an imperial diver who
+ * taps "twin 12 steel" must see `3365` in a field labelled `psi`, not `232`.
+ */
+export function toDisplayTank(tank: Tank, units: UnitSystem): TankFormInput {
+  const converted = { ...tank } as Record<string, unknown>;
+  for (const field of TANK_FIELDS) {
+    converted[field] = displayFieldValue(tankFieldQuantity(field), converted[field], units);
+  }
+  return converted as TankFormInput;
+}
+
+/**
  * The form's SEED values, converted the other way: a dive's stored SI figures as the
  * numbers a diver working in `units` expects to find in the fields — `24.7` in a metres
  * form, `81` in a feet one.
@@ -496,13 +547,12 @@ export function toDisplayUnits(values: DiveFormInput, units: UnitSystem): DiveFo
     if (key === 'tanks') continue;
     next[key] = displayFieldValue(diveFieldQuantity(key), next[key], units);
   }
-  next.tanks = values.tanks?.map((tank) => {
-    const converted = { ...tank } as Record<string, unknown>;
-    for (const field of TANK_FIELDS) {
-      converted[field] = displayFieldValue(tankFieldQuantity(field), converted[field], units);
-    }
-    return converted as TankFormInput;
-  });
+  // `toDisplayTank` above, not a private loop here: applying a cylinder preset converts the
+  // same direction for the same reason, and two copies of "which cylinder field is a
+  // pressure" is precisely the drift §4.1 exists to stop. The cast is the same one that loop
+  // already made — a raw `TankFormInput` may hold strings, which `displayFieldValue` passes
+  // through untouched.
+  next.tanks = values.tanks?.map((tank) => toDisplayTank(tank as unknown as Tank, units));
   return next as DiveFormInput;
 }
 
@@ -591,8 +641,14 @@ function isRecordedTank(tank: Tank): boolean {
 
 /** Field-by-field equality over `TANK_FIELDS` — never `JSON.stringify`, which would also
  * compare key ORDER and so report a stored blob and a freshly parsed cylinder as different
- * purely because the two were built in different orders. */
-function sameTanks(before: readonly Tank[], after: readonly Tank[]): boolean {
+ * purely because the two were built in different orders.
+ *
+ * **Exported for `db/gearPresets.ts`**, which asks the identical question for the identical
+ * reason: DESIGN.md §7's whole-row last-write-wins is keyed on `updated_at`, so a save that
+ * changed no cylinder must not advance it, and "changed no cylinder" is this comparison. A
+ * second copy over there would be free to reach for `JSON.stringify` again, which is the
+ * exact failure this function's name is a warning about. */
+export function sameTanks(before: readonly Tank[], after: readonly Tank[]): boolean {
   if (before.length !== after.length) return false;
   return before.every((tank, index) => {
     const other = after[index];

@@ -121,3 +121,32 @@ export interface Dive {
   updatedAt: string;
   deletedAt: string | null;
 }
+
+/**
+ * A named cylinder set — "twin 12 steel", "alu 80 nitrox" — applied to a dive in one tap
+ * (DESIGN.md §2.1). Mirrors the `gear_presets` table; SI units throughout, exactly as a
+ * dive's own `tanks` are.
+ *
+ * **Cylinders and gas, and nothing else** (§10). Suit, hood, gloves, boots and weights are
+ * deliberately absent: carry-over already fills every one of them from the previous dive, so
+ * a preset holding them too would be a second, staler source for fields something else
+ * already fills correctly. What genuinely varies inside one diver's habits is the cylinder.
+ *
+ * **The pressures inside `tanks` are always null.** `startBar`/`endBar` describe what was
+ * left in a cylinder on one dive, which a preset cannot know and must not invent — the same
+ * rule carry-over applies, and one implementation of it (`withoutPressures`,
+ * domain/carryOver.ts). The type cannot say so, because `tanks` is `Tank[]` and a `Tank` has
+ * both fields; `db/gearPresets.ts` is the one write path and is where it is enforced.
+ *
+ * `tanks` is `Tank[]` and never nullable, for the reason §6 gives for a dive's: an empty
+ * array already means "no cylinders recorded", so a nullable column would be a second way to
+ * say the same thing.
+ */
+export interface GearPreset {
+  id: string;
+  name: string;
+  tanks: Tank[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}

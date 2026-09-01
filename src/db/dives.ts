@@ -1,9 +1,10 @@
-import { and, eq, getTableColumns, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-orm';
 import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
 import { dives } from './schema';
+import { liveRows } from './tombstone';
 import type { Db } from './types';
 
 /**
@@ -68,12 +69,14 @@ export type Mutual = Assert<
  * the number of every dive after it. Every read of dives must go through
  * listDives/getDive, never a bare `db.select().from(dives)`.
  *
- * Dive-specific on purpose for now, though gear_presets also carries
- * deleted_at: generalising to a `liveRows(table)` helper with one call site
- * would be abstraction ahead of the second instance. Extract it when the
- * gear-presets repository is written (M1e, §2.1) and there are two.
+ * **This name stays; the rule behind it has moved one file over.** It used to
+ * read `isNull(dives.deletedAt)` and this docblock used to say the general
+ * form would be "abstraction ahead of the second instance… extract it when the
+ * gear-presets repository is written (M1e, §2.1) and there are two." There are
+ * two, so `liveRows` (db/tombstone.ts) is the rule and this is the dives-shaped
+ * name every call site below already reads by.
  */
-export const liveDives = isNull(dives.deletedAt);
+export const liveDives = liveRows(dives);
 
 const now = () => new Date().toISOString();
 

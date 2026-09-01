@@ -10,7 +10,7 @@ import type { Dive, Tank } from './types';
  * buddy and guide.
  *
  * `tanks` is named here, but carries only *most* of itself: `carryOverFrom`
- * still zeroes each cylinder's `startBar`/`endBar` (see `carryOverTank`).
+ * still zeroes each cylinder's `startBar`/`endBar` (see `withoutPressures`).
  * §2.1 puts pressures in the "fresh every dive" half explicitly, and the
  * decision log (§10) records it as a deliberate owner call: a stale 200 bar
  * would silently become a wrong gas-consumption figure for the next dive.
@@ -70,12 +70,40 @@ const FRESH_FIELDS: readonly (keyof DiveFormValues)[] = (
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * One cylinder carried from the previous dive: the hardware and the gas in
- * it, never what was left in it. See `CARRIED_FIELDS`'s docblock for why the
- * pressures specifically must not survive the copy.
+ * The two cylinder fields that describe **what was left in the cylinder**, as opposed to
+ * what the cylinder is. Named as a list rather than written into `withoutPressures` below,
+ * because two other places need to know exactly which fields that rule touches: the dive
+ * form preserves a pressure the diver has already typed when a preset is applied over it,
+ * and it leaves those same two fields out of the `carried ×` marks it drops on the way
+ * (DiveFormScreen.tsx). Three copies of "startBar and endBar" would be three chances to
+ * disagree about which fields a preset has no opinion on.
  */
-function carryOverTank(tank: Tank): Tank {
-  return { ...tank, startBar: null, endBar: null };
+export const TANK_PRESSURE_FIELDS = ['startBar', 'endBar'] as const satisfies readonly (keyof Tank)[];
+
+/**
+ * One cylinder without its pressures: the hardware and the gas in it, never what was left
+ * in it. See `CARRIED_FIELDS`'s docblock for why the pressures specifically must not
+ * survive the copy — a stale 200 bar is a wrong gas-consumption figure for the next dive,
+ * and §2.1 puts both pressures in the "fresh every dive" half explicitly.
+ *
+ * **Two mechanisms need it, and it lives here because both are §2.1's.** Carry-over is the
+ * first, and this function was private to it (as `carryOverTank`). Cylinder presets are the
+ * second: DESIGN.md §10 settles that a preset stores no pressures "on precisely §2.1's
+ * reasoning for carry-over: a preset that filled in 200 bar would be inventing a reading.
+ * One rule strips them, shared with carry-over's own — not a second copy." So
+ * `db/gearPresets.ts` imports this rather than writing the same two nulls again, which is
+ * §4.1's "a second implementation is a defect, not a style preference" applied to the one
+ * rule this milestone was most likely to duplicate.
+ *
+ * Named for the rule rather than for either caller, which is what makes it readable in
+ * both: a preset repository calling something named `carryOverTank` would read as a
+ * mechanism borrowing another mechanism's helper, rather than as two mechanisms sharing
+ * one rule.
+ */
+export function withoutPressures(tank: Tank): Tank {
+  const next = { ...tank };
+  for (const field of TANK_PRESSURE_FIELDS) next[field] = null;
+  return next;
 }
 
 /**
@@ -178,7 +206,7 @@ export function carryOverFrom(previous: Dive | null, now: Date = new Date()): Pa
   }
   for (const field of CARRIED_FIELDS) {
     (result as Record<string, unknown>)[field] =
-      field === 'tanks' ? previous.tanks.map(carryOverTank) : (previous as unknown as Record<string, unknown>)[field];
+      field === 'tanks' ? previous.tanks.map(withoutPressures) : (previous as unknown as Record<string, unknown>)[field];
   }
 
   return result;
