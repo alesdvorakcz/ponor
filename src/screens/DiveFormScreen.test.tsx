@@ -166,9 +166,32 @@ function findButton(t: RenderResult, labelIncludes: string) {
   return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').includes(labelIncludes));
 }
 
+/**
+ * The dive's own save control, matched by its WHOLE announced label.
+ *
+ * Every one of this file's dozen save queries used to be `findButton(t, 'Save')`, which
+ * matches by substring — and `formFooter` is a sibling AFTER `formScroll`, so any button
+ * inside an open group whose label merely contains "Save" is earlier in tree order and wins.
+ * That is not a hypothetical: it is why M1e's cylinder-preset capture was first labelled "Add
+ * to my presets" rather than "Save as preset", a label chosen to route around this helper
+ * instead of for the diver. Matching the whole label is what lets a control say what it does,
+ * and it is what the next "Save and add another" or "Unsaved changes" will need too.
+ *
+ * The two literals are `saveLabelFor`'s own output (DiveFormScreen.tsx), which is
+ * module-private to that screen. They are spelled here rather than imported because this file
+ * already asserts those exact words directly ("shows Save dive on a logged dive"), so the
+ * words are deliberately part of what this suite pins — and a helper that silently followed a
+ * renamed constant would stop pinning them.
+ */
+function findSaveControl(t: RenderResult) {
+  return buttonsOf(t).find((n) => {
+    const label = String(n.props?.accessibilityLabel ?? '');
+    return label === 'Save dive' || label === 'Save plan';
+  });
+}
+
 // Task 6 brief, Step 1: presses the one Save control via the query above rather than
-// reimplementing it — `findButton(t, 'Save')` already matches "Save dive"'s own
-// accessibilityLabel.
+// reimplementing it.
 //
 // `async`/awaited, unlike the brief's own un-awaited sample. `@testing-library/react-native`
 // v14 makes `fireEvent.press` itself `async` — its returned promise chains all the way
@@ -182,7 +205,7 @@ function findButton(t: RenderResult, labelIncludes: string) {
 // together is what made the leftover work settle before the test that started it returns,
 // rather than bleeding into whichever test happens to run next.
 const pressSave = async (t: RenderResult) => {
-  const save = findButton(t, 'Save');
+  const save = findSaveControl(t);
   if (!save) throw new Error('no Save control found');
   await fireEvent.press(save);
 };
@@ -275,7 +298,7 @@ async function openGroup(t: RenderResult, title: string) {
 //
 // Queried by the `switch` role rather than by `button`, which is exactly how the screen
 // declares it (the same idiom `BooleanField` uses for hood/gloves/boots) — and which means
-// `findButton(t, 'Save')` above can never accidentally land on it.
+// `findSaveControl(t)` above can never accidentally land on it.
 
 /** The status control itself, or `undefined` when the screen renders none. */
 function findStatusControl(t: RenderResult) {
@@ -338,7 +361,7 @@ it('saves a dive carrying nothing but a date', async () => {
   // Same query the brief's own sample uses, through this file's `findButton` helper rather
   // than inlined a second time — `t.root` types as possibly-null in the installed RTL
   // version, which `findButton`/`buttonsOf` already guard against.
-  const save = findButton(t, 'Save');
+  const save = findSaveControl(t);
   expect(save?.props?.accessibilityState?.disabled).not.toBe(true);
 });
 
@@ -383,7 +406,7 @@ it('names all six §2.2 groups', async () => {
 
 it('never sets a disabled state on the save control, before or after opening a group', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  const before = findButton(t, 'Save');
+  const before = findSaveControl(t);
   expect(before?.props?.disabled).not.toBe(true);
   expect(before?.props?.accessibilityState?.disabled).not.toBe(true);
 
@@ -391,14 +414,14 @@ it('never sets a disabled state on the save control, before or after opening a g
   if (!header) throw new Error('no Gas & cylinders header found');
   await fireEvent.press(header);
 
-  const after = findButton(t, 'Save');
+  const after = findSaveControl(t);
   expect(after?.props?.disabled).not.toBe(true);
   expect(after?.props?.accessibilityState?.disabled).not.toBe(true);
 });
 
 it('lets the save control actually be pressed, with nothing set but the default date', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  const save = findButton(t, 'Save');
+  const save = findSaveControl(t);
   if (!save) throw new Error('no Save control found');
   // Awaited, not fire-and-forget: `handleSubmit` runs `zodResolver(diveFormSchema)`
   // internally, and awaiting is what lets a rejected promise inside that chain surface as
@@ -1163,7 +1186,7 @@ function hangingCreate(created: Dive): () => void {
  * leaves it reporting one.
  */
 function tapSaveAgain(t: RenderResult) {
-  const save = findButton(t, 'Save');
+  const save = findSaveControl(t);
   if (!save) throw new Error('no Save control found');
   save.props.onClick({ nativeEvent: {}, stopPropagation() {}, preventDefault() {}, persist() {} });
 }
@@ -1184,7 +1207,7 @@ it('creates one dive, not two, when Save is double-tapped while the write is in 
   // Deliberately not awaited: `fireEvent.press` only settles once the handler's whole
   // chain has, and this write is held open on purpose — awaiting here would rule out the
   // very overlap this test exists to create.
-  const first = fireEvent.press(findButton(t, 'Save')!);
+  const first = fireEvent.press(findSaveControl(t)!);
   // The second tap in the SAME frame, before React has re-rendered the control as disabled
   // — which is what a double-tap actually is, and what leaves the re-entrancy latch as the
   // only thing that can turn it away. Dispatched even a tick later and the `disabled` prop
@@ -1224,19 +1247,19 @@ it('marks the save control disabled while a write is in flight, and only then', 
   const t = await render(<DiveFormScreen mode="create" />);
   await pickDate(t, '2026-08-16');
   // §1 binds the control itself: nothing about form validity may disable it.
-  expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).not.toBe(true);
+  expect(findSaveControl(t)?.props?.accessibilityState?.disabled).not.toBe(true);
 
   // `accessibilityState.disabled` is the half a screen reader announces, and the only half
   // observable from here: `Pressable` consumes the `disabled` prop itself rather than
   // forwarding it to the host `View` these queries reach. Both are set on the control; a
   // control that silently ignores a tap it still announces as available is its own kind of
   // dead button, and this is the one of the two a test can actually see.
-  const press = fireEvent.press(findButton(t, 'Save')!);
-  await waitFor(() => expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).toBe(true));
+  const press = fireEvent.press(findSaveControl(t)!);
+  await waitFor(() => expect(findSaveControl(t)?.props?.accessibilityState?.disabled).toBe(true));
 
   releaseWrite();
   await press;
-  await waitFor(() => expect(findButton(t, 'Save')?.props?.accessibilityState?.disabled).not.toBe(true));
+  await waitFor(() => expect(findSaveControl(t)?.props?.accessibilityState?.disabled).not.toBe(true));
 });
 
 // --- C1: the screen the `+` button opens must actually mount ---
@@ -1262,7 +1285,7 @@ it('mounts in create mode with an empty logbook, without looping on a fresh dive
   // A positive assertion, not merely "render() did not throw": a screen that rendered
   // nothing at all would satisfy the absence of a throw just as well.
   expect(textIn(t).join(' ')).toContain('New dive');
-  expect(findButton(t, 'Save')).toBeDefined();
+  expect(findSaveControl(t)).toBeDefined();
 });
 
 it('mounts in create mode with a real carry-over source, without looping', async () => {
@@ -1281,7 +1304,7 @@ it('mounts in edit mode too, where carry-over never applies but the same gate ra
   stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="edit" diveId="some-id" />);
   expect(textIn(t).join(' ')).toContain('Edit dive');
-  expect(findButton(t, 'Save')).toBeDefined();
+  expect(findSaveControl(t)).toBeDefined();
 });
 
 // The re-derivation the gate exists for still has to happen: `useDives()` starts empty and
@@ -2239,7 +2262,7 @@ it('tells the diver when an edit fails to save, instead of pretending it worked'
 // --- Amendment D: the form had no visible way out at all ---
 
 /** The form's exit control, by the label that says what it does. Deliberately checked
- * against `findButton(t, 'Save')` in the test below, because the one thing this control must
+ * against `findSaveControl(t)` in the test below, because the one thing this control must
  * never be mistaken for is the primary action. */
 const findLeave = (t: RenderResult) => findButton(t, 'Leave without saving');
 
@@ -2273,7 +2296,7 @@ it('gives the way out the wayfinding treatment, never the primary action one', a
   const t = await render(<DiveFormScreen mode="create" />);
   const styles = makeStyles('light');
   const leaveStyle = [findLeave(t)?.props?.style].flat(5);
-  const saveStyle = [findButton(t, 'Save')?.props?.style].flat(5);
+  const saveStyle = [findSaveControl(t)?.props?.style].flat(5);
 
   // §0.5/§0.6: the same mono, muted, 48 dp control DiveDetailScreen's `‹ Dives` uses — and
   // emphatically not `action`, the app's one filled-ink button, which the save control
@@ -2449,14 +2472,14 @@ it('stays monochrome in both states — colour encodes depth and nothing else', 
 it('says what the save will do, rather than making the diver remember the mode', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   expect(textIn(t).join(' ')).toContain('Save dive');
-  expect(findButton(t, 'Save')?.props?.accessibilityLabel).toBe('Save dive');
+  expect(findSaveControl(t)?.props?.accessibilityLabel).toBe('Save dive');
 
   await toggleStatus(t);
   expect(textIn(t).join(' ')).toContain('Save plan');
   expect(textIn(t).join(' ')).not.toContain('Save dive');
   // The announced label moves with the visible one: a screen reader that went on saying
   // "Save dive" would be the same false promise one sense over.
-  expect(findButton(t, 'Save')?.props?.accessibilityLabel).toBe('Save plan');
+  expect(findSaveControl(t)?.props?.accessibilityLabel).toBe('Save plan');
 });
 
 it('calls a new plan a plan in its heading too', async () => {
@@ -2993,13 +3016,19 @@ async function typeACylinder(t: RenderResult, size = '12', workingPressure = '23
   await typeInto(t, 'Working pressure', workingPressure);
 }
 
-/** Reveals the name row and confirms it — the two-step the group's end offers. */
+/**
+ * Reveals the name row and confirms it — the two-step the group's end offers.
+ *
+ * `Save as preset` and `Save preset` are two distinct whole labels, and neither is a
+ * substring of the other, so `findButton`'s substring match cannot confuse them. Neither can
+ * reach `findSaveControl` above, which matches the dive's save by its whole label.
+ */
 async function addPresetNamed(t: RenderResult, name: string) {
-  const reveal = findButton(t, 'Add to my presets');
-  if (!reveal) throw new Error('no "Add to my presets" control found');
+  const reveal = findButton(t, 'Save as preset');
+  if (!reveal) throw new Error('no "Save as preset" control found');
   await fireEvent.press(reveal);
   if (name !== '') await typeInto(t, 'Preset name', name);
-  const confirm = findButton(t, 'Add preset');
+  const confirm = findButton(t, 'Save preset');
   if (!confirm) throw new Error('the name row offered no confirm');
   await fireEvent.press(confirm);
 }
@@ -3012,7 +3041,7 @@ it('shows nothing new to a diver who has never saved a preset', async () => {
   // does not read as a control that failed to load.
   expect(textIn(t).join(' ')).not.toContain('Presets');
   // The capture control is still there — it is how the first preset ever gets made.
-  expect(findButton(t, 'Add to my presets')).toBeDefined();
+  expect(findButton(t, 'Save as preset')).toBeDefined();
 });
 
 it('offers one chip per preset, in the order the hook hands them', async () => {
@@ -3034,7 +3063,22 @@ it('puts the chips above the cylinder fields and the capture below them', async 
   const material = labels.indexOf(`Material: ${formatTankMaterial('steel')}`);
   expect(material).toBeGreaterThan(-1);
   expect(labels.indexOf('Apply preset alu 80')).toBeLessThan(material);
-  expect(labels.indexOf('Add to my presets')).toBeGreaterThan(material);
+  expect(labels.indexOf('Save as preset')).toBeGreaterThan(material);
+});
+
+// Two controls, one word, and no ambiguity about which of them writes a dive. Worth pinning
+// because the preset control was first named AROUND this collision ("Add to my presets")
+// rather than for the diver: `formFooter` is a sibling AFTER `formScroll`, so a query that
+// matched "Save" as a substring landed on the group's control first. The screen is allowed to
+// say "Save" where it says what it saves; the query is what had to get stricter.
+it('keeps the dive’s own save distinct from the preset control beside it', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const labels = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  // In tree order — the group's control first, the footer's last — which is exactly why a
+  // substring match would have found the wrong one.
+  expect(labels.filter((label) => label.includes('Save'))).toEqual(['Save as preset', 'Save dive']);
+  expect(findSaveControl(t)?.props?.accessibilityLabel).toBe('Save dive');
 });
 
 it('fills the whole cylinder block in one tap', async () => {
@@ -3113,8 +3157,8 @@ it('asks for a name before it writes anything', async () => {
   // Nothing to type into until the diver says they want a preset.
   expect(findTextInput(t, 'Preset name')).toBeUndefined();
 
-  const reveal = findButton(t, 'Add to my presets');
-  if (!reveal) throw new Error('no "Add to my presets" control found');
+  const reveal = findButton(t, 'Save as preset');
+  if (!reveal) throw new Error('no "Save as preset" control found');
   await fireEvent.press(reveal);
   expect(findTextInput(t, 'Preset name')).toBeDefined();
   expect(mockCreatePreset).not.toHaveBeenCalled();
@@ -3203,7 +3247,7 @@ it('counts a cylinder holding only pressures as nothing to store', async () => {
 });
 
 // Two chips reading "alu 80" with different cylinders is a row the diver cannot tell apart
-// and cannot fix by looking. `presetNamed` (db/gearPresets.ts) is the one owner of the
+// and cannot fix by looking. `presetNamed` (domain/presets.ts) is the one owner of the
 // question, and it is asked of the live list this screen is already showing.
 it('refuses a name the diver already has, whatever case they typed it in', async () => {
   stubPresets([preset({ name: 'alu 80' })]);
@@ -3225,7 +3269,7 @@ it('closes the name row once the preset is written', async () => {
 
   await waitFor(() => expect(mockCreatePreset).toHaveBeenCalled());
   expect(findTextInput(t, 'Preset name')).toBeUndefined();
-  expect(findButton(t, 'Add to my presets')).toBeDefined();
+  expect(findButton(t, 'Save as preset')).toBeDefined();
 });
 
 // §10: "A local save failure is shown to the diver." A preset that silently failed to save

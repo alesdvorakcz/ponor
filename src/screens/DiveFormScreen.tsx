@@ -864,11 +864,16 @@ function PresetChips({
  * platform prompt: `Alert.prompt` is iOS-only, and `platform/confirmDestructive.ts` exists
  * for destructive chrome specifically (§10), which this is not.
  *
- * **Nothing here says "Save".** That word belongs to the one primary control on this screen,
- * for exactly the reason `StatusControl` above is "deliberately free of the word 'Save', so
- * it can never be mistaken — by a screen reader or by a test query — for the save control".
- * A second Save inside a field group is the same confusion with more at stake: one writes a
- * dive, the other writes a shortcut.
+ * **It says "Save as preset", and it says what it saves.** This screen has a recorded rule
+ * that its controls stay "deliberately free of the word 'Save', so it can never be mistaken
+ * — by a screen reader or by a test query — for the save control" (`StatusControl` above),
+ * and that rule is about a control whose label would name no object at all: a bare "Save" one
+ * row from `Save dive` is genuinely ambiguous. `Save as preset` and `Save preset` both name
+ * what they write, which is the same verb-plus-noun shape every other control in this app
+ * uses (`Save dive`, `Delete dive`, `Complete dive`). The wording was briefly `Add to my
+ * presets`, which dodged the collision at the cost of the only first-person possessive string
+ * in the codebase — a label chosen to route around a test helper (`findButton`'s substring
+ * match, since fixed) rather than for the diver reading it.
  *
  * **It decides nothing.** Whether a name is empty, whether the cylinders are worth storing
  * and whether the name is already taken are all the screen's rules (`savePreset`), because
@@ -949,7 +954,7 @@ function PresetCapture({
             // Announced more fully than it is written, exactly as this screen's own `‹ Cancel`
             // is ("Leave without saving"): out of context a bare "Cancel" would be
             // indistinguishable from the control that leaves the whole form.
-            accessibilityLabel="Cancel adding a preset"
+            accessibilityLabel="Cancel saving a preset"
           >
             <Text style={styles.formPresetActionLabel}>Cancel</Text>
           </Pressable>
@@ -959,10 +964,10 @@ function PresetCapture({
           onPress={naming ? () => confirm() : () => setNaming(true)}
           disabled={naming && saving}
           accessibilityRole="button"
-          accessibilityLabel={naming ? 'Add preset' : 'Add to my presets'}
+          accessibilityLabel={naming ? 'Save preset' : 'Save as preset'}
           accessibilityState={{ disabled: naming && saving }}
         >
-          <Text style={styles.formPresetActionLabel}>{naming ? 'Add preset' : 'Add to my presets'}</Text>
+          <Text style={styles.formPresetActionLabel}>{naming ? 'Save preset' : 'Save as preset'}</Text>
         </Pressable>
       </View>
     </>
@@ -1090,7 +1095,7 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
 const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
 
 /**
- * The four things *Add to my presets* can say, and every one of them is a sentence rather
+ * The four things *Save as preset* can say, and every one of them is a sentence rather
  * than a blocked control — §1's "never block a save" binds this form, and even where the
  * subject is a preset rather than a dive the shape of the answer stays the same: the diver
  * is told what happened and what to do about it, next to the row it is about.
