@@ -1,5 +1,6 @@
 import { themeFor } from './resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from './styles';
+import { depthScale } from './tokens';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
 // fresh StyleSheet each time, `styles` would get a new object identity on every render,
@@ -339,5 +340,75 @@ describe('the Dives screen pinned bar', () => {
     expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
+  });
+});
+
+// **The sheet holds no depth colour, anywhere** (DESIGN.md §4.1: "`theme/depth.ts` is the only
+// reader of the depth scale"). Swept over every style rather than asserted for the two that
+// could plausibly want one, because the shape is general and the tempting version is specific:
+// six `depthLegendBar1…6` keys would make the legend a one-liner and would put a second copy of
+// the palette in a file that has no way to know a band from a depth. The same edit reaches for
+// `depthValue` every time somebody notices it carries no colour.
+//
+// This is also the half `unexpectedGraphics` cannot see: that guard checks what a screen
+// composes at a call site, and a hue baked into the sheet is by definition a style the sheet
+// handed out.
+describe('the depth scale and the stylesheet', () => {
+  it('keeps every band colour out of the sheet, in both schemes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const palette: readonly string[] = [...depthScale.dark, ...depthScale.light];
+      const painted = Object.entries(makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>)
+        .filter(([, style]) =>
+          Object.values(style).some((value) => typeof value === 'string' && palette.includes(value)),
+        )
+        .map(([name]) => name);
+      expect(painted).toEqual([]);
+    }
+  });
+
+  // The two styles that are drawn in a band colour and must therefore carry none: the legend's
+  // swatch and the dive row's depth. Each is completed at its call site out of `theme/depth.ts`,
+  // and an absence is what makes that the only way to complete it.
+  it('leaves the swatch and the depth value uncoloured, for the call site to finish', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      expect(styles.depthLegendBar?.backgroundColor).toBeUndefined();
+      expect(styles.depthValue?.color).toBeUndefined();
+    }
+  });
+});
+
+// **The mark is monochrome, and the sheet is where that is decided** (§0.1, M1h). §0.3 strokes
+// the same shape in the depth gradient ON THE APP ICON; on screen that would be colour used as
+// brand, on the one screen whose job is teaching that colour is only ever depth. The asset is
+// single-colour before any tint (scripts/build-icons.mjs), and this is the other half: the ink
+// it is tinted with is a theme token and not a band.
+describe('the first-run mark', () => {
+  it('is drawn in the theme ink, at half strength, in both themes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const mark = makeStyles(scheme).emptyStateMark as Record<string, unknown>;
+      expect(mark.tintColor).toBe(themeFor(scheme).fg);
+      // Half strength — the owner's drawing. Pinned as "quieter than the ink", not as 0.5
+      // exactly, because the number is a design judgement and the rule is that the mark
+      // recedes behind the legend it introduces.
+      expect(typeof mark.opacity).toBe('number');
+      expect(mark.opacity as number).toBeGreaterThan(0);
+      expect(mark.opacity as number).toBeLessThan(1);
+    }
+  });
+
+  it('says NOTHING LOGGED YET in the same cluster-label treatment the other two screens use', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const label = styles.emptyStateLabel ?? {};
+      const detail = styles.detailClusterTitle ?? {};
+      // §0.6 introduced the shared definition because *Conditions* and *Gas & cylinders* carried
+      // two treatments for one thing. A third call site retyping 10.5/uppercase/+0.14 em is the
+      // same defect with a third spelling, so this compares the treatment rather than the
+      // numbers — the detail screen's own margin is the only thing that may differ.
+      for (const key of ['fontFamily', 'fontSize', 'color', 'textTransform', 'letterSpacing']) {
+        expect(label[key]).toBe(detail[key]);
+      }
+    }
   });
 });

@@ -708,16 +708,123 @@ function build(scheme: ColorScheme) {
     // it would be the answer this component actually got. Its absence makes a caller that
     // forgets to compose one fail visibly — the button flush against the bottom edge —
     // instead of quietly sitting under a bar and still responding to taps.
+    //
+    // `justifyContent` went with M1h's first-run rewrite: the wrap is now a scroll and a
+    // button, the scroll takes the slack (`flex: 1` on `emptyStateScroll`), and it is
+    // `emptyStateContent` that decides where the teaching block sits inside it. Left here,
+    // `flex-end` would have been a second, contradicting answer to the same question.
     emptyStateWrap: {
       flex: 1,
-      justifyContent: 'flex-end',
       paddingHorizontal: 20,
       gap: 16,
     },
+    // **The teaching block scrolls; the action does not** (M1h). Everything above the button
+    // — the mark, the label, the local-first line, the depth legend and its reason — is seven
+    // elements deep, and on a 4.7" phone in Czech (§0.5: "Czech runs 20–30 % longer") they do
+    // not all fit. A column that simply overflowed would push the mark off the top edge with
+    // nothing to say it was there; a column that shrank would put the one control a first-run
+    // diver has back into the region `screenBottomInset` was written to get it out of. So the
+    // overflow goes somewhere reachable instead, and the button stays exactly where the device
+    // says it may be, which is the guarantee that has already shipped broken once.
+    emptyStateScroll: { flex: 1 },
+    // **`flexGrow: 1` with `justifyContent: 'flex-end'` is the pair that makes that work.**
+    // Content shorter than the screen is pushed to the bottom, against the button, so the
+    // composition keeps §0.5's thumb zone and the mark sits where the drawing puts it. Content
+    // taller than the screen makes the container taller than the frame, which leaves
+    // `justifyContent` no free space to distribute — so it lays out from the top and every
+    // element stays scrollable to. One property could not do both.
+    emptyStateContent: {
+      flexGrow: 1,
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      gap: 16,
+    },
+    // **The mark, drawn once, monochrome — and the monochrome is §0.1 enforcing itself.**
+    // §0.3 strokes this same shape in the depth gradient *on the app icon*, where the mark is
+    // the only thing there is. On screen the identical gradient would be colour used as
+    // **brand**, and §0.1 says colour encodes depth and nothing else: the only hue anywhere on
+    // this screen is the legend below, and the legend is depth. Restoring the gradient here
+    // would break the rule the screen exists to teach, six lines above the sentence that
+    // teaches it — so it is written here rather than left to be inferred from a grey PNG.
+    //
+    // `tintColor` is what paints it, from `fg`, so one asset serves both themes and neither
+    // gets a baked-in ink that goes invisible on the other ground. `opacity` is the "half
+    // strength" the owner's drawing shows: the mark is the quietest thing on a screen whose
+    // job is the legend, and `depthUnit` above already establishes opacity as this sheet's
+    // lever for "quieter than the ink it is drawn in". `fgMuted` was the alternative and is
+    // the wrong token — §0.2 gives it to "labels, units, metadata", and this is a graphic.
+    //
+    // The asset is 360 px square and drawn at 120 (`assets/images/mark-mono.png`,
+    // scripts/build-icons.mjs): a source rather than a sprite, so the display size lives here
+    // and nowhere else. `resizeMode: 'contain'` keeps the drawing's own 64×64 frame, which is
+    // the icon's frame — the on-screen mark is the same composition, not a re-cropped one.
+    emptyStateMark: {
+      width: 120,
+      height: 120,
+      resizeMode: 'contain',
+      tintColor: theme.fg,
+      opacity: 0.5,
+    },
+    // §0.6's cluster-label treatment, third call site — "NOTHING LOGGED YET" over the
+    // first-run block. Derived from the same `clusterLabel` the dive detail's and the form's
+    // group headings take, rather than retyped at 10.5/uppercase/+0.14 em for a third time,
+    // for the reason §0.6 gives when it introduced the shared definition: *Conditions* and
+    // *Gas & cylinders* carried two treatments for one thing until they did not.
+    emptyStateLabel: clusterLabel,
     emptyStateText: {
       fontFamily: fonts.sans,
       fontSize: 16,
       color: theme.fgMuted,
+      textAlign: 'center',
+    },
+    // The two lines under the legend that give the rule its reason. Mono, because they are a
+    // caption to a data legend and they carry the scale's own figures — §0.2 splits the faces
+    // on content, and "red fades out by 6 m" is a reading, not a sentence about the app. Sized
+    // at `tripDateRange`'s 11, which is this sheet's existing "small mono metadata", with a
+    // line height because unlike a date range this one wraps.
+    emptyStateReason: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      lineHeight: 16,
+      color: theme.fgMuted,
+      textAlign: 'center',
+    },
+    // **The depth legend** (§0.6, M1h) — six bars in the six band colours, each under its own
+    // range. The one place in Ponor where a depth colour appears without a depth beside it,
+    // and the only thing a first-run screen can teach that the app then keeps using.
+    //
+    // `alignSelf: 'stretch'` because its parent centres its children: a legend is a scale and
+    // has to span the column, or the six bands stop reading as one continuous run of water.
+    depthLegend: {
+      alignSelf: 'stretch',
+      flexDirection: 'row',
+      gap: 4,
+    },
+    // One band's column. `flex: 1` on every one is what makes the six equal without anybody
+    // computing a width from a screen size — and equal is the honest drawing: the bands are
+    // not equal in metres (6, 6, 8, 10, 10, open) and a legend scaled to depth would give the
+    // deepest band an infinite share.
+    depthLegendBand: {
+      flex: 1,
+      gap: 6,
+    },
+    // The swatch. Colour is composed at the call site from `depthBandColor` (theme/depth.ts)
+    // for the same reason `depthValue` above carries none: a depth colour depends on the band
+    // as well as the scheme, so it cannot be precomputed into a scheme-only sheet.
+    depthLegendBar: {
+      height: 6,
+      borderRadius: 3,
+    },
+    // The range beneath it. Mono with tabular figures because these are depths — the same face
+    // and the same reason `depthValue` takes it — and muted, because the bar above is the part
+    // that is meant to be looked at. Centred under its own bar so the numbers read as labels
+    // of the swatches rather than as a row of their own.
+    depthLegendLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 10.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fgMuted,
+      textAlign: 'center',
     },
     // depthValue is the anchor of a dive row (§0.6): the value that actually differs
     // dive to dive, set apart from every other row element by size, weight and colour so
@@ -863,6 +970,23 @@ function build(scheme: ColorScheme) {
       ...screenHeading,
       paddingHorizontal: 16,
       paddingTop: 4,
+      paddingBottom: 8,
+    },
+    // **The count under the title, and it exists on one branch only** (M1h): the empty
+    // logbook, where it reads "0 dives". It is not decoration there — it is the difference
+    // between a screen that has *read* the logbook and found nothing and a screen that has not
+    // looked yet, which is the confusion §10's "a screen with no answer must not state one"
+    // records costing a diver their whole list for a frame. The waiting branch renders the
+    // title alone, and the difference between the two is now visible rather than inferred.
+    //
+    // Mono because it is a figure (§0.2), muted because the title above it is the heading, and
+    // in `divesTitle`'s own 16 dp column so it hangs off the title rather than starting a new
+    // margin. `formatDiveCount` (format/display.ts) owns the words, here as everywhere else.
+    divesCount: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      paddingHorizontal: 16,
       paddingBottom: 8,
     },
     // ------------------------------------------------------------------------------------
