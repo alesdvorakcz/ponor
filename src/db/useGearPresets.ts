@@ -63,14 +63,17 @@ export interface GearPresetListState {
  * Its whole pipeline is `toGearPresets(gearPresetRowsQuery(db))`, both of which
  * `db/gearPresets.test.ts` exercises against a real database — the same split `useDives`
  * documents, where the pure half is tested directly and `useLiveQuery` itself is left to the
- * app. There is nothing here beyond that call, the `?? []`, `isResolved` and the memo below.
+ * app. There is nothing here beyond that call, `isResolved` and the memo below.
  *
- * That `?? []` is a type-level guard and nothing more, which is a correction: this line used
- * to claim it was "for the first render before the query resolves", and it never was.
- * `useLiveQuery` seeds `data` with `[]` itself for a `db.select()` builder, so it is an empty
- * array from the first render onwards and this coalesce has never once fired — which is
- * exactly why the first render was indistinguishable from an empty logbook of presets, and
- * why `resolved` above had to exist. See `isResolved` (db/liveQuery.ts) for the mechanism.
+ * **The `?? []` that used to sit on `rowData` is gone.** It was documented as covering "the
+ * first render before the query resolves" and it never did: `useLiveQuery` seeds `data` with
+ * `[]` itself for a `db.select()` builder, and types it as the row array rather than as
+ * possibly-undefined, so the coalesce had never once fired — which is exactly why the first
+ * render was indistinguishable from a diver with no presets, and why `resolved` above had to
+ * exist. Calling it "a type-level guard" instead was a second wrong account; deleting it
+ * leaves typecheck clean, which is what settles it. Removed rather than left as a no-op under
+ * a comment that reads as "do not remove me" — `composeDives`' own docblock records this
+ * project making the same call for the same reason. See `isResolved` (db/liveQuery.ts).
  *
  * `toGearPresets` is memoised on the raw row array for the reason `useDives` records: it is
  * `rows.map(...).sort(...)`, so without this every consumer would get a brand-new array on
@@ -86,6 +89,6 @@ export interface GearPresetListState {
 export function useGearPresets(): GearPresetListState {
   const rows = useLiveQuery(gearPresetRowsQuery(db));
   const rowData = rows.data;
-  const presets = useMemo(() => toGearPresets(rowData ?? []), [rowData]);
+  const presets = useMemo(() => toGearPresets(rowData), [rowData]);
   return { presets, resolved: isResolved(rows), error: rows.error };
 }

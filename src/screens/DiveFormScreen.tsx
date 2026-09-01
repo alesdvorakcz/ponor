@@ -376,10 +376,15 @@ function seedStateFor(
     return {
       sourceId,
       units,
-      // A `null` seed in edit mode means the dive has not arrived yet (`useDives()` starts
-      // empty) or the id names no live dive at all. Today's blank form is what shows in
-      // that gap; `onValid` below refuses to write anything without a real dive, so a form
-      // that opened blank can never save its blanks over a dive it never loaded.
+      // A `null` seed in edit mode means the id names no live dive at all, and the blank form
+      // is what shows for it; `onValid` below refuses to write anything without a real dive,
+      // so a form that opened blank can never save its blanks over a dive it never loaded.
+      //
+      // It used to mean one more thing — "the dive has not arrived yet" — and those two were
+      // indistinguishable here, so the blank form was also what a diver saw over their own
+      // real dive for the renders before `useDives()` answered. That case no longer reaches
+      // this branch: the screen holds a frame instead until `resolved` (M1f, see the render
+      // body), so a blank form is now only ever the answer to a dive that is genuinely gone.
       values: seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
       paths: new Set<string>(),
       typed,

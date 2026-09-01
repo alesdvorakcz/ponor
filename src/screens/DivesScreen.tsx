@@ -344,10 +344,11 @@ export default function DivesScreen() {
    * as a component type, and an inline arrow is a new type on every render, which remounts
    * the header each time. As an element it simply re-renders, like any other child.
    *
-   * The branches with no list (a failed read, an empty logbook) render this same element
-   * directly under the bar. There is nothing to scroll there, so "in the scroll content" has
-   * no meaning; what matters is that the screen names itself in the same words, the same
-   * treatment and the same place in all three states.
+   * The three branches with no list (a failed read, a read that has not answered, an empty
+   * logbook) render this same element directly under the bar. There is nothing to scroll
+   * there, so "in the scroll content" has no meaning; what matters is that the screen names
+   * itself in the same words, the same treatment and the same place in all four states — and
+   * on the waiting branch it is, with the bar, the only thing on screen.
    */
   const title = <Text style={styles.divesTitle}>Dives</Text>;
 

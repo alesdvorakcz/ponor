@@ -44,6 +44,20 @@ export interface DiveListState {
    * read numbers from offset 0 for those renders and then renumbers. That flash is real, and
    * it is the smaller of the two — a number that corrects itself, against a list that is not
    * shown.
+   *
+   * **A third option was considered and rejected: withhold the NUMBERS rather than the list** —
+   * a second signal, or an empty `numbers` map, so a screen could draw its dives with no dive
+   * numbers until the offset is known instead of drawing them from 0 and renumbering. It is
+   * recorded here because §10's convention is that a rejected option is named, not because it
+   * was close. It **substitutes one false statement for another**: `numbers.get(id)` returning
+   * `undefined` already means something specific in this app — a dive with no number — and
+   * that is what a PLANNED dive is (§2.4, `assignDiveNumbers` numbers only logged dives).
+   * `DiveRow`, `ReorderControls` and the detail hero all read it that way, so withholding the
+   * map would render every logged dive as though it were a plan for those renders. Telling the
+   * screens apart would need a third rendering for "number not known yet", distinct from
+   * "number known to be wrong" (which is `settingsError`, and already has one) and from "no
+   * number" — three vocabularies on one hook, to replace a number that corrects itself by a
+   * constant.
    */
   resolved: boolean;
   /**
@@ -122,7 +136,16 @@ export function useDives(): DiveListState {
   const rowData = rows.data;
   const settingsData = settingsRows.data;
   const { dives, numbers } = useMemo(
-    () => composeDives(rowData ?? [], readDivesBefore(settingsData ?? [])),
+    // No `?? []` on either. Both used to carry one, described as covering "the first render
+    // before the query resolves" — which was a false account of a line that has never once
+    // fired: `useLiveQuery` seeds `data` with `[]` itself for a `db.select()` builder, and
+    // types it as the row array rather than as possibly-undefined. Replacing that account with
+    // "a type-level guard" was a second wrong one; deleting all four coalesces leaves
+    // typecheck clean, which is what proves it. Removed rather than kept as a
+    // defensive-but-redundant no-op under a comment saying "do not remove me" — the call
+    // `composeDives`'s own docblock records making for the same reason. The real question
+    // those lines looked like they were answering has an owner now: `isResolved`.
+    () => composeDives(rowData, readDivesBefore(settingsData)),
     [rowData, settingsData],
   );
 
