@@ -352,12 +352,43 @@ function findClearCarried(t: RenderResult, label: string) {
 
 // --- Task 4 brief, Step 1, verbatim ---
 
+// §2.2's core strip, as M1h amended it: **date · site · centre · max depth · duration · time
+// in · start pressure · end pressure**. The last three moved in because the first version of
+// this strip was fixed before anyone had logged a dive with it — surface interval was computed
+// and displayed while its only input sat behind a collapsed group, and the diver who fills both
+// pressures on every dive had to open a group every time.
+const CORE_STRIP_LABELS = [
+  'Date',
+  'Site',
+  'Centre',
+  'Max depth',
+  'Duration',
+  'Time in',
+  'Start pressure',
+  'End pressure',
+] as const;
+
 it('shows the core strip without opening anything', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   const text = textIn(t).join(' ');
-  // §2.2: date, site, center, max depth, duration are always visible
-  for (const label of ['Date', 'Site', 'Centre', 'Max depth', 'Duration']) {
+  for (const label of CORE_STRIP_LABELS) {
     expect(text).toContain(label);
+  }
+});
+
+// The other half of the move, and the half a "does the label show" assertion cannot see: each
+// of the three left its group rather than being copied into the strip. A field rendered twice
+// gives one form value two `Controller`s — two boxes a diver can type opposite numbers into,
+// of which only the last one touched survives — and it is invisible from the strip, because
+// the strip looks right either way.
+it('moved time in and the two pressures out of their groups rather than repeating them', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  // Every group open at once, so nothing can hide inside a collapsed one.
+  for (const group of ['Times & depth', 'Conditions', 'Gas & cylinders', 'Equipment', 'People', 'Notes & rating']) {
+    await openGroup(t, group);
+  }
+  for (const label of ['Time in', 'Start pressure', 'End pressure']) {
+    expect(textIn(t).filter((s) => s === label)).toHaveLength(1);
   }
 });
 
@@ -588,8 +619,8 @@ it('inverts the chip a diver picked, and leaves the rest on surface', async () =
 // the edge, not merely as "a border somewhere".
 //
 // Counted across the whole core strip rather than asserted for one field, because the point
-// is that EVERY field is a row: the five §2.2 names, plus the group header above them, is
-// what makes the form one ruled column instead of five boxes.
+// is that EVERY field is a row: §2.2's eight names, plus the group header above them, is
+// what makes the form one ruled column instead of eight boxes.
 it('rules every field on its top edge, the way a dive row is ruled', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   const styles = makeStyles('light');
@@ -597,8 +628,9 @@ it('rules every field on its top edge, the way a dive row is ruled', async () =>
   expect(strip).toBeDefined();
 
   const rows = strip?.queryAll((n) => [n.props?.style].flat(5).filter(Boolean).includes(styles.formField)) ?? [];
-  // Date, site, centre, max depth, duration (§2.2).
-  expect(rows).toHaveLength(5);
+  // Date, site, centre, max depth, duration, time in, start and end pressure (§2.2, as M1h
+  // amended it). Five until the three the owner had to open a group for joined the strip.
+  expect(rows).toHaveLength(8);
   expect(styles.formField.borderTopWidth).toBe(1);
   expect(styles.formField.borderTopColor).toBe(themeFor('light').border);
   // ...and no bottom edge beside it, which would double every rule between two rows and
@@ -1938,14 +1970,16 @@ it('offers no free-text field for the date or the entry time', async () => {
   expect(findTextInput(t, 'Date')).toBeUndefined();
   expect(findPickerField(t, 'Date')).toBeDefined();
 
-  await openGroup(t, 'Times & depth');
   expect(findTextInput(t, 'Time in')).toBeUndefined();
   expect(findPickerField(t, 'Time in')).toBeDefined();
 
   // And the fields either side of them ARE still text fields, so none of the above is
   // passing merely because `findTextInput` stopped finding anything.
   expect(findTextInput(t, 'Site')).toBeDefined();
-  expect(findTextInput(t, 'Avg depth')).toBeDefined();
+  // `Start pressure` rather than the `Avg depth` this used to name: both pickers sit in the
+  // core strip now (§2.2), and a neighbour that needed a group opened to be found would make
+  // this test's own sanity check depend on a group's disclosure state.
+  expect(findTextInput(t, 'Start pressure')).toBeDefined();
 });
 
 it('opens on a real date the diver can read, without anyone typing one', async () => {
@@ -1975,7 +2009,6 @@ it('stores a picked date as the YYYY-MM-DD string, never a Date', async () => {
 it('stores a picked entry time as the HH:MM string the domain sorts and computes on', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Times & depth');
   // 07:05 rather than a round hour: a single-digit hour and a leading-zero minute are
   // exactly what used to be typed as '7:5' and sort after '19:00' (datetime.ts's own
   // docblock), so this pins the canonical spelling and not just "some time".
@@ -1989,7 +2022,6 @@ it('stores a picked entry time as the HH:MM string the domain sorts and computes
 it('saves a dive with no entry time at all, which stays optional', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Times & depth');
   // §2.2: only the date is required. An untouched time field reads as unrecorded and must
   // reach the write as nothing at all — `toNewDiveInput` omits a null rather than sending it.
   expect(shownIn(t, 'Time in')).toBe('Not set');
@@ -2001,7 +2033,6 @@ it('saves a dive with no entry time at all, which stays optional', async () => {
 it('clears a picked entry time back to unrecorded, and still saves', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Times & depth');
   await pickInto(t, 'Time in', new Date(2026, 7, 16, 7, 5));
 
   const clear = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === 'Clear Time in');
@@ -2215,7 +2246,6 @@ it("opens both pickers on the dive's own date and time, not on today", async () 
   // and it is the DIVE's date, which is what an unseeded picker (today, or "Not set") would
   // fail to be.
   expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
-  await openGroup(t, 'Times & depth');
   expect(shownIn(t, 'Time in')).toBe('07:05');
 });
 
@@ -2232,7 +2262,6 @@ it("seeds the entry-time picker on the dive's own day, not on today", async () =
   // whose clocks actually move.
   stubLogbookFor(dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  await openGroup(t, 'Times & depth');
 
   const field = findPickerField(t, 'Time in');
   if (!field) throw new Error('no Time in field found');
@@ -2259,7 +2288,6 @@ it('follows the date the diver just picked, rather than the one the dive was loa
   stubLogbookFor(dive({ id: 'target', date: '2026-08-16', timeIn: '02:30' }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await pickDate(t, '2026-03-08');
-  await openGroup(t, 'Times & depth');
 
   const field = findPickerField(t, 'Time in');
   if (!field) throw new Error('no Time in field found');

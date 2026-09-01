@@ -1160,9 +1160,10 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
 
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
- * always-visible core strip — date, site, centre, max depth, duration — and everything
- * else behind six collapsible `FormGroup`s. **Only the date is required** (§2.2); every
- * other field, including a wholly untouched one, is a legitimate save.
+ * always-visible core strip — date, site, centre, max depth, duration, time in, start and end
+ * pressure — and everything else behind six collapsible `FormGroup`s. **Only the date is
+ * required** (§2.2); every other field, including a wholly untouched one, is a legitimate
+ * save.
  *
  * The save control (`formFooter` below) is **never disabled for validity** — nothing about
  * what the diver has or has not filled in, or what the resolver makes of it, ever reaches
@@ -1655,7 +1656,19 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <StatusControl control={control} scheme={scheme} />
         </View>
 
-        {/* Core strip (§2.2) — date, site, centre, max depth, duration, always visible. */}
+        {/* Core strip (§2.2) — date, site, centre, max depth, duration, time in, start and end
+            pressure, always visible.
+
+            **The last three joined it in M1h, and §2.2 records why the first version was
+            wrong**: the strip was fixed before anyone had logged a dive with it, which left
+            *time in* and the two pressures behind a collapsed group — so surface interval,
+            which the app computes and shows on the detail screen, had its only input hidden,
+            and the diver who fills start/end on every single dive had to open a group on every
+            single dive. Found by the owner using the app, not by a test.
+
+            Each of the three moved OUT of its group rather than being added here as a second
+            copy: a field rendered twice would give one value two `Controller`s and two
+            `carried ×` chips, and the one the diver did not scroll to would look empty. */}
         <View style={styles.formCoreStrip}>
           {/* A picker, not a text field (§10, M1d): `date` carried this form's only
               blocking rule, so a mistyped one was the single thing that could refuse a save
@@ -1706,9 +1719,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             // 47 minutes long wherever it is dived.
             unit="min"
           />
-        </View>
-
-        <FormGroup title="Times & depth" scheme={scheme}>
           {/* Same treatment for a quieter version of the same defect: a typo in a typed
               `HH:MM` never blocked a save, it silently dropped the dive out of §2.5's
               time-ordering and voided its surface interval. `optional`, because `timeIn`
@@ -1716,6 +1726,42 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               one. `timeOut` gets no control at all: it is computed from this plus duration
               (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
           <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
+          {/* **The two fields that make this strip reach into a cylinder**, which is a kind of
+              coupling nothing else here has: every other core field is a column on the dive,
+              and these two live at `tanks.0.startBar`/`tanks.0.endBar` inside §6's JSON array.
+              They are bound by path, exactly as the Gas & cylinders group binds the rest of
+              that cylinder, so there is no second representation of a pressure anywhere and
+              nothing had to be taught that these two fields are special.
+
+              **`tanks.0` and not "the cylinder", deliberately, and this is what keeps §6's
+              still-unbuilt "+ add cylinder" closable.** The whole form is single-cylinder
+              today; the day that control lands, this strip keeps the FIRST cylinder's
+              pressures — which is the one every dive has and the one a diver reads off their
+              gauge — and the extra cylinders' pressures belong in the group beside the
+              cylinders they describe, where a bottom mix and a deco stage can be told apart.
+              Nothing here has to change for that, because nothing here claims to be about
+              cylinders in general. */}
+          <ControlledTextField
+            control={control}
+            name="tanks.0.startBar"
+            label="Start pressure"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('pressure', units)}
+          />
+          <ControlledTextField
+            control={control}
+            name="tanks.0.endBar"
+            label="End pressure"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('pressure', units)}
+          />
+        </View>
+
+        <FormGroup title="Times & depth" scheme={scheme}>
           <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
         </FormGroup>
 
@@ -1893,24 +1939,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit="%"
           />
-          <ControlledTextField
-            control={control}
-            name="tanks.0.startBar"
-            label="Start pressure"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('pressure', units)}
-          />
-          <ControlledTextField
-            control={control}
-            name="tanks.0.endBar"
-            label="End pressure"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('pressure', units)}
-          />
+          {/* The two pressures used to sit here, between the gas and the capture control.
+              §2.2 moved them into the core strip: they are what the diver fills on every dive,
+              and a group nobody could avoid opening is not a collapsible group. They are gone
+              from here rather than repeated there — see the strip for the binding. */}
           {/* And capturing one, at the END of the group — the position `Delete dive` occupies
               on the detail screen, for the same reason it does there: a deliberate act, not
               part of the flow down the fields. */}
