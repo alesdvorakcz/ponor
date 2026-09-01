@@ -1,14 +1,19 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
 import {
+  type Configuration,
   type Dive,
   type DiveStatus,
   type Entry,
+  type Equipment,
   type Salinity,
   type Suit,
   type Tank,
   type TankMaterial,
+  type Visibility,
   type WaterBody,
+  type Weather,
+  type WeightsFeel,
 } from '../domain/types';
 import { displayFigure, type UnitSystem } from './units';
 
@@ -254,30 +259,51 @@ export const O2_LABEL = 'O₂';
 /** The other half of the mix, and the other half of the same drift — see `O2_LABEL`. */
 export const HE_LABEL = 'He';
 
-/** How many cylinders of one kind, e.g. "2" — a plain count, no unit. */
-export function formatCount(count: number | null): string | null {
-  if (!isFiniteNumber(count)) return null;
-  return `${count}`;
+/**
+ * The third fraction, which is never stored and never typed — `derived.ts`'s `nitrogenPct`
+ * computes it as 100 − O₂ − He (§10). It joins the two above because it is the same kind of
+ * string for the same reason: a label for a gas fraction, spelled once so two screens cannot
+ * spell it two ways, and subscripted for the same typography rule that made `O₂` beat `O2`.
+ */
+export const N2_LABEL = 'N₂';
+
+/**
+ * A wetsuit or drysuit's neoprene thickness, e.g. "5 mm" — unrounded, since 2.5 mm and
+ * 3.5 mm suits are real.
+ *
+ * **Millimetres in both systems, and that is a decision rather than a gap** — the fourth
+ * such decision, alongside `formatDuration`, `formatVolume` and the two litre-based gas
+ * figures below it. Neoprene is sold, printed and talked about in millimetres everywhere
+ * on earth, so a diver reading "0.2 in" would be reading a number no label has ever
+ * carried. `format/units.ts`'s top docblock is where the four are declared together, so
+ * that the next reader adding a pair looks there rather than adding a fifth here.
+ */
+export function formatSuitThickness(mm: number | null): string | null {
+  if (!isFiniteNumber(mm)) return null;
+  return `${mm} mm`;
 }
 
 /**
- * One cylinder's **specification** on a single line — `2 × 12 l steel · 232 bar · O₂ 32 %`.
+ * One cylinder's **specification** on a single line — `Twinset 12 l steel · 232 bar · O₂ 32 %`.
  *
  * Deliberately not `startBar`/`endBar`. Those two are gauge readings: they describe one
  * dive's consumption, not the cylinder, which is why a preset stores neither (DESIGN.md
  * §10) and why a summary of "what kind of cylinder is this" has nothing to say about them.
  * Every other field goes through this module's own per-field formatter — `formatVolume`,
- * `formatTankMaterial`, `formatCount`, `formatPressure`, `formatPercent` — the same five
- * `DiveDetailScreen`'s `tankFields` reads, so the two screens cannot spell one cylinder two
- * ways. What is decided *here*, and nowhere else, is the order and the separators.
+ * `formatTankMaterial`, `formatConfiguration`, `formatPressure`, `formatPercent` — the same
+ * five `DiveDetailScreen`'s `tankFields` reads, so the two screens cannot spell one cylinder
+ * two ways. What is decided *here*, and nowhere else, is the order and the separators.
  *
- * **The count is a multiplier, not a field.** `2 × 12 l steel` is how a diver says a twinset
- * out loud, and it is what makes the line scannable — where a bare `2` in a middot list
- * ("steel · 12 l · 2 · 232 bar") names nothing at all. A count of 1 therefore says nothing:
- * "1 × 12 l steel" is a word of noise on a line that exists to be scanned. A count with no
- * size and no material to multiply becomes `× 2` rather than a dangling `2 ×`, which is the
- * one arrangement of those two characters that still reads as "times two"; dropping it
- * instead would silently lose the only thing that cylinder records.
+ * **The rig leads the phrase, and it is always shown.** It used to be a multiplier —
+ * `2 × 12 l steel`, from the `count` field M1h removed — and the rule that came with it was
+ * that a count of `1` said nothing, because "1 × 12 l steel" is a word of noise. That rule
+ * does not carry over, for two reasons. §10 makes twinset and sidemount *different rigs*
+ * that merely imply the same number, so a bare `2 ×` would render both identically and lose
+ * exactly the distinction the ruling established; and `single` is a fact the diver chose to
+ * record about their rig, not arithmetic — suppressing it would also let a cylinder that
+ * records nothing but its rig summarise to nothing at all, silently losing the only thing it
+ * has to say. `Twinset 12 l steel` is how the design's own example preset names ("twin 12
+ * steel") already read.
  *
  * `null` when the cylinder records nothing this line can show — including a cylinder holding
  * nothing but the two pressures above, which looks full and summarises to nothing. The
@@ -287,12 +313,12 @@ export function formatCount(count: number | null): string | null {
 function formatCylinder(tank: Tank, system: UnitSystem): string | null {
   const parts: string[] = [];
 
-  // Size then material — `12 l steel`, the order a diver names a cylinder in, and the order
-  // `tankFields` already lists the two fields in one screen over.
-  const spec = [formatVolume(tank.sizeL), formatTankMaterial(tank.material)].filter((part) => part !== null).join(' ');
-  const count = isFiniteNumber(tank.count) && tank.count > 1 ? formatCount(tank.count) : null;
-  if (spec !== '') parts.push(count === null ? spec : `${count} × ${spec}`);
-  else if (count !== null) parts.push(`× ${count}`);
+  // Rig, then size, then material — `Twinset 12 l steel`, the order a diver names a cylinder
+  // in, and the order `tankFields` already lists the fields in one screen over.
+  const spec = [formatConfiguration(tank.configuration), formatVolume(tank.sizeL), formatTankMaterial(tank.material)]
+    .filter((part) => part !== null)
+    .join(' ');
+  if (spec !== '') parts.push(spec);
 
   const working = formatPressure(tank.workingBar, system);
   if (working !== null) parts.push(working);
@@ -483,15 +509,17 @@ export function formatTimeRange(timeIn: string | null, durationMin: number | nul
 }
 
 /**
- * Categorical fields — entry, salinity, water body, suit, cylinder material — are stored
- * as the closed lowercase vocabulary `domain/types.ts` declares (`Entry`, `Salinity`,
- * `WaterBody`, `Suit`, `TankMaterial`): the database's vocabulary, not the diver's. This
+ * Categorical fields — entry, salinity, water body, cylinder material, rig configuration,
+ * weather, visibility, suit, weighting feel and each equipment token — are stored
+ * as the closed lowercase vocabulary `domain/types.ts` declares: the database's vocabulary,
+ * not the diver's. This
  * module is the one other place a stored value becomes a displayed string in this app, so
  * that's where these live too, rather than each screen capitalising inline.
  *
- * Every member of those five unions is a single lowercase word, so one shared
+ * Every member of those unions is a single lowercase word, so one shared
  * capitalise-first-letter helper covers all of them — no per-value table that could fall
  * out of sync as a union grows a new member; a new value just capitalises like the rest.
+ * That is why M1h's five new vocabularies cost this file ten lines rather than five tables.
  * English-only, like every other string this file returns: the app has no i18n framework
  * yet (a later milestone), so this is not a translation boundary.
  */
@@ -504,7 +532,7 @@ export function formatEntry(entry: Entry | null): string | null {
   return entry === null ? null : capitalize(entry);
 }
 
-/** The water's salinity, e.g. "Brackish". */
+/** The water's salinity, e.g. "Fresh". Two values since M1h — `brackish` went (§10). */
 export function formatSalinity(salinity: Salinity | null): string | null {
   return salinity === null ? null : capitalize(salinity);
 }
@@ -514,9 +542,96 @@ export function formatWaterBody(waterBody: WaterBody | null): string | null {
   return waterBody === null ? null : capitalize(waterBody);
 }
 
+/**
+ * The rig a cylinder is part of, e.g. "Twinset".
+ *
+ * The replacement for `formatCount`, which M1h deleted with the `count` field it formatted.
+ * A rig is a name, not a number, so this joins the capitalising family above rather than
+ * keeping the numeral formatter's shape — and `formatCylinder` above records what that
+ * changed about the cylinder summary line.
+ */
+export function formatConfiguration(configuration: Configuration | null): string | null {
+  return configuration === null ? null : capitalize(configuration);
+}
+
+/**
+ * The weather above the dive, e.g. "Cloudy".
+ *
+ * `partly` renders as "Partly", which is the one member of these vocabularies that reads as
+ * half a phrase rather than a word — a diver means "partly cloudy". It is left that way
+ * deliberately: giving this one value a lookup table would reintroduce exactly the
+ * per-value map `capitalize`'s docblock above exists to avoid, for one string, and the chip
+ * row it sits in already supplies the missing half by having "Cloudy" next to it. If the
+ * word has to change it should change in `WEATHER_VALUES` (domain/types.ts), where the
+ * vocabulary is declared, not here.
+ */
+export function formatWeather(weather: Weather | null): string | null {
+  return weather === null ? null : capitalize(weather);
+}
+
+/**
+ * The visibility a diver judged, e.g. "Average" — the scale, not `visibilityM`'s distance.
+ *
+ * Two formatters for one subject, and §10 records that as intended rather than as a
+ * duplicate: nobody measures visibility, so the scale is the primary and the metres are an
+ * optional refinement. `formatDepth` is what renders the other half.
+ */
+export function formatVisibility(visibility: Visibility | null): string | null {
+  return visibility === null ? null : capitalize(visibility);
+}
+
 /** The exposure suit worn, e.g. "Semidry". */
 export function formatSuit(suit: Suit | null): string | null {
   return suit === null ? null : capitalize(suit);
+}
+
+/**
+ * How the weighting felt, e.g. "Over" — the judgement beside `weightsKg`'s number, and the
+ * sharper of §10's two number-plus-judgement pairs: "6 kg" means nothing on its own, and
+ * "6 kg, and I was over" is the fact a diver uses to dial in the next dive.
+ */
+export function formatWeightsFeel(weightsFeel: WeightsFeel | null): string | null {
+  return weightsFeel === null ? null : capitalize(weightsFeel);
+}
+
+/**
+ * The accessory set on one line, e.g. "Hood · Gloves · Torch".
+ *
+ * A middot list because that is this app's own separator for a sequence of small facts
+ * (§0.6's row metadata, and `formatCylinder` above for the fields of one cylinder), and
+ * each token capitalises through the same shared `capitalize` every other categorical value
+ * does — never a per-value table.
+ *
+ * **Rendered in the array's own order rather than re-sorted into `EQUIPMENT_VALUES` order.**
+ * The form writes the vocabulary's order already (`DiveFormScreen`), so in practice the two
+ * coincide; imposing it here as well would be a second owner of that order, and would also
+ * quietly reorder a row written by some other client into a claim about what that client
+ * recorded.
+ *
+ * `null` for an empty set, exactly as every formatter above returns `null` for an absent
+ * value — `[]` means "no accessories recorded" (§6), and a caller that got `''` would draw
+ * a labelled row with nothing in it.
+ */
+export function formatEquipment(equipment: readonly Equipment[]): string | null {
+  if (!Array.isArray(equipment) || equipment.length === 0) return null;
+  return equipment.map((token) => formatEquipmentToken(token)).join(' · ');
+}
+
+/**
+ * One accessory on its own, e.g. "Torch" — what the form's per-token chip is labelled.
+ *
+ * Separate from `formatEquipment` above because the two answer different questions: that one
+ * names a whole recorded set for a detail row, this one names a single member for a control
+ * the diver is about to press. `formatEquipment` is written in terms of this rather than
+ * capitalising a second time, so the word a chip offers and the word the detail reads back
+ * are the same string by construction — the `Steel`/`steel` drift `formatTankMaterial`
+ * records is exactly this failure between exactly these two screens.
+ *
+ * Never null, unlike its siblings: a token is a member of a set, so there is no "no value"
+ * case for it to report.
+ */
+export function formatEquipmentToken(token: Equipment): string {
+  return capitalize(token);
 }
 
 /**

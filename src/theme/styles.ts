@@ -1499,9 +1499,9 @@ function build(scheme: ColorScheme) {
     // (`formSuggestions` below) — §0.6: "The list belongs directly under the focused row."
     //
     // `justifyContent: 'space-between'` is what makes "the value trailing" (§0.6) true for
-    // the one field whose value has no `formFieldValue` slot to grow into: hood/gloves/boots
-    // put a `formChip` straight in the row, and without this it sat flush against the end of
-    // the word "Hood" in the middle of an otherwise empty row. It is a no-op for every other
+    // the one field whose value has no `formFieldValue` slot to grow into: each accessory in
+    // the equipment set puts a `formChip` straight in the row, and without this it sat flush
+    // against the end of the word "Hood" in the middle of an otherwise empty row. It is a no-op for every other
     // field, whose value slot already carries `flex: 1`.
     //
     // **`minHeight: 48` is §0.5's floor, on the row rather than on one of its children, and
@@ -1524,8 +1524,9 @@ function build(scheme: ColorScheme) {
       justifyContent: 'space-between',
       gap: 12,
     },
-    // A field whose value is a CONTROL rather than text — hood/gloves/boots' Yes/No chip,
-    // and nothing else today. Composed onto `formField` above at that one call site.
+    // A field whose value is a CONTROL rather than text — one accessory's Yes/No chip in the
+    // equipment set, and nothing else today. Composed onto `formField` above at that one call
+    // site.
     //
     // `formChip` carries §0.5's 48 dp floor as a real box, and a 48 dp box inside a 48 dp row
     // puts its border exactly on the row's hairlines, top and bottom — three of them in a

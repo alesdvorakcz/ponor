@@ -238,7 +238,7 @@ async function renderDetailTreeFor(id: string): Promise<RenderResult> {
 }
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
-  material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+  material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
   o2Pct: 32, hePct: null, startBar: 200, endBar: 50, ...over,
 });
 
@@ -259,8 +259,8 @@ it('shows every cylinder its own MOD, because there is no single dive MOD', asyn
   const d = dive({
     date: '2026-06-04',
     tanks: [
-      { material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
-      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+      { material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   configuration: 'single', sizeL: 7,  workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
   stubDives({ dives: [d], numbers: new Map([[d.id, 212]]), error: undefined });
@@ -279,8 +279,8 @@ it('does not present one cylinder’s MOD as though it were the dive’s', async
   const d = dive({
     date: '2026-06-04',
     tanks: [
-      { material: 'steel', sizeL: 12, count: 1, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
-      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+      { material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   configuration: 'single', sizeL: 7,  workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
   stubDives({ dives: [d], numbers: new Map(), error: undefined });
@@ -302,8 +302,8 @@ it('renders exactly one MOD row per cylinder, and no extra dive-level one', asyn
   const d = dive({
     date: '2026-06-04',
     tanks: [
-      { material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
-      { material: 'alu',   sizeL: 7,  count: 1, workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
+      { material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 18, hePct: 45, startBar: 230, endBar: 90 },
+      { material: 'alu',   configuration: 'single', sizeL: 7,  workingBar: 200, o2Pct: 50, hePct: 0,  startBar: 200, endBar: 120 },
     ],
   });
   stubDives({ dives: [d], numbers: new Map(), error: undefined });
@@ -487,18 +487,18 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // is the other half: `derived.ts`'s own export list, read at runtime rather than retyped
 // here, so a value added to that module is counted automatically too.
 //
-// The fixture below is built so all six of today's exports return non-null and each renders
-// as exactly one row: one tank (not two) keeps MOD and Used from doubling up the way task
+// The fixture below is built so all seven of today's exports return non-null and each renders
+// as exactly one row: one tank (not two) keeps MOD, N2 and Used from doubling up the way task
 // 4's "shows every cylinder its own MOD" test deliberately exercises elsewhere, and the
 // earlier/target pair is the same shape "marks the surface interval..." above already
-// proves resolves to a non-null interval. Marked-count and export-count coincide at 6 today
+// proves resolves to a non-null interval. Marked-count and export-count coincide at 7 today
 // only because every current export is both non-null for this fixture AND wired into this
 // screen; a derived value added for some other screen entirely (not rendered here at all)
 // would desync the two sides without this screen having done anything wrong — a limit worth
 // naming rather than a defect this test can see around, since nothing short of re-deriving
 // each value from its own inputs (i.e. hardcoding the six again, just as function calls
 // instead of as strings) could rule it out.
-it('marks every value this screen reads from derived.ts as computed, not just five of six', async () => {
+it('marks every value this screen reads from derived.ts as computed, not just six of seven', async () => {
   const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
   const target = dive({
     id: 'target',
@@ -507,7 +507,11 @@ it('marks every value this screen reads from derived.ts as computed, not just fi
     durationMin: 45,
     avgDepthM: 20,
     maxDepthM: 25,
-    tanks: [tank()],
+    // `hePct: 0` rather than the fixture's `null`, and it is not a detail: `nitrogenPct`
+    // needs BOTH fractions and refuses to read a blank helium as zero, so the default
+    // cylinder produces no N2 row at all. A fixture that left it null would keep this count
+    // one short and read as a screen that had forgotten to mark something.
+    tanks: [tank({ hePct: 0 })],
   });
   stubDives({ dives: [target, earlier], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
@@ -712,8 +716,8 @@ it('never renders the literal string "NaN", for any of the fields that used to l
         tanks: [
           tank({
             material: null,
+            configuration: null,
             sizeL: Number.NaN,
-            count: Number.NaN,
             workingBar: null,
             o2Pct: Number.NaN,
             hePct: Number.NaN,
@@ -754,8 +758,8 @@ it('omits the Gas & cylinders heading when every tank field is non-finite, not j
         tanks: [
           tank({
             material: null,
+            configuration: null,
             sizeL: Number.NaN,
-            count: Number.NaN,
             workingBar: null,
             o2Pct: Number.NaN,
             hePct: Number.NaN,
@@ -936,13 +940,45 @@ it('finds its own dive inside a multi-dive list, not just the first entry', asyn
   expect(text).toContain('Shark Reef');
 });
 
-// §1's no-form-shaming stance applies to booleans too: `false` is a real recorded answer
-// ("no hood worn"), not the same as `null` ("never asked"). A naive `dive.hood &&
-// <Text>...</Text>` would hide a false the same way it hides a null, silently turning "no
-// hood" into "hood unknown" on screen — the exact class of information loss this guards.
-it('shows an explicitly recorded false, not just a truthy value', async () => {
-  const text = (await renderDetail(dive({ date: '2026-08-16', hood: false }))).join(' ');
-  expect(text.toLowerCase()).toContain('no');
+// This used to pin §1's no-form-shaming stance for BOOLEANS: `hood: false` was a real
+// recorded answer ("no hood worn") and had to render as "No" rather than vanish the way a
+// null does. M1h's token set cannot express that answer at all (§10, and `Dive.equipment`),
+// so what is left to defend is the half that survived — a recorded set reaches the screen as
+// the diver's own words, and an empty one is simply an absent row rather than an empty one.
+it('reads a recorded equipment set back in the diver\'s own words, and omits the row for an empty one', async () => {
+  const worn = (await renderDetail(dive({ date: '2026-08-16', equipment: ['hood', 'torch'] }))).join(' ');
+  expect(worn).toContain('Hood · Torch');
+  const none = (await renderDetail(dive({ date: '2026-08-16', equipment: [] }))).join(' ');
+  expect(none).not.toContain('Equipment');
+});
+
+// M1h's other new fields, on the screen the form writes into. Each is a §10 pairing where a
+// judgement sits beside a number, so both halves are asserted: a screen that dropped either
+// would still look complete.
+it('shows the M1h conditions and equipment fields it now records', async () => {
+  const text = (
+    await renderDetail(
+      dive({
+        date: '2026-08-16',
+        visibility: 'high',
+        visibilityM: 25,
+        weather: 'cloudy',
+        suitThicknessMm: 5,
+        weightsKg: 6,
+        weightsFeel: 'over',
+      }),
+    )
+  ).join(' ');
+  expect(text).toContain('High');
+  expect(text).toContain('25.0 m');
+  expect(text).toContain('Cloudy');
+  expect(text).toContain('5 mm');
+  expect(text).toContain('6 kg');
+  expect(text).toContain('Over');
+  // Two rows about visibility, and they must not both be called the same thing — see
+  // `conditionsFields`. Identical labels would be unreadable in a column and identical to a
+  // screen reader.
+  expect(text).toContain('Visibility distance');
 });
 
 // Review task 7, Minor #4: entry/salinity/waterBody/suit used to render as the raw stored

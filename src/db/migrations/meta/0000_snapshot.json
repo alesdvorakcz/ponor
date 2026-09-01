@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "66d4c3e3-1882-4b8f-bb76-e0ea15e6e5d0",
+  "id": "30af47a9-f8c6-49dc-981f-43290d34cf5d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "dives": {
@@ -162,6 +162,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "visibility_m": {
           "name": "visibility_m",
           "type": "real",
@@ -190,6 +197,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "weather": {
+          "name": "weather",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "tanks": {
           "name": "tanks",
           "type": "text",
@@ -205,30 +219,31 @@
           "notNull": false,
           "autoincrement": false
         },
-        "hood": {
-          "name": "hood",
-          "type": "integer",
+        "suit_thickness_mm": {
+          "name": "suit_thickness_mm",
+          "type": "real",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "gloves": {
-          "name": "gloves",
-          "type": "integer",
+        "equipment": {
+          "name": "equipment",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "boots": {
-          "name": "boots",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "weights_kg": {
           "name": "weights_kg",
           "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "weights_feel": {
+          "name": "weights_feel",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -313,41 +328,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'[]'"
-        },
-        "suit": {
-          "name": "suit",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "hood": {
-          "name": "hood",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "gloves": {
-          "name": "gloves",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "boots": {
-          "name": "boots",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "weights_kg": {
-          "name": "weights_kg",
-          "type": "real",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",

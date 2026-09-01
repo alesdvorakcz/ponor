@@ -31,7 +31,6 @@ import {
   toNewDiveInput,
   toInputString,
   toStoredTanks,
-  unknownBooleanNote,
   unknownOptionNote,
   type DiveFormInput,
   type DiveFormValues,
@@ -40,21 +39,32 @@ import {
 import { PRESET_SAVE_FAILED, presetRefusal } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
+  CONFIGURATION_VALUES,
   ENTRY_VALUES,
+  EQUIPMENT_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
+  VISIBILITY_VALUES,
   WATER_BODY_VALUES,
+  WEATHER_VALUES,
+  WEIGHTS_FEEL_VALUES,
   type Dive,
   type DiveStatus,
+  type Equipment,
   type GearPreset,
 } from '../domain/types';
 import {
+  formatConfiguration,
   formatEntry,
+  formatEquipmentToken,
   formatSalinity,
   formatSuit,
   formatTankMaterial,
+  formatVisibility,
   formatWaterBody,
+  formatWeather,
+  formatWeightsFeel,
   HE_LABEL,
   O2_LABEL,
 } from '../format/display';
@@ -66,8 +76,8 @@ import { type ColorScheme } from '../theme/tokens';
 
 const EMPTY_TANK: TankFormInput = {
   material: null,
+  configuration: null,
   sizeL: null,
-  count: null,
   workingBar: null,
   o2Pct: null,
   hePct: null,
@@ -111,10 +121,12 @@ function blankFormValues(): DiveFormInput {
     avgDepthM: null,
     waterTempC: null,
     airTempC: null,
+    visibility: null,
     visibilityM: null,
     waves: null,
     current: null,
     surge: null,
+    weather: null,
     entry: null,
     salinity: null,
     waterBody: null,
@@ -122,10 +134,12 @@ function blankFormValues(): DiveFormInput {
     longitude: null,
     tanks: [EMPTY_TANK],
     suit: null,
-    hood: null,
-    gloves: null,
-    boots: null,
+    suitThicknessMm: null,
+    // `[]`, never `null`: `equipment` is the second of the two array fields §6 makes
+    // non-nullable, and an empty set already means "no accessories recorded".
+    equipment: [],
     weightsKg: null,
+    weightsFeel: null,
     buddy: null,
     guide: null,
     title: null,
@@ -227,12 +241,18 @@ function initialFormValues(source: Dive | null): DiveFormInput {
 /**
  * Whether a starting value counts as something DESIGN.md §0.6's `carried ×` chip
  * should mark, as opposed to a field that merely was not touched. `0` and `false` are
- * real, meaningful carried values (a diver who dove with zero weight, or without a
- * hood, still had that as their last dive's actual answer) and must count — only
+ * real, meaningful carried values (a diver who dove with zero weight still had that as
+ * their last dive's actual answer) and must count — only
  * `null`/`undefined`/a whitespace-only string mean "carry-over had nothing to say
  * here," the same "empty means absent, not a value" line `diveFormSchema.ts`'s own
  * `optionalNumber`/`optionalText` already draw for the opposite direction (a value
  * reaching the schema, not leaving it).
+ *
+ * An **empty array** is deliberately not on that list, and `equipment` is the field it
+ * matters for: `[]` is a real recorded value meaning "no accessories" (§6), so a previous
+ * dive that recorded none genuinely carried that answer forward. Nothing reads an
+ * `equipment` carried mark today — the set has no `ControlledTextField` — so this is stated
+ * rather than special-cased.
  */
 function hasCarriedValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
@@ -254,8 +274,8 @@ function hasCarriedValue(value: unknown): boolean {
  * a cylinder field added later is covered automatically. Every other `CARRIED_FIELDS`
  * entry without a `ControlledTextField` anywhere on this screen (`siteId`/`centerId`,
  * which have no input of their own yet; `entry`/`salinity`/`waterBody`/`suit`/tank
- * `material`, which render as `OptionChips`; `hood`/`gloves`/`boots`, which render as
- * `BooleanField`) still gets a correct entry in the returned set — simply one nothing
+ * `material` and `configuration`, which render as `OptionChips`; `equipment`, which renders
+ * as a row of toggling chips) still gets a correct entry in the returned set — simply one nothing
  * currently reads — rather than being silently skipped here and needing this function
  * revisited the day one of those fields grows a chip of its own.
  */
@@ -708,68 +728,120 @@ function ControlledOptionField<T extends string>({ control, name, label, options
   );
 }
 
-interface BooleanFieldProps {
+interface EquipmentTokenFieldProps {
   label: string;
-  value: boolean | null | undefined;
-  onChange: (value: boolean) => void;
+  worn: boolean;
+  onChange: (worn: boolean) => void;
   scheme: ColorScheme;
 }
 
-/** hood/gloves/boots (`optionalBoolean`, diveFormSchema.ts) — a single toggling chip
- * rather than RN's own `Switch`: `Switch` needs raw `trackColor`/`thumbColor` strings,
- * which have no way to come from `makeStyles(scheme)` the way every other colour in this
- * screen must (`src/screens/**`'s colour-literal lint rule scans for exactly that), where
- * a chip reuses the monochrome `formChip`/`formChipSelected` treatment already built for
- * the pick fields above. */
-function BooleanField({ label, value, onChange, scheme }: BooleanFieldProps) {
+/**
+ * One accessory, as a single toggling Yes/No chip.
+ *
+ * **This is `BooleanField` under a new name and with the same body**, because the control a
+ * diver touches has not changed — only what it writes. It used to be bound to a `hood`,
+ * `gloves` or `boots` column of its own; §10 replaced the three with the `equipment` token
+ * set, so each chip now toggles membership rather than a boolean, and two more accessories
+ * (torch, camera) join at no cost — which is the whole reason a set beat three columns.
+ *
+ * A chip rather than RN's own `Switch`: `Switch` needs raw `trackColor`/`thumbColor`
+ * strings, which have no way to come from `makeStyles(scheme)` the way every other colour in
+ * this screen must (`src/screens/**`'s colour-literal lint rule scans for exactly that),
+ * where a chip reuses the monochrome `formChip`/`formChipSelected` treatment already built
+ * for the pick fields above.
+ */
+function EquipmentTokenField({ label, worn, onChange, scheme }: EquipmentTokenFieldProps) {
   const styles = makeStyles(scheme);
-  const checked = value === true;
   return (
     // The one field whose value genuinely fits the row's trailing slot as a control rather
     // than as text — so it is `formField` plus `formFieldRow` like every other field (§0.6),
     // with the chip standing where a typed value would. It used to be the bare label row with
-    // no field wrapper at all, which is why hood/gloves/boots drew no hairline of their own.
+    // no field wrapper at all, which is why these rows drew no hairline of their own.
     // `formFieldChoice` is the padding a 48 dp chip needs inside a 48 dp row — see that style.
     <View style={[styles.formField, styles.formFieldChoice]}>
       <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
         <Pressable
-          style={[styles.formChip, checked && styles.formChipSelected]}
-          onPress={() => onChange(!checked)}
+          style={[styles.formChip, worn && styles.formChipSelected]}
+          onPress={() => onChange(!worn)}
           accessibilityRole="switch"
           accessibilityLabel={label}
-          accessibilityState={{ checked }}
+          accessibilityState={{ checked: worn }}
         >
-          <Text style={[styles.formChipText, checked && styles.formChipTextSelected]}>{checked ? 'Yes' : 'No'}</Text>
+          <Text style={[styles.formChipText, worn && styles.formChipTextSelected]}>{worn ? 'Yes' : 'No'}</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
-interface ControlledBooleanFieldProps {
-  control: FormControl;
-  name: FieldPath<DiveFormInput>;
-  label: string;
-  scheme: ColorScheme;
+/**
+ * Adds or removes one token from an equipment set, **without disturbing anything else in
+ * it**.
+ *
+ * That is the whole function, and it is the one rule this control could plausibly get
+ * wrong: rebuilding the array from the five chips — `EQUIPMENT_VALUES.filter(isOn)` — reads
+ * as the obvious implementation and would silently DELETE any token this build has no chip
+ * for. §10's "kept, not refused" policy is what makes that reachable rather than
+ * theoretical: `optionalTokenSet` (diveFormSchema.ts) deliberately preserves a token written
+ * by a newer client, and this is the other half of that promise. A diver who toggles their
+ * gloves on a dive synced from a future build must not lose whatever that build recorded.
+ *
+ * The known tokens come out in `EQUIPMENT_VALUES` order — the vocabulary's own order, which
+ * `domain/types.ts` says is part of what the list declares — and anything unrecognised is
+ * kept, in its own order, after them. Order is not a difference `toDivePatch` can see
+ * (`sameEquipment` compares sets), so this is about what the value READS like, not about
+ * what gets written.
+ */
+function withEquipmentToken(current: readonly Equipment[], token: Equipment, worn: boolean): Equipment[] {
+  const held = new Set<string>(current);
+  if (worn) held.add(token);
+  else held.delete(token);
+  const known = EQUIPMENT_VALUES.filter((value) => held.has(value));
+  const foreign = current.filter((value) => !(EQUIPMENT_VALUES as readonly string[]).includes(value) && held.has(value));
+  return [...known, ...foreign];
 }
 
-/** hood/gloves/boots, and the same `FieldNote` for the same reason `ControlledOptionField`
- * above carries one: this control can only ever produce `true` or `false`, so a value that is
- * neither arrived from outside the form. It is kept and saved rather than refused (§10),
- * with `unknownBooleanNote` saying so — a refusal here was a Save button that did nothing at
- * all, on a dive whose yes/no field the diver never touched. */
-function ControlledBooleanField({ control, name, label, scheme }: ControlledBooleanFieldProps) {
+/**
+ * DESIGN.md §6's accessory token set — one Yes/No row per accessory, all bound to the single
+ * `equipment` field.
+ *
+ * One `Controller` for the whole set rather than one per token, because there is one form
+ * field: `equipment` is an array, and five `Controller`s on the same path would each hold a
+ * stale copy of it between renders and overwrite one another's toggles.
+ *
+ * **An unrecognised token has no chip and is not shown anywhere on this form**, which is a
+ * known and deliberate gap rather than an oversight. It is *kept* — `withEquipmentToken`
+ * above is what guarantees that, and it is the part that actually matters, since the failure
+ * this policy exists to prevent is silent data loss. Telling the diver it is there needs a
+ * sentence in the shape of `UNKNOWN_OPTION_NOTE`, and that sentence ("pick one of the
+ * options to replace it") is wrong for a set, where tapping a chip adds a different token
+ * rather than replacing this one. M1h's form-design task owns how this control presents
+ * itself; the honest wording belongs with it rather than invented here.
+ */
+function ControlledEquipmentField({ control, scheme }: { control: FormControl; scheme: ColorScheme }) {
   return (
     <Controller
       control={control}
-      name={name}
-      render={({ field, fieldState }) => (
-        <>
-          <BooleanField label={label} value={field.value as unknown as boolean | null | undefined} onChange={field.onChange} scheme={scheme} />
-          <FieldNote message={fieldState.error?.message ?? unknownBooleanNote(field.value)} scheme={scheme} />
-        </>
-      )}
+      name="equipment"
+      render={({ field, fieldState }) => {
+        const current = Array.isArray(field.value) ? (field.value as Equipment[]) : [];
+        const held = new Set<string>(current);
+        return (
+          <>
+            {EQUIPMENT_VALUES.map((token) => (
+              <EquipmentTokenField
+                key={token}
+                label={formatEquipmentToken(token)}
+                worn={held.has(token)}
+                onChange={(worn) => field.onChange(withEquipmentToken(current, token, worn))}
+                scheme={scheme}
+              />
+            ))}
+            <FieldNote message={fieldState.error?.message} scheme={scheme} />
+          </>
+        );
+      }}
     />
   );
 }
@@ -964,8 +1036,8 @@ function PresetCapture({
  * visual idiom, and emphatically not a sixth slot in §2.2's core strip — that strip is the
  * dive's measurements, and a status is not one of them.
  *
- * A toggle, in the same `accessibilityRole="switch"` idiom `BooleanField` above already
- * uses for hood/gloves/boots, because this is the same shape of question: one control,
+ * A toggle, in the same `accessibilityRole="switch"` idiom `EquipmentTokenField` above
+ * already uses for each accessory, because this is the same shape of question: one control,
  * two states, the current one written on its face. Only the unusual state fills
  * (`formStatusPillOn`) — §0.1's inverted ink, never a hue, since colour is spoken for.
  *
@@ -1658,10 +1730,24 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             unit={unitLabel('temperature', units)}
           />
           <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
+          {/* Two visibility fields, deliberately (§10): nobody measures visibility, so the
+              scale is the primary and the distance is an optional refinement for divers who
+              estimate one. They carry two different labels because two rows both reading
+              "Visibility" would be unreadable in a column and identical to a screen reader —
+              the same pair of labels `DiveDetailScreen`'s `conditionsFields` uses, so one
+              subject reads the same way on both screens. */}
+          <ControlledOptionField
+            control={control}
+            name="visibility"
+            label="Visibility"
+            options={VISIBILITY_VALUES}
+            displayLabel={(option) => formatVisibility(option) ?? option}
+            scheme={scheme}
+          />
           <ControlledTextField
             control={control}
             name="visibilityM"
-            label="Visibility"
+            label="Visibility distance"
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
@@ -1672,13 +1758,21 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField control={control} name="surge" label="Surge" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
           <ControlledOptionField
             control={control}
+            name="weather"
+            label="Weather"
+            options={WEATHER_VALUES}
+            displayLabel={(option) => formatWeather(option) ?? option}
+            scheme={scheme}
+          />
+          <ControlledOptionField
+            control={control}
             name="entry"
             label="Entry"
             options={ENTRY_VALUES}
             displayLabel={(option) => formatEntry(option) ?? option}
             scheme={scheme}
-            // The only field on this form that passes one (§0.6: "*Shore* and *boat* do.
-            // *Salt*, *fresh* and *brackish* do not..."). `EntryIcon` owns which values
+            // The only field on this form that passes one (§0.6: "*Shore* and *boat* pass
+            // trivially"; salt and fresh do not). `EntryIcon` owns which values
             // actually have a symbol and draws nothing for the ones that do not, so this
             // call site does not repeat that judgement.
             icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
@@ -1709,7 +1803,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             cylinder" needs `useFieldArray` and is a reasonable follow-up, not a silent
             gap: `tanks` still submits as `[EMPTY_TANK]` rather than `[]` when the diver
             never opens this group, which is harmless (derived.ts skips a cylinder whose
-            sizeL/count are null; only 0 is contradictory) but not byte-identical to "no
+            sizeL is null; only 0 is contradictory) but not byte-identical to "no
             cylinders recorded" either. */}
         <FormGroup title="Gas & cylinders" scheme={scheme}>
           {/* §2.1's presets, at the top of the group they fill — and absent entirely when
@@ -1745,21 +1839,19 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             // and not a conversion (format/units.ts).
             unit="l"
           />
-          <ControlledTextField
+          {/* The rig, where a numeric `Count` field sat until M1h. §10: a cylinder is steel
+              or alu and a rig is single, twinset or sidemount — two facts, and the count is
+              derived from the second (`cylinderCount`, domain/types.ts), so nobody types a
+              count any more. That also retires the whole fractional-count hazard the old
+              field carried: chips cannot produce `1.5`, so nothing here has to defend a gas
+              figure against a keypad separator. */}
+          <ControlledOptionField
             control={control}
-            name="tanks.0.count"
-            label="Count"
+            name="tanks.0.configuration"
+            label="Configuration"
+            options={CONFIGURATION_VALUES}
+            displayLabel={(option) => formatConfiguration(option) ?? option}
             scheme={scheme}
-            // Whole cylinders, so a keypad with no separator key on it (§6: "count
-            // (twinset = 2)"). `decimal-pad` offered one — a comma, on the Czech device
-            // this app's first diver holds — and `derived.ts` reads a fractional count as
-            // *contradictory*, which voids the dive's entire gas figure rather than
-            // skipping the cylinder. `wholeNumber` (diveFormSchema.ts) rounds whatever
-            // reaches the schema anyway; this is what stops it being typed.
-            keyboardType="number-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
-            mono
           />
           <ControlledTextField
             control={control}
@@ -1834,9 +1926,26 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             displayLabel={(option) => formatSuit(option) ?? option}
             scheme={scheme}
           />
-          <ControlledBooleanField control={control} name="hood" label="Hood" scheme={scheme} />
-          <ControlledBooleanField control={control} name="gloves" label="Gloves" scheme={scheme} />
-          <ControlledBooleanField control={control} name="boots" label="Boots" scheme={scheme} />
+          {/* Thickness is a NUMBER, not a token (§10): a list offering 3 mm and 7 mm makes a
+              5 mm suit unsayable, and a diver forced to pick the nearest wrong value is the
+              failure §1 exists to prevent. Millimetres in both unit systems, so the unit is a
+              literal here exactly as `min` is on Duration — format/units.ts's top docblock is
+              where the four no-pair quantities are declared together. */}
+          <ControlledTextField
+            control={control}
+            name="suitThicknessMm"
+            label="Suit thickness"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            carriedPaths={carriedPaths}
+            onDropCarried={dropCarried}
+            mono
+            unit="mm"
+          />
+          {/* The non-exclusive half of what used to be one control: you wear one suit and any
+              number of accessories (§10). Five rows where there were three, and the two new
+              ones cost no columns — which is the point of a token set. */}
+          <ControlledEquipmentField control={control} scheme={scheme} />
           <ControlledTextField
             control={control}
             name="weightsKg"
@@ -1847,6 +1956,19 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             onDropCarried={dropCarried}
             mono
             unit={unitLabel('weight', units)}
+          />
+          {/* The judgement beside the number, and §10's sharper example of why both: "6 kg"
+              means nothing on its own, and "6 kg, and I was over" is what a diver uses to dial
+              in the next dive. Fresh every dive, unlike the kilos beside it — a weighting that
+              felt right in a 7 mm suit in fresh water is the most misleading thing this form
+              could prefill (carryOver.ts). */}
+          <ControlledOptionField
+            control={control}
+            name="weightsFeel"
+            label="Weighting"
+            options={WEIGHTS_FEEL_VALUES}
+            displayLabel={(option) => formatWeightsFeel(option) ?? option}
+            scheme={scheme}
           />
         </FormGroup>
 

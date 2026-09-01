@@ -29,8 +29,8 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 /** One fully-recorded cylinder, pressures included — the shape a diver's form holds. */
 const twelveSteel = (over: Partial<Tank> = {}): Tank => ({
   material: 'steel',
+  configuration: 'single',
   sizeL: 12,
-  count: 1,
   workingBar: 232,
   o2Pct: 21,
   hePct: null,
@@ -82,8 +82,8 @@ describe('createGearPreset', () => {
     const read = await getGearPreset(db, preset.id);
     expect(read?.tanks[0]).toEqual({
       material: 'steel',
+      configuration: 'single',
       sizeL: 12,
-      count: 1,
       workingBar: 232,
       o2Pct: 21,
       hePct: null,

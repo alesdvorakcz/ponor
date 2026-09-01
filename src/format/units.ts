@@ -21,14 +21,17 @@ import type { Dive, Tank } from '../domain/types';
  * the same band as the `24.7 m` it is; computing the band from a converted number would
  * put every imperial dive in band 6.
  *
- * **Three quantities the app displays have no pair here, deliberately.** Duration stays
+ * **Four quantities the app displays have no pair here, deliberately.** Duration stays
  * minutes in both systems (a dive is 47 minutes long wherever you dive it). A cylinder's
  * size stays litres, and gas used and RMV stay litres and l/min with it: the imperial
  * cylinder unit is the *cubic foot*, which measures the free gas a cylinder holds at its
  * working pressure rather than the water capacity litres measure — an 80 cf cylinder is
  * an 11.1 L one — so "l → cf" is not a unit conversion at all but a different quantity
- * needing a pressure this app does not require anyone to record. §3 lists four pairs; this
- * is why it lists four.
+ * needing a pressure this app does not require anyone to record. And a **suit's thickness
+ * stays millimetres**: a 5 mm suit is a 5 mm suit wherever it is sold, dived or talked
+ * about, because that is the number printed on it — every manufacturer, including every
+ * American one, states neoprene thickness in mm, so converting it to inches would render a
+ * figure no diver has ever read on a label. §3 lists four pairs; this is why it lists four.
  */
 
 /**
@@ -348,18 +351,23 @@ const DIVE_FIELD_QUANTITY: { readonly [K in keyof Dive]: Quantity | null } = {
   avgDepthM: 'depth',
   waterTempC: 'temperature',
   airTempC: 'temperature',
+  visibility: null,
   visibilityM: 'depth',
   waves: null,
   current: null,
   surge: null,
+  weather: null,
 
   tanks: null,
 
   suit: null,
-  hood: null,
-  gloves: null,
-  boots: null,
+  // Millimetres in both systems — see this module's own top docblock, which names it as the
+  // fourth quantity with no pair rather than as an omission. A `'depth'` here would put a
+  // 5 mm suit on the m/ft pair and render it as 0.02 ft.
+  suitThicknessMm: null,
+  equipment: null,
   weightsKg: 'weight',
+  weightsFeel: null,
   buddy: null,
   guide: null,
 
@@ -376,12 +384,12 @@ const DIVE_FIELD_QUANTITY: { readonly [K in keyof Dive]: Quantity | null } = {
  *
  * `sizeL` is `null` — see this module's own top docblock for why a cylinder's size has no
  * imperial counterpart here rather than being an oversight. `o2Pct`/`hePct` are percentages
- * and `count` counts cylinders; none of the three is a measurement in any system.
+ * and `configuration` names a rig; none of the three is a measurement in any system.
  */
 const TANK_FIELD_QUANTITY: { readonly [K in keyof Tank]: Quantity | null } = {
   material: null,
+  configuration: null,
   sizeL: null,
-  count: null,
   workingBar: 'pressure',
   o2Pct: null,
   hePct: null,

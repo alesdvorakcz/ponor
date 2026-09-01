@@ -14,7 +14,7 @@ import { confirmDestructive, type DestructiveConfirmation } from '../platform/co
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { db } from '../db/client';
-import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
+import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
 import { PRESETS_UNREADABLE } from '../domain/presets';
 import { TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
@@ -88,7 +88,7 @@ const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
 const tank = (over: Partial<Tank> = {}): Tank => ({
   material: null,
   sizeL: null,
-  count: null,
+  configuration: null,
   workingBar: null,
   o2Pct: null,
   hePct: null,
@@ -206,7 +206,7 @@ async function open(target: GearPreset, others: GearPreset[] = []) {
 const twin12 = () =>
   preset({
     name: 'twin 12 steel',
-    tanks: [tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 32 })],
+    tanks: [tank({ material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 32 })],
   });
 
 // ---------------------------------------------------------------------------------------
@@ -217,7 +217,10 @@ it('seeds every field from the stored preset', async () => {
   const t = await open(twin12());
   expect(findField(t, 'Preset name')?.props?.value).toBe('twin 12 steel');
   expect(findField(t, 'Size')?.props?.value).toBe('12');
-  expect(findField(t, 'Count')?.props?.value).toBe('2');
+  // The rig is a chip row now, not a typed count (§10) — so the assertion is on the chip's
+  // own selected state, exactly as `Material` beside it.
+  expect(findControl(t, `Configuration: ${formatConfiguration('twinset')}`)?.props?.accessibilityState?.selected).toBe(true);
+  expect(findControl(t, `Configuration: ${formatConfiguration('single')}`)?.props?.accessibilityState?.selected).toBe(false);
   expect(findField(t, 'Working pressure')?.props?.value).toBe('232');
   expect(findField(t, O2_LABEL)?.props?.value).toBe('32');
   // The material is a chip row, and "the chosen thing is the inverted thing" (§0.6) is what
@@ -245,12 +248,12 @@ it('names exactly the fields a preset holds, in the dive form’s own words', as
   expect(inputsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''))).toEqual([
     'Preset name',
     'Size',
-    'Count',
     'Working pressure',
     O2_LABEL,
     HE_LABEL,
   ]);
   expect(textIn(t)).toContain('Material');
+  expect(textIn(t)).toContain('Configuration');
 });
 
 // §10: "Creation stays in the form, where the cylinders are already typed — that is the work
@@ -258,7 +261,8 @@ it('names exactly the fields a preset holds, in the dive form’s own words', as
 // added here would show up as a fifth button.
 it('offers no way to create a preset here', async () => {
   const t = await open(twin12());
-  expect(buttonLabels(t).filter((label) => !label.startsWith('Material: '))).toEqual([
+  const chipRows = ['Material: ', 'Configuration: '];
+  expect(buttonLabels(t).filter((label) => !chipRows.some((prefix) => label.startsWith(prefix)))).toEqual([
     'Leave without saving',
     'Delete preset',
     'Save preset',
@@ -506,7 +510,7 @@ it('saves changed cylinders', async () => {
   await press(t, `Material: ${formatTankMaterial('alu')}`);
   await press(t, 'Save preset');
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
-  expect(writtenTanks()?.[0]).toMatchObject({ sizeL: 15, material: 'alu', count: 2, workingBar: 232, o2Pct: 32 });
+  expect(writtenTanks()?.[0]).toMatchObject({ sizeL: 15, material: 'alu', configuration: 'twinset', workingBar: 232, o2Pct: 32 });
 });
 
 /**
@@ -517,8 +521,8 @@ it('saves changed cylinders', async () => {
  * multi-cylinder preset is for.
  */
 it('keeps the cylinders it does not show', async () => {
-  const deco = tank({ material: 'alu', sizeL: 11.1, count: 1, workingBar: 207, o2Pct: 50 });
-  const t = await open(preset({ tanks: [tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232 }), deco] }));
+  const deco = tank({ material: 'alu', configuration: 'single', sizeL: 11.1, workingBar: 207, o2Pct: 50 });
+  const t = await open(preset({ tanks: [tank({ material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232 }), deco] }));
   await typeInto(t, 'Size', '15');
   await press(t, 'Save preset');
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
@@ -700,8 +704,11 @@ it('lets a preset keep its own name', async () => {
 // one would be the same rule with two answers, one screen apart.
 it('refuses to empty the cylinders, and says what to do instead', async () => {
   const t = await open(twin12());
-  for (const field of ['Size', 'Count', 'Working pressure', O2_LABEL]) await typeInto(t, field, '');
+  for (const field of ['Size', 'Working pressure', O2_LABEL]) await typeInto(t, field, '');
   await press(t, `Material: ${formatTankMaterial('steel')}`);
+  // Pressing the selected chip clears it — `OptionChips` reports `''` for that — so the rig
+  // has to be emptied the same way the material is, not typed away.
+  await press(t, `Configuration: ${formatConfiguration('twinset')}`);
   await refusalFor(t, 'A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 });
 
@@ -716,7 +723,7 @@ it('refuses to empty the cylinders, and says what to do instead', async () => {
 it('counts a cylinder holding only the pressures it never shows as nothing to store', async () => {
   const t = await open(preset({ tanks: [tank({ startBar: 200, endBar: 60 })] }));
   // Nothing on screen, which is the point: every field this editor offers is empty.
-  for (const field of ['Size', 'Count', 'Working pressure', O2_LABEL, HE_LABEL]) {
+  for (const field of ['Size', 'Working pressure', O2_LABEL, HE_LABEL]) {
     expect(findField(t, field)?.props?.value).toBe('');
   }
   await refusalFor(t, 'A preset with no cylinders fills nothing in — fill the cylinder fields first.');

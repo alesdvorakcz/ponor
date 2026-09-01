@@ -1,8 +1,15 @@
-import { type Tank } from '../domain/types';
+import {
+  CONFIGURATION_VALUES,
+  VISIBILITY_VALUES,
+  WEATHER_VALUES,
+  WEIGHTS_FEEL_VALUES,
+  type Equipment,
+  type Tank,
+} from '../domain/types';
 import {
   formatConditionScale,
   formatCoordinates,
-  formatCount,
+  formatConfiguration,
   formatCylinders,
   HE_LABEL,
   O2_LABEL,
@@ -20,9 +27,15 @@ import {
   formatPressure,
   formatRating,
   formatRmv,
+  formatEquipment,
+  formatEquipmentToken,
   formatSalinity,
   formatSuit,
+  formatSuitThickness,
   formatTankMaterial,
+  formatVisibility,
+  formatWeather,
+  formatWeightsFeel,
   formatSurfaceInterval,
   formatTemperature,
   formatTimeRange,
@@ -219,7 +232,11 @@ describe('formatEntry', () => {
 
 describe('formatSalinity', () => {
   it('capitalises the stored value', () => {
-    expect(formatSalinity('brackish')).toBe('Brackish');
+    // Two values since M1h, not three: `brackish` was removed deliberately and by name
+    // (§10), so a test naming it would no longer compile — which is the point of deriving
+    // `Salinity` from `SALINITY_VALUES` rather than writing the union out twice.
+    expect(formatSalinity('fresh')).toBe('Fresh');
+    expect(formatSalinity('salt')).toBe('Salt');
   });
   it('returns null for an unrecorded salinity', () => {
     expect(formatSalinity(null)).toBeNull();
@@ -381,15 +398,14 @@ describe('formatPercent', () => {
   });
 });
 
-describe('formatCount', () => {
-  it('renders a plain cylinder count', () => {
-    expect(formatCount(2)).toBe('2');
+describe('formatConfiguration', () => {
+  it('names the rig the way the rest of the vocabularies are named', () => {
+    expect(formatConfiguration('single')).toBe('Single');
+    expect(formatConfiguration('twinset')).toBe('Twinset');
+    expect(formatConfiguration('sidemount')).toBe('Sidemount');
   });
-  it('returns null for an unrecorded count', () => {
-    expect(formatCount(null)).toBeNull();
-  });
-  it('returns null rather than rendering NaN', () => {
-    expect(formatCount(Number.NaN)).toBeNull();
+  it('returns null for an unrecorded rig', () => {
+    expect(formatConfiguration(null)).toBeNull();
   });
 });
 
@@ -401,8 +417,8 @@ describe('formatCount', () => {
  * `derived.test.ts` and `diveFormSchema.test.ts` each keep for `Tank`. */
 const tank = (over: Partial<Tank> = {}): Tank => ({
   material: null,
+  configuration: null,
   sizeL: null,
-  count: null,
   workingBar: null,
   o2Pct: null,
   hePct: null,
@@ -415,22 +431,28 @@ describe('formatCylinders', () => {
   // The whole line, asserted as one string rather than by substring: what this function
   // actually decides is the ORDER and the separators, and a `toContain('steel')` would pass
   // against any arrangement of the same words.
-  it('reads the cylinder, then its working pressure, then its mix', () => {
+  it('reads the rig and cylinder, then its working pressure, then its mix', () => {
     expect(
-      formatCylinders([tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 32 })], 'metric'),
-    ).toBe('2 × 12 l Steel · 232 bar · O₂ 32 %');
+      formatCylinders([tank({ material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 32 })], 'metric'),
+    ).toBe('Twinset 12 l Steel · 232 bar · O₂ 32 %');
   });
 
-  // A single cylinder needs no multiplier — "1 × 12 l steel" is a word of noise on a line
-  // that exists to be scanned.
-  it('drops the multiplier for a single cylinder', () => {
-    expect(formatCylinders([tank({ material: 'steel', sizeL: 12, count: 1 })], 'metric')).toBe('12 l Steel');
+  // The rule that changed with §10's `count` → `configuration`. A `2 ×` multiplier could not
+  // tell a twinset from a sidemount, which is exactly the distinction that ruling made real,
+  // so the rig is named rather than counted — and the two rigs must read differently here
+  // even though `cylinderCount` gives them the same number.
+  it('tells a twinset from a sidemount, which a multiplier could not', () => {
+    expect(formatCylinders([tank({ sizeL: 12, configuration: 'twinset' })], 'metric')).toBe('Twinset 12 l');
+    expect(formatCylinders([tank({ sizeL: 12, configuration: 'sidemount' })], 'metric')).toBe('Sidemount 12 l');
   });
 
-  // A count with nothing to multiply still says something, and it must not say it as a
-  // dangling "2 ×".
-  it('keeps a count that has no cylinder to multiply', () => {
-    expect(formatCylinders([tank({ count: 2 })], 'metric')).toBe('× 2');
+  // `single` is shown, where a count of `1` was suppressed as noise. It is a fact the diver
+  // recorded about their rig rather than arithmetic — and suppressing it would let a
+  // cylinder that records nothing else summarise to nothing at all, silently losing the only
+  // thing it has to say.
+  it('names a single rig rather than treating it as noise', () => {
+    expect(formatCylinders([tank({ material: 'steel', sizeL: 12, configuration: 'single' })], 'metric')).toBe('Single 12 l Steel');
+    expect(formatCylinders([tank({ configuration: 'single' })], 'metric')).toBe('Single');
   });
 
   // §6 stores bar; §3 shows the diver their own units. `formatPressure` owns the conversion,
@@ -487,6 +509,78 @@ describe('formatCylinders', () => {
   // function rather than retyped, so the two cannot part company here either.
   it('spells the material the way the rest of the app does', () => {
     expect(formatCylinders([tank({ material: 'steel' })], 'metric')).toBe(formatTankMaterial('steel'));
+  });
+});
+
+describe('the M1h vocabularies', () => {
+  it('names the weather, the visibility judgement and the weighting feel', () => {
+    expect(formatWeather('cloudy')).toBe('Cloudy');
+    expect(formatVisibility('average')).toBe('Average');
+    expect(formatWeightsFeel('over')).toBe('Over');
+  });
+
+  it('returns null for each of them when nothing was recorded', () => {
+    expect(formatWeather(null)).toBeNull();
+    expect(formatVisibility(null)).toBeNull();
+    expect(formatWeightsFeel(null)).toBeNull();
+  });
+
+  it('renders every member of every vocabulary, rather than only the ones a test named', () => {
+    // The shared `capitalize` is what makes this true, and it is the reason these five
+    // vocabularies cost ten lines instead of five lookup tables — so the property worth
+    // pinning is that no member falls through it.
+    for (const value of [...WEATHER_VALUES, ...VISIBILITY_VALUES, ...WEIGHTS_FEEL_VALUES, ...CONFIGURATION_VALUES]) {
+      const rendered = [formatWeather, formatVisibility, formatWeightsFeel, formatConfiguration]
+        .map((format) => format(value as never))
+        .find((text) => text !== null);
+      expect(rendered).toBe(value.charAt(0).toUpperCase() + value.slice(1));
+    }
+  });
+});
+
+describe('formatSuitThickness', () => {
+  it('reads in millimetres, unrounded, since 3.5 mm suits are real', () => {
+    expect(formatSuitThickness(5)).toBe('5 mm');
+    expect(formatSuitThickness(3.5)).toBe('3.5 mm');
+  });
+
+  it('is null for an unrecorded thickness, and for a value that is not a real number', () => {
+    expect(formatSuitThickness(null)).toBeNull();
+    expect(formatSuitThickness(Number.NaN)).toBeNull();
+    expect(formatSuitThickness(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
+
+describe('formatEquipment', () => {
+  it('reads the accessory set as a middot list', () => {
+    expect(formatEquipment(['hood', 'gloves', 'torch'])).toBe('Hood · Gloves · Torch');
+  });
+
+  it('keeps the array\'s own order rather than re-sorting it into the vocabulary\'s', () => {
+    // Imposing the order here would be a second owner of it, and would quietly restate what
+    // some other client recorded.
+    expect(formatEquipment(['torch', 'hood'])).toBe('Torch · Hood');
+  });
+
+  it('is null for an empty set, so a caller omits the row instead of drawing a blank one', () => {
+    expect(formatEquipment([])).toBeNull();
+  });
+
+  it('is null rather than a throw for a value that is not a set at all', () => {
+    // This module's own top docblock makes that the rule for every formatter here: a value
+    // that reached the database from an older or buggy client comes back as null so the
+    // caller omits the element, never as an exception on a screen. The type says it cannot
+    // happen; `db/dives.ts`'s `toDive` makes the same assumption explicitly and then checks
+    // it anyway, for the same reason.
+    expect(() => formatEquipment(null as unknown as Equipment[])).not.toThrow();
+    expect(formatEquipment(null as unknown as Equipment[])).toBeNull();
+    expect(formatEquipment('hood' as unknown as Equipment[])).toBeNull();
+  });
+
+  it('spells one token the same way the form\'s own chip does', () => {
+    // The `Steel`/`steel` drift, one field over: the chip label and the detail row are the
+    // same string by construction rather than by two authors agreeing.
+    expect(formatEquipment(['camera'])).toBe(formatEquipmentToken('camera'));
   });
 });
 

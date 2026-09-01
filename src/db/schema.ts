@@ -1,9 +1,21 @@
 import { sql } from 'drizzle-orm';
 import { customType, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { DiveStatus, Entry, Salinity, Suit, Tank, WaterBody } from '../domain/types';
+import type {
+  DiveStatus,
+  Entry,
+  Equipment,
+  Salinity,
+  Suit,
+  Tank,
+  Visibility,
+  WaterBody,
+  Weather,
+  WeightsFeel,
+} from '../domain/types';
 
 /**
- * The `tanks` column: a JSON array of Tank, stored as text.
+ * Any JSON **array** column, stored as text: `tanks` on both tables, and `equipment` on a
+ * dive.
  *
  * A custom type rather than `text(..., { mode: 'json' })` for one reason —
  * `mode: 'json'` decodes with a bare `JSON.parse`, and that runs inside
@@ -13,35 +25,46 @@ import type { DiveStatus, Entry, Salinity, Suit, Tank, WaterBody } from '../doma
  * `[{"sizeL":12` made both `getDive` and `listDives` throw a SyntaxError while
  * the other rows were perfectly healthy).
  *
- * Reachability is low today — the column is NOT NULL with a `'[]'` default and
- * every write goes through `JSON.stringify` — and it stops being low the
- * moment M2's `pull_changes` starts writing this column from a network
- * payload. Degrading one bad row to `[]` here fixes every read path at once,
- * including `RETURNING`, because there is no read path that does not go
+ * Reachability is low today — every such column is NOT NULL with a `'[]'`
+ * default and every write goes through `JSON.stringify` — and it stops being
+ * low the moment M2's `pull_changes` starts writing these columns from a
+ * network payload. Degrading one bad row to `[]` here fixes every read path at
+ * once, including `RETURNING`, because there is no read path that does not go
  * through this decoder.
  *
- * Emits `text`, exactly as `mode: 'json'` did, so the migration and the
- * drizzle-kit snapshot are unchanged.
+ * **Generalised over the element type rather than copied per column** (M1h). It was
+ * `tanksJson`, and `equipment` needs exactly the same protection for exactly the same
+ * reason — so a second decoder would be §4.1's defining defect installed deliberately, and
+ * the copy that got it wrong would be the one nobody tested, because "one corrupt row must
+ * not take the list down" is not a thing a screen shows. The element type is a *label*
+ * either way: `JSON.parse` cannot check it, which is why `db/dives.ts`'s `toDive` re-checks
+ * `Array.isArray` on top of this rather than trusting `$type<>`.
+ *
+ * Emits `text`, exactly as `mode: 'json'` did.
  */
-const tanksJson = customType<{ data: Tank[]; driverData: string }>({
-  dataType() {
-    return 'text';
-  },
-  toDriver(value: Tank[]): string {
-    return JSON.stringify(value);
-  },
-  fromDriver(value: string): Tank[] {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as Tank[]) : [];
-    } catch {
-      // Valid-JSON-of-the-wrong-shape and unparseable-garbage now degrade the
-      // same way, which is the point: one corrupt row loses its cylinders,
-      // and the logbook still opens.
-      return [];
-    }
-  },
-});
+const jsonArray = <T>() =>
+  customType<{ data: T[]; driverData: string }>({
+    dataType() {
+      return 'text';
+    },
+    toDriver(value: T[]): string {
+      return JSON.stringify(value);
+    },
+    fromDriver(value: string): T[] {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        return Array.isArray(parsed) ? (parsed as T[]) : [];
+      } catch {
+        // Valid-JSON-of-the-wrong-shape and unparseable-garbage now degrade the
+        // same way, which is the point: one corrupt row loses its cylinders,
+        // and the logbook still opens.
+        return [];
+      }
+    },
+  });
+
+const tanksJson = jsonArray<Tank>();
+const equipmentJson = jsonArray<Equipment>();
 
 /**
  * One row per dive. SI units throughout (DESIGN.md §6): metres, bar, °C, kg, litres.
@@ -95,10 +118,17 @@ export const dives = sqliteTable('dives', {
   avgDepthM: real('avg_depth_m'),
   waterTempC: real('water_temp_c'),
   airTempC: real('air_temp_c'),
+  /**
+   * The judgement and the number, side by side and both nullable — §10 records that this is
+   * deliberate rather than a duplicate to be tidied away. `weights_kg`/`weights_feel` below
+   * are the same pairing.
+   */
+  visibility: text('visibility').$type<Visibility>(),
   visibilityM: real('visibility_m'),
   waves: integer('waves'),
   current: integer('current'),
   surge: integer('surge'),
+  weather: text('weather').$type<Weather>(),
 
   /**
    * JSON array of Tank, first entry = main cylinder. See DESIGN.md §6.
@@ -111,10 +141,21 @@ export const dives = sqliteTable('dives', {
   tanks: tanksJson('tanks').notNull().default(sql`'[]'`),
 
   suit: text('suit').$type<Suit>(),
-  hood: integer('hood', { mode: 'boolean' }),
-  gloves: integer('gloves', { mode: 'boolean' }),
-  boots: integer('boots', { mode: 'boolean' }),
+  /** Millimetres in both unit systems — a 5 mm suit is 5 mm everywhere (format/units.ts). */
+  suitThicknessMm: real('suit_thickness_mm'),
+  /**
+   * The accessory token set (§6, §10) — hood, gloves, boots, torch, camera — replacing the
+   * three boolean columns `hood`/`gloves`/`boots`. A set rather than more columns for the
+   * reason §6 gives for `tanks`: adding "camera" must not cost a column.
+   *
+   * NOT NULL with a `'[]'` default, and through the same `jsonArray` decoder `tanks` uses,
+   * for both of that column's stated reasons — an empty array already means "nothing
+   * recorded", and one corrupt blob must lose its own row's accessories rather than throw
+   * the whole dive list down.
+   */
+  equipment: equipmentJson('equipment').notNull().default(sql`'[]'`),
   weightsKg: real('weights_kg'),
+  weightsFeel: text('weights_feel').$type<WeightsFeel>(),
   buddy: text('buddy'),
   guide: text('guide'),
 
@@ -134,7 +175,9 @@ export const dives = sqliteTable('dives', {
  *
  * **Cylinders and gas, and nothing else** (§10, owner's call in M1e). The table was
  * specified as "cylinder/gas/suit/weights" and shipped with `suit`, `hood`, `gloves`,
- * `boots` and `weights_kg` columns; migration 0001 drops all five. They were the half that
+ * `boots` and `weights_kg` columns; a migration dropped all five, and M1h's collapse of the
+ * migration history to a single `0000` (§10) means the schema below is now simply the only
+ * record that they were ever there. They were the half that
  * did not need it: carry-over already fills every one of them from the previous dive
  * (§2.1), so a preset carrying them too would be a **second, staler source for fields
  * something else already fills correctly** — §4.1's defining defect arriving as a feature.

@@ -9,13 +9,19 @@ import { symbolName, type PlatformSymbol } from './symbolName';
  * case**, which is the whole reason this module exists as its own owner rather than as a
  * lookup table inlined beside a chip.
  *
- * DESIGN.md §0.6: "**An icon appears only where the value has one.** *Shore* and *boat* do.
- * *Salt*, *fresh* and *brackish* do not, and neither do *wet*, *semidry* and *dry* or
- * *steel* and *alu* — drawn as icons those collapse into near-identical droplets and suits
- * separated by tally marks, which is a legend. §10's computed-value square is the
- * precedent: a symbol that needs a legend has already failed."
+ * DESIGN.md §0.6: "**An icon appears only where the value has one, and the test is whether
+ * the mark carries the meaning or merely labels it.** *Shore* and *boat* pass trivially."
+ * *Salt* and *fresh* do not, and neither do *wet*, *semidry* and *dry* or *steel* and *alu*
+ * — drawn as icons those collapse into near-identical droplets and suits separated by tally
+ * marks, which is a legend, and §10's computed-value square is the precedent: a symbol that
+ * needs a legend has already failed.
  *
- * So `entry` is the only one of the form's five fixed-choice fields with a map here, and
+ * §0.6 has since admitted a whole icon sheet for the ordered scales (M1h), and it passes that
+ * test rather than waiving it: those marks encode their scale in themselves — waves grow in
+ * amplitude, visibility bars count up — so nothing has to be memorised. That is the bar any
+ * addition here has to clear; it is not an invitation to fill the table in.
+ *
+ * So `entry` is the only one of the form's fixed-choice fields with a map here, and
  * this file is named for that field rather than for options in general: adding a salinity
  * icon has to be a deliberate act against §0.6, not a matter of dropping one more line into
  * a table that already looks like it wants filling.

@@ -18,9 +18,10 @@ import { useDives } from '../db/useDives';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
-import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
+import { formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
   ENTRY_VALUES,
+  EQUIPMENT_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
@@ -858,19 +859,23 @@ describe('a value the form itself could not have produced, in a field that is no
     await waitFor(() => expect(router.back).toHaveBeenCalled());
   });
 
-  it('flags a boolean field holding something that is not one, and still saves the dive', async () => {
-    const target = fromANewerClient({ hood: 'sometimes' });
+  it('keeps an equipment token it has no chip for, and still saves the dive', async () => {
+    // The token set's version of the rule, and it has one extra trap the scalar fields do
+    // not: the chips could plausibly be implemented by rebuilding the array from the five
+    // this build knows, which would DELETE the foreign token on the first unrelated toggle.
+    // So this drives a real toggle and then reads the write.
+    const target = fromANewerClient({ equipment: ['hood', 'rebreather-bailout'] });
     stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Equipment');
-    expect(textIn(t).join(' ')).toContain('yes/no field');
+    await pressEquipmentToken(t, 'Gloves');
 
     await typeInto(t, 'Max depth', '28');
     await pressSave(t);
     await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
     expect(writtenPatch()).toHaveProperty('maxDepthM', 28);
-    expect(writtenPatch()).not.toHaveProperty('hood');
+    expect(writtenPatch().equipment).toEqual(['hood', 'gloves', 'rebreather-bailout']);
   });
 
   it('carries an unknown option into a NEW dive rather than dropping it on the way', async () => {
@@ -908,7 +913,7 @@ describe('a value the form itself could not have produced, in a field that is no
   it('says nothing at all about a field holding a value this client knows', async () => {
     // The control that stops the note from being a permanent fixture under every option and
     // boolean row: an ordinary dive shows none of it.
-    stubLogbookFor(fromANewerClient({ entry: 'boat', hood: true }));
+    stubLogbookFor(fromANewerClient({ entry: 'boat', equipment: ['hood'] }));
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
     await openGroup(t, 'Conditions');
     await openGroup(t, 'Equipment');
@@ -1003,7 +1008,7 @@ it('tells the diver when a save fails instead of pretending it worked', async ()
 // permanently collapsed group, an always-false flag) as readily as the right one.
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
-  material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+  material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
   o2Pct: 32, hePct: null, startBar: 200, endBar: 50, ...over,
 });
 
@@ -1021,7 +1026,7 @@ const decoy = (over: Partial<Dive> = {}): Dive =>
     timeIn: '23:59',
     notes: 'A different dive entirely',
     buddy: 'Nobody',
-    tanks: [tank({ sizeL: 3, count: 1, endBar: 7 })],
+    tanks: [tank({ sizeL: 3, endBar: 7 })],
     ...over,
   });
 
@@ -1420,8 +1425,10 @@ it('never re-marks a field the diver cleared before carry-over landed', async ()
 // what their previous dives happened to record.
 
 /** The `tanks` a save actually wrote, from the one `createDive` call. */
-function writtenTanks(): { sizeL?: number | null; count?: number | null }[] | undefined {
-  return (mockCreate.mock.calls[0]?.[1] as { tanks?: { sizeL?: number | null; count?: number | null }[] })?.tanks;
+type WrittenTank = { sizeL?: number | null; configuration?: string | null };
+
+function writtenTanks(): WrittenTank[] | undefined {
+  return (mockCreate.mock.calls[0]?.[1] as { tanks?: WrittenTank[] })?.tanks;
 }
 
 it('still holds its one blank cylinder when carrying over from a dive that logged none', async () => {
@@ -1464,7 +1471,7 @@ it('writes the same cylinder shape whether the previous dive logged none or ther
 
 it('carries a real cylinder through unchanged, so the empty-tanks fix is not a blanket override', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12, count: 2 })] })] });
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12, configuration: 'twinset' })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
   await pickDate(t, '2026-08-16');
   await pressSave(t);
@@ -1472,7 +1479,7 @@ it('carries a real cylinder through unchanged, so the empty-tanks fix is not a b
 
   expect(writtenTanks()).toHaveLength(1);
   expect(writtenTanks()?.[0]?.sizeL).toBe(12);
-  expect(writtenTanks()?.[0]?.count).toBe(2);
+  expect(writtenTanks()?.[0]?.configuration).toBe('twinset');
 });
 
 // Every fixed-option field offers exactly the vocabulary `domain/types.ts` declares — read
@@ -1609,17 +1616,17 @@ async function pressChip(t: RenderResult, label: string, index: number) {
   await fireEvent.press(chip);
 }
 
-/** A yes/no field's own control (`BooleanField`), which declares itself a `switch` exactly
- * as §2.4's status control does — so this can never land on that one, which is labelled
- * "Planned dive". */
-function findBooleanField(t: RenderResult, label: string) {
+/** One accessory's own control (`EquipmentTokenField`), which declares itself a `switch`
+ * exactly as §2.4's status control does — so this can never land on that one, which is
+ * labelled "Planned dive". */
+function findEquipmentToken(t: RenderResult, label: string) {
   return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
     (n) => String(n.props?.accessibilityLabel ?? '') === label,
   );
 }
 
-async function pressBooleanField(t: RenderResult, label: string) {
-  const control = findBooleanField(t, label);
+async function pressEquipmentToken(t: RenderResult, label: string) {
+  const control = findEquipmentToken(t, label);
   if (!control) throw new Error(`no ${label} control found`);
   await fireEvent.press(control);
 }
@@ -1679,31 +1686,44 @@ it("saves the cylinder material a diver picked, which lives inside the dive's ta
   expect(cleared?.[0]?.material).toBeNull();
 });
 
-it.each([
-  ['Hood', 'hood'],
-  ['Gloves', 'gloves'],
-  ['Boots', 'boots'],
-] as const)('saves %s as yes and then as no — a boolean is not a one-way door', async (label, field) => {
+it.each(EQUIPMENT_VALUES.map((token) => [formatEquipmentToken(token), token] as const))(
+  'adds %s to the equipment set and takes it out again — a token is not a one-way door',
+  async (label, token) => {
+    mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'Equipment');
+
+    await pressEquipmentToken(t, label);
+    expect(findEquipmentToken(t, label)?.props?.accessibilityState?.checked).toBe(true);
+    await pressSave(t);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(writtenInput(0).equipment).toEqual([token]);
+
+    await pressEquipmentToken(t, label);
+    expect(findEquipmentToken(t, label)?.props?.accessibilityState?.checked).toBe(false);
+    await pressSave(t);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+    // `[]`, not the token still sitting there: taking an accessory off is a real edit, and a
+    // control that could only ever add would look identical after one tap.
+    expect(writtenInput(1).equipment).toEqual([]);
+  },
+);
+
+it('writes the equipment set in the vocabulary\'s own order, whichever order the diver taps', async () => {
+  // The order is what `domain/types.ts` says the list declares, and what `formatEquipment`
+  // reads back on the detail — so a set assembled in tap order would read "Torch · Hood" on
+  // one dive and "Hood · Torch" on the next for identical gear.
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Equipment');
-
-  await pressBooleanField(t, label);
-  expect(findBooleanField(t, label)?.props?.accessibilityState?.checked).toBe(true);
+  await pressEquipmentToken(t, 'Camera');
+  await pressEquipmentToken(t, 'Hood');
   await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
-  expect(writtenInput(0)[field]).toBe(true);
-
-  await pressBooleanField(t, label);
-  expect(findBooleanField(t, label)?.props?.accessibilityState?.checked).toBe(false);
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
-  // `false`, not absent: "no hood worn" is a real recorded answer, and DiveDetailScreen
-  // renders it as "No" precisely because it is not the same claim as never having said.
-  expect(writtenInput(1)[field]).toBe(false);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput(0).equipment).toEqual(['hood', 'camera']);
 });
 
-it('carries an option and a boolean into an edit through the same two controls', async () => {
+it('carries an option and an equipment token into an edit through the same two controls', async () => {
   // The write is `updateDive` here, not `createDive`, and the diff (`toDivePatch`) is what
   // decides whether either field is named at all — so the create-mode tests above cannot
   // stand in for this one. Both fields start unset on the stored dive, so a patch that
@@ -1715,12 +1735,12 @@ it('carries an option and a boolean into an edit through the same two controls',
   await openGroup(t, 'Conditions');
   await pressChip(t, 'Entry', 1);
   await openGroup(t, 'Equipment');
-  await pressBooleanField(t, 'Gloves');
+  await pressEquipmentToken(t, 'Gloves');
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
 
   expect(writtenPatch()).toHaveProperty('entry', ENTRY_VALUES[1]);
-  expect(writtenPatch()).toHaveProperty('gloves', true);
+  expect(writtenPatch().equipment).toEqual(['gloves']);
 });
 
 it('labels the material chips from the one owner of that string, not a private copy', async () => {
@@ -1767,34 +1787,36 @@ it('names the cylinder gas fields from the one owner of those words, with the un
   expect(findTextInput(t, HE_LABEL)?.props?.placeholder).toBe('%');
 });
 
-it('asks for whole cylinders with a keypad that has no separator on it', async () => {
-  // §6: "count (twinset = 2)". A fractional count is *contradictory* in derived.ts — it
-  // voids the dive's whole gas figure rather than skipping the cylinder — so this field
-  // must not be handed `decimal-pad`, whose separator key types a comma on the Czech
-  // device this app's first diver holds. Checked against Size in the same render, so a
-  // screen that gave every cylinder field the same keyboard fails here.
+it('asks for the rig with chips, and asks for no cylinder count at all', async () => {
+  // This replaces a test that pinned `number-pad` on a typed Count, because a fractional
+  // count was *contradictory* in derived.ts and voided the dive's whole gas figure. §10
+  // removed the field: the count is derived from the rig (`cylinderCount`), so the hazard
+  // has no way in. Both halves are asserted — the chips exist, and no typed count survives
+  // anywhere on the form, which is what would quietly reintroduce it.
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
-  expect(findTextInput(t, 'Count')?.props?.keyboardType).toBe('number-pad');
+  expect(findChip(t, 'Configuration', 0)).toBeDefined();
+  expect(findTextInput(t, 'Count')).toBeUndefined();
   expect(findTextInput(t, 'Size')?.props?.keyboardType).toBe('decimal-pad');
 });
 
-it('rounds a cylinder count that reaches it fractional anyway, rather than voiding the gas figure', async () => {
-  // The keypad stops a diver typing 1.5; this is the value arriving from somewhere the
-  // keypad does not govern — carry-over from a row an M2 client wrote, a device keypad
-  // that offers a separator regardless. `countGas` (derived.ts) reads a non-integer count
-  // exactly as it reads 0: contradictory, and the whole dive's RMV and gas-used figures
-  // disappear with no message anywhere.
+it('carries a rig this build has no chip for into a new dive rather than dropping it', async () => {
+  // What the rounding test that stood here defended against, arriving through the door that
+  // is still open: a value from somewhere this form's controls do not govern — carry-over
+  // from a row an M2 client wrote. There is no rounding to do any more (a rig is a tap on a
+  // closed list), so what is left to defend is §10's "kept, not refused": the cylinder must
+  // reach `createDive` with the foreign rig intact, not silently nulled on the way.
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  stubDives({ dives: [dive({ date: '2026-08-16', tanks: [tank({ sizeL: 12, count: 1.5 })] })] });
+  stubDives({
+    dives: [dive({ date: '2026-08-16', tanks: [tank({ sizeL: 12, configuration: 'rebreather' as Tank['configuration'] })] })],
+  });
   const t = await render(<DiveFormScreen mode="create" />);
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
 
-  expect(writtenTanks()?.[0]?.count).toBe(2);
-  expect(Number.isInteger(writtenTanks()?.[0]?.count)).toBe(true);
-  // Not rounded into the OTHER contradictory value: `sizeL` is a real measurement and
-  // 11.1 l is an ordinary cylinder, so the rounding must be scoped to the count alone.
+  expect(writtenTanks()?.[0]?.configuration).toBe('rebreather');
+  // ...and the rest of the cylinder came through beside it, so this is not passing because
+  // the whole array was handed over untouched by a form that never read it.
   expect(writtenTanks()?.[0]?.sizeL).toBe(12);
 });
 
@@ -2740,7 +2762,7 @@ describe('the unit setting', () => {
 
     expect(unitOf(t, 'Max depth')).toBe('ft');
     expect(unitOf(t, 'Avg depth')).toBe('ft');
-    expect(unitOf(t, 'Visibility')).toBe('ft');
+    expect(unitOf(t, 'Visibility distance')).toBe('ft');
     expect(unitOf(t, 'Water temp')).toBe('°F');
     expect(unitOf(t, 'Air temp')).toBe('°F');
     expect(unitOf(t, 'Working pressure')).toBe('psi');
@@ -2748,11 +2770,13 @@ describe('the unit setting', () => {
     expect(unitOf(t, 'End pressure')).toBe('psi');
     expect(unitOf(t, 'Weights')).toBe('lb');
 
-    // The three that have no pair (format/units.ts) must NOT move: minutes are minutes,
+    // The four that have no pair (format/units.ts) must NOT move: minutes are minutes,
     // a cylinder's litres are water capacity rather than the cubic feet of free gas an
-    // imperial cylinder is named for, and a gas fraction is a percentage in any system.
+    // imperial cylinder is named for, a suit's neoprene is stated in millimetres on every
+    // label ever printed, and a gas fraction is a percentage in any system.
     expect(unitOf(t, 'Duration')).toBe('min');
     expect(unitOf(t, 'Size')).toBe('l');
+    expect(unitOf(t, 'Suit thickness')).toBe('mm');
     expect(unitOf(t, O2_LABEL)).toBe('%');
   });
 
@@ -3187,7 +3211,7 @@ it('keeps a picked paired id when carry-over resolves again afterwards', async (
 it('keeps applied preset cylinders when carry-over resolves again afterwards', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubPresets([
-    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, count: 1, workingBar: 207, startBar: null, endBar: null })] }),
+    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, workingBar: 207, startBar: null, endBar: null })] }),
   ]);
   stubDives({ dives: [dive({ date: '2026-08-20', buddy: 'Petr', tanks: [tank({ sizeL: 15 })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
@@ -3266,7 +3290,7 @@ it('keeps the dive’s own save distinct from the preset control beside it', asy
 
 it('fills the whole cylinder block in one tap', async () => {
   stubPresets([
-    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, count: 1, workingBar: 207, o2Pct: 32, startBar: null, endBar: null })] }),
+    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', configuration: 'twinset', sizeL: 11.1, workingBar: 207, o2Pct: 32, startBar: null, endBar: null })] }),
   ]);
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
@@ -3275,12 +3299,15 @@ it('fills the whole cylinder block in one tap', async () => {
   await fireEvent.press(chip);
 
   expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
-  expect(findTextInput(t, 'Count')?.props?.value).toBe('1');
   expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('207');
   expect(findTextInput(t, O2_LABEL)?.props?.value).toBe('32');
-  // The material is a chip row, not a text field — and "the chosen thing is the inverted
-  // thing" is what a diver actually sees change.
+  // The material and the rig are chip rows, not text fields — and "the chosen thing is the
+  // inverted thing" is what a diver actually sees change. The rig is asserted because it
+  // replaced a typed Count: a preset that stopped carrying it would look identical here
+  // without this line, and would silently halve a twinset's gas figure on every dive it
+  // filled in.
   expect(findChip(t, 'Material', 1)?.props?.accessibilityState?.selected).toBe(true);
+  expect(findChip(t, 'Configuration', 1)?.props?.accessibilityState?.selected).toBe(true);
 });
 
 // A preset holds no pressures (§10), so it has nothing to say about them — and wiping a

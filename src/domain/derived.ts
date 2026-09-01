@@ -1,5 +1,5 @@
 import { calendarDateToUtcMs, timeOfDayToMinutes } from './datetime';
-import type { Dive, Tank } from './types';
+import { cylinderCount, type Dive, type Tank } from './types';
 
 /** Metres of sea water per bar of ambient pressure. */
 const METRES_PER_BAR = 10;
@@ -14,7 +14,8 @@ function isNumber(v: number | null | undefined): v is number {
 
 /**
  * This is the pressure half of a two-way policy gasUsedLitres applies to
- * every per-cylinder field it reads (pressures here; size and count below):
+ * every per-cylinder field it reads (pressures here; size and the rig's
+ * cylinder count below):
  *  - 'absent': the value was never recorded — null/undefined, or not a real
  *    number at all (NaN, Infinity, wrong type). Nothing a diver could have
  *    deliberately entered. That cylinder is skipped; the rest still count.
@@ -54,28 +55,34 @@ function tankGas(tank: Tank): TankGas {
  * The classification above only holds if an empty numeric field reaches
  * this file as null or NaN, and never as 0: this file treats NaN as absent
  * (an empty field — parseFloat('') is NaN) and treats 0 as contradictory
- * for sizeL and count. That split is correct, but it depends entirely on
+ * for sizeL. That split is correct, but it depends entirely on
  * which coercion produced the number:
- *   - parseFloat('') -> NaN -> absent -> the cylinder still counts (count
- *     defaults to 1, sizeL just skips that cylinder). Correct.
+ *   - parseFloat('') -> NaN -> absent -> sizeL just skips that cylinder.
+ *     Correct.
  *   - Number('') -> 0 -> contradictory -> voids the entire dive's gas
  *     figure.
  * z.coerce.number() calls Number() internally, so a bare
- * z.coerce.number() on an optional sizeL or count field will silently
+ * z.coerce.number() on an optional sizeL or pressure field will silently
  * blank a dive's RMV the moment that field is left empty — not reject the
  * form, not flag the field, just a quietly missing gas figure. Any Zod
  * schema for these fields needs something that maps an empty string to
  * null (or leaves it NaN) instead of coercing it to 0 — e.g.
  * z.coerce.number().or(z.literal('').transform(() => null)) — never a
  * bare z.coerce.number().
+ *
+ * The cylinder COUNT is no longer one of these fields and this is worth
+ * saying, because the contract used to name it in every clause above:
+ * M1h replaced `Tank.count` with `Tank.configuration`, so the count is
+ * derived from a chip rather than typed (`cylinderCount`, domain/types.ts)
+ * and no coercion stands between a keypad and it any more.
  */
 
 /**
- * Size and count each get the same three-way classification pressure does
- * above, as their own small functions rather than logic inlined into
- * gasUsedLitres's loop — so that loop can classify every field on a
- * cylinder before it acts on any of them (see gasUsedLitres for why that
- * order is the point).
+ * Size and the rig's cylinder count each get the same three-way
+ * classification pressure does above, as their own small functions rather
+ * than logic inlined into gasUsedLitres's loop — so that loop can classify
+ * every field on a cylinder before it acts on any of them (see
+ * gasUsedLitres for why that order is the point).
  */
 type FieldGas = { kind: 'ok'; value: number } | { kind: 'absent' } | { kind: 'contradictory' };
 
@@ -84,11 +91,34 @@ function sizeGas(tank: Tank): FieldGas {
   return tank.sizeL > 0 ? { kind: 'ok', value: tank.sizeL } : { kind: 'contradictory' };
 }
 
+/**
+ * How many cylinders this rig is, in the same absent/ok/contradictory
+ * vocabulary the two fields above use — **read from `cylinderCount`
+ * (domain/types.ts), never restated here.** That function lives beside
+ * `CONFIGURATION_VALUES` because a rig's cylinder count is a fact about the
+ * vocabulary, and a `twinset === 2` written into this file as well would be
+ * §4.1's defining defect with a gas figure attached.
+ *
+ * **A rig this build cannot read is `absent`, exactly as a `null` count was
+ * before M1h**, and preserving that equivalence is the whole point of the
+ * classification: a cylinder whose rig was never recorded still counts
+ * (gasUsedLitres falls back to one), where a cylinder whose *size* was never
+ * recorded is skipped. `cylinderCount` collapses both "never recorded" and
+ * "recorded as something this build has never heard of" to `null`, which is
+ * the right reading of each — neither is a number anyone could have meant.
+ *
+ * **`contradictory` has no member here any more, and that is a fact about the
+ * field rather than a gap in the check.** A count was typed, so it could be
+ * `0`, `-1` or `1.5` — real data describing an impossible cylinder, which
+ * voids the whole total. A configuration is a tap on a closed list: there is
+ * no value that is both recorded and impossible, so the bucket is empty by
+ * construction. If a rig ever gains a count that can be wrong, this is the
+ * function that grows the third branch back.
+ */
 function countGas(tank: Tank): FieldGas {
-  if (!tank || !isNumber(tank.count)) return { kind: 'absent' };
-  return tank.count > 0 && Number.isInteger(tank.count)
-    ? { kind: 'ok', value: tank.count }
-    : { kind: 'contradictory' };
+  if (!tank) return { kind: 'absent' };
+  const count = cylinderCount(tank.configuration);
+  return count === null ? { kind: 'absent' } : { kind: 'ok', value: count };
 }
 
 /** Pressure consumed from one cylinder, or null if it cannot be known. */
@@ -100,19 +130,25 @@ export function usedBar(tank: Tank): number | null {
 /**
  * Free gas consumed across every cylinder, in litres at surface pressure.
  *
- * Pressure, size, and count all follow the same absent/contradictory policy
+ * Pressure, size, and the rig's cylinder count all follow the same
+ * absent/contradictory policy
  * (see TankGas above): a field that was never recorded — or isn't a real
  * number at all — skips just that cylinder, so a diver who logged the main
  * cylinder but not the stage still gets a figure. A field that was recorded
  * with a value that can't describe a real cylinder (negative or transposed
- * pressure, a zero-or-negative size, a zero/negative/fractional count)
+ * pressure, a zero-or-negative size)
  * voids the whole total instead. Silently dropping a cylinder the diver did
  * record would understate gas used — the unsafe direction for gas planning:
  * a diver who sees no figure at all goes back and fixes the typo; one who
  * sees a plausible, quietly-wrong figure does not.
  *
- * Count is the one field where "absent" doesn't skip the cylinder — a
- * never-recorded count still means "one cylinder", the brief-tested default.
+ * The count is the one field where "absent" doesn't skip the cylinder — an
+ * unrecorded rig still means "one cylinder", the brief-tested default. That
+ * survived M1h's replacement of `count` by `configuration` unchanged, and
+ * deliberately: `cylinderCount` returns `null` for a rig nobody recorded, so
+ * a cylinder with a size and two pressures but no rig produces exactly the
+ * figure it produced before, rather than losing its gas to a field the diver
+ * never had to fill in.
  *
  * Every field on a cylinder is classified before any of them is acted on.
  * The alternative — decide on pressure, `continue` if it's absent, only
@@ -174,6 +210,44 @@ export function rmv(
   // value > 0 alone would accept Infinity too (Infinity > 0 is true), which
   // is the overflow this file already rejects a few lines up.
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** A gas fraction is a percentage of the mix, so it lives in [0, 100]. */
+const FULL_MIX_PCT = 100;
+
+/**
+ * The nitrogen fraction of a mix, as a percentage — `100 − O₂ − He`.
+ *
+ * **Nitrogen is computed, never stored** (DESIGN.md §10): O₂ + He + N₂ = 100, so two
+ * numbers describe every mix a diver will log, and storing the third would be a third home
+ * for one fact and a cylinder that can disagree with itself. Air's ~1 % argon is counted as
+ * nitrogen exactly as every dive planner counts it. §0.6 draws the result with the muted `=`
+ * prefix, beside surface interval and RMV, because anything in this file is marked as
+ * computed.
+ *
+ * **Both fractions are required, and a missing helium is NOT read as zero.** That is the
+ * decision worth stating, because it costs the common case: a diver who records 32 % O₂ and
+ * leaves He blank gets no nitrogen figure, even though nitrox 32 is obviously 68 % N₂ to a
+ * human reading it. Defaulting the blank to 0 would be this file inventing a reading — the
+ * thing every other function here refuses to do — and it would be inventing it in the
+ * direction that *understates* inert gas, which is the unsafe one for a diver eyeing
+ * narcosis or a deco plan. An absent field means the diver did not say, and "did not say"
+ * is not "zero"; the same distinction `countGas` above keeps between a rig nobody recorded
+ * and a single cylinder.
+ *
+ * Refuses a mix that is not a real one rather than a number a diver might act on, in the
+ * same shape `mod` below does: a fraction outside [0, 100] is not a percentage of anything,
+ * and O₂ + He above 100 leaves a *negative* nitrogen fraction, which is not a mix — it is a
+ * typo in one of the two fields it was computed from.
+ */
+export function nitrogenPct(
+  o2Pct: number | null | undefined,
+  hePct: number | null | undefined,
+): number | null {
+  if (!isNumber(o2Pct) || !isNumber(hePct)) return null;
+  if (o2Pct < 0 || o2Pct > FULL_MIX_PCT || hePct < 0 || hePct > FULL_MIX_PCT) return null;
+  const nitrogen = FULL_MIX_PCT - o2Pct - hePct;
+  return nitrogen >= 0 ? nitrogen : null;
 }
 
 /**

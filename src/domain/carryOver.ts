@@ -5,15 +5,25 @@ import type { Dive, Tank } from './types';
 /**
  * DESIGN.md §2.1, "Carried over from the last dive": the gear and location a
  * diver reuses trip to trip — dive center and site · entry · salinity and
- * water body · cylinders (material, size, count, working pressure) · gas
- * mixture per cylinder (O₂/He %) · weights · suit, hood, gloves, boots ·
- * buddy and guide.
+ * water body · cylinders (material, configuration, size, working pressure) ·
+ * gas mixture per cylinder (O₂/He %) · weights · suit and its thickness ·
+ * the equipment set · buddy and guide.
  *
  * `tanks` is named here, but carries only *most* of itself: `carryOverFrom`
  * still zeroes each cylinder's `startBar`/`endBar` (see `withoutPressures`).
  * §2.1 puts pressures in the "fresh every dive" half explicitly, and the
  * decision log (§10) records it as a deliberate owner call: a stale 200 bar
  * would silently become a wrong gas-consumption figure for the next dive.
+ *
+ * **M1h's five new fields split three-to-two across this line, and the split is the
+ * point.** `suitThicknessMm` and `equipment` are gear: the diver who owned a 5 mm suit and
+ * a torch yesterday owns them today, and `equipment` replaces `hood`/`gloves`/`boots`,
+ * which were carried for exactly that reason. `weather`, `visibility` and `weightsFeel` are
+ * **fresh**, and are not named here — they describe one dive's conditions and one dive's
+ * outcome, so a carried one is the same lie §2.1 already names for a stale starting
+ * pressure: a value that looks like data and is not. A weighting that felt right in a
+ * 7 mm suit in fresh water is the single most misleading thing this form could offer to
+ * prefill.
  *
  * This is the *only* hand-maintained field list in this module. Every other
  * `DiveFormValues` field — `date` aside, which has `carryOverDate`'s own
@@ -29,7 +39,7 @@ export const CARRIED_FIELDS: readonly (keyof DiveFormValues)[] = [
   'centerId', 'centerName',
   'entry', 'salinity', 'waterBody',
   'tanks',
-  'suit', 'hood', 'gloves', 'boots', 'weightsKg',
+  'suit', 'suitThicknessMm', 'equipment', 'weightsKg',
   'buddy', 'guide',
 ];
 
@@ -183,6 +193,26 @@ function carryOverDate(previousDate: string, now: Date): string {
 }
 
 /**
+ * One carried field's value, read off the previous dive.
+ *
+ * **The two array fields are copied rather than referenced, and that is not tidiness.** A
+ * carried value becomes the live form's own state, and handing it the very array object the
+ * previous dive is holding would let an edit to this dive's cylinders or accessories reach
+ * back and alter the dive it was carried from — a dive already saved, which nothing on
+ * screen says is being touched. `tanks` was always copied, because
+ * `withoutPressures` had to build new cylinders anyway; `equipment` needs the copy stated
+ * out loud, since a bare read would have aliased it silently and looked identical.
+ *
+ * Everything else a dive carries is a string, a number or `null`, none of which anything can
+ * mutate, so a plain read is a copy already.
+ */
+function carriedValue(previous: Dive, field: keyof DiveFormValues): unknown {
+  if (field === 'tanks') return previous.tanks.map(withoutPressures);
+  if (field === 'equipment') return [...previous.equipment];
+  return (previous as unknown as Record<string, unknown>)[field];
+}
+
+/**
  * The dive-form prefill for DESIGN.md §2.1's carry-over: what a diver
  * starting a new log entry inherits from their last dive, and what starts
  * blank because it changes every dive. `previous` is ordinarily the diver's
@@ -205,8 +235,7 @@ export function carryOverFrom(previous: Dive | null, now: Date = new Date()): Pa
     (result as Record<string, unknown>)[field] = null;
   }
   for (const field of CARRIED_FIELDS) {
-    (result as Record<string, unknown>)[field] =
-      field === 'tanks' ? previous.tanks.map(withoutPressures) : (previous as unknown as Record<string, unknown>)[field];
+    (result as Record<string, unknown>)[field] = carriedValue(previous, field);
   }
 
   return result;

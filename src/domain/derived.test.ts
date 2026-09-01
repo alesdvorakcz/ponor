@@ -1,8 +1,8 @@
-import type { Tank } from './types';
-import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from './derived';
+import type { Configuration, Tank } from './types';
+import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from './derived';
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
-  material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+  material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
   o2Pct: 21, hePct: null, startBar: 200, endBar: 50, ...over,
 });
 
@@ -42,15 +42,34 @@ describe('gasUsedLitres', () => {
   });
 
   it('counts both cylinders of a twinset', () => {
-    expect(gasUsedLitres([tank({ count: 2 })])).toBe(3600);
+    expect(gasUsedLitres([tank({ configuration: 'twinset' })])).toBe(3600);
+  });
+
+  it('counts both cylinders of a sidemount rig too, though it is not a twinset', () => {
+    // §10 keeps the two rigs distinct because they record different facts; only the count
+    // they imply coincides. If `cylinderCount` ever grew a `sidemount: 1` this is what
+    // would catch it — the gas figure is the only place the number is observable.
+    expect(gasUsedLitres([tank({ configuration: 'sidemount' })])).toBe(3600);
   });
 
   it('sums across independent cylinders', () => {
     expect(gasUsedLitres([tank(), tank({ sizeL: 7, startBar: 200, endBar: 100 })])).toBe(2500);
   });
 
-  it('treats a missing count as one cylinder', () => {
-    expect(gasUsedLitres([tank({ count: null })])).toBe(1800);
+  it('treats an unrecorded rig as one cylinder, and still counts the cylinder', () => {
+    // The behaviour a `count: null` had before M1h, preserved exactly: unknown is `absent`,
+    // and absent is the one classification that does not skip the cylinder. 1800 rather than
+    // null is what says both halves held — a skip would have left nothing to total.
+    expect(gasUsedLitres([tank({ configuration: null })])).toBe(1800);
+  });
+
+  it('treats a rig this build has never heard of as unrecorded, not as a reason to void', () => {
+    // An M2 sync row from a newer client. §10's "kept, not refused" policy means such a
+    // value reaches here, and there is nothing this build can do with it but decline to
+    // guess — so it takes the same path a missing rig does rather than blanking a dive's
+    // whole gas figure over a field the diver never saw.
+    const foreign = tank({ configuration: 'rebreather' as Configuration });
+    expect(gasUsedLitres([foreign])).toBe(1800);
   });
 
   it('ignores cylinders it cannot compute, rather than discarding the dive', () => {
@@ -88,25 +107,19 @@ describe('gasUsedLitres', () => {
     expect(gasUsedLitres([good, badSize])).toBeNull();
   });
 
-  it('voids the whole total for an impossible count instead of defaulting or scaling', () => {
-    // count: 0 and count: -3 used to silently fall back to 1 (treating a
-    // recorded "zero cylinders" as one), and count: 2.5 scaled the figure by
-    // a fractional cylinder. All three are contradictory, the same way an
-    // invalid sizeL is — count: null is the only thing that still means
-    // "one cylinder".
-    expect(gasUsedLitres([tank({ count: 0 })])).toBeNull();
-    expect(gasUsedLitres([tank({ count: -3 })])).toBeNull();
-    expect(gasUsedLitres([tank({ count: 2.5 })])).toBeNull();
-  });
-
-  it('voids the whole total for an impossible count, just like contradictory pressure', () => {
-    // Count used to be the deliberate exception (skip just that cylinder,
-    // keep the rest) — it no longer is. A bad count voids the whole total
-    // exactly like a bad size or a bad pressure does, so the good cylinder's
-    // contribution disappears too.
+  it('never voids the total over the rig, whatever it holds', () => {
+    // Three tests used to live here, pinning `count: 0`, `count: -3` and `count: 2.5` as
+    // *contradictory* — real data describing an impossible cylinder, which voids the whole
+    // dive's figure. M1h retired the bucket along with the field: a rig is a tap on a closed
+    // list, so there is no value that is both recorded and impossible. This is what stands
+    // in their place, and it is the assertion that would fail if someone reintroduced a
+    // contradictory branch for a configuration.
     const good = tank();
-    const badCount = tank({ sizeL: 7, startBar: 200, endBar: 100, count: 0 });
-    expect(gasUsedLitres([good, badCount])).toBeNull();
+    const rigs: (Configuration | null)[] = ['single', 'twinset', 'sidemount', null, 'nonsense' as Configuration];
+    for (const configuration of rigs) {
+      const other = tank({ sizeL: 7, startBar: 200, endBar: 100, configuration });
+      expect(gasUsedLitres([good, other])).not.toBeNull();
+    }
   });
 
   it('voids the total for a contradictory size even when the same cylinder also has an absent pressure', () => {
@@ -118,13 +131,6 @@ describe('gasUsedLitres', () => {
     const absentPressureContradictorySize = tank({ startBar: null, sizeL: 0 });
     expect(gasUsedLitres([absentPressureContradictorySize, good])).toBeNull();
     expect(gasUsedLitres([good, absentPressureContradictorySize])).toBeNull();
-  });
-
-  it('voids the total for a contradictory count even when the same cylinder also has an absent pressure', () => {
-    const good = tank();
-    const absentPressureContradictoryCount = tank({ startBar: null, count: 0 });
-    expect(gasUsedLitres([absentPressureContradictoryCount, good])).toBeNull();
-    expect(gasUsedLitres([good, absentPressureContradictoryCount])).toBeNull();
   });
 
   it('voids the whole total for a cylinder with contradictory pressures, rather than skipping it', () => {
@@ -152,7 +158,7 @@ describe('gasUsedLitres', () => {
   it('is null rather than Infinity when the total overflows', () => {
     // Each input is individually finite (Number.MAX_VALUE passes isNumber),
     // but the product isn't - the per-input finiteness checks alone miss this.
-    const huge = tank({ startBar: Number.MAX_VALUE, endBar: 0, sizeL: Number.MAX_VALUE, count: 1 });
+    const huge = tank({ startBar: Number.MAX_VALUE, endBar: 0, sizeL: Number.MAX_VALUE, configuration: 'single' });
     expect(gasUsedLitres([huge])).toBeNull();
   });
 });
@@ -216,8 +222,54 @@ describe('rmv', () => {
     // denormal litres value divided by a large enough durationMin rounds all
     // the way down to exactly 0 (verified: Number.MIN_VALUE / 1 / 2 === 0),
     // which is the same unreal-RMV shape the litres <= 0 guard above rejects.
-    const denormal = tank({ startBar: Number.MIN_VALUE, endBar: 0, sizeL: 1, count: 1 });
+    const denormal = tank({ startBar: Number.MIN_VALUE, endBar: 0, sizeL: 1, configuration: 'single' });
     expect(rmv({ tanks: [denormal], avgDepthM: 0, durationMin: 2 })).toBeNull();
+  });
+});
+
+describe('nitrogenPct', () => {
+  it('is what is left of the mix once oxygen and helium are taken out', () => {
+    expect(nitrogenPct(21, 0)).toBe(79);
+    expect(nitrogenPct(32, 0)).toBe(68);
+    expect(nitrogenPct(18, 45)).toBe(37);
+  });
+
+  it('is 0 for heliox and 100 for a mix with neither', () => {
+    // §10 names heliox as the case that proves two numbers describe every mix. Both ends of
+    // the range are real answers, so neither may come back null.
+    expect(nitrogenPct(21, 79)).toBe(0);
+    expect(nitrogenPct(0, 0)).toBe(100);
+  });
+
+  it('is null when EITHER fraction was not recorded — a blank helium is not a zero', () => {
+    // The decision that costs the common case: nitrox 32 with He left blank is obviously
+    // 68 % N2 to a human, and this app still says nothing, because "did not say" is not
+    // "zero" and inventing the difference understates inert gas — the unsafe direction.
+    expect(nitrogenPct(32, null)).toBeNull();
+    expect(nitrogenPct(null, 0)).toBeNull();
+    expect(nitrogenPct(null, null)).toBeNull();
+    expect(nitrogenPct(undefined, undefined)).toBeNull();
+  });
+
+  it('is null for a fraction that is not a real number', () => {
+    expect(nitrogenPct(NaN, 0)).toBeNull();
+    expect(nitrogenPct(21, Number.POSITIVE_INFINITY)).toBeNull();
+    expect(nitrogenPct('21' as unknown as number, 0)).toBeNull();
+  });
+
+  it('is null for a fraction outside 0-100, which is not a percentage of anything', () => {
+    expect(nitrogenPct(-1, 0)).toBeNull();
+    expect(nitrogenPct(101, 0)).toBeNull();
+    expect(nitrogenPct(21, -1)).toBeNull();
+    expect(nitrogenPct(21, 101)).toBeNull();
+  });
+
+  it('is null when the two fractions add to more than the whole mix', () => {
+    // A negative nitrogen fraction is not a lean mix, it is a typo in one of the two fields
+    // it was computed from — and this file shows no number rather than a wrong one.
+    expect(nitrogenPct(60, 50)).toBeNull();
+    // The boundary is legal, and stays legal: exactly 100 is heliox-with-oxygen, not an error.
+    expect(nitrogenPct(60, 40)).toBe(0);
   });
 });
 

@@ -81,14 +81,24 @@ export const liveDives = liveRows(dives);
 const now = () => new Date().toISOString();
 
 function toDive(row: typeof dives.$inferSelect): Dive {
-  // Belt to the schema's braces. The real guard is `tanksJson`'s decoder in
+  // Belt to the schema's braces. The real guard is the `jsonArray` decoder in
   // schema.ts, which is the only thing that can catch an *unparseable* blob:
   // JSON.parse runs inside Drizzle's row mapper, before this function is ever
   // called, so a try/catch here would never have run. This shape check still
   // costs nothing and keeps the invariant stated where the type is asserted —
   // Drizzle's $type<Tank[]>() is a compile-time label, not a runtime
   // guarantee.
-  return { ...row, tanks: Array.isArray(row.tanks) ? row.tanks : [] } as Dive;
+  //
+  // Both array columns, not just `tanks`. `equipment` arrived in M1h through the
+  // same decoder and is `Equipment[]` and never null for the same reason, so
+  // leaving it unchecked here would be the belt covering one brace of two —
+  // and the cost of a non-array reaching a caller is the same either way: every
+  // reader of a dive spreads or maps it without asking.
+  return {
+    ...row,
+    tanks: Array.isArray(row.tanks) ? row.tanks : [],
+    equipment: Array.isArray(row.equipment) ? row.equipment : [],
+  } as Dive;
 }
 
 export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
@@ -247,11 +257,15 @@ function withoutUndefinedFields<T extends object>(patch: T): T {
  *
  * Read off the schema rather than typed out here, so a column added to
  * `schema.ts` as an `integer()` is covered the day it exists instead of the day
- * someone remembers this list. Drizzle gives the three boolean columns
- * (`hood`/`gloves`/`boots`) their own `columnType` — `SQLiteBoolean`, not
- * `SQLiteInteger` — even though they are INTEGER in SQL, so they fall out of
- * this filter by construction and never reach the rounding below, which would
- * be nonsense for them.
+ * someone remembers this list.
+ *
+ * **A boolean column would fall out of this filter by construction, and that is worth
+ * keeping written down even though `dives` no longer has one.** Drizzle gives
+ * `integer(..., { mode: 'boolean' })` its own `columnType` — `SQLiteBoolean`, not
+ * `SQLiteInteger` — even though it is INTEGER in SQL, so it never reaches the rounding
+ * below, which would be nonsense for it. `hood`, `gloves` and `boots` were the three that
+ * relied on that until M1h replaced them with the `equipment` token set (§10); anyone adding
+ * the next boolean column gets the same protection without asking for it.
  */
 const INTEGER_COLUMNS: readonly string[] = Object.entries(getTableColumns(dives))
   .filter(([, column]) => column.columnType === 'SQLiteInteger')

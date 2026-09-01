@@ -77,7 +77,7 @@ const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
 });
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
-  material: null, sizeL: null, count: null, workingBar: null,
+  material: null, configuration: null, sizeL: null, workingBar: null,
   o2Pct: null, hePct: null, startBar: null, endBar: null, ...over,
 });
 
@@ -459,10 +459,10 @@ it('lists every preset in the order the hook hands them, never its own', async (
 // the whole line a diver reads, and separately against the formatter itself, so neither a
 // respelling nor a screen that stopped calling it can pass.
 it('shows a preset’s cylinders under its name', async () => {
-  const tanks = [tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 32 })];
+  const tanks = [tank({ material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 32 })];
   stubSettings({ presets: [preset({ name: 'twin 12 steel', tanks })] });
   const t = await render(<SettingsScreen />);
-  expect(textIn(t)).toContain('2 × 12 l Steel · 232 bar · O₂ 32 %');
+  expect(textIn(t)).toContain('Twinset 12 l Steel · 232 bar · O₂ 32 %');
   expect(textIn(t)).toContain(formatCylinders(tanks, 'metric'));
 });
 

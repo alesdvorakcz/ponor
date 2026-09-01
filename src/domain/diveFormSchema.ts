@@ -9,13 +9,18 @@ import {
 } from '../format/units';
 import { isCalendarDate } from './datetime';
 import {
+  CONFIGURATION_VALUES,
   ENTRY_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
+  VISIBILITY_VALUES,
   WATER_BODY_VALUES,
+  WEATHER_VALUES,
+  WEIGHTS_FEEL_VALUES,
   type Dive,
   type DiveStatus,
+  type Equipment,
   type Tank,
 } from './types';
 
@@ -55,14 +60,15 @@ function normaliseDecimalSeparator(value: string): string {
  * The coercion contract (DESIGN.md §10, derived.ts's COERCION CONTRACT block).
  *
  * An empty numeric field must reach the domain as null — never 0. `derived.ts`
- * treats 0 as *contradictory* data for sizeL and count and voids the whole
+ * treats 0 as *contradictory* data for sizeL and voids the whole
  * dive's gas figure, where absent data merely skips that cylinder. A bare
  * `z.coerce.number()` would do exactly the wrong thing, because
  * `Number('') === 0`.
  *
  * This is the one helper every optional numeric field in this schema goes
- * through — depths, duration, temperatures, visibility, weights, pressures,
- * cylinder size, count, gas percentages — so the rule exists in exactly one
+ * through — depths, duration, temperatures, visibility, weights, suit
+ * thickness, pressures, cylinder size, gas percentages — so the rule exists
+ * in exactly one
  * place. It also has to accept an already-numeric input, not just a string:
  * carry-over prefill (`carryOverFrom`, M1d task 3) hands the form a real
  * number as a default value, and react-hook-form only turns it into a string
@@ -127,33 +133,15 @@ export function toInputString(value: unknown): string {
   return String(value);
 }
 
-/**
- * A numeric field that counts things rather than measuring them — today the
- * cylinder `count` (DESIGN.md §6: "count (twinset = 2)") and nothing else.
- *
- * Everything `optionalNumber` above does, then rounded. A fractional count is
- * not merely odd, it is *contradictory* in `derived.ts`'s sense: `countGas`
- * classifies a non-integer count exactly as it classifies a zero or negative
- * one, and a contradictory field on any cylinder voids **the whole dive's** gas
- * figure rather than skipping that cylinder. So 1.5 cylinders costs a diver
- * their RMV and gas-used figures with nothing on screen to say why — the same
- * silent-blanking failure the coercion contract above exists to prevent,
- * arriving through a different door. The form asks for a whole-number keypad
- * (`DiveFormScreen.tsx`), which is what stops a diver typing one; this is what
- * stops carry-over, an M2 sync row, or a device whose keypad offers a separator
- * anyway from doing it behind the keypad's back.
- *
- * Rounds rather than rejects, per §1 and on the same reasoning DESIGN.md §10
- * records for `manual_order`: a value moved half a place is a far better trade
- * than a save turned away.
+/*
+ * `wholeNumber` — everything `optionalNumber` did, then rounded — lived here until M1h, and
+ * it existed for exactly one field: the cylinder `count`, where a fractional value was
+ * *contradictory* in `derived.ts`'s sense and voided the whole dive's gas figure. §10
+ * replaced `count` with `configuration`, a tap on a closed list that no keypad can produce a
+ * fraction of, so the helper had no callers left and is gone rather than kept for the next
+ * numeric field that might want it — an unused coercion is one more rule a reader has to
+ * decide whether to apply.
  */
-const wholeNumber = optionalNumber.transform((value) =>
-  // `Math.round(-0.4)` is `-0`, which `Object.is` reports as different from `0`
-  // — enough on its own to make `toDivePatch` write a "change" on every save of
-  // a dive whose count JSON round-tripped through `JSON.stringify`, which
-  // spells both as `0`.
-  value === null ? null : Math.round(value) + 0,
-);
 
 /**
  * Free text (title, notes, names, ids). Blank or whitespace-only becomes
@@ -173,25 +161,28 @@ const optionalText = z
   .default(null);
 
 /**
- * What a diver reads next to a yes/no field holding something that is not one, and next to a
- * fixed-choice field holding a value this client has never heard of.
+ * What a diver reads next to a fixed-choice field holding a value this client has never
+ * heard of.
  *
- * **They are notes, not refusals** (DESIGN.md §10, settled after M1d): "a value outside the
+ * **It is a note, not a refusal** (DESIGN.md §10, settled after M1d): "a value outside the
  * expected range is saved and can be flagged; it is not refused", and §1 binds the form as
- * hard as it binds the database. These two fields used to reject such a value, which
+ * hard as it binds the database. Such a value used to be rejected, which
  * `handleSubmit` turns into a refusal to call `onValid` for the WHOLE form — so a diver who
  * opened a dive to fix a typo in its notes found a Save button that did nothing, over a
  * value they never entered and cannot see. A row written by a newer client, arriving through
  * M2 sync and then through carry-over, is the live source.
  *
- * Both say the same three things: where the value came from, that it is kept, and what to do
- * about it. "Kept" is the half that makes the note honest rather than alarming — nothing is
+ * It says three things: where the value came from, that it is kept, and what to do about
+ * it. "Kept" is the half that makes the note honest rather than alarming — nothing is
  * dropped and nothing is silently rewritten.
+ *
+ * A second constant, `UNKNOWN_BOOLEAN_NOTE`, said the same for a yes/no field. M1h replaced
+ * `hood`/`gloves`/`boots` — the only three booleans a dive ever had — with the `equipment`
+ * token set, so it went with them rather than waiting for a boolean field that may never
+ * exist.
  */
 export const UNKNOWN_OPTION_NOTE =
   'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.';
-export const UNKNOWN_BOOLEAN_NOTE =
-  'This value came from a newer version of Ponor. It is saved as it is — this is a yes/no field, so tap it to replace it.';
 
 /**
  * The note for one fixed-choice field's current value, or `undefined` when there is nothing
@@ -207,30 +198,34 @@ export function unknownOptionNote<T extends string>(options: readonly T[], value
   return (options as readonly unknown[]).includes(value) ? undefined : UNKNOWN_OPTION_NOTE;
 }
 
-/** The same, for hood/gloves/boots. */
-export function unknownBooleanNote(value: unknown): string | undefined {
-  if (value === null || value === undefined || typeof value === 'boolean') return undefined;
-  return UNKNOWN_BOOLEAN_NOTE;
-}
-
 /**
- * Optional checkbox/switch field, normalised to null rather than undefined when unset.
+ * The **token set** field — today `equipment` (hood · gloves · boots · torch · camera) and
+ * nothing else.
  *
- * **It refuses nothing** (§1, §10 — see `UNKNOWN_BOOLEAN_NOTE` above). Anything that is not
- * `null`/`undefined` passes through exactly as it arrived, so a value this client cannot
- * represent survives the round trip instead of blocking the save or being quietly dropped;
- * `unknownBooleanNote` is what tells the diver it is there.
+ * `[]` is the value for "nothing recorded", never `null`: §6 makes this column NOT NULL for
+ * the reason it makes `tanks` NOT NULL, and an empty array already says it. So anything that
+ * is not an array at all — `null`, `undefined`, a string, an object from a malformed sync
+ * payload — becomes `[]` rather than being refused. That is the same degradation
+ * `schema.ts`'s `jsonArray` decoder applies one layer down, and for the same reason: a
+ * value this client cannot read must cost the field, never the save (§1) and never the
+ * screen.
  *
- * The cast is the same one `db/dives.ts`'s `toDive` already makes and for the same reason:
- * the type is a label on what this client can produce, not a runtime guarantee about what
- * the network delivers. Typing it as `unknown` instead would push that cast out to every
- * reader of a `Dive`, which is the opposite trade — DESIGN.md §10 makes exactly this call
- * for `rating` and the 0-3 scales.
+ * **Members are NOT checked against `EQUIPMENT_VALUES`, deliberately.** A `z.enum` inside
+ * the array would reject a token written by a newer client, and a rejected field makes
+ * `handleSubmit` decline to call `onValid` for the WHOLE form — §10's "kept, not refused"
+ * exists because that shipped once as a Save button that did nothing. So an unrecognised
+ * token survives the round trip; the cast is the one `db/dives.ts`'s `toDive` already makes,
+ * for the same "the type is a label on what this client can produce" reason.
+ *
+ * The array is **copied**, not passed through, so nothing downstream can mutate the value a
+ * caller still holds — and so a `Object.is` comparison in `toDivePatch` can never
+ * accidentally succeed by aliasing rather than by the sets actually matching. `sameEquipment`
+ * below is what compares them honestly.
  */
-const optionalBoolean = z
+const optionalTokenSet = z
   .unknown()
-  .transform((raw) => (raw === null || raw === undefined ? null : (raw as boolean)))
-  .default(null);
+  .transform((raw) => (Array.isArray(raw) ? ([...raw] as Equipment[]) : []))
+  .default([]);
 
 /**
  * A picker-backed field restricted to a fixed option set (entry, salinity,
@@ -296,16 +291,18 @@ const optionalStatus = z
   .default('logged');
 
 /**
- * One cylinder's form fields. Every field goes through the same
+ * One cylinder's form fields. Every numeric field goes through the same
  * absent-vs-typed rule as the rest of the form — see `optionalNumber` above —
- * so a blank size or count reaches `derived.ts` as null (that cylinder is
+ * so a blank size reaches `derived.ts` as null (that cylinder is
  * skipped) rather than 0 (the whole dive's gas figure would be voided).
  */
 const tankFormSchema = z.object({
   material: optionalPicked(TANK_MATERIAL_VALUES),
+  // The rig, and the field the cylinder COUNT is derived from (`cylinderCount`,
+  // domain/types.ts). It is `optionalPicked` and not a number for the reason §10 gives:
+  // nobody types a count any more, because the configuration says it.
+  configuration: optionalPicked(CONFIGURATION_VALUES),
   sizeL: optionalNumber,
-  // The one field on this form that counts rather than measures — see `wholeNumber`.
-  count: wholeNumber,
   workingBar: optionalNumber,
   o2Pct: optionalNumber,
   hePct: optionalNumber,
@@ -396,10 +393,14 @@ export const diveFormSchema = z.object({
   // Conditions.
   waterTempC: optionalNumber,
   airTempC: optionalNumber,
+  // The judgement and the number, deliberately both (§10) — see `Dive.visibility`
+  // (domain/types.ts) for why unifying them deletes the half that carries the meaning.
+  visibility: optionalPicked(VISIBILITY_VALUES),
   visibilityM: optionalNumber,
   waves: optionalNumber,
   current: optionalNumber,
   surge: optionalNumber,
+  weather: optionalPicked(WEATHER_VALUES),
   entry: optionalPicked(ENTRY_VALUES),
   salinity: optionalPicked(SALINITY_VALUES),
   waterBody: optionalPicked(WATER_BODY_VALUES),
@@ -411,12 +412,14 @@ export const diveFormSchema = z.object({
   // already means "no cylinders recorded".
   tanks: z.array(tankFormSchema).default([]),
 
-  // Equipment.
+  // Equipment. The exclusive choice and the non-exclusive one are separate controls (§10):
+  // you wear one suit and any number of accessories, so `suit` is picked and `equipment` is
+  // a set. Thickness is a number rather than a token so a 5 mm suit is sayable.
   suit: optionalPicked(SUIT_VALUES),
-  hood: optionalBoolean,
-  gloves: optionalBoolean,
-  boots: optionalBoolean,
+  suitThicknessMm: optionalNumber,
+  equipment: optionalTokenSet,
   weightsKg: optionalNumber,
+  weightsFeel: optionalPicked(WEIGHTS_FEEL_VALUES),
 
   // People.
   buddy: optionalText,
@@ -623,10 +626,13 @@ function displayFieldValue(quantity: Quantity | null, value: unknown, units: Uni
  * turn into a wall of `field: null` — and so this stays compatible with
  * `db/dives.ts`'s wider "a carried undefined means don't touch, null means
  * clear this field" contract, even though creation has nothing yet to not
- * touch. `date` and `tanks` are the two fields every parsed `DiveFormValues`
- * always carries a real value for — required and defaulted respectively —
- * so they are set unconditionally rather than passing through the same
- * null-check as everything else.
+ * touch. `date` and `tanks` are set unconditionally rather than passing
+ * through the same null-check as everything else: `date` is required and
+ * `tanks` needs the SI conversion below, which the loop cannot do for an
+ * array of cylinders. `equipment` is a third field that is never `null`, but
+ * it needs no conversion and no special case — the loop copies it every time,
+ * which is exactly right, because `[]` is a real recorded value meaning "no
+ * accessories" and not an absent one.
  *
  * `status` needs no such exemption and gets none: it is never `null` either
  * (§2.4's control always holds one of its two states), so the loop below copies
@@ -710,6 +716,36 @@ export function sameTanks(before: readonly Tank[], after: readonly Tank[]): bool
 }
 
 /**
+ * Whether two equipment sets record the same accessories — `sameTanks`'s sibling, and
+ * needed for the identical reason: `toDivePatch` below compares every other field with
+ * `Object.is`, and **`Object.is` on two arrays is false however equal their contents are.**
+ * Without this, opening any dive and pressing Save would name `equipment` in the patch,
+ * write it, and advance `updated_at` — and §7's whole-row last-write-wins is keyed on that
+ * column, so the device that changed nothing would beat the device that changed something.
+ * The array shape is what makes this a hazard; `hood`/`gloves`/`boots` were scalars and
+ * never needed one.
+ *
+ * **Compared as SETS, not as sequences.** Wearing a hood and gloves is the same fact
+ * whichever order it was written down in, so a stored `['gloves', 'hood']` — from an older
+ * build, a hand-edited row, or another client — must not read as an edit merely because
+ * this build writes the vocabulary's own order. Set comparison also makes a repeated token
+ * a non-difference, which is right for the same reason: `['hood', 'hood']` records that a
+ * hood was worn and nothing else, exactly as `['hood']` does. Comparing sizes of the two
+ * `Set`s rather than the two arrays is what makes that hold — array lengths would call
+ * `['hood', 'hood']` and `['hood', 'gloves']` the same size and then find every member of
+ * the first present in the second.
+ */
+export function sameEquipment(before: readonly Equipment[], after: readonly Equipment[]): boolean {
+  const first = new Set<string>(before);
+  const second = new Set<string>(after);
+  if (first.size !== second.size) return false;
+  for (const token of first) {
+    if (!second.has(token)) return false;
+  }
+  return true;
+}
+
+/**
  * The **changed** half of a dive-entry form, for `updateDive` (`db/dives.ts`) — the
  * editing counterpart of `toNewDiveInput` above, and typed from `Dive` alone for the same
  * layering reason that function's own docblock gives: `domain/` is the lower layer, so the
@@ -750,7 +786,7 @@ export function toDivePatch(
   units: UnitSystem,
 ): Partial<Omit<Dive, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'manualOrder'>> {
   const patch: Record<string, unknown> = {};
-  const { tanks, ...rest } = values;
+  const { tanks, equipment, ...rest } = values;
   const before = original as unknown as Record<string, unknown>;
 
   for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
@@ -771,6 +807,11 @@ export function toDivePatch(
     .filter(isRecordedTank);
   const currentTanks = original.tanks.filter(isRecordedTank);
   if (!sameTanks(currentTanks, nextTanks)) patch.tanks = nextTanks;
+
+  // Lifted out of the loop above for the same reason `tanks` is: an array field compared
+  // with `Object.is` reports a change on every save for ever. `sameEquipment`'s own docblock
+  // has the §7 last-write-wins cost of getting that wrong.
+  if (!sameEquipment(original.equipment, equipment)) patch.equipment = equipment;
 
   return patch;
 }

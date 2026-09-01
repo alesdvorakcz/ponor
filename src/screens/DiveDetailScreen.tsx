@@ -8,7 +8,7 @@ import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
+import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/leaveScreen';
@@ -18,13 +18,15 @@ import {
   formatConditionScale,
   formatCoordinates,
   HE_LABEL,
+  N2_LABEL,
   O2_LABEL,
-  formatCount,
+  formatConfiguration,
   formatDepth,
   formatDiveDate,
   formatDiveStatus,
   formatDuration,
   formatEntry,
+  formatEquipment,
   formatGasUsed,
   formatPercent,
   formatPressure,
@@ -32,12 +34,16 @@ import {
   formatRmv,
   formatSalinity,
   formatSuit,
+  formatSuitThickness,
   formatSurfaceInterval,
   formatTankMaterial,
   formatTemperature,
+  formatVisibility,
   formatVolume,
   formatWaterBody,
+  formatWeather,
   formatWeight,
+  formatWeightsFeel,
 } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { confirmDestructive } from '../platform/confirmDestructive';
@@ -368,11 +374,17 @@ function whereFields(dive: Dive): Field[] {
 /**
  * DESIGN.md §6's "Profile & conditions" fields, minus max/avg depth and duration, which
  * this screen groups into its own "Depth & duration" cluster instead. Water temp, air
- * temp and visibility go through `formatTemperature`/`formatDepth` (visibility is a
- * distance and therefore takes the same m/ft pair a depth does, at the same precision);
+ * temp and the visibility distance go through `formatTemperature`/`formatDepth` (that
+ * distance takes the same m/ft pair a depth does, at the same precision);
  * waves/current/surge go through
  * `formatConditionScale`, the bare 0–3 rating DESIGN.md §10 keeps unclamped, shown as the
  * diver recorded it rather than a formatted scale.
+ *
+ * **Two visibility rows, and they carry two different labels on purpose.** §10 keeps the
+ * judgement (high · average · low) and the estimate in metres as two encodings of one
+ * subject, the scale being the primary; so the scale takes the plain word a diver uses and
+ * the number is named for what it actually is. Two rows both reading "Visibility" would be
+ * unreadable in a column and indistinguishable to a screen reader.
  */
 function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
@@ -380,34 +392,50 @@ function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   if (waterTemp !== null) fields.push({ label: 'Water temp', value: waterTemp, mono: true });
   const airTemp = formatTemperature(dive.airTempC, units);
   if (airTemp !== null) fields.push({ label: 'Air temp', value: airTemp, mono: true });
-  const visibility = formatDepth(dive.visibilityM, units);
-  if (visibility !== null) fields.push({ label: 'Visibility', value: visibility, mono: true });
+  const visibility = formatVisibility(dive.visibility);
+  if (visibility !== null) fields.push({ label: 'Visibility', value: visibility, mono: false });
+  const visibilityDistance = formatDepth(dive.visibilityM, units);
+  if (visibilityDistance !== null) {
+    fields.push({ label: 'Visibility distance', value: visibilityDistance, mono: true });
+  }
   const waves = formatConditionScale(dive.waves);
   if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: true });
   const current = formatConditionScale(dive.current);
   if (current !== null) fields.push({ label: 'Current', value: current, mono: true });
   const surge = formatConditionScale(dive.surge);
   if (surge !== null) fields.push({ label: 'Surge', value: surge, mono: true });
+  const weather = formatWeather(dive.weather);
+  if (weather !== null) fields.push({ label: 'Weather', value: weather, mono: false });
   return fields;
 }
 
 /**
- * DESIGN.md §6's "Equipment & people" fields. `hood`/`gloves`/`boots` are `boolean |
- * null`, and a recorded `false` ("no hood worn") is real diver-entered data, not the
- * absence of an answer — each is checked against `null` explicitly so a `false` still
- * renders as "No" instead of being swallowed the way `dive.hood && ...` would swallow it,
- * indistinguishable on screen from a field nobody ever filled in. That silent conflation
- * is exactly the form-shaming §1 rules out, just for a boolean instead of a number.
+ * DESIGN.md §6's "Equipment & people" fields.
+ *
+ * `hood`, `gloves` and `boots` were three `boolean | null` rows here until M1h, and the row
+ * this file used to argue about — a recorded `false` ("no hood worn") had to render as "No"
+ * rather than be swallowed the way `dive.hood && ...` swallows it. §10 replaced all three
+ * with the `equipment` token set, which cannot make that mistake because it cannot express
+ * that answer: a token is present or it is not. The three-way distinction genuinely went
+ * (see `Dive.equipment`, domain/types.ts, where the trade is recorded), so an empty set is
+ * simply an absent row here, exactly as an unrecorded suit is.
+ *
+ * The weighting is two rows, not one — the kilos and the judgement — for the reason §10
+ * gives: "6 kg" means nothing on its own, and "6 kg, and I was over" is the fact a diver
+ * actually uses.
  */
 function equipmentFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
   const suit = formatSuit(dive.suit);
   if (suit !== null) fields.push({ label: 'Suit', value: suit, mono: false });
-  if (dive.hood !== null) fields.push({ label: 'Hood', value: dive.hood ? 'Yes' : 'No', mono: false });
-  if (dive.gloves !== null) fields.push({ label: 'Gloves', value: dive.gloves ? 'Yes' : 'No', mono: false });
-  if (dive.boots !== null) fields.push({ label: 'Boots', value: dive.boots ? 'Yes' : 'No', mono: false });
+  const thickness = formatSuitThickness(dive.suitThicknessMm);
+  if (thickness !== null) fields.push({ label: 'Suit thickness', value: thickness, mono: true });
+  const equipment = formatEquipment(dive.equipment);
+  if (equipment !== null) fields.push({ label: 'Equipment', value: equipment, mono: false });
   const weights = formatWeight(dive.weightsKg, units);
   if (weights !== null) fields.push({ label: 'Weights', value: weights, mono: true });
+  const weightsFeel = formatWeightsFeel(dive.weightsFeel);
+  if (weightsFeel !== null) fields.push({ label: 'Weighting', value: weightsFeel, mono: false });
   if (dive.buddy !== null) fields.push({ label: 'Buddy', value: dive.buddy, mono: false });
   if (dive.guide !== null) fields.push({ label: 'Guide', value: dive.guide, mono: false });
   return fields;
@@ -417,13 +445,14 @@ function equipmentFields(dive: Dive, units: UnitSystem): Field[] {
  * One cylinder's own fields, plus the pressure it used and that mix's own MOD.
  * `usedBar` is read from derived.ts, never recomputed here as `startBar - endBar`:
  * that arithmetic already lives there, along with the guards that make it refuse a
- * transposed or negative reading rather than report a false figure. `material`, `sizeL`,
- * `count`, `o2Pct` and `hePct` go through `format/display.ts`'s `formatTankMaterial`/
- * `formatVolume`/`formatCount`/`formatPercent` like every other field on this screen —
+ * transposed or negative reading rather than report a false figure. `material`,
+ * `configuration`, `sizeL`, `o2Pct` and `hePct` go through `format/display.ts`'s
+ * `formatTankMaterial`/`formatConfiguration`/`formatVolume`/`formatPercent` like every
+ * other field on this screen —
  * the module's own docblock is the single owner of turning an SI value into a string,
  * and a dedicated formatter per field is what closes that even for a field with no unit
- * conversion (§3's four pairs are depth, temperature, pressure and weight — `sizeL`,
- * `count` and the two gas fractions are none of them, so those three formatters take no
+ * conversion (§3's four pairs are depth, temperature, pressure and weight — `sizeL` and
+ * the gas fractions are none of them, so those formatters take no
  * `units`; see format/units.ts for why a cylinder's size has no imperial counterpart).
  *
  * MOD is computed here, per tank, from that tank's own `o2Pct` — never once for the
@@ -445,10 +474,13 @@ function tankFields(tank: Tank, units: UnitSystem): Field[] {
   // screen apart. format/display.ts owns that string for all five now.
   const material = formatTankMaterial(tank.material);
   if (material !== null) fields.push({ label: 'Material', value: material, mono: false });
+  // The rig, where a numeric `Count` used to sit (§10). It is `mono: false` because it is a
+  // name now, not a figure — the same line the rest of this screen draws between a word and
+  // a number.
+  const configuration = formatConfiguration(tank.configuration);
+  if (configuration !== null) fields.push({ label: 'Configuration', value: configuration, mono: false });
   const size = formatVolume(tank.sizeL);
   if (size !== null) fields.push({ label: 'Size', value: size, mono: true });
-  const count = formatCount(tank.count);
-  if (count !== null) fields.push({ label: 'Count', value: count, mono: true });
   const working = formatPressure(tank.workingBar, units);
   if (working !== null) fields.push({ label: 'Working pressure', value: working, mono: true });
   // The two label constants, not two more string literals: the form spelled these `O2 %` and
@@ -459,6 +491,13 @@ function tankFields(tank: Tank, units: UnitSystem): Field[] {
   if (o2 !== null) fields.push({ label: O2_LABEL, value: o2, mono: true });
   const he = formatPercent(tank.hePct);
   if (he !== null) fields.push({ label: HE_LABEL, value: he, mono: true });
+  // Nitrogen is never stored — it is 100 − O₂ − He (§10) — so it is `computed: true` like
+  // MOD and `Used` below, and sits with the two fractions it is derived from. `nitrogenPct`
+  // needs BOTH of them and refuses to read a blank helium as zero, so an air or nitrox
+  // cylinder with He left empty shows no N₂ row at all rather than a figure this app
+  // invented; see that function for why that is the safe direction.
+  const n2 = formatPercent(nitrogenPct(tank.o2Pct, tank.hePct));
+  if (n2 !== null) fields.push({ label: N2_LABEL, value: n2, mono: true, computed: true });
   const tankMod = formatDepth(mod(tank.o2Pct), units);
   if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true, computed: true });
   const start = formatPressure(tank.startBar, units);

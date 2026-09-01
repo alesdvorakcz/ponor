@@ -109,7 +109,7 @@ describe('presetNamed', () => {
 // ---------------------------------------------------------------------------------------
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
-  material: null, sizeL: null, count: null, workingBar: null,
+  material: null, configuration: null, sizeL: null, workingBar: null,
   o2Pct: null, hePct: null, startBar: null, endBar: null, ...over,
 });
 

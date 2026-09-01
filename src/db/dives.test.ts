@@ -38,22 +38,28 @@ describe('createDive', () => {
     expect(dive.status).toBe('logged');
     expect(dive.maxDepthM).toBeNull();
     expect(dive.tanks).toEqual([]);
+    // The second non-nullable array column (§6), and its default has to be the same `[]`
+    // for the same reason: an empty set already means "no accessories recorded".
+    expect(dive.equipment).toEqual([]);
   });
 
   it('round-trips the tanks JSON array', async () => {
     const tanks = [
-      { material: 'steel' as const, sizeL: 12, count: 1, workingBar: 232, o2Pct: 21, hePct: null, startBar: 200, endBar: 50 },
+      { material: 'steel' as const, configuration: 'twinset' as const, sizeL: 12, workingBar: 232, o2Pct: 21, hePct: null, startBar: 200, endBar: 50 },
     ];
     const created = await createDive(db, { date: '2026-08-16', tanks });
     const read = await getDive(db, created.id);
     expect(read?.tanks).toEqual(tanks);
   });
 
-  it('round-trips booleans as booleans, not integers', async () => {
-    const created = await createDive(db, { date: '2026-08-16', hood: true, gloves: false });
+  it('round-trips the equipment token set through the same JSON decoder', async () => {
+    // `jsonArray` is one decoder over two columns (schema.ts) rather than a copy per column,
+    // so this is the second column proving the shared one actually works for it — a text
+    // column that silently stored `"hood,gloves"` would still read back as *something*.
+    const equipment = ['hood' as const, 'gloves' as const, 'camera' as const];
+    const created = await createDive(db, { date: '2026-08-16', equipment });
     const read = await getDive(db, created.id);
-    expect(read?.hood).toBe(true);
-    expect(read?.gloves).toBe(false);
+    expect(read?.equipment).toEqual(equipment);
   });
 
   it('stamps created and updated times', async () => {
@@ -132,7 +138,7 @@ describe('getDive', () => {
   });
 });
 
-describe('a corrupt tanks blob costs that row its cylinders, not the whole list', () => {
+describe('a corrupt JSON blob costs that row its own field, not the whole list', () => {
   // JSON.parse runs inside Drizzle's row mapper, so before schema.ts decoded
   // this column defensively, ONE bad row threw a SyntaxError out of listDives
   // and blanked the entire dive list. Reachability is low today and stops
@@ -145,7 +151,7 @@ describe('a corrupt tanks blob costs that row its cylinders, not the whole list'
     ['valid JSON, a string', '"[]"'],
   ] as const;
 
-  it.each(corruptions)('survives a %s blob', async (_label, blob) => {
+  it.each(corruptions)('survives a %s blob in tanks', async (_label, blob) => {
     const good = await createDive(db, { date: '2026-08-16', title: 'healthy' });
     const bad = await createDive(db, { date: '2026-08-17', title: 'corrupt' });
     await db.run(sql`update dives set tanks = ${blob} where id = ${bad.id}`);
@@ -156,6 +162,22 @@ describe('a corrupt tanks blob costs that row its cylinders, not the whole list'
     // The healthy row is untouched by its neighbour's corruption.
     expect(await getDive(db, good.id)).not.toBeNull();
     expect((await getDive(db, bad.id))?.tanks).toEqual([]);
+  });
+
+  it.each(corruptions)('survives a %s blob in equipment', async (_label, blob) => {
+    // The whole reason `tanksJson` was generalised into `jsonArray` rather than copied: the
+    // protection is a property of the decoder, so the second column that needs it must
+    // actually be getting it. Untested, a second column added with `mode: 'json'` would look
+    // identical in the schema and take the list down exactly as the first one once did.
+    const good = await createDive(db, { date: '2026-08-16', title: 'healthy' });
+    const bad = await createDive(db, { date: '2026-08-17', title: 'corrupt' });
+    await db.run(sql`update dives set equipment = ${blob} where id = ${bad.id}`);
+
+    const listed = await listDives(db);
+    expect(listed.map((d) => d.title).sort()).toEqual(['corrupt', 'healthy']);
+    expect(listed.find((d) => d.title === 'corrupt')?.equipment).toEqual([]);
+    expect(await getDive(db, good.id)).not.toBeNull();
+    expect((await getDive(db, bad.id))?.equipment).toEqual([]);
   });
 
   it('cannot hold a SQL NULL in the first place — the column rejects it', async () => {
@@ -693,14 +715,14 @@ describe('every INTEGER column is a real integer at rest', () => {
     expect(created.latitude).toBe(50.12345);
   });
 
-  it('leaves the boolean columns alone, though SQL stores them as INTEGER too', async () => {
-    // Drizzle types these as SQLiteBoolean rather than SQLiteInteger, which is what keeps
-    // them out of the rounding by construction — asserted, because "they are integers in
-    // SQL" is exactly the reasoning that would sweep them in.
-    const created = await createDive(db, { date: '2026-08-16', hood: true, gloves: false, boots: null });
-    expect(created.hood).toBe(true);
-    expect(created.gloves).toBe(false);
-    expect(created.boots).toBeNull();
+  it('leaves a REAL column alone, though a whole number is a legal value in one', async () => {
+    // The counterpart of the rule above, and what stops the rounding being read as "round
+    // every number": `suit_thickness_mm` is a REAL, so a 3.5 mm suit stays 3.5. It replaces
+    // an assertion about `hood`/`gloves`/`boots`, whose SQLiteBoolean column type kept them
+    // out of the same filter until M1h removed them.
+    const created = await createDive(db, { date: '2026-08-16', suitThicknessMm: 3.5, maxDepthM: 32.45 });
+    expect(created.suitThicknessMm).toBe(3.5);
+    expect(created.maxDepthM).toBe(32.45);
   });
 });
 

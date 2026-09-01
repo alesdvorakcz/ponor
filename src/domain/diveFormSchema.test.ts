@@ -5,10 +5,9 @@ import {
   toDivePatch,
   toInputString,
   toNewDiveInput,
+  sameEquipment,
   toStoredTanks,
-  unknownBooleanNote,
   unknownOptionNote,
-  UNKNOWN_BOOLEAN_NOTE,
   UNKNOWN_OPTION_NOTE,
 } from './diveFormSchema';
 import { type UnitSystem } from '../format/units';
@@ -50,9 +49,9 @@ describe('the coercion contract', () => {
   });
 
   it('turns an empty cylinder size into null, because zero would void the dive gas figure', () => {
-    const v = diveFormSchema.parse({ ...base, tanks: [{ sizeL: '', count: '', o2Pct: '' }] });
+    const v = diveFormSchema.parse({ ...base, tanks: [{ sizeL: '', o2Pct: '' }] });
     expect(v.tanks[0]?.sizeL).toBeNull();
-    expect(v.tanks[0]?.count).toBeNull();
+    expect(v.tanks[0]?.o2Pct).toBeNull();
     expect(v.tanks[0]?.sizeL).not.toBe(0);
   });
 
@@ -172,9 +171,31 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     expect(diveFormSchema.parse({ ...base, entry: 'liveaboard' }).entry).not.toBeNull();
   });
 
-  it('keeps a yes/no value that is not one, for the same reason', () => {
-    expect(() => diveFormSchema.parse({ ...base, hood: 'sometimes' })).not.toThrow();
-    expect(diveFormSchema.parse({ ...base, hood: 'sometimes' }).hood).toBe('sometimes');
+  it('keeps an equipment token it has never heard of, for the same reason', () => {
+    // The set's own version of the rule. Rejecting the token would make `handleSubmit`
+    // decline to call `onValid` for the WHOLE form, so a dive synced from a newer build
+    // could not be saved at all — over an accessory the diver cannot even see.
+    const v = diveFormSchema.parse({ ...base, equipment: ['hood', 'rebreather-bailout'] });
+    expect(v.equipment).toEqual(['hood', 'rebreather-bailout']);
+  });
+
+  it('reads anything that is not an array at all as an empty set, never as a refusal', () => {
+    // `[]` is what the column means by "nothing recorded" (§6), so a malformed sync payload
+    // costs the field and nothing else — the same degradation `schema.ts`'s decoder applies
+    // one layer down.
+    for (const raw of [null, undefined, 'hood', 7, { hood: true }]) {
+      expect(diveFormSchema.parse({ ...base, equipment: raw }).equipment).toEqual([]);
+    }
+  });
+
+  it('copies the equipment array rather than holding the caller\'s own', () => {
+    // Two reasons, and the second is the one that bites: nothing downstream may mutate a
+    // value the caller still holds, and `toDivePatch` must never find two fields equal by
+    // aliasing rather than by their contents actually matching.
+    const held = ['hood'];
+    const v = diveFormSchema.parse({ ...base, equipment: held });
+    expect(v.equipment).toEqual(['hood']);
+    expect(v.equipment).not.toBe(held);
   });
 
   it('flags exactly the values it cannot represent, and nothing a chip can produce', () => {
@@ -186,18 +207,14 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     for (const value of ENTRY_VALUES) expect(unknownOptionNote(ENTRY_VALUES, value)).toBeUndefined();
     for (const empty of [null, undefined, '']) expect(unknownOptionNote(ENTRY_VALUES, empty)).toBeUndefined();
 
-    expect(unknownBooleanNote('sometimes')).toBe(UNKNOWN_BOOLEAN_NOTE);
-    for (const value of [true, false, null, undefined]) expect(unknownBooleanNote(value)).toBeUndefined();
   });
 
   it('tells the diver the value is kept, rather than that the save was refused', () => {
     // The sentence is the whole difference between the old policy and this one, so it is
     // asserted rather than left to whoever edits it next: a note reading "pick one of the
     // options to save" would describe a refusal that no longer happens.
-    for (const note of [UNKNOWN_OPTION_NOTE, UNKNOWN_BOOLEAN_NOTE]) {
-      expect(note).toContain('saved as it is');
-      expect(note).not.toContain('to save.');
-    }
+    expect(UNKNOWN_OPTION_NOTE).toContain('saved as it is');
+    expect(UNKNOWN_OPTION_NOTE).not.toContain('to save.');
   });
 });
 
@@ -320,8 +337,33 @@ describe('toDivePatch', () => {
   });
 
   const tank = (over: Partial<Tank> = {}): Tank => ({
-    material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+    material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
     o2Pct: 21, hePct: null, startBar: 200, endBar: 50, ...over,
+  });
+
+  it('leaves a recorded equipment set alone when nothing in it changed', () => {
+    // The assertion `Object.is` cannot make. `equipment` is an array, and two arrays are
+    // never `Object.is`-equal however identical their contents — so without a comparison of
+    // its own this key would be written on every single save, advancing `updated_at` and
+    // handing §7's whole-row last-write-wins to the device that changed nothing.
+    expect(patchAfterEditing({ equipment: ['hood', 'gloves'] })).toEqual({});
+    expect(patchAfterEditing({ equipment: [] })).toEqual({});
+  });
+
+  it('sends the equipment set when the diver actually changed it, in both directions', () => {
+    // The other half, so the test above cannot be passing merely because this key is never
+    // sent at all — which is the failure mode a set-comparison bug would take.
+    expect(patchAfterEditing({ equipment: ['hood'] }, { equipment: ['hood', 'torch'] }))
+      .toEqual({ equipment: ['hood', 'torch'] });
+    expect(patchAfterEditing({ equipment: ['hood', 'torch'] }, { equipment: [] }))
+      .toEqual({ equipment: [] });
+  });
+
+  it('does not read a reordered equipment set as an edit', () => {
+    // A stored order this build did not write — an older build, a hand-edited row, another
+    // client. Wearing a hood and gloves is one fact whichever order it was written down in.
+    expect(patchAfterEditing({ equipment: ['gloves', 'hood'] }, { equipment: ['hood', 'gloves'] }))
+      .toEqual({});
   });
 
   it('leaves a recorded cylinder alone when nothing in it changed', () => {
@@ -337,7 +379,7 @@ describe('toDivePatch', () => {
 
   it('treats the form\'s always-present blank cylinder as no cylinder, in both directions', () => {
     const blank: Tank = {
-      material: null, sizeL: null, count: null, workingBar: null,
+      material: null, configuration: null, sizeL: null, workingBar: null,
       o2Pct: null, hePct: null, startBar: null, endBar: null,
     };
     // The form shows one cylinder whether or not the dive has one, so an untouched cylinder
@@ -379,7 +421,7 @@ describe('working in the diver’s own units', () => {
           durationMin: 47,
           rating: 4,
           latitude: 50.12345,
-          tanks: [{ sizeL: 12, count: 1, workingBar: 232, startBar: 200, endBar: 50, o2Pct: 32, hePct: null, material: 'steel' }],
+          tanks: [{ sizeL: 12, configuration: 'single', workingBar: 232, startBar: 200, endBar: 50, o2Pct: 32, hePct: null, material: 'steel' }],
         }),
         'imperial',
       );
@@ -399,7 +441,7 @@ describe('working in the diver’s own units', () => {
       expect(seeded.latitude).toBe(50.12345);
       expect(seeded.tanks?.[0]?.sizeL).toBe(12);
       expect(seeded.tanks?.[0]?.o2Pct).toBe(32);
-      expect(seeded.tanks?.[0]?.count).toBe(1);
+      expect(seeded.tanks?.[0]?.configuration).toBe('single');
       // ...and nothing that is not a number at all.
       expect(seeded.tanks?.[0]?.material).toBe('steel');
     });
@@ -435,7 +477,7 @@ describe('working in the diver’s own units', () => {
     it('writes nothing for a field the imperial diver never touched', () => {
       expect(
         patchAfterEditing(
-          { maxDepthM: 24.6, waterTempC: 25, weightsKg: 6.5, tanks: [{ startBar: 200, endBar: 50, sizeL: 12, count: 1, workingBar: 232, o2Pct: 32, hePct: null, material: 'steel' }] },
+          { maxDepthM: 24.6, waterTempC: 25, weightsKg: 6.5, tanks: [{ startBar: 200, endBar: 50, sizeL: 12, configuration: 'single', workingBar: 232, o2Pct: 32, hePct: null, material: 'steel' }] },
           {},
           'imperial',
         ),
@@ -454,7 +496,7 @@ describe('working in the diver’s own units', () => {
     });
 
     it('leaves a cylinder alone whose pressures the imperial diver only read', () => {
-      const stored = { tanks: [{ sizeL: 12, count: 1, workingBar: 232, o2Pct: 32, hePct: null, startBar: 200, endBar: 50, material: 'steel' as const }] };
+      const stored = { tanks: [{ sizeL: 12, configuration: 'single' as const, workingBar: 232, o2Pct: 32, hePct: null, startBar: 200, endBar: 50, material: 'steel' as const }] };
       expect(patchAfterEditing(stored, {}, 'imperial')).toEqual({});
     });
   });
@@ -464,7 +506,7 @@ describe('working in the diver’s own units', () => {
   // preset editor (task 3).
   describe('toStoredTanks', () => {
     const stored: Tank = {
-      material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+      material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
       o2Pct: 32, hePct: null, startBar: null, endBar: null,
     };
 
@@ -479,7 +521,7 @@ describe('working in the diver’s own units', () => {
       // `diveFormSchema`'s own coercion contract, reached through this function rather than
       // re-implemented beside it: `Number('')` is 0, and `derived.ts` reads a 0 size as
       // contradictory, which voids a whole dive's gas figure (§10).
-      expect(toStoredTanks([{ sizeL: '', count: '' }], 'metric')[0]).toMatchObject({ sizeL: null, count: null });
+      expect(toStoredTanks([{ sizeL: '', workingBar: '' }], 'metric')[0]).toMatchObject({ sizeL: null, workingBar: null });
     });
 
     /**
@@ -520,5 +562,28 @@ describe('working in the diver’s own units', () => {
       );
       expect(converted.map((tank) => tank.workingBar)).toEqual([232, 207]);
     });
+  });
+});
+
+describe('sameEquipment', () => {
+  it('is true for the same tokens in a different order', () => {
+    expect(sameEquipment(['hood', 'gloves'], ['gloves', 'hood'])).toBe(true);
+    expect(sameEquipment([], [])).toBe(true);
+  });
+
+  it('is false when one holds a token the other does not', () => {
+    expect(sameEquipment(['hood'], ['gloves'])).toBe(false);
+    expect(sameEquipment(['hood'], ['hood', 'gloves'])).toBe(false);
+    expect(sameEquipment([], ['hood'])).toBe(false);
+  });
+
+  it('compares set sizes, not array lengths, so a repeated token cannot fake a match', () => {
+    // The discriminating case for the implementation: `['hood', 'hood']` and
+    // `['hood', 'gloves']` are the same array LENGTH, and every member of the first is
+    // present in the second — so a length-plus-membership check calls them equal. They are
+    // not: one records a hood and the other records a hood and gloves.
+    expect(sameEquipment(['hood', 'hood'], ['hood', 'gloves'])).toBe(false);
+    // ...and a duplicate against the fact it duplicates is still the same fact.
+    expect(sameEquipment(['hood', 'hood'], ['hood'])).toBe(true);
   });
 });

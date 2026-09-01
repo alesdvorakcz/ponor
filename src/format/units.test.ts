@@ -176,6 +176,9 @@ describe('diveFieldQuantity', () => {
     expect(diveFieldQuantity('durationMin')).toBeNull();
     expect(diveFieldQuantity('rating')).toBeNull();
     expect(diveFieldQuantity('waves')).toBeNull();
+    // Millimetres in both systems — a 5 mm suit is 5 mm everywhere, so this is the fourth
+    // no-pair quantity rather than a distance. `'depth'` here would render it as 0.02 ft.
+    expect(diveFieldQuantity('suitThicknessMm')).toBeNull();
     expect(diveFieldQuantity('latitude')).toBeNull();
     expect(diveFieldQuantity('longitude')).toBeNull();
     expect(diveFieldQuantity('manualOrder')).toBeNull();
@@ -190,7 +193,7 @@ describe('tankFieldQuantity', () => {
     // Litres of water capacity: the imperial cylinder unit is the cubic foot, which is
     // free gas at working pressure — a different quantity, not this one converted.
     expect(tankFieldQuantity('sizeL')).toBeNull();
-    expect(tankFieldQuantity('count')).toBeNull();
+    expect(tankFieldQuantity('configuration')).toBeNull();
     expect(tankFieldQuantity('o2Pct')).toBeNull();
     expect(tankFieldQuantity('hePct')).toBeNull();
   });

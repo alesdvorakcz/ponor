@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1788027188798,
-      "tag": "0000_supreme_silver_samurai",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1788220597288,
-      "tag": "0001_powerful_eternals",
+      "when": 1788258941020,
+      "tag": "0000_thin_warpath",
       "breakpoints": true
     }
   ]

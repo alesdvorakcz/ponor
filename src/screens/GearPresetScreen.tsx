@@ -18,8 +18,15 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { PRESET_SAVE_FAILED, PRESETS_UNREADABLE, presetRefusal } from '../domain/presets';
-import { TANK_MATERIAL_VALUES, type GearPreset, type Tank, type TankMaterial } from '../domain/types';
-import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
+import {
+  CONFIGURATION_VALUES,
+  TANK_MATERIAL_VALUES,
+  type Configuration,
+  type GearPreset,
+  type Tank,
+  type TankMaterial,
+} from '../domain/types';
+import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
@@ -452,17 +459,20 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
           // different quantity and not a conversion. Lower-case `l`, matching `formatVolume`.
           unit="l"
         />
-        <FormField
-          label="Count"
-          value={toInputString(draft.tank.count)}
-          onChange={(text) => editTank('count', text)}
+        {/* The rig, where a numeric `Count` field sat until M1h. §10: material and
+            configuration are two facts, and the count is derived from the second
+            (`cylinderCount`, domain/types.ts) — so nobody types a count any more, and the
+            fractional-count hazard the old field carried has no way to arise. Chips rather
+            than a keypad, matching the dive form's own control for this field. */}
+        <OptionChips
+          label="Configuration"
+          value={draft.tank.configuration as Configuration | '' | null | undefined}
+          options={CONFIGURATION_VALUES}
+          displayLabel={(option) => formatConfiguration(option) ?? option}
+          onChange={(value) => editTank('configuration', value === '' ? null : value)}
           scheme={scheme}
-          // Whole cylinders, so a keypad with no separator key: `decimal-pad` offers a comma
-          // on a Czech device, and `derived.ts` reads a fractional count as *contradictory*,
-          // which voids the whole dive's gas figure rather than skipping the cylinder.
-          keyboardType="number-pad"
-          mono
         />
+        <FieldNote message={unknownOptionNote(CONFIGURATION_VALUES, draft.tank.configuration)} scheme={scheme} />
         <FormField
           label="Working pressure"
           value={toInputString(draft.tank.workingBar)}

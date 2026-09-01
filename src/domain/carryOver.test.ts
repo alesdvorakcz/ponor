@@ -5,7 +5,7 @@ import { diveFormSchema } from './diveFormSchema';
 
 /**
  * Every carried field and every fresh field gets a real, distinct value —
- * including falsy-but-real ones (`boots: false`, `hePct: 0`, `surge: 0`) —
+ * including falsy-but-real ones (`hePct: 0`, `surge: 0`) —
  * so a test that checks one half can never pass by accident because the
  * other half, or a `||`-style fallback standing in for a null check, was
  * never exercised.
@@ -15,12 +15,12 @@ const previous = dive({
   timeIn: '09:15', durationMin: 44, maxDepthM: 32.4, avgDepthM: 18.2,
   siteId: 'site-1', siteName: 'Blue Hole', centerId: 'center-1', centerName: 'Dahab Divers',
   entry: 'shore', salinity: 'salt', waterBody: 'ocean', latitude: 28.5, longitude: 34.5,
-  suit: 'wet', hood: true, gloves: true, boots: false, weightsKg: 6,
+  suit: 'wet', suitThicknessMm: 5, equipment: ['hood', 'gloves'], weightsKg: 6, weightsFeel: 'over',
   buddy: 'Petra', guide: 'Mahmoud',
-  visibilityM: 25, waterTempC: 26, airTempC: 30, waves: 1, current: 2, surge: 0,
-  rating: 5, title: 'Arch dive', notes: 'Arch at 30 m',
+  visibility: 'high', visibilityM: 25, waterTempC: 26, airTempC: 30, waves: 1, current: 2, surge: 0,
+  weather: 'sunny', rating: 5, title: 'Arch dive', notes: 'Arch at 30 m',
   tanks: [
-    { material: 'steel', sizeL: 12, count: 1, workingBar: 232, o2Pct: 21, hePct: 0, startBar: 200, endBar: 60 },
+    { material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 21, hePct: 0, startBar: 200, endBar: 60 },
   ],
 });
 
@@ -35,9 +35,8 @@ describe('carrying gear and location forward', () => {
     expect(c.salinity).toBe('salt');
     expect(c.waterBody).toBe('ocean');
     expect(c.suit).toBe('wet');
-    expect(c.hood).toBe(true);
-    expect(c.gloves).toBe(true);
-    expect(c.boots).toBe(false);
+    expect(c.suitThicknessMm).toBe(5);
+    expect(c.equipment).toEqual(['hood', 'gloves']);
     expect(c.weightsKg).toBe(6);
     expect(c.buddy).toBe('Petra');
     expect(c.guide).toBe('Mahmoud');
@@ -47,7 +46,7 @@ describe('carrying gear and location forward', () => {
     const c = carryOverFrom(previous);
     expect(c.tanks?.[0]?.material).toBe('steel');
     expect(c.tanks?.[0]?.sizeL).toBe(12);
-    expect(c.tanks?.[0]?.count).toBe(1);
+    expect(c.tanks?.[0]?.configuration).toBe('twinset');
     expect(c.tanks?.[0]?.workingBar).toBe(232);
     expect(c.tanks?.[0]?.o2Pct).toBe(21);
     expect(c.tanks?.[0]?.hePct).toBe(0);
@@ -57,6 +56,17 @@ describe('carrying gear and location forward', () => {
     expect(c.tanks?.[0]?.startBar ?? null).toBeNull();
     expect(c.tanks?.[0]?.endBar ?? null).toBeNull();
   });
+
+  it('copies the equipment set rather than handing over the previous dive\'s own array', () => {
+    // A carried value becomes the live form's state. Aliasing would let an edit to this
+    // dive's accessories reach back and alter a dive already saved — invisibly, since
+    // nothing on screen says that dive is being touched. `tanks` was always safe because
+    // `withoutPressures` builds new cylinders; this one needed saying out loud.
+    const c = carryOverFrom(previous);
+    expect(c.equipment).not.toBe(previous.equipment);
+    (c.equipment as string[]).push('torch');
+    expect(previous.equipment).toEqual(['hood', 'gloves']);
+  });
 });
 
 describe('keeping what changes every dive fresh', () => {
@@ -64,7 +74,8 @@ describe('keeping what changes every dive fresh', () => {
     const c = carryOverFrom(previous);
     for (const field of [
       'maxDepthM', 'avgDepthM', 'durationMin', 'timeIn',
-      'visibilityM', 'waterTempC', 'rating', 'notes', 'title',
+      'visibility', 'visibilityM', 'waterTempC', 'weather', 'weightsFeel',
+      'rating', 'notes', 'title',
     ] as const) {
       expect(c[field] ?? null).toBeNull();
     }
@@ -226,8 +237,9 @@ describe('CARRIED_FIELDS matching the behaviour', () => {
     expect(CARRIED_FIELDS).not.toContain('date');
     expect(CARRIED_FIELDS).not.toContain('status');
     for (const field of [
-      'maxDepthM', 'avgDepthM', 'durationMin', 'timeIn', 'visibilityM',
-      'waterTempC', 'airTempC', 'waves', 'current', 'surge', 'rating', 'title', 'notes',
+      'maxDepthM', 'avgDepthM', 'durationMin', 'timeIn', 'visibility', 'visibilityM',
+      'waterTempC', 'airTempC', 'waves', 'current', 'surge', 'weather', 'weightsFeel',
+      'rating', 'title', 'notes',
       'latitude', 'longitude',
     ]) {
       expect(CARRIED_FIELDS).not.toContain(field);
