@@ -500,7 +500,7 @@ function seedStateFor(
 /**
  * **Where every field on this form lives, as data — and the checklist a new field joins.**
  *
- * §2.2 divides the form into an always-visible core strip and six collapsible groups, and
+ * §2.2 divides the form into an always-visible core strip and seven collapsible groups, and
  * until M1h that division existed only as the shape of the JSX below. That was enough while
  * nothing had to ASK the question; §2.2's "a group opens when this dive already has a value in
  * it" is a rule about which fields belong to which group, and a rule needs something to read.
@@ -517,8 +517,15 @@ function seedStateFor(
  *
  * `tanks` is named by its leaves (`tanks.0.*`), because that is how this form binds them: the
  * array is one value and the form gives each of its fields a row, in one group.
+ *
+ * **The order of this list is §2.2's table, and the screen renders in it.** The JSX below is
+ * hand-written, so nothing about a `const` array *makes* it agree — what ties the two together
+ * is a test reading the headers off the screen (`draws its groups in the order the layout
+ * declares`), and a second one comparing that order against §2.2 written out by hand rather
+ * than read back off this line. Both are needed: the first would stay green if this list and
+ * the JSX were reordered together into an order §2.2 does not name.
  */
-export const FORM_GROUP_IDS = ['times', 'conditions', 'gas', 'equipment', 'people', 'notes'] as const;
+export const FORM_GROUP_IDS = ['times', 'gas', 'conditions', 'water', 'equipment', 'people', 'notes'] as const;
 
 export type FormGroupId = (typeof FORM_GROUP_IDS)[number];
 
@@ -539,7 +546,7 @@ export interface FormGroupSpec {
    * collapsed and one they opened stays open, and this answers only the case where the memory
    * says nothing at all.
    *
-   * **Required rather than optional**, on §4.1's "derive, or tie at compile time": a seventh
+   * **Required rather than optional**, on §4.1's "derive, or tie at compile time": an eighth
    * group has to state its answer instead of inheriting a default nobody chose for it, and the
    * two groups that carry `true` are then visible as two deliberate calls rather than as the
    * absence of a flag.
@@ -549,7 +556,7 @@ export interface FormGroupSpec {
 
 /**
  * A `Record` keyed by `FormGroupId` rather than an array, so TypeScript requires an entry for
- * every id and a seventh group cannot be added to the list above without one — the same
+ * every id and an eighth group cannot be added to the list above without one — the same
  * "derive, or tie at compile time" shape `CYLINDERS_PER_CONFIGURATION` (domain/types.ts) uses.
  *
  * **The ids are what gets persisted** (`db/settings.ts`'s `form_groups_open`), which is why
@@ -561,30 +568,17 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   // duration and time in until this milestone; they are here with the average depth they belong
   // beside, and the group opens by default because these are what a diver fills on most dives.
   times: { title: 'Times & depth', fields: ['maxDepthM', 'avgDepthM', 'durationMin', 'timeIn'], startsOpen: true },
-  conditions: {
-    title: 'Conditions',
-    startsOpen: false,
-    fields: [
-      'waterTempC',
-      'airTempC',
-      'visibility',
-      'visibilityM',
-      'waves',
-      'current',
-      'surge',
-      'weather',
-      'entry',
-      'salinity',
-      'waterBody',
-      'latitude',
-      'longitude',
-    ],
-  },
   gas: {
     title: 'Gas & cylinders',
     // Open by default for the same reason *Times & depth* is, and holding the two pressures
     // M1i moved back out of the strip: they are read off the cylinder they belong to, which is
     // the thing this group is about.
+    //
+    // **Second, above *Conditions*** (M1j, the owner's call after using the form): §2.2 records
+    // why the pressures could not go back into the core strip — a *Start pressure* row there
+    // describes `tanks.0` and says nothing about a second cylinder — so the group moved instead
+    // of the fields, and the pressures are two rows further down the screen rather than behind
+    // a tap.
     startsOpen: true,
     fields: [
       'tanks.0.material',
@@ -597,6 +591,25 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
       'tanks.0.endBar',
     ],
   },
+  conditions: {
+    title: 'Conditions',
+    startsOpen: false,
+    // **Weather leads** (M1j): it is the first thing anyone notices about a dive day. What is
+    // left here is what the day was like and nothing else — *entry*, *salinity* and *water
+    // body* moved to `water` below, and the two coordinate rows went off the form entirely
+    // (`OFF_FORM_FIELDS`).
+    fields: ['weather', 'waterTempC', 'airTempC', 'visibility', 'visibilityM', 'waves', 'current', 'surge'],
+  },
+  // **Where you are, which *Conditions* was answering by accident** (M1j, the owner's call).
+  // §2.1 gives all three away by prefilling them from the site's own defaults: they are
+  // properties of the place, they carry over, and they are touched about once a trip — so they
+  // sit below the group a diver actually fills, rather than above six rows of it.
+  //
+  // **A group id the stored memory has never heard of, and that needs no special case.** M1i
+  // gave `readOpenFormGroups` a third state, and an absent id already means *never decided* —
+  // so an M1i-era row saying `{"times": false, "conditions": true}` leaves this group to
+  // `startsOpen` below, which is what a new group should get.
+  water: { title: 'Water & entry', fields: ['entry', 'salinity', 'waterBody'], startsOpen: false },
   equipment: {
     title: 'Equipment',
     startsOpen: false,
@@ -628,8 +641,28 @@ export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = ['date', '
  * things that says which dive this is. `siteId` and `centerId` are §6's half of the site
  * snapshot, written by picking
  * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
+ *
+ * **`latitude` and `longitude` are here because a pin is not typed** (M1j, the owner's call,
+ * §2.2). They had two decimal keypads on this form until this milestone, and nobody has ever
+ * typed a coordinate into a phone on a boat — §2.3 has specified since before any of this was
+ * built that the pin comes from the map or from *use my location*. So this is a field waiting
+ * for M2, not a field the form declines to have: the columns stay (§6), `formatCoordinates`
+ * still reads them and the dive detail still shows a GPS row when a point exists, and §7's
+ * payload is unchanged.
+ *
+ * The consequence is worth stating plainly so nobody reads the omission as an oversight and
+ * "fixes" it with a keypad: **no dive can carry a GPS point until the Map tab lands.** Nothing
+ * writes one — carry-over deliberately does not (§2.1 puts both in the fresh half), and there
+ * is no other producer — so the detail screen's GPS row and the coordinate formatter are
+ * correct, live, and unreachable until M2 gives them a source.
  */
-export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = ['status', 'siteId', 'centerId'];
+export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = [
+  'status',
+  'siteId',
+  'centerId',
+  'latitude',
+  'longitude',
+];
 
 /**
  * Whether a field holds something a diver would expect to find behind a closed group.
@@ -1859,7 +1892,7 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
  * always-visible core strip — date, site and centre, what identifies the dive — and everything
- * else in six collapsible `FormGroup`s, of which the two a diver fills on most dives start open
+ * else in seven collapsible `FormGroup`s, of which the two a diver fills on most dives start open
  * (`FormGroupSpec.startsOpen`). **Only the date is required** (§2.2); every other field,
  * including a wholly untouched one, is a legitimate save.
  *
@@ -2056,7 +2089,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // case that frame exists for was a screen STATING something untrue about the dive ("Dive not
   // found." over a dive that was there, a blank form over a real one). A collapsed group states
   // nothing — the fields are there, unexpanded, which is a state the diver reaches by hand
-  // every day — and withholding six headers until a local settings row answers would move more
+  // every day — and withholding seven headers until a local settings row answers would move more
   // on screen than letting a remembered group open a frame late. The half that CAN be answered
   // with no read at all, "does this dive already have a value in there", is answered
   // immediately, and that is the half carry-over makes urgent.
@@ -2602,139 +2635,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
         </FormGroup>
 
-        <FormGroup {...groupProps('conditions')}>
-          <ControlledTextField
-            control={control}
-            carryOver={carryOver}
-            name="waterTempC"
-            label="Water temp"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('temperature', units)}
-          />
-          <ControlledTextField control={control} carryOver={carryOver} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
-          {/* Two visibility fields, deliberately (§10): nobody measures visibility, so the
-              scale is the primary and the distance is an optional refinement for divers who
-              estimate one. They carry two different labels because two rows both reading
-              "Visibility" would be unreadable in a column and identical to a screen reader —
-              the same pair of labels `DiveDetailScreen`'s `conditionsFields` uses, so one
-              subject reads the same way on both screens.
-
-              **`Visibility distance` was re-examined in M1h and kept**, which is worth
-              recording because it reads as clumsy and the clumsiness is the point. It is the
-              only wording available that survives being read ALONE: a row labelled `Distance`
-              means what it means only because a Visibility row happens to sit above it, which
-              is the same "half a phrase" objection that moved `partly` out of `WEATHER_VALUES`
-              this milestone, and a screen reader reaches this row without the one above it.
-              Nothing shorter is honest, and the label lives on two screens, so a change costs a
-              matched edit for a word that would still say less. `Weights`/`Weighting` is the
-              same pair one group down and reads no better. */}
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="visibility"
-            label="Visibility"
-            options={VISIBILITY_VALUES}
-            displayLabel={(option) => formatVisibility(option) ?? option}
-            scheme={scheme}
-          />
-          <ControlledTextField
-            control={control}
-            carryOver={carryOver}
-            name="visibilityM"
-            label="Visibility distance"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('depth', units)}
-          />
-          {/* The three 0–3 scales, as chips rather than as `0-3` text boxes (M1h, the owner:
-              "No one will write numbers there, we should provide chips to choose from"). The
-              vocabulary is `CONDITION_SCALE_VALUES` — one list for all three, since the levels
-              are one fact — and the words are display.ts's, since level 0 is *Flat* water but
-              *no* current.
-
-              **None of the three carries a mark, and neither does Visibility or Weather**
-              (M1i, the owner's call, §10). They did: counted arrows, counting bars, SF
-              Symbols' own skies, and they satisfied §0.6's no-legend test rather than waiving
-              it. Two measured costs took them out anyway — *Current* and *Surge* wrapped to a
-              second line because of them, and one bar beside *Visibility low* read as
-              punctuation. §9's shelf carries what replaces them: a set drawn for this app,
-              with `Entry`'s shore and boat as the standard it has to beat. This is not a row
-              waiting to be finished one glyph at a time. */}
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="waves"
-            label="Waves"
-            options={CONDITION_SCALE_VALUES}
-            displayLabel={(level) => formatWaves(level) ?? String(level)}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="current"
-            label="Current"
-            options={CONDITION_SCALE_VALUES}
-            displayLabel={(level) => formatCurrent(level) ?? String(level)}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="surge"
-            label="Surge"
-            options={CONDITION_SCALE_VALUES}
-            displayLabel={(level) => formatSurge(level) ?? String(level)}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="weather"
-            label="Weather"
-            options={WEATHER_VALUES}
-            displayLabel={(option) => formatWeather(option) ?? option}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="entry"
-            label="Entry"
-            options={ENTRY_VALUES}
-            displayLabel={(option) => formatEntry(option) ?? option}
-            scheme={scheme}
-            // The only field on this form that passes one (§0.6: "*Shore* and *boat* pass
-            // trivially"; salt and fresh do not). `EntryIcon` owns which values
-            // actually have a symbol and draws nothing for the ones that do not, so this
-            // call site does not repeat that judgement.
-            icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="salinity"
-            label="Salinity"
-            options={SALINITY_VALUES}
-            displayLabel={(option) => formatSalinity(option) ?? option}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
-            name="waterBody"
-            label="Water body"
-            options={WATER_BODY_VALUES}
-            displayLabel={(option) => formatWaterBody(option) ?? option}
-            scheme={scheme}
-          />
-          <ControlledTextField control={control} carryOver={carryOver} name="latitude" label="Latitude" scheme={scheme} keyboardType="decimal-pad" mono />
-          <ControlledTextField control={control} carryOver={carryOver} name="longitude" label="Longitude" scheme={scheme} keyboardType="decimal-pad" mono />
-        </FormGroup>
-
         {/* DESIGN.md §6: the form shows a single cylinder until "+ add cylinder" is
             tapped. That control is not built yet — nothing in M1d's seven tasks asks for
             it — so this group binds directly to `tanks.0.*` for now; a real "+ add
@@ -2751,8 +2651,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               the spec, and the four fields that make it up are shown as one line until the
               diver wants to correct them on this dive. **Not one field fewer than before** —
               a snapshot nobody can amend is not a snapshot — and the two per-dive facts, the
-              gas below and the pressures now in the core strip, stay directly editable
-              because they are not part of what kind of cylinder this is. */}
+              gas and the pressures below, stay directly editable because they are not part of
+              what kind of cylinder this is. (This line said "the pressures now in the core
+              strip" until M1j; M1i moved them back down here and it kept pointing at the
+              strip.) */}
           <ControlledCylinderSpec control={control} units={units} defaultExpanded={cylinderSpecOpen} scheme={scheme}>
           <ControlledOptionField
             control={control}
@@ -2877,6 +2779,154 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               on the detail screen, for the same reason it does there: a deliberate act, not
               part of the flow down the fields. */}
           <ControlledPresetCapture control={control} presets={presets} units={units} onSave={savePreset} scheme={scheme} />
+        </FormGroup>
+
+        {/* What the day was like, and nothing else (M1j, the owner's call — §2.2). *Entry*,
+            *salinity* and *water body* sat in here and are not conditions; they are below, in
+            a group of their own. */}
+        <FormGroup {...groupProps('conditions')}>
+          {/* **Weather leads** (M1j): it is the first thing anyone notices about a dive day,
+              and it was the last row of this group. */}
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="weather"
+            label="Weather"
+            options={WEATHER_VALUES}
+            displayLabel={(option) => formatWeather(option) ?? option}
+            scheme={scheme}
+          />
+          <ControlledTextField
+            control={control}
+            carryOver={carryOver}
+            name="waterTempC"
+            label="Water temp"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('temperature', units)}
+          />
+          <ControlledTextField control={control} carryOver={carryOver} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
+          {/* Two visibility fields, deliberately (§10): nobody measures visibility, so the
+              scale is the primary and the distance is an optional refinement for divers who
+              estimate one. They carry two different labels because two rows both reading
+              "Visibility" would be unreadable in a column and identical to a screen reader —
+              the same pair of labels `DiveDetailScreen`'s `conditionsFields` uses, so one
+              subject reads the same way on both screens.
+
+              **`Visibility distance` was re-examined in M1h and kept**, which is worth
+              recording because it reads as clumsy and the clumsiness is the point. It is the
+              only wording available that survives being read ALONE: a row labelled `Distance`
+              means what it means only because a Visibility row happens to sit above it, which
+              is the same "half a phrase" objection that moved `partly` out of `WEATHER_VALUES`
+              this milestone, and a screen reader reaches this row without the one above it.
+              Nothing shorter is honest, and the label lives on two screens, so a change costs a
+              matched edit for a word that would still say less. `Weights`/`Weighting` is the
+              same pair one group down and reads no better. */}
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="visibility"
+            label="Visibility"
+            options={VISIBILITY_VALUES}
+            displayLabel={(option) => formatVisibility(option) ?? option}
+            scheme={scheme}
+          />
+          <ControlledTextField
+            control={control}
+            carryOver={carryOver}
+            name="visibilityM"
+            label="Visibility distance"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('depth', units)}
+          />
+          {/* The three 0–3 scales, as chips rather than as `0-3` text boxes (M1h, the owner:
+              "No one will write numbers there, we should provide chips to choose from"). The
+              vocabulary is `CONDITION_SCALE_VALUES` — one list for all three, since the levels
+              are one fact — and the words are display.ts's, since level 0 is *Flat* water but
+              *no* current.
+
+              **None of the three carries a mark, and neither does Visibility or Weather**
+              (M1i, the owner's call, §10). They did: counted arrows, counting bars, SF
+              Symbols' own skies, and they satisfied §0.6's no-legend test rather than waiving
+              it. Two measured costs took them out anyway — *Current* and *Surge* wrapped to a
+              second line because of them, and one bar beside *Visibility low* read as
+              punctuation. §9's shelf carries what replaces them: a set drawn for this app,
+              with `Entry`'s shore and boat as the standard it has to beat. This is not a row
+              waiting to be finished one glyph at a time. */}
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="waves"
+            label="Waves"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatWaves(level) ?? String(level)}
+            scheme={scheme}
+          />
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="current"
+            label="Current"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatCurrent(level) ?? String(level)}
+            scheme={scheme}
+          />
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="surge"
+            label="Surge"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatSurge(level) ?? String(level)}
+            scheme={scheme}
+          />
+        </FormGroup>
+
+        {/* §2.2's *Water & entry* (M1j, the owner's call): where you are, which *Conditions*
+            was answering by accident. All three are properties of the PLACE — §2.1 prefills
+            them from the site's own defaults and carries them from the previous dive — so
+            they are touched about once a trip and sit below the group a diver actually fills
+            on every dive.
+
+            There were two more rows under these until this milestone. `latitude` and
+            `longitude` came off the form entirely rather than moving here; the columns stay
+            and `OFF_FORM_FIELDS` says why. */}
+        <FormGroup {...groupProps('water')}>
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="entry"
+            label="Entry"
+            options={ENTRY_VALUES}
+            displayLabel={(option) => formatEntry(option) ?? option}
+            scheme={scheme}
+            // The only field on this form that passes one (§0.6: "*Shore* and *boat* pass
+            // trivially"; salt and fresh do not). `EntryIcon` owns which values
+            // actually have a symbol and draws nothing for the ones that do not, so this
+            // call site does not repeat that judgement.
+            icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
+          />
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="salinity"
+            label="Salinity"
+            options={SALINITY_VALUES}
+            displayLabel={(option) => formatSalinity(option) ?? option}
+            scheme={scheme}
+          />
+          <ControlledOptionField
+            control={control}
+            carryOver={carryOver}
+            name="waterBody"
+            label="Water body"
+            options={WATER_BODY_VALUES}
+            displayLabel={(option) => formatWaterBody(option) ?? option}
+            scheme={scheme}
+          />
         </FormGroup>
 
         <FormGroup {...groupProps('equipment')}>

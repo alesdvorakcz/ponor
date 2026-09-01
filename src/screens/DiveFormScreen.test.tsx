@@ -472,10 +472,11 @@ it('shows the core strip without opening anything', async () => {
 // right on its own.
 it('moved the five measurements into their groups rather than repeating them', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  // Every group open at once, so nothing can hide inside a collapsed one.
-  for (const group of ['Times & depth', 'Conditions', 'Gas & cylinders', 'Equipment', 'People', 'Notes & rating']) {
-    await openGroup(t, group);
-  }
+  // Every group open at once, so nothing can hide inside a collapsed one. Read off the layout
+  // rather than listed here, as every other "open them all" sweep in this file is: what this
+  // test is about is the five labels below, and a group added to the form has to be opened by
+  // it or a measurement could hide in the one group nobody listed.
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
   for (const label of ['Max depth', 'Duration', 'Time in', 'Start pressure', 'End pressure']) {
     expect(textIn(t).filter((s) => s === label)).toHaveLength(1);
   }
@@ -544,12 +545,57 @@ it('keeps a second group collapsed by default, not only the one the sample test 
   expect(textIn(t).join(' ')).toContain('Buddy');
 });
 
-it('names all six §2.2 groups', async () => {
+/**
+ * **§2.2's table, written out from the spec — the group titles in the order it lists them, and
+ * each group's rows in the order it lists those.**
+ *
+ * Deliberately not read off `FORM_GROUPS`, and that is the whole reason it exists. Until M1j the
+ * only order assertion on this screen compared the rendered headers against
+ * `FORM_GROUP_IDS.map(...)` — which is exactly as true of §2.2's order as of any other, because
+ * both sides move together when someone reorders the object literal and the JSX in one commit.
+ * §2.2 now makes a claim about order that carries meaning (*Gas & cylinders* sits above
+ * *Conditions* so a diver reaches the pressures without a tap; *Weather* leads *Conditions*
+ * because it is the first thing anyone notices), so the spec's own order needs a witness that
+ * does not read the code.
+ *
+ * Field PATHS rather than labels, so `FIELD_LABELS` above stays the one place a row's visible
+ * word is written down; the two assertions below map through it. `equipment` renders five
+ * accessory rows and its probe is the first of them, exactly as that table records.
+ */
+const SECTION_ORDER: readonly (readonly [string, readonly string[]])[] = [
+  ['Times & depth', ['maxDepthM', 'avgDepthM', 'durationMin', 'timeIn']],
+  [
+    'Gas & cylinders',
+    [
+      'tanks.0.material',
+      'tanks.0.sizeL',
+      'tanks.0.configuration',
+      'tanks.0.workingBar',
+      'tanks.0.o2Pct',
+      'tanks.0.hePct',
+      'tanks.0.startBar',
+      'tanks.0.endBar',
+    ],
+  ],
+  ['Conditions', ['weather', 'waterTempC', 'airTempC', 'visibility', 'visibilityM', 'waves', 'current', 'surge']],
+  ['Water & entry', ['entry', 'salinity', 'waterBody']],
+  ['Equipment', ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel']],
+  ['People', ['buddy', 'guide']],
+  ['Notes & rating', ['title', 'notes', 'rating']],
+];
+
+it('names §2.2’s seven groups, in the order §2.2 lists them', async () => {
+  // Read off the headers the screen announces, so this is the diver's own top-to-bottom order
+  // and not a list of the same seven words in some other arrangement. The sibling assertion
+  // below (`draws its groups in the order the layout declares`) ties that same order to
+  // `FORM_GROUP_IDS`, which is what the persisted memory and every rule sweep are keyed on —
+  // together they say the screen, the layout and the spec are one order rather than three.
   const t = await render(<DiveFormScreen mode="create" />);
-  const text = textIn(t).join(' ');
-  for (const group of ['Times & depth', 'Conditions', 'Gas & cylinders', 'Equipment', 'People', 'Notes & rating']) {
-    expect(text).toContain(group);
-  }
+  const headers = buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((label) => label.startsWith('Expand ') || label.startsWith('Collapse '))
+    .map((label) => label.replace(/^(Expand|Collapse) /, ''));
+  expect(headers).toEqual(SECTION_ORDER.map(([title]) => title));
 });
 
 // --- §2.2: groups remember themselves ---
@@ -648,8 +694,6 @@ const FIELD_LABELS: Record<string, string> = {
   entry: 'Entry',
   salinity: 'Salinity',
   waterBody: 'Water body',
-  latitude: 'Latitude',
-  longitude: 'Longitude',
   'tanks.0.material': 'Material',
   'tanks.0.sizeL': 'Size',
   'tanks.0.configuration': 'Configuration',
@@ -668,7 +712,7 @@ const FIELD_LABELS: Record<string, string> = {
   rating: 'Rating',
 };
 
-it('has a label for every field that has a row, and none for the three that do not', () => {
+it('has a label for every field that has a row, and none for the five that do not', () => {
   // Keeps the witness honest in the other direction: a field added to the schema and rendered
   // into a group has to get a probe here, or the sweep below would silently stop watching it.
   expect(Object.keys(FIELD_LABELS).sort()).toEqual(
@@ -701,6 +745,61 @@ it.each(FORM_GROUP_IDS)(
   },
 );
 
+it.each(SECTION_ORDER)(
+  'lays %s out in the order §2.2 lists its rows, read off the screen',
+  async (title, fields) => {
+    // The order half of `SECTION_ORDER`, and the half that has to come off the SCREEN to mean
+    // anything: `FORM_GROUPS[id].fields` does not drive rendering — the JSX below it is written
+    // out by hand — so an assertion about that array's order would pin a list nobody reads.
+    // "Weather leads Conditions" is a claim about what a diver sees, and this is where it lives.
+    //
+    // One group at a time, with the two default-open ones stubbed collapsed, so the sequence
+    // read back belongs to this group alone and the failure names one group's rows.
+    stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, title);
+
+    const expected = fields.map((field) => FIELD_LABELS[field]);
+    const wanted = new Set(expected);
+    expect(textIn(t).filter((shown) => wanted.has(shown))).toEqual(expected);
+  },
+);
+
+it('has a §2.2 section for every group the layout holds, naming the same fields', () => {
+  // The membership half, and what keeps the two tables from being two independent opinions:
+  // `SECTION_ORDER` is §2.2 written out, `FORM_GROUPS` is what the rules and the persisted
+  // memory are keyed on, and the sweep above only ever compares each against the screen one
+  // group at a time. A field moved between two groups in the layout and in the JSX together
+  // is invisible to every other assertion in this file — both sides agree, and the form is
+  // simply not the one §2.2 describes.
+  expect(SECTION_ORDER.map(([title, fields]) => [title, [...fields]])).toEqual(
+    FORM_GROUP_IDS.map((id) => [FORM_GROUPS[id].title, [...FORM_GROUPS[id].fields]]),
+  );
+});
+
+it('has no coordinate row at all, in any group — the columns stay, the two keypads do not', () => {
+  // §2.2, M1j: "The form has no latitude and longitude rows." That sentence is about the
+  // SCREEN, and none of the constants above can hold it — a `<ControlledTextField
+  // name="latitude">` put back into a group's JSX leaves `OFF_FORM_FIELDS` and `FIELD_LABELS`
+  // both untouched and every other test in this file green, which is precisely the "one value,
+  // two controls" shape M1h paid for twice.
+  //
+  // Synchronous and derived, because what it really asks is that the two paths are OFF the
+  // form; the screen half is the assertion below it.
+  expect([...OFF_FORM_FIELDS]).toEqual(expect.arrayContaining(['latitude', 'longitude']));
+});
+
+it('draws no Latitude or Longitude row with every group open', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  const shown = new Set(textIn(t));
+  expect(shown.has('Latitude')).toBe(false);
+  expect(shown.has('Longitude')).toBe(false);
+  // The control that stops this from passing over a form that rendered nothing at all: the row
+  // the coordinates used to sit under is really on screen.
+  expect(shown.has('Water body')).toBe(true);
+});
+
 // The pure rule, swept over every placed field: a value in a group's field opens THAT group and
 // no other.
 //
@@ -731,8 +830,6 @@ describe('defaultOpenGroups', () => {
     entry: 'shore',
     salinity: 'salt',
     waterBody: 'ocean',
-    latitude: 50.1,
-    longitude: 14.4,
     suit: 'wet',
     suitThicknessMm: 5,
     equipment: ['hood'],
@@ -856,19 +953,30 @@ function lastRemembered(): Record<string, boolean> | undefined {
   return mockSetOpenGroups.mock.calls.at(-1)?.[1] as Record<string, boolean> | undefined;
 }
 
-it.each([
+/** One recorded value per group, for the sweep below — named rather than inline so the
+ * completeness guard under it can compare the table against the layout. A group added to
+ * §2.2 without a row here would leave the wiring of its own `<FormGroup>` untested, which is
+ * the per-call-site hazard the sweep exists for. */
+const GROUP_VALUES: [FormGroupId, Partial<Dive>][] = [
   ['times', { avgDepthM: 12 }],
-  ['conditions', { waterTempC: 20 }],
   [
     'gas',
     {
       tanks: [{ material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232, o2Pct: 32, hePct: null, startBar: null, endBar: null }],
     },
   ],
+  ['conditions', { waterTempC: 20 }],
+  ['water', { entry: 'shore' }],
   ['equipment', { suit: 'wet' }],
   ['people', { buddy: 'Petr' }],
   ['notes', { notes: 'Arch at 30 m' }],
-] as [FormGroupId, Partial<Dive>][])('opens %s over a dive that has a value in it, and leaves the other five shut', async (id, recorded) => {
+] as [FormGroupId, Partial<Dive>][];
+
+it('has a recorded value for every group §2.2 declares', () => {
+  expect(GROUP_VALUES.map(([id]) => id)).toEqual([...FORM_GROUP_IDS]);
+});
+
+it.each(GROUP_VALUES)('opens %s over a dive that has a value in it, and leaves the other six shut', async (id, recorded) => {
   // §2.2's second half, asked of a dive the diver opened for editing — where "already has a
   // value in it" means the dive's own stored values. Driven per group because the wiring is per
   // call site: a `<FormGroup>` handed another group's entry would open the wrong one with every
@@ -876,7 +984,7 @@ it.each([
   //
   // The two groups that start open are stubbed collapsed, so what is measured here is the value
   // rule alone: with them left undecided, *Times & depth* and *Gas & cylinders* would be open on
-  // every row of this table and "the other five shut" would stop being a claim about anything.
+  // every row of this table and "the other six shut" would stop being a claim about anything.
   //
   // Written as a `Partial<Dive>` rather than through this file's `tank()`/`existing()` helpers
   // because `it.each`'s table is built while the module is still evaluating and those are
@@ -1258,8 +1366,10 @@ it('fills chips and the focused row with surface, and nothing else — least of 
   // tinted rather than filled — so that half of the sentence went with the chip.
   expect(fillsOn(t).length).toBeGreaterThan(0);
 
-  // Every `surface` before focus is a chip, and there are plenty of them: entry, salinity,
-  // water body, suit and the three yes/no controls are all open at this point.
+  // Every `surface` before focus is a chip, and there are plenty of them: weather, visibility,
+  // the three 0-3 scales, the suit and the weighting are all open at this point. (*Entry*,
+  // *salinity* and *water body* were on this list until M1j moved them to their own group,
+  // which this test does not open — the count only fell.)
   const atRest = nodesFilledWith(t, surface);
   expect(atRest.length).toBeGreaterThan(5);
   expect(atRest.filter((n) => !wears(n, styles.formChip))).toEqual([]);
@@ -1284,7 +1394,7 @@ it('fills chips and the focused row with surface, and nothing else — least of 
 // stopped being wired to the style array at all.
 it('inverts the chip a diver picked, and leaves the rest on surface', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Water & entry');
   const theme = themeFor('light');
   const styles = makeStyles('light');
 
@@ -1581,7 +1691,7 @@ describe('a value the form itself could not have produced, in a field that is no
     stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await openGroup(t, 'Conditions');
+    await openGroup(t, 'Water & entry');
 
     // The schema's own sentence (diveFormSchema.ts), not one written in the screen — and it
     // is there before anything is pressed, because the value is already on screen.
@@ -1638,7 +1748,7 @@ describe('a value the form itself could not have produced, in a field that is no
     stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await openGroup(t, 'Conditions');
+    await openGroup(t, 'Water & entry');
     expect(textIn(t).join(' ')).toContain('saved as it is');
 
     const boat = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Entry: Boat'));
@@ -1656,7 +1766,7 @@ describe('a value the form itself could not have produced, in a field that is no
     // boolean row: an ordinary dive shows none of it.
     stubLogbookFor(fromANewerClient({ entry: 'boat', equipment: ['hood'] }));
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await openGroup(t, 'Conditions');
+    await openGroup(t, 'Water & entry');
     await openGroup(t, 'Equipment');
     expect(textIn(t).join(' ')).not.toContain('saved as it is');
   });
@@ -2112,6 +2222,9 @@ it('writes a carried zero the diver left alone as the zero it is', async () => {
 it('clears a carried chip group from its label row, and a deselection does not', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', entry: 'shore', salinity: 'salt' })] });
   const t = await render(<DiveFormScreen mode="create" />);
+  // Two groups since M1j: the carried chip rows are in *Water & entry* and the fresh ones
+  // this test contrasts them with are in *Conditions*, which is the split §2.2 made.
+  await openGroup(t, 'Water & entry');
   await openGroup(t, 'Conditions');
 
   expect(findClearCarried(t, 'Entry')).toBeDefined();
@@ -2136,7 +2249,7 @@ it('writes a cleared chip group as null', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', entry: 'shore' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Water & entry');
   await pressClear(t, 'Entry');
 
   await pressSave(t);
@@ -2169,9 +2282,9 @@ it('writes a cleared chip group as null', async () => {
 const CARRIED_ROWS: Record<string, { label: string; group?: FormGroupId; cylinder?: true }> = {
   siteName: { label: 'Site' },
   centerName: { label: 'Centre' },
-  entry: { label: 'Entry', group: 'conditions' },
-  salinity: { label: 'Salinity', group: 'conditions' },
-  waterBody: { label: 'Water body', group: 'conditions' },
+  entry: { label: 'Entry', group: 'water' },
+  salinity: { label: 'Salinity', group: 'water' },
+  waterBody: { label: 'Water body', group: 'water' },
   'tanks.0.material': { label: 'Material', group: 'gas', cylinder: true },
   'tanks.0.sizeL': { label: 'Size', group: 'gas', cylinder: true },
   'tanks.0.configuration': { label: 'Configuration', group: 'gas', cylinder: true },
@@ -2770,9 +2883,9 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
   // live in the screen. The rule is the same: a fixed-choice field added to this form joins
   // this table on the same commit.
   it.each([
-    ['Entry', 'Conditions', ENTRY_VALUES],
-    ['Salinity', 'Conditions', SALINITY_VALUES],
-    ['Water body', 'Conditions', WATER_BODY_VALUES],
+    ['Entry', 'Water & entry', ENTRY_VALUES],
+    ['Salinity', 'Water & entry', SALINITY_VALUES],
+    ['Water body', 'Water & entry', WATER_BODY_VALUES],
     ['Visibility', 'Conditions', VISIBILITY_VALUES],
     ['Weather', 'Conditions', WEATHER_VALUES],
     // The three 0–3 scales, which M1h turned from `0-3` text boxes into chip rows. They share
@@ -2899,9 +3012,9 @@ function marksInside(node: TestNode | undefined) {
  *   control whose marks *are* the control.
  */
 const CHIP_MARKS: [string, string, number[]][] = [
-  ['Entry', 'Conditions', [1, 1, 0]],
-  ['Salinity', 'Conditions', [0, 0]],
-  ['Water body', 'Conditions', [0, 0, 0, 0, 0, 0]],
+  ['Entry', 'Water & entry', [1, 1, 0]],
+  ['Salinity', 'Water & entry', [0, 0]],
+  ['Water body', 'Water & entry', [0, 0, 0, 0, 0, 0]],
   ['Visibility', 'Conditions', [0, 0, 0]],
   ['Waves', 'Conditions', [0, 0, 0, 0]],
   ['Current', 'Conditions', [0, 0, 0, 0]],
@@ -2972,7 +3085,7 @@ it('has a marks row for every option control on the form, and none for a control
 // and what a screen reader is told, tell the two apart.
 it('keeps the word on an entry chip that has an icon, and announces it unchanged', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Water & entry');
   const shore = findChip(t, 'Entry', 0);
 
   expect(symbolsInside(shore)).toHaveLength(1);
@@ -2988,7 +3101,7 @@ it('keeps the word on an entry chip that has an icon, and announces it unchanged
 // diver picked, which is the state nobody tests by accident.
 it('inverts the entry icon along with the label it sits beside', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Water & entry');
   const theme = themeFor('light');
 
   expect(symbolsInside(findChip(t, 'Entry', 1))[0]?.props?.tintColor).toBe(theme.fg);
@@ -3059,9 +3172,9 @@ function writtenInput(call = 0): Record<string, unknown> {
 /** The table itself, named rather than inline, because a second sweep below is derived from
  * it — the one that taps the chip this one deliberately never taps. */
 const CHIP_WRITES = [
-  ['Entry', 'Conditions', 'entry', ENTRY_VALUES],
-  ['Salinity', 'Conditions', 'salinity', SALINITY_VALUES],
-  ['Water body', 'Conditions', 'waterBody', WATER_BODY_VALUES],
+  ['Entry', 'Water & entry', 'entry', ENTRY_VALUES],
+  ['Salinity', 'Water & entry', 'salinity', SALINITY_VALUES],
+  ['Water body', 'Water & entry', 'waterBody', WATER_BODY_VALUES],
   ['Visibility', 'Conditions', 'visibility', VISIBILITY_VALUES],
   ['Weather', 'Conditions', 'weather', WEATHER_VALUES],
   // M1h's three, joining on the commit that adds them — which is the rule this table's own
@@ -3438,7 +3551,7 @@ it('carries an option and an equipment token into an edit through the same two c
   stubLogbookFor(target);
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  await openGroup(t, 'Conditions');
+  await openGroup(t, 'Water & entry');
   await pressChip(t, 'Entry', 1);
   await openGroup(t, 'Equipment');
   await pressEquipmentToken(t, 'Gloves');

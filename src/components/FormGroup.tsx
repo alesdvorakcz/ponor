@@ -16,13 +16,13 @@ export interface FormGroupProps {
 }
 
 /**
- * One of §2.2's six collapsible groups — *Times & depth · Conditions · Gas & cylinders ·
- * Equipment · People · Notes & rating* — sitting below the form's always-visible core
- * strip.
+ * One of §2.2's seven collapsible groups — *Times & depth · Gas & cylinders · Conditions ·
+ * Water & entry · Equipment · People · Notes & rating*, in that order — sitting below the
+ * form's always-visible core strip.
  *
  * **It is controlled, and it used to own its own state.** The docblock here argued that owning
  * it was what kept `DiveFormScreen` from "having to hold an array of booleans just to render
- * six of these", which was true right up until §2.2 made a group's openness something the app
+ * seven of these", which was true right up until §2.2 made a group's openness something the app
  * REMEMBERS: the state is now read from a settings row, written back when the diver toggles
  * one, and combined with whether this dive has a value in the group at all. None of those three
  * inputs is visible from in here, and a component that held the state while the screen held the
