@@ -9,7 +9,7 @@
 // hoisted above every import regardless of where it sits textually.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
 import { createDive, updateDive } from '../db/dives';
@@ -1647,20 +1647,33 @@ it('creates one dive, not two, when Save is double-tapped while the write is in 
   // Deliberately not awaited: `fireEvent.press` only settles once the handler's whole
   // chain has, and this write is held open on purpose — awaiting here would rule out the
   // very overlap this test exists to create.
-  const first = fireEvent.press(findSaveControl(t)!);
-  // The second tap in the SAME frame, before React has re-rendered the control as disabled
-  // — which is what a double-tap actually is, and what leaves the re-entrancy latch as the
-  // only thing that can turn it away. Dispatched even a tick later and the `disabled` prop
-  // alone would swallow it, and this test would pass with the latch deleted.
-  tapSaveAgain(t);
-  await settle();
+  //
+  // Wrapped in `act` rather than left bare, which is a change of bookkeeping and not of what
+  // this test does: the press is still un-awaited and the overlap is still real, but the
+  // renders it schedules while the write hangs are now inside a scope React knows about. Bare,
+  // every one of them was reported as "an update ... was not wrapped in act(...)", and §2.2's
+  // eight-field core strip made that louder rather than introducing it — `timeIn` and the two
+  // pressures are permanently mounted `Controller`s now, where they used to sit inside a
+  // collapsed group, so each save notified three more subscribers from outside the scope.
+  let first!: Promise<unknown>;
+  await act(async () => {
+    first = fireEvent.press(findSaveControl(t)!) as unknown as Promise<unknown>;
+    // The second tap in the SAME frame, before React has re-rendered the control as disabled
+    // — which is what a double-tap actually is, and what leaves the re-entrancy latch as the
+    // only thing that can turn it away. Dispatched even a tick later and the `disabled` prop
+    // alone would swallow it, and this test would pass with the latch deleted.
+    tapSaveAgain(t);
+    await settle();
+  });
 
   // Recorded before the write is released, so this is genuinely "while in flight" and not
   // "after the latch had already let go".
   const writesInFlight = mockCreate.mock.calls.length;
 
-  releaseWrite();
-  await first;
+  await act(async () => {
+    releaseWrite();
+    await first;
+  });
 
   expect(writesInFlight).toBe(1);
   expect(mockCreate).toHaveBeenCalledTimes(1);
@@ -1694,11 +1707,19 @@ it('marks the save control disabled while a write is in flight, and only then', 
   // forwarding it to the host `View` these queries reach. Both are set on the control; a
   // control that silently ignores a tap it still announces as available is its own kind of
   // dead button, and this is the one of the two a test can actually see.
-  const press = fireEvent.press(findSaveControl(t)!);
+  // `act` for the same bookkeeping reason the double-tap test above records: the press is held
+  // open on purpose, and the renders it schedules meanwhile belong inside a scope.
+  let press!: Promise<unknown>;
+  await act(async () => {
+    press = fireEvent.press(findSaveControl(t)!) as unknown as Promise<unknown>;
+    await settle();
+  });
   await waitFor(() => expect(findSaveControl(t)?.props?.accessibilityState?.disabled).toBe(true));
 
-  releaseWrite();
-  await press;
+  await act(async () => {
+    releaseWrite();
+    await press;
+  });
   await waitFor(() => expect(findSaveControl(t)?.props?.accessibilityState?.disabled).not.toBe(true));
 });
 
