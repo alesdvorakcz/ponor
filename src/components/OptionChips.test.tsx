@@ -128,6 +128,39 @@ it('reads three different ways for never-carried, carried and cleared', async ()
   expect(clearOf(cleared)).toBeUndefined();
 });
 
+// **The marks, counted on the carried row and not only on the fresh one.** Deleting the return
+// mark from this component left the whole 1646-test suite green: the count above asked the
+// fresh row for zero and never asked the carried row for anything, which is precisely the
+// asymmetry this file's own comment three lines up warns about — "one that drew nothing passes
+// 'a fresh row shows none'". Six carried rows on the dive form could lose the sheet's mark with
+// nothing to say so. `FormField.test.tsx` had the strong version of this from the start; this
+// is it, mirrored.
+//
+// Two on a carried row, and the identity of each is asserted rather than the count alone: the
+// count is satisfied by two rings.
+it('draws the return mark and the ring on the carried row, and neither anywhere else', async () => {
+  const carried = await renderChips({ value: 'salt', carried: true, onClear: () => {} });
+  expect(marksIn(carried).map((n) => n.props.name)).toEqual(['return', 'xmark.circle']);
+
+  const cleared = await renderChips({ value: '', cleared: true });
+  expect(marksIn(cleared)).toHaveLength(0);
+
+  const fresh = await renderChips({ value: 'salt' });
+  expect(marksIn(fresh)).toHaveLength(0);
+});
+
+// The em dash is typography, and a screen reader unaided makes "dash cleared" of it. Defended
+// on `FormField` from the start and not here, so a diver on a cleared CHIP row heard exactly
+// the thing `CLEARED_ANNOUNCEMENT` exists to prevent — the same guarantee written once and not
+// mirrored.
+it('announces the tag as a word, not as punctuation', async () => {
+  const t = await renderChips({ value: '', cleared: true });
+  const tag = (t.root ? t.root.queryAll((n) => n.type === 'Text') : []).find(
+    (n) => String(n.children[0] ?? '') === '— cleared',
+  );
+  expect(tag?.props?.accessibilityLabel).toBe('cleared');
+});
+
 // §0.6/the sheet: the clear belongs to the FIELD, on its label row, and there is one of it —
 // not one per chip. A control attached to a chip would be a second thing that chip's own press
 // already does, and a mark on the selected chip would read as a fact about that option rather

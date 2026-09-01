@@ -1735,11 +1735,28 @@ it('marks a carried suit thickness, and drops the mark the moment the diver type
  * of it. */
 const CLEARED_ROW = '— cleared';
 
-/** How many rows are currently saying they were cleared. A count rather than a `toContain`,
- * because the failure this section exists to prevent is a tag on the WRONG number of rows —
- * on every empty one, or on none. */
+/**
+ * **Which rows are saying they were cleared, by label.** Not a count: a count answers "how
+ * many tags are on screen" and the failure this section exists to prevent is a tag on the
+ * WRONG row, which a count cannot see at all. Reading the label back off the row the tag is
+ * actually inside is what makes these tests about placement rather than about arithmetic.
+ *
+ * Every field on this form is one `formField` (§0.6's "a field is a row, not a box"), so the
+ * row is the unit, and its first `Text` child is its label — the same structure `FormField`,
+ * `OptionChips` and `DateTimeField` all share.
+ */
+function clearedRowLabels(t: RenderResult): string[] {
+  const styles = makeStyles('light');
+  const rows = t.root ? t.root.queryAll((n) => wears(n, styles.formField)) : [];
+  return rows
+    .filter((row) => row.queryAll((n) => n.type === 'Text').some((n) => String(n.children[0] ?? '') === CLEARED_ROW))
+    .map((row) => String(row.queryAll((n) => n.type === 'Text')[0]?.children[0] ?? ''));
+}
+
+/** How many rows are saying it — read off the placement above, so the two can never disagree
+ * about what "one cleared row" means. */
 function clearedRows(t: RenderResult): number {
-  return textIn(t).filter((s) => s === CLEARED_ROW).length;
+  return clearedRowLabels(t).length;
 }
 
 /** Presses one field's clear control, by the label `FormField`/`OptionChips` give it. */
@@ -1762,9 +1779,10 @@ it('reads three different ways: never carried, carried, and cleared', async () =
 
   await pressClear(t, 'Buddy');
 
-  // The third state: the row says so, the mark and its control are gone, and the value with
-  // them.
-  expect(clearedRows(t)).toBe(1);
+  // The third state: the row says so — and it is BUDDY's row that says it, which is the half a
+  // count cannot see. A tag drawn on the wrong row, or on every empty row, reads as three
+  // states and is not.
+  expect(clearedRowLabels(t)).toEqual(['Buddy']);
   expect(findClearCarried(t, 'Buddy')).toBeUndefined();
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
   // ...and Guide, which was never carried, is still saying nothing at all — which is what
@@ -2065,6 +2083,41 @@ it.each(Object.entries(CARRIED_ROWS))(
   },
 );
 
+// **Both halves of the treatment, on every carried row at once** — the assertion the per-field
+// sweep above structurally cannot make.
+//
+// That sweep asks `findClearCarried`, which finds the RING. Deleting the return mark from
+// `OptionChips` therefore left the whole 1646-test suite green: six carried chip rows lost the
+// sheet's mark and every test still passed, because no test on this screen ever counted a mark
+// that was not inside a chip. `CHIP_MARKS` above counts marks inside chips; this counts the
+// ones beside labels.
+//
+// Read off `formFieldCarryState`, the one slot both components put the pair in, so the count is
+// per ROW rather than per screen: a form drawing thirty-two marks in sixteen slots and a form
+// drawing them all in one are the same number and not the same form.
+it('gives every carried row both halves of the treatment, and nothing a fresh row', async () => {
+  stubDives({ dives: [FULLY_CARRIED()] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  await openCylinder(t);
+
+  const styles = makeStyles('light');
+  const slots = t.root ? t.root.queryAll((n) => wears(n, styles.formFieldCarryState)) : [];
+  // Exactly the rows `CARRIED_ROWS` names — which is itself checked against `CARRIED_FIELDS`
+  // above, so this is the §2.1 rule arriving on screen rather than a number typed twice.
+  expect(slots).toHaveLength(Object.keys(CARRIED_ROWS).length);
+  for (const slot of slots) {
+    expect(symbolsInside(slot).map((n) => n.props.name)).toEqual(['return', 'xmark.circle']);
+  }
+
+  // The control: a previous dive that recorded nothing draws no slot at all, so "both halves
+  // everywhere" cannot be satisfied by drawing them unconditionally.
+  stubDives({ dives: [dive({ date: '2026-08-10' })] });
+  const fresh = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(fresh, FORM_GROUPS[id].title);
+  expect(fresh.root ? fresh.root.queryAll((n) => wears(n, styles.formFieldCarryState)) : []).toHaveLength(0);
+});
+
 // --- The header line that names the mark ---
 //
 // §0.6's carried caption: `↵ Carried from #127 — clear any of them`. It is the mark's legend,
@@ -2082,6 +2135,30 @@ it('names the dive its carried values came from, by number', async () => {
   stubDives({ dives: [previous], numbers: new Map([[previous.id, 127]]) });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(captionIn(t)).toBe('Carried from #127 — clear any of them');
+});
+
+// **The caption draws the mark it names.** Deleting `<CarriedMark size={12} />` from that row
+// left the whole suite green, because `captionIn()` matches on the sentence alone — and the
+// mark is the load-bearing half of the line's whole justification: §0.6's standing test is that
+// a symbol needing a legend has already failed, and this caption is what keeps a bare `↵` from
+// being that symbol. A legend that has silently lost the symbol it names is a sentence about
+// nothing.
+//
+// The size is asserted too, and it is not decoration: 12 against the row's mono 11 is the same
+// "a shade larger than the text beside it" relationship the mark has at 16 beside a 15 px
+// label, and a caption drawing the field-row size would put the loudest object on the form in
+// its quietest line.
+it('draws the mark its own sentence names, at the size that line takes', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const styles = makeStyles('light');
+  const note = (t.root ? t.root.queryAll((n) => wears(n, styles.formCarriedNote)) : [])[0];
+  if (!note) throw new Error('no carried caption found');
+
+  const marks = symbolsInside(note);
+  expect(marks).toHaveLength(1);
+  expect(marks[0]?.props.name).toBe('return');
+  expect(marks[0]?.props.size).toBe(12);
 });
 
 it('names the dive some other way rather than saying #undefined', async () => {

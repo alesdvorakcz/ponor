@@ -177,6 +177,17 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
             // `timeIn` is fresh every dive (§2.1), so nothing on this row was ever inherited
             // — this control unsets an optional field, where `FormField`'s throws away a
             // value the previous dive supplied. Same control, two true sentences.
+            //
+            // **One ring, two appearance rules and two outcomes, and the second half is the
+            // one a diver sees.** Here it is drawn whenever the field HOLDS something and
+            // leaves nothing behind; on a carried row it is drawn only while the value is
+            // still the previous dive's, and leaves `— cleared`. Both follow from the same
+            // sentence rather than from two policies: the tag says *you threw away something
+            // you inherited*, and there is nothing on this row to inherit — a `timeIn` a
+            // diver never entered and one they unset are the same absence, where a carried
+            // buddy discarded and a buddy never carried are not. The control is shared
+            // because emptying a row is one gesture; the treatment around it belongs to
+            // carry-over, and this row has none.
             accessibilityLabel={`Clear ${label}`}
             scheme={scheme}
           />

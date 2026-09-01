@@ -1909,6 +1909,32 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       color: theme.fgMuted,
     },
+    // **A row's trailing state slot: the return mark and the control that clears it, as one
+    // object** (M1h, the owner's ruling after the first build).
+    //
+    // The mark started at the LEADING edge of the value slot, which is where the design sheet
+    // draws it and where the detail screen's computed `=` sits. On a device that is not what it
+    // does: a field's value is right-aligned in a `flex: 1` slot, so the mark landed against the
+    // LABEL, twelve points from a word it does not describe and ~240 from the value it does —
+    // and because labels differ in length it landed at a different x on every row (`Site` at
+    // ~65, `Centre` at ~84, `O₂` at ~58). A column of marks that is not a column reads as an
+    // artefact rather than as a deliberate mark, which is the same failure §10 records for the
+    // outlined square that used to mean "computed".
+    //
+    // Trailing, the two halves of one subject sit together, land on the same x on every row
+    // because this slot is the last thing in a `space-between` row, and give a diver one place
+    // to look per row. **It is also the one placement that serves both components**: a chip
+    // group's options live on the row below, so it has no value to lead and always drew its
+    // mark here — one rule for the whole form rather than two placements of one mark (§4.1
+    // applied to a visual rule).
+    //
+    // No `gap`: `clearFieldControl` below is a 48 dp box around a 20 pt glyph, so it brings 14
+    // dp of its own padding to this join, and an explicit gap would draw the two halves apart
+    // into two objects again.
+    formFieldCarryState: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
     // **The control that empties a form row: a 20 pt drawn ring inside a real 48 dp box**
     // (§0.5's floor, and the owner's sheet in as many words — "a 20 px ring in a 48 dp box").
     // Shared by `FormField`'s carried clear and `DateTimeField`'s optional-picker clear,

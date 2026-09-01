@@ -146,25 +146,32 @@ export function OptionChips<T extends string | number>({ label, value, options, 
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
-        {/* Absent entirely for a field that carried nothing, so every chip row on this form
-            that §2.1 marks fresh renders exactly the tree it rendered before this existed —
-            label row, chip row, nothing between them. */}
-        {(carried === true || showCleared) && (
+        {/* The tag stands in `formFieldValue`, the same slot a text row puts it in — this row's
+            options live on the line below, so the slot is free and the two components say the
+            third state in the same place. Absent entirely for a field that carried nothing, so
+            every chip row §2.1 marks fresh renders exactly the tree it rendered before this
+            existed: label row, chip row, nothing between them. */}
+        {showCleared && (
           <View style={styles.formFieldValue}>
-            {carried === true && <CarriedMark scheme={scheme} />}
-            {showCleared && (
-              <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
-                {CLEARED_TAG}
-              </Text>
-            )}
+            <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
+              {CLEARED_TAG}
+            </Text>
           </View>
         )}
+        {/* And the mark and its ring as one object at the row's trailing edge —
+            `formFieldCarryState`, byte for byte the arrangement `FormField` draws, because it
+            is one treatment and not two. This is the placement that made the owner's ruling:
+            a chip group has no value to lead, so it always drew its mark here, and moving the
+            text rows to match gave the form one rule instead of two. */}
         {carried === true && (
-          <ClearFieldControl
-            accessibilityLabel={`Clear carried ${label}`}
-            onPress={() => onClear?.()}
-            scheme={scheme}
-          />
+          <View style={styles.formFieldCarryState}>
+            <CarriedMark scheme={scheme} />
+            <ClearFieldControl
+              accessibilityLabel={`Clear carried ${label}`}
+              onPress={() => onClear?.()}
+              scheme={scheme}
+            />
+          </View>
         )}
       </View>
       <View style={styles.formChipRow}>

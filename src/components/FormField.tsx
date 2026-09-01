@@ -70,8 +70,9 @@ export interface FormFieldProps {
    */
   unit?: string;
   /**
-   * DESIGN.md §0.6: a prefilled field shows a drawn return mark leading its value, and a
-   * clear control at the row's trailing edge. Owned entirely by the caller
+   * DESIGN.md §0.6: a prefilled field shows a drawn return mark and a clear control, together
+   * at the row's trailing edge (the owner's ruling — see `formFieldCarryState`, theme/styles.ts,
+   * for what the sheet's own placement did on a device). Owned entirely by the caller
    * (`DiveFormScreen.tsx` derives it from `CARRIED_FIELDS`, M1d task 3) — this component has
    * no opinion on WHY a value is carried, only on how to show that it is. There is no
    * internal "was this edited" state here either: a caller drops the mark by simply rendering
@@ -240,47 +241,61 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
     />
   );
 
+  // The third state (§0.6, M1h), hoisted so it can reach BOTH shapes of row. It stands where
+  // the value would be — a row the diver emptied on purpose has to read differently from one
+  // carry-over never filled, which is the entire point of the state and the thing this form
+  // knew and never showed.
+  const clearedTag = showCleared ? (
+    <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
+      {CLEARED_TAG}
+    </Text>
+  ) : null;
+
   return (
     <View style={[styles.formField, focused && styles.formFieldFocused]}>
       <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
-        {!stacked && (
+        {!stacked ? (
           <View style={styles.formFieldValue}>
-            {/* §0.6's return mark, **leading the value** — the same slot, and the same
-                relationship, as the muted `=` the detail screen puts before a computed value.
-                It sits at the leading edge of the value column rather than hard against the
-                text, because the input keeps its `flex: 1`: that flex is what makes the whole
-                trailing half of the row a live target for focusing the field (§0.5, and
-                `formFieldInput`'s own note), and a mark that shrank the input to its text
-                would buy adjacency with a tap target. */}
-            {carried === true && <CarriedMark scheme={scheme} />}
             {input}
             {/* The muted suffix (§0.6), drawn only while there is a figure for it to follow:
                 an empty field is already showing this same word as its placeholder, and both
                 at once would read as "m m". */}
             {unit !== undefined && value !== '' && <Text style={styles.formFieldUnit}>{unit}</Text>}
-            {/* The third state (§0.6, M1h). It stands where the value would be, so a row the
-                diver emptied on purpose reads differently from one carry-over never filled —
-                which is the entire point of the state, and the thing this form knew and never
-                showed. */}
-            {showCleared && (
-              <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
-                {CLEARED_TAG}
-              </Text>
-            )}
+            {clearedTag}
           </View>
+        ) : (
+          // **A stacked row keeps the tag, and that is a correction rather than symmetry for
+          // its own sake.** Its box drops to the full width below, so it has no trailing value
+          // slot of its own — and a version of this that simply skipped the tag drew a carried
+          // multiline row with a ring, no mark and no way to say it had been cleared. That was
+          // unreachable only because §2.1 happens to mark `notes` fresh; the screen hands every
+          // row the same `carryOver` prop, so "unreachable" there is one line of
+          // `CARRIED_FIELDS` away from being wrong, and a row given part of the treatment must
+          // not fail quietly.
+          clearedTag !== null && <View style={styles.formFieldValue}>{clearedTag}</View>
         )}
-        {/* The clear control, at the row's trailing edge: a 20 pt ring in a real 48 dp box.
-            Only ever on a carried row — clearing is what a diver does to a value they did not
-            enter, and a control offering to empty a field they typed themselves would be
-            offering to destroy their own work. It goes with the mark in the same gesture, so
-            a cleared row has neither. */}
+        {/* §0.6's carried treatment, as one object at the row's trailing edge: the return mark
+            and the 20 pt ring in its 48 dp box.
+            
+            **Together, on the owner's ruling** — the mark began at the leading edge of the
+            value slot, where the sheet draws it, and on a device landed against the label
+            rather than the value and at a different x on every row. `formFieldCarryState`
+            (theme/styles.ts) carries the whole account.
+
+            Only ever on a carried row: clearing is what a diver does to a value they did not
+            enter, and a control offering to empty one they typed themselves would be offering
+            to destroy their own work. Both halves go in the same gesture, so a cleared row has
+            neither and shows the tag instead. */}
         {carried === true && (
-          <ClearFieldControl
-            accessibilityLabel={`Clear carried ${label}`}
-            onPress={() => onClear?.('')}
-            scheme={scheme}
-          />
+          <View style={styles.formFieldCarryState}>
+            <CarriedMark scheme={scheme} />
+            <ClearFieldControl
+              accessibilityLabel={`Clear carried ${label}`}
+              onPress={() => onClear?.('')}
+              scheme={scheme}
+            />
+          </View>
         )}
       </View>
       {stacked && input}

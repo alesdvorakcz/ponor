@@ -121,12 +121,21 @@ it('draws nothing outside its own treatment when a chip is showing either (§0.4
 // searching only inside the first one — and a test written that way would report the right
 // number and be checking one field of the two.
 
-/** Every drawn mark in the tree, of either kind this component now uses — the return mark and
+/** That same test-renderer instance type, named so a helper can take one — `RenderResult['root']`
+ * is nullable and every query here guards it before handing it on. */
+type TestNode = NonNullable<RenderResult['root']>;
+
+/** Every drawn mark under one node, of either kind this component uses — the return mark and
  * the clear control's ring. Matched on the host node a real `SymbolView` renders down to, the
  * same `SymbolModule` match `EntryIcon.test.tsx` and `SearchCapsule.test.tsx` use, so a drawn
- * approximation or a typed glyph standing in for either would not answer to it. */
-function marksIn(t: RenderResult) {
-  return t.root ? t.root.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
+ * approximation or a typed glyph standing in for either would not answer to it.
+ *
+ * Takes a NODE rather than the whole render, because the placement test below asks which
+ * container each mark is in and a whole-tree count cannot tell a mark in the value slot from
+ * one in the trailing state slot — which is the entire subject of the owner's ruling. */
+function marksIn(node: TestNode | RenderResult | undefined) {
+  const root = node === undefined ? undefined : 'root' in node ? (node.root ?? undefined) : node;
+  return root ? root.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
 }
 
 it('reads three different ways for never-carried, carried and cleared', async () => {
@@ -172,23 +181,65 @@ it('draws the return mark and the ring on the carried row alone', async () => {
   expect(marksIn(plain)).toHaveLength(0);
 });
 
-// §0.6: the mark **leads the value**, so it is inside the value slot and ahead of the input
-// rather than floating somewhere in the row. Read off the tree's order rather than off a
-// style, because "leading" is a fact about position and nothing about `carriedMarkInk` could
-// tell a mark before the value from one after it.
-it('puts the return mark ahead of the value, in the value slot', async () => {
+// §0.6 as the owner ruled it after the first build: **the mark and the ring are one object at
+// the row's trailing edge**, not a mark leading the value and a control at the far end.
+//
+// Read off the tree's structure rather than off a style, because that is what the ruling is
+// about: the sheet's own placement (mark first inside the value slot) was legal, drawn, muted
+// and tested — and on a device put the mark against the LABEL at a different x on every row.
+// What this pins is the arrangement that fixed it: both halves inside one container, the mark
+// first, and that container after the value rather than inside it.
+it('draws the mark and the ring as one object after the value, mark first', async () => {
   const t = await render(
     <FormField label="Site" value="Blue Hole" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
   );
   const styles = makeStyles('light');
+
   const slot = t.root?.queryAll((n) => stylesOn(n).includes(styles.formFieldValue))[0];
   if (!slot) throw new Error('no value slot found');
-  const inSlot = slot.queryAll(
-    (n) => n.type === 'TextInput' || (typeof n.type === 'string' && n.type.includes('SymbolModule')),
+  // Nothing drawn in the value slot but the value itself — the mark used to live here.
+  expect(marksIn(slot)).toHaveLength(0);
+
+  const state = t.root?.queryAll((n) => stylesOn(n).includes(styles.formFieldCarryState))[0];
+  if (!state) throw new Error('no carry-state slot found');
+  // Both halves in it, and the mark first: the ring is the half a diver acts on, so it takes
+  // the trailing position where every other control on this form sits.
+  expect(marksIn(state)).toHaveLength(2);
+  expect(state.queryAll((n) => n.props?.accessibilityRole === 'button')).toHaveLength(1);
+  expect(marksIn(state)[0]?.props.name).toBe('return');
+  expect(marksIn(state)[1]?.props.name).toBe('xmark.circle');
+
+  // ...and it comes after the value in the row, which is what makes it trailing rather than
+  // merely grouped. Compared as tree order inside the row both share.
+  const row = t.root?.queryAll((n) => stylesOn(n).includes(styles.formFieldRow))[0];
+  if (!row) throw new Error('no field row found');
+  const order = row.queryAll(
+    (n) => stylesOn(n).includes(styles.formFieldValue) || stylesOn(n).includes(styles.formFieldCarryState),
   );
-  expect(inSlot).toHaveLength(2);
-  expect(typeof inSlot[0]?.type === 'string' && inSlot[0].type.includes('SymbolModule')).toBe(true);
-  expect(inSlot[1]?.type).toBe('TextInput');
+  expect(stylesOn(order[0]).includes(styles.formFieldValue)).toBe(true);
+  expect(stylesOn(order[1]).includes(styles.formFieldCarryState)).toBe(true);
+});
+
+// **A stacked row keeps the treatment too**, which is the half that used to fall through the
+// `!stacked` guard: the mark and the ring were outside it and the tag inside, so a carried
+// multiline row drew a ring with no mark and no way to say it had been cleared.
+//
+// Unreachable through the screen today — §2.1 marks `notes`, its only multiline field, fresh —
+// but the screen hands every row the same `carryOver` prop, so that is one line of
+// `CARRIED_FIELDS` away from being wrong, and §5.3's whole argument for bundling those props
+// is that a row given part of the treatment fails loudly. This is the component asked
+// directly, which is where the question can actually be put.
+it('gives a stacked row the whole treatment, not the half that fits', async () => {
+  const carried = await render(
+    <FormField label="Notes" value="Vis dropped after 20 m" multiline carried onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  expect(findClearCarried(carried, 'Notes')).toBeDefined();
+  expect(marksIn(carried)).toHaveLength(2);
+
+  const cleared = await render(
+    <FormField label="Notes" value="" multiline cleared onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  expect(textIn(cleared)).toContain('— cleared');
 });
 
 // The tag is a claim about what the row HOLDS, and the row is the only thing that can check
