@@ -12,9 +12,10 @@ import { TripHeader } from '../components/TripHeader';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { logbookStats } from '../domain/logbookStats';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
-import { diveSiteLabel, formatDiveCount } from '../format/display';
+import { diveSiteLabel, formatDiveCount, formatLogbookSummary } from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
@@ -319,22 +320,48 @@ export default function DivesScreen() {
   const root = [styles.screen, { paddingTop: screenTopInset(insets.top) }];
 
   /**
-   * The large title, and on the list branch it is handed to the SectionList as its
-   * `ListHeaderComponent` — content, not chrome, which is what makes it scroll away.
+   * The large title on its own — what a screen with nothing to say about its logbook draws.
    *
-   * An ELEMENT rather than a `() => JSX` component: `ListHeaderComponent` treats a function
-   * as a component type, and an inline arrow is a new type on every render, which remounts
-   * the header each time. As an element it simply re-renders, like any other child.
-   *
-   * The three branches with no list (a failed read, a read that has not answered, an empty
-   * logbook) render this same element directly under the root's inset. There is nothing to
-   * scroll there, so "in the scroll content" has no meaning; what matters is that the screen
-   * names itself in the same words, the same treatment and the same place in all four states.
-   * It lands in the same place by construction now rather than by a bar reserving the height:
-   * it is the first child of the root on three branches and the first content of the list on
-   * the fourth, and the list's content has no top padding (`listContent`).
+   * Every branch below begins with this, either directly (a failed read, a read that has not
+   * answered) or inside `heading` (the empty logbook, and the list, where `heading` is handed
+   * to the SectionList as its `ListHeaderComponent` — content, not chrome, which is what makes
+   * it scroll away). What matters is that the screen names itself in the same words, the same
+   * treatment and the same place in all four states. It lands in the same place by
+   * construction rather than by a bar reserving the height: it is the first child of the root
+   * on three branches and the first content of the list on the fourth, and the list's content
+   * has no top padding (`listContent`).
    */
   const title = <Text style={styles.divesTitle}>Dives</Text>;
+
+  /**
+   * **The title with §3's three figures under it** (§0.6, M1l — the owner's sheet): `128 dives
+   * · 96 h 12 min · deepest 41.2 m`, in muted mono, summarising the logbook the screen is
+   * about to draw.
+   *
+   * **Neither the numbers nor the words are decided here.** `logbookStats`
+   * (domain/logbookStats.ts) owns the three figures — including that a planned dive is
+   * excluded from all of them (§2.4) and that the count is this logbook's, never
+   * `dives_before` — and `formatLogbookSummary` (format/display.ts) owns the sentence and the
+   * diver's units. M3's Stats screen renders the same three numbers and imports the same
+   * function; a `useMemo` here would be the second computation §4.1's table exists to name.
+   *
+   * **Only the branches that have an answer render it.** The failed read and the not-yet-read
+   * branches below get `title` alone: `logbookStats([])` reads "0 dives", which is a statement
+   * about a logbook neither of those screens has managed to look at (§10 — "a screen with no
+   * answer must not state one"). On the empty branch it is exactly the "0 dives" M1h put
+   * there, produced by the one formatter instead of by a second call site.
+   *
+   * An ELEMENT rather than a `() => JSX` component, which is what the list branch requires:
+   * `ListHeaderComponent` treats a function as a component TYPE, and an inline arrow is a new
+   * type on every render, which remounts the header each time. As an element it simply
+   * re-renders, like any other child.
+   */
+  const heading = (
+    <>
+      {title}
+      <Text style={styles.divesSummary}>{formatLogbookSummary(logbookStats(dives), units)}</Text>
+    </>
+  );
 
   if (error) {
     return (
@@ -375,23 +402,22 @@ export default function DivesScreen() {
     );
   }
 
+  // **"0 dives" is what makes this branch distinguishable from the one above it** (M1h, the
+  // owner's design), and it arrives through `heading` now (M1l) rather than through a
+  // `formatDiveCount` call of its own. The waiting branch draws the title and nothing else,
+  // deliberately — §10's "a screen with no answer must not state one" — and until M1h the empty
+  // branch's only extra was a sentence at the bottom of the screen, a whole thumb's reach from
+  // the title it belongs to. The line says, right under the heading, that the logbook HAS been
+  // read and holds nothing.
+  //
+  // The summary formatter produces exactly "0 dives" here without this branch asking it to: an
+  // empty logbook has no duration and no depth behind it, and a figure with nothing behind it
+  // is omitted (`formatLogbookSummary`). So the one owner covers both branches and there is no
+  // second sentence to keep in step with this condition.
   if (dives.length === 0) {
     return (
       <View style={root}>
-        {title}
-        {/* **"0 dives" is what makes this branch distinguishable from the one above it**
-            (M1h, the owner's design). The waiting branch draws the title and nothing else,
-            deliberately — §10's "a screen with no answer must not state one" —
-            and until now the empty branch's only extra was a sentence at the bottom of the
-            screen, a whole thumb's reach from the title it belongs to. The count says, right
-            under the heading, that the logbook HAS been read and holds nothing.
-
-            `formatDiveCount(dives.length)` rather than the literal "0 dives": this branch is
-            entered on `dives.length === 0`, so the two cannot disagree — but a hard-coded
-            count is a sentence that stays true only for as long as the condition above it is
-            not edited, and the words themselves belong to `format/display.ts` in any case
-            (§4.1), which is where "Up next" and the day strip already get theirs. */}
-        <Text style={styles.divesCount}>{formatDiveCount(dives.length)}</Text>
+        {heading}
         <EmptyState scheme={scheme} system={units} onPress={logDive} />
       </View>
     );
@@ -567,6 +593,14 @@ export default function DivesScreen() {
         {sections.length === 0 ? (
           // No list to put the title in, so it is a block here, exactly as on the two branches
           // above that return early.
+          //
+          // **`title`, not `heading`, and that is the rule rather than an omission**: the
+          // summary describes the whole logbook, and what is beneath it here is a filtered
+          // subset of it. A count of every dive over a list of the ones that matched would be
+          // the two-populations-in-one-line defect `LogbookStats.dives` records, arriving
+          // through the other door. (A logbook with dives always yields at least one section,
+          // so this branch is unreachable today — see the "No dives match your search" message
+          // it was written for, from when search filtered this screen's own list.)
           <>
             {title}
             <View style={styles.centerFill}>
@@ -606,9 +640,10 @@ export default function DivesScreen() {
             // sections, grouping and section headers, and stickiness was one line of that
             // reasoning rather than all of it.
             stickySectionHeadersEnabled={false}
-            // The large title, as CONTENT — the whole of the native arrangement (`title`
-            // above). It scrolls away with the logbook, and nothing sticks in its place.
-            ListHeaderComponent={title}
+            // The large title and the summary line under it, as CONTENT — the whole of the
+            // native arrangement (`heading` above). It scrolls away with the logbook, and
+            // nothing sticks in its place.
+            ListHeaderComponent={heading}
             // **The last row's clearance is the device's, not a number** (M1h) —
             // `screenBottomInset(insets.bottom)`, the same owner the empty state below asks and
             // the bottom-edge sibling of the `screenTopInset` this screen's root spends above.

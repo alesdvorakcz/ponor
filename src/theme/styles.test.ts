@@ -409,6 +409,31 @@ describe('the Dives screen floating capsule', () => {
     expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
   });
+
+  // **The capsule reaches past the title, and the summary line under it has to start below
+  // where it reaches** (M1l). The float is 48 pt tall at `top: 0` of the region the title
+  // heads; the title's own block is about 36, so without this the second line of the heading
+  // is laid out straight under the glass. It does not LOOK broken at eight dives — measured on
+  // the device, the line ends 10 pt short of the capsule's leading edge — and it starts hiding
+  // figures at three-digit dive counts, or in Czech (§0.5: 20–30 % longer), which is a defect
+  // that arrives with the diver's hundredth dive and with nobody's edit.
+  //
+  // A relation, not a number: the reserve is *the capsule's own height*, so changing one moves
+  // the other. Both the height and the offset are read off the sheet, since a float starting
+  // lower would need a taller reserve for the same reason.
+  it('keeps the title at least as tall as the capsule that floats beside it', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const capsuleBottom =
+        (sheet.divesCapsuleFloat?.top as number) + (sheet.actionCapsulePlain?.height as number);
+      expect(typeof capsuleBottom).toBe('number');
+      expect(capsuleBottom).toBeGreaterThan(0);
+      expect(sheet.divesTitle?.minHeight).toBeGreaterThanOrEqual(capsuleBottom);
+      // The glass capsule is the same object on a device that has Liquid Glass, so it may not
+      // be the taller of the two either.
+      expect(sheet.actionCapsuleGlass?.height).toBe(sheet.actionCapsulePlain?.height);
+    }
+  });
 });
 
 // **The sheet holds no depth colour, anywhere** (DESIGN.md §4.1: "`theme/depth.ts` is the only
@@ -462,6 +487,68 @@ describe('the first-run mark', () => {
       expect(typeof mark.opacity).toBe('number');
       expect(mark.opacity as number).toBeGreaterThan(0);
       expect(mark.opacity as number).toBeLessThan(1);
+    }
+  });
+
+  // **The mark gets more air beneath it than the block's own rhythm gives** (M1l, the owner:
+  // *"the icon/logo should have a bit higher bottom padding"*). Every seam in the first-run
+  // block is `emptyStateContent`'s one `gap`; under a 120 pt graphic that read as the mark
+  // being the first item of the list it heads rather than the thing the page opens with.
+  //
+  // **Two halves, and the second one is what a first draft of this test missed.** Deleting the
+  // mark's `marginBottom` is the obvious way to lose this; raising the container's `gap` to 32
+  // is the *plausible* way, and it passed the version of this test that only asked whether the
+  // mark's seam was bigger than the rhythm — because that mutation grows both. It answers a
+  // different request: the legend drifts from the caption that explains it and the label from
+  // the mark it names, to fix one seam.
+  //
+  // So the block's rhythm is bounded as well as compared against. A band rather than the exact
+  // 16, because the number is a spacing judgement and the RULE is that the block runs on a text
+  // rhythm with the graphic's clearance as its one exception — 32 pt between two lines of
+  // caption is not a rhythm, it is this property having been used to do the mark's job.
+  it('gives the mark more clearance beneath it than the block gives its other seams', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const gap = sheet.emptyStateContent?.gap;
+      expect(typeof gap).toBe('number');
+      const extra = sheet.emptyStateMark?.marginBottom ?? 0;
+      expect(typeof extra).toBe('number');
+      // The mark's seam is meaningfully the wider one, not wider by a point.
+      expect((extra as number) + (gap as number)).toBeGreaterThan((gap as number) * 1.4);
+      // ...and every other seam is still a seam between two lines of type.
+      expect(gap as number).toBeLessThanOrEqual(20);
+    }
+  });
+
+  // **The prose has a measure** (M1l, the owner: *"the text lines should not go for full
+  // width"*). The first-run screen is the only place in Ponor that sets running prose, and both
+  // of its blocks — §1's promise and the two-line reason under the legend — ran the whole
+  // column.
+  //
+  // Three claims, and the middle one is the one a lazy fix passes: a `maxWidth` that exists,
+  // that actually constrains on the phone the owner is looking at, and that is the SAME on both
+  // blocks. `maxWidth: 9999` is a real number and a real property and constrains nothing;
+  // measuring it against a known content width is what makes this a test rather than a
+  // spelling check.
+  it('holds both prose blocks to one measure narrower than the screen', () => {
+    // An iPhone 17 Pro is 402 pt wide, and the first-run block sits in the app's content
+    // column on both sides — so this is the width a line would take with no measure at all.
+    const sheet = makeStyles('light') as unknown as Record<string, Record<string, unknown>>;
+    const column = sheet.diveRow?.paddingHorizontal as number;
+    const fullWidth = 402 - 2 * column;
+
+    for (const scheme of ['dark', 'light'] as const) {
+      const themed = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const measure = themed.emptyStateText?.maxWidth;
+      expect(typeof measure).toBe('number');
+      expect(measure as number).toBeLessThan(fullWidth);
+      // Not so narrow that the block becomes a ribbon: the request was to stop the line
+      // running edge to edge, not to break it every few words.
+      expect(measure as number).toBeGreaterThan(fullWidth / 2);
+      // One measure, not two. The reason lines sit directly under the paragraph, so two
+      // different right edges would be the four-point step this screen has already paid for
+      // once, on the other side.
+      expect(themed.emptyStateReason?.maxWidth).toBe(measure);
     }
   });
 
@@ -528,7 +615,7 @@ describe('the first-run block alignment', () => {
 
   // **And it is the SAME edge as the title above it.** `emptyStateWrap` carried
   // `paddingHorizontal: 20` from M0, when the whole screen was a sentence and a button with
-  // nothing over them to line up with; the title and the count sit at 16, so the first-run
+  // nothing over them to line up with; the title and the summary sit at 16, so the first-run
   // block hung four points inboard of the heading it belongs to — the mark's ink at 20.00 pt
   // against "0 dives" at ≈16.7, measured on the device. A centred block has no left edge to
   // disagree with, which is why left-aligning is what exposed it.
@@ -541,8 +628,162 @@ describe('the first-run block alignment', () => {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       const column = sheet.divesTitle?.paddingHorizontal;
       expect(typeof column).toBe('number');
-      expect(sheet.divesCount?.paddingHorizontal).toBe(column);
+      expect(sheet.divesSummary?.paddingHorizontal).toBe(column);
       expect(sheet.emptyStateWrap?.paddingHorizontal).toBe(column);
+    }
+  });
+});
+
+// **One content column, across every screen** (M1l, the owner: *"I think there is no reason to
+// have them different"*).
+//
+// The app had two: the Dives list, its title and the dive detail's hero at 16, and the form,
+// Settings and the detail's own clusters at 20 through a constant called `FORM_ROW_INSET`. The
+// owner found it by putting the Dives title beside Settings'; M1d had already found the same
+// 4 pt step inside one screen, between the detail's back control and the hero title under it,
+// and fixed that one control alone.
+//
+// **This is the assertion the whole suite was missing.** Moving every one of these from 20 to
+// 16 — the change this test exists for — left 1654 tests green, because a 4 pt inset is a
+// layout fact and Jest has no layout: nothing rendered, nothing measured, nothing compared. A
+// sheet-level relation is the only place it can be caught, which is the same trade
+// `screenBottomInset`'s own tests make about a tab bar no unit test can see.
+//
+// **Written as a relation to the list's own row, not against the number 16.** The rule is "one
+// column", so moving `diveRow` moves all of them; retyping the number here would let two of
+// these drift to a new shared value while this test agreed with a copy of the old one.
+describe('the app content column', () => {
+  // **Every style in the sheet that pads horizontally and is NOT this rule**, so the sweep
+  // below can be over the sheet itself rather than over a list of names.
+  //
+  // That direction matters, and a hand-listed set of column members is what it replaces:
+  // dropping a name from such a list shortens the expectation as well as the sweep, so the
+  // list can quietly stop covering a screen while staying green — this project's most-repeated
+  // defect, and a mutation deleting one name from it passed. Swept from the sheet, a new style
+  // at some other inset fails until somebody puts it here on purpose, which is the deliberate
+  // act the test exists to force. `unexpectedGraphics` is the same shape: sweep everything,
+  // name the exemptions.
+  //
+  // Each of these is a distance INSIDE an object rather than where a screen's content begins —
+  // a button's own label padding, a pill's, a glyph capsule's, a notice's inner padding (its
+  // OUTER margin is the column, asserted below), a centred message's breathing room, the search
+  // screen's bottom dock.
+  const NOT_THE_COLUMN = [
+    'action',
+    'centerFill',
+    'searchDock',
+    'searchCapsuleGlass',
+    'searchCapsulePlain',
+    'actionCapsuleGlass',
+    'actionCapsulePlain',
+    'reorderArrows',
+    'dayStripAction',
+    'dayStripActionPill',
+    'plannedAction',
+    'plannedActionPill',
+    'detailComplete',
+    'detailCompletePill',
+    'detailDeleteError',
+    'formStatus',
+    'formStatusPill',
+    'formChip',
+    'formPresetAction',
+    'formSaveError',
+    'reorderNotice',
+    'settingsNotice',
+    'presetNotice',
+  ];
+
+  // The surfaces this is about, named so the test says which screens it is claiming — the
+  // Dives list, the first-run screen, the dive detail, the form, Settings and the preset
+  // editor. This half catches a rename or a deletion; the sweep above catches a drift, and
+  // catches it whether or not anyone remembered to add the style here.
+  const COLUMN = [
+    'divesTitle',
+    'divesSummary',
+    'tripHeader',
+    'diveRow',
+    'dayStrip',
+    'plannedActions',
+    'emptyStateWrap',
+    'detailHero',
+    'detailBack',
+    'detailAction',
+    'detailContent',
+    'formHeadingRow',
+    'formCarriedNote',
+    'formField',
+    'formGroupHeader',
+    'formFieldError',
+    'formBack',
+    'formFooter',
+    'formPresetActions',
+    'presetHeading',
+    'settingsHeading',
+    'settingsCaption',
+    'settingsSectionTitle',
+    'settingsPresetEmpty',
+  ];
+
+  it('starts every screen content at the same edge, in both schemes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const column = sheet.diveRow?.paddingHorizontal;
+      expect(typeof column).toBe('number');
+
+      // The named surfaces still exist and are in it. A renamed or deleted style shows up here
+      // rather than silently leaving the set.
+      const found = COLUMN.filter((name) => sheet[name] !== undefined);
+      expect(found).toEqual(COLUMN);
+      expect(COLUMN.filter((name) => sheet[name]?.paddingHorizontal !== column)).toEqual([]);
+
+      // ...and nothing else in the whole sheet pads horizontally to some other number without
+      // being named as an inside-an-object distance. This is the half that does not depend on
+      // the list above being complete.
+      const strays = Object.entries(sheet)
+        .filter(([name, style]) => !NOT_THE_COLUMN.includes(name) && style?.paddingHorizontal !== undefined)
+        .filter(([, style]) => style.paddingHorizontal !== column)
+        .map(([name]) => name);
+      expect(strays).toEqual([]);
+    }
+  });
+
+  // A notice banner is a card, so its INNER padding is its own; what has to sit in the column
+  // is its outer edge, or a failed-read banner hangs four points inboard of the rows it is
+  // reporting on. `detailDeleteError` is deliberately not here — it lives inside
+  // `detailContent`, which already pads, and carries `marginHorizontal: 0` for that reason.
+  it('lands a notice banner outer edge on that column too', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const column = sheet.diveRow?.paddingHorizontal;
+      for (const name of ['reorderNotice', 'settingsNotice', 'formSaveError', 'presetNotice']) {
+        expect([name, sheet[name]?.marginHorizontal]).toEqual([name, column]);
+      }
+    }
+  });
+
+  // The capsule floats at the column's TRAILING edge, so its `right` is the same rule read from
+  // the other side — and it is the one member of the set that is not a `paddingHorizontal`,
+  // which is precisely why the sweep above cannot see it.
+  it('lands the floating capsule on the same column, from the trailing side', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      expect(sheet.divesCapsuleFloat?.right).toBe(sheet.diveRow?.paddingHorizontal);
+    }
+  });
+
+  // **The detail screen's vertical padding is NOT that rule**, and this is what keeps the two
+  // apart. `detailContent` was a single `padding: 20` doing both jobs, which is what let the
+  // column be argued about as though it were the same decision as the gap under the hero's
+  // divider. Collapsing it back to one `padding` would move that gap to 16 with no test
+  // noticing, so the split is asserted rather than merely written.
+  it('keeps the dive detail top gap independent of that column', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const content = sheet.detailContent ?? {};
+      expect(content.padding).toBeUndefined();
+      expect(content.paddingTop).toBe(20);
+      expect(content.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
     }
   });
 });

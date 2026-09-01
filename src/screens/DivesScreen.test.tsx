@@ -28,6 +28,7 @@ import { useWideLayout } from '../hooks/useWideLayout';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { formatDiveCount } from '../format/display';
 import { completeDiveHref } from '../navigation/editDiveLink';
+import { depthBandColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
 import DivesScreen from './DivesScreen';
@@ -960,6 +961,164 @@ it('says the logbook holds nothing once it has been read, and says nothing while
   const waiting = await render(<DivesScreen />);
   expect(textIn(waiting)).not.toContain(formatDiveCount(0));
   expect(textIn(waiting)).toContain('Dives');
+});
+
+// ------------------------------------------------------------------------------------------
+// **The summary line under the title** (§0.6, M1l — the owner's sheet): `128 dives ·
+// 96 h 12 min · deepest 41.2 m`. The empty branch's "0 dives" above is the same line with two
+// of its three figures having nothing behind them, which is why it comes through the same
+// formatter rather than through a count of its own.
+// ------------------------------------------------------------------------------------------
+
+/** The one Text node carrying the summary treatment, found by the style only it wears — the
+ * same identity lookup `findCapsule` and `findEmptyStateWrap` use, and for the same reason. */
+function findSummary(t: RenderResult) {
+  return t.root
+    ? t.root.queryAll((n) => n.type === 'Text' && [n.props?.style].flat(5).includes(makeStyles('light').divesSummary))
+    : [];
+}
+
+/** Everything one Text node says, joined — so a line split across nested Texts reads
+ * differently from one line, which is exactly what the band-colour test below turns on. */
+function textOf(node: { children: unknown[] }): string {
+  return node.children.filter((c): c is string => typeof c === 'string').join('');
+}
+
+// The line belongs to the list's own scroll content, beneath the title and above the first
+// trip header: it is part of the heading the SectionList carries as content, so it scrolls
+// away with it rather than staying behind as a strip of chrome the owner's M1k call removed.
+it('puts the logbook figures under the title, inside the scroll the title lives in', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', durationMin: 41, maxDepthM: 31.4 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  // Written out rather than computed from `logbookStats`, which is the module this is meant to
+  // be checking: a test that asked the app what the answer was would agree with whatever it
+  // said, including "0 dives" and no figures at all.
+  expect(textIn(t)).toContain('2 dives · 1 h 25 min · deepest 31.4 m');
+
+  const [summary] = findSummary(t);
+  // Thrown rather than asserted, so the two reads below cannot pass over an absent subject —
+  // this file's own `findScrollable`/`findCapsule` take the same shape for the same reason.
+  if (!summary) throw new Error('DivesScreen drew no summary line');
+  const scroll = findScrollable(t);
+  expect(scroll.queryAll((n) => n === summary)).toHaveLength(1);
+  // ...and under the title, not above it: the heading names the screen first and describes it
+  // second.
+  const texts = t.root ? t.root.queryAll((n) => n.type === 'Text') : [];
+  expect(texts.indexOf(summary)).toBeGreaterThan(texts.findIndex((n) => n.children.includes('Dives')));
+});
+
+// **The exclusion §2.4 states, on the screen that renders both kinds of dive at once.** A
+// planned dive is "excluded from stats and dive numbering", and this is the assertion that
+// three ordinary logged dives could never make: the plan is on screen, in its own "Up next"
+// section, carrying a duration and a depth that would beat the logged ones on both figures —
+// and the line above it says two dives, not three.
+it('leaves the planned dive out of the figures while drawing it in the list', async () => {
+  const plan = dive({ status: 'planned', date: '2026-09-20', siteName: 'Silfra', durationMin: 90, maxDepthM: 45 });
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', durationMin: 41, maxDepthM: 31.4 });
+  stubDives({ dives: [plan, a, b], numbers: assignDiveNumbers([plan, a, b], 0), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  expect(textIn(t).join(' ')).toContain('Up next');
+  expect(textIn(t).join(' ')).toContain('Silfra');
+  expect(textIn(t)).toContain('2 dives · 1 h 25 min · deepest 31.4 m');
+});
+
+// ...and the case that separates "no dives" from "an empty logbook": a diver who set up
+// tomorrow's dives on the boat and has logged none yet. The screen is on its list branch —
+// there is a section, and a row — and the line still says nothing has been dived.
+it('says a logbook holding only plans holds no dives', async () => {
+  const plan = dive({ status: 'planned', date: '2026-09-20', siteName: 'Silfra', durationMin: 90, maxDepthM: 45 });
+  stubDives({ dives: [plan], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  expect(textIn(t).join(' ')).toContain('Silfra');
+  expect(textIn(t)).toContain(formatDiveCount(0));
+  // And only that: the plan's own 90 minutes and 45 m belong to a dive that has not happened.
+  const [summary] = findSummary(t);
+  expect(summary && textOf(summary)).toBe('0 dives');
+});
+
+// **The count is this logbook's, never the diver's dive number** (§2.5). A diver with 100
+// pre-Ponor dives sees `#102` on the top row and two rows beneath it; a header reading
+// `102 dives` would be describing one population in the numbers and another in the list
+// directly under it. `dives_before` is an offset on the NUMBERING and reaches this screen only
+// through `numbers` — the figures never see it, and this is what would fail if somebody
+// "made the big number match the big number".
+it('counts the dives in the list, not the diver own dive number', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', durationMin: 41, maxDepthM: 31.4 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 100), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  // The numbering really did take the offset — otherwise this test would prove nothing.
+  expect(textIn(t)).toContain('#102');
+  expect(textIn(t)).toContain('2 dives · 1 h 25 min · deepest 31.4 m');
+  expect(textIn(t).join(' ')).not.toContain('102 dives');
+});
+
+// The depth follows the diver like every other depth in the app (§4.1, `format/units.ts`). The
+// failure is silent in the way §4.1 warns about: a hard-wired metric figure renders a perfectly
+// convincing line to a diver whose every other depth on the same screen is in feet.
+it('reads the deepest dive in the diver own units', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', durationMin: 41, maxDepthM: 31.4 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  // §10 gives imperial depth whole feet, so the figure lands ragged — which is what proves it
+  // went through the pair rather than round it.
+  expect(textIn(t)).toContain('2 dives · 1 h 25 min · deepest 103 ft');
+  expect(textIn(t).join(' ')).not.toContain('31.4 m');
+});
+
+// **The depth in this line takes no band colour, and the line is one object** (§0.6, M1l).
+// §0.1 has colour encode depth and §0.6 makes a dive's depth the anchor of its row, drawn in
+// its band — so the obvious "improvement" here is to paint `41.2 m` like the rows below. It is
+// wrong for a stateable reason: this figure is an aggregate over a whole logbook, and one band
+// colour is a claim about a set no single band is true of.
+//
+// Asserted as ONE Text node carrying the whole line in the muted treatment, which is what a
+// band-coloured depth cannot be: colouring part of it needs a nested Text or a separate node,
+// and either splits this.
+it('draws the summary as one muted line, giving the deepest depth no band colour', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', durationMin: 41, maxDepthM: 41.2 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
+  const t = await render(<DivesScreen />);
+
+  const summaries = findSummary(t);
+  expect(summaries).toHaveLength(1);
+  const [summary] = summaries;
+  // The whole line, in this one node — nothing broken out to be styled on its own.
+  expect(summary && textOf(summary)).toBe('2 dives · 1 h 25 min · deepest 41.2 m');
+  expect(summary?.children.every((c) => typeof c === 'string')).toBe(true);
+  // ...and the ink is the sheet's muted, which is what every band colour is not. `themeFor`
+  // rather than a literal, so this cannot drift from the tokens.
+  const style = [summary?.props?.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  const color = style.reduce<unknown>((acc, s) => (s.color !== undefined ? s.color : acc), undefined);
+  expect(color).toBe(themeFor('light').fgMuted);
+  for (const band of [1, 2, 3, 4, 5, 6] as const) {
+    expect(color).not.toBe(depthBandColor(band, 'light'));
+  }
+});
+
+// **A screen that could not read the logbook must not describe it.** The empty branch's line is
+// only meaningful because the two branches that have no answer draw none — §10's "a screen with
+// no answer must not state one" — and the waiting branch is pinned above. A failed read is the
+// other one, and it is the one that would state `0 dives` about a logbook that may hold two
+// hundred.
+it('describes no logbook it failed to read', async () => {
+  stubDives({ dives: [], numbers: new Map(), error: new Error('disk') });
+  const t = await render(<DivesScreen />);
+
+  expect(findSummary(t)).toHaveLength(0);
+  expect(textIn(t)).not.toContain(formatDiveCount(0));
+  expect(textIn(t)).toContain('Dives');
 });
 
 // The failed read keeps it too, and for a sharper reason than symmetry: this branch is the

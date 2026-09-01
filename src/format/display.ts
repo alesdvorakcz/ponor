@@ -1,5 +1,11 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
+// **A type, and `import type` is what keeps that true.** `domain/logbookStats.ts` imports
+// `isDisplayableDepth` from this module — the app's one owner of "can this depth be shown" —
+// so a value import back the other way would be a real runtime cycle. This specifier is erased
+// at compile time, which is exactly what the two modules' split requires: the figures are
+// computed there and worded here, and only the shape of the answer crosses.
+import type { LogbookStats } from '../domain/logbookStats';
 import {
   type ConditionLevel,
   type Configuration,
@@ -569,11 +575,92 @@ export function formatRating(rating: number | null): string | null {
  */
 export function formatSurfaceInterval(minutes: number | null): string | null {
   if (!isFiniteNumber(minutes) || minutes < 0) return null;
+  return hoursAndMinutes(minutes);
+}
+
+/**
+ * The shape rule the two spans above and below share: minutes on their own under an hour,
+ * hours and minutes at or over one, and the minutes dropped when they are exactly zero.
+ *
+ * Private, and written once, because `formatSurfaceInterval` and `formatTimeUnderwater` are
+ * two questions with one answer about how a span of minutes is read. They are separate
+ * exported names because they are separate questions — see `formatTimeUnderwater` — but a
+ * second copy of this arithmetic is how "22 h 20 min" and "22h20" end up one screen apart
+ * (§4.1). Takes a real, finite, non-negative number: each caller applies its own guard first,
+ * because what counts as an impossible value differs between them and only they can say.
+ */
+function hoursAndMinutes(minutes: number): string {
   const total = Math.round(minutes);
   if (total < 60) return `${total} min`;
   const hours = Math.floor(total / 60);
   const mins = total % 60;
   return mins === 0 ? `${hours} h` : `${hours} h ${mins} min`;
+}
+
+/**
+ * **§3's "hours underwater"** — a whole logbook's bottom time, e.g. "96 h 12 min"
+ * (`logbookStats`, domain/logbookStats.ts).
+ *
+ * Minutes in both systems, exactly as `formatDuration` is: a dive is 47 minutes long wherever
+ * it is dived, and a hundred of them are a hundred of them.
+ *
+ * **Its own name over `formatSurfaceInterval`'s shared arithmetic**, which is the pairing
+ * §4.1's "a deliberate near-duplicate names its siblings" describes. They answer different
+ * questions about different quantities — a gap between two dives, bounded under a day by
+ * `surfaceIntervalMin`, against an unbounded career total — and a call site reading
+ * `formatSurfaceInterval(stats.minutes)` under the Dives title would be naming the wrong
+ * fact. What they must not do is *disagree about the shape*, and one `hoursAndMinutes` is
+ * what makes that impossible rather than merely tested.
+ *
+ * `null` for a total nothing contributed to (`LogbookStats.minutes`), so the caller omits the
+ * figure rather than printing "0 min" under a list of real dives that simply never had their
+ * durations written down.
+ */
+export function formatTimeUnderwater(minutes: number | null): string | null {
+  if (!isFiniteNumber(minutes) || minutes < 0) return null;
+  return hoursAndMinutes(minutes);
+}
+
+/**
+ * **The line under the Dives large title** (§0.6) — `128 dives · 96 h 12 min · deepest 41.2 m`
+ * — and the one place §3's three Stats figures become words.
+ *
+ * Every piece comes from the owner that already has it: `formatDiveCount` for the count,
+ * `formatTimeUnderwater` for the span, `formatDepth` for the depth (so the figure follows the
+ * diver's m/ft exactly as every other depth in the app does — §4.1, and never a second
+ * conversion written here), and `METADATA_SEPARATOR` for the middots. What is decided *here*
+ * is the order, the word "deepest", and which figures appear at all.
+ *
+ * **A figure with nothing behind it is omitted, not drawn as an em dash.** That is this
+ * module's standing rule — see its top docblock: a formatter returns null "so it can omit the
+ * element entirely, never a placeholder like '— m'" — and it is what every other middot list
+ * in the app already does (`formatCylinderSpec`, `formatEquipment`, a dive row's metadata).
+ * The em-dash convention the form and the dive row use is for a **labelled row**, which is
+ * drawn whether or not it holds a value and therefore needs something in the slot; this line
+ * reserves no slots. So a logbook whose dives record no durations reads `28 dives · deepest
+ * 18.0 m`, and one that records nothing at all reads `28 dives`.
+ *
+ * **The count is always present**, including `0 dives`. On the empty logbook that line is not
+ * decoration: it is the whole of what tells "the logbook has been read and holds nothing"
+ * apart from "the logbook has not answered yet" (§10, M1h), so it may never be the figure that
+ * drops out. It also states something true and easy to miss on a logbook holding nothing but
+ * plans — `0 dives` over an "Up next" section, because §2.4 says a plan is not one yet.
+ *
+ * The depth takes **no band colour**, and the caller's style is where that is enforced (§0.6's
+ * `divesSummary`). §0.1 makes colour encode depth and §0.6 makes a dive's depth the anchor of
+ * its row — but this figure is an aggregate over a whole logbook, and a single band colour
+ * would be a claim about a set no one band is true of.
+ */
+export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): string {
+  const parts: string[] = [formatDiveCount(stats.dives)];
+
+  const underwater = formatTimeUnderwater(stats.minutes);
+  if (underwater !== null) parts.push(underwater);
+
+  const deepest = formatDepth(stats.deepestM, system);
+  if (deepest !== null) parts.push(`deepest ${deepest}`);
+
+  return parts.join(METADATA_SEPARATOR);
 }
 
 /**

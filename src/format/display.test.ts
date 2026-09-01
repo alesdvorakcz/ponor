@@ -41,8 +41,10 @@ import {
   formatVisibility,
   formatWeather,
   formatWeightsFeel,
+  formatLogbookSummary,
   formatSurfaceInterval,
   formatTemperature,
+  formatTimeUnderwater,
   formatTimeRange,
   formatVolume,
   formatWaterBody,
@@ -785,6 +787,101 @@ describe('formatSurfaceInterval', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatSurfaceInterval(Number.NaN)).toBeNull();
+  });
+});
+
+// §3's "hours underwater" — a whole logbook's bottom time. Its own exported name over
+// `formatSurfaceInterval`'s shape rule, because they answer different questions about different
+// quantities; what they must never do is disagree about the shape, which one shared
+// `hoursAndMinutes` makes impossible rather than merely tested.
+describe('formatTimeUnderwater', () => {
+  it('reads a career total in hours and minutes', () => {
+    expect(formatTimeUnderwater(5772)).toBe('96 h 12 min');
+  });
+  // The span this one can take is unbounded, unlike a surface interval, which `derived.ts`
+  // already refuses at a day. A logbook of a thousand dives is the ordinary case here and would
+  // be a bug there.
+  it('does not stop at a day the way a surface interval does', () => {
+    expect(formatTimeUnderwater(60 * 24 * 3)).toBe('72 h');
+  });
+  it('reads a single short logbook in plain minutes', () => {
+    expect(formatTimeUnderwater(47)).toBe('47 min');
+  });
+  it('drops the minutes when they are exactly zero', () => {
+    expect(formatTimeUnderwater(120)).toBe('2 h');
+  });
+  // A recorded zero is a reading, not an absence — `logbookStats` keeps the two apart and this
+  // is the half that has to show it.
+  it('renders a recorded zero rather than dropping it', () => {
+    expect(formatTimeUnderwater(0)).toBe('0 min');
+  });
+  it('returns null when nothing recorded a duration at all', () => {
+    expect(formatTimeUnderwater(null)).toBeNull();
+  });
+  it('returns null rather than rendering NaN', () => {
+    expect(formatTimeUnderwater(Number.NaN)).toBeNull();
+  });
+  // The two names are one shape, and this is what would fail if a second copy of the arithmetic
+  // ever appeared under one of them.
+  it('reads a span exactly as a surface interval of the same length does', () => {
+    for (const minutes of [0, 1, 59, 60, 61, 119, 120, 1340]) {
+      expect(formatTimeUnderwater(minutes)).toBe(formatSurfaceInterval(minutes));
+    }
+  });
+});
+
+// **The line under the Dives large title** (§0.6): `128 dives · 96 h 12 min · deepest 41.2 m`.
+// Assembled from the owners that already have each piece; what is decided here is the order,
+// the word "deepest", and which figures appear at all.
+describe('formatLogbookSummary', () => {
+  it('reads the three figures §3 gives the Stats tab, in that order', () => {
+    expect(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric')).toBe(
+      '128 dives · 96 h 12 min · deepest 41.2 m',
+    );
+  });
+
+  // §4.1: the depth follows the diver like every other depth in the app, through `formatDepth`
+  // and never a second conversion. §10 gives imperial whole feet, so the ragged figure is what
+  // proves the line went through the pair rather than round it.
+  it('reads the depth in the diver own units', () => {
+    expect(formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'imperial')).toBe(
+      '128 dives · 96 h 12 min · deepest 135 ft',
+    );
+  });
+
+  // **A figure with nothing behind it is omitted, not drawn as an em dash** — this module's
+  // standing rule (its own top docblock), and what every other middot list in the app does.
+  it('omits a figure nothing recorded rather than printing a placeholder', () => {
+    expect(formatLogbookSummary({ dives: 28, minutes: null, deepestM: 18 }, 'metric')).toBe(
+      '28 dives · deepest 18.0 m',
+    );
+    expect(formatLogbookSummary({ dives: 28, minutes: 640, deepestM: null }, 'metric')).toBe(
+      '28 dives · 10 h 40 min',
+    );
+    expect(formatLogbookSummary({ dives: 28, minutes: null, deepestM: null }, 'metric')).toBe('28 dives');
+  });
+
+  // **The count never drops out**, including at zero. On the empty logbook this line is the
+  // whole of what tells "read and holds nothing" apart from "has not answered yet" (§10, M1h) —
+  // and it must still be exactly the words `formatDiveCount` gives it, since the screen's own
+  // test asserts that pair through this function.
+  it('still says how many dives when there are none, and says only that', () => {
+    expect(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric')).toBe('0 dives');
+    expect(formatLogbookSummary({ dives: 0, minutes: null, deepestM: null }, 'metric')).toBe(formatDiveCount(0));
+  });
+
+  it('says one dive in the singular, like every other count in the app', () => {
+    expect(formatLogbookSummary({ dives: 1, minutes: 47, deepestM: 18.4 }, 'metric')).toBe(
+      '1 dive · 47 min · deepest 18.4 m',
+    );
+  });
+
+  // A depth the app would refuse to draw is refused here too, because the figure goes through
+  // `formatDepth` — so the line can never name a depth no screen in the app would print.
+  it('drops a depth that is not a depth', () => {
+    expect(formatLogbookSummary({ dives: 3, minutes: 120, deepestM: Number.NaN }, 'metric')).toBe(
+      '3 dives · 2 h',
+    );
   });
 });
 

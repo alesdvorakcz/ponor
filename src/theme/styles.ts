@@ -156,6 +156,41 @@ export function screenBottomInset(safeAreaBottom: number): number {
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
+  // **How far in from a screen's side edges its content begins** — the app's one content
+  // column, and the horizontal half of the pair `SCREEN_HEADING_TOP` below completes. Every
+  // screen hangs everything it draws off this: the Dives title and its summary, trip headers,
+  // dive rows, the day strip, the floating capsule's trailing edge, the first-run block, the
+  // dive detail's hero, back control and clusters, every form row and group header, and
+  // Settings' own title and rows.
+  //
+  // **It was two numbers until M1l** (the owner: *"I think there is no reason to have them
+  // different"*). The list was at 16 and the form, the detail screen's clusters and Settings
+  // at 20, under a constant called `FORM_ROW_INSET` — and the difference was visible exactly
+  // where two things stack and are left-aligned. The owner found it comparing the Dives title
+  // against Settings'; M1d had already found the same 4 pt step inside one screen, between the
+  // detail's back control and the hero title under it, and fixed that one by moving the
+  // control to 16. This is that fix applied to the whole app instead of one control.
+  //
+  // **The 20 had two stated reasons and both had expired.** Its own docblock recorded the
+  // first as retired with M1h: the `carried ×` chip's outward `hitSlop` needed 20 dp of room
+  // inside the field's unclipped box, and `clearFieldControl` replaced it with a real 48 dp
+  // box laid out IN the row, which needs width rather than slop — and a narrower inset hands
+  // the row 8 pt more of it, not less. The second was that a form field's text should land on
+  // "the same 20 `detailContent` uses one screen over", which is 20 justified by 20; the
+  // detail screen's own 20 was in turn justified as an "indented column" against the hero's
+  // full-bleed 16, a contrast that cost the screen a left edge to buy a distinction the
+  // hairlines were already making.
+  //
+  // **Named for the rule, not for its first caller** (§0.6's `disclosureChevron`, not
+  // `formGroupChevron`). `FORM_ROW_INSET` stopped being true of anything the moment the number
+  // was the app's; and two spellings of one distance is precisely how the 56 pt title gap
+  // `SCREEN_HEADING_TOP` exists to close stayed invisible for four milestones.
+  //
+  // Not every 16 in this sheet is this rule: a notice banner's inner padding, a search
+  // capsule's, and the `action` button's own label padding are distances INSIDE an object,
+  // and they stay literals because they answer a different question.
+  const CONTENT_INSET = 16;
+
   // M1c closing fixes, Important #5: `reorderNotice`/`settingsNotice` below (and their
   // `*Text` siblings) used to be two byte-identical object literals — DivesScreen.tsx shows
   // the same banner shape for two different triggers (a reorder that didn't take effect, a
@@ -169,7 +204,7 @@ function build(scheme: ColorScheme) {
   const noticeBanner: ViewStyle = {
     minHeight: 48,
     justifyContent: 'center',
-    marginHorizontal: 20,
+    marginHorizontal: CONTENT_INSET,
     marginBottom: 12,
     borderRadius: 12,
     borderWidth: 1,
@@ -294,8 +329,14 @@ function build(scheme: ColorScheme) {
   // sized by the glyphs inside it. The difference between them is width and padding and
   // nothing else — split below rather than written out twice, so the height, the rounding
   // and the shadow cannot drift between two objects a diver sees side by side.
+  // **How tall a floating capsule is**, and therefore how far down the screen it reaches. One
+  // number because two things depend on it now: the capsule itself, and the Dives title, which
+  // has to be at least this tall so the summary line under it starts BELOW the capsule floating
+  // beside it rather than behind it (`divesTitle`, M1l). Two spellings of that distance would
+  // put a long logbook's figures behind the glass, and only on a long logbook.
+  const CAPSULE_HEIGHT = 48;
   const capsuleBase: ViewStyle = {
-    height: 48,
+    height: CAPSULE_HEIGHT,
     borderRadius: 24,
     flexDirection: 'row',
     alignItems: 'center',
@@ -427,16 +468,14 @@ function build(scheme: ColorScheme) {
     fontFamily: fonts.sans,
   };
 
-  // The form's own horizontal inset, carried by every row-level child of its ScrollView —
-  // each field, each group header, the heading row — rather than by the ScrollView's own
-  // contentContainer. That is what makes a field's hairline and its focus fill span the full
-  // width the way a dive row's do (§0.6: "a hairline on each row's top edge, the same rule
-  // dive rows follow"), while the text inside still lands on the same 20 `detailContent` uses
-  // one screen over. It used to have a second job — leaving the `carried ×` chip's outward
-  // `hitSlop` 20 dp of room INSIDE the field's own unclipped box — which M1h retired along
-  // with the slop: `clearFieldControl` is a real 48 dp box laid out in the row, so it needs
-  // room rather than clearance, and this inset is what it is laid out beside.
-  const FORM_ROW_INSET = 20;
+  // The form's inset is `CONTENT_INSET` at the top of this function, like every other screen's
+  // — see that constant for why there is only one number now. What is still the FORM's own
+  // decision, and is why this note stays here, is *which node carries it*: every row-level
+  // child of the ScrollView (each field, each group header, the heading row) rather than the
+  // ScrollView's own contentContainer. That is what makes a field's hairline and its focus
+  // fill span the full width the way a dive row's do — §0.6, "a hairline on each row's top
+  // edge, the same rule dive rows follow" — which they now do at the same width as well as by
+  // the same rule.
 
   // What a field puts UNDER its label/value row — the option chips, an open date picker, the
   // notes box, and §2.3's autocomplete list, which §0.6 positions there — owns the clearance
@@ -445,6 +484,22 @@ function build(scheme: ColorScheme) {
   // the tap target (§0.5), and padding there would leave the input short of the floor while
   // the row itself met it.
   const FIELD_EXTRA_CLEARANCE = 12;
+
+  // **How wide a line of prose is allowed to get** (M1l, the owner: *"the text lines should
+  // not go for full width"*). The first-run screen is the only place in Ponor that sets running
+  // prose at all — every other screen is rows, labels and figures — and left to the column it
+  // ran edge to edge, which at 402 pt is a line long enough that the eye loses its place
+  // returning to the left margin. This is the typographic measure that stops it.
+  //
+  // **A max, and in points**, which is what makes it a measure rather than a layout: a narrower
+  // phone simply uses the width it has and nothing overflows, while a tablet — where the empty
+  // logbook renders full-bleed, before the wide layout's split — keeps a readable column
+  // instead of a 900 pt line. A percentage would do the opposite of both.
+  //
+  // **Not hand-inserted line breaks**, which is the version this rules out: §0.5 has Czech
+  // running 20–30 % longer, so a break placed to look right in English lands mid-phrase in
+  // Czech, and the same is true of every language i18next adds after it (§4).
+  const PROSE_MEASURE = 320;
 
   // The rating's two geometries on the form, named rather than typed into three styles,
   // because a third value is *derived* from the difference between them — see
@@ -677,7 +732,7 @@ function build(scheme: ColorScheme) {
       justifyContent: 'space-between',
       paddingTop: 20,
       paddingBottom: 7,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       backgroundColor: theme.bg,
     },
     // DESIGN.md §0.6's "Trip header" row: Archivo SemiBold 11.5, uppercase, +0.13 em
@@ -739,7 +794,7 @@ function build(scheme: ColorScheme) {
     // `emptyStateScroll`), and it is `emptyStateContent` that decides where the teaching block
     // sits inside it. Left here, it would have been a second, contradicting answer to the same
     // question — and M1k, which moved that block, would have had to find both.
-    // **16, matching `divesTitle` and `divesCount` above it — one column, not two.**
+    // **`CONTENT_INSET`, matching `divesTitle` and `divesSummary` above it — one column.**
     // It was 20 from M0, when the only thing in here was a sentence and a button and there was
     // nothing above them to line up with. The first-run block put five more elements under a
     // title that sits at 16, so the wrap's own 20 became a **four-point step** between the
@@ -747,11 +802,12 @@ function build(scheme: ColorScheme) {
     // ink started at 20.00 pt and "0 dives" at ≈16.7. Centring had hidden it — a centred block
     // has no left edge to disagree with — and left-aligning is what made it visible, which is
     // the same "a design decision exposes a latent one" this screen has now produced twice.
-    // Pinned next door as a relation to `divesTitle`, because the rule is *the same column*
-    // and not *this number*.
+    // This was the first of the two 20s to go; M1l took the other, so the step it fixed can no
+    // longer be reintroduced anywhere. Still pinned next door as a relation to `divesTitle`,
+    // because the rule is *the same column* and not *this number*.
     emptyStateWrap: {
       flex: 1,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       gap: 16,
     },
     // **The teaching block scrolls; the action does not** (M1h). Everything above the button
@@ -832,12 +888,27 @@ function build(scheme: ColorScheme) {
     // asset's own — §4.1's "derive, or tie", tied at test time because the asset is a build
     // artifact this sheet cannot read. The failure mode of a stale pair is benign in the
     // meantime: `contain` letterboxes, so the worst case is air, never a clipped mark.
+    //
+    // **`marginBottom` is clearance under the mark, on top of the block's own rhythm** (M1l,
+    // the owner: *"the icon/logo should have a bit higher bottom padding"*). Every other gap in
+    // this block is `emptyStateContent`'s 16, which is right between five text objects and too
+    // tight under a 120 pt graphic — the mark reads as the first item of the list it heads
+    // rather than as the thing the page opens with. Written here rather than as a bigger
+    // container `gap`, which would have spread the same air between the legend and its caption
+    // and broken the rhythm to fix a single seam.
+    //
+    // **It costs the button nothing.** `emptyStateContent` centres the block in the space above
+    // a control whose clearance is the device's (`screenBottomInset`, and the `+ 24`
+    // EmptyState composes into it), so this takes its air from the centring slack. On a screen
+    // with no slack the container is already taller than its frame and this is 16 more points
+    // to scroll — see `emptyStateScroll`.
     emptyStateMark: {
       width: 120,
       height: 70,
       resizeMode: 'contain',
       tintColor: theme.fg,
       opacity: 0.5,
+      marginBottom: 16,
     },
     // §0.6's cluster-label treatment, third call site — "NOTHING LOGGED YET" over the
     // first-run block. Derived from the same `clusterLabel` the dive detail's and the form's
@@ -845,21 +916,26 @@ function build(scheme: ColorScheme) {
     // for the reason §0.6 gives when it introduced the shared definition: *Conditions* and
     // *Gas & cylinders* carried two treatments for one thing until they did not.
     emptyStateLabel: clusterLabel,
+    // §1's promise, said to a diver. `PROSE_MEASURE` above is what stops it running the width
+    // of the screen.
     emptyStateText: {
       fontFamily: fonts.sans,
       fontSize: 16,
       color: theme.fgMuted,
+      maxWidth: PROSE_MEASURE,
     },
     // The two lines under the legend that give the rule its reason. Mono, because they are a
     // caption to a data legend and they carry the scale's own figures — §0.2 splits the faces
     // on content, and "red fades out by 6 m" is a reading, not a sentence about the app. Sized
     // at `tripDateRange`'s 11, which is this sheet's existing "small mono metadata", with a
-    // line height because unlike a date range this one wraps.
+    // line height because unlike a date range this one wraps — and `PROSE_MEASURE` above is
+    // what decides where it wraps.
     emptyStateReason: {
       fontFamily: fonts.mono,
       fontSize: 11,
       lineHeight: 16,
       color: theme.fgMuted,
+      maxWidth: PROSE_MEASURE,
     },
     // **The depth legend** (§0.6, M1h) — six bars in the six band colours, each under its own
     // range. The one place in Ponor where a depth colour appears without a depth beside it,
@@ -989,10 +1065,10 @@ function build(scheme: ColorScheme) {
     // are one decision and neither is safe alone.
     //
     // `top: 0` is the region's own top edge, not a distance from the display: see
-    // `divesListArea` above. `right: 16` is this screen's column — `tripHeader`, `diveRow`
-    // and `divesTitle` all use the same 16 — so the capsule's trailing edge lines up with the
-    // date ranges it floats near. (It is NOT `FORM_ROW_INSET`: that is the form's and
-    // Settings' column, and `detailBack` records the same choice one screen over.)
+    // `divesListArea` above. `right` is `CONTENT_INSET`, the app's one content column, so the
+    // capsule's trailing edge lines up with the date ranges it floats near and with the title
+    // beside it. This used to say "it is NOT `FORM_ROW_INSET`: that is the form's and Settings'
+    // column" — there is no second column to be not, since M1l.
     //
     // No ground of its own: the capsule inside it draws its own material (`actionCapsuleGlass`
     // /`actionCapsulePlain`), and a fill here would put a second opaque shape behind a shape
@@ -1002,7 +1078,7 @@ function build(scheme: ColorScheme) {
     divesCapsuleFloat: {
       position: 'absolute',
       top: 0,
-      right: 16,
+      right: CONTENT_INSET,
     },
     // The large title, and it is a **block in the list's own content** — the SectionList's
     // `ListHeaderComponent` — not a row in a bar above. That is the whole of the native
@@ -1024,27 +1100,57 @@ function build(scheme: ColorScheme) {
     // does. It used to be a 4 of its own under a bar that had already spent 56 pt, which is
     // the gap the owner found. `paddingBottom` separates the title from the first trip header,
     // which brings its own 20.
+    //
+    // **`minHeight` is `CAPSULE_HEIGHT`, and it is what keeps the summary line out from under
+    // the glass** (M1l). The capsule floats at `top: 0` of the region this title heads, so it
+    // reaches 48 pt down — past this title's own ~36 and into the line beneath it. Measured on
+    // the device, not deduced: at eight dives the summary ends 10 pt short of the capsule's
+    // leading edge, so the first logbook to reach three figures — or the first Czech
+    // translation, §0.5's 20–30 % — puts `41.2 m` behind it. A trailing inset on the summary
+    // was the alternative and is worse: reserving the capsule's own 105 pt leaves 36 characters,
+    // which the eight-dive line already exceeds, so the common case would wrap to buy the rare
+    // one. Reserving the HEIGHT costs one gap under the title and gives the line the full
+    // column at every length and in every language.
+    //
+    // Stated as a `minHeight` rather than a bigger `paddingBottom` on purpose: what has to be
+    // true is "as tall as the capsule", and the title's own text height is a font metric this
+    // sheet does not get to assume. `justifyContent` is not needed — a `Text` lays its line out
+    // from the top of its box, so the extra height falls below the title where it is wanted.
     divesTitle: {
       ...screenHeading,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: SCREEN_HEADING_TOP,
       paddingBottom: 8,
+      minHeight: CAPSULE_HEIGHT,
     },
-    // **The count under the title, and it exists on one branch only** (M1h): the empty
-    // logbook, where it reads "0 dives". It is not decoration there — it is the difference
-    // between a screen that has *read* the logbook and found nothing and a screen that has not
-    // looked yet, which is the confusion §10's "a screen with no answer must not state one"
-    // records costing a diver their whole list for a frame. The waiting branch renders the
-    // title alone, and the difference between the two is now visible rather than inferred.
+    // **The summary line under the title** (§0.6, M1l — the owner's sheet): `128 dives ·
+    // 96 h 12 min · deepest 41.2 m`, the three figures §3 gives the Stats tab, said once at
+    // the top of the logbook they describe. `formatLogbookSummary` (format/display.ts) owns
+    // every word of it and `logbookStats` (domain/logbookStats.ts) owns the numbers.
     //
-    // Mono because it is a figure (§0.2), muted because the title above it is the heading, and
-    // in `divesTitle`'s own 16 dp column so it hangs off the title rather than starting a new
-    // margin. `formatDiveCount` (format/display.ts) owns the words, here as everywhere else.
-    divesCount: {
+    // **It was `divesCount` and it existed on one branch only** (M1h): the empty logbook,
+    // where it read "0 dives". That job is unchanged and is still the load-bearing one — the
+    // line is the difference between a screen that has *read* the logbook and found nothing
+    // and one that has not looked yet, which is the confusion §10's "a screen with no answer
+    // must not state one" records costing a diver their whole list for a frame. An empty
+    // logbook has no duration and no depth to report, so the same formatter still produces
+    // exactly "0 dives" there. Renamed for the rule rather than for the first figure it
+    // carried (§4.1).
+    //
+    // Mono because these are figures (§0.2), muted because the title above it is the heading,
+    // and in `divesTitle`'s own 16 dp column so it hangs off the title rather than starting a
+    // new margin.
+    //
+    // **No colour, and the depth in it is why that is a rule and not a default.** §0.1 has
+    // colour encode depth and §0.6 makes a dive's depth the anchor of its row, drawn in its
+    // band — but the depth here is an aggregate over a whole logbook, and one band colour
+    // would be a claim about a set that no single band is true of. `fgMuted`, like the rest of
+    // the line.
+    divesSummary: {
       fontFamily: fonts.mono,
       fontSize: 11.5,
       color: theme.fgMuted,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       paddingBottom: 8,
     },
     // ------------------------------------------------------------------------------------
@@ -1101,7 +1207,7 @@ function build(scheme: ColorScheme) {
       justifyContent: 'center',
       gap: 6,
       paddingVertical: 10,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       borderTopWidth: 1,
       borderTopColor: theme.border,
     },
@@ -1314,7 +1420,7 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       paddingVertical: 6,
       borderTopWidth: 1,
       borderTopColor: theme.border,
@@ -1367,7 +1473,7 @@ function build(scheme: ColorScheme) {
     plannedActions: {
       flexDirection: 'row',
       justifyContent: 'flex-end',
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       paddingBottom: 6,
     },
     // The 48 dp floor (§0.5) sits on the Pressable, centred around the visually smaller
@@ -1402,10 +1508,12 @@ function build(scheme: ColorScheme) {
     // DiveDetailScreen's hero (§0.6, M1c task 5): the site name, a `#N · date · centre`
     // mono sub-line, and the 34 px depth anchor (DepthValue's `variant="hero"`, from task
     // 1) — "the same anchor idea the row now uses, at detail scale." Sits above
-    // `detailContent` below, outside its `padding: 20`: this carries its own
-    // `paddingHorizontal: 16` (matching diveRow/tripHeader's own full-bleed 16, not
-    // detailContent's 20) plus a bottom divider, so it reads as one banner spanning the
-    // screen's true edge rather than another indented cluster. `flexDirection: 'row'` +
+    // `detailContent` below, outside its padding, and carries `CONTENT_INSET` itself plus a
+    // bottom divider, so it reads as one banner across the screen. It used to be described as
+    // spanning "the screen's true edge rather than another indented cluster", against a
+    // `detailContent` at 20 — the clusters are in this same column now (M1l), and what still
+    // makes the hero a banner is the divider under it, not a 4 pt difference in where it
+    // starts. `flexDirection: 'row'` +
     // `alignItems: 'flex-end'` mirrors `diveRowTop`/`diveRowMain` exactly: the depth value
     // bottom-aligns against the sub-line, the same way a row's depth bottom-aligns against
     // its site name.
@@ -1419,7 +1527,7 @@ function build(scheme: ColorScheme) {
       justifyContent: 'space-between',
       alignItems: 'flex-end',
       gap: 12,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: 4,
       paddingBottom: 14,
       borderBottomWidth: 1,
@@ -1447,8 +1555,17 @@ function build(scheme: ColorScheme) {
     // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
     // SectionList: unlike the Dives list this is one fixed dive's worth of content, not
     // a long reflowing collection.
+    //
+    // **The horizontal padding is `CONTENT_INSET`, and the vertical is not it** (M1l). This was
+    // one `padding: 20` doing both jobs, which is what let the screen's column be argued about
+    // as if it were the same decision as the gap under the hero. It is not: the 20 above the
+    // first cluster is clearance below the hero's divider (`detailClusterFirst` zeroes the
+    // cluster's own `paddingTop` so it does not stack), and 48 at the bottom is a scroll's
+    // run-out. Only the horizontal half is the app's content column, so only that half reads
+    // the constant.
     detailContent: {
-      padding: 20,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 20,
       paddingBottom: 48,
       gap: 24,
     },
@@ -1471,10 +1588,12 @@ function build(scheme: ColorScheme) {
     // `detailCluster` (a two-element style array at the call site), never as a replacement,
     // so the two can't drift apart on anything but the border and the padding.
     //
-    // The hero deliberately does NOT drop its bottom border to solve this instead: it is a
-    // banner spanning the full bleed at 16 while the clusters are an indented column at 20,
-    // and the line closing the banner is not the same line as the one dividing two
-    // clusters.
+    // The hero deliberately does NOT drop its bottom border to solve this instead: the line
+    // closing a banner is not the same line as the one dividing two clusters, and the banner
+    // is what the diver needs shut before the column of facts starts. That argument used to
+    // lean on the hero sitting at 16 while the clusters sat at 20; both are `CONTENT_INSET`
+    // now (M1l), so the two lines are the same width and the distinction is entirely in what
+    // each one closes — which is what it always actually rested on.
     detailClusterFirst: {
       borderTopWidth: 0,
       paddingTop: 0,
@@ -1591,13 +1710,15 @@ function build(scheme: ColorScheme) {
     // content. 48 dp minHeight matches the `action`/`fab` tap-target floor above, but this
     // is deliberately NOT filled ink like those: it's wayfinding, not the screen's primary
     // action, so it stays a plain label rather than competing with one.
-    // `paddingHorizontal: 16` matches `detailHero`'s own 16 (M1d). At 20 the back label sat
-    // 4 px further in than the title directly beneath it, which is visible precisely
-    // because they are stacked and left-aligned. `minHeight: 48` is §0.5's tap-target floor
-    // and is not spacing — it stays exactly as it is.
+    // `CONTENT_INSET` matches `detailHero` directly beneath it (M1d). At 20 the back label sat
+    // 4 px further in than the title under it, which is visible precisely because they are
+    // stacked and left-aligned — the same step the owner later found between the Dives title
+    // and Settings', and the reason there is now one constant for the whole app rather than
+    // this fix repeated per control. `minHeight: 48` is §0.5's tap-target floor and is not
+    // spacing — it stays exactly as it is.
     detailBack: {
       ...backControl,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
     },
     // The detail screen's top bar (M1d task 7): the way out at its leading edge, the dive's
     // own action at its trailing edge — always "Edit" since task 8, for a planned dive as
@@ -1619,7 +1740,7 @@ function build(scheme: ColorScheme) {
     // would compete with the hero it sits directly above.
     detailAction: {
       ...backControl,
-      paddingHorizontal: 16,
+      paddingHorizontal: CONTENT_INSET,
       marginLeft: 'auto',
     },
     detailActionLabel: {
@@ -1695,9 +1816,9 @@ function build(scheme: ColorScheme) {
     // last group clear of `formFooter`'s own fixed height).
     //
     // **No horizontal padding of its own** (M1d design pass, §0.6): every row-level
-    // child carries `FORM_ROW_INSET` instead, so a field's hairline and its focus fill reach
-    // the screen's real edges the way a dive row's do while the text inside still lands on
-    // 20.
+    // child carries `CONTENT_INSET` instead, so a field's hairline and its focus fill reach
+    // the screen's real edges the way a dive row's do — at the same inset as a dive row's,
+    // since M1l.
     formScroll: rowScroll,
     // **`paddingBottom` is a constant here, and that is the correct answer rather than the
     // unconverted one** — the near-duplicate `settingsContent` names below, and the reason
@@ -1729,7 +1850,7 @@ function build(scheme: ColorScheme) {
     // altogether (`headingRow`'s own comment, and `divesCapsuleFloat`).
     formHeadingRow: {
       ...headingRow,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // `headingTitle`, the same definition `divesHeading` reads — see it for why the title
     // takes `flex: 1`.
@@ -1746,13 +1867,13 @@ function build(scheme: ColorScheme) {
     // remembered for the next dive.
     //
     // It sits between the heading row and the core strip, so `formScrollContent`'s own `gap`
-    // spaces it; it carries no margin of its own. `FORM_ROW_INSET` puts it in the same column
+    // spaces it; it carries no margin of its own. `CONTENT_INSET` puts it in the same column
     // every field's label starts in.
     formCarriedNote: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // Muted mono 11 — the same treatment `formFieldCleared` gives the cleared tag and the §0.6
     // type table gives a dive number, because this is the same kind of thing: metadata about
@@ -1829,7 +1950,7 @@ function build(scheme: ColorScheme) {
       minHeight: 48,
       justifyContent: 'center',
       gap: 10,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       borderTopWidth: 1,
       borderTopColor: theme.border,
     },
@@ -2169,7 +2290,7 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // §0.6: "**A group header is a cluster label** — Plex Mono 10.5, uppercase, +0.14 em,
     // muted. *Conditions* and *Gas & cylinders* name the same groups on both screens and used
@@ -2339,7 +2460,7 @@ function build(scheme: ColorScheme) {
     // long form — "one scroll view" (brief) describes the form's OWN fields, not this
     // persistent action bar.
     formFooter: {
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: 12,
       paddingBottom: 24,
       borderTopWidth: 1,
@@ -2374,11 +2495,11 @@ function build(scheme: ColorScheme) {
     // trailing, under the row it belongs to." *Trailing* is what `alignItems: 'flex-end'`
     // (and the text's own `textAlign`) adds here — the message lands in the same column as
     // the value it is about, rather than under the label, which names the field and is not
-    // what went wrong. `paddingHorizontal` is `FORM_ROW_INSET`, so it sits in the same
+    // what went wrong. `paddingHorizontal` is `CONTENT_INSET`, so it sits in the same
     // column every row on this form does; it draws no hairline, because it is not a row.
     formFieldError: {
       alignItems: 'flex-end',
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: 2,
       paddingBottom: 8,
     },
@@ -2390,12 +2511,13 @@ function build(scheme: ColorScheme) {
     },
     // The form's own way out (M1d task 7) — `backControl` at the top of this function, the
     // one definition `detailBack` above also uses, so the two screens' exits cannot drift
-    // into two different treatments. `FORM_ROW_INSET` rather than the detail screen's 16: it
-    // aligns to this form's own row inset, which is what the heading directly beneath it —
-    // and every field row below that — is aligned to.
+    // into two different treatments. `CONTENT_INSET`, which is also what `detailBack` takes:
+    // this used to be the one place the two exits deliberately differed, each aligning to its
+    // own screen's column, and there is one column now (M1l). It is still what the heading
+    // directly beneath it — and every field row below that — is aligned to.
     formBack: {
       ...backControl,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     formBackLabel: backControlLabel,
     // §2.1's cylinder presets, at the two ends of the Gas & cylinders group (M1e).
@@ -2422,7 +2544,7 @@ function build(scheme: ColorScheme) {
       justifyContent: 'flex-end',
       alignItems: 'center',
       gap: 8,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: FIELD_EXTRA_CLEARANCE,
     },
     formPresetAction: {
@@ -2450,7 +2572,7 @@ function build(scheme: ColorScheme) {
     // precedent: the placement is per screen, the type is not.
     presetHeading: {
       ...screenHeading,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // Deleting a preset — `mutedControl` at the top of this function, the same object
     // *Delete dive* is, at the end of the same kind of deliberate reach.
@@ -2490,7 +2612,7 @@ function build(scheme: ColorScheme) {
     // eye skips, and this is the first line of the page.
     settingsHeading: {
       ...screenHeading,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // A sentence under a row, explaining what the row does — `dives_before`'s "every dive
     // number moves with this", and the note shown when the stored value cannot be read.
@@ -2502,7 +2624,7 @@ function build(scheme: ColorScheme) {
     // after it. Same absence of a box, for the reason recorded there: a bordered, filled
     // message under a row reads as a second, empty row.
     settingsCaption: {
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       paddingTop: 6,
     },
     settingsCaptionText: {
@@ -2522,7 +2644,7 @@ function build(scheme: ColorScheme) {
     // beneath it land in.
     settingsSectionTitle: {
       ...clusterLabel,
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
       paddingBottom: 8,
     },
     // A preset's name, leading its row exactly as `Units` leads its own — `rowLabel`, in full
@@ -2563,7 +2685,7 @@ function build(scheme: ColorScheme) {
     // treatment — a sentence under a heading, leading, no box — with the top padding it does
     // not need here, since there is no row above it for it to clear.
     settingsPresetEmpty: {
-      paddingHorizontal: FORM_ROW_INSET,
+      paddingHorizontal: CONTENT_INSET,
     },
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
