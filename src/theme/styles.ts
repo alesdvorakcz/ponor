@@ -1161,6 +1161,30 @@ function build(scheme: ColorScheme) {
     ratingDotFilled: {
       backgroundColor: theme.fg,
     },
+    // The same mark at the size a thumb picks rather than the size an eye reads (M1h): the
+    // dive form's rating is five *controls*, and a 7 px circle inside a 48 dp target reads as
+    // five specks scattered across a row. Everything except the geometry is `ratingDot`'s,
+    // deliberately — same border, same ink, and `ratingDotFilled` above composes on top of
+    // this one unchanged, which is what keeps §0.6's actual rule ("draw both as circles of
+    // one diameter, filled or outlined") true of the row and the form at once. A second
+    // *filled* style per size is what would break it, so there isn't one.
+    ratingDotField: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 1,
+      borderColor: theme.fg,
+    },
+    // §0.5's floor around one rating dot: "Tap targets never below 48 dp." Each dot is its
+    // own control — tapping the third gives a rating of three — so the floor applies to each
+    // of them and not to the row they sit in, which is the same reading that put `minHeight:
+    // 48` on `formChip` rather than on `formChipRow`.
+    ratingTarget: {
+      width: 48,
+      height: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     // ReorderControls (§2.5: hand-order same-day dives with no entry time). M1c task 6
     // (DESIGN.md §0.6) moved the arrows OUT of a separate column beside the row — the
     // old `reorderRow`/`reorderRowContent`/`reorderButtonColumn` trio this replaces,
@@ -2165,6 +2189,23 @@ function build(scheme: ColorScheme) {
       gap: 8,
       paddingBottom: FIELD_EXTRA_CLEARANCE,
     },
+    // The rating's five tap targets, in the same second-line slot `formChipRow` above
+    // occupies and for the same §0.6 reason — this is a set of options to read through, not a
+    // value to read off, so it starts at the leading edge under its own label.
+    //
+    // **No `gap`, unlike the chip row, and no wrapping.** Each target is already 48 dp wide
+    // (`ratingTarget`), so the dots sit 48 apart with nothing added; a gap on top of that
+    // would space five 18 px circles nearly four diameters apart and stop them reading as one
+    // scale. Five targets come to 240 dp, which fits the narrowest phone this app targets
+    // without wrapping — and wrapping is what must not happen here, since a rating broken
+    // across two lines stops being a row of five at a glance. The chip row wraps because six
+    // water-body chips at Czech length genuinely cannot fit; a rating's width is fixed and
+    // known, so it is laid out to fit rather than allowed to reflow.
+    formRatingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingBottom: FIELD_EXTRA_CLEARANCE,
+    },
     // **A chip is filled** — the owner's call after seeing the form built, now written into
     // §0.6: "`surface` behind an unselected chip, `action` ink behind the selected one — the
     // same invert the save control uses, so 'the chosen thing is the inverted thing' is one
@@ -2209,6 +2250,49 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
     },
     formChipTextSelected: selectedInk,
+    // §0.6's accumulating marks (M1h): the row that holds *N copies of one symbol* — one
+    // current arrow, two, three. The count is the mark, so this exists only to line them up
+    // and keep them tight enough to read as one object rather than as three neighbours; at a
+    // wider gap "three arrows" starts to read as three separate icons.
+    chipMarkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 1,
+    },
+    // The visibility mark: bars that count up, drawn rather than lettered.
+    //
+    // **`alignItems: 'flex-end'` is the whole illusion.** The bars have different heights and
+    // a row centres its children by default, which would grow each bar in both directions and
+    // produce a lens shape rather than a staircase. Sat on a common baseline they read as
+    // signal strength — the thing everyone already knows means "more" — which is what lets
+    // this mark carry its scale without a legend (§0.6).
+    visibilityMark: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 2,
+    },
+    // One bar, in four pieces that compose: this geometry, then one of the three heights, then
+    // one of the two inks. **Discrete named steps rather than a computed height**, and that is
+    // not a stylistic preference — `src/testing/unexpectedGraphics.ts` reports any `View`
+    // carrying a style entry this sheet did not hand out, so the obvious `{ height: 4 + i * 4 }`
+    // would trip the §0.4/§0.1 graphics guard on the dive form. The guard is right to: a mark
+    // whose size is computed at the call site is one edit away from being a bar chart, and §0.4
+    // is explicit that the app draws no chart from data it does not have. So the sheet owns
+    // every size a bar can be, and there are exactly three.
+    visibilityBar: {
+      width: 3,
+      borderRadius: 1.5,
+    },
+    visibilityBarShort: { height: 5 },
+    visibilityBarMid: { height: 9 },
+    visibilityBarTall: { height: 13 },
+    // The two inks a chip's contents can wear, as *paint* rather than as text colour —
+    // `formChipText`/`formChipTextSelected` above are the same two values, and a bar cannot
+    // borrow a `color` because a `View` has none. Kept adjacent to them for that reason: the
+    // pair must stay in step, since §0.6's rule is that the mark takes the ink of the label
+    // beside it, and the mark inverting a shade late would be visible only on a selected chip.
+    visibilityBarInk: { backgroundColor: theme.fg },
+    visibilityBarInkSelected: { backgroundColor: theme.actionFg },
     // The save action's fixed footer (§0.5: "the primary action sits in the bottom
     // third"; brief step 4: never disabled). Sits OUTSIDE `formScroll` above as a
     // sibling, not inside it, so it stays reachable without scrolling to the end of a

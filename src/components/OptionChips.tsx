@@ -4,7 +4,28 @@ import { type ReactNode } from 'react';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
-export interface OptionChipsProps<T extends string> {
+/**
+ * What a chip's value may be: a member of a closed vocabulary (`Entry`, `Suit`, …) or **a
+ * level of an ordered numeric scale** (`waves`, `current`, `surge` — 0–3).
+ *
+ * The numbers arrived in M1h, when §0.6's icon sheet turned those three text fields into chip
+ * rows, and the alternative was worse in a specific way worth recording. The obvious fix was
+ * to leave this `string` and give the scales a digit-string vocabulary (`'0' | '1' | '2' |
+ * '3'`), which costs nothing at the boundary — `optionalNumber` already coerces `'2'` to `2`,
+ * and the form's own text fields have always held these values as strings. It fails one level
+ * up: `domain/types.ts` **derives each type from its list**, so a digit-string list yields a
+ * *string type standing for an integer column*, and the next person to read `WavesLevel` and
+ * write `dive.waves === '2'` gets a comparison that is false for every dive ever stored.
+ *
+ * So the vocabulary stays honest about what it is and this component takes one more kind of
+ * key. Nothing else in the body changes: `key`, `===` and the `''` sentinel are all
+ * type-agnostic, and `displayLabel` was always the caller's to supply.
+ *
+ * The alternative to *that* was a second chip component for numeric scales, which §4.1 calls
+ * a defect rather than a style preference — what makes a chip read as chosen is a rule, and a
+ * second implementation of it is how two chip rows end up looking different.
+ */
+export interface OptionChipsProps<T extends string | number> {
   label: string;
   value: T | '' | null | undefined;
   options: readonly T[];
@@ -62,7 +83,7 @@ export interface OptionChipsProps<T extends string> {
  * react-hook-form's `handleSubmit` would refuse to call `onValid` for the WHOLE form —
  * exactly the "never block a save" (§1) failure that screen exists to avoid.
  */
-export function OptionChips<T extends string>({ label, value, options, displayLabel, onChange, scheme, icon }: OptionChipsProps<T>) {
+export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   return (
     // The same `formField` row as every other field (§0.6), with the chips in the slot §0.6

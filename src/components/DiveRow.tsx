@@ -11,9 +11,16 @@ import {
   METADATA_SEPARATOR,
 } from '../format/display';
 import { type UnitSystem } from '../format/units';
-import { makeStyles, type Styles } from '../theme/styles';
+import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { DepthValue } from './DepthValue';
+// The drawn rating (§0.6), which this row used to own outright. It moved to its own module
+// in M1h when the dive form grew an editable rating: the form needs each dot inside its own
+// 48 dp target, so it cannot render this row's `RatingDots` — but a second `●●●○○` written
+// there would be §4.1's defining defect, one rule in two places, on the exact rule §0.6
+// bothered to specify. `RatingDot` is the shared unit; `RATING_MAX` and `filledDotCount`
+// are the shared arithmetic.
+import { RatingDots } from './RatingDots';
 
 interface DiveRowProps {
   dive: Dive;
@@ -41,38 +48,6 @@ interface DiveRowProps {
    * already gives for why colour lives there and nowhere else.
    */
   depthSlot?: ReactNode;
-}
-
-const RATING_MAX = 5;
-
-/**
- * `rating` is `number | null` rather than `1|2|3|4|5` on purpose (DESIGN.md §10: no DB
- * CHECK constraint, so a future client's out-of-range value is a runtime reality this
- * type cannot rule out). Clamped and rounded here so that reality can never turn into a
- * negative or out-of-range dot count.
- */
-function filledDotCount(rating: number): number {
-  return Math.min(RATING_MAX, Math.max(0, Math.round(rating)));
-}
-
-/**
- * A rating as RATING_MAX small circles, filled up to the rating and outlined beyond it —
- * DESIGN.md §0.6: "Rating marks are drawn, not typed... `●` and `○` are different sizes in
- * almost every typeface, so a rating rendered from glyphs looks broken." `ratingDot` is the
- * one style every dot carries, filled or not, and `ratingDotFilled` only ever adds a fill
- * on top of it — never a different width/height — so five marks always read as five
- * identical circles, only some of them filled in. Monochrome throughout (`theme.fg`, via
- * `ratingDot`/`ratingDotFilled` themselves): §0.1, colour encodes depth and nothing else.
- */
-function RatingDots({ rating, styles }: { rating: number; styles: Styles }) {
-  const filled = filledDotCount(rating);
-  return (
-    <View style={styles.diveRating}>
-      {Array.from({ length: RATING_MAX }, (_, i) => (
-        <View key={i} style={[styles.ratingDot, i < filled && styles.ratingDotFilled]} />
-      ))}
-    </View>
-  );
 }
 
 /**
@@ -181,7 +156,7 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
               join into `metaText` the way the three text chips do. Rendered only when both
               sides actually exist, so the line never opens or closes on a stray middot. */}
           {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{METADATA_SEPARATOR}</Text>}
-          {dive.rating !== null && <RatingDots rating={dive.rating} styles={styles} />}
+          {dive.rating !== null && <RatingDots rating={dive.rating} scheme={scheme} />}
         </View>
       )}
     </Pressable>
