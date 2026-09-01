@@ -95,11 +95,15 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * tree for the reason `DivesScreen.tsx` records: a test colocated with a route would be
  * bundled into the app.
  *
- * **Two settings and one list, and §3 lists more on purpose.** "Fields I use", the
- * certification wallet, account and sync, data export and delete-account all belong to
- * later milestones — the wallet and export to M3, account and sync to M2, and the rest to
- * whenever the fields they configure exist. M1 is "the local logbook", and the two settings
- * below are the two that M1's own screens already depend on:
+ * **Two settings and one list, and §3 lists more on purpose.** The certification wallet,
+ * account and sync, data export and delete-account all belong to later milestones — the
+ * wallet and export to M3, account and sync to M2. M1 is "the local logbook", and the two
+ * settings below are the two that M1's own screens already depend on.
+ *
+ * §3 listed a **"Fields I use"** screen here until M1i dropped it: §2.2's collapse rule
+ * already hides a group nobody fills, and a carried field that keeps one open can be
+ * cleared. It is on §9's shelf with the signal that would bring it back, so its absence
+ * below is a decision rather than a milestone boundary:
  *
  * - **Units** (§3's m/ft · bar/psi · °C/°F · kg/lb). `format/units.ts` owns the system and
  *   its four pairs (§4.1), so the options here are `UNIT_SYSTEMS` itself rather than a

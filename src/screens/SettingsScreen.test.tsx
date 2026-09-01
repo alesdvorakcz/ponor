@@ -561,11 +561,13 @@ it('drops the empty line once there is a preset to show', async () => {
 // Scope and grammar
 // ---------------------------------------------------------------------------------------
 
-// §3 lists far more under Settings — "Fields I use", the certification wallet, account and
-// sync, export, delete account — and every one of them belongs to a later milestone. This is
-// a scope assertion, and it can fail: a stray control added here would show up as a third
-// labelled field. Cylinder presets are the one §3 entry that has arrived, and they are a
-// LIST rather than a setting, so they carry a section heading instead of a field label.
+// §3 lists far more under Settings — the certification wallet, account and sync, export,
+// delete account — and every one of them belongs to a later milestone. This is a scope
+// assertion, and it can fail: a stray control added here would show up as a third labelled
+// field. Cylinder presets are the one §3 entry that has arrived, and they are a LIST rather
+// than a setting, so they carry a section heading instead of a field label. "Fields I use"
+// was on this list until M1i dropped it from v1 (§2.2, §9) — it is not a later milestone,
+// it is not coming, and this test should not start expecting it.
 it('carries M1’s two settings and no more', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
