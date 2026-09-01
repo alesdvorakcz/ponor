@@ -124,14 +124,14 @@ it('marks its state with a drawn chevron, and puts no second word on the header'
   // Drawn: a box with two borders and nothing inside it (theme/styles.ts's own
   // `reorderArrowUp` technique), never a `Text`. Asserted on the style the header actually
   // wears, not on the sheet alone — a correct style reaching no element is the failure.
-  const marks = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formGroupChevron)) : [];
+  const marks = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.disclosureChevron)) : [];
   expect(marks).toHaveLength(1);
   expect(marks[0]?.type).toBe('View');
-  expect(styles.formGroupChevron.borderRightWidth).toBeGreaterThan(0);
-  expect(styles.formGroupChevron.borderBottomWidth).toBeGreaterThan(0);
+  expect(styles.disclosureChevron.borderRightWidth).toBeGreaterThan(0);
+  expect(styles.disclosureChevron.borderBottomWidth).toBeGreaterThan(0);
   // Not typed: nothing about this mark reaches for a font, which is precisely the thing
   // neither bundled face can supply.
-  expect(styles.formGroupChevron).not.toHaveProperty('fontFamily');
+  expect(styles.disclosureChevron).not.toHaveProperty('fontFamily');
   expect(marks[0]?.props?.children).toBeUndefined();
 
   // The header is the group's name and nothing else now: no "Show", no "Hide", and no word
@@ -151,17 +151,17 @@ it('rotates the chevron through a half-circle to show the state, rather than mer
     const rotate = (style.transform as { rotate?: string }[] | undefined)?.find((entry) => entry.rotate !== undefined);
     return Number(String(rotate?.rotate).replace('deg', ''));
   };
-  expect(Math.abs(degreesOf(styles.formGroupChevronExpanded) - degreesOf(styles.formGroupChevron))).toBe(180);
+  expect(Math.abs(degreesOf(styles.disclosureChevronExpanded) - degreesOf(styles.disclosureChevron))).toBe(180);
 
   const t = await renderGroup();
-  const markOf = () => (t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formGroupChevron)) : [])[0];
-  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.formGroupChevronExpanded);
+  const markOf = () => (t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.disclosureChevron)) : [])[0];
+  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.disclosureChevronExpanded);
 
   await fireEvent.press(headerOf(t));
-  expect([markOf()?.props?.style].flat(5)).toContain(styles.formGroupChevronExpanded);
+  expect([markOf()?.props?.style].flat(5)).toContain(styles.disclosureChevronExpanded);
 
   await fireEvent.press(headerOf(t));
-  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.formGroupChevronExpanded);
+  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.disclosureChevronExpanded);
 });
 
 // §0.1: "colour is depth, and colour is nothing else" — every control is monochrome. The
@@ -170,12 +170,12 @@ it('rotates the chevron through a half-circle to show the state, rather than mer
 it('draws the chevron in the header’s own muted ink, in whichever scheme is rendering', async () => {
   for (const scheme of ['light', 'dark'] as const) {
     const styles = makeStyles(scheme);
-    expect(styles.formGroupChevron.borderRightColor).toBe(themeFor(scheme).fgMuted);
-    expect(styles.formGroupChevron.borderBottomColor).toBe(themeFor(scheme).fgMuted);
-    expect(styles.formGroupChevron.borderRightColor).toBe(styles.formGroupTitle.color);
+    expect(styles.disclosureChevron.borderRightColor).toBe(themeFor(scheme).fgMuted);
+    expect(styles.disclosureChevron.borderBottomColor).toBe(themeFor(scheme).fgMuted);
+    expect(styles.disclosureChevron.borderRightColor).toBe(styles.formGroupTitle.color);
   }
-  expect(makeStyles('light').formGroupChevron.borderRightColor).not.toBe(
-    makeStyles('dark').formGroupChevron.borderRightColor,
+  expect(makeStyles('light').disclosureChevron.borderRightColor).not.toBe(
+    makeStyles('dark').disclosureChevron.borderRightColor,
   );
 });
 

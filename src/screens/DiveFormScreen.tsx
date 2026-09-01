@@ -1110,10 +1110,22 @@ function cylinderSpecText(tanks: DiveFormInput['tanks'], units: UnitSystem): str
  * test that applied a preset and then changed the size; the version without it was green
  * everywhere else.
  *
- * The row is `DateTimeField`'s own shape — a label, a value trailing as text, the whole 48 dp
- * row pressable — because it is the same kind of thing: a field whose value is read rather than
- * typed and whose press opens something. The mark is §0.6's chevron, drawn and rotated, which
- * is what this app already means by "there is more behind this".
+ * **Its anatomy is a field row and its behaviour is a group header, and the two halves come
+ * from different places on purpose.** The anatomy is §0.6's own — a label leading, a value
+ * trailing as text — and, since this value is read rather than typed, it borrows
+ * `DateTimeField`'s `label: value` announcement so a screen reader hears what the cylinder IS
+ * rather than that a control exists.
+ *
+ * What it does **not** borrow is that control's behaviour, and an earlier version of this
+ * paragraph claimed it did: `DateTimeField` makes only the value SLOT pressable and fills the
+ * row with `surface` while its picker is open. Here the whole 48 dp row is the target (§0.5's
+ * wet thumb, and the same target a group header offers) and nothing fills, because the fill is
+ * what §0.6 reserves for focus and nothing here takes focus.
+ *
+ * The mark is `disclosureChevron`, drawn and rotated, under the rule §0.6 now states on the
+ * axis these two controls actually differ on: **a control that discloses further rows in place
+ * carries the chevron; one that opens a picker over the row does not.** This discloses rows —
+ * so it is a group header's kind of thing wearing a field row's clothes
  */
 function ControlledCylinderSpec({
   control,
@@ -1153,7 +1165,7 @@ function ControlledCylinderSpec({
               {summary ?? NOT_RECORDED}
             </Text>
           </View>
-          <View style={[styles.formGroupChevron, expanded && styles.formGroupChevronExpanded]} />
+          <View style={[styles.disclosureChevron, expanded && styles.disclosureChevronExpanded]} />
         </View>
       </Pressable>
       {expanded ? children : null}

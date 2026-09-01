@@ -1933,6 +1933,14 @@ function build(scheme: ColorScheme) {
     // state, needs no translation, and drops a word from a row that is otherwise pure
     // structure."
     //
+    // **Named for the rule rather than for its first caller** (M1h). It was `disclosureChevron`
+    // while a group header was the only thing that disclosed anything; §0.6 now states the
+    // rule on the axis the controls actually differ on — *a control that discloses further
+    // rows in place carries the chevron; one that opens a picker over the row does not, and it
+    // is never spent on navigation* — so the form's cylinder row wears the same mark for the
+    // same reason and `DateTimeField`'s picker trigger still wears none. A style named after
+    // one of its callers invites the next one to draw its own.
+    //
     // Drawn exactly as `reorderArrowUp`/`reorderArrowDown` above are, and for the reason
     // those record: neither bundled font (Archivo, IBM Plex Mono — theme/fonts.ts) carries a
     // chevron code point, so a typed one renders as tofu or nothing, device-dependent. That
@@ -1944,7 +1952,7 @@ function build(scheme: ColorScheme) {
     // `fgMuted` — the same ink `formGroupTitle` beside it wears, so the mark reads as part of
     // the header rather than as the loudest object on a row of quiet ones. The 2 dp stroke is
     // the smallest that stays visible against `bg` in both themes at this size.
-    formGroupChevron: {
+    disclosureChevron: {
       width: 9,
       height: 9,
       borderRightWidth: 2,
@@ -1960,7 +1968,7 @@ function build(scheme: ColorScheme) {
     // that snaps is still a rotation — §0.6 asks the mark to SHOW state, not to perform the
     // transition. Composed over the base style, which is why this repeats `transform` (the
     // whole property is replaced, not merged) and nothing else.
-    formGroupChevronExpanded: {
+    disclosureChevronExpanded: {
       transform: [{ rotate: '225deg' }],
     },
     formGroupBody: {

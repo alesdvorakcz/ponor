@@ -52,7 +52,7 @@ export interface FormGroupProps {
  * point, so a typed one renders as tofu or nothing, device-dependent — the same gap
  * `styles.ts` records for `reorderArrowUp`/`reorderArrowDown`. A word was one way out of
  * that; drawing the mark is the other, and §0.6 picks it for the reason it already gives
- * for rating marks. `formGroupChevron` (theme/styles.ts) is that drawing.
+ * for rating marks. `disclosureChevron` (theme/styles.ts) is that drawing.
  *
  * **Dropping the visible word does not drop the announced one.** `accessibilityLabel` still
  * says which of the two things pressing this will do, in words, and
@@ -76,7 +76,7 @@ export function FormGroup({ title, scheme, children, expanded, onToggle }: FormG
         {/* No `accessibilityLabel` and no role of its own: the whole 48 dp row is the
             control and already announces itself, and a mark that announced "chevron" beside
             it would have a screen reader read one button twice. */}
-        <View style={[styles.formGroupChevron, expanded && styles.formGroupChevronExpanded]} />
+        <View style={[styles.disclosureChevron, expanded && styles.disclosureChevronExpanded]} />
       </Pressable>
       {expanded ? <View style={styles.formGroupBody}>{children}</View> : null}
     </View>
