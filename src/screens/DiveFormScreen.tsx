@@ -1360,6 +1360,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * reasoning — this screen binds `tanks.0.*`, so an empty array would leave it SHOWING one
    * cylinder while HOLDING none.
    *
+   * The mirror of that: a preset holding SEVERAL cylinders applies all of them, and this
+   * form shows only the first, because "+ add cylinder" is not built yet (§6, and this
+   * group's own note above). They are held and saved rather than dropped — a bottom mix and
+   * a deco gas are what a multi-cylinder preset is FOR, and silently keeping only the first
+   * would lose gas the diver deliberately named. The dive-form UI catches up when that
+   * control lands; nothing here has to change for it.
+   *
    * `shouldDirty` keeps the applied cylinders through a reseed, exactly as `setPairedId`
    * above needs it to: `useDives()`/`useUnitSystem()` can resolve after this gesture, and
    * `resetOptions.keepDirtyValues` only protects a field react-hook-form knows the diver

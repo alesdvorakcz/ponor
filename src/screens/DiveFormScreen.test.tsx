@@ -3238,3 +3238,32 @@ it('keeps working when the preset read itself fails', async () => {
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
 });
+
+// The mirror of the empty-preset case: a preset holding a bottom mix AND a deco gas applies
+// both, even though this form still shows only the first cylinder ("+ add cylinder" is not
+// built — §6, and the group's own note). Keeping only the first would silently lose gas the
+// diver deliberately named, which is most of what a multi-cylinder preset is for.
+it('applies every cylinder a preset holds, not just the one the form shows', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubPresets([
+    preset({
+      name: 'bottom plus deco',
+      tanks: [
+        tank({ sizeL: 12, o2Pct: 21, startBar: null, endBar: null }),
+        tank({ sizeL: 7, o2Pct: 80, startBar: null, endBar: null }),
+      ],
+    }),
+  ]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'bottom plus deco');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  // The first is what the diver can see, and the second is what the form is holding for them.
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenTanks()).toHaveLength(2);
+  expect(writtenTanks()?.[1]?.sizeL).toBe(7);
+});
