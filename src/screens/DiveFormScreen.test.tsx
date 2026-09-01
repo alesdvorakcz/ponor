@@ -2283,12 +2283,28 @@ describe('before the dives read has answered', () => {
     expect(findLeave(t)).toBeDefined();
   });
 
-  it('still names what it is while it waits', async () => {
+  it('does not name what it is while it does not know, and names it correctly once it does', async () => {
+    // The claim this branch was still making (M1g). `headingFor` answers from the dive's STORED
+    // status, which is precisely what has not been read — so with `target` null it was told
+    // "logged" and said "Edit dive" over what may be a plan, then corrected itself to "Edit
+    // plan" a render later. That correction is the proof it had been guessing, and this is the
+    // one sentence left inside the code that exists so a screen with no answer does not state
+    // one. It says nothing instead, exactly as `DiveDetailScreen` and `GearPresetScreen` do.
     stubDives({ resolved: false });
-    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    // `headingFor`'s own answer for a dive that has not loaded, not a second string invented
-    // for this branch — so the heading does not change when the fields arrive under it.
-    expect(textIn(t)).toContain('Edit dive');
+    const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
+    expect(textIn(t).join(' ')).not.toContain('Edit dive');
+    // Both of the other things a heading could say, so a mutation cannot pass this by swapping
+    // one guess for another.
+    expect(textIn(t).join(' ')).not.toContain('Edit plan');
+    expect(textIn(t).join(' ')).not.toContain('Complete dive');
+
+    // **Withheld, not dropped**, and this half is what makes the assertions above a rule rather
+    // than a screen that lost its heading: the moment the dive arrives it is named, from its own
+    // stored status, and the name is the one the guess got wrong.
+    stubLogbookFor(dive({ id: 'p1', date: '2026-09-05', status: 'planned' }));
+    await t.rerender(<DiveFormScreen mode="edit" diveId="p1" />);
+    expect(textIn(t).join(' ')).toContain('Edit plan');
+    expect(textIn(t).join(' ')).not.toContain('Edit dive');
   });
 
   it('does not make a NEW dive wait for a read it does not need', async () => {

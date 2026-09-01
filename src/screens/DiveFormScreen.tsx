@@ -1021,6 +1021,13 @@ function StatusControl({ control, scheme }: { control: FormControl; scheme: Colo
  * *Complete dive* pill sets up (`editDiveLink.ts`), and what flipping the control by hand
  * sets up too. The heading, the control and the save's own label are three views of one
  * value, so they cannot disagree.
+ *
+ * **`stored` is never "not read yet", and the caller keeps it that way.** This function cannot
+ * answer without it — `null` already means create mode, or an edit of a dive that genuinely is
+ * not in the logbook — so a screen that called it while the dives read was still outstanding
+ * would be told "logged" and would say "Edit dive" over what may be a plan. That is what the
+ * waiting frame did until M1g. It now draws no heading at all rather than asking a question this
+ * function has no answer to, which is why nothing here has a case for it.
  */
 function headingFor(mode: 'create' | 'edit', stored: DiveStatus | null, chosen: DiveStatus): string {
   if (mode === 'create') return chosen === 'planned' ? 'New plan' : 'New dive';
@@ -1498,8 +1505,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     }
   };
 
-  // What this form is, from the one owner of that string (`headingFor`) — read here rather than
-  // inline so the waiting frame below and the form itself cannot say two different things.
+  // What this form is, from the one owner of that string (`headingFor`). Not read by the waiting
+  // frame below, which has nothing to ask it with — see that branch.
   const heading = headingFor(mode, target?.status ?? null, chosenStatus);
 
   // **Edit mode draws no fields until the dives read has answered** (M1f). Until it does,
@@ -1516,28 +1523,41 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // minute"). Carry-over arriving late is a FILL, handled by `keepDirtyValues`, not the
   // correction of a claim.
   //
-  // What is drawn instead is this screen's frame: the way out and the heading, which are the
-  // two things that are true before anything has been read. Both keep their exact positions
-  // when the fields arrive under them — same root, same `‹ Cancel`, same scroll, same heading
-  // row — so this is a frame filling in rather than a screen replacing itself. The save
-  // control is deliberately absent: §1's "never block a save" binds a control that refuses
-  // what a diver typed, and there is nothing typed and no dive to write it to. What happens
-  // once the answer IS in is untouched, in both directions — a real dive seeds and saves as
-  // before, and a dive that genuinely is not there still gets today's blank form and
-  // `MISSING_DIVE_MESSAGE` on save, which is the direction that must never loosen.
+  // What is drawn instead is this screen's frame: the way out, which is the one thing that is
+  // true before anything has been read. It keeps its exact position when the fields arrive
+  // under it — same root, same `‹ Cancel`, same scroll — so this is a frame filling in rather
+  // than a screen replacing itself. The save control is deliberately absent: §1's "never block
+  // a save" binds a control that refuses what a diver typed, and there is nothing typed and no
+  // dive to write it to. What happens once the answer IS in is untouched, in both directions —
+  // a real dive seeds and saves as before, and a dive that genuinely is not there still gets
+  // today's blank form and `MISSING_DIVE_MESSAGE` on save, which is the direction that must
+  // never loosen.
+  //
+  // **The heading is withheld too, and it was the last claim this branch made** (M1g). It read
+  // "Edit dive" over a dive that might be a plan: `headingFor` answers from the dive's STORED
+  // status, which is the very thing that has not been read yet, so with `target` still `null` it
+  // was told "logged" and said so. Not a regression — it read the same before this frame existed
+  // — but it is the one sentence left inside the code that exists so a screen with no answer
+  // does not state one, and the correction it made a render later ("Edit plan") is the visible
+  // proof it had been guessing.
+  //
+  // Silence rather than a fifth string, because `DiveDetailScreen` and `GearPresetScreen` both
+  // answer "no answer yet" exactly this way — the frame, the way out, and nothing said — and a
+  // third screen inventing a word for it would be three vocabularies for one fact (§4.1). A
+  // neutral "Edit" was the alternative and it fails on its own terms: `headingFor` exists to
+  // make the heading say what the save will do, and this frame has no save. §0.6's way out is
+  // rendered here exactly as it is on both of those screens, so the frame still reads as a
+  // screen and not as a failure.
   if (mode === 'edit' && !resolved) {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <CancelControl styles={styles} />
-        <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent}>
-          <View style={styles.formHeadingRow}>
-            <Text style={styles.formHeading}>{heading}</Text>
-            {/* No `StatusControl` here, unlike the row this mirrors: §2.4's control would be
-                showing a status read off a dive that has not been read, and a diver who moved
-                it in that moment would be moving a guess. It appears with the fields it
-                belongs to. */}
-          </View>
-        </ScrollView>
+        {/* Empty, and still here: it is the same scroll the fields mount into, so nothing that
+            is on screen moves when they do. No `formHeadingRow` inside it — that row exists to
+            carry the heading and §2.4's `StatusControl`, and neither can be shown from a dive
+            nobody has read: the control would be sitting on a status read off nothing, and a
+            diver who moved it in that moment would be moving a guess. */}
+        <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} />
       </View>
     );
   }
@@ -1554,9 +1574,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         {/* The header row (§2.4): what this form is, and the control that decides it. The
             heading is `headingFor`'s alone — it reads what the SAVE will do, from the
             control's live value and the dive's stored status together, so it can no longer
-            promise to complete a dive the save is going to leave planned. It says "Edit dive"
-            while the dive has not loaded yet, since nothing is yet known to complete — which
-            is now what the waiting frame above shows, from this same `heading`. */}
+            promise to complete a dive the save is going to leave planned. Reached only once the
+            dives read has answered (the branch above), so a `null` stored status here means
+            create mode or a dive that genuinely is not in the logbook — never "not looked
+            yet". */}
         <View style={styles.formHeadingRow}>
           <Text style={styles.formHeading}>{heading}</Text>
           <StatusControl control={control} scheme={scheme} />
