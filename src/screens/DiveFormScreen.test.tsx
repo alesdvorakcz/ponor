@@ -2786,10 +2786,26 @@ it('offers each of §2.3\'s four fields its own column of the diver\'s history',
   expect(suggestionsUnder(t, 'Guide')).toEqual(['Karel']);
 });
 
-// The other half of the same rule, and the one that fails for a screen that handed every
-// `ControlledTextField` a list: §2.3 names four fields, and title and notes are prose a
+// The other half of the same rule: §2.3 names four fields, and title and notes are prose a
 // diver wrote about one dive rather than names they reuse. `Max depth` stands for the
 // numeric fields, which have nothing to autocomplete from at all.
+//
+// **What this can and cannot fail on.** Stated because the obvious reading is wrong twice
+// over, and both readings were checked by mutation rather than reasoned about.
+//
+// A row draws a list only when BOTH gates open: `asSuggestedField(name)` names it one of
+// §2.3's four, and its call site passed `history`. So this cannot catch a screen that handed
+// every `ControlledTextField` a list (the name still decides), and it cannot catch `title`
+// being added to `SUGGESTED_FIELDS` either — that mutation was run, and this test stayed
+// green, because the `Title` call site passes no `history` for the new membership to act on.
+// No single edit reaches it.
+//
+// The half that IS single-edit falsifiable lives with the decision: `suggest.test.ts`'s
+// `covers exactly the four fields, and not the prose ones` fails the moment `title` or
+// `notes` joins that list, and `PAIRED_ID_FIELD`'s `Record` makes the same edit a build
+// error. What this test adds is the end-to-end statement that the wiring agrees with the
+// list — that no row outside those four was handed the other gate's key — which is the
+// claim a reader of this screen actually wants checked.
 it('offers nothing to the fields §2.3 does not name', async () => {
   stubDives({ dives: historyOfTwo() });
   const t = await render(<DiveFormScreen mode="create" />);
@@ -3266,4 +3282,65 @@ it('applies every cylinder a preset holds, not just the one the form shows', asy
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
   expect(writtenTanks()).toHaveLength(2);
   expect(writtenTanks()?.[1]?.sizeL).toBe(7);
+});
+
+// The third gesture that moves §6's snapshot pair, and the one nothing defended until now:
+// the `carried ×`. Typing and picking are pinned on the write payload above; clearing was
+// not, and deleting its `onPairedId` line left all 1012 tests green.
+//
+// **Create mode, because that is the only mode the chip exists in** — it means "this came
+// from your last dive", so `seedStateFor` marks nothing at all under edit. That makes the
+// assertion an absence rather than an explicit `null`: `toNewDiveInput` omits null fields, so
+// a cleared pair leaves neither half in the payload. It is still exactly falsifiable — with
+// the clear removed the payload carries `siteId: 'site-blue'` under no site name at all,
+// which is the defect in its purest form: a dive that names no site while pointing at one.
+it('clears the paired id when the carried chip is cleared, not only when a name is typed', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({
+    dives: [dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue', centerName: 'Aqua Divers', centerId: 'centre-aqua' })],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  const clearSite = findClearCarried(t, 'Site');
+  if (!clearSite) throw new Error('Site was not marked carried to begin with');
+  await fireEvent.press(clearSite);
+  const clearCentre = findClearCarried(t, 'Centre');
+  if (!clearCentre) throw new Error('Centre was not marked carried to begin with');
+  await fireEvent.press(clearCentre);
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
+  expect(findTextInput(t, 'Centre')?.props?.value).toBe('');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+  // Neither half of either pair. `siteId` alone would be a dive pointing at a site it does
+  // not name — and every id is null today, so nothing on screen could ever have shown it.
+  expect(Object.keys(writtenInput())).not.toContain('siteName');
+  expect(Object.keys(writtenInput())).not.toContain('siteId');
+  expect(Object.keys(writtenInput())).not.toContain('centerName');
+  expect(Object.keys(writtenInput())).not.toContain('centerId');
+});
+
+// §2.4 is why this is the right call, and a decision nothing defends is one an innocent
+// refactor deletes: adding `.filter(d => d.status === 'logged')` to the screen's `history`
+// used to leave every test green. A planned dive is a site the diver typed an hour ago on the
+// boat, which is the site they are most likely to type next.
+//
+// It also pins the deliberate DIFFERENCE from `carryOverSource`, which takes the most recent
+// LOGGED dive: the field opens on Silfra (carry-over skipped the planned dive) while the
+// planned dive's own site is still offered. One list, two questions, two answers.
+it('offers a site from a dive that is only planned, though carry-over skips it', async () => {
+  stubDives({
+    dives: [
+      dive({ status: 'planned', date: '2026-09-15', siteName: 'Kotelna' }),
+      dive({ status: 'logged', date: '2026-08-01', siteName: 'Silfra' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'kot');
+  expect(suggestionsUnder(t, 'Site')).toEqual(['Kotelna']);
 });
