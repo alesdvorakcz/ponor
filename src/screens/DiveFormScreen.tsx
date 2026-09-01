@@ -61,7 +61,7 @@ import {
 import { unitLabel, type UnitSystem } from '../format/units';
 import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 const EMPTY_TANK: TankFormInput = {
@@ -1111,7 +1111,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // screen uses") — never a second query, per this task's own brief. See
   // `initialFormValues`'s docblock for why `dives` (and therefore this) can change after
   // mount, and why that is handled below rather than assumed away.
-  const { dives } = useDives();
+  // `resolved` is read alongside the list because `dives` alone cannot say whether it has been
+  // read yet — see the waiting frame below, and `DiveListState.resolved` for the mechanism.
+  const { dives, resolved } = useDives();
   // The diver's units (§3). Its own hook, never a field on `useDives()` — see
   // db/useUnitSystem.ts. It decides what this form's figures are expressed in, so it is
   // part of the reseed gate below exactly as the seed dive's id is.
@@ -1477,6 +1479,50 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     }
   };
 
+  // What this form is, from the one owner of that string (`headingFor`) — read here rather than
+  // inline so the waiting frame below and the form itself cannot say two different things.
+  const heading = headingFor(mode, target?.status ?? null, chosenStatus);
+
+  // **Edit mode draws no fields until the dives read has answered** (M1f). Until it does,
+  // `target` is `null` — and `null` meant "no such dive" and "not read yet" at once, so edit
+  // mode seeded from `blankFormValues()` and drew thirty empty rows asserting that this dive
+  // has no site, no depth and no duration. A false statement, made every time the screen
+  // opened, corrected a render later; the same defect `DiveDetailScreen` showed as "Dive not
+  // found." and this screen shows as a form. §7's sync makes the first read slower, which
+  // makes the window this is visible in longer, not shorter.
+  //
+  // **Create mode never waits, and the `mode` check is the point of this line rather than a
+  // detail of it.** A new dive's blank form is the honest one — there is no dive for it to be
+  // blank ABOUT — and it is the app's most-used gesture (§2.2's "log a dive in under a
+  // minute"). Carry-over arriving late is a FILL, handled by `keepDirtyValues`, not the
+  // correction of a claim.
+  //
+  // What is drawn instead is this screen's frame: the way out and the heading, which are the
+  // two things that are true before anything has been read. Both keep their exact positions
+  // when the fields arrive under them — same root, same `‹ Cancel`, same scroll, same heading
+  // row — so this is a frame filling in rather than a screen replacing itself. The save
+  // control is deliberately absent: §1's "never block a save" binds a control that refuses
+  // what a diver typed, and there is nothing typed and no dive to write it to. What happens
+  // once the answer IS in is untouched, in both directions — a real dive seeds and saves as
+  // before, and a dive that genuinely is not there still gets today's blank form and
+  // `MISSING_DIVE_MESSAGE` on save, which is the direction that must never loosen.
+  if (mode === 'edit' && !resolved) {
+    return (
+      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+        <CancelControl styles={styles} />
+        <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent}>
+          <View style={styles.formHeadingRow}>
+            <Text style={styles.formHeading}>{heading}</Text>
+            {/* No `StatusControl` here, unlike the row this mirrors: §2.4's control would be
+                showing a status read off a dive that has not been read, and a diver who moved
+                it in that moment would be moving a guess. It appears with the fields it
+                belongs to. */}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     // The top clearance is the device's (`screenTopInset`, theme/styles.ts), the same owner
     // every other screen's root asks; `insets` is already read here for the footer's bottom
@@ -1484,33 +1530,16 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     // result — the correction, not a regression: this container used to start INSIDE the
     // safe area, and the control's own 48 dp tap floor (§0.5) disguised most of it.
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-      {/* The way out (M1d task 7, amendment D — found by using the app: this screen had
-          none at all). iOS's edge-swipe and Android's system back both worked, but nothing
-          on screen said so, while DiveDetailScreen next door has offered a visible `‹ Dives`
-          since M1c. Same treatment as that control — mono, muted, small, at §0.5's 48 dp
-          floor, pinned above the scroll rather than scrolling with it (`backControl` in
-          theme/styles.ts is now the one definition both share) — because it is the same kind
-          of thing: a way out, not an action, and nothing here may read like the primary
-          button. It writes NOTHING: `backToDives` and no save, in either mode. */}
-      <Pressable
-        style={styles.formBack}
-        onPress={backToDives}
-        accessibilityRole="button"
-        // Says what leaving does, which is the half a diver cannot see from the chevron:
-        // deliberately not containing the word "Save", so this can never be mistaken —
-        // by a screen reader or by a test query — for the save control below.
-        accessibilityLabel="Leave without saving"
-      >
-        <Text style={styles.formBackLabel}>‹ Cancel</Text>
-      </Pressable>
+      <CancelControl styles={styles} />
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
         {/* The header row (§2.4): what this form is, and the control that decides it. The
             heading is `headingFor`'s alone — it reads what the SAVE will do, from the
             control's live value and the dive's stored status together, so it can no longer
-            promise to complete a dive the save is going to leave planned. "Edit dive"
-            while the dive has not loaded yet, since nothing is yet known to complete. */}
+            promise to complete a dive the save is going to leave planned. It says "Edit dive"
+            while the dive has not loaded yet, since nothing is yet known to complete — which
+            is now what the waiting frame above shows, from this same `heading`. */}
         <View style={styles.formHeadingRow}>
-          <Text style={styles.formHeading}>{headingFor(mode, target?.status ?? null, chosenStatus)}</Text>
+          <Text style={styles.formHeading}>{heading}</Text>
           <StatusControl control={control} scheme={scheme} />
         </View>
 
@@ -1859,5 +1888,38 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         </Pressable>
       </View>
     </View>
+  );
+}
+
+/**
+ * The way out (M1d task 7, amendment D — found by using the app: this screen had none at all).
+ * iOS's edge-swipe and Android's system back both worked, but nothing on screen said so, while
+ * DiveDetailScreen next door has offered a visible `‹ Dives` since M1c. Same treatment as that
+ * control — mono, muted, small, at §0.5's 48 dp floor, pinned above the scroll rather than
+ * scrolling with it (`backControl` in theme/styles.ts is the one definition all three screens
+ * share) — because it is the same kind of thing: a way out, not an action, and nothing here may
+ * read like the primary button. It writes NOTHING: `backToDives` and no save, in either mode.
+ *
+ * **A component rather than JSX inline in the render, because this screen now has two frames
+ * that must both offer it** (M1f): the form itself, and the frame edit mode draws while the
+ * dives read has not answered. §0.6's "a form with no visible way out was shipped once and only
+ * found by using the app" binds hardest on the second of those — a screen showing nothing else
+ * at all — and a second copy of this control is exactly how one of the two frames ends up
+ * quietly losing it. `GearPresetScreen`'s own `BackControl` is the same shape one route over,
+ * kept separate only because it leaves to a different destination (`backToSettings`).
+ */
+function CancelControl({ styles }: { styles: Styles }) {
+  return (
+    <Pressable
+      style={styles.formBack}
+      onPress={backToDives}
+      accessibilityRole="button"
+      // Says what leaving does, which is the half a diver cannot see from the chevron:
+      // deliberately not containing the word "Save", so this can never be mistaken — by a
+      // screen reader or by a test query — for the save control at the bottom of the form.
+      accessibilityLabel="Leave without saving"
+    >
+      <Text style={styles.formBackLabel}>‹ Cancel</Text>
+    </Pressable>
   );
 }

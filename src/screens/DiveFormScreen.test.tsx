@@ -95,11 +95,19 @@ const mockCreatePreset = createGearPreset as jest.Mock;
  * so no test in this file can quietly reintroduce the stable-object fiction — and so
  * every test here exercises the hook's real worst case rather than a friendlier one.
  */
-function stubDives(state: { dives?: Dive[]; numbers?: Map<string, number>; error?: Error } = {}) {
+function stubDives(
+  state: { dives?: Dive[]; numbers?: Map<string, number>; error?: Error; resolved?: boolean } = {},
+) {
   mockUseDives.mockImplementation(() => ({
     dives: [...(state.dives ?? [])],
     numbers: new Map(state.numbers ?? []),
     error: state.error,
+    // Defaults to TRUE, and every test in this file that omits it means exactly that: it is
+    // about a form whose read has already produced an answer. The renders BEFORE that answer
+    // are their own describe block ("before the dives read has answered"), which passes
+    // `false` explicitly — so this default cannot quietly re-hide the defect that block
+    // exists for.
+    resolved: state.resolved ?? true,
   }));
 }
 
@@ -2221,17 +2229,78 @@ it('writes a cylinder the diver actually changed', async () => {
 });
 
 it('seeds the form from a dive that only arrives after the first render', async () => {
-  // `useDives()` starts empty and resolves asynchronously, so this is the ordinary case on
-  // a real device, not an edge one: `defaultValues` is read once at construction, and edit
-  // mode built on it alone would show a blank new-dive form over a real dive forever.
+  // `useDives()` answers asynchronously, so this is the ordinary case on a real device, not
+  // an edge one: `defaultValues` is read once at construction, and edit mode built on it
+  // alone would show a blank new-dive form over a real dive forever.
+  //
+  // The first render is stubbed the way the real hook actually behaves there — `resolved:
+  // false`, no answer yet (M1f) — which is also the half this test used to model wrongly, as
+  // an answered read holding no dives. Those are two different facts now, and the form draws
+  // no fields at all for the first, so the seeding this test exists for has to survive the
+  // fields MOUNTING late rather than merely being re-synced in place.
+  stubDives({ resolved: false });
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
+  expect(findTextInput(t, 'Site')).toBeUndefined();
 
   stubLogbookFor(existing());
   await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
 
   expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
   expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
+});
+
+/**
+ * M1f, and the third face of the same defect `DiveDetailScreen` and `GearPresetScreen` show
+ * as a sentence. Here it is thirty empty rows: on the renders before `useDives()` answers,
+ * `target` is `null`, edit mode seeds from `blankFormValues()`, and the diver is shown a form
+ * asserting that their dive has no site, no depth and no duration — then it corrects itself.
+ * `target === null` meant "not read yet" and "no such dive" at once, and the form said the
+ * second out loud while the first was true.
+ *
+ * So edit mode holds the frame — §0.6's way out and the heading, the two things that are true
+ * before anything is read — and draws the fields only once there is an answer. What that
+ * answer turns out to be is untouched: a dive that really is gone still gets today's blank
+ * form and `MISSING_DIVE_MESSAGE` on save (the test above), because a save against a missing
+ * dive refusing is the direction that must never loosen.
+ */
+describe('before the dives read has answered', () => {
+  it('draws no fields over a dive it has not read yet', async () => {
+    stubDives({ resolved: false });
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    expect(findTextInput(t, 'Site')).toBeUndefined();
+    expect(findTextInput(t, 'Max depth')).toBeUndefined();
+    // Nor the control that would write them: there is nothing on screen for it to save, and
+    // §1's "never block a save" is about a control that refuses, not about one that has no
+    // form under it yet.
+    expect(findSaveControl(t)).toBeUndefined();
+  });
+
+  it('still offers the way out while it waits', async () => {
+    stubDives({ resolved: false });
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    // §0.6: "A form with no visible way out was shipped once and only found by using the
+    // app." A frame drawn while waiting is exactly the screen where that would recur.
+    expect(findLeave(t)).toBeDefined();
+  });
+
+  it('still names what it is while it waits', async () => {
+    stubDives({ resolved: false });
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    // `headingFor`'s own answer for a dive that has not loaded, not a second string invented
+    // for this branch — so the heading does not change when the fields arrive under it.
+    expect(textIn(t)).toContain('Edit dive');
+  });
+
+  it('does not make a NEW dive wait for a read it does not need', async () => {
+    // Create mode's blank form is the honest one — there is no dive for it to be blank ABOUT
+    // — and it is the app's most-used gesture (§2.2). Carry-over lands later through
+    // `keepDirtyValues`, which is a fill, not the correction of a false statement. A gate
+    // that forgot `mode === 'edit'` would delay every new dive behind a database read.
+    stubDives({ resolved: false });
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(findTextInput(t, 'Site')).toBeDefined();
+    expect(findSaveControl(t)).toBeDefined();
+  });
 });
 
 it('writes nothing, and says so, when the dive being edited cannot be found', async () => {
