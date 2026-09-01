@@ -144,7 +144,9 @@ export default function SettingsScreen() {
   // §2.1's cylinder presets, from their own hook rather than a field on either read above —
   // see db/useGearPresets.ts for why a failed preset read must not be able to blank anything
   // else. Its `error` IS read here, and this is the screen it was carried for.
-  const { presets, error: presetsError } = useGearPresets();
+  // `resolved` is read alongside the list for the reason its own docblock gives: `presets`
+  // alone cannot say whether it has been read yet, and the line below states an answer.
+  const { presets, error: presetsError, resolved: presetsResolved } = useGearPresets();
 
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
@@ -283,7 +285,19 @@ export default function SettingsScreen() {
           {presets.map((preset) => (
             <PresetRow key={preset.id} preset={preset} units={units} styles={styles} />
           ))}
-          {presets.length === 0 && (
+          {/* **Neither sentence is said until there is an answer to say one about** (M1f).
+              `useGearPresets()` hands back an empty list on the renders before its query
+              returns, so "save one from a dive" — a claim about what this diver has — was told
+              to every diver on every open of this screen, including the ones with four presets.
+              `presetsError` decides WHICH sentence; `presetsResolved` decides WHETHER there is
+              one, the same two-part gate `GearPresetScreen` puts on its own pair one route
+              deeper, and safe in this order only because a failed read counts as an answer
+              (`isResolved`, db/liveQuery.ts).
+
+              The heading above stays put through all of it, so this is a section filling in
+              rather than one appearing: nothing on screen moves when the line or the rows land
+              under it. */}
+          {presetsResolved && presets.length === 0 && (
             <View style={styles.settingsPresetEmpty}>
               <Text style={styles.settingsCaptionText}>
                 {presetsError === undefined ? NO_PRESETS : PRESETS_UNREADABLE}

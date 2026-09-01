@@ -94,9 +94,12 @@ function entryKey(entry: ListEntry): string {
  * `searchDives` below all operate on the order `useDives()` already hands
  * back rather than re-deriving it.
  *
- * Three states can look identical to a diver unless they're kept visibly
+ * Four states can look identical to a diver unless they're kept visibly
  * distinct, so each gets its own branch below: a failed read (`error` set)
  * is reported as a failure and must never fall through to "empty logbook";
+ * a read that has not answered yet (`resolved` false, M1f) states nothing
+ * at all, because an unread logbook and an empty one are the same `[]` and
+ * "Log your first dive" was told to every diver on every launch;
  * a genuinely empty logbook (`dives.length === 0`) shows the "log your
  * first dive" prompt; and a non-empty logbook whose *search* matches
  * nothing says so on its own, with the search box left in place so a diver
@@ -159,7 +162,10 @@ export default function DivesScreen() {
   // place per screen decides, and every component below stays a pure function of its props.
   const units = useUnitSystem();
   const styles = makeStyles(scheme);
-  const { dives, numbers, error, settingsError } = useDives();
+  // `resolved` is read alongside the list because `dives` alone cannot say whether it has been
+  // read yet — see the branch below the fatal one, and `DiveListState.resolved` for why the
+  // signal is `updatedAt` rather than an empty `data`.
+  const { dives, numbers, error, settingsError, resolved } = useDives();
   const wide = useWideLayout();
   // The device's own safe area, read for how far down this screen's content begins: the
   // pinned bar in the narrow layout (`bar`, below) and the wide layout's "nothing selected"
@@ -311,11 +317,14 @@ export default function DivesScreen() {
    * the owner's deliberate choice, on the grounds that the tab bar already says which screen
    * this is, so the screen is never left unidentified.
    *
-   * `actions` is optional, and the two branches that omit it are saying something. A failed
+   * `actions` is optional, and the three branches that omit it are saying something. A failed
    * read has no logbook to search and no dive worth adding to a database that would not
    * read it back; an empty logbook has nothing to search either, and §3 already gives that
    * branch the full-size "Log your first dive" in the thumb zone (§0.5) rather than a
-   * 19 px glyph at the far corner. Both keep the TITLE, so the screen names itself in every
+   * 19 px glyph at the far corner; and a read that has not answered (M1f) knows neither, so
+   * offering a search that could only answer "No dives match your search" would be the same
+   * false statement the branch below it was fixed for. All three keep the TITLE, so the
+   * screen names itself in every
    * state, and `divesBarRow`'s own `minHeight` holds the bar at the height the capsule gives
    * it so that name does not move between branches.
    */
@@ -352,6 +361,33 @@ export default function DivesScreen() {
             Couldn&apos;t open your logbook. Try closing and reopening the app.
           </Text>
         </View>
+      </View>
+    );
+  }
+
+  // **"Your logbook is empty" is an answer, so it waits for one** (M1f). `useDives()` hands back
+  // an empty list on the renders before its query returns, and this branch could not tell that
+  // from a diver's genuine first run — so `EmptyState` filled the whole screen to tell a diver
+  // with eleven logged dives that they had none, every time the app opened. The loudest of the
+  // five false statements `resolved` closes, and the one that degrades worst under §7's sync: a
+  // slow first read stretches the frame, and a diver whose logbook appears to have vanished is
+  // the one who goes hunting for a restore button.
+  //
+  // What is drawn instead is the same frame the two branches around it draw — the bar and the
+  // large title, this screen naming itself in every state (`bar`'s own docblock) — with nothing
+  // under it. So the title does not move when the logbook, or the prompt, lands beneath it.
+  // `bar()` carries no actions here for the reason the branches either side of it carry none:
+  // there is nothing yet to search, and a search run against a list that has not been read
+  // would answer "No dives match your search", which is the same lie one screen further in.
+  //
+  // Below the fatal `error` branch rather than above it, and it makes no difference which:
+  // a failed read counts as resolved (`isResolved`, db/liveQuery.ts) precisely so that the two
+  // orderings are equivalent instead of one of them silently never reporting the failure.
+  if (!resolved) {
+    return (
+      <View style={styles.divesScreen}>
+        {bar()}
+        {title}
       </View>
     );
   }
@@ -509,9 +545,19 @@ export default function DivesScreen() {
       {settingsError !== undefined && (
         // Not a Pressable, unlike reorderMessage above: this tracks useDives()'s live
         // settingsError, not a one-off action outcome, so there is no single attempt to
-        // dismiss — it clears itself once the settings read next succeeds. See this file's
-        // own top docblock (Important #3) for why a failed settings read must not blank
-        // the dives below, and must not fail silently either.
+        // dismiss. See this file's own top docblock (Important #3) for why a failed settings
+        // read must not blank the dives below, and must not fail silently either.
+        //
+        // **It does not clear itself, and this line used to say it did** (corrected M1f).
+        // `useLiveQuery` calls `setError` only in its two failure paths and never clears it
+        // (drizzle-orm/expo-sqlite/query.js), so once the settings read has failed, `error`
+        // stays set for the life of this component: a later successful re-run sets `data` and
+        // `updatedAt` and leaves the banner standing over numbers that are now correct. What
+        // to do about that is a real decision — it needs an answer to what "recovered" means
+        // given those error semantics, and possibly a wrapper around `useLiveQuery` rather
+        // than a change here — so it is recorded as owed rather than invented. The comment is
+        // corrected now regardless, because a comment asserting behaviour the code does not
+        // have is the defect class this project keeps paying for.
         <View style={styles.settingsNotice}>
           <Text style={styles.settingsNoticeText}>
             Couldn&apos;t read your settings — dive numbers may be missing your pre-Ponor count.

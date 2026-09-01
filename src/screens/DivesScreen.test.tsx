@@ -267,17 +267,29 @@ it('shows the empty state when there are no dives', async () => {
 
 /**
  * M1f. `resolved` (useDives.ts) exists because `dives: []` means "no dives" and "not read yet"
- * at once, and three screens asserted the first while the second was true. **This screen is
- * deliberately not one of them**, and that is a decision rather than an omission, so it is
- * pinned here: an empty logbook is the ANSWER "Log your first dive" is correct for, and it must
- * keep arriving the instant that answer does.
+ * at once, and every screen holding this hook asserted the first while the second was true.
+ * **"You have no dives" is an answer**, and this screen's version of it is the loudest of the
+ * five: `EmptyState` fills the whole screen to tell a diver with eleven logged dives that their
+ * logbook is empty. Worse to see for a frame than any of the sentences, and it degrades the
+ * same way under §7's sync — a diver whose data appears to have vanished is exactly the person
+ * who goes hunting for a restore button.
  *
- * The failure this guards against is the fix for the other three screens being copied here by
- * symmetry — a gate on `resolved` that never opens, or opens on the wrong polarity, leaving a
- * first-run diver looking at a bar, a title and nothing else, with no way to log anything at
- * all. `EmptyState`'s action is the entire first-run experience (the test below), and §3 gives
- * this branch that full-size control in the thumb zone precisely because it is the only way in.
+ * The pair below is one guard and needs both halves. Absent while there is no answer; PRESENT
+ * the instant the answer is "no dives", because a gate that never opens — or opens on the wrong
+ * polarity — leaves a first-run diver looking at a bar, a title and nothing else, with no way
+ * to log anything at all. `EmptyState`'s action is the entire first-run experience (the test
+ * below), and §3 gives this branch that full-size control in the thumb zone precisely because
+ * it is the only way in.
  */
+it('does not tell a diver their logbook is empty before it has been read', async () => {
+  stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: false });
+  const t = await render(<DivesScreen />);
+  expect(textIn(t).join(' ')).not.toContain('Log your first dive');
+  // The frame is still drawn, and it is the same frame: this screen names itself in every
+  // state (`bar`'s own docblock), so the title does not move when the logbook lands under it.
+  expect(textIn(t).join(' ')).toContain('Dives');
+});
+
 it('shows the empty state as soon as the read answers with no dives, rather than waiting for more', async () => {
   stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: true });
   const t = await render(<DivesScreen />);
