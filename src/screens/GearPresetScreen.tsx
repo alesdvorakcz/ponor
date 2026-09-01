@@ -182,7 +182,9 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
   // theme/styles.ts) — never a constant, which is inside the safe area on an island phone.
   const insets = useSafeAreaInsets();
   const units = useUnitSystem();
-  const { presets, error } = useGearPresets();
+  // `resolved` is read alongside the list because `presets` alone cannot say whether it has
+  // been read yet — see the not-found branch below, and `GearPresetListState.resolved`.
+  const { presets, error, resolved } = useGearPresets();
 
   const preset = presetId === undefined ? null : (presets.find((p) => p.id === presetId) ?? null);
 
@@ -230,9 +232,27 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <BackControl styles={styles} />
         <View style={styles.centerFill}>
-          <Text style={styles.messageText}>
-            {error === undefined ? MISSING_PRESET_MESSAGE : PRESETS_UNREADABLE}
-          </Text>
+          {/* **Neither sentence is said until there is an answer to say one about** (M1f), and
+              this is the same gate `DiveDetailScreen` puts on "Dive not found." — one rule, so
+              the two screens go quiet in the same circumstances instead of each inventing a
+              rule. `useGearPresets()` hands back an empty list on the renders before its query
+              returns, so this branch is reached for a preset that exists, and both sentences
+              below are then claims about a database nothing has asked yet. "May have been
+              deleted" is the worse of the two to say early: it sends a diver looking for
+              something that is not lost.
+
+              `error` decides WHICH sentence; `resolved` decides WHETHER there is one. That
+              ordering only works because a failed read counts as an answer (`isResolved`,
+              db/liveQuery.ts) — a read that stayed unresolved on failure would leave this
+              screen silent about the failure for ever.
+
+              The way out above is rendered on both branches and in both states (§0.6), and
+              nothing on this frame moves when the sentence or the editor arrives under it. */}
+          {resolved && (
+            <Text style={styles.messageText}>
+              {error === undefined ? MISSING_PRESET_MESSAGE : PRESETS_UNREADABLE}
+            </Text>
+          )}
         </View>
       </View>
     );

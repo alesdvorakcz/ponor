@@ -578,7 +578,9 @@ export default function DiveDetailScreen({
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
-  const { dives, numbers } = useDives();
+  // `resolved` is read alongside the list because `dives` alone cannot say whether it has been
+  // read yet — see the not-found branch below, and `DiveListState.resolved` for the mechanism.
+  const { dives, numbers, resolved } = useDives();
   // The diver's units (§3), read here rather than taken as a prop even on the wide layout,
   // where DivesScreen renders this component directly: it is a preference, not something
   // the embedding screen decides, and a prop would be a second place that could disagree
@@ -605,7 +607,21 @@ export default function DiveDetailScreen({
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         {showBackButton && <BackButton styles={styles} />}
         <View style={styles.centerFill}>
-          <Text style={styles.messageText}>Dive not found.</Text>
+          {/* **The sentence waits for an answer; the frame does not** (M1f). `useDives()` hands
+              back an empty list on the renders before its query returns, which is why this
+              branch is reached for a dive that exists — and "Dive not found." is then a claim
+              about the database that nothing has yet asked the database. Said for a frame every
+              time this screen opened, and correct only by accident: it was followed by the dive
+              itself. M2 is what makes it dangerous rather than merely wrong — sync makes the
+              first read slower, and §7's tombstones make "deleted on another device" a real
+              answer, so the same sentence becomes plausible exactly when it is still a guess.
+
+              What is drawn instead is this screen's frame with nothing in the middle of it,
+              which is the honest render for "no answer yet": the way out above is rendered on
+              BOTH branches and in both states (§0.6 — "a form with no visible way out was
+              shipped once and only found by using the app"), and nothing moves when the sentence
+              or the dive arrives under it. */}
+          {resolved && <Text style={styles.messageText}>Dive not found.</Text>}
         </View>
       </View>
     );

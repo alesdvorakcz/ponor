@@ -16,6 +16,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { db } from '../db/client';
 import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
+import { PRESETS_UNREADABLE } from '../domain/presets';
 import { TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -103,9 +104,14 @@ const tank = (over: Partial<Tank> = {}): Tank => ({
  * brand-new array whenever the memo's input changes — so a stub handing back one
  * referentially-stable array forever would model a contract the hook does not have, and this
  * screen holds state keyed off what it reads.
+ *
+ * `resolved` defaults to TRUE, and every call below that omits it means exactly that: it is
+ * about what this screen shows once the read has produced an answer. The renders BEFORE that
+ * answer are their own describe block ("before the preset read has answered"), which passes
+ * `false` explicitly — so this default cannot quietly re-hide the defect that block exists for.
  */
-function stubPresets(presets: GearPreset[] = [], error?: Error) {
-  mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error }));
+function stubPresets(presets: GearPreset[] = [], error?: Error, resolved = true) {
+  mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error, resolved }));
 }
 
 beforeEach(() => {
@@ -330,6 +336,47 @@ it('says the id names nothing live, rather than showing a blank editor', async (
   // save, or — the danger `MISSING_DIVE_MESSAGE` records for the dive form — quietly create
   // a second one.
   expect(findField(t, 'Preset name')).toBeUndefined();
+});
+
+/**
+ * M1f, and the same guard `DiveDetailScreen` carries for "Dive not found." — one rule, so the
+ * two screens say nothing in the same circumstances rather than each inventing a rule.
+ *
+ * `useGearPresets()` answers asynchronously, and on the renders before it does this screen is
+ * handed an empty list, which is indistinguishable from a diver whose preset really is gone.
+ * So it said "may have been deleted" about a preset that was there, every time — and that
+ * sentence sends a diver looking for something that is not lost.
+ *
+ * Three cases, and it needs all three: absent while there is no answer, PRESENT once there is
+ * one (or a gate with its polarity reversed passes the first alone), and the way out surviving
+ * both — §0.6's "a form with no visible way out was shipped once and only found by using the
+ * app", which binds hardest on a screen showing nothing else at all.
+ */
+describe('before the preset read has answered', () => {
+  it('does not claim the preset may have been deleted', async () => {
+    stubPresets([], undefined, false);
+    const t = await render(<GearPresetScreen presetId="target" />);
+    expect(textIn(t).join(' ')).not.toContain("Couldn't find that preset");
+  });
+
+  it('does not claim the presets could not be read either', async () => {
+    // The other sentence this branch can say. Neither is known yet, so neither is said.
+    stubPresets([], undefined, false);
+    const t = await render(<GearPresetScreen presetId="target" />);
+    expect(textIn(t).join(' ')).not.toContain(PRESETS_UNREADABLE);
+  });
+
+  it('still offers the way out while it waits', async () => {
+    stubPresets([], undefined, false);
+    const t = await render(<GearPresetScreen presetId="target" />);
+    expect(findControl(t, 'Leave without saving')).toBeDefined();
+  });
+
+  it('says it the moment the read answers and the preset really is not there', async () => {
+    stubPresets([preset({ id: 'other' })], undefined, true);
+    const t = await render(<GearPresetScreen presetId="target" />);
+    expect(textIn(t).join(' ')).toContain("Couldn't find that preset");
+  });
 });
 
 // `useGearPresets()` resolves asynchronously — the first render of this screen always sees an

@@ -157,6 +157,12 @@ const mockUseDives = useDives as jest.Mock;
  */
 function stubDives(state: Partial<DiveListState>) {
   mockUseDives.mockImplementation(() => ({
+    // `resolved` defaults to TRUE, and every test in this file that omits it means exactly
+    // that: it is about what this screen shows once the read has produced an answer. The
+    // renders BEFORE that answer are their own describe block ("before the dives read has
+    // answered"), which sets it explicitly — so this default cannot quietly re-hide the
+    // defect that block exists for. Written before the spread so an explicit value wins.
+    resolved: true,
     ...state,
     dives: [...(state.dives ?? [])],
     numbers: new Map(state.numbers ?? []),
@@ -1440,6 +1446,42 @@ it('offers neither action for a dive it could not find', async () => {
   expect(findControl(t, 'Complete dive')).toBeUndefined();
   expect(findControl(t, 'Delete dive')).toBeUndefined();
   expect(textIn(t).join(' ')).toContain('Dive not found');
+});
+
+/**
+ * M1f. `useDives()` answers asynchronously, and on the renders before it does this screen is
+ * handed an empty list — which, until `resolved` existed, was indistinguishable from a
+ * logbook that genuinely does not hold this dive. So the screen said "Dive not found." about
+ * a dive that was there, every time, and then corrected itself a render later.
+ *
+ * The three cases below are one guard, and it needs all three: the sentence must be absent
+ * while there is no answer, PRESENT once there is one (or a gate with the polarity reversed
+ * passes the first test alone), and the way out must survive both — §0.6's "a form with no
+ * visible way out was shipped once and only found by using the app", which applies with more
+ * force to a screen showing nothing else at all.
+ */
+describe('before the dives read has answered', () => {
+  it('does not claim the dive is missing', async () => {
+    stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: false });
+    mockUseLocalSearchParams.mockReturnValue({ id: 'target' });
+    const t = await render(<DiveDetailScreen />);
+    expect(textIn(t).join(' ')).not.toContain('Dive not found');
+  });
+
+  it('still offers the way out while it waits', async () => {
+    stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: false });
+    mockUseLocalSearchParams.mockReturnValue({ id: 'target' });
+    const t = await render(<DiveDetailScreen />);
+    // Throws if there is none, so this asserts on the query rather than on `undefined`.
+    expect(findBackButton(t)).toBeDefined();
+  });
+
+  it('says it the moment the read answers and the dive really is not there', async () => {
+    stubDives({ dives: [dive({ id: 'some-other-id' })], numbers: new Map(), error: undefined, resolved: true });
+    mockUseLocalSearchParams.mockReturnValue({ id: 'target' });
+    const t = await render(<DiveDetailScreen />);
+    expect(textIn(t).join(' ')).toContain('Dive not found');
+  });
 });
 
 // DESIGN.md §3's unit setting, on the screen that shows the most figures at once. The
