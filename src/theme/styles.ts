@@ -148,6 +148,30 @@ function build(scheme: ColorScheme) {
     color: theme.actionFg,
   };
 
+  // A control that is a deliberate act rather than the screen's primary one: *Delete dive*,
+  // *Delete preset*, and the dive form's own *Save as preset*. §0.1 spends every hue on
+  // depth, so there is nothing to make a destructive control look destructive — and a plain
+  // muted label is exactly right for one you should not hit by accident (§10: "a destructive
+  // confirmation is OS chrome; the app's own control stays muted"). The weight goes into the
+  // platform dialog that follows, which this app does not draw.
+  //
+  // One definition rather than three literals, the same reasoning `backControl` above
+  // records. It was already three: `detailDelete`/`detailDeleteLabel` below, and
+  // `formPresetActionLabel`, whose own comment said it was "`detailDelete`'s shape" while
+  // being a byte-identical retyping of it. The call sites differ in how they are PLACED — the
+  // two deletes are centred at the end of their screen's content, the preset control trails
+  // inside a group of trailing-value rows — and that is set there.
+  const mutedControl: ViewStyle = {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+  const mutedControlLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 14,
+    color: theme.fgMuted,
+  };
+
   // §0.6's quiet control: "a bordered pill in tracked uppercase, not plain text, so it
   // reads as a control rather than a label." Written once and used by the day strip's
   // Reorder/Done, by an "Up next" row's *Complete dive* (§2.4), and by the form's own
@@ -1343,16 +1367,8 @@ function build(scheme: ColorScheme) {
       marginHorizontal: 0,
     },
     detailDeleteErrorText: noticeBannerText,
-    detailDelete: {
-      minHeight: 48,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    detailDeleteLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 14,
-      color: theme.fgMuted,
-    },
+    detailDelete: mutedControl,
+    detailDeleteLabel: mutedControlLabel,
     // M1c task 7 (§0.6: "Chrome the type scale does not cover"): this used to be
     // sans-medium 16 in full ink — the exact size/weight/colour family a heading uses on
     // this screen (`detailHeroSite` is sans-semibold 22) — and read as one. "Mono, muted
@@ -2006,13 +2022,40 @@ function build(scheme: ColorScheme) {
       // target wider than the words themselves without a visible box around it.
       paddingHorizontal: 8,
     },
-    formPresetActionLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 14,
-      color: theme.fgMuted,
-    },
+    formPresetActionLabel: mutedControlLabel,
     // ------------------------------------------------------------------------------------
-    // Settings (DESIGN.md §3, M1's two entries: units and `dives_before`)
+    // The cylinder-preset editor (DESIGN.md §3 and §10, M1e) — `GearPresetScreen`
+    // ------------------------------------------------------------------------------------
+    // Almost every style this screen needs is already the form's, and that is the point
+    // (§0.6: "the form is the dive detail you can type into", and §3's preset editor is that
+    // same grammar asking about a cylinder set). It takes `screen`, `formBack`/`formBackLabel`,
+    // `formScroll`/`formScrollContent`, `formFooter`, `action`/`actionLabel` and every
+    // `formField*` row through the shared components, unchanged. Only the three keys below
+    // are its own, and each is a thing the form has no equivalent of.
+    //
+    // The title: `screenHeading` plus the row inset, which is exactly the composition
+    // `settingsHeading` below makes — a block title with nothing on its line, so plain
+    // `screenHeading` rather than `headingTitle`'s `flex: 1`. Two keys from one definition
+    // rather than one key shared across two screens, on `detailBack`/`formBack`'s own
+    // precedent: the placement is per screen, the type is not.
+    presetHeading: {
+      ...screenHeading,
+      paddingHorizontal: FORM_ROW_INSET,
+    },
+    // Deleting a preset — `mutedControl` at the top of this function, the same object
+    // *Delete dive* is, at the end of the same kind of deliberate reach.
+    presetDelete: mutedControl,
+    presetDeleteLabel: mutedControlLabel,
+    // A failed save or a failed delete, said plainly (§10: "a local save failure is shown to
+    // the diver"). `noticeBanner`'s own shape, with its horizontal margin intact — unlike
+    // `detailDeleteError` above, which drops it because `detailContent` already pads its
+    // children; this screen's scroll content deliberately has no horizontal padding of its
+    // own (`formScrollContent`, so a row's hairline reaches the screen's edges), so the
+    // banner has to carry its own.
+    presetNotice: noticeBanner,
+    presetNoticeText: noticeBannerText,
+    // ------------------------------------------------------------------------------------
+    // Settings (DESIGN.md §3: units, `dives_before`, and the cylinder-preset list)
     // ------------------------------------------------------------------------------------
     // The screen is a column of §0.6 rows, exactly as the form is — "a field is a row, label
     // leading, value trailing" — so it borrows the form's scroll shape and its row inset
@@ -2048,6 +2091,60 @@ function build(scheme: ColorScheme) {
       fontSize: 12.5,
       color: theme.fgMuted,
       lineHeight: 17,
+    },
+    // A named group of rows on this screen — §3's cylinder presets, which is the first thing
+    // here that is a *list* rather than a setting and so needs saying what it is.
+    //
+    // `clusterLabel` (this function's own top), the same treatment §0.6 gives *Conditions*
+    // and *Gas & cylinders* on both the form and the detail: "A group header is a cluster
+    // label — Plex Mono 10.5, uppercase, +0.14 em, muted." Nothing new is invented for one
+    // heading. `paddingBottom` is what keeps it off the first row's own top hairline, which
+    // that row draws for itself (`formField`); the row inset puts it in the column the names
+    // beneath it land in.
+    settingsSectionTitle: {
+      ...clusterLabel,
+      paddingHorizontal: FORM_ROW_INSET,
+      paddingBottom: 8,
+    },
+    // A preset's name, leading its row exactly as `Units` leads its own — `rowLabel`, in full
+    // ink rather than muted.
+    //
+    // **Ink versus muted ink is the only lever** (§0.6, which uses it for exactly this
+    // twice: `detailActionLabel` over `detailBackLabel`, and `tripTitleUpNext` over a trip's
+    // own title). "Units" and "Dives before Ponor" are fixed words naming a setting, and
+    // muted is right for them. A preset's name is the diver's own data and the thing they
+    // scan this list for, so it takes `fg`; §0.1 rules out a hue and a different shape would
+    // be new vocabulary for one row.
+    //
+    // `flexShrink: 1` for the reason `formFieldLabel` records: §0.5's "Czech runs 20–30 %
+    // longer", and a long name must wrap rather than truncate.
+    settingsPresetName: {
+      ...rowLabel,
+      color: theme.fg,
+      flexShrink: 1,
+    },
+    // The cylinders under that name (`formatCylinders`, format/display.ts) — §0.6's row
+    // metadata, which is precisely what this is: "Plex Mono 11.5 · time · duration · rating,
+    // middot-separated". Mono because it is almost entirely figures (§0.6: "Figures in mono,
+    // names in sans"), which is also why it is not `settingsCaptionText` above — that is a
+    // sentence in Archivo explaining what a row does, and this is data about the row.
+    //
+    // Leading, under the name, in the slot §0.6 gives a field's second line — not trailing in
+    // the value column, where a two-cylinder summary would wrap into a two-word-wide ribbon
+    // beside a name that had been squeezed to make room for it.
+    settingsPresetSummary: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      lineHeight: 17,
+    },
+    // The line that stands where the preset rows would be: either "you have none yet" or
+    // "they could not be read", which are different sentences and must not be confused
+    // (db/useGearPresets.ts's `error` exists for exactly that). `settingsCaption`'s own
+    // treatment — a sentence under a heading, leading, no box — with the top padding it does
+    // not need here, since there is no row above it for it to clear.
+    settingsPresetEmpty: {
+      paddingHorizontal: FORM_ROW_INSET,
     },
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")

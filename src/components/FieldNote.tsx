@@ -1,0 +1,50 @@
+import { Text, View } from 'react-native';
+
+import { makeStyles } from '../theme/styles';
+import { type ColorScheme } from '../theme/tokens';
+
+/**
+ * The line of text under a field that has something to say about its own value, or nothing
+ * at all when it has not. Shared by every controlled field on the dive form and by §3's
+ * cylinder-preset editor, rather than written out in each, so "a field speaks next to the
+ * control it belongs to" is one rule in one place.
+ *
+ * **It lives here rather than inside `DiveFormScreen.tsx` for the reason `OptionChips`
+ * does**: two screens now ask the same question, and §0.6's answer is a rule with a shipped
+ * defect behind it — "**A field error is text, not a field.** Muted, trailing, under the row
+ * it belongs to. Shipped once as a white rounded box the same height as an input, which read
+ * as a second empty field rather than as a message." A second copy of that is free to become
+ * the box again.
+ *
+ * It carries three different kinds of sentence, and the difference is worth stating because
+ * the treatment is identical.
+ *
+ * **A refusal.** `date` is the one field on the dive form that can still stop a save, and
+ * when it does `handleSubmit` refuses to call `onValid` for the WHOLE form. Before this
+ * existed that refusal was completely silent: type `31.8.2026`, the Czech spelling of a real
+ * date in an app that ships `cs`, tap Save, and nothing happened. Since M1d's pickers the
+ * field can no longer *produce* an unreadable value, and it should never fire for anything a
+ * diver does there; it stays because the schema is the domain's guarantee rather than one
+ * form's, and carry-over prefills that form from rows M2 sync delivered. The preset editor's
+ * own refusals — an empty name, a name another preset already has, cylinders emptied to
+ * nothing — take the same slot, next to the row each is about.
+ *
+ * **A note.** The option and boolean fields no longer refuse anything at all (DESIGN.md §10,
+ * settled after M1d: "a value outside the expected range is saved and can be flagged; it is
+ * not refused"). A value from a newer client is kept and saved, and `unknownOptionNote` /
+ * `unknownBooleanNote` (diveFormSchema.ts) say so here — where a refusal used to be a dead
+ * Save button and, before that, silence.
+ *
+ * Those two sentences come from `diveFormSchema.ts` rather than from a caller, for the same
+ * reason: what a value means is that file's rule to state, and a copy at a screen would
+ * drift the first time the rule changed.
+ */
+export function FieldNote({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
+  const styles = makeStyles(scheme);
+  if (message === undefined) return null;
+  return (
+    <View style={styles.formFieldError}>
+      <Text style={styles.formFieldErrorText}>{message}</Text>
+    </View>
+  );
+}

@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateTimeField } from '../components/DateTimeField';
+import { FieldNote } from '../components/FieldNote';
 import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
@@ -457,43 +458,6 @@ interface ControlledTextFieldProps {
    * have to know which of the four it is.
    */
   onPairedId?: (field: SuggestedField, id: string | null) => void;
-}
-
-/**
- * The line of text under a field that has something to say about its own value, or nothing
- * at all when it has not. Shared by every controlled field wrapper below rather than written
- * out in each, so "a field speaks next to the control it belongs to" is one rule in one
- * place.
- *
- * It carries two different kinds of sentence, and the difference is worth stating because
- * the treatment is identical (§0.6: "a field error is text, not a field").
- *
- * **A refusal.** `date` is the one field on this form that can still stop a save, and when
- * it does `handleSubmit` refuses to call `onValid` for the WHOLE form. Before this existed
- * that refusal was completely silent: type `31.8.2026`, the Czech spelling of a real date in
- * an app that ships `cs`, tap Save, and nothing happened. Since M1d's pickers the field can
- * no longer *produce* an unreadable value, and this should never fire for anything a diver
- * does here; it stays because the schema is the domain's guarantee rather than this form's,
- * and carry-over prefills this form from rows M2 sync delivered.
- *
- * **A note.** The option and boolean fields no longer refuse anything at all (DESIGN.md §10,
- * settled after M1d: "a value outside the expected range is saved and can be flagged; it is
- * not refused"). A value from a newer client is kept and saved, and `unknownOptionNote` /
- * `unknownBooleanNote` (diveFormSchema.ts) say so here — where a refusal used to be a dead
- * Save button and, before that, silence.
- *
- * Both sentences come from `diveFormSchema.ts` rather than being written here, for the same
- * reason: what a value means is that file's rule to state, and a copy here would drift the
- * first time the rule changed.
- */
-function FieldNote({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
-  const styles = makeStyles(scheme);
-  if (message === undefined) return null;
-  return (
-    <View style={styles.formFieldError}>
-      <Text style={styles.formFieldErrorText}>{message}</Text>
-    </View>
-  );
 }
 
 /**
