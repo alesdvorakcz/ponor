@@ -6,10 +6,15 @@ import { openFormGroupsQuery, readOpenFormGroups } from './settings';
 
 export interface OpenFormGroupsState {
   /**
-   * The group ids the diver last left open. **Meaningless until `resolved`** — it reads `[]`
-   * there, which is what an absent row reads as too, and the two mean different things.
+   * What the diver has decided about each of §2.2's groups: `true` for one they left open,
+   * `false` for one they collapsed, and **no entry for one they have never touched** — the
+   * three states `readOpenFormGroups` (db/settings.ts) exists to keep apart, since the third is
+   * what the form's own "open by default" answers.
+   *
+   * **Meaningless until `resolved`** — it reads `{}` there, which is what an absent row reads as
+   * too, and the two mean different things.
    */
-  groups: string[];
+  remembered: Record<string, boolean>;
   /**
    * Whether the read has produced an answer yet — rows, or a failure (`isResolved`,
    * db/liveQuery.ts). The same field, the same name and the same meaning `useDives`,
@@ -25,15 +30,15 @@ export interface OpenFormGroupsState {
    * the remembered half land.
    *
    * That leaves this field with exactly one job on this screen, and it is a real one: it is how
-   * the form tells "the diver had every group closed" from "nobody has looked yet", so the
-   * diver's own toggles can be layered onto a set that is actually theirs. See
-   * `DiveFormScreen`'s `openGroups` for the layering.
+   * the form tells "the diver has decided about every group" from "nobody has looked yet", so
+   * the diver's own toggles can be layered onto a memory that is actually theirs. See
+   * `DiveFormScreen`'s `toggleGroup` for the layering.
    */
   resolved: boolean;
 }
 
 /**
- * Which of §2.2's collapsible groups the diver last left open, live.
+ * What the diver has decided about each of §2.2's collapsible groups, live.
  *
  * **Its own hook rather than another field on an existing read**, for the reason
  * `useUnitSystem` records at length and `useDivesBefore` repeats: `useDives` had to be taught
@@ -53,5 +58,5 @@ export interface OpenFormGroupsState {
  */
 export function useOpenFormGroups(): OpenFormGroupsState {
   const rows = useLiveQuery(openFormGroupsQuery(db));
-  return { groups: readOpenFormGroups(rows.data), resolved: isResolved(rows) };
+  return { remembered: readOpenFormGroups(rows.data), resolved: isResolved(rows) };
 }

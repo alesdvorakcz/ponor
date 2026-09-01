@@ -7,14 +7,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
 import { CarriedMark } from '../components/CarriedMark';
-import { CurrentIcon, SurgeIcon } from '../components/ConditionMarks';
 import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
-import { VisibilityIcon } from '../components/VisibilityIcon';
-import { WeatherIcon } from '../components/WeatherIcon';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -518,9 +515,8 @@ function seedStateFor(
  * rule that opens that group. That assertion is the checklist; the last row of the table is
  * where a new field goes.
  *
- * `tanks` is named by its leaves (`tanks.0.*`), because that is how this form binds them and
- * because the array itself is in two places at once — the two pressures are core-strip fields
- * and the rest is the cylinder group.
+ * `tanks` is named by its leaves (`tanks.0.*`), because that is how this form binds them: the
+ * array is one value and the form gives each of its fields a row, in one group.
  */
 export const FORM_GROUP_IDS = ['times', 'conditions', 'gas', 'equipment', 'people', 'notes'] as const;
 
@@ -533,6 +529,22 @@ export interface FormGroupSpec {
   /** Every field rendered inside this group. What §2.2's "already has a value in it" is asked
    * of, and nothing else — the group's contents are still the JSX below. */
   fields: readonly FieldPath<DiveFormInput>[];
+  /**
+   * Whether this group starts open for a diver who has never decided about it (§2.2, M1i:
+   * "the groups that a diver fills on most dives open by default").
+   *
+   * **A starting state, not a special case** — which is the whole reason it is a field on the
+   * layout rather than a branch anywhere. It is the LAST thing `defaultOpenGroups` consults:
+   * the diver's own memory outranks it in both directions, so a group they collapsed stays
+   * collapsed and one they opened stays open, and this answers only the case where the memory
+   * says nothing at all.
+   *
+   * **Required rather than optional**, on §4.1's "derive, or tie at compile time": a seventh
+   * group has to state its answer instead of inheriting a default nobody chose for it, and the
+   * two groups that carry `true` are then visible as two deliberate calls rather than as the
+   * absence of a flag.
+   */
+  startsOpen: boolean;
 }
 
 /**
@@ -545,9 +557,13 @@ export interface FormGroupSpec {
  * must not lose the memory of having been opened.
  */
 export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
-  times: { title: 'Times & depth', fields: ['avgDepthM'] },
+  // §2.2's four measurements, and the group M1i gave them back. The strip held max depth,
+  // duration and time in until this milestone; they are here with the average depth they belong
+  // beside, and the group opens by default because these are what a diver fills on most dives.
+  times: { title: 'Times & depth', fields: ['maxDepthM', 'avgDepthM', 'durationMin', 'timeIn'], startsOpen: true },
   conditions: {
     title: 'Conditions',
+    startsOpen: false,
     fields: [
       'waterTempC',
       'airTempC',
@@ -566,6 +582,10 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   },
   gas: {
     title: 'Gas & cylinders',
+    // Open by default for the same reason *Times & depth* is, and holding the two pressures
+    // M1i moved back out of the strip: they are read off the cylinder they belong to, which is
+    // the thing this group is about.
+    startsOpen: true,
     fields: [
       'tanks.0.material',
       'tanks.0.sizeL',
@@ -573,37 +593,40 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
       'tanks.0.workingBar',
       'tanks.0.o2Pct',
       'tanks.0.hePct',
+      'tanks.0.startBar',
+      'tanks.0.endBar',
     ],
   },
   equipment: {
     title: 'Equipment',
+    startsOpen: false,
     fields: ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel'],
   },
-  people: { title: 'People', fields: ['buddy', 'guide'] },
-  notes: { title: 'Notes & rating', fields: ['title', 'notes', 'rating'] },
+  people: { title: 'People', fields: ['buddy', 'guide'], startsOpen: false },
+  notes: { title: 'Notes & rating', fields: ['title', 'notes', 'rating'], startsOpen: false },
 };
 
-/** §2.2's core strip, as M1h amended it — always visible, so no rule ever has to ask whether
- * one of these is worth opening something for. Listed here only so the invariant above can be
- * checked; the strip's own order is the JSX's. */
-export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = [
-  'date',
-  'siteName',
-  'centerName',
-  'maxDepthM',
-  'durationMin',
-  'timeIn',
-  'tanks.0.startBar',
-  'tanks.0.endBar',
-];
+/**
+ * §2.2's core strip, as M1i shrank it — always visible, so no rule ever has to ask whether one
+ * of these is worth opening something for. Listed here only so the invariant above can be
+ * checked; the strip's own order is the JSX's.
+ *
+ * **What identifies a dive, rather than what measures it.** The strip guessed twice before this
+ * (§2.2 records both): five fields, which hid *time in* and the two pressures behind a collapse,
+ * and then eight, which fixed the hiding by flattening structure that was doing work. Three is
+ * the answer that needed the group memory to exist first — nothing is hidden, because the groups
+ * that hold the measurements start open, and a diver can now collapse the ones they never fill.
+ */
+export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = ['date', 'siteName', 'centerName'];
 
 /**
  * The fields this form holds but does not put in a row of its own, named so that "every field
  * is somewhere" stays a checkable claim rather than one with a silent exception.
  *
  * `status` is §2.4's Logged/Planned control, which sits beside the heading and is emphatically
- * not a slot in the core strip — "that strip is the dive's measurements, and a status is not
- * one of them". `siteId` and `centerId` are §6's half of the site snapshot, written by picking
+ * not a slot in the core strip — that strip identifies the dive, and a status is not one of the
+ * things that says which dive this is. `siteId` and `centerId` are §6's half of the site
+ * snapshot, written by picking
  * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
  */
 export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = ['status', 'siteId', 'centerId'];
@@ -649,15 +672,27 @@ function valueAtPath(values: DiveFormInput, path: string): unknown {
 
 /**
  * Which of §2.2's groups should be open, before the diver touches anything: **"a group opens
- * when the diver opened it last time, or when this dive already has a value in it."**
+ * when the diver opened it last time, or when this dive already has a value in it"** — and,
+ * where they have said neither, when the group starts open (`FormGroupSpec.startsOpen`, M1i).
  *
- * The second half is not a nicety and §2.2 says why: carry-over fills groups nobody touched, so
- * a group holding a carried value the diver cannot see is the same defect as the hidden
- * pressures this milestone moved into the core strip, one layer down. It is computed from the
- * form's values and never persisted — it is a fact about THIS dive.
+ * The value half is not a nicety and §2.2 says why: carry-over fills groups nobody touched, so a
+ * group holding a carried value the diver cannot see is a hidden field one layer down. It is
+ * computed from the form's values and never persisted — it is a fact about THIS dive.
  *
- * The first half arrives from `db/settings.ts` through `useOpenFormGroups`, asynchronously, and
- * the two halves are combined rather than ordered: whichever says open, wins.
+ * The remembered half arrives from `db/settings.ts` through `useOpenFormGroups`, asynchronously,
+ * and now carries three states rather than two: open, collapsed, and *nothing said*. Only the
+ * third defers to `startsOpen`, which is what makes "open by default" a starting state rather
+ * than a rule competing with the diver's own gesture.
+ *
+ * **Where the two halves meet, open still wins, and that is deliberately unchanged.** A group
+ * the diver collapsed opens again if this dive has a value in it — §2.2's second half is about
+ * not hiding a value nobody has seen, and M1i did not relitigate it. The consequence is worth
+ * knowing rather than discovering: cylinders carry over (§2.1), so on every dive after the first
+ * *Gas & cylinders* holds a value and a collapse of that group will not survive to the next
+ * dive. *Times & depth* is unaffected — all four of its fields are fresh every dive — which is
+ * the case §10's own example is about. If that trade is ever revisited, this line is the whole
+ * of it, and the alternative that costs nothing (a collapsed group saying on its header that it
+ * holds carried values) is a design job rather than an inversion.
  *
  * **An id in `remembered` that names no group is kept in the returned set and simply matches
  * nothing.** It is a newer build's group (§10's "kept, not refused" — see `readOpenFormGroups`),
@@ -667,9 +702,10 @@ function valueAtPath(values: DiveFormInput, path: string): unknown {
  * the screen's own test then proves each `FormGroup` is actually wired to its own entry, which
  * is the half a pure test cannot see.
  */
-export function defaultOpenGroups(values: DiveFormInput, remembered: readonly string[]): Set<string> {
-  const open = new Set<string>(remembered);
+export function defaultOpenGroups(values: DiveFormInput, remembered: Readonly<Record<string, boolean>>): Set<string> {
+  const open = new Set<string>(Object.keys(remembered).filter((id) => remembered[id] === true));
   for (const id of FORM_GROUP_IDS) {
+    if (remembered[id] === undefined && FORM_GROUPS[id].startsOpen) open.add(id);
     if (FORM_GROUPS[id].fields.some((field) => holdsValue(valueAtPath(values, field)))) open.add(id);
   }
   return open;
@@ -1266,8 +1302,8 @@ const CYLINDER_LABEL = 'Cylinder';
  * cylinder text, and §4.1 has already paid for that once with "Steel" on one screen and
  * "steel" on the next.
  *
- * `tanks.0` alone, like everything else this form binds — see the core strip's own note on why
- * that stays true when "+ add cylinder" (§6) lands.
+ * `tanks.0` alone, like everything else this form binds — see the two pressures' own note in the
+ * Gas & cylinders group for why that stays true when "+ add cylinder" (§6) lands.
  *
  * **A half-typed figure cannot break this**, which is worth stating because `toStoredTanks`
  * returns `[]` for values it cannot parse and that would blank the summary. It cannot happen
@@ -1289,9 +1325,9 @@ function cylinderSpecText(tanks: DiveFormInput['tanks'], units: UnitSystem): str
  * owner's complaint was that he faced six cylinder fields on a form where he changes only the
  * gas and the pressures — and the answer is not to remove any of them, because a snapshot
  * nobody can amend is not a snapshot. So the four fields a diver sets once and reuses (rig,
- * size, material, working pressure) collapse into `formatCylinderSpec`'s line, and the two
- * that describe THIS dive stay directly editable beside it. The pressures went further still,
- * into the core strip.
+ * size, material, working pressure) collapse into `formatCylinderSpec`'s line, and the four
+ * that describe THIS dive — the two gas fractions and the two pressures — stay directly
+ * editable beside it.
  *
  * **What the row shows and what decides whether it is open are deliberately two different
  * reads.** The text follows the live form values, so correcting the size and collapsing again
@@ -1619,8 +1655,8 @@ function ControlledPresetCapture({
  * so this feature should not scream too much." So it is §0.6's existing chip vocabulary
  * (`actionPill`: small, uppercase, tracked, muted, bordered so it reads as a control
  * rather than a label) sitting beside the heading, not a segmented control and not a new
- * visual idiom, and emphatically not a sixth slot in §2.2's core strip — that strip is the
- * dive's measurements, and a status is not one of them.
+ * visual idiom, and emphatically not a fourth slot in §2.2's core strip — that strip says which
+ * dive this is, and whether it has happened yet is not one of the things that say so.
  *
  * A toggle, in the same `accessibilityRole="switch"` idiom `EquipmentTokenField` above
  * already uses for each accessory, because this is the same shape of question: one control,
@@ -1822,10 +1858,10 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
 
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
- * always-visible core strip — date, site, centre, max depth, duration, time in, start and end
- * pressure — and everything else behind six collapsible `FormGroup`s. **Only the date is
- * required** (§2.2); every other field, including a wholly untouched one, is a legitimate
- * save.
+ * always-visible core strip — date, site and centre, what identifies the dive — and everything
+ * else in six collapsible `FormGroup`s, of which the two a diver fills on most dives start open
+ * (`FormGroupSpec.startsOpen`). **Only the date is required** (§2.2); every other field,
+ * including a wholly untouched one, is a legitimate save.
  *
  * The save control (`formFooter` below) is **never disabled for validity** — nothing about
  * what the diver has or has not filled in, or what the resolver makes of it, ever reaches
@@ -2027,7 +2063,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   //
   // `toggled` is what the diver has done on THIS form, and it outranks both rules — including
   // closing a group the value rule wants open, which is the whole point of a control.
-  const { groups: remembered, resolved: rememberedResolved } = useOpenFormGroups();
+  //
+  // **The groups that start open (M1i) are drawn open on that first frame too**, rather than
+  // waiting for the memory to say whether the diver collapsed them. Both flashes are one frame
+  // and one of them is rarer: a diver who has collapsed *Times & depth* sees it close, where
+  // gating the default on `resolved` would open a group on every diver who has not. The rule is
+  // the same one this paragraph already applies to the remembered half — correct late beats
+  // moving more on screen.
+  const { remembered, resolved: rememberedResolved } = useOpenFormGroups();
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
   const openByRule = defaultOpenGroups(carried.values, remembered);
 
@@ -2035,16 +2078,21 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * A diver's press on a group header: shown at once, and written back so the next dive opens
    * the same way.
    *
-   * **The write is the stored set with EVERY toggle of this form applied**, not just this one,
-   * and that is what makes two quick presses safe. A write composed from `remembered` plus the
-   * single group just pressed would be computed from a row that the first write has not landed
-   * in yet, so opening Conditions and then People would store `["people"]` and lose the first.
+   * **The write is the stored memory with EVERY toggle of this form applied**, not just this
+   * one, and that is what makes two quick presses safe. A write composed from `remembered` plus
+   * the single group just pressed would be computed from a row that the first write has not
+   * landed in yet, so opening Conditions and then People would store People alone.
    *
-   * **Nothing is written until the read has answered**, because `remembered` is `[]` until then
-   * and `[]` is also what "the diver had them all closed" looks like — so an early press would
-   * store a set built on an answer nobody has, erasing whatever was really there. The press
-   * still opens the group; only the memory of it is skipped, which costs one tap on the next
-   * dive and cannot destroy anything.
+   * **A collapse is written as `false`, not as an absence** (M1i), which is the half that makes
+   * "open by default" survive a diver disagreeing with it: an id simply left out means *never
+   * decided*, and the group would start open again on the next dive. That is what the old
+   * set-of-open-ids could not say.
+   *
+   * **Nothing is written until the read has answered**, because `remembered` is `{}` until then
+   * and `{}` is also what "the diver has never decided about any group" looks like — so an early
+   * press would store a memory built on an answer nobody has, erasing whatever was really there.
+   * The press still opens the group; only the memory of it is skipped, which costs one tap on
+   * the next dive and cannot destroy anything.
    *
    * The write is fire-and-forget with its failure swallowed, deliberately, and it is the same
    * line `readOpenFormGroups` draws: §10's "a local save failure is shown to the diver" is about
@@ -2057,12 +2105,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     next.set(id, open);
     setToggled(next);
     if (!rememberedResolved) return;
-    const stored = new Set(remembered);
-    for (const [group, isOpen] of next) {
-      if (isOpen) stored.add(group);
-      else stored.delete(group);
-    }
-    void setOpenFormGroups(db, [...stored]).catch(() => {});
+    const stored = { ...remembered };
+    for (const [group, isOpen] of next) stored[group] = isOpen;
+    void setOpenFormGroups(db, stored).catch(() => {});
   };
 
   /** One group's props, from `FORM_GROUPS`' own entry — so a group's title, its persisted id
@@ -2473,19 +2518,19 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           </View>
         )}
 
-        {/* Core strip (§2.2) — date, site, centre, max depth, duration, time in, start and end
-            pressure, always visible.
+        {/* Core strip (§2.2) — date, site and centre, always visible.
 
-            **The last three joined it in M1h, and §2.2 records why the first version was
-            wrong**: the strip was fixed before anyone had logged a dive with it, which left
-            *time in* and the two pressures behind a collapsed group — so surface interval,
-            which the app computes and shows on the detail screen, had its only input hidden,
-            and the diver who fills start/end on every single dive had to open a group on every
-            single dive. Found by the owner using the app, not by a test.
+            **What identifies a dive rather than what measures it** (M1i, the owner's call after
+            using the form). The strip held five fields, then eight, and the eight were a real
+            answer to a real complaint — *time in* and both pressures were behind a collapse, so
+            surface interval had its only input hidden — that fixed it by flattening structure
+            which was doing work. The measurements went back to their groups, and the groups that
+            hold them start open (`FormGroupSpec.startsOpen`), so nothing is hidden and a diver
+            who never fills one can collapse it once.
 
-            Each of the three moved OUT of its group rather than being added here as a second
-            copy: a field rendered twice would give one value two `Controller`s and two
-            carried marks, and the one the diver did not scroll to would look empty. */}
+            Each field lives in exactly ONE of the strip and the groups, here as everywhere: a
+            field rendered twice would give one value two `Controller`s and two carried marks,
+            and the one the diver did not scroll to would look empty. */}
         <View style={styles.formCoreStrip}>
           {/* A picker, not a text field (§10, M1d): `date` carried this form's only
               blocking rule, so a mistyped one was the single thing that could refuse a save
@@ -2513,6 +2558,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             history={history}
             onPairedId={setPairedId}
           />
+        </View>
+
+        {/* §2.2's four measurements, in the order it names them — the two depths together, then
+            how long and when. Open by default (`FORM_GROUPS.times.startsOpen`), so the diver who
+            fills them on every dive fills them without a gesture, and collapsible for the diver
+            who does not. */}
+        <FormGroup {...groupProps('times')}>
           <ControlledTextField
             control={control}
             carryOver={carryOver}
@@ -2523,6 +2575,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit={unitLabel('depth', units)}
           />
+          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
           <ControlledTextField
             control={control}
             carryOver={carryOver}
@@ -2536,52 +2589,17 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             // 47 minutes long wherever it is dived.
             unit="min"
           />
-          {/* Same treatment for a quieter version of the same defect: a typo in a typed
-              `HH:MM` never blocked a save, it silently dropped the dive out of §2.5's
-              time-ordering and voided its surface interval. `optional`, because `timeIn`
-              stays `optionalText` — a diver who did not note an entry time saves without
-              one. `timeOut` gets no control at all: it is computed from this plus duration
-              (derived.ts), and §0.6 marks it as computed rather than asking for it. */}
+          {/* A picker rather than a text field, for a quieter version of the defect the date
+              carries (§10, M1d): a typo in a typed `HH:MM` never blocked a save, it silently
+              dropped the dive out of §2.5's time-ordering and voided its surface interval.
+              `optional`, because `timeIn` stays `optionalText` — a diver who did not note an
+              entry time saves without one.
+
+              **It is the ENTRY time**, which the name has been asked about: `timeOut` is
+              computed from this plus duration (derived.ts) and gets no control at all, and
+              §2.1's surface interval runs from one dive's end to the next one's start. §0.6
+              marks both as computed rather than asking for them. */}
           <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
-          {/* **The two fields that make this strip reach into a cylinder**, which is a kind of
-              coupling nothing else here has: every other core field is a column on the dive,
-              and these two live at `tanks.0.startBar`/`tanks.0.endBar` inside §6's JSON array.
-              They are bound by path, exactly as the Gas & cylinders group binds the rest of
-              that cylinder, so there is no second representation of a pressure anywhere and
-              nothing had to be taught that these two fields are special.
-
-              **`tanks.0` and not "the cylinder", deliberately, and this is what keeps §6's
-              still-unbuilt "+ add cylinder" closable.** The whole form is single-cylinder
-              today; the day that control lands, this strip keeps the FIRST cylinder's
-              pressures — which is the one every dive has and the one a diver reads off their
-              gauge — and the extra cylinders' pressures belong in the group beside the
-              cylinders they describe, where a bottom mix and a deco stage can be told apart.
-              Nothing here has to change for that, because nothing here claims to be about
-              cylinders in general. */}
-          <ControlledTextField
-            control={control}
-            carryOver={carryOver}
-            name="tanks.0.startBar"
-            label="Start pressure"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('pressure', units)}
-          />
-          <ControlledTextField
-            control={control}
-            carryOver={carryOver}
-            name="tanks.0.endBar"
-            label="End pressure"
-            scheme={scheme}
-            keyboardType="decimal-pad"
-            mono
-            unit={unitLabel('pressure', units)}
-          />
-        </View>
-
-        <FormGroup {...groupProps('times')}>
-          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
         </FormGroup>
 
         <FormGroup {...groupProps('conditions')}>
@@ -2620,10 +2638,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={VISIBILITY_VALUES}
             displayLabel={(option) => formatVisibility(option) ?? option}
             scheme={scheme}
-            // Bars that count up — three for high, one for low, each taller than the last.
-            // Drawn from `View`s rather than from a symbol, which needs no dependency; see
-            // `VisibilityIcon` for why the ink it is handed cannot be painted straight on.
-            icon={(option, tintColor) => <VisibilityIcon visibility={option} tintColor={tintColor} scheme={scheme} />}
           />
           <ControlledTextField
             control={control}
@@ -2636,20 +2650,19 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             unit={unitLabel('depth', units)}
           />
           {/* The three 0–3 scales, as chips rather than as `0-3` text boxes (M1h, the owner:
-              "No one will write numbers there, we should provide chips with icons to
-              choose from"). The vocabulary is `CONDITION_SCALE_VALUES` — one list for all
-              three, since the levels are one fact — and the words are display.ts's, since
-              level 0 is *Flat* water but *no* current.
+              "No one will write numbers there, we should provide chips to choose from"). The
+              vocabulary is `CONDITION_SCALE_VALUES` — one list for all three, since the levels
+              are one fact — and the words are display.ts's, since level 0 is *Flat* water but
+              *no* current.
 
-              **Waves carries no mark, and that is a decision rather than an unfinished
-              row.** §0.6 permits it outright ("an icon appears only where the value has
-              one") and the argument is written out in full at `ConditionMarks.tsx`'s head,
-              where anyone reaching to add the missing one will land: the scale is
-              amplitude, repetition encodes frequency, and the only mark that could carry
-              amplitude without a drawing dependency is the bars that already mean
-              visibility two rows up — which would make both of them a legend. §0.6's test
-              is whether the mark carries the meaning or merely labels it, and every
-              candidate merely labels it. */}
+              **None of the three carries a mark, and neither does Visibility or Weather**
+              (M1i, the owner's call, §10). They did: counted arrows, counting bars, SF
+              Symbols' own skies, and they satisfied §0.6's no-legend test rather than waiving
+              it. Two measured costs took them out anyway — *Current* and *Surge* wrapped to a
+              second line because of them, and one bar beside *Visibility low* read as
+              punctuation. §9's shelf carries what replaces them: a set drawn for this app,
+              with `Entry`'s shore and boat as the standard it has to beat. This is not a row
+              waiting to be finished one glyph at a time. */}
           <ControlledOptionField
             control={control}
             carryOver={carryOver}
@@ -2667,9 +2680,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatCurrent(level) ?? String(level)}
             scheme={scheme}
-            // Arrows that accumulate one way; `CurrentIcon` owns how many and draws nothing
-            // for level 0, whose meaning is that there was none.
-            icon={(level, tintColor) => <CurrentIcon level={level} tintColor={tintColor} scheme={scheme} />}
           />
           <ControlledOptionField
             control={control}
@@ -2679,10 +2689,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatSurge(level) ?? String(level)}
             scheme={scheme}
-            // The same accumulation, two ways — which is the actual difference between a
-            // surge and a current, so the two rows are told apart by their marks and not
-            // only by their labels.
-            icon={(level, tintColor) => <SurgeIcon level={level} tintColor={tintColor} scheme={scheme} />}
           />
           <ControlledOptionField
             control={control}
@@ -2692,11 +2698,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={WEATHER_VALUES}
             displayLabel={(option) => formatWeather(option) ?? option}
             scheme={scheme}
-            // The one field here whose values are not an ordered scale, so §0.6's "encodes
-            // the scale in itself" does not apply to it — the *shore* and *boat* test does,
-            // and
-            // a sun, a cloud and rain pass it as trivially as a ferry.
-            icon={(option, tintColor) => <WeatherIcon weather={option} tintColor={tintColor} />}
           />
           <ControlledOptionField
             control={control}
@@ -2836,10 +2837,42 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit="%"
           />
-          {/* The two pressures used to sit here, between the gas and the capture control.
-              §2.2 moved them into the core strip: they are what the diver fills on every dive,
-              and a group nobody could avoid opening is not a collapsible group. They are gone
-              from here rather than repeated there — see the strip for the binding. */}
+          {/* **The two pressures, back beside the cylinder they were read off** (M1i). They sat
+              here until M1h moved them into the core strip, on the complaint that a diver fills
+              both on every dive and had to open a group to do it — which was true, and is
+              answered now by the group opening itself rather than by the fields leaving it.
+
+              They belong to a cylinder in the same sense its size does: a pressure is a number
+              off *that* gauge, and this is the group where the cylinder summary row already
+              lives. They sit outside `ControlledCylinderSpec` above, with the gas fractions,
+              because that row holds what KIND of cylinder this is — the snapshot §10 rules on —
+              and a pressure is a fact about this dive rather than about the cylinder.
+
+              **`tanks.0` and not "the cylinder", deliberately, and this is what keeps §6's
+              still-unbuilt "+ add cylinder" closable.** The whole form is single-cylinder today;
+              the day that control lands, each cylinder's own pressures belong beside the
+              cylinder they describe, where a bottom mix and a deco stage can be told apart —
+              which is where they now already are. */}
+          <ControlledTextField
+            control={control}
+            carryOver={carryOver}
+            name="tanks.0.startBar"
+            label="Start pressure"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('pressure', units)}
+          />
+          <ControlledTextField
+            control={control}
+            carryOver={carryOver}
+            name="tanks.0.endBar"
+            label="End pressure"
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('pressure', units)}
+          />
           {/* And capturing one, at the END of the group — the position `Delete dive` occupies
               on the detail screen, for the same reason it does there: a deliberate act, not
               part of the flow down the fields. */}

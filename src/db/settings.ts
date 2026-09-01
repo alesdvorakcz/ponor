@@ -189,17 +189,30 @@ export function readUnitSystem(rows: unknown[]): UnitSystem {
 }
 
 /**
- * Which of the dive form's collapsible groups the diver last left open (DESIGN.md §2.2:
+ * What the diver has decided about each of the dive form's collapsible groups (DESIGN.md §2.2:
  * "Groups remember themselves"), the third key this local-only table holds.
  *
  * **Display state, and local-only in the strong sense.** §6 gives this table no `updated_at`
  * and §7's sync protocol never mentions it: a diver's phone and their tablet are allowed to
  * disagree about which groups are open, and nothing about a dive depends on the answer.
  *
- * **One row holding a list, not a row per group.** A key per group would put the vocabulary of
- * group names into the settings table's key space — where a group renamed in a later build
- * leaves an orphan row nothing will ever read or clean up — and would make one gesture two
- * writes. The list is a set of ids; what those ids mean is the dive form's business.
+ * **One row holding the whole answer, not a row per group.** A key per group would put the
+ * vocabulary of group names into the settings table's key space — where a group renamed in a
+ * later build leaves an orphan row nothing will ever read or clean up — and would make one
+ * gesture two writes. What the ids mean is the dive form's business.
+ *
+ * **Three states, not two, and that is M1i's correction rather than a change of format for its
+ * own sake.** This started life as a set of open ids, which can say "open" and "not open" and
+ * cannot tell *the diver closed this* from *nobody has ever touched it*. That was sound while
+ * every group started closed — the two states were the same state — and became a defect the
+ * moment §2.2 gave *Times & depth* and *Gas & cylinders* a starting state of OPEN: a diver who
+ * collapsed one would find it open again on the next dive, because the row that was supposed to
+ * remember the collapse looked exactly like a row that had never heard of the group. So the
+ * value is a map from id to open/closed, and **an id that is absent is a group the diver has
+ * never decided about** — which is the state the form's own defaults answer.
+ *
+ * The key keeps its old name. It is the row's identity: renaming it would silently discard
+ * every diver's memory and leave the orphan row this docblock's own paragraph above warns about.
  */
 const OPEN_FORM_GROUPS_KEY = 'form_groups_open';
 
@@ -210,33 +223,39 @@ export function openFormGroupsQuery(db: Db) {
 }
 
 /**
- * The group ids out of `openFormGroupsQuery`'s rows: whatever was stored, or `[]` for an absent
- * row and for anything that cannot be read as a list of ids.
+ * What the diver has decided about each group, out of `openFormGroupsQuery`'s rows: `true` for a
+ * group they left open, `false` for one they collapsed, **and no entry at all for one they have
+ * never touched** — which is the distinction this reader exists to preserve and the one an
+ * absent row makes for every group at once.
  *
  * **It never throws and never reports a failure**, which puts it on `readUnitSystem`'s side of
  * the asymmetry that function documents rather than `getDivesBefore`'s. A wrong `dives_before`
- * misnumbers a whole logbook silently; a lost open-group memory means the diver taps a chevron.
- * §2.2's own defaults are what `[]` degrades to — every group closed unless this dive has a
- * value in it — so an unreadable row costs one gesture and states nothing false.
+ * misnumbers a whole logbook silently; a lost group memory means the diver taps a chevron. An
+ * empty result is "nothing decided", so §2.2's own defaults are what an unreadable row degrades
+ * to — not "every group closed", which is a decision, and which this reader must never invent on
+ * a diver's behalf.
+ *
+ * **A stored array is read as the older build's memory and upgraded, not discarded.** Until M1i
+ * the value was a list of the ids that were open, so `["gas"]` means *gas open, nothing else
+ * decided* — every id in it `true`, and every group it does not name left for the defaults to
+ * answer. That is the faithful reading: the old row could not express a collapse, so it must not
+ * be read as containing one.
  *
  * **Unrecognised ids are kept, not dropped**, and that is the same "kept, not refused" policy
  * §10 records for option values and equipment tokens. A build that has never heard of a group
  * must not delete a newer build's memory of it merely by opening a form; this returns whatever
- * strings it finds and the form writes them back untouched. What it does drop is anything that
- * is not a string at all, since nothing could ever match one.
- *
- * Duplicates are collapsed here rather than left for the caller: the value is a SET of ids, and
- * a stored `["gas","gas"]` — which only a hand-edited row or a future bug produces — must mean
- * exactly what `["gas"]` means.
+ * ids it finds and the form writes them back untouched. What it drops is anything that cannot be
+ * a decision at all — a key whose value is not a boolean, an array member that is not a string —
+ * since nothing could ever match one.
  *
  * `rows` is `unknown[]`, not this query's real return type, because `useLiveQuery`'s `.data` is
  * typed that loosely — the same reason the two readers above take it.
  */
-export function readOpenFormGroups(rows: unknown[]): string[] {
+export function readOpenFormGroups(rows: unknown[]): Record<string, boolean> {
   const row = Array.isArray(rows) ? rows.at(0) : undefined;
   const value =
     row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
-  if (typeof value !== 'string') return [];
+  if (typeof value !== 'string') return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -244,27 +263,42 @@ export function readOpenFormGroups(rows: unknown[]): string[] {
     // A row that is not JSON at all — corrupted, hand-edited, or written by something that is
     // not this app. Degrading to §2.2's defaults is the whole contract; there is nothing here
     // worth telling a diver about.
-    return [];
+    return {};
   }
-  if (!Array.isArray(parsed)) return [];
-  return [...new Set(parsed.filter((id): id is string => typeof id === 'string'))];
+  const decided: Record<string, boolean> = {};
+  // The M1h shape, upgraded per the paragraph above rather than thrown away: a list of ids, all
+  // of them open. A duplicate (`["gas","gas"]` — only a hand-edited row or a future bug produces
+  // one) sets the same key twice and means exactly what one entry means.
+  if (Array.isArray(parsed)) {
+    for (const id of parsed) if (typeof id === 'string') decided[id] = true;
+    return decided;
+  }
+  if (parsed === null || typeof parsed !== 'object') return {};
+  for (const [id, open] of Object.entries(parsed)) if (typeof open === 'boolean') decided[id] = open;
+  return decided;
 }
 
 /**
- * Records which groups the diver has left open.
+ * Records what the diver has decided about each group — open, collapsed, or (by being absent
+ * from the map handed in) still undecided.
  *
- * Takes the whole set rather than one group and a flag, so the row it writes is always the
+ * Takes the whole map rather than one group and a flag, so the row it writes is always the
  * complete answer. The alternative — a toggle that read, amended and wrote — would lose one of
  * two gestures made before the read came back, which on a form where a diver opens two groups
  * in a second is not a theoretical race.
+ *
+ * **Writing a `false` is the point of the map**, and the reason this no longer takes a list: an
+ * id omitted and an id set to `false` mean different things to `readOpenFormGroups`, so a caller
+ * that dropped a collapsed group instead of recording it would delete the very decision the
+ * diver just made. The form hands over its whole memory with its toggles applied.
  *
  * Nothing validates the ids, deliberately, and it is the same line `setUnitSystem` above draws
  * from `setDivesBefore`: a dive count has exactly one legal shape and an illegal one produces
  * dive numbers that cannot exist, where an unrecognised group id costs nothing and may well be
  * a newer build's group that this one is faithfully writing back (`readOpenFormGroups`).
  */
-export async function setOpenFormGroups(db: Db, groups: readonly string[]): Promise<void> {
-  const value = JSON.stringify([...groups]);
+export async function setOpenFormGroups(db: Db, groups: Readonly<Record<string, boolean>>): Promise<void> {
+  const value = JSON.stringify({ ...groups });
   await db
     .insert(settings)
     .values({ key: OPEN_FORM_GROUPS_KEY, value })

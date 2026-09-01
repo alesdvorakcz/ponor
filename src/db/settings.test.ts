@@ -208,79 +208,118 @@ describe('setUnitSystem', () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// form_groups_open — §2.2's "groups remember themselves" (M1h)
+// form_groups_open — §2.2's "groups remember themselves" (M1h, three-state since M1i)
 // ---------------------------------------------------------------------------------------
 //
 // The third key this table holds, and the one with the weakest claim on anything: a lost or
 // unreadable value costs the diver one tap on a chevron. That is why every read below degrades
-// rather than reports — §2.2's own defaults are what `[]` means, so this row can never make the
-// form say something false.
+// rather than reports — an empty result means "nothing decided", which is what §2.2's own
+// defaults answer, so this row can never make the form say something false.
+//
+// **What M1i changed, and why the three states below are each their own test.** The value was a
+// list of the ids that were open, which cannot tell *the diver collapsed this* from *nobody has
+// ever touched it*. That was sound while every group started closed and became a defect the
+// moment two groups started OPEN: the collapse had nowhere to be written down, so it undid
+// itself on the next dive. An absent key is now the third state, and a `false` is a decision.
 
 describe('readOpenFormGroups', () => {
-  it('is empty on a fresh database — nothing has been remembered yet', async () => {
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+  it('is empty on a fresh database — nothing has been decided yet', async () => {
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({});
   });
 
-  it('reads back what was stored, in the order it was written', async () => {
-    await setOpenFormGroups(db, ['conditions', 'gas']);
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['conditions', 'gas']);
+  it('reads back both kinds of decision, and says nothing about a group with neither', async () => {
+    await setOpenFormGroups(db, { conditions: true, times: false });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ conditions: true, times: false });
+  });
+
+  // --- The upgrade path, which is the half that only looks obviously correct ---
+  //
+  // Until M1i the stored value was `["gas"]`, meaning *gas open* and nothing at all about any
+  // other group. The faithful reading is therefore `{gas: true}` and NOT "everything else
+  // collapsed": the old row could not express a collapse, so it must not be read as holding one.
+  // A diver upgrading with `["gas"]` remembered keeps gas open and gets §2.2's defaults for the
+  // rest, which is exactly what they had.
+  //
+  // The direction that matters as much: a stored OBJECT must not be read as an array. `{}` is a
+  // real value — every group decided about and then un-decided, or simply a first write — and
+  // `Array.isArray({})` is false, so the object arm has to come second and be reached.
+  it('reads an older build’s list of open ids as “these were open, nothing was collapsed”', async () => {
+    await db.insert(settings).values({ key: 'form_groups_open', value: JSON.stringify(['gas', 'conditions']) });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ gas: true, conditions: true });
+  });
+
+  it('round-trips an empty object as “nothing decided”, without falling into the array arm', async () => {
+    await setOpenFormGroups(db, {});
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({});
   });
 
   // Every way this row can be unreadable, and all of them mean the same thing: §2.2's defaults.
   // A `dives_before` this corrupt throws, deliberately — see that read's own docblock for why
   // the two are not the same kind of value.
+  //
+  // `{"conditions":"yes"}` is here for the arm that used to be "not an array": a value that is
+  // not a boolean is not a decision, and dropping it is what stops a hand-edited row from
+  // meaning whatever JavaScript's truthiness says it means.
   it.each([
     ['not JSON at all', 'conditions,gas'],
-    ['JSON that is not an array', '{"conditions":true}'],
-    ['JSON that is not a list of ids', '42'],
+    ['JSON that is not a memory at all', '42'],
+    ['a decision that is not a decision', '{"conditions":"yes"}'],
     ['an empty string', ''],
   ])('degrades %s to no memory rather than throwing', async (_case, value) => {
     await db.insert(settings).values({ key: 'form_groups_open', value });
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({});
   });
 
   // §10's "kept, not refused", the same policy `optionalTokenSet` applies to an equipment token
   // a newer client wrote: a build that has never heard of a group must not delete another
-  // build's memory of it merely by opening a form. What is dropped is what could never match a
-  // group at all.
-  it('keeps an id it has never heard of, and drops what is not an id', async () => {
+  // build's memory of it merely by opening a form. What is dropped is what could never be a
+  // decision about a group at all.
+  it('keeps a group it has never heard of, in both of its states', async () => {
+    await db
+      .insert(settings)
+      .values({ key: 'form_groups_open', value: JSON.stringify({ conditions: true, profile: false, notes: 7 }) });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ conditions: true, profile: false });
+  });
+
+  it('keeps an unknown id out of an older build’s list too, and drops what is not an id', async () => {
     await db
       .insert(settings)
       .values({ key: 'form_groups_open', value: JSON.stringify(['conditions', 'profile', 7, null, { id: 'gas' }]) });
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['conditions', 'profile']);
-  });
-
-  // The value is a SET of ids, so a stored duplicate — which only a hand-edited row or a future
-  // bug produces — must mean exactly what one entry means.
-  it('collapses a repeated id, since the value is a set', async () => {
-    await db.insert(settings).values({ key: 'form_groups_open', value: JSON.stringify(['gas', 'gas']) });
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['gas']);
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ conditions: true, profile: true });
   });
 });
 
 describe('setOpenFormGroups', () => {
   it('overwrites the previous memory rather than adding a second row', async () => {
-    await setOpenFormGroups(db, ['conditions']);
-    await setOpenFormGroups(db, ['people', 'notes']);
+    await setOpenFormGroups(db, { conditions: true });
+    await setOpenFormGroups(db, { people: true, notes: true });
     const rows = await openFormGroupsQuery(db);
     expect(rows).toHaveLength(1);
-    expect(readOpenFormGroups(rows)).toEqual(['people', 'notes']);
+    expect(readOpenFormGroups(rows)).toEqual({ people: true, notes: true });
   });
 
-  // The whole set, every time — which is what lets the form compose one write out of two quick
-  // presses instead of losing the first (DiveFormScreen's `toggleGroup`).
-  it('stores the empty set as a real answer, not as an absence', async () => {
-    await setOpenFormGroups(db, ['conditions']);
-    await setOpenFormGroups(db, []);
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+  // The whole memory, every time — which is what lets the form compose one write out of two
+  // quick presses instead of losing the first (DiveFormScreen's `toggleGroup`).
+  it('stores an empty memory as a real answer, not as an absence', async () => {
+    await setOpenFormGroups(db, { conditions: true });
+    await setOpenFormGroups(db, {});
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({});
+  });
+
+  // The write half of M1i's third state: a collapse has to survive as a `false`, because an id
+  // simply left out reads as "never decided" and the group would start open again on the next
+  // dive. Read back through the reader, so this pins the round trip rather than the JSON.
+  it('stores a collapse as a decision, not as an omission', async () => {
+    await setOpenFormGroups(db, { times: false });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ times: false });
   });
 
   it('leaves the other two keys alone — three keys, one table', async () => {
     await setDivesBefore(db, 247);
     await setUnitSystem(db, 'imperial');
-    await setOpenFormGroups(db, ['gas']);
+    await setOpenFormGroups(db, { gas: true });
     expect(await getDivesBefore(db)).toBe(247);
     expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
-    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['gas']);
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ gas: true });
   });
 });

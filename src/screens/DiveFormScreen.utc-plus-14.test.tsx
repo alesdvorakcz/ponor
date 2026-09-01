@@ -24,9 +24,10 @@ jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric')
 
 // §2.2's remembered group state (M1h), mocked per module for the same reason the hooks above
 // are: it is a live database read of a settings row, and this screen must render without one.
-// The default — nothing remembered, and the read has answered — is what every test that does
-// not care about disclosure means, and it is exactly §2.2's own defaults.
-jest.mock('../db/useOpenFormGroups', () => ({ useOpenFormGroups: jest.fn(() => ({ groups: [], resolved: true })) }));
+// The default — nothing decided about any group, and the read has answered — is what every test
+// that does not care about disclosure means, and it is exactly §2.2's own defaults: the two
+// groups that start open are open, the other four are shut.
+jest.mock('../db/useOpenFormGroups', () => ({ useOpenFormGroups: jest.fn(() => ({ remembered: {}, resolved: true })) }));
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
 // §2.1's cylinder presets (M1e), mocked per module for the same reason the two hooks above
 // are: it is a live database read, and this screen must render without one. Nothing in this

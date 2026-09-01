@@ -1704,20 +1704,20 @@ function build(scheme: ColorScheme) {
     // safe area here would spend the tab bar's height a second time, in the one place it is
     // already spent. `GearPresetScreen` has the identical arrangement and the same answer.
     formScrollContent: { ...rowScrollContent, paddingBottom: 40 },
-    // The core strip (§2.2: "date, site, center, max depth, duration" — always visible,
-    // never behind a group).
+    // The core strip (§2.2, as M1i shrank it: "date, site and centre — what identifies the dive
+    // rather than what measures it" — always visible, never behind a group).
     //
     // It carries nothing of its own now, and that is the point rather than an oversight: its
-    // five rows separate themselves, each with its own top hairline and its own 48 dp height
+    // three rows separate themselves, each with its own top hairline and its own 48 dp height
     // (§0.6), exactly as the dive list's rows do — a `gap` here would push each hairline off
     // the row it belongs to and leave it floating in whitespace. The wrapper stays because
     // §2.2 names this strip as a thing, and because DiveFormScreen.test.tsx pins §2.4's
-    // status control OUT of it: "a dive's status is not one of its measurements."
+    // status control OUT of it, and every measurement with it.
     formCoreStrip: {},
     // The form's header row: the heading, and §2.4's Logged/Planned control beside it.
     // The control belongs HERE and not in `formCoreStrip` above, which §2.2 fixes as date,
-    // site, centre, max depth and duration — a dive's status is not one of its
-    // measurements, and giving it a sixth slot in that strip would say it was.
+    // site and centre — that strip says which dive this is, and whether the dive has happened
+    // yet is not one of the things that say so.
     //
     // `headingRow` at the top of this function is the shape, shared with the Dives screen's
     // own title row (`divesHeadingRow` above) — the two differ in the column their screen
@@ -2298,8 +2298,9 @@ function build(scheme: ColorScheme) {
     // the same thing; only the at-rest ground is new.
     // `flexDirection: 'row'` and the 6 dp gap are what let §0.6's icon stand BESIDE the
     // label rather than over it — "it supplements the label rather than replacing it, never
-    // an icon alone." A chip with no icon (four of the five fields, and `other` on the
-    // fifth) is a row of one child, which lays out exactly as the centred column did.
+    // an icon alone." A chip with no icon — every chip on the form but `Entry`'s shore and
+    // boat, since M1i took the scale marks out — is a row of one child, which lays out exactly
+    // as the centred column did.
     formChip: {
       minHeight: 48,
       flexDirection: 'row',
@@ -2322,49 +2323,11 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
     },
     formChipTextSelected: selectedInk,
-    // §0.6's accumulating marks (M1h): the row that holds *N copies of one symbol* — one
-    // current arrow, two, three. The count is the mark, so this exists only to line them up
-    // and keep them tight enough to read as one object rather than as three neighbours; at a
-    // wider gap "three arrows" starts to read as three separate icons.
-    chipMarkRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 1,
-    },
-    // The visibility mark: bars that count up, drawn rather than lettered.
-    //
-    // **`alignItems: 'flex-end'` is the whole illusion.** The bars have different heights and
-    // a row centres its children by default, which would grow each bar in both directions and
-    // produce a lens shape rather than a staircase. Sat on a common baseline they read as
-    // signal strength — the thing everyone already knows means "more" — which is what lets
-    // this mark carry its scale without a legend (§0.6).
-    visibilityMark: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      gap: 2,
-    },
-    // One bar, in four pieces that compose: this geometry, then one of the three heights, then
-    // one of the two inks. **Discrete named steps rather than a computed height**, and that is
-    // not a stylistic preference — `src/testing/unexpectedGraphics.ts` reports any `View`
-    // carrying a style entry this sheet did not hand out, so the obvious `{ height: 4 + i * 4 }`
-    // would trip the §0.4/§0.1 graphics guard on the dive form. The guard is right to: a mark
-    // whose size is computed at the call site is one edit away from being a bar chart, and §0.4
-    // is explicit that the app draws no chart from data it does not have. So the sheet owns
-    // every size a bar can be, and there are exactly three.
-    visibilityBar: {
-      width: 3,
-      borderRadius: 1.5,
-    },
-    visibilityBarShort: { height: 5 },
-    visibilityBarMid: { height: 9 },
-    visibilityBarTall: { height: 13 },
-    // The two inks a chip's contents can wear, as *paint* rather than as text colour —
-    // `formChipText`/`formChipTextSelected` above are the same two values, and a bar cannot
-    // borrow a `color` because a `View` has none. Kept adjacent to them for that reason: the
-    // pair must stay in step, since §0.6's rule is that the mark takes the ink of the label
-    // beside it, and the mark inverting a shade late would be visible only on a selected chip.
-    visibilityBarInk: { backgroundColor: theme.fg },
-    visibilityBarInkSelected: { backgroundColor: theme.actionFg },
+    // M1h's chip marks had five styles here — a row that held N copies of one symbol, and the
+    // visibility bars in three heights and two inks. They went out with the marks (M1i, §10):
+    // the bars cost *Visibility low* a glyph that read as punctuation, and the repeated arrows
+    // cost *Current* and *Surge* a second line. §9's shelf carries what a replacement has to be,
+    // and it will bring its own geometry rather than inherit theirs.
     // The save action's fixed footer (§0.5: "the primary action sits in the bottom
     // third"; brief step 4: never disabled). Sits OUTSIDE `formScroll` above as a
     // sibling, not inside it, so it stays reachable without scrolling to the end of a

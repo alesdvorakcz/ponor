@@ -1,18 +1,15 @@
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { WEATHER_VALUES, type Weather } from '../domain/types';
 import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
 import { CarriedMark } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
-import { CurrentIcon, SurgeIcon } from './ConditionMarks';
 import { EntryIcon } from './EntryIcon';
 import { SearchCapsule } from './SearchCapsule';
 import { symbolName } from './symbolName';
-import { WeatherIcon } from './WeatherIcon';
 
 // The one thing `SearchCapsule.test.tsx` and `EntryIcon.test.tsx` structurally cannot see.
 //
@@ -71,17 +68,21 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. Eighteen symbols in eight places: the search capsule's magnifier, the
-// two `entry` chips, the two condition marks, `WeatherIcon`'s six skies, the three capsule
-// glyphs `DivesScreen` and `SearchScreen` hand to `ActionCapsule`, `navigation/tabs.ts`' two,
-// and M1h's carried treatment — the return mark and the clear control's ring. Five of the
-// first sixteen had a witness before that pass; the other eleven were green under any wrong or
-// swapped Material name.
+// it can only be listed. **Ten symbols in six places**: the search capsule's magnifier, the two
+// `entry` chips, the three capsule glyphs `DivesScreen` and `SearchScreen` hand to
+// `ActionCapsule`, `navigation/tabs.ts`' two, and M1h's carried treatment — the return mark and
+// the clear control's ring.
 //
-// If you add a symbol, add it here. Two of the blocks below make that failure loud rather
-// than trusting this sentence — the weather table is a total `Record<Weather, …>`, so a
-// seventh sky fails `tsc` until it is named, and the tab-route block iterates `TAB_ROUTES`
-// itself. The rest cannot be derived and are listed by hand.
+// It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
+// condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
+// exist (§10 — the marks are out, and §9's shelf holds what replaces them). Coverage of what
+// remains is unchanged at every call site, which is the property M1h bought and this milestone
+// had to keep while deleting around it.
+//
+// If you add a symbol, add it here. One block below makes that failure loud rather than trusting
+// this sentence — the tab-route block iterates `TAB_ROUTES` itself. (The weather table did the
+// same job through a total `Record<Weather, …>`, and went with the skies.) The rest cannot be
+// derived and are listed by hand.
 it('gives the search capsule’s magnifier a web name, not just an iOS and an Android one', async () => {
   await render(<SearchCapsule scheme="dark" value="" onChangeText={() => {}} />);
   const name = nameProp();
@@ -97,43 +98,6 @@ it.each([
   const name = nameProp();
   expect(name?.web).toBe(material);
   expect(name?.web).toBe(name?.android);
-});
-
-// --- The two condition marks M1h added, on the same boundary and after the same defect ---
-//
-// `ConditionMarks.test.tsx` pins a great deal about these two — one symbol per level, no mark
-// at all at level 0, the same glyph repeated rather than three different ones, a real SF
-// Symbol rather than a drawn approximation, and the current's arrow differing from the surge's
-// — and `DiveFormScreen.test.tsx`'s `REPEATED_MARK_SYMBOLS` witness pins which mark each chip
-// row is wired to. **None of that can see `android`.** Both files render through the real
-// `SymbolView.ios.tsx`, which overwrites `name` with `props.name.ios` before the value reaches
-// a host node, so every assertion in either file reads one string: the SF name. The object the
-// component actually handed over is gone by then.
-//
-// Measured rather than assumed: swapping the two marks' `android` values in
-// `ConditionMarks.tsx` while leaving both `ios` names correct left the entire suite green at
-// **1575/1575** — the whole of it, as it stood the moment before these two assertions were
-// added. (With them, that same swap is **2 failed / 1577**, and one merely wrong Material name
-// is **1 failed / 1577**.) The swap is not a curiosity — it is an Android and browser diver reading
-// two arrows going opposite ways on the *Current* row and one arrow going right on *Surge*,
-// which is exactly the "which row am I on" confusion the differing glyph exists to prevent
-// (`ConditionMarks.tsx`'s header). A plain wrong Material name is just as invisible, and it
-// degrades to no glyph at all in a browser, which is the defect that made this file exist.
-// Neither shows up in a simulator run either, because the simulator is iOS.
-//
-// So they are pinned here, where the props the app HANDS the library are readable, in the same
-// shape as the capsule and the chips above. Level 1 draws exactly one symbol, which is the one
-// `nameProp()` reads. Both keys are asserted against their literal name rather than only
-// against each other: `web` derived from `android` is already the rule test at the top of this
-// file, and equality alone would pass two identically-wrong names — including the swap.
-it.each([
-  ['current', CurrentIcon, 'arrow_forward'],
-  ['surge', SurgeIcon, 'sync_alt'],
-] as const)('gives the %s mark an Android and a web name, not just an iOS one', async (_row, Mark, material) => {
-  await render(<Mark level={1} tintColor="#000000" scheme="dark" />);
-  const name = nameProp();
-  expect(name?.android).toBe(material);
-  expect(name?.web).toBe(material);
 });
 
 // --- The two marks M1h's carried treatment added, on the same boundary ---
@@ -165,38 +129,6 @@ it('gives the clear control’s ring an Android and a web name, not just an iOS 
   const name = nameProp();
   expect(name?.android).toBe('highlight_off');
   expect(name?.web).toBe('highlight_off');
-});
-
-// --- The six skies ---
-//
-// The worst of the eleven that had no witness, and the reason is that a weather glyph is the
-// only symbol in the app whose wrongness is *readable as a fact about the dive*. A swapped
-// arrow on a condition chip is confusing; `rainy` drawing `foggy` tells an Android or browser
-// diver that a dive they logged in rain was logged in fog, next to a label that still says
-// *Rainy*, and the chip's own word is the only thing that contradicts it. Six names in one
-// record is also where a copy-paste slip is most likely to survive review — `sunny`/`cloudy`
-// and `rainy`/`foggy` are adjacent lines with plausible-looking values either way round.
-//
-// A **total** `Record<Weather, …>`, deliberately, and the same argument `WEATHER_SYMBOLS`
-// itself makes: `WEATHER_VALUES` is the vocabulary owner (§4.1), a seventh sky would be a
-// `tsc` failure here until someone writes its Material name, and iterating the vocabulary
-// rather than this table's own keys is what stops the test from agreeing with itself. A
-// `Partial` would let a new sky arrive untested and silent, which is the shape of the gap this
-// whole file exists to close.
-const WEATHER_MATERIAL: Record<Weather, string> = {
-  sunny: 'sunny',
-  cloudy: 'partly_cloudy_day',
-  overcast: 'cloud',
-  rainy: 'rainy',
-  windy: 'air',
-  foggy: 'foggy',
-};
-
-it.each(WEATHER_VALUES)('gives the %s sky an Android and a web name, not just an iOS one', async (weather) => {
-  await render(<WeatherIcon weather={weather} tintColor="#000000" />);
-  const name = nameProp();
-  expect(name?.android).toBe(WEATHER_MATERIAL[weather]);
-  expect(name?.web).toBe(WEATHER_MATERIAL[weather]);
 });
 
 // --- The three capsule glyphs ---

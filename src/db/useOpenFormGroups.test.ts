@@ -66,24 +66,24 @@ it('reads through the shared query, against the app’s own database', async () 
 });
 
 /**
- * The pair nothing else can tell apart: an empty `groups` is what "the diver had every group
- * closed" and "nobody has looked yet" both read as, and the dive form composes its WRITE out of
- * that list. A form that could not tell them apart would store a set built on the second while
- * believing the first, deleting whatever was really there.
+ * The pair nothing else can tell apart: an empty `remembered` is what "the diver has decided
+ * about nothing" and "nobody has looked yet" both read as, and the dive form composes its WRITE
+ * out of that map. A form that could not tell them apart would store a memory built on the
+ * second while believing the first, deleting whatever was really there.
  */
 describe('resolved', () => {
   it('is false while the query has not answered, over the same empty list as a real answer', async () => {
     stubQuery({});
     const { result } = await renderHook(() => useOpenFormGroups());
     expect(result.current.resolved).toBe(false);
-    expect(result.current.groups).toEqual([]);
+    expect(result.current.remembered).toEqual({});
   });
 
   it('is true once the query has answered with no stored row, which honestly means none', async () => {
     stubQuery({ data: [], updatedAt: ANSWERED });
     const { result } = await renderHook(() => useOpenFormGroups());
     expect(result.current.resolved).toBe(true);
-    expect(result.current.groups).toEqual([]);
+    expect(result.current.remembered).toEqual({});
   });
 
   it('is true for a read that failed, so nothing waiting on it can hang', async () => {
@@ -96,17 +96,17 @@ describe('resolved', () => {
   });
 });
 
-it('reports the stored ids, through the reader that owns what a stored row means', async () => {
-  stubQuery({ data: storedRow(JSON.stringify(['conditions', 'gas'])), updatedAt: ANSWERED });
+it('reports both kinds of decision, through the reader that owns what a stored row means', async () => {
+  stubQuery({ data: storedRow(JSON.stringify({ conditions: true, times: false })), updatedAt: ANSWERED });
   const { result } = await renderHook(() => useOpenFormGroups());
-  expect(result.current.groups).toEqual(['conditions', 'gas']);
+  expect(result.current.remembered).toEqual({ conditions: true, times: false });
 });
 
 it('reports a row it cannot read as no memory, rather than failing the render that holds a form', async () => {
-  // §2.2's defaults are what `[]` degrades to, and §1 is why that is the whole answer here: a
-  // display preference may not take a form down, and a diver who loses this loses one tap.
+  // §2.2's defaults are what an empty memory degrades to, and §1 is why that is the whole answer
+  // here: a display preference may not take a form down, and a diver who loses this loses one tap.
   stubQuery({ data: storedRow('not JSON at all'), updatedAt: ANSWERED });
   const { result } = await renderHook(() => useOpenFormGroups());
-  expect(result.current.groups).toEqual([]);
+  expect(result.current.remembered).toEqual({});
   expect(result.current.resolved).toBe(true);
 });

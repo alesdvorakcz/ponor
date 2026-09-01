@@ -166,16 +166,26 @@ function stubPresets(presets: GearPreset[] = [], error?: Error) {
 }
 
 /**
- * What §2.2's remembered half says — the groups the diver left open on their last dive, and
- * whether that read has answered yet.
+ * What §2.2's remembered half says — what the diver decided about each group on their last dive,
+ * and whether that read has answered yet.
  *
- * `mockImplementation` and a fresh array per call, on `stubDives`' own reasoning: the real hook
- * builds its list inside `readOpenFormGroups`, so a stub handing back one referentially-stable
- * array for ever would model a contract it does not have.
+ * **Three states, and the default here is the third one**: `true` for a group they left open,
+ * `false` for one they collapsed, and *absent* for one they have never touched, which is the
+ * state `FormGroupSpec.startsOpen` answers. Every test that does not call this gets `{}` — a
+ * diver who has decided nothing — so *Times & depth* and *Gas & cylinders* are open in most of
+ * this file, exactly as they are for a diver opening the app for the first time.
+ *
+ * `mockImplementation` and a fresh object per call, on `stubDives`' own reasoning: the real hook
+ * builds its answer inside `readOpenFormGroups`, so a stub handing back one referentially-stable
+ * object for ever would model a contract it does not have.
  */
-function stubOpenGroups(groups: string[] = [], resolved = true) {
-  mockUseOpenGroups.mockImplementation(() => ({ groups: [...groups], resolved }));
+function stubOpenGroups(remembered: Record<string, boolean> = {}, resolved = true) {
+  mockUseOpenGroups.mockImplementation(() => ({ remembered: { ...remembered }, resolved }));
 }
+
+/** The two groups §2.2 gives a starting state of open, collapsed by the diver — the memory a
+ * test stubs when it wants to see one group's own behaviour with no default underneath it. */
+const COLLAPSE_DEFAULT_OPEN = { times: false, gas: false } as const;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -439,21 +449,13 @@ function findClearCarried(t: RenderResult, label: string) {
 
 // --- Task 4 brief, Step 1, verbatim ---
 
-// §2.2's core strip, as M1h amended it: **date · site · centre · max depth · duration · time
-// in · start pressure · end pressure**. The last three moved in because the first version of
-// this strip was fixed before anyone had logged a dive with it — surface interval was computed
-// and displayed while its only input sat behind a collapsed group, and the diver who fills both
-// pressures on every dive had to open a group every time.
-const CORE_STRIP_LABELS = [
-  'Date',
-  'Site',
-  'Centre',
-  'Max depth',
-  'Duration',
-  'Time in',
-  'Start pressure',
-  'End pressure',
-] as const;
+// §2.2's core strip, as M1i shrank it: **date · site · centre** — what identifies a dive rather
+// than what measures it. The five measurements it held are back in the two groups that open by
+// default, so nothing is hidden and a diver who never fills one can collapse it once.
+//
+// Written out here rather than read off `CORE_STRIP_FIELDS`, on `FIELD_LABELS`' own reasoning:
+// a test derived from the layout it is checking agrees with that layout being wrong.
+const CORE_STRIP_LABELS = ['Date', 'Site', 'Centre'] as const;
 
 it('shows the core strip without opening anything', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
@@ -464,26 +466,42 @@ it('shows the core strip without opening anything', async () => {
 });
 
 // The other half of the move, and the half a "does the label show" assertion cannot see: each
-// of the three left its group rather than being copied into the strip. A field rendered twice
-// gives one form value two `Controller`s — two boxes a diver can type opposite numbers into,
-// of which only the last one touched survives — and it is invisible from the strip, because
-// the strip looks right either way.
-it('moved time in and the two pressures out of their groups rather than repeating them', async () => {
+// measurement moved INTO its group rather than being copied there. A field rendered twice gives
+// one form value two `Controller`s — two boxes a diver can type opposite numbers into, of which
+// only the last one touched survives — and it is invisible from either place, because each looks
+// right on its own.
+it('moved the five measurements into their groups rather than repeating them', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   // Every group open at once, so nothing can hide inside a collapsed one.
   for (const group of ['Times & depth', 'Conditions', 'Gas & cylinders', 'Equipment', 'People', 'Notes & rating']) {
     await openGroup(t, group);
   }
-  for (const label of ['Time in', 'Start pressure', 'End pressure']) {
+  for (const label of ['Max depth', 'Duration', 'Time in', 'Start pressure', 'End pressure']) {
     expect(textIn(t).filter((s) => s === label)).toHaveLength(1);
+  }
+});
+
+// ...and the strip itself holds the three and nothing else. The sweep above proves each label
+// exists once somewhere; this proves WHERE — read off the `formCoreStrip` region, so a
+// measurement left behind in the strip fails here rather than passing as "rendered once".
+it('keeps the core strip to what identifies the dive, with no measurement in it', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const strip = regionWith(t, makeStyles('light').formCoreStrip);
+  expect(strip).toBeDefined();
+  const labelled = new Set(
+    strip?.queryAll((n) => n.type === 'Text').flatMap((n) => n.children.filter((c) => typeof c === 'string')) ?? [],
+  );
+  for (const label of CORE_STRIP_LABELS) expect([...labelled]).toContain(label);
+  for (const label of ['Max depth', 'Avg depth', 'Duration', 'Time in', 'Start pressure', 'End pressure']) {
+    expect([...labelled]).not.toContain(label);
   }
 });
 
 it('keeps the deeper groups collapsed until asked', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   const text = textIn(t).join(' ');
-  expect(text).toContain('Gas & cylinders'); // the group's header shows
-  expect(text).not.toContain('Working pressure'); // its fields do not
+  expect(text).toContain('Conditions'); // the group's header shows
+  expect(text).not.toContain('Water temp'); // its fields do not
 });
 
 it('saves a dive carrying nothing but a date', async () => {
@@ -505,18 +523,19 @@ it('saves a dive carrying nothing but a date', async () => {
 // Pressing the SAME header and checking the SAME field string against itself, collapsed
 // then expanded, is what tells a real disclosure from a permanently-hidden one.
 
-it("reveals Gas & cylinders' fields on press — the header text alone was never proof they exist", async () => {
+it("reveals Conditions' fields on press — the header text alone was never proof they exist", async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  expect(textIn(t).join(' ')).not.toContain('Working pressure');
-  const header = findButton(t, 'Gas & cylinders');
-  if (!header) throw new Error('no Gas & cylinders header found');
+  expect(textIn(t).join(' ')).not.toContain('Water temp');
+  const header = findButton(t, 'Conditions');
+  if (!header) throw new Error('no Conditions header found');
   await fireEvent.press(header);
-  expect(textIn(t).join(' ')).toContain('Working pressure');
+  expect(textIn(t).join(' ')).toContain('Water temp');
 });
 
 // A second, independent group, so "collapsed by default" is not proven only for the one
-// group the brief's own sample happens to check.
-it('keeps every group collapsed by default, not only the one the sample test checks', async () => {
+// group the brief's own sample happens to check. (Four of the six are collapsed by default;
+// which two are not, and why, is the `startsOpen` block much further down.)
+it('keeps a second group collapsed by default, not only the one the sample test checks', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   expect(textIn(t).join(' ')).not.toContain('Buddy');
   const header = findButton(t, 'People');
@@ -666,6 +685,11 @@ it.each(FORM_GROUP_IDS)(
     // One group open, five shut, nothing seeded — so what is on screen is the core strip plus
     // this group and nothing else. Compared as a SET of field paths, so the failure names the
     // field rather than a diff of thirty labels.
+    //
+    // The two groups that start open are stubbed collapsed to get "five shut": left undecided
+    // they would be open on every row of this sweep, and the comparison would then be satisfied
+    // by any field of theirs appearing anywhere.
+    stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, FORM_GROUPS[id].title);
 
@@ -692,7 +716,10 @@ describe('defaultOpenGroups', () => {
    * per field rather than "any truthy thing", because `holdsValue`'s whole job is to tell a
    * recorded `0` and an empty accessory set apart. */
   const SAMPLE: Record<string, unknown> = {
+    maxDepthM: 30,
     avgDepthM: 12,
+    durationMin: 47,
+    timeIn: '09:15',
     waterTempC: 20,
     airTempC: 24,
     visibility: 'high',
@@ -722,6 +749,8 @@ describe('defaultOpenGroups', () => {
     'tanks.0.workingBar': 232,
     'tanks.0.o2Pct': 32,
     'tanks.0.hePct': 0,
+    'tanks.0.startBar': 200,
+    'tanks.0.endBar': 50,
   };
 
   /** The form's own blank values, with one field set — built through the same path setter the
@@ -738,6 +767,12 @@ describe('defaultOpenGroups', () => {
     return values as unknown as Parameters<typeof defaultOpenGroups>[0];
   }
 
+  /** A memory in which the diver has collapsed both groups that start open (M1i) — so what the
+   * sweeps below see is the VALUE rule alone, with no default underneath it to hide behind.
+   * Spelled as a decision rather than as `{}`, because `{}` means "never decided" and that is
+   * exactly the state `startsOpen` answers. */
+  const NOTHING_STARTS_OPEN = { times: false, gas: false } as const;
+
   it.each(FORM_GROUP_IDS.flatMap((id) => FORM_GROUPS[id].fields.map((field) => [field, id] as const)))(
     'opens the group %s belongs to, and only that one',
     (field, id) => {
@@ -745,29 +780,61 @@ describe('defaultOpenGroups', () => {
       // Every placed field needs a sample; a new one added to a group without one would
       // otherwise sweep through as "nothing recorded" and prove nothing.
       expect(sample).toBeDefined();
-      expect([...defaultOpenGroups(valuesWith(field, sample), [])]).toEqual([id]);
+      expect([...defaultOpenGroups(valuesWith(field, sample), NOTHING_STARTS_OPEN)]).toEqual([id]);
     },
   );
 
-  it('opens nothing for a dive that records nothing', () => {
-    expect([...defaultOpenGroups(blankFormValues(), [])]).toEqual([]);
+  it('opens nothing for a dive that records nothing, once the two default groups are collapsed', () => {
+    expect([...defaultOpenGroups(blankFormValues(), NOTHING_STARTS_OPEN)]).toEqual([]);
   });
 
   it('does not open Equipment for an accessory set that records no accessories', () => {
     // The one input on which this rule and the carried-mark rule deliberately disagree
     // (`holdsValue` vs `hasCarriedValue`): `[]` is a real carried answer, and it is also what
     // every untouched form holds — so opening the group for it would open it on every dive.
-    expect([...defaultOpenGroups(valuesWith('equipment', []), [])]).toEqual([]);
+    expect([...defaultOpenGroups(valuesWith('equipment', []), NOTHING_STARTS_OPEN)]).toEqual([]);
   });
 
   it('opens a group the diver left open last time even though this dive has nothing in it', () => {
-    expect([...defaultOpenGroups(blankFormValues(), ['people'])]).toEqual(['people']);
+    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, people: true })]).toEqual(['people']);
   });
 
   it('keeps an id it has never heard of, so an older build cannot forget a newer one’s group', () => {
     // §10's "kept, not refused". The set is what gets written back, so an id dropped here is a
     // memory deleted for the build that understands it.
-    expect([...defaultOpenGroups(blankFormValues(), ['profile'])]).toEqual(['profile']);
+    expect([...defaultOpenGroups(blankFormValues(), { ...NOTHING_STARTS_OPEN, profile: true })]).toEqual(['profile']);
+  });
+
+  // --- §2.2's third state, as a rule (M1i) ---
+  //
+  // A group with no remembered preference falls back to `startsOpen`; one the diver decided
+  // about does not, in EITHER direction. The two `false` cases are the ones that did not exist
+  // before this milestone and the ones that a set-of-open-ids could not have stored.
+  it('opens the groups that start open when the diver has decided nothing at all', () => {
+    expect([...defaultOpenGroups(blankFormValues(), {})].sort()).toEqual(['gas', 'times']);
+  });
+
+  it('leaves a group the diver collapsed shut, though it is one that starts open', () => {
+    expect([...defaultOpenGroups(blankFormValues(), { times: false })]).toEqual(['gas']);
+  });
+
+  it('does not reopen a collapsed group merely because a second one was left open', () => {
+    // The two halves of the memory are read per group, not as one flag: a `true` for Conditions
+    // must not drag Times open, and a `false` for Times must not shut Gas.
+    expect([...defaultOpenGroups(blankFormValues(), { times: false, conditions: true })].sort()).toEqual([
+      'conditions',
+      'gas',
+    ]);
+  });
+
+  // The boundary M1i deliberately did NOT move (`defaultOpenGroups`' own docblock): where the
+  // memory and the value rule disagree, open still wins. Recorded as a test because it is a
+  // decision with a visible cost — cylinders carry over, so a collapse of *Gas & cylinders*
+  // will not survive to the next dive — and a silent flip of it should fail here.
+  it('opens a collapsed group that this dive has a value in, which is the settled union', () => {
+    expect([...defaultOpenGroups(valuesWith('buddy', 'Petr'), { people: false, ...NOTHING_STARTS_OPEN })]).toEqual([
+      'people',
+    ]);
   });
 });
 
@@ -783,9 +850,10 @@ function expandedGroups(t: RenderResult): string[] {
     .map((n) => String(n.props?.accessibilityLabel).replace('Collapse ', ''));
 }
 
-/** The set the screen last asked `setOpenFormGroups` to store. */
-function lastRemembered(): string[] | undefined {
-  return mockSetOpenGroups.mock.calls.at(-1)?.[1] as string[] | undefined;
+/** The memory the screen last asked `setOpenFormGroups` to store — a decision per group, since
+ * M1i, so an id that is absent from it is one the diver has still never touched. */
+function lastRemembered(): Record<string, boolean> | undefined {
+  return mockSetOpenGroups.mock.calls.at(-1)?.[1] as Record<string, boolean> | undefined;
 }
 
 it.each([
@@ -806,9 +874,14 @@ it.each([
   // call site: a `<FormGroup>` handed another group's entry would open the wrong one with every
   // rule test above still green.
   //
+  // The two groups that start open are stubbed collapsed, so what is measured here is the value
+  // rule alone: with them left undecided, *Times & depth* and *Gas & cylinders* would be open on
+  // every row of this table and "the other five shut" would stop being a claim about anything.
+  //
   // Written as a `Partial<Dive>` rather than through this file's `tank()`/`existing()` helpers
   // because `it.each`'s table is built while the module is still evaluating and those are
   // declared further down.
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
   stubLogbookFor(dive({ id: 'target', ...recorded }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   expect(expandedGroups(t)).toEqual([FORM_GROUPS[id].title]);
@@ -818,13 +891,14 @@ it('opens the group carry-over filled, which is the case §2.2 says makes this m
   // "The second half is not optional — carry-over fills groups nobody touched." §2.1 makes the
   // suit and the buddy carry and the water temperature fresh, so a new dive opens Equipment and
   // People over values nobody on this form typed, and leaves Conditions shut.
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
   stubDives({ dives: [dive({ date: '2026-08-16', suit: 'wet', buddy: 'Petr', waterTempC: 20 })] });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t).sort()).toEqual(['Equipment', 'People']);
 });
 
 it('opens a group the diver left open last time, though this dive has nothing in it', async () => {
-  stubOpenGroups(['people']);
+  stubOpenGroups({ ...COLLAPSE_DEFAULT_OPEN, people: true });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual(['People']);
   // ...and the fields really are there, not merely a header claiming to be open.
@@ -832,6 +906,7 @@ it('opens a group the diver left open last time, though this dive has nothing in
 });
 
 it('lets the diver close a group the dive has a value in, which is what a control is for', async () => {
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
   stubDives({ dives: [dive({ buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual(['People']);
@@ -843,13 +918,16 @@ it('lets the diver close a group the dive has a value in, which is what a contro
 });
 
 it('remembers a group the diver opens, alongside everything it already remembered', async () => {
-  stubOpenGroups(['conditions']);
+  stubOpenGroups({ conditions: true });
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'People');
   if (!header) throw new Error('no People header found');
   await fireEvent.press(header);
 
-  expect(lastRemembered()?.sort()).toEqual(['conditions', 'people']);
+  // Conditions is carried through untouched, and the two groups the diver has still said nothing
+  // about stay absent — a write that helpfully filled them in would turn a starting state into a
+  // decision nobody made, which is the whole distinction M1i's third state exists for.
+  expect(lastRemembered()).toEqual({ conditions: true, people: true });
 });
 
 it('composes one memory out of two presses, rather than losing the first', async () => {
@@ -862,43 +940,48 @@ it('composes one memory out of two presses, rather than losing the first', async
     if (!header) throw new Error(`no ${title} header found`);
     await fireEvent.press(header);
   }
-  expect(lastRemembered()?.sort()).toEqual(['notes', 'people']);
+  expect(lastRemembered()).toEqual({ notes: true, people: true });
 });
 
-it('forgets a group the diver closes', async () => {
-  stubOpenGroups(['people', 'notes']);
+it('writes a group the diver closes as closed, not as forgotten', async () => {
+  // **The half M1i changed, and the one a set of open ids could not say.** Dropping the id would
+  // read back as "never decided", so a group that starts open would start open again on the next
+  // dive and the diver's gesture would silently undo itself. It has to be stored as `false`.
+  stubOpenGroups({ people: true, notes: true });
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'People');
   if (!header) throw new Error('no People header found');
   await fireEvent.press(header);
 
-  expect(lastRemembered()).toEqual(['notes']);
+  expect(lastRemembered()).toEqual({ people: false, notes: true });
 });
 
 it('writes an id it has never heard of straight back, rather than deleting it', async () => {
   // §10's "kept, not refused" at the write end, which is where it actually costs something: an
   // older build opening one form would otherwise wipe a newer build's memory of its own group.
-  stubOpenGroups(['profile']);
+  stubOpenGroups({ profile: true, atmosphere: false });
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'People');
   if (!header) throw new Error('no People header found');
   await fireEvent.press(header);
 
-  expect(lastRemembered()?.sort()).toEqual(['people', 'profile']);
+  // Both of a newer build's states survive, not only the open one: a `false` dropped here is a
+  // collapse that build would find undone.
+  expect(lastRemembered()).toEqual({ profile: true, atmosphere: false, people: true });
 });
 
 it('writes nothing at all before the read has answered', async () => {
-  // `[]` is what the hook reads before it has looked, and it is also what "the diver had them
-  // all closed" looks like — so a write composed then would store a set built on an answer
+  // `{}` is what the hook reads before it has looked, and it is also what "the diver has decided
+  // about nothing" looks like — so a write composed then would store a memory built on an answer
   // nobody has, erasing whatever was really there. The press still opens the group; only the
   // memory of it is skipped.
-  stubOpenGroups([], false);
+  stubOpenGroups({}, false);
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'People');
   if (!header) throw new Error('no People header found');
   await fireEvent.press(header);
 
-  expect(expandedGroups(t)).toEqual(['People']);
+  expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'People', 'Times & depth']);
   expect(mockSetOpenGroups).not.toHaveBeenCalled();
 });
 
@@ -908,27 +991,43 @@ it('draws its groups without waiting for a memory that has not arrived', async (
   // case that frame exists for was a screen asserting something false. So the half that needs
   // no read at all is answered at once, and the remembered half lands when it lands.
   stubDives({ dives: [dive({ buddy: 'Petr' })] });
-  stubOpenGroups([], false);
+  stubOpenGroups({}, false);
   const t = await render(<DiveFormScreen mode="create" />);
 
   expect(findButton(t, 'People')).toBeDefined();
-  expect(expandedGroups(t)).toEqual(['People']);
+  // The two groups that start open are drawn open on this first frame too, rather than waiting
+  // to be told whether the diver collapsed them — see the screen's own note on which of the two
+  // one-frame corrections is the rarer one.
+  expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'People', 'Times & depth']);
 });
 
 it('opens a remembered group when the memory arrives after the first render', async () => {
-  stubOpenGroups([], false);
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN, false);
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual([]);
 
-  stubOpenGroups(['notes']);
+  stubOpenGroups({ ...COLLAPSE_DEFAULT_OPEN, notes: true });
   await t.rerender(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual(['Notes & rating']);
+});
+
+// The same arrival, in the direction only M1i can produce: the first frame draws *Times & depth*
+// open because nothing is known, and the memory then says the diver collapsed it. A screen that
+// read the memory as "the open ones" would leave it open for ever.
+it('closes a group the arriving memory says the diver collapsed', async () => {
+  stubOpenGroups({}, false);
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'Times & depth']);
+
+  stubOpenGroups({ times: false });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['Gas & cylinders']);
 });
 
 it('never lets a late memory reopen a group the diver has closed', async () => {
   // The diver's own gesture outranks both rules, and it has to outrank them across a read that
   // answers afterwards — otherwise a group they shut springs open again for no visible reason.
-  stubOpenGroups([], false);
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN, false);
   const t = await render(<DiveFormScreen mode="create" />);
   const header = findButton(t, 'Notes & rating');
   if (!header) throw new Error('no Notes & rating header found');
@@ -936,9 +1035,90 @@ it('never lets a late memory reopen a group the diver has closed', async () => {
   await fireEvent.press(header);
   expect(expandedGroups(t)).toEqual([]);
 
-  stubOpenGroups(['notes']);
+  stubOpenGroups({ ...COLLAPSE_DEFAULT_OPEN, notes: true });
   await t.rerender(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual([]);
+});
+
+// --- §2.2's "open by default", and the three states it needs to be true (M1i) ---
+//
+// **The whole cross product, on what the screen SHOWS.** Three memory states — never decided,
+// explicitly opened, explicitly collapsed — crossed with the two the value rule has, for one
+// group that starts open and one that does not. Twelve cells, and the reason all twelve are here
+// rather than the four that look interesting is that a table covering *most* of a cross product
+// reads as complete: the pair that would have shipped this feature broken is (collapsed, no
+// value) on a group that starts open, which is exactly the cell a "does it open by default"
+// test and a "does a remembered group open" test both skip.
+//
+// Read as a design, the two rows that state something not otherwise written down:
+//
+// - **collapsed + no value on *Times & depth*** is the one M1i exists for. It was unreachable
+//   before, because the memory could not hold a collapse.
+// - **collapsed + a value** opens anyway, on either group. That is §2.2's settled union — "a
+//   group opens when the diver opened it last time OR when this dive already has a value in it"
+//   — deliberately not relitigated here, and it has a cost worth knowing: cylinders carry over,
+//   so a collapse of *Gas & cylinders* will not survive to the next dive that carries one.
+//
+// Driven in edit mode so "has a value in it" is the dive's own stored value rather than
+// carry-over's, and asserted per group rather than over the whole set, so each row says one
+// thing about the group it names.
+it.each([
+  ['starts open', 'Times & depth', {}, false, true],
+  ['starts open', 'Times & depth', {}, true, true],
+  ['starts open', 'Times & depth', { times: true }, false, true],
+  ['starts open', 'Times & depth', { times: true }, true, true],
+  ['starts open', 'Times & depth', { times: false }, false, false],
+  ['starts open', 'Times & depth', { times: false }, true, true],
+  ['starts closed', 'People', {}, false, false],
+  ['starts closed', 'People', {}, true, true],
+  ['starts closed', 'People', { people: true }, false, true],
+  ['starts closed', 'People', { people: true }, true, true],
+  ['starts closed', 'People', { people: false }, false, false],
+  ['starts closed', 'People', { people: false }, true, true],
+] as [string, string, Record<string, boolean>, boolean, boolean][])(
+  'a group that %s (%s), remembered as %p, with a value: %p — open: %p',
+  async (_kind, title, remembered, hasValue, expected) => {
+    // One value per group, chosen to be a field of THAT group and of no other: a max depth is
+    // *Times & depth* and a buddy is *People*, so a row cannot pass because some third group
+    // happened to open.
+    const recorded: Partial<Dive> = hasValue
+      ? title === 'People'
+        ? { buddy: 'Petr' }
+        : { maxDepthM: 18 }
+      : {};
+    stubOpenGroups(remembered);
+    stubLogbookFor(dive({ id: 'target', ...recorded }));
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    expect(expandedGroups(t).includes(title)).toBe(expected);
+  },
+);
+
+// ...and the group really is open or shut, rather than a header announcing a state its body
+// does not have. `expandedGroups` reads the announcement, which is the right thing for a screen
+// reader and would pass over a body that never rendered — the failure `FormGroup`'s own test
+// warns about, one level up.
+it('draws the fields of the groups that start open, without a gesture and without a memory', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t).sort()).toEqual(['Gas & cylinders', 'Times & depth']);
+  for (const label of ['Max depth', 'Avg depth', 'Duration', 'Start pressure', 'End pressure']) {
+    expect(findTextInput(t, label)).toBeDefined();
+  }
+  // The one field in those two groups that is a picker rather than a text input, so a query
+  // for TextInputs cannot see it: `Time in` announces itself as `` `Time in: ${value}` ``.
+  expect(findPickerField(t, 'Time in')).toBeDefined();
+});
+
+// The other end of the same gesture, end to end rather than through the stubbed memory: what a
+// diver does to a default-open group reaches the row that has to remember it. Without the
+// `false` this writes, the collapse would be undone by the very default it disagreed with.
+it('writes a collapse of a group that starts open, so the next dive keeps it collapsed', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'Times & depth');
+  if (!header) throw new Error('no Times & depth header found');
+  await fireEvent.press(header);
+
+  expect(expandedGroups(t)).toEqual(['Gas & cylinders']);
+  expect(lastRemembered()).toEqual({ times: false });
 });
 
 // --- §1, "never block a save," hardened beyond the brief's one snapshot ---
@@ -1148,12 +1328,12 @@ it('rules every field on its top edge, the way a dive row is ruled', async () =>
   expect(strip).toBeDefined();
 
   const rows = strip?.queryAll((n) => [n.props?.style].flat(5).filter(Boolean).includes(styles.formField)) ?? [];
-  // Date, site, centre, max depth, duration, time in, start and end pressure (§2.2, as M1h
-  // amended it) — counted from the layout the screen itself declares rather than from an 8
-  // written here, so a field added to the strip is a row this test expects rather than one it
-  // reports as a surprise. Five until the three the owner had to open a group for joined it.
+  // Date, site and centre (§2.2, as M1i shrank it) — counted from the layout the screen itself
+  // declares rather than from a 3 written here, so a field added to the strip is a row this test
+  // expects rather than one it reports as a surprise. The literal beside it is what stops the
+  // count from agreeing with an empty strip.
   expect(rows).toHaveLength(CORE_STRIP_FIELDS.length);
-  expect(CORE_STRIP_FIELDS).toHaveLength(8);
+  expect(CORE_STRIP_FIELDS).toHaveLength(3);
   expect(styles.formField.borderTopWidth).toBe(1);
   expect(styles.formField.borderTopColor).toBe(themeFor('light').border);
   // ...and no bottom edge beside it, which would double every rule between two rows and
@@ -2668,11 +2848,12 @@ function symbolsInside(node: TestNode | undefined) {
   return node ? node.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
 }
 
-/** Every drawn mark inside one control, of any of the three kinds this form uses: a real SF
- * Symbol, one of the visibility bars, or a rating dot. One counter rather than three, because
- * the question the witness below asks is "how many marks does this option carry" and the
- * mechanism is exactly what must not be pinned — a mark that changed from a symbol to a drawn
- * shape would still be the same claim to a diver. */
+/** Every drawn mark inside one control, of either kind this form still uses: a real SF Symbol,
+ * or a rating dot. One counter rather than two, because the question the witness below asks is
+ * "how many marks does this option carry" and the mechanism is exactly what must not be pinned —
+ * a mark that changed from a symbol to a drawn shape would still be the same claim to a diver.
+ * (It counted a third kind, the visibility bars, until M1i took the scale marks out; a drawn
+ * mark that comes back off §9's shelf will need an arm here again.) */
 function marksInside(node: TestNode | undefined) {
   if (!node) return [];
   const sheet = makeStyles('light');
@@ -2680,7 +2861,7 @@ function marksInside(node: TestNode | undefined) {
     if (typeof n.type === 'string' && n.type.includes('SymbolModule')) return true;
     if (n.type !== 'View') return false;
     const worn = [n.props?.style].flat(3);
-    return worn.includes(sheet.visibilityBar) || worn.includes(sheet.ratingDot) || worn.includes(sheet.ratingDotField);
+    return worn.includes(sheet.ratingDot) || worn.includes(sheet.ratingDotField);
   });
 }
 
@@ -2689,35 +2870,31 @@ function marksInside(node: TestNode | undefined) {
  * derived from the screen or from the mark components.**
  *
  * The same kind of independent witness `FIELD_LABELS` above is, for the same reason and after
- * the same failure. Every other assertion about the marks is built FROM the thing it checks:
- * `ConditionMarks.test.tsx` asks `CurrentIcon` how many arrows it drew, which stays perfectly
- * self-consistent if the *form* wires `CurrentIcon` to Surge, to Waves, or to nothing at all.
- * This table says what the SCREEN shows, so the two can only agree by both being right.
+ * the same failure. An assertion built FROM the thing it checks stays perfectly self-consistent
+ * while that thing is wrong — `EntryIcon.test.tsx` asks the component what it drew and cannot
+ * see the *form* wiring it to Salinity. This table says what the SCREEN shows, so the two can
+ * only agree by both being right.
  *
  * It is also the only place that states §0.6's boundary as a whole. The rule is a boundary and
  * either half alone is satisfiable by the wrong implementation: a mark on every chip passes
  * "shore has one", and a mark on none passes "salinity has none". The version of this test
  * before M1h checked four fields and claimed "no other chip anywhere" — which was true when it
- * was written and silently stopped being true the moment Weather, Visibility, Current and
- * Surge grew marks, because those four were simply not in its list.
+ * was written and silently stopped being true the moment four more rows grew marks, because
+ * those four were simply not in its list. Every option control on the form is a row here now,
+ * and the sweep below keeps it that way.
  *
  * Read the numbers as the design:
  *
- * - **Entry** — *shore* and *boat* have one, *other* has none. §0.6 names all three.
- * - **Salinity · Water body · Suit · Material · Configuration · Weighting** — none, and §0.6
- *   says why: drawn as icons they "collapse into near-identical droplets and suits separated
- *   by tally marks, which is a legend".
- * - **Visibility** — bars counting up: three, two, one, in `VISIBILITY_VALUES`' best-to-worst
- *   order.
- * - **Weather** — one sky each; six different ones, which `WeatherIcon.test.tsx` pins by name.
- * - **Current · Surge** — the count IS the level, so the marks run 0, 1, 2, 3 with the scale.
- * - **Waves — all zero, and that is the entry to read twice.** It is the one row here that
- *   has a mark in the owner's sheet and ships without one, because amplitude has no
- *   dependency-free encoding that is not either a count (which is frequency) or the
- *   visibility bars (which would make both rows a legend). The argument is written out at
- *   `ConditionMarks.tsx`'s head. **If a future change gives Waves a mark, this row is what
- *   fails**, which is the point: it should cost a deliberate edit here and a re-reading of
- *   that argument, not a silent arrival.
+ * - **Entry** — *shore* and *boat* have one, *other* has none. §0.6 names all three, and after
+ *   M1i they are the only marked chips on the form: "*Shore* and *boat* pass trivially."
+ * - **Every other row is zero, and that is now one decision rather than twelve.** M1h gave the
+ *   scales marks that encoded themselves — visibility bars counting up, current and surge
+ *   arrows accumulating, a sky per weather — and §10 records the owner taking them out again:
+ *   they passed §0.6's no-legend test and still cost *Current* and *Surge* a wrapped second
+ *   line, and made *Visibility low* read as a word with a full stop in front of it. §9's shelf
+ *   holds what replaces them, and it is a drawn set for this app rather than a mark per row.
+ *   **If a future change gives one of these rows a mark, this table is what fails** — which is
+ *   the point: it should cost a deliberate edit here, not a silent arrival.
  * - **Rating** — one drawn dot per target, which is §0.6's "drawn, not typed" for the one
  *   control whose marks *are* the control.
  */
@@ -2725,11 +2902,11 @@ const CHIP_MARKS: [string, string, number[]][] = [
   ['Entry', 'Conditions', [1, 1, 0]],
   ['Salinity', 'Conditions', [0, 0]],
   ['Water body', 'Conditions', [0, 0, 0, 0, 0, 0]],
-  ['Visibility', 'Conditions', [3, 2, 1]],
+  ['Visibility', 'Conditions', [0, 0, 0]],
   ['Waves', 'Conditions', [0, 0, 0, 0]],
-  ['Current', 'Conditions', [0, 1, 2, 3]],
-  ['Surge', 'Conditions', [0, 1, 2, 3]],
-  ['Weather', 'Conditions', [1, 1, 1, 1, 1, 1]],
+  ['Current', 'Conditions', [0, 0, 0, 0]],
+  ['Surge', 'Conditions', [0, 0, 0, 0]],
+  ['Weather', 'Conditions', [0, 0, 0, 0, 0, 0]],
   ['Suit', 'Equipment', [0, 0, 0, 0, 0]],
   ['Weighting', 'Equipment', [0, 0, 0]],
   ['Material', 'Gas & cylinders', [0, 0]],
@@ -2782,58 +2959,12 @@ it('has a marks row for every option control on the form, and none for a control
   }
 });
 
-/**
- * **Which symbol a repeating row repeats, by name** — the half `CHIP_MARKS` above cannot hold,
- * and deliberately does not try to.
- *
- * `marksInside` counts nodes and stays blind to the mechanism on purpose: "a mark that changed
- * from a symbol to a drawn shape would still be the same claim to a diver". That is right for
- * a count table, and it leaves one hole exactly where this milestone's design argument lives.
- * Current and Surge carry **identical** counts — `[0, 1, 2, 3]` both, because on both rows the
- * count IS the level — so `CHIP_MARKS` is perfectly satisfied by the two being swapped, and
- * swapping `CurrentIcon` and `SurgeIcon` at their call sites was measured **1553 green**.
- *
- * The swap is not cosmetic. §0.6: Surge's mark is two-way, "which is what tells the two rows
- * apart at a glance rather than by reading" — the single thing the bidirectional glyph buys,
- * and the reason `ConditionMarks.tsx` gives for why a repeated wave could not serve Waves. So
- * on these two rows the symbol's identity is not the mechanism; it is the design, and the one
- * table that says what the SCREEN shows has to state it.
- *
- * Written out here rather than read back from `ConditionMarks.tsx`, for the reason
- * `CHIP_MARKS`' own docblock gives: `ConditionMarks.test.tsx` asks `CurrentIcon` what it drew
- * and stays perfectly self-consistent when this screen hands it to the wrong row.
- */
-const REPEATED_MARK_SYMBOLS: [string, string, string][] = [
-  ['Current', 'Conditions', 'arrow.right'],
-  ['Surge', 'Conditions', 'arrow.left.arrow.right'],
-];
-
-it.each(REPEATED_MARK_SYMBOLS)('repeats the one symbol §0.6 gives %s, on every chip that has marks', async (label, group, name) => {
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, group);
-  const drawn = CONDITION_SCALE_VALUES.map((_, index) =>
-    symbolsInside(findChip(t, label, index)).map((n) => String(n.props?.name)),
-  );
-  // One set over every copy on every chip, so this says three things at once: the row draws
-  // that symbol, it draws no other (a chip mixing two glyphs would still pass a count), and
-  // it draws something at all (an empty set fails, which is what catches a row whose marks
-  // were dropped entirely).
-  expect(new Set(drawn.flat())).toEqual(new Set([name]));
-});
-
-// Keeps the table above honest in the other direction, exactly as the count table's own
-// completeness check does: a third row that repeats a symbol has to name it here, or the two
-// rows that do would quietly become the only ones anybody checked. Derived from the screen —
-// which is right for a completeness question and wrong for the names themselves, which is why
-// only this half reads the form.
-it('names the symbol of every row on this form that repeats one', async () => {
-  const t = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
-  const repeating = CHIP_MARKS.filter(([label, , marks]) =>
-    marks.some((_, index) => symbolsInside(findChip(t, label, index)).length > 1),
-  ).map(([label]) => label);
-  expect(repeating.sort()).toEqual(REPEATED_MARK_SYMBOLS.map(([label]) => label).sort());
-});
+// M1h's `REPEATED_MARK_SYMBOLS` witness stood here — which symbol *Current* and *Surge* each
+// repeated, by name, because `CHIP_MARKS` counts nodes and their counts were identical, so it
+// was satisfied by the two rows being swapped. It went out with the marks (M1i, §10), and its
+// completeness half — "name the symbol of every row that repeats one" — went with it rather
+// than being left asserting that no row does: `CHIP_MARKS` above already fails on the first
+// mark that comes back, which is the same guard without a table standing over an empty subject.
 
 // §0.6: the icon "**supplements the label rather than replacing it** — never an icon alone."
 // The failure this guards is a chip that swapped its word for a picture, which would still
