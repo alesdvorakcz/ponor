@@ -6,10 +6,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
+import { CurrentIcon, SurgeIcon } from '../components/ConditionMarks';
 import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
+import { RatingDot, filledDotCount } from '../components/RatingDots';
+import { VisibilityIcon } from '../components/VisibilityIcon';
+import { WeatherIcon } from '../components/WeatherIcon';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -33,7 +37,8 @@ import {
   toNewDiveInput,
   toInputString,
   toStoredTanks,
-  unknownOptionNote,
+  optionNote,
+  toFormNumber,
   type DiveFormInput,
   type DiveFormValues,
   type TankFormInput,
@@ -41,8 +46,11 @@ import {
 import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
+  CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
   ENTRY_VALUES,
+  RATING_MAX,
+  RATING_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
@@ -58,14 +66,17 @@ import {
 } from '../domain/types';
 import {
   formatConfiguration,
+  formatCurrent,
   formatCylinderSpec,
   formatEntry,
   formatEquipmentToken,
   formatSalinity,
+  formatSurge,
   formatSuit,
   formatTankMaterial,
   formatVisibility,
   formatWaterBody,
+  formatWaves,
   formatWeather,
   formatWeightsFeel,
   HE_LABEL,
@@ -857,7 +868,7 @@ function ControlledDateTimeField({ control, name, label, mode, scheme, optional,
   );
 }
 
-interface ControlledOptionFieldProps<T extends string> {
+interface ControlledOptionFieldProps<T extends string | number> {
   control: FormControl;
   name: FieldPath<DiveFormInput>;
   label: string;
@@ -883,13 +894,20 @@ interface ControlledOptionFieldProps<T extends string> {
  * happened. Wave A gave the refusal a message; §10 has since settled the policy behind it —
  * "a value outside the expected range is saved and can be flagged; it is not refused", and
  * §1 binds this form as hard as it binds the database. So the value is now kept, saved, and
- * flagged: `unknownOptionNote` (diveFormSchema.ts) supplies the sentence, `FieldNote` shows
- * it, and tapping any chip replaces it.
+ * flagged: `optionNote` (diveFormSchema.ts) supplies the sentence, `FieldNote` shows it, and
+ * tapping any chip replaces it.
+ *
+ * **`T` covers numbers as well as strings since M1h**, when §0.6's icon sheet turned the
+ * three 0–3 condition scales into chip rows. They are the same control with the same rule and
+ * they go through this same wrapper — a second one for numeric scales is §4.1's defect, not a
+ * convenience — and the one thing that genuinely differs, which sentence flags a value no chip
+ * matches, is decided by `optionNote` from the vocabulary itself rather than by a prop each
+ * call site would get its own chance to set wrong.
  *
  * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
  * rule later is covered without this screen keeping a second list of which fields can fail.
  */
-function ControlledOptionField<T extends string>({ control, name, label, options, displayLabel, scheme, icon }: ControlledOptionFieldProps<T>) {
+function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
@@ -905,7 +923,113 @@ function ControlledOptionField<T extends string>({ control, name, label, options
             scheme={scheme}
             icon={icon}
           />
-          <FieldNote message={fieldState.error?.message ?? unknownOptionNote(options, field.value)} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message ?? optionNote(options, field.value)} scheme={scheme} />
+        </>
+      )}
+    />
+  );
+}
+
+interface RatingFieldProps {
+  label: string;
+  /** The form's raw value for `rating`, unread — `RatingField` puts it through
+   * `toFormNumber` itself rather than making every caller agree on how to read it. */
+  value: unknown;
+  /** `''` clears, exactly as `OptionChips`' does, so "tapping the chosen thing unchooses it"
+   * is one behaviour across every fixed-choice control on this form and not a rule the
+   * rating gets its own version of. */
+  onChange: (value: number | '') => void;
+  scheme: ColorScheme;
+}
+
+/**
+ * The rating, as `RATING_MAX` drawn marks a diver taps — §0.6: "Rating marks are **drawn**,
+ * not typed: `●` and `○` are different sizes in almost every typeface, so a rating rendered
+ * from glyphs looks broken; draw both as circles of one diameter, filled or outlined."
+ *
+ * **The mark is `RatingDot`, the same component a dive row's metadata line uses**, and that
+ * sharing is the point rather than a tidiness: §0.6 troubled itself to specify how a rating
+ * is drawn, and a form that drew its own would be §4.1's defining defect on exactly the rule
+ * the design bothered to write down. What this control adds is not a second mark but a tap
+ * target around each one.
+ *
+ * **This is not an `OptionChips` row, and the difference is the sheet's own call**: the owner's
+ * icon sheet says "tap a dot", and a rating drawn as five circles is the one fixed-choice
+ * value in the app whose *marks are the control*. A chip row saying `1 2 3 4 5` would put
+ * §0.6's drawn rating back into typed glyphs at the one place the diver actually sets it.
+ *
+ * Each dot is its own 48 dp target (`ratingTarget`, §0.5: "Tap targets never below 48 dp"),
+ * which the sheet says too. It is per dot rather than per row because each dot is a separate
+ * control — pressing the third one means three.
+ *
+ * **Accessibility: five circles with no text would be a dead end**, so each target announces
+ * `` `${label}: ${n} of ${RATING_MAX}` `` and carries `selected` for the one that IS the
+ * rating — the same shape `OptionChips` announces, deliberately, so a screen reader meets one
+ * grammar for "pick one of these" across the form. Not an `adjustable` slider: that role
+ * promises increment/decrement actions nothing in this app implements, and a diver would be
+ * told to swipe up and down on a control that only answers taps.
+ *
+ * A dot is *filled* up to the rating and *selected* only at it: three filled circles are what
+ * "3" looks like, but only the third one is the value, and announcing three selected controls
+ * would say the diver had picked three ratings.
+ */
+function RatingField({ label, value, onChange, scheme }: RatingFieldProps) {
+  const styles = makeStyles(scheme);
+  const rating = toFormNumber(value);
+  // Clamped for the DRAWING only — `filledDotCount` never touches what is stored, and a
+  // stored 9 keeps being 9 (§10 keeps these columns unclamped). What tells the diver about
+  // that 9 is `outOfScaleNote` under the row, not the dots, which is why five filled circles
+  // are allowed to stand for it here without lying: the sentence beneath says the number.
+  const filled = rating === null ? 0 : filledDotCount(rating);
+  return (
+    // The same `formField` + label row every other field uses, with the dots in the slot §0.6
+    // gives a field's second line — where the chip rows above already put their options, for
+    // the reason `formRatingRow` records: this is a set to read through, not a value to read
+    // off.
+    <View style={styles.formField}>
+      <View style={styles.formFieldRow}>
+        <Text style={styles.formFieldLabel}>{label}</Text>
+      </View>
+      <View style={styles.formRatingRow}>
+        {RATING_VALUES.map((level) => {
+          const selected = rating === level;
+          return (
+            <Pressable
+              key={level}
+              style={styles.ratingTarget}
+              onPress={() => onChange(selected ? '' : level)}
+              accessibilityRole="button"
+              accessibilityLabel={`${label}: ${level} of ${RATING_MAX}`}
+              accessibilityState={{ selected }}
+            >
+              <RatingDot filled={level <= filled} scheme={scheme} variant="field" />
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The rating bound to the form, with whatever its current value has to say for itself —
+ * `ControlledOptionField`'s shape, for the same reasons, one control over.
+ *
+ * The note matters more here than on a chip row and is the reason this is not just
+ * `<RatingField>` inside a `Controller`: a rating outside 1–5 lights no dot, so without a
+ * sentence the row would read as "nothing recorded" over a value that is recorded and is
+ * about to be saved again untouched. `outOfScaleNote` (via `optionNote`) is what says the
+ * number out loud. Until M1h this field was a text box, where a stored 9 was simply visible.
+ */
+function ControlledRatingField({ control, scheme }: { control: FormControl; scheme: ColorScheme }) {
+  return (
+    <Controller
+      control={control}
+      name="rating"
+      render={({ field, fieldState }) => (
+        <>
+          <RatingField label="Rating" value={field.value} onChange={field.onChange} scheme={scheme} />
+          <FieldNote message={fieldState.error?.message ?? optionNote(RATING_VALUES, field.value)} scheme={scheme} />
         </>
       )}
     />
@@ -2245,6 +2369,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={VISIBILITY_VALUES}
             displayLabel={(option) => formatVisibility(option) ?? option}
             scheme={scheme}
+            // Bars that count up — three for high, one for low, each taller than the last.
+            // Drawn from `View`s rather than from a symbol, which needs no dependency; see
+            // `VisibilityIcon` for why the ink it is handed cannot be painted straight on.
+            icon={(option, tintColor) => <VisibilityIcon visibility={option} tintColor={tintColor} scheme={scheme} />}
           />
           <ControlledTextField
             control={control}
@@ -2255,9 +2383,52 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit={unitLabel('depth', units)}
           />
-          <ControlledTextField control={control} name="waves" label="Waves" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
-          <ControlledTextField control={control} name="current" label="Current" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
-          <ControlledTextField control={control} name="surge" label="Surge" scheme={scheme} keyboardType="decimal-pad" mono placeholder="0-3" />
+          {/* The three 0–3 scales, as chips rather than as `0-3` text boxes (M1h, the owner:
+              "No one will write numbers there, we should provide chips with icons to
+              choose from"). The vocabulary is `CONDITION_SCALE_VALUES` — one list for all
+              three, since the levels are one fact — and the words are display.ts's, since
+              level 0 is *Flat* water but *no* current.
+
+              **Waves carries no mark, and that is a decision rather than an unfinished
+              row.** §0.6 permits it outright ("an icon appears only where the value has
+              one") and the argument is written out in full at `ConditionMarks.tsx`'s head,
+              where anyone reaching to add the missing one will land: the scale is
+              amplitude, repetition encodes frequency, and the only mark that could carry
+              amplitude without a drawing dependency is the bars that already mean
+              visibility two rows up — which would make both of them a legend. §0.6's test
+              is whether the mark carries the meaning or merely labels it, and every
+              candidate merely labels it. */}
+          <ControlledOptionField
+            control={control}
+            name="waves"
+            label="Waves"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatWaves(level) ?? String(level)}
+            scheme={scheme}
+          />
+          <ControlledOptionField
+            control={control}
+            name="current"
+            label="Current"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatCurrent(level) ?? String(level)}
+            scheme={scheme}
+            // Arrows that accumulate one way; `CurrentIcon` owns how many and draws nothing
+            // for level 0, whose meaning is that there was none.
+            icon={(level, tintColor) => <CurrentIcon level={level} tintColor={tintColor} scheme={scheme} />}
+          />
+          <ControlledOptionField
+            control={control}
+            name="surge"
+            label="Surge"
+            options={CONDITION_SCALE_VALUES}
+            displayLabel={(level) => formatSurge(level) ?? String(level)}
+            scheme={scheme}
+            // The same accumulation, two ways — which is the actual difference between a
+            // surge and a current, so the two rows are told apart by their marks and not
+            // only by their labels.
+            icon={(level, tintColor) => <SurgeIcon level={level} tintColor={tintColor} scheme={scheme} />}
+          />
           <ControlledOptionField
             control={control}
             name="weather"
@@ -2265,6 +2436,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={WEATHER_VALUES}
             displayLabel={(option) => formatWeather(option) ?? option}
             scheme={scheme}
+            // The one field here whose values are not an ordered scale, so §0.6's "encodes
+            // the scale in itself" does not apply to it — the *shore* and *boat* test does,
+            // and
+            // a sun, a cloud and rain pass it as trivially as a ferry.
+            icon={(option, tintColor) => <WeatherIcon weather={option} tintColor={tintColor} />}
           />
           <ControlledOptionField
             control={control}
@@ -2497,7 +2673,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         <FormGroup {...groupProps('notes')}>
           <ControlledTextField control={control} name="title" label="Title" scheme={scheme} />
           <ControlledTextField control={control} name="notes" label="Notes" scheme={scheme} multiline />
-          <ControlledTextField control={control} name="rating" label="Rating" scheme={scheme} keyboardType="decimal-pad" mono placeholder="1-5" />
+          <ControlledRatingField control={control} scheme={scheme} />
         </FormGroup>
       </ScrollView>
 

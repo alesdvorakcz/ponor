@@ -101,15 +101,38 @@ function normaliseDecimalSeparator(value: string): string {
  */
 const optionalNumber = z
   .union([z.string(), z.number(), z.null(), z.undefined()])
-  .transform((raw) => {
-    if (raw === null || raw === undefined) return null;
-    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
-    const trimmed = raw.trim();
-    if (trimmed === '') return null;
-    const parsed = Number(normaliseDecimalSeparator(trimmed));
-    return Number.isFinite(parsed) ? parsed : null;
-  })
+  .transform(toFormNumber)
   .default(null);
+
+/**
+ * **The whole of the rule above, as a function anything can call** — `optionalNumber`'s
+ * transform is this and nothing else.
+ *
+ * It was inlined in that transform until M1h, when a second reader appeared: the form's
+ * numeric *scales* (`rating`, `waves`, `current`, `surge`) became chip rows, and a chip row
+ * has to answer two questions about its raw field value before any save happens — which chip
+ * is selected, and whether the value is one of the offered levels at all
+ * (`outOfScaleNote` below). Both are the same reading of the same value that Zod does at the
+ * write boundary, and a second copy of it is the drift §4.1 exists to stop: the copy that
+ * forgot `normaliseDecimalSeparator` would light up no chip for a `2` a Czech keypad had
+ * written as `2,0`, on a form whose save handled it perfectly.
+ *
+ * So the contract is stated once. Empty, blank and unparseable all mean **absent** — `null`,
+ * never `0`, which is the promise `optionalNumber`'s own docblock above is about — and a
+ * comma is a decimal point.
+ *
+ * `unknown` in, because react-hook-form's raw field value is whatever was last written there:
+ * a string from a text field, a number from the dive that seeded the form, `null` from a
+ * blank one.
+ */
+export function toFormNumber(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  const trimmed = String(raw).trim();
+  if (trimmed === '') return null;
+  const parsed = Number(normaliseDecimalSeparator(trimmed));
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 /**
  * The coercion contract read from the other end: what a stored or seeded value looks like in
@@ -193,9 +216,81 @@ export const UNKNOWN_OPTION_NOTE =
  * and flagged. The schema does the accepting; this does the flagging; `DiveFormScreen`'s
  * `FieldNote` shows it in the same place a blocking message would have appeared.
  */
-export function unknownOptionNote<T extends string>(options: readonly T[], value: unknown): string | undefined {
+export function unknownOptionNote<T extends string | number>(options: readonly T[], value: unknown): string | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   return (options as readonly unknown[]).includes(value) ? undefined : UNKNOWN_OPTION_NOTE;
+}
+
+/**
+ * What a diver reads next to a **numeric scale** — `rating`, `waves`, `current`, `surge` —
+ * holding a number none of its chips offers.
+ *
+ * **A sibling of `UNKNOWN_OPTION_NOTE` above, not a second copy of it**, and §4.1's rule for
+ * deliberate near-duplicates is to say here which question each answers. That one is for a
+ * closed *vocabulary* (`entry`, `suit`, a cylinder material): those values were never
+ * typeable, so a value outside the list can only have been written by another client, and the
+ * note is free to say so. **These four fields are the only ones in the app where the diver
+ * could have typed the bad value themselves** — until M1h they were `decimal-pad` text boxes
+ * with a `0-3` placeholder and nothing stopping a `9` — so reusing that sentence here would
+ * blame a future version of Ponor for the owner's own keypad, on his own dive, in his own
+ * logbook.
+ *
+ * So this one **attributes nothing**. It states what is stored, that no chip matches it, and
+ * that it is kept. Where the number came from is exactly what the app does not know, and a
+ * note that guesses is worse than a note that does not: a diver who reads "this came from a
+ * newer version" and knows it did not now distrusts every other thing the screen tells them.
+ *
+ * **It shows the value**, which is the half that makes this worth building at all. Before
+ * M1h these fields were text boxes, so a stored `9` was simply *visible* — the diver could
+ * read it and retype it. Chips cannot show a 9: no chip matches, so the row renders as though
+ * nothing were recorded, and the value is invisible while remaining perfectly saved. Flagging
+ * it without quoting it would replace one invisibility with another, so the number itself is
+ * in the sentence.
+ *
+ * §1 binds both halves: the value is **not refused** (nothing here reaches Zod's verdict, and
+ * `optionalNumber` accepts any finite number) and it is **not silently rewritten** (nothing
+ * clamps the stored value; `filledDotCount` clamps only how many dots are drawn). Tapping any
+ * chip replaces it, which is the diver's own decision and the only thing that changes it.
+ *
+ * This is what DESIGN.md §10 recorded as **still owed** — "`rating`, `waves`, `current` and
+ * `surge` are bare `optionalNumber` … nothing is *refused* — §1 holds — but nothing is
+ * flagged either" — open since M1d and closed here.
+ */
+export function outOfScaleNote(options: readonly number[], value: unknown): string | undefined {
+  // `toFormNumber` above, not a reading of its own: a `'2'` typed before these fields became
+  // chips, and a `2,0` from a Czech keypad, are both the level-2 chip and neither is out of
+  // scale. It is also what makes "nothing recorded" quiet here — it reads blank, empty and
+  // unparseable alike as `null`, so an untouched field says nothing. A local `Number(...)`
+  // would get that last case wrong in a way worth naming, because it is the bug this line
+  // avoids rather than a hypothetical: `Number('')` is `0`, not `NaN`, so a field holding
+  // whitespace would coerce to a perfectly finite zero — which `rating`'s 1–5 does not
+  // contain — and an untouched Rating row would have announced "0 is not one of these
+  // options" over a value the diver never entered.
+  const parsed = toFormNumber(value);
+  if (parsed === null) return undefined;
+  if (options.includes(parsed)) return undefined;
+  return `${parsed} is not one of these options. It is saved as it is — tap an option to replace it.`;
+}
+
+/**
+ * Which of the two notes a fixed-choice field's vocabulary gets — **and the one place that
+ * decides**, rather than each of the form's eleven chip rows naming its own.
+ *
+ * The dispatch is on what the vocabulary *is*, which is the same thing the two notes differ
+ * about: a **numeric** vocabulary is an ordered scale whose out-of-range values the diver
+ * could once have typed (`outOfScaleNote` — states the value, attributes nothing), and a
+ * **string** vocabulary is a closed list nobody could ever type into, so a foreign member can
+ * only have been written by another client (`UNKNOWN_OPTION_NOTE` — free to say so).
+ *
+ * Asking the options rather than asking the call site is deliberate. The alternative is a
+ * prop on `ControlledOptionField` naming the note, which is eleven independent chances to
+ * pick the wrong one — the same per-call-site hazard `DiveFormScreen.test.tsx`'s write sweep
+ * exists for, where a chip row wired to the wrong `name` saves the wrong column. Here the
+ * vocabulary already knows the answer and cannot be handed the wrong one.
+ */
+export function optionNote<T extends string | number>(options: readonly T[], value: unknown): string | undefined {
+  const numeric = options.length > 0 && options.every((option) => typeof option === 'number');
+  return numeric ? outOfScaleNote(options as readonly number[], value) : unknownOptionNote(options, value);
 }
 
 /**

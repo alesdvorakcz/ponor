@@ -8,11 +8,16 @@ import {
   sameEquipment,
   toStoredTanks,
   unknownOptionNote,
+  outOfScaleNote,
+  optionNote,
+  toFormNumber,
   UNKNOWN_OPTION_NOTE,
 } from './diveFormSchema';
 import { type UnitSystem } from '../format/units';
 import {
+  CONDITION_SCALE_VALUES,
   ENTRY_VALUES,
+  RATING_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
@@ -215,6 +220,97 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     // options to save" would describe a refusal that no longer happens.
     expect(UNKNOWN_OPTION_NOTE).toContain('saved as it is');
     expect(UNKNOWN_OPTION_NOTE).not.toContain('to save.');
+  });
+});
+
+// --- The numeric scales' own note (M1h), and why it is not the one above ---
+//
+// DESIGN.md §10 recorded this as **still owed** from M1d: "`rating`, `waves`, `current` and
+// `surge` are bare `optionalNumber` … nothing is *refused* — §1 holds — but nothing is flagged
+// either." It stayed harmless while those four were text boxes, because a stored `9` was
+// simply visible in one. M1h turned them into chips, where a 9 matches no chip and the row
+// renders as if nothing were recorded — the value perfectly saved and completely invisible.
+describe('outOfScaleNote', () => {
+  it('says nothing about any level the scale actually offers, or about an untouched field', () => {
+    for (const level of CONDITION_SCALE_VALUES) {
+      expect(outOfScaleNote(CONDITION_SCALE_VALUES, level)).toBeUndefined();
+    }
+    // Every spelling of "nothing recorded" this form can produce. `'   '` is the one worth
+    // naming: `Number('')` is `0`, not `NaN`, so a note that coerced before checking for blank
+    // would announce "0 is not one of these options" on an untouched Rating row — over a value
+    // the diver never entered.
+    for (const empty of [null, undefined, '', '   ']) {
+      expect(outOfScaleNote(RATING_VALUES, empty)).toBeUndefined();
+    }
+  });
+
+  it('reads a typed or synced string as the level it spells, rather than as foreign', () => {
+    // These four fields were `decimal-pad` text boxes until M1h, so a string is what a stored
+    // form value could genuinely be — and a Czech keypad types the decimal comma, which the
+    // save path has always understood. A note that flagged `'2'` would fire on the very value
+    // its own chip row is about to show as selected.
+    expect(outOfScaleNote(CONDITION_SCALE_VALUES, '2')).toBeUndefined();
+    expect(outOfScaleNote(CONDITION_SCALE_VALUES, '2,0')).toBeUndefined();
+  });
+
+  it('names the number it found, because a chip row cannot show it', () => {
+    // The point of the note. "Out of range" without the value replaces one invisibility with
+    // another — the diver still cannot find out what their dive holds.
+    expect(outOfScaleNote(RATING_VALUES, 9)).toContain('9');
+    expect(outOfScaleNote(CONDITION_SCALE_VALUES, 7)).toContain('7');
+    // Including the case the two scales disagree about: 0 is a legal condition level and is
+    // NOT a legal rating, since an unrated dive is `null` rather than zero stars.
+    expect(outOfScaleNote(CONDITION_SCALE_VALUES, 0)).toBeUndefined();
+    expect(outOfScaleNote(RATING_VALUES, 0)).toContain('0');
+  });
+
+  it('attributes the value to nobody, unlike its sibling', () => {
+    // The whole reason this is a second sentence rather than a reuse of the first. These four
+    // fields are the only ones in the app where the diver could have typed the bad value
+    // themselves, so `UNKNOWN_OPTION_NOTE`'s "came from a newer version of Ponor" would blame
+    // a future build for the owner's own keypad. Asserted as the ABSENCE of attribution rather
+    // than as an exact string, so rewording stays free and re-blaming does not.
+    const note = outOfScaleNote(RATING_VALUES, 9) ?? '';
+    expect(note).not.toContain('newer version');
+    expect(note).not.toContain('Ponor');
+    // ...while still carrying the half that makes it honest rather than alarming: §1 means the
+    // value is kept, and the note has to say so.
+    expect(note).toContain('saved as it is');
+  });
+});
+
+describe('optionNote', () => {
+  // Which note a vocabulary gets is decided once, from the vocabulary itself, rather than by
+  // eleven chip rows each passing the right one. The dispatch is the thing worth pinning:
+  // wired backwards, a rating of 9 would announce that it came from a newer version of Ponor.
+  it('gives a word vocabulary the unknown-option note and a numeric scale the out-of-scale one', () => {
+    expect(optionNote(ENTRY_VALUES, 'liveaboard')).toBe(UNKNOWN_OPTION_NOTE);
+    expect(optionNote(RATING_VALUES, 9)).toBe(outOfScaleNote(RATING_VALUES, 9));
+    expect(optionNote(RATING_VALUES, 9)).not.toBe(UNKNOWN_OPTION_NOTE);
+  });
+
+  it('says nothing for a value either kind of vocabulary actually offers', () => {
+    for (const value of ENTRY_VALUES) expect(optionNote(ENTRY_VALUES, value)).toBeUndefined();
+    for (const level of CONDITION_SCALE_VALUES) expect(optionNote(CONDITION_SCALE_VALUES, level)).toBeUndefined();
+  });
+});
+
+describe('toFormNumber', () => {
+  // `optionalNumber`'s transform, named and exported so the chip rows can ask the same
+  // question the save path asks. The contract is "empty means absent, never 0" plus "a comma
+  // is a decimal point", and both halves have cost this project a bug before.
+  it('reads every spelling of absent as null, never as zero', () => {
+    for (const empty of [null, undefined, '', '   ', 'abc']) expect(toFormNumber(empty)).toBeNull();
+  });
+
+  it('reads a decimal comma the way a Czech keypad types it', () => {
+    expect(toFormNumber('18,4')).toBe(18.4);
+  });
+
+  it('passes a real number through, zero included', () => {
+    expect(toFormNumber(0)).toBe(0);
+    expect(toFormNumber('0')).toBe(0);
+    expect(toFormNumber(Number.NaN)).toBeNull();
   });
 });
 

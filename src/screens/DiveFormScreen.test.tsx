@@ -24,8 +24,11 @@ import { dive } from '../domain/diveFixture';
 import { diveFormSchema, TANK_FIELDS } from '../domain/diveFormSchema';
 import { formatCylinderSpec, formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
+  CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
   ENTRY_VALUES,
+  RATING_MAX,
+  RATING_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
@@ -956,10 +959,18 @@ it('lets the save control actually be pressed, with nothing set but the default 
 it('draws nothing outside its own makeStyles treatment, collapsed or expanded', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
-  const header = findButton(t, 'Gas & cylinders');
-  if (!header) throw new Error('no Gas & cylinders header found');
-  await fireEvent.press(header);
-  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+
+  // **Every group, not one**, and that is a correction rather than thoroughness for its own
+  // sake. This opened *Gas & cylinders* alone until M1h — which held no drawn graphic at all —
+  // so the sweep passed vacuously on the day the form grew two: the visibility bars in
+  // *Conditions* and the rating dots in *Notes & rating* are `View`s with real geometry, and
+  // neither was ever in front of the guard. A sweep that samples one group is a sweep of
+  // whatever that group happens to contain, which is the same hole the field sweep further
+  // down was rewritten for.
+  for (const id of FORM_GROUP_IDS) {
+    await openGroup(t, FORM_GROUPS[id].title);
+    expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+  }
 });
 
 // --- §0.6's design pass: a field is a row, and focus is the only thing that draws a box ---
@@ -2065,6 +2076,12 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
     ['Water body', 'Conditions', WATER_BODY_VALUES],
     ['Visibility', 'Conditions', VISIBILITY_VALUES],
     ['Weather', 'Conditions', WEATHER_VALUES],
+    // The three 0–3 scales, which M1h turned from `0-3` text boxes into chip rows. They share
+    // one vocabulary because the levels are one fact; what differs is the words, which
+    // display.ts owns and this table deliberately does not pin.
+    ['Waves', 'Conditions', CONDITION_SCALE_VALUES],
+    ['Current', 'Conditions', CONDITION_SCALE_VALUES],
+    ['Surge', 'Conditions', CONDITION_SCALE_VALUES],
     ['Suit', 'Equipment', SUIT_VALUES],
     ['Weighting', 'Equipment', WEIGHTS_FEEL_VALUES],
     ['Material', 'Gas & cylinders', TANK_MATERIAL_VALUES],
@@ -2088,36 +2105,117 @@ function symbolsInside(node: TestNode | undefined) {
   return node ? node.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
 }
 
-// DESIGN.md §0.6: "*Shore* and *boat* pass trivially." *Salt* and *fresh* do not, and
-// neither do *wet*, *semidry* and *dry* or *steel* and *alu* — drawn as icons those collapse
-// into near-identical droplets and suits separated by tally marks, which is a legend.
-//
-// Both halves in one test, because the rule is a boundary and either half alone is
-// satisfiable by the wrong implementation: an icon on every chip passes "shore has one", and
-// an icon on none passes "salinity has none". Asserted through the real screen rather than
-// against `EntryIcon` directly — that component can be perfectly correct and still be wired
-// to no chip at all, or to all five fields' chips.
-it('draws an icon on the two entry chips that have one, and on no other chip anywhere', async () => {
+/** Every drawn mark inside one control, of any of the three kinds this form uses: a real SF
+ * Symbol, one of the visibility bars, or a rating dot. One counter rather than three, because
+ * the question the witness below asks is "how many marks does this option carry" and the
+ * mechanism is exactly what must not be pinned — a mark that changed from a symbol to a drawn
+ * shape would still be the same claim to a diver. */
+function marksInside(node: TestNode | undefined) {
+  if (!node) return [];
+  const sheet = makeStyles('light');
+  return node.queryAll((n) => {
+    if (typeof n.type === 'string' && n.type.includes('SymbolModule')) return true;
+    if (n.type !== 'View') return false;
+    const worn = [n.props?.style].flat(3);
+    return worn.includes(sheet.visibilityBar) || worn.includes(sheet.ratingDot) || worn.includes(sheet.ratingDotField);
+  });
+}
+
+/**
+ * **How many marks each option of each control carries — written out, and deliberately not
+ * derived from the screen or from the mark components.**
+ *
+ * The same kind of independent witness `FIELD_LABELS` above is, for the same reason and after
+ * the same failure. Every other assertion about the marks is built FROM the thing it checks:
+ * `ConditionMarks.test.tsx` asks `CurrentIcon` how many arrows it drew, which stays perfectly
+ * self-consistent if the *form* wires `CurrentIcon` to Surge, to Waves, or to nothing at all.
+ * This table says what the SCREEN shows, so the two can only agree by both being right.
+ *
+ * It is also the only place that states §0.6's boundary as a whole. The rule is a boundary and
+ * either half alone is satisfiable by the wrong implementation: a mark on every chip passes
+ * "shore has one", and a mark on none passes "salinity has none". The version of this test
+ * before M1h checked four fields and claimed "no other chip anywhere" — which was true when it
+ * was written and silently stopped being true the moment Weather, Visibility, Current and
+ * Surge grew marks, because those four were simply not in its list.
+ *
+ * Read the numbers as the design:
+ *
+ * - **Entry** — *shore* and *boat* have one, *other* has none. §0.6 names all three.
+ * - **Salinity · Water body · Suit · Material · Configuration · Weighting** — none, and §0.6
+ *   says why: drawn as icons they "collapse into near-identical droplets and suits separated
+ *   by tally marks, which is a legend".
+ * - **Visibility** — bars counting up: three, two, one, in `VISIBILITY_VALUES`' best-to-worst
+ *   order.
+ * - **Weather** — one sky each; six different ones, which `WeatherIcon.test.tsx` pins by name.
+ * - **Current · Surge** — the count IS the level, so the marks run 0, 1, 2, 3 with the scale.
+ * - **Waves — all zero, and that is the entry to read twice.** It is the one row here that
+ *   has a mark in the owner's sheet and ships without one, because amplitude has no
+ *   dependency-free encoding that is not either a count (which is frequency) or the
+ *   visibility bars (which would make both rows a legend). The argument is written out at
+ *   `ConditionMarks.tsx`'s head. **If a future change gives Waves a mark, this row is what
+ *   fails**, which is the point: it should cost a deliberate edit here and a re-reading of
+ *   that argument, not a silent arrival.
+ * - **Rating** — one drawn dot per target, which is §0.6's "drawn, not typed" for the one
+ *   control whose marks *are* the control.
+ */
+const CHIP_MARKS: [string, string, number[]][] = [
+  ['Entry', 'Conditions', [1, 1, 0]],
+  ['Salinity', 'Conditions', [0, 0]],
+  ['Water body', 'Conditions', [0, 0, 0, 0, 0, 0]],
+  ['Visibility', 'Conditions', [3, 2, 1]],
+  ['Waves', 'Conditions', [0, 0, 0, 0]],
+  ['Current', 'Conditions', [0, 1, 2, 3]],
+  ['Surge', 'Conditions', [0, 1, 2, 3]],
+  ['Weather', 'Conditions', [1, 1, 1, 1, 1, 1]],
+  ['Suit', 'Equipment', [0, 0, 0, 0, 0]],
+  ['Weighting', 'Equipment', [0, 0, 0]],
+  ['Material', 'Gas & cylinders', [0, 0]],
+  ['Configuration', 'Gas & cylinders', [0, 0, 0]],
+  ['Rating', 'Notes & rating', [1, 1, 1, 1, 1]],
+];
+
+it.each(CHIP_MARKS)('draws the marks §0.6 gives %s, and no others', async (label, group, marks) => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Conditions');
-  await openGroup(t, 'Equipment');
-  await openGroup(t, 'Gas & cylinders');
+  await openGroup(t, group);
+  const counts = marks.map((_, index) => marksInside(findChip(t, label, index)).length);
+  expect(counts).toEqual(marks);
+});
 
-  // shore, boat, other — in ENTRY_VALUES' own order, which `findChip` indexes by.
-  expect(symbolsInside(findChip(t, 'Entry', 0))).toHaveLength(1);
-  expect(symbolsInside(findChip(t, 'Entry', 1))).toHaveLength(1);
-  // "*other* does not [have one]" — the value §0.6 names as the one that must stay bare.
-  expect(symbolsInside(findChip(t, 'Entry', 2))).toHaveLength(0);
+// Keeps the witness honest in the other direction, exactly as the `FIELD_LABELS` sweep does:
+// a control added to this form has to get a row above, or the table would silently stop being
+// a statement about the whole form and quietly become a statement about twelve of its
+// controls. Derived from what actually announces itself on screen, with every group open.
+it('has a marks row for every option control on the form, and none for a control that is not there', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
 
-  for (const [label, values] of [
-    ['Salinity', SALINITY_VALUES],
-    ['Water body', WATER_BODY_VALUES],
-    ['Suit', SUIT_VALUES],
-    ['Material', TANK_MATERIAL_VALUES],
-  ] as const) {
-    for (let index = 0; index < values.length; index += 1) {
-      expect(symbolsInside(findChip(t, label, index))).toHaveLength(0);
-    }
+  // **What makes a control one of these is that it can be *chosen*** — `accessibilityState
+  // .selected` — not that its label happens to contain a colon. `Date`, `Time in` and
+  // `Cylinder` all announce `` `${label}: ${value}` `` too and are not options at all: the
+  // first two open a picker over the row and the third discloses rows beneath it (§0.6's
+  // chevron rule draws exactly that distinction). Filtering on the label's shape would have
+  // dragged all three in, which is how this check ends up loosened until it says nothing.
+  const announced = new Set(
+    buttonsOf(t)
+      .filter((n) => n.props?.accessibilityState?.selected !== undefined)
+      .map((n) => String(n.props?.accessibilityLabel ?? ''))
+      .filter((label) => label.includes(': '))
+      .map((label) => label.slice(0, label.indexOf(': '))),
+  );
+  // The status control and the five accessory toggles announce differently again — they are
+  // `switch`es carrying `checked`, and the status one announces the QUESTION rather than a
+  // `label: value` pair (see its own docblock) — so neither is one of these.
+  expect([...announced].sort()).toEqual(CHIP_MARKS.map(([label]) => label).sort());
+
+  // ...and each row's length is the number of options that control actually offers, so a
+  // vocabulary that grew a member cannot leave the last chip unwitnessed.
+  for (const [label, , marks] of CHIP_MARKS) {
+    const offered = buttonsOf(t).filter(
+      (n) =>
+        n.props?.accessibilityState?.selected !== undefined &&
+        String(n.props?.accessibilityLabel ?? '').startsWith(`${label}: `),
+    );
+    expect(offered).toHaveLength(marks.length);
   }
 });
 
@@ -2217,6 +2315,13 @@ it.each([
   ['Water body', 'Conditions', 'waterBody', WATER_BODY_VALUES],
   ['Visibility', 'Conditions', 'visibility', VISIBILITY_VALUES],
   ['Weather', 'Conditions', 'weather', WEATHER_VALUES],
+  // M1h's three, joining on the commit that adds them — which is the rule this table's own
+  // header states and which four fields broke last time. Each could be repointed at another
+  // column and stay green without a row here: tapping *Light* under Current would write
+  // `waves: 1`, and `waves` is a bare number that nothing would refuse.
+  ['Waves', 'Conditions', 'waves', CONDITION_SCALE_VALUES],
+  ['Current', 'Conditions', 'current', CONDITION_SCALE_VALUES],
+  ['Surge', 'Conditions', 'surge', CONDITION_SCALE_VALUES],
   ['Suit', 'Equipment', 'suit', SUIT_VALUES],
   ['Weighting', 'Equipment', 'weightsFeel', WEIGHTS_FEEL_VALUES],
 ] as const)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
@@ -2285,6 +2390,141 @@ it("saves the cylinder configuration a diver picked, which lives inside the dive
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
   const cleared = (mockCreate.mock.calls[1]?.[1] as { tanks?: { configuration?: unknown }[] })?.tanks;
   expect(cleared?.[0]?.configuration).toBeNull();
+});
+
+// --- The rating, which is not a chip row (§0.6: "Rating marks are drawn, not typed") ---
+//
+// It reaches the write through `ControlledRatingField` rather than through
+// `ControlledOptionField`, so none of the sweep above covers it: its `name` is a per-call-site
+// prop like every other, and wired at `waves` it would save a rating into the sea state with
+// nothing red. That is the same hole the sweep's own header describes, one control over.
+
+/** One rating dot's tap target, by the level it sets. Found by its announcement rather than by
+ * position, because the announcement is the thing a screen reader user actually has, and a row
+ * of five identical circles is exactly where "the third one" is not a usable handle. */
+function findRatingDot(t: RenderResult, level: number) {
+  return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Rating: ${level} of ${RATING_MAX}`);
+}
+
+async function pressRatingDot(t: RenderResult, level: number) {
+  const dot = findRatingDot(t, level);
+  if (!dot) throw new Error(`no rating dot for level ${level}`);
+  await fireEvent.press(dot);
+}
+
+it('saves the rating a diver tapped, and clears it when they tap the same dot again', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Notes & rating');
+
+  // Deliberately not the last dot: a control hard-wired to `RATING_MAX` would pass against 5
+  // and be wrong for every other rating a diver can give.
+  await pressRatingDot(t, 3);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenInput(0).rating).toBe(3);
+
+  // **There is deliberately no assertion here that the control wrote a NUMBER rather than the
+  // string `'3'`, because no such assertion can exist**, and one was written and deleted
+  // rather than left green. `optionalNumber` coerces `'3'` to `3` at the write boundary and
+  // `toFormNumber` reads both back identically, so a control writing text would save the same
+  // `3` and light the same dot — proven by mutation, which left `String(level)` passing every
+  // test in this file. The reason the vocabulary is numeric is therefore a *compile-time* one
+  // and `tsc` is what enforces it: a digit-string list would derive `'0' | '1' | '2' | '3'` as
+  // the type of an integer column (see `domain/types.ts`). `types.test.ts` pins the half that
+  // is checkable at runtime — that the levels really are whole ascending numbers.
+
+  // The same "and unuse" §2.2 asks of every chip: `RatingField` hands back `''`,
+  // `optionalNumber` turns that into `null`, and `toNewDiveInput` omits a null outright. A
+  // rating that could only ever be set would leave a mis-tap permanent.
+  await pressRatingDot(t, 3);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  expect(writtenInput(1)).not.toHaveProperty('rating');
+});
+
+it('fills the dots up to the rating and no further, and marks only the one that IS the rating', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Notes & rating');
+  await pressRatingDot(t, 3);
+
+  // Three filled circles are what "3" looks like...
+  const sheet = makeStyles('light');
+  const filled = RATING_VALUES.map((level) => {
+    const dot = findRatingDot(t, level);
+    const marks = dot ? dot.queryAll((n) => n.type === 'View' && [n.props?.style].flat(3).includes(sheet.ratingDotField)) : [];
+    return marks.some((n) => [n.props?.style].flat(3).includes(sheet.ratingDotFilled));
+  });
+  expect(filled).toEqual([true, true, true, false, false]);
+
+  // ...but only the third is the value, and a screen reader must not be told the diver picked
+  // three ratings.
+  const selected = RATING_VALUES.filter((level) => findRatingDot(t, level)?.props?.accessibilityState?.selected === true);
+  expect(selected).toEqual([3]);
+});
+
+it('gives every dot its own 48 dp target, since each one is its own control', async () => {
+  // §0.5: "Tap targets never below 48 dp." Per dot rather than per row, because tapping the
+  // third dot means three — so the row being tall enough is not the same claim.
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Notes & rating');
+  const sheet = makeStyles('light');
+  for (const level of RATING_VALUES) {
+    const worn = [findRatingDot(t, level)?.props?.style].flat(3);
+    expect(worn).toContain(sheet.ratingTarget);
+  }
+  expect(sheet.ratingTarget.width).toBeGreaterThanOrEqual(48);
+  expect(sheet.ratingTarget.height).toBeGreaterThanOrEqual(48);
+});
+
+// --- §10's "still owed", discharged: a stored value no chip can show ---
+
+it('says out loud what a rating outside the scale actually is, since no dot can show it', async () => {
+  // A dive holding 9 — from M2 sync, or typed into the text box this control replaced. Before
+  // M1h it was simply visible in that box. With dots it matches nothing, so without a note the
+  // row reads as "not rated" over a value that is recorded and about to be saved again.
+  const target = dive({ id: 'target', date: '2026-08-16', rating: 9 });
+  stubLogbookFor(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Notes & rating');
+
+  const shown = textIn(t).join(' ');
+  expect(shown).toContain('9');
+  // The number, and the promise that it is kept — §1 means nothing here refuses or rewrites it.
+  expect(shown).toContain('saved as it is');
+  // And NOT the sibling note's attribution: a 9 could have come from the diver's own keypad,
+  // so blaming a newer version of Ponor would be a guess stated as a fact.
+  expect(shown).not.toContain('newer version');
+});
+
+it('says the same for a condition scale, and nothing at all for a level it does offer', async () => {
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', waves: 7, current: 2 }));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Conditions');
+
+  const shown = textIn(t).join(' ');
+  expect(shown).toContain('7');
+  // `current: 2` is a level the row offers, so it is shown as a selected chip and said nothing
+  // about — the half that keeps the note from firing on ordinary dives.
+  expect(shown).not.toContain('2 is not one of these options');
+  expect(findChip(t, 'Current', 2)?.props?.accessibilityState?.selected).toBe(true);
+});
+
+it('keeps an out-of-scale rating rather than quietly correcting it to the nearest dot', async () => {
+  // The other half of §10's rule, and the one a clamp would break silently: `filledDotCount`
+  // draws five filled dots for a 9, which is the only honest drawing available — but the SAVE
+  // must still carry 9. A control that wrote back what it drew would round the diver's data to
+  // fit its own picture.
+  const target = dive({ id: 'target', date: '2026-08-16', rating: 9 });
+  stubLogbookFor(target);
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Notes & rating');
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  // Untouched: `toDivePatch` sees no change, so `rating` is not in the patch at all — which is
+  // the strongest form of "kept", since nothing was written over it.
+  expect(writtenPatch()).not.toHaveProperty('rating');
 });
 
 it.each(EQUIPMENT_VALUES.map((token) => [formatEquipmentToken(token), token] as const))(
