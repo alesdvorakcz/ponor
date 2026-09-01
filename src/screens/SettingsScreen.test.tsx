@@ -10,11 +10,15 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { router } from 'expo-router';
 
 import { db } from '../db/client';
 import { setDivesBefore, setUnitSystem } from '../db/settings';
 import { useDivesBefore } from '../db/useDivesBefore';
+import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { type GearPreset, type Tank } from '../domain/types';
+import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -33,6 +37,14 @@ import SettingsScreen from './SettingsScreen';
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn() }));
 jest.mock('../db/useDivesBefore', () => ({ useDivesBefore: jest.fn() }));
+// The third live read (M1e): §3's cylinder presets, mocked per module for the same reason
+// the two above are — it is a database read, and this screen must render against any list of
+// presets, and against a read that failed, without one.
+jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn() }));
+// A preset row pushes `/preset/<id>`; nothing else here navigates.
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
+}));
 // The writes. `jest.requireActual` keeps `parseDiveCount` REAL: it is the rule that decides
 // what text is a dive count (db/settings.ts owns it, shared with `getDivesBefore` and
 // `readDivesBefore`), and stubbing it would leave this file asserting against its own idea
@@ -45,13 +57,50 @@ jest.mock('../db/settings', () => ({
 
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
+const mockUseGearPresets = useGearPresets as jest.Mock;
 const mockSetUnitSystem = setUnitSystem as jest.Mock;
 const mockSetDivesBefore = setDivesBefore as jest.Mock;
+const mockPush = router.push as jest.Mock;
 
-/** Both reads at once, so no test can forget one and render against `undefined`. */
-function stubSettings({ units = 'metric', divesBefore = 0 }: { units?: string; divesBefore?: number | null } = {}) {
+let presetSeq = 0;
+/** A `GearPreset` with only the fields a case cares about. Ids come from a counter for the
+ * reason `diveFixture`'s own do: two presets built with identical arguments must still be
+ * distinct, since this list keys its rows by id and the editor is opened by one. */
+const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
+  id: `preset-${String(presetSeq++).padStart(4, '0')}`,
+  name: 'twin 12 steel',
+  tanks: [],
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z',
+  deletedAt: null,
+  ...over,
+});
+
+const tank = (over: Partial<Tank> = {}): Tank => ({
+  material: null, sizeL: null, count: null, workingBar: null,
+  o2Pct: null, hePct: null, startBar: null, endBar: null, ...over,
+});
+
+/** All three reads at once, so no test can forget one and render against `undefined`.
+ *
+ * The presets stub spreads into a fresh array per call for the reason `stubDives`
+ * (DiveFormScreen.test.tsx) records at length: the real hook builds its list with
+ * `rows.map(...).sort(...)`, so a stub handing back one referentially-stable array forever
+ * would model a contract it does not have. */
+function stubSettings({
+  units = 'metric',
+  divesBefore = 0,
+  presets = [],
+  presetsError,
+}: {
+  units?: string;
+  divesBefore?: number | null;
+  presets?: GearPreset[];
+  presetsError?: Error;
+} = {}) {
   mockUseUnitSystem.mockImplementation(() => units);
   mockUseDivesBefore.mockImplementation(() => divesBefore);
+  mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error: presetsError }));
 }
 
 beforeEach(() => {
@@ -62,8 +111,10 @@ beforeEach(() => {
 afterEach(() => {
   mockUseUnitSystem.mockReset();
   mockUseDivesBefore.mockReset();
+  mockUseGearPresets.mockReset();
   mockSetUnitSystem.mockReset();
   mockSetDivesBefore.mockReset();
+  mockPush.mockReset();
 });
 
 function textIn(t: RenderResult): string[] {
@@ -75,6 +126,29 @@ function textIn(t: RenderResult): string[] {
 function findChip(t: RenderResult, label: string) {
   const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === `Units: ${label}`) : [];
   if (!node) throw new Error(`SettingsScreen did not render a "${label}" chip`);
+  return node;
+}
+
+function buttonLabels(t: RenderResult): string[] {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : []).map((n) =>
+    String(n.props?.accessibilityLabel ?? ''),
+  );
+}
+
+/** Every preset row's name, in the order the screen drew them — read off the announced
+ * labels, which is also what proves each row says what pressing it DOES rather than merely
+ * repeating the name it shows. Whole-label matching, never a substring: this screen's other
+ * controls are the unit chips, and a loose match is what let a save control hide behind a
+ * preset one earlier in this milestone. */
+function presetRowNames(t: RenderResult): string[] {
+  return buttonLabels(t)
+    .filter((label) => label.startsWith('Edit preset '))
+    .map((label) => label.slice('Edit preset '.length));
+}
+
+function findPresetRow(t: RenderResult, name: string) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === `Edit preset ${name}`) : [];
+  if (!node) throw new Error(`SettingsScreen rendered no row for the preset "${name}"`);
   return node;
 }
 
@@ -253,29 +327,125 @@ it('says so when a count write fails', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// Cylinder presets (DESIGN.md §3, and §10: "§3's Settings list is then a real editor")
+// ---------------------------------------------------------------------------------------
+
+// The order is `comparePresets`' (domain/presets.ts), decided once and applied inside
+// `toGearPresets` — this screen must draw the list it is handed and never re-sort it, or
+// Settings and the dive form's chip row would disagree about where a preset sits.
+//
+// Stubbed in the order that is NOT sorted, deliberately: with `['alu 80', 'twin 12 steel']`
+// — already the comparator's answer — a screen that re-sorted would pass a test named for
+// not re-sorting.
+it('lists every preset in the order the hook hands them, never its own', async () => {
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' }), preset({ name: 'alu 80' })] });
+  const t = await render(<SettingsScreen />);
+  expect(presetRowNames(t)).toEqual(['twin 12 steel', 'alu 80']);
+});
+
+// The summary goes through `formatCylinders` (format/display.ts), which is also what the
+// dive detail's own cylinder rows are built from — never a second formatter here. Asserted as
+// the whole line a diver reads, and separately against the formatter itself, so neither a
+// respelling nor a screen that stopped calling it can pass.
+it('shows a preset’s cylinders under its name', async () => {
+  const tanks = [tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 32 })];
+  stubSettings({ presets: [preset({ name: 'twin 12 steel', tanks })] });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t)).toContain('2 × 12 l Steel · 232 bar · O₂ 32 %');
+  expect(textIn(t)).toContain(formatCylinders(tanks, 'metric'));
+});
+
+// §3 gives Settings the unit setting, so a preset's figures are read in it too — the same
+// stored preset, two systems, one owner (`formatCylinders` takes it as an argument).
+it('reads a preset’s cylinders in the diver’s own units', async () => {
+  stubSettings({
+    units: 'imperial',
+    presets: [preset({ tanks: [tank({ sizeL: 11.1, workingBar: 207 })] })],
+  });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t)).toContain('11.1 l · 3002 psi');
+});
+
+// **The recurring defect §10 names: "a label and a link that disagree."** A row that always
+// opened the first preset would be indistinguishable from this one on a one-preset list, so
+// the assertion is on the id the tapped row actually sends.
+it('opens the editor for the preset whose row was tapped', async () => {
+  const second = preset({ name: 'alu 80' });
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' }), second] });
+  const t = await render(<SettingsScreen />);
+  await fireEvent.press(findPresetRow(t, 'alu 80'));
+  expect(mockPush).toHaveBeenCalledTimes(1);
+  expect(mockPush).toHaveBeenCalledWith(`/preset/${second.id}`);
+});
+
+// The brief's own rule, and the reason it is a rule: deleting lives at the END of the editor,
+// exactly as *Delete dive* sits at the end of the dive detail rather than on a row of the
+// dive list. That is what keeps the list a list. Asserted as "one control per row, and it is
+// the row" — a delete added beside a name would be a second button inside it.
+it('carries no delete of its own, so the list stays a list', async () => {
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
+  const t = await render(<SettingsScreen />);
+  const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
+  expect(labels).toEqual(['Edit preset twin 12 steel']);
+});
+
+// A diver who has never saved one must not find an unexplained empty section — the preset is
+// captured in the dive form (§10), and nothing on this screen would otherwise say so.
+it('says where presets come from when there are none', async () => {
+  stubSettings({ presets: [] });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t).join(' ')).toContain('Save one from a dive’s Gas & cylinders group');
+  expect(presetRowNames(t)).toEqual([]);
+});
+
+// The whole reason `useGearPresets` carries an `error` at all (its own docblock: "'Couldn't
+// load your presets' and 'you have none yet' are different sentences, and a diver who went to
+// that screen specifically to manage presets must not be shown the second when the first is
+// true").
+it('says the read failed rather than claiming the diver has none', async () => {
+  stubSettings({ presets: [], presetsError: new Error('disk') });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t).join(' ')).toContain("Couldn't load your presets");
+  expect(textIn(t).join(' ')).not.toContain('Save one from a dive’s Gas & cylinders group');
+});
+
+// The other direction of the same line: a diver who HAS presets is told nothing about where
+// they come from, because the list in front of them says it.
+it('drops the empty line once there is a preset to show', async () => {
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t).join(' ')).not.toContain('Save one from a dive’s Gas & cylinders group');
+});
+
+// ---------------------------------------------------------------------------------------
 // Scope and grammar
 // ---------------------------------------------------------------------------------------
 
-// §3 lists far more under Settings — "Fields I use", gear presets, the certification
-// wallet, account and sync, export, delete account — and every one of them belongs to a
-// later milestone. This is a scope assertion, and it can fail: a stray control added here
-// would show up as a third labelled field.
+// §3 lists far more under Settings — "Fields I use", the certification wallet, account and
+// sync, export, delete account — and every one of them belongs to a later milestone. This is
+// a scope assertion, and it can fail: a stray control added here would show up as a third
+// labelled field. Cylinder presets are the one §3 entry that has arrived, and they are a
+// LIST rather than a setting, so they carry a section heading instead of a field label.
 it('carries M1’s two settings and no more', async () => {
-  stubSettings();
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const labels = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFieldLabel)) : [];
   expect(labels.flatMap((n) => n.children)).toEqual(['Units', 'Dives before Ponor']);
+  expect(textIn(t)).toContain('Cylinder presets');
 });
 
 // §0.6, and the reason the screen borrows the form's components rather than restating them:
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
+// Three rows with one preset: Units, Dives before Ponor, and the preset's own — which wears
+// the same `formField` row as the two settings above it, so a preset is a row of this screen
+// rather than a new kind of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
-  stubSettings();
+  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(2);
+  expect(rows).toHaveLength(3);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks

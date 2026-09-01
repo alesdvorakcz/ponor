@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ScrollView, Text, View, useColorScheme } from 'react-native';
+import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FormField } from '../components/FormField';
@@ -7,12 +8,14 @@ import { OptionChips } from '../components/OptionChips';
 import { db } from '../db/client';
 import { parseDiveCount, setDivesBefore, setUnitSystem } from '../db/settings';
 import { useDivesBefore } from '../db/useDivesBefore';
+import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { isDiveCount } from '../domain/diveNumber';
-import { formatUnitSystem } from '../format/display';
+import { type GearPreset } from '../domain/types';
+import { formatCylinders, formatUnitSystem } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 
 /** Shown when a settings write rejects. §1's "never block a save" cuts both ways, and this
  * is the other one: a diver who changes a setting and is not told the change failed is
@@ -20,15 +23,80 @@ import { makeStyles, screenTopInset } from '../theme/styles';
 const SAVE_FAILED = "Couldn't save that. Try again.";
 
 /**
+ * The two things that stand where the preset rows would be, and they are different sentences
+ * on purpose — `useGearPresets`' `error` field exists for exactly this distinction, and its
+ * own docblock says so: "a diver who went to that screen specifically to manage presets must
+ * not be shown the second when the first is true."
+ *
+ * The empty one names where a preset comes from, because nothing on this screen otherwise
+ * would: creation lives in the dive form (§10 — "saving one takes whatever cylinders are
+ * already typed into the dive you are logging"), so a diver who has never saved one is
+ * looking at a section with no visible way in. Without the line the section is a mystery.
+ *
+ * `GearPresetScreen` shows the same read-failure sentence one route deeper, as a literal of
+ * its own — the same deliberate duplication §4.1 records for the app's field labels, and the
+ * shape every message in this app already has (`SAVE_FAILED` above, the dive form's
+ * `SAVE_ERROR_MESSAGE`, the detail screen's `DELETE_ERROR_MESSAGE`). i18next has to key every
+ * one of them, and that pass is where the set belongs.
+ */
+const NO_PRESETS = 'Save one from a dive’s Gas & cylinders group and it will show up here.';
+const PRESETS_UNREADABLE = "Couldn't load your presets. Try again.";
+
+/**
+ * One preset: its name, and what its cylinders are (`formatCylinders`, format/display.ts —
+ * the module §4.1 makes the one owner of turning a stored value into diver-facing text, built
+ * from the same five formatters the dive detail's own cylinder rows use).
+ *
+ * **The whole row opens the editor, and the row carries no delete.** Deleting sits at the end
+ * of the editor, exactly as *Delete dive* sits at the end of the dive detail rather than on a
+ * row of the dive list — which is what keeps this a list rather than a control panel, and
+ * what keeps the one act that removes something behind a deliberate reach.
+ *
+ * It is `formField`, the same row *Units* and *Dives before Ponor* are (§0.6, and this
+ * screen's own rule that its rows are the form's rows). What differs is the ink: a preset's
+ * name takes full `fg` where a setting's label is muted, because it is the diver's own data
+ * and the thing they scan this list for — §0.6's "ink versus muted ink is the only lever",
+ * used the same way `tripTitleUpNext` and `detailActionLabel` already use it.
+ *
+ * The summary is omitted rather than shown as a dash when there is nothing to say — a preset
+ * holding no cylinders is a row `createGearPreset` permits and M2 sync can deliver, and an
+ * empty second line under the name would read as a value that failed to load.
+ */
+function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitSystem; styles: Styles }) {
+  const summary = formatCylinders(preset.tanks, units);
+  return (
+    <Pressable
+      style={styles.formField}
+      // Absolute and interpolated, for the reason `DivesScreen`'s own `openDive` records:
+      // expo-router's typed routes (app.config.ts's `experiments.typedRoutes`) check an
+      // absolute path against the routes that actually exist on disk, where a relative one is
+      // resolved at runtime and checked against nothing at all.
+      onPress={() => router.push(`/preset/${preset.id}`)}
+      accessibilityRole="button"
+      // Says what pressing it does, not merely what it is called — a row announced as a bare
+      // name says nothing about where a tap would land. The same shape the dive form's own
+      // chips use ("Apply preset X"), and deliberately a different verb, because these two
+      // rows do different things to the same preset.
+      accessibilityLabel={`Edit preset ${preset.name}`}
+    >
+      <View style={styles.formFieldRow}>
+        <Text style={styles.settingsPresetName}>{preset.name}</Text>
+      </View>
+      {summary !== null && <Text style={styles.settingsPresetSummary}>{summary}</Text>}
+    </Pressable>
+  );
+}
+
+/**
  * The Settings screen (DESIGN.md §3), at route `/settings` via a thin re-export in
  * `src/app/(tabs)/settings.tsx` — this file lives outside expo-router's swept `src/app/`
  * tree for the reason `DivesScreen.tsx` records: a test colocated with a route would be
  * bundled into the app.
  *
- * **Two settings, and §3 lists many more on purpose.** "Fields I use", gear presets, the
+ * **Two settings and one list, and §3 lists more on purpose.** "Fields I use", the
  * certification wallet, account and sync, data export and delete-account all belong to
  * later milestones — the wallet and export to M3, account and sync to M2, and the rest to
- * whenever the fields they configure exist. M1 is "the local logbook", and the two things
+ * whenever the fields they configure exist. M1 is "the local logbook", and the two settings
  * below are the two that M1's own screens already depend on:
  *
  * - **Units** (§3's m/ft · bar/psi · °C/°F · kg/lb). `format/units.ts` owns the system and
@@ -36,6 +104,13 @@ const SAVE_FAILED = "Couldn't save that. Try again.";
  *   second list of the same two words — §4.1's "derive, or tie at compile time". A third
  *   system added there appears here on its own.
  * - **`dives_before`** (§2.5: "asked once at onboarding, editable in settings any time").
+ *
+ * The third entry is §3's **cylinder presets**, which is a list rather than a setting: it is
+ * where a saved preset is renamed, re-specified or deleted (§10 — "§3's Settings list is then
+ * a real editor, name and cylinders both, not a list of names with a delete button"). It
+ * writes nothing itself. A row opens `/preset/[id]`, and every rule about a preset — what its
+ * name may be, what its cylinders convert to, whether it may be emptied — lives on that
+ * screen and in `db/gearPresets.ts`, not here.
  *
  * **Both write through `db/settings.ts` and never touch the `settings` row directly.** That
  * module owns the two keys, the coercion and the upsert, and it owns them precisely so the
@@ -64,6 +139,10 @@ export default function SettingsScreen() {
   // read back from its own return value.
   const units = useUnitSystem();
   const divesBefore = useDivesBefore();
+  // §2.1's cylinder presets, from their own hook rather than a field on either read above —
+  // see db/useGearPresets.ts for why a failed preset read must not be able to blank anything
+  // else. Its `error` IS read here, and this is the screen it was carried for.
+  const { presets, error: presetsError } = useGearPresets();
 
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
@@ -190,6 +269,25 @@ export default function SettingsScreen() {
             )}
             {countError !== null && <Text style={styles.settingsCaptionText}>{countError}</Text>}
           </View>
+        </View>
+
+        {/* §3's cylinder presets. A named section rather than a bare run of rows, because it
+            is the first thing on this screen that is a list of the diver's own things rather
+            than a setting about the app — `clusterLabel`'s treatment (§0.6: "a group header
+            is a cluster label"), the same one *Conditions* and *Gas & cylinders* wear on both
+            other screens. */}
+        <View>
+          <Text style={styles.settingsSectionTitle}>Cylinder presets</Text>
+          {presets.map((preset) => (
+            <PresetRow key={preset.id} preset={preset} units={units} styles={styles} />
+          ))}
+          {presets.length === 0 && (
+            <View style={styles.settingsPresetEmpty}>
+              <Text style={styles.settingsCaptionText}>
+                {presetsError === undefined ? NO_PRESETS : PRESETS_UNREADABLE}
+              </Text>
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>
