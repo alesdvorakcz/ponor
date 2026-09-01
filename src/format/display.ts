@@ -1,6 +1,7 @@
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
 import {
+  type ConditionLevel,
   type Configuration,
   type Dive,
   type DiveStatus,
@@ -467,12 +468,70 @@ export function formatCylinders(tanks: readonly Tank[], system: UnitSystem): str
   return summaries.length === 0 ? null : summaries.join(' + ');
 }
 
-/** A waves/current/surge reading, e.g. "1" — the bare 0–3 scale DESIGN.md §10 keeps
- * unclamped (a future client's out-of-range value is a runtime reality, same as `rating`
- * below), shown as the diver recorded it rather than a formatted scale. */
-export function formatConditionScale(value: number | null): string | null {
+/**
+ * The words the three 0–3 condition scales are read in — one table each, and the one place in
+ * this module where a per-value table is the right answer rather than the drift `capitalize`'s
+ * docblock warns about.
+ *
+ * The reason is simply that there is no word to capitalise: the stored value is an integer, so
+ * *something* has to say that a waves 2 is "Medium". What the tables are not is a second
+ * vocabulary — `CONDITION_SCALE_VALUES` (domain/types.ts) is still the source of which levels
+ * exist, and `Record<ConditionLevel, string>` makes TypeScript demand a word for every one of
+ * them, so widening that list is a compile error here until somebody names the new level. That
+ * is §4.1's "derive, or tie at compile time" doing the work a shared `capitalize` does for the
+ * string vocabularies.
+ *
+ * **Three tables, not one, and the differences are the point.** Level 0 is *Flat* water and
+ * *no* current; level 1 is a *Small* wave, a *Light* current and *Some* surge. A single shared
+ * scale would have to pick one wording and be wrong about two subjects — and these words are
+ * what a diver actually says, which is the whole reason §0.6 stopped asking them to type a
+ * digit.
+ *
+ * M1h added these. Until then the three fields were text boxes and this module rendered the
+ * bare number back (`formatConditionScale`), which was honest while the diver typed the digit
+ * themselves and became a small lie the moment they picked a chip saying "Small" — pick a
+ * word, read back a number, which is the `Steel`/`steel` drift §4.1 opens with, one screen
+ * apart. So both screens go through these.
+ */
+const WAVES_LABELS: Record<ConditionLevel, string> = { 0: 'Flat', 1: 'Small', 2: 'Medium', 3: 'Large' };
+const CURRENT_LABELS: Record<ConditionLevel, string> = { 0: 'None', 1: 'Light', 2: 'Medium', 3: 'Strong' };
+const SURGE_LABELS: Record<ConditionLevel, string> = { 0: 'None', 1: 'Some', 2: 'Medium', 3: 'Strong' };
+
+/**
+ * One level of one 0–3 scale, in words — **or the bare number when it is not a level at all**.
+ *
+ * That fallback is the load-bearing half and it is DESIGN.md §10's rule, not a defensive
+ * habit: there is no CHECK constraint on these columns, so M2 sync can deliver a `waves: 7`
+ * from a client with a wider scale, and "a value outside the expected range is saved and can
+ * be flagged; it is not refused". A formatter that returned `null` for it would delete the
+ * value from the screen — the dive detail omits a row whose formatter says null — so a number
+ * this build has no word for is shown **as the number it is**. The diver sees that something
+ * unusual is recorded rather than seeing nothing at all.
+ *
+ * Rounded values are not coerced to the nearest level either: `1.5` renders "1.5", because
+ * inventing "Small" for it would be this module deciding what a diver meant.
+ */
+function formatConditionLevel(value: number | null, labels: Record<ConditionLevel, string>): string | null {
   if (!isFiniteNumber(value)) return null;
-  return `${value}`;
+  return labels[value as ConditionLevel] ?? `${value}`;
+}
+
+/** The sea state, e.g. "Small" — level 0 is *Flat*, which is a real reading and not "nothing
+ * recorded"; an unrecorded scale is `null` and produces no row at all. */
+export function formatWaves(value: number | null): string | null {
+  return formatConditionLevel(value, WAVES_LABELS);
+}
+
+/** The current, e.g. "Light". Level 0 is *None* — the diver looked and there was none, which
+ * is worth recording and is not the same as never having looked. */
+export function formatCurrent(value: number | null): string | null {
+  return formatConditionLevel(value, CURRENT_LABELS);
+}
+
+/** The surge, e.g. "Some" — the back-and-forth a swell pushes through a site, which is why
+ * §0.6 draws its mark with two-way arrows where the current's point one way. */
+export function formatSurge(value: number | null): string | null {
+  return formatConditionLevel(value, SURGE_LABELS);
 }
 
 /** A dive site's GPS position, e.g. "50.12345, 14.56789". Null unless BOTH coordinates are

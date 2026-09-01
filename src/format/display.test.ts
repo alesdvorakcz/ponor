@@ -1,4 +1,5 @@
 import {
+  CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
   VISIBILITY_VALUES,
   WEATHER_VALUES,
@@ -7,7 +8,9 @@ import {
   type Tank,
 } from '../domain/types';
 import {
-  formatConditionScale,
+  formatCurrent,
+  formatSurge,
+  formatWaves,
   formatCoordinates,
   formatConfiguration,
   formatCylinderSpec,
@@ -683,15 +686,54 @@ describe('formatEquipment', () => {
   });
 });
 
-describe('formatConditionScale', () => {
-  it('renders the bare 0–3 scale as recorded', () => {
-    expect(formatConditionScale(2)).toBe('2');
+describe('the three 0–3 condition scales', () => {
+  // One word per level, and **three different sets of words for the same three numbers** —
+  // which is the whole reason these are three functions over one `CONDITION_SCALE_VALUES`
+  // rather than one shared formatter. Level 0 is flat water and no current; level 1 is a
+  // small wave, a light current and some surge. A single scale would have to pick one
+  // wording and be wrong about two subjects.
+  it.each([
+    [0, 'Flat', 'None', 'None'],
+    [1, 'Small', 'Light', 'Some'],
+    [2, 'Medium', 'Medium', 'Medium'],
+    [3, 'Large', 'Strong', 'Strong'],
+  ])('reads level %s as its own word on each of the three scales', (level, waves, current, surge) => {
+    expect(formatWaves(level as number)).toBe(waves);
+    expect(formatCurrent(level as number)).toBe(current);
+    expect(formatSurge(level as number)).toBe(surge);
   });
+
+  // Every level the domain declares has a word — swept from `CONDITION_SCALE_VALUES` rather
+  // than from the four rows above, so widening that list fails here instead of silently
+  // rendering the new level as a bare digit through the fallback below. The fallback is for
+  // values from *other* clients; it must never quietly cover one of our own.
+  it.each(CONDITION_SCALE_VALUES)('gives level %s a word rather than a digit on every scale', (level) => {
+    for (const format of [formatWaves, formatCurrent, formatSurge]) {
+      expect(format(level)).not.toBe(String(level));
+    }
+  });
+
   it('returns null for an unrecorded reading', () => {
-    expect(formatConditionScale(null)).toBeNull();
+    expect(formatWaves(null)).toBeNull();
+    expect(formatCurrent(null)).toBeNull();
+    expect(formatSurge(null)).toBeNull();
   });
+
   it('returns null rather than rendering NaN', () => {
-    expect(formatConditionScale(Number.NaN)).toBeNull();
+    expect(formatWaves(Number.NaN)).toBeNull();
+  });
+
+  // DESIGN.md §10 keeps these columns unclamped, so M2 sync can deliver a level this build
+  // has no word for. It is shown **as the number it is** rather than dropped: a formatter
+  // returning null here would delete the value from the dive detail, which omits a row whose
+  // formatter says nothing — so the diver would see no Waves row at all over a dive that
+  // records one.
+  it('falls back to the bare number for a level outside the scale, rather than hiding it', () => {
+    expect(formatWaves(7)).toBe('7');
+    expect(formatCurrent(-1)).toBe('-1');
+    // Not rounded to the nearest level either: inventing "Small" for 1.5 would be this
+    // module deciding what a diver meant.
+    expect(formatSurge(1.5)).toBe('1.5');
   });
 });
 

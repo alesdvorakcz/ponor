@@ -55,6 +55,69 @@ export const SUIT_VALUES = ['none', 'shorty', 'wet', 'semidry', 'dry'] as const;
 export const WEIGHTS_FEEL_VALUES = ['under', 'good', 'over'] as const;
 export const EQUIPMENT_VALUES = ['hood', 'gloves', 'boots', 'torch', 'camera'] as const;
 
+/**
+ * The 0–3 scale `waves`, `current` and `surge` are recorded on — **as chips to offer**, which
+ * is a different question from what the column holds, and the difference is the whole reason
+ * this constant needs a paragraph.
+ *
+ * **One list for three fields, because the values are one fact.** The three scales are
+ * 0–3 alike; what differs is the *words* — 0 is "Flat" for waves and "None" for current and
+ * surge — and words are `format/display.ts`'s (§4.1), not this file's. Three identical
+ * `[0, 1, 2, 3]`s here would be three chances to widen one and forget the others.
+ *
+ * **`ConditionLevel` is not the storage type, and must never become it.** DESIGN.md §10 rules
+ * that `Dive['waves']` stays `number | null` rather than a `0|1|2|3` literal union, and the
+ * reason is live rather than theoretical: there is no DB CHECK constraint, so M2 sync can
+ * deliver a `waves: 7` from a client whose scale is wider, and typing it as impossible would
+ * make `db/dives.ts`'s row-to-domain cast a lie. This union is the narrower claim that a chip
+ * row can honestly make — *these are the levels this build offers a thumb* — and the two
+ * co-exist deliberately, exactly as §4.1's "a deliberate near-duplicate names its siblings"
+ * requires. **A reader who "unifies" them by narrowing `Dive` has undone a settled decision;
+ * one who widens this to `number` has offered the diver an infinite chip row.**
+ *
+ * The out-of-scale value that follows from keeping the column wide is not swallowed: it is
+ * kept, saved and flagged in words beside the control (`OUT_OF_SCALE_NOTE`,
+ * `domain/diveFormSchema.ts`), which is the half §10 recorded as still owed until M1h.
+ *
+ * **The order is the order the chips appear in**, ascending, because these are the one
+ * vocabulary in this file with an order that is not an editorial choice: 2 is more than 1.
+ * That is also what lets §0.6's marks work — the marks *encode the scale in themselves*, and
+ * a mark that accumulates has to accumulate in the direction the row is read.
+ */
+export const CONDITION_SCALE_VALUES = [0, 1, 2, 3] as const;
+
+export type ConditionLevel = (typeof CONDITION_SCALE_VALUES)[number];
+
+/**
+ * The scale a dive's `rating` is offered on — 1–5, its sibling above's other half, and
+ * everything that paragraph says about `ConditionLevel` applies here word for word:
+ * `Dive['rating']` stays `number | null` (§10), this is only what a thumb is offered, and
+ * neither should be turned into the other.
+ *
+ * Two differences from the condition scales, both deliberate. It **starts at 1**, because
+ * there is no zero-star dive — an unrated dive is `null`, "not recorded", which is a
+ * different claim from "bad". And it is drawn rather than lettered (§0.6: "`●` and `○` are
+ * different sizes in almost every typeface, so a rating rendered from glyphs looks broken"),
+ * so unlike every other vocabulary in this file it has no `format/display.ts` labels: what a
+ * diver sees is five circles, and what a screen reader hears is composed from the numbers
+ * themselves ("Rating: 3 of 5").
+ */
+export const RATING_VALUES = [1, 2, 3, 4, 5] as const;
+
+export type RatingLevel = (typeof RATING_VALUES)[number];
+
+/**
+ * The top of that scale — **derived from the list, never written beside it** (§4.1: "a list
+ * that can be computed from another is computed").
+ *
+ * It is the length only because the levels are 1…n with no gaps, which is what the list above
+ * declares; if that ever stopped being true this would have to read the last member instead.
+ * Deriving it matters because two things count on it in two files — `RatingDots` draws this
+ * many marks, and the form offers this many targets — and "5" typed in either of them is how
+ * a row of five ends up over a control offering four.
+ */
+export const RATING_MAX = RATING_VALUES.length;
+
 export type Entry = (typeof ENTRY_VALUES)[number];
 export type Salinity = (typeof SALINITY_VALUES)[number];
 export type WaterBody = (typeof WATER_BODY_VALUES)[number];

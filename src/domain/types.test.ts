@@ -18,9 +18,37 @@ import {
  * The count is asserted alongside the sweep for the reason a derived list always needs one: a
  * filter that matched nothing would pass every assertion below without running one.
  */
-const VOCABULARIES: [string, readonly string[]][] = Object.entries(
+const ALL_VOCABULARIES: [string, readonly unknown[]][] = Object.entries(
   domain as Record<string, unknown>,
-).filter((entry): entry is [string, readonly string[]] => entry[0].endsWith('_VALUES') && Array.isArray(entry[1]));
+).filter((entry): entry is [string, readonly unknown[]] => entry[0].endsWith('_VALUES') && Array.isArray(entry[1]));
+
+/**
+ * The vocabularies of **words** — `Entry`, `Suit`, `Weather` and the rest — which is what
+ * every vocabulary in this file was until M1h.
+ *
+ * Split from the numeric ones below rather than the sweep being loosened to accommodate them,
+ * because the two obey genuinely different rules and a sweep that admitted both would check
+ * neither: "one lowercase word" is meaningless for `2`, and "ascending with no gaps" is
+ * meaningless for `semidry`. Both halves are still *discovered* from the same `_VALUES`
+ * convention, so a vocabulary added to `domain/types.ts` lands in one bucket or the other and
+ * cannot slip between them — which the total asserted below is what guarantees.
+ */
+const VOCABULARIES: [string, readonly string[]][] = ALL_VOCABULARIES.filter(
+  (entry): entry is [string, readonly string[]] => entry[1].every((member) => typeof member === 'string'),
+);
+
+/**
+ * The **ordered numeric scales** — the 0–3 condition scales and the 1–5 rating — which M1h
+ * added when §0.6's icon sheet turned four text fields into chip rows.
+ *
+ * These are vocabularies in exactly the sense this file means: a closed list a form offers as
+ * a fixed set of chips, with the type derived from the list. What they are *not* is the
+ * storage type; `Dive['waves']` and `Dive['rating']` stay `number | null` per §10, and
+ * `domain/types.ts` carries the paragraph explaining why the two must not be unified.
+ */
+const NUMERIC_SCALES: [string, readonly number[]][] = ALL_VOCABULARIES.filter(
+  (entry): entry is [string, readonly number[]] => entry[1].every((member) => typeof member === 'number'),
+);
 
 /**
  * `domain/types.ts` is almost entirely types and lists, which a test cannot meaningfully
@@ -106,5 +134,35 @@ describe('the vocabularies', () => {
         expect(member).toMatch(/^[a-z]+$/);
       }
     }
+  });
+
+  // The numeric scales' equivalent of the rule above: what a machine can check about a list
+  // of levels is that it really is a *scale*.
+  //
+  // **Ascending is behaviour, not tidiness**, and it is why this is asserted rather than left
+  // to the eye. `domain/types.ts` says the order of a vocabulary "is the order the chips
+  // appear in", and §0.6's marks for these two are built on that order meaning something:
+  // current arrows accumulate one way and visibility bars count up, so a mark drawn for the
+  // second chip shows more than the mark on the first. Shuffle the list and the row still
+  // renders, still saves, and now shows three arrows to the left of one — a mark that
+  // contradicts its own scale, which is precisely the legend §0.6 rules out.
+  it('declares every numeric scale as ascending whole levels, which is what its marks assume', () => {
+    expect(NUMERIC_SCALES.map(([name]) => name)).toHaveLength(2);
+    for (const [, scale] of NUMERIC_SCALES) {
+      expect(scale.length).toBeGreaterThan(0);
+      for (const level of scale) expect(Number.isInteger(level)).toBe(true);
+      // Strictly ascending, which also rules out a repeated level — two chips a diver cannot
+      // tell apart, saving the same value.
+      for (let i = 1; i < scale.length; i += 1) expect(scale[i]).toBeGreaterThan(scale[i - 1] as number);
+    }
+  });
+
+  // The sweeps above are worth what their discovery is worth, so this pins the discovery
+  // itself: every `*_VALUES` export lands in exactly one of the two buckets. A vocabulary of
+  // mixed types, or of anything that is neither a string nor a number, would be swept by
+  // neither and would pass both tests above by being invisible to them — which is the same
+  // hole `VOCABULARIES` was rewritten to close when it was a hand-typed list.
+  it('sweeps every vocabulary it declares, under one rule or the other', () => {
+    expect(VOCABULARIES.length + NUMERIC_SCALES.length).toBe(ALL_VOCABULARIES.length);
   });
 });

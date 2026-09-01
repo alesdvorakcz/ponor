@@ -15,7 +15,10 @@ import { backToDives } from '../navigation/leaveScreen';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import {
   diveSiteLabel,
-  formatConditionScale,
+  // The three 0–3 condition scales, in the words the form's chips offer (M1h).
+  formatWaves,
+  formatCurrent,
+  formatSurge,
   formatCoordinates,
   HE_LABEL,
   N2_LABEL,
@@ -377,9 +380,10 @@ function whereFields(dive: Dive): Field[] {
  * this screen groups into its own "Depth & duration" cluster instead. Water temp, air
  * temp and the visibility distance go through `formatTemperature`/`formatDepth` (that
  * distance takes the same m/ft pair a depth does, at the same precision);
- * waves/current/surge go through
- * `formatConditionScale`, the bare 0–3 rating DESIGN.md §10 keeps unclamped, shown as the
- * diver recorded it rather than a formatted scale.
+ * waves/current/surge go through `formatWaves`/`formatCurrent`/`formatSurge`, which read the
+ * 0–3 scale back in the same words the form's chips offer it in (§0.6, M1h) — and which fall
+ * back to the bare number for a value outside the scale, since DESIGN.md §10 keeps these
+ * columns unclamped and a row that vanished would hide what the dive actually holds.
  *
  * **Two visibility rows, and they carry two different labels on purpose.** §10 keeps the
  * judgement (high · average · low) and the estimate in metres as two encodings of one
@@ -399,12 +403,16 @@ function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   if (visibilityDistance !== null) {
     fields.push({ label: 'Visibility distance', value: visibilityDistance, mono: true });
   }
-  const waves = formatConditionScale(dive.waves);
-  if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: true });
-  const current = formatConditionScale(dive.current);
-  if (current !== null) fields.push({ label: 'Current', value: current, mono: true });
-  const surge = formatConditionScale(dive.surge);
-  if (surge !== null) fields.push({ label: 'Surge', value: surge, mono: true });
+  // `mono: false`, and that changed with the words: §0.6 splits the two faces by what a value
+  // IS — "figures in mono, names in sans" — so a row now reading "Small" belongs with
+  // Visibility and Weather beside it rather than with the temperatures above. While these
+  // were bare digits mono was right; it is the value that moved, not the rule.
+  const waves = formatWaves(dive.waves);
+  if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: false });
+  const current = formatCurrent(dive.current);
+  if (current !== null) fields.push({ label: 'Current', value: current, mono: false });
+  const surge = formatSurge(dive.surge);
+  if (surge !== null) fields.push({ label: 'Surge', value: surge, mono: false });
   const weather = formatWeather(dive.weather);
   if (weather !== null) fields.push({ label: 'Weather', value: weather, mono: false });
   return fields;
