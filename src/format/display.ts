@@ -15,7 +15,7 @@ import {
   type Weather,
   type WeightsFeel,
 } from '../domain/types';
-import { displayFigure, type UnitSystem } from './units';
+import { displayFigure, displayNumber, unitLabel, type UnitSystem } from './units';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -128,6 +128,60 @@ export function isDisplayableDepth(metres: number | null | undefined): metres is
 export function formatDepth(metres: number | null, system: UnitSystem): string | null {
   const parts = formatDepthParts(metres, system);
   return parts === null ? null : `${parts.value} ${parts.unit}`;
+}
+
+/**
+ * One band of the depth scale as its label on the first-run legend — `"0–6"`, `"12–20"`,
+ * `"40+ m"` in metric; `"0–20"`, `"39–66"`, `"131+ ft"` in imperial.
+ *
+ * **The numbers arrive in metres and are never typed here.** `theme/depth.ts` owns the
+ * boundaries (`depthBandRanges`) because §0.1's bands follow the order water removes
+ * colour, which is a fact about water; this function owns only how a diver reads them,
+ * which is §4.1's split between the two modules exactly as it already runs for a dive's own
+ * depth. Move a boundary in `tokens.js` and the legend moves; retype one here and there is a
+ * second scale.
+ *
+ * **The figures go through `displayNumber`, not `displayFigure`.** Both convert and round to
+ * §3's own precision for the pair — whole feet in imperial, per §10 — but `displayFigure`
+ * then pads to the pair's decimal count, and a metric legend reading `0.0–6.0` claims a
+ * resolution the boundaries do not have. A boundary is a whole number of metres by
+ * construction, so the number is what belongs here and the padding is not.
+ *
+ * **The unit word appears once, on the deepest band, and that is a layout decision made here
+ * rather than in the component** — because it is the open-ended band that has to say what
+ * the numbers are, and because it is already the one label that is not a range. Six labels
+ * each carrying `ft` is the version that was rejected: `98–131 ft` at mono 10.5 does not fit
+ * a sixth of a phone's width, so the labels would wrap and the legend would stop reading as
+ * one scale. The component therefore never joins a figure to a unit itself, which is the
+ * whole reason this module exists.
+ *
+ * The en dash is unpadded, matching `dateRangeOf` (domain/trips.ts) rather than
+ * `formatTimeRange` above, which pads its own. Both spellings are deliberate and this is the
+ * compact one: a numeric span in a narrow slot, where `0 – 6` would read as two figures with
+ * something between them rather than as one range. Named here so a later reader finds two
+ * dashes and a reason rather than an inconsistency.
+ */
+export function formatDepthBandRange(fromM: number, toM: number | null, system: UnitSystem): string {
+  const from = String(displayNumber('depth', fromM, system));
+  if (toM === null) return `${from}+ ${unitLabel('depth', system)}`;
+  return `${from}–${String(displayNumber('depth', toM, system))}`;
+}
+
+/**
+ * A single band boundary with its unit — `"6 m"`, `"20 ft"`. `formatDepthBandRange`'s sibling,
+ * and its only other caller is the sentence directly under that legend: "red fades out by 6 m,
+ * blue carries past 40 m" (EmptyState.tsx), which states the two depths §0.1's own prose is
+ * about.
+ *
+ * **Not `formatDepth`**, and the difference is the point rather than an oversight. That one
+ * shows a *dive's* depth to the precision a gauge reads — `6.0 m` — because it is reporting a
+ * measurement. A band boundary is not a measurement: it is a whole number by construction, and
+ * `6.0 m` in a sentence explaining why the palette is what it is would claim a decimetre of
+ * significance the boundary has never had. Same rounding rule as the legend beside it, for the
+ * same reason: the sentence and the labels must not disagree about where a band ends.
+ */
+export function formatDepthBoundary(metres: number, system: UnitSystem): string {
+  return `${String(displayNumber('depth', metres, system))} ${unitLabel('depth', system)}`;
 }
 
 /** Duration to the whole minute, e.g. "72 min" — how divers log it, never h:mm. Minutes in

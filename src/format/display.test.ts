@@ -15,6 +15,7 @@ import {
   HE_LABEL,
   O2_LABEL,
   formatDepth,
+  formatDepthBandRange,
   formatDepthParts,
   formatDiveCount,
   formatDuration,
@@ -81,6 +82,58 @@ describe('formatDepth', () => {
     expect(formatDepth(null, 'imperial')).toBeNull();
     expect(formatDepth(Number.NaN, 'imperial')).toBeNull();
     expect(formatDepth(-5, 'imperial')).toBeNull();
+  });
+});
+
+// **The one screen that prints the scale instead of a dive** (DESIGN.md §0.6's empty state,
+// M1h). The boundaries come in as metres from `theme/depth.ts`; what this function decides is
+// what a diver reads, which is the same split every other depth in the app already goes
+// through. The exact strings are pinned because a legend is text a first-run diver is being
+// taught from — an off-by-one boundary here teaches the wrong scale rather than merely
+// looking wrong.
+describe('formatDepthBandRange', () => {
+  // Metric is the stored system, so these are the band limits themselves — and they are whole
+  // metres, which is why this uses `displayNumber` rather than `displayFigure`: the padded
+  // form would read `0.0–6.0` and claim a resolution the boundary does not have.
+  it('reads a metric band as the metres it is', () => {
+    expect(formatDepthBandRange(0, 6, 'metric')).toBe('0–6');
+    expect(formatDepthBandRange(12, 20, 'metric')).toBe('12–20');
+  });
+
+  // §10: "depth takes whole feet", because that is what an imperial gauge reads to. The
+  // boundaries land ragged — 6 m is 19.685 ft — and the raggedness is the honest answer: a
+  // first-run screen that quietly switched a diver back to metres to get tidy numbers would be
+  // teaching on a lie. 39 and 131 in particular are the ones a "nicer" rounding would move.
+  it('reads an imperial band in whole feet, ragged boundaries and all', () => {
+    expect(formatDepthBandRange(0, 6, 'imperial')).toBe('0–20');
+    expect(formatDepthBandRange(6, 12, 'imperial')).toBe('20–39');
+    expect(formatDepthBandRange(12, 20, 'imperial')).toBe('39–66');
+    expect(formatDepthBandRange(20, 30, 'imperial')).toBe('66–98');
+    expect(formatDepthBandRange(30, 40, 'imperial')).toBe('98–131');
+  });
+
+  // The deepest band is open-ended, and it is the label that carries the unit for the whole
+  // scale — six labels each ending in `ft` do not fit a sixth of a phone's width, and this is
+  // already the one label that is not a range.
+  it('says the deepest band is open-ended, and names the unit there', () => {
+    expect(formatDepthBandRange(40, null, 'metric')).toBe('40+ m');
+    expect(formatDepthBandRange(40, null, 'imperial')).toBe('131+ ft');
+  });
+
+  // The unit word appears exactly once across a whole legend. Swept rather than asserted for
+  // one label, because "put the unit on every band" is the obvious edit and it is the one that
+  // silently breaks the layout the labels were sized for.
+  it('names the unit once in a whole scale, never on a closed band', () => {
+    for (const system of UNIT_SYSTEMS) {
+      const closed = [
+        formatDepthBandRange(0, 6, system),
+        formatDepthBandRange(6, 12, system),
+        formatDepthBandRange(12, 20, system),
+        formatDepthBandRange(20, 30, system),
+        formatDepthBandRange(30, 40, system),
+      ];
+      expect(closed.every((label) => /^[0-9.]+–[0-9.]+$/.test(label))).toBe(true);
+    }
   });
 });
 
