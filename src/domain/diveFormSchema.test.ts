@@ -4,6 +4,7 @@ import {
   toDisplayUnits,
   toDivePatch,
   toNewDiveInput,
+  toStoredTanks,
   unknownBooleanNote,
   unknownOptionNote,
   UNKNOWN_BOOLEAN_NOTE,
@@ -440,6 +441,69 @@ describe('working in the diver’s own units', () => {
     it('leaves a cylinder alone whose pressures the imperial diver only read', () => {
       const stored = { tanks: [{ sizeL: 12, count: 1, workingBar: 232, o2Pct: 32, hePct: null, startBar: 200, endBar: 50, material: 'steel' as const }] };
       expect(patchAfterEditing(stored, {}, 'imperial')).toEqual({});
+    });
+  });
+
+  // The cylinders-only door into the same rules, used by the two screens that hold raw form
+  // cylinders outside a submit: the dive form's *Save as preset* (M1e task 2) and §3's
+  // preset editor (task 3).
+  describe('toStoredTanks', () => {
+    const stored: Tank = {
+      material: 'steel', sizeL: 12, count: 1, workingBar: 232,
+      o2Pct: 32, hePct: null, startBar: null, endBar: null,
+    };
+
+    it('parses what the diver typed and writes it in SI', () => {
+      expect(toStoredTanks([{ sizeL: '12', workingBar: '3365' }], 'imperial')[0]).toMatchObject({
+        sizeL: 12,
+        workingBar: 232.00858291511537,
+      });
+    });
+
+    it('reads an empty field as null rather than as zero', () => {
+      // `diveFormSchema`'s own coercion contract, reached through this function rather than
+      // re-implemented beside it: `Number('')` is 0, and `derived.ts` reads a 0 size as
+      // contradictory, which voids a whole dive's gas figure (§10).
+      expect(toStoredTanks([{ sizeL: '', count: '' }], 'metric')[0]).toMatchObject({ sizeL: null, count: null });
+    });
+
+    /**
+     * **§10: "A display rounding may never rewrite stored data."**
+     *
+     * A preset stored at 232 bar shows an imperial diver 3365 psi, and 3365 psi converts back
+     * to 232.00858… bar — so an editor that saved an untouched cylinder would erode the
+     * figure and, worse, advance `updated_at` on a write that changed nothing, which under §7's
+     * whole-row last-write-wins hands the conflict to the device that did nothing. Pinned with
+     * `toBe`, not `toBeCloseTo`: "about 232" is exactly what the defect produces.
+     */
+    it('hands back the stored figure untouched when the diver only read it', () => {
+      const converted = toStoredTanks([{ ...stored, workingBar: '3365' }], 'imperial', [stored]);
+      expect(converted[0]?.workingBar).toBe(232);
+    });
+
+    it('still converts the field the imperial diver actually changed', () => {
+      const converted = toStoredTanks([{ ...stored, workingBar: '3000' }], 'imperial', [stored]);
+      expect(converted[0]?.workingBar).toBeCloseTo(206.8427187950508, 10);
+    });
+
+    // The dive form captures a preset that has nothing stored yet, so it passes no cylinders
+    // to preserve against — and must keep converting. Without this the fix above could have
+    // been "never convert at all".
+    it('converts everything when there is no stored cylinder to preserve against', () => {
+      expect(toStoredTanks([{ workingBar: '3365' }], 'imperial')[0]?.workingBar).toBe(232.00858291511537);
+    });
+
+    // Index-wise, the pairing `toDivePatch` and `sameTanks` already use for these arrays:
+    // cylinder 1 is cylinder 1. A stored array shorter than the form's leaves the extra
+    // cylinders with nothing to preserve against, which is simply the case above.
+    it('pairs each cylinder with the stored one at its own index', () => {
+      const deco: Tank = { ...stored, workingBar: 207 };
+      const converted = toStoredTanks(
+        [{ ...stored, workingBar: '3365' }, { ...deco, workingBar: '3002' }],
+        'imperial',
+        [stored, deco],
+      );
+      expect(converted.map((tank) => tank.workingBar)).toEqual([232, 207]);
     });
   });
 });

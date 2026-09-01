@@ -502,13 +502,30 @@ function toStoredTank(tank: Tank, stored: Tank | undefined, units: UnitSystem): 
  * the column already means by "no cylinders recorded", and which the form's own
  * empty-cylinder refusal then catches before anything is written.
  *
- * `stored` is `undefined` for every cylinder: there is no stored preset cylinder to preserve
- * a figure against — the same "nothing is stored yet, so every recorded figure simply
- * converts" case `toNewDiveInput` is in.
+ * **`stored` is the cylinders these are being saved OVER, and omitting it is a real
+ * instruction rather than a default nobody thought about.** Capturing a preset from the dive
+ * form is a creation — there is nothing stored to preserve a figure against — so that caller
+ * passes none and every recorded figure simply converts, exactly as `toNewDiveInput` does.
+ * §3's preset editor is the other case: it seeds its fields from a preset that already
+ * exists, so it passes that preset's own cylinders, and an imperial diver who merely opened
+ * the editor gets their stored figure back byte-for-byte instead of the 232.00858… that
+ * 3365 psi converts to. DESIGN.md §10 is explicit that this is not a nicety — "a display
+ * rounding may never rewrite stored data", because the rewrite also advances `updated_at`,
+ * and under §7's whole-row last-write-wins the device that changed nothing then beats the
+ * device that changed something.
+ *
+ * Paired **index-wise**, which is the pairing `toDivePatch` and `sameTanks` already use for
+ * these arrays: the form binds `tanks.0.*` and the array is positional, so cylinder 1 is
+ * cylinder 1. A stored array shorter than the form's simply leaves the extra cylinders with
+ * nothing to preserve against, which is the creation case again.
  */
-export function toStoredTanks(tanks: DiveFormInput['tanks'], units: UnitSystem): Tank[] {
+export function toStoredTanks(
+  tanks: DiveFormInput['tanks'],
+  units: UnitSystem,
+  stored?: readonly Tank[],
+): Tank[] {
   const parsed = diveFormSchema.shape.tanks.safeParse(tanks);
-  return (parsed.success ? parsed.data : []).map((tank) => toStoredTank(tank, undefined, units));
+  return (parsed.success ? parsed.data : []).map((tank, index) => toStoredTank(tank, stored?.[index], units));
 }
 
 /**
