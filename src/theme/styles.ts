@@ -430,6 +430,14 @@ function build(scheme: ColorScheme) {
   // the row itself met it.
   const FIELD_EXTRA_CLEARANCE = 12;
 
+  // The rating's two geometries on the form, named rather than typed into three styles,
+  // because a third value is *derived* from the difference between them — see
+  // `formRatingRow`, which cancels the leading slack this pair creates. Written as constants
+  // so that changing the dot or the target moves the row's own offset with them; two literals
+  // and a hand-computed `-15` are the same rule in two places, which is §4.1's defect.
+  const RATING_DOT_FIELD_SIZE = 18;
+  const RATING_TARGET_SIZE = 48;
+
   // A scrolling column of §0.6 rows — the dive form, and now Settings, which is the same
   // grammar asking about the app instead of about a dive. One definition rather than two,
   // so the two screens cannot drift on how far their first row sits from the heading above
@@ -1169,9 +1177,9 @@ function build(scheme: ColorScheme) {
     // one diameter, filled or outlined") true of the row and the form at once. A second
     // *filled* style per size is what would break it, so there isn't one.
     ratingDotField: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
+      width: RATING_DOT_FIELD_SIZE,
+      height: RATING_DOT_FIELD_SIZE,
+      borderRadius: RATING_DOT_FIELD_SIZE / 2,
       borderWidth: 1,
       borderColor: theme.fg,
     },
@@ -1180,8 +1188,13 @@ function build(scheme: ColorScheme) {
     // of them and not to the row they sit in, which is the same reading that put `minHeight:
     // 48` on `formChip` rather than on `formChipRow`.
     ratingTarget: {
-      width: 48,
-      height: 48,
+      width: RATING_TARGET_SIZE,
+      height: RATING_TARGET_SIZE,
+      // Centred, and it stays centred: the dot is what a diver aims at, so the slack around
+      // it has to sit on both sides — `flex-start` would put every dot on the leading edge of
+      // its own target and hand the 30 dp to its right to the WRONG dot, so a thumb landing
+      // just left of the third circle would set a rating of two. What the centring costs is
+      // 15 dp of leading indent for the first dot, and that is `formRatingRow`'s to give back.
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -2201,9 +2214,24 @@ function build(scheme: ColorScheme) {
     // across two lines stops being a row of five at a glance. The chip row wraps because six
     // water-body chips at Czech length genuinely cannot fit; a rating's width is fixed and
     // known, so it is laid out to fit rather than allowed to reflow.
+    //
+    // **`marginLeft` is what makes the sentence above true**, and it was missing until a
+    // review put a ruler on the screen. Each target is 48 dp with its 18 dp dot centred
+    // inside it (`ratingTarget`, §0.5's floor), so the first dot's ink began 15 dp to the
+    // right of the label above it and of every chip row on the form — an indent nothing asked
+    // for, on the one row that is supposed to start where the others do. In code it looks
+    // right, because each *style* is right; it is only visible on a device, and 15 dp is
+    // exactly the size that reads as "slightly off" rather than as broken.
+    //
+    // So the row gives back precisely the slack the target's own centring takes, computed
+    // from the two sizes rather than written as `-15`: change either and this follows. The
+    // dots keep their centred 48 dp targets — see `ratingTarget` for why that centring must
+    // not be traded away instead — and the row's trailing target simply overhangs into the
+    // field's own padding, which nothing else occupies.
     formRatingRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      marginLeft: -(RATING_TARGET_SIZE - RATING_DOT_FIELD_SIZE) / 2,
       paddingBottom: FIELD_EXTRA_CLEARANCE,
     },
     // **A chip is filled** — the owner's call after seeing the form built, now written into

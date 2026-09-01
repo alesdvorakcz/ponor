@@ -115,6 +115,42 @@ describe('the reorder arrows row', () => {
   });
 });
 
+// **The rating dots begin in the form's leading column, like every other row's contents.**
+// §0.6 puts the chips and the dots in the same slot — a field's second line — and a field's
+// contents start at its own inset; `formRatingRow`'s comment says so in words ("it starts at
+// the leading edge under its own label") and, until a review measured it on a device, it did
+// not: each dot is centred inside its 48 dp target (§0.5's floor per dot, since each dot is a
+// control), so the first dot's ink sat 15 dp right of the label above it and of every chip on
+// the form.
+//
+// Pinned here, as a RELATIONSHIP between the three styles rather than as the number `-15`,
+// because the number is not the rule: the rule is that the row gives back exactly the slack
+// its own targets take, so resizing a dot or a target cannot silently reintroduce the indent.
+// A geometry defect is otherwise invisible in review — every one of the three styles reads
+// correctly on its own, and the offset only exists between them.
+describe('the form rating row', () => {
+  it.each(['dark', 'light'] as const)('starts its first dot where the label above it starts (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    const target = Number(sheet.ratingTarget?.width);
+    const dot = Number(sheet.ratingDotField?.width);
+    const slack = (target - dot) / 2;
+    // The centring is real — a target the size of its dot would make this whole rule moot and
+    // the assertion below pass on zero.
+    expect(slack).toBeGreaterThan(0);
+    expect(sheet.formRatingRow?.marginLeft).toBe(-slack);
+  });
+
+  it.each(['dark', 'light'] as const)('is a leading row, not a centred or trailing one (%s)', (scheme) => {
+    // The other way to lose the alignment, and the one that is a single word rather than a
+    // measurement: `justifyContent: 'center'` on this row re-centres all five targets in the
+    // field's width and moves the offset above from a correction into a new error. Five 48 dp
+    // targets are laid out to fit without wrapping (see the style's own comment), so nothing
+    // here ever needs a distribution rule — the absence is the design.
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    expect(sheet.formRatingRow?.justifyContent ?? 'flex-start').toBe('flex-start');
+  });
+});
+
 // DESIGN.md §4.1: what a screen calls itself is one rule, so it has one owner. Three screens
 // draw a title — the dive form, Settings, and the Dives list — and the face, size and ink of
 // all three come from one `screenHeading` definition; each screen supplies only the column it
