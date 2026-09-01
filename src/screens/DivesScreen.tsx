@@ -398,7 +398,20 @@ export default function DivesScreen() {
       <View style={styles.divesScreen}>
         {bar()}
         {title}
-        <EmptyState scheme={scheme} onPress={logDive} />
+        {/* **"0 dives" is what makes this branch distinguishable from the one above it**
+            (M1h, the owner's design). The waiting branch draws the bar and the title and
+            nothing else, deliberately — §10's "a screen with no answer must not state one" —
+            and until now the empty branch's only extra was a sentence at the bottom of the
+            screen, a whole thumb's reach from the title it belongs to. The count says, right
+            under the heading, that the logbook HAS been read and holds nothing.
+
+            `formatDiveCount(dives.length)` rather than the literal "0 dives": this branch is
+            entered on `dives.length === 0`, so the two cannot disagree — but a hard-coded
+            count is a sentence that stays true only for as long as the condition above it is
+            not edited, and the words themselves belong to `format/display.ts` in any case
+            (§4.1), which is where "Up next" and the day strip already get theirs. */}
+        <Text style={styles.divesCount}>{formatDiveCount(dives.length)}</Text>
+        <EmptyState scheme={scheme} system={units} onPress={logDive} />
       </View>
     );
   }

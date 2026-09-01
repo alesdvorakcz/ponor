@@ -1,11 +1,34 @@
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View, type ImageSourcePropType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { formatDepthBoundary, METADATA_SEPARATOR } from '../format/display';
+import { type UnitSystem } from '../format/units';
+import { deepestBandStartM, shallowestBandEndM } from '../theme/depth';
 import { makeStyles, screenBottomInset } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { DepthLegend } from './DepthLegend';
+
+/**
+ * The mark, monochrome and on a transparent ground — `scripts/build-icons.mjs` builds it from
+ * the same `assets/mark.svg` the app icons come from, so the shape cannot drift from the icon.
+ *
+ * **A bitmap, and deliberately not a rendered SVG.** `react-native-svg` is not a dependency of
+ * this project and adding one for a single drawing would buy a native rebuild and a permanent
+ * runtime renderer to draw seven line segments that never change. `src/testing/
+ * unexpectedGraphics.ts` guards the absence.
+ *
+ * Required at module scope, not inside the component: Metro resolves the asset at bundle time
+ * either way, and a `require` in a render body reads as if it might not be. Annotated rather
+ * than inferred, because Metro's `require` is typed `any` and an unannotated asset would hand
+ * that `any` straight to a prop.
+ */
+const MARK: ImageSourcePropType = require('../../assets/images/mark-mono.png');
 
 interface EmptyStateProps {
   scheme: ColorScheme;
+  /** The diver's units, for the legend's labels — passed in, like `scheme`, because a screen
+   * decides once and its components stay pure (`useUnitSystem`'s docblock). */
+  system: UnitSystem;
   onPress: () => void;
 }
 
@@ -17,6 +40,34 @@ interface EmptyStateProps {
  * first of them: a failed read is a lie this component would tell if it
  * were reused for that case, which is why DivesScreen.tsx checks `error`
  * before it ever gets here (see its own comment).
+ *
+ * ---
+ *
+ * **It is a first-run screen, not a placeholder** (M1h, the owner's design). It held one
+ * sentence — "Your logbook is empty." — over the button, which is the only thing the screen
+ * *had* to say and nothing a diver did not already know. What it now says is the one thing no
+ * other screen in Ponor can: **§0.1, the app's central conceit, was explained nowhere.** A
+ * diver met the depth palette one number at a time at the right-hand end of a dive row, where
+ * it reads as decoration that happens to vary. This is the only screen with no dive to attach
+ * a colour to, so it is the only place the scale can appear as a scale — and the last time it
+ * is seen out of context. Everything above the button is that lesson, in the order a diver
+ * needs it: the mark, what state the logbook is in, what the app promises (§1's "Works at sea",
+ * said to a diver rather than to a planner), the scale, and why the scale is that sequence.
+ *
+ * **The mark is monochrome, and that is §0.1 enforcing itself.** §0.3 strokes this same shape
+ * in the depth gradient *on the app icon*, where the mark is the only thing there is. Drawn
+ * inside the interface, that gradient would be colour used as **brand** — and §0.1 says colour
+ * encodes depth and nothing else. So the only hue anywhere on this screen is the legend, and
+ * the legend is depth. The tint and the half strength live in `emptyStateMark`
+ * (theme/styles.ts), which says the same thing at the point where it could be undone; the
+ * asset itself is single-colour before any tint is applied, so even a platform where tinting
+ * failed could not restore the gradient (scripts/build-icons.mjs).
+ *
+ * **Not one number on this screen is typed here.** The legend's boundaries come from
+ * `theme/depth.ts` and its words from `format/display.ts`; so do the two depths in the reason
+ * line, which would otherwise be the same drift arriving one line below the legend it
+ * contradicts — and in imperial, a caption reading "6 m" under bars labelled `0–20 · 20–39 · …`
+ * would be a first-run screen teaching in two unit systems at once.
  *
  * The primary action sits in the bottom third of the screen (DESIGN.md
  * §0.5: wet hands, one thumb) and is styled from the `action`/`action-fg`
@@ -39,13 +90,21 @@ interface EmptyStateProps {
  * function of `scheme`: the clearance is a property of the device, and a
  * scheme-only stylesheet is exactly where the wrong answer hid.
  *
+ * **The teaching block scrolls and the button does not, which is this screen's answer to a
+ * small phone.** Five elements now sit above a control whose position is fixed by the device;
+ * on a 4.7" screen, or in Czech (§0.5: 20–30 % longer), they do not all fit. The two failure
+ * modes that had to be avoided are the ones this project has already paid for: content clipped
+ * off the top edge with nothing to say it is there, and a button that gives back the clearance
+ * `screenBottomInset` exists to defend. A `ScrollView` above a fixed footer does neither — it
+ * is the arrangement `DiveFormScreen` already uses for the same pair of objects.
+ *
  * Review task 7, Important #4: this is the entire first-run experience, so its `Pressable`
  * carries `accessibilityRole="button"` rather than relying on the default — `Pressable`
  * does not supply one on its own. No separate `accessibilityLabel`: unlike `DiveRow`'s
  * fragmented number/site/depth, this button's own visible text already says exactly what
  * it does.
  */
-export function EmptyState({ scheme, onPress }: EmptyStateProps) {
+export function EmptyState({ scheme, system, onPress }: EmptyStateProps) {
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
   return (
@@ -66,7 +125,29 @@ export function EmptyState({ scheme, onPress }: EmptyStateProps) {
     // where a device reports no inset at all: the browser's tab bar is a sibling below the
     // screen, nothing is obscured, and the empty state keeps the 48 it has had since M0.
     <View style={[styles.emptyStateWrap, { paddingBottom: screenBottomInset(insets.bottom + 24) }]}>
-      <Text style={styles.emptyStateText}>Your logbook is empty.</Text>
+      <ScrollView style={styles.emptyStateScroll} contentContainerStyle={styles.emptyStateContent}>
+        {/* Decorative, and said so rather than left to a platform default: the sentence and
+            the legend below carry every fact the mark carries, so a screen reader announcing
+            it would only ever announce "image". */}
+        <Image source={MARK} style={styles.emptyStateMark} accessible={false} />
+        <Text style={styles.emptyStateLabel}>NOTHING LOGGED YET</Text>
+        <Text style={styles.emptyStateText}>
+          Ponor keeps every dive on this phone. No account, no upload, works with the boat out
+          of signal.
+        </Text>
+        <DepthLegend scheme={scheme} system={system} />
+        <Text style={styles.emptyStateReason}>
+          colour is depth{METADATA_SEPARATOR}nothing else in Ponor is coloured
+        </Text>
+        {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
+            so this sentence can never contradict the bars directly above it — see the
+            docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
+            way a dive's depth is. */}
+        <Text style={styles.emptyStateReason}>
+          red fades out by {formatDepthBoundary(shallowestBandEndM, system)}, blue carries past{' '}
+          {formatDepthBoundary(deepestBandStartM, system)} — the scale follows the light
+        </Text>
+      </ScrollView>
       <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
         <Text style={styles.actionLabel}>Log your first dive</Text>
       </Pressable>

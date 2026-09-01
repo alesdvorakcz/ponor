@@ -23,7 +23,9 @@ import { dive } from '../domain/diveFixture';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { reorderDivesForDate, softDeleteDive, type ReorderOutcome } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { formatDiveCount } from '../format/display';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
@@ -246,6 +248,7 @@ const mockSoftDelete = softDeleteDive as jest.Mock;
 // (§0.1: the red belongs to OS chrome). Spied once for the file; nothing else here calls it.
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 afterEach(() => alertSpy.mockClear());
+const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockRouterPush = router.push as jest.Mock;
 const mockRouterBack = router.back as jest.Mock;
 const mockRouterReplace = router.replace as jest.Mock;
@@ -257,6 +260,13 @@ afterEach(() => {
   mockUseWideLayout.mockReset();
   mockRouterPush.mockReset();
   mockUseLocalSearchParams.mockReset();
+  // Put back, not reset: this mock's default IS its value (`metric`), and every test above
+  // that reads a depth in metres depends on it silently. `mockReset()` would leave it
+  // returning `undefined`, which no unit-formatting call site can survive — so the one test
+  // that asks for imperial restores the default here rather than leaving the file's own
+  // ordering to decide which suites still read in metres. Caught by that test leaking into
+  // "shows no arrows until the day strip is switched on", eleven tests later.
+  mockUseUnitSystem.mockReturnValue('metric');
 });
 
 it('shows the empty state when there are no dives', async () => {
@@ -789,12 +799,57 @@ it('names the screen on an empty logbook, with no capsule beside it', async () =
 
   const text = textIn(t);
   expect(text).toContain('Dives');
-  expect(text.join(' ')).toContain('Your logbook is empty.');
+  expect(text.join(' ')).toContain('Ponor keeps every dive on this phone.');
   expect(text.join(' ')).toContain('Log your first dive');
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : []).toHaveLength(0);
   // The bar is there, holding the title where a populated logbook holds it.
   expect(findBar(t)).toBeTruthy();
+});
+
+// **The first-run screen is where a diver is taught the depth scale, so it has to be taught in
+// the diver's own units** (§0.6, M1h). This screen reads `useUnitSystem()` for its dive rows
+// and now has a second reader beneath it, and the failure is silent in exactly the way §4.1
+// warns about: a hard-wired `system="metric"` renders a perfectly convincing legend, labelled
+// `0–6 · 6–12 · …`, to a diver whose every dive is shown in feet. Nothing looks broken.
+//
+// Found by mutation — `system={units}` swapped for `system="metric"` left all 51 tests in this
+// file green — which is why it is asserted here, at the screen, and not only in
+// `EmptyState.test.tsx` where the prop is supplied by the test itself.
+it('teaches the depth scale in the diver own units, not in the units it is stored in', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  stubDives({ dives: [], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+  const text = textIn(t).join(' ');
+  // §10 gives imperial depth whole feet, so the boundaries land ragged — and ragged is what
+  // proves the legend followed the diver rather than the database.
+  expect(text).toContain('131+ ft');
+  expect(text).toContain('98–131');
+  expect(text).not.toContain('40+ m');
+});
+
+// **"0 dives" under the title, and the reason it is worth a line at all is the branch it must
+// NOT appear on** (M1h, owner's design). §10's "a screen with no answer must not state one"
+// gave this screen a waiting state that draws the bar and the title and nothing else — which
+// is right, and which makes the two branches look identical for as long as a read is slow.
+// The count is the difference, said where a diver is already looking: this logbook HAS been
+// read, and it holds nothing.
+//
+// The pair below is one guard. Present on the answered branch, absent on the waiting one; a
+// count that rendered while the read was outstanding would be the false sentence `resolved`
+// was introduced to delete, restated as a numeral.
+it('says the logbook holds nothing once it has been read, and says nothing while it has not', async () => {
+  stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: true });
+  const answered = await render(<DivesScreen />);
+  // `formatDiveCount(0)`, not the string it currently returns — the words belong to
+  // format/display.ts (§4.1) and this asserts the screen asks it rather than agreeing with a
+  // copy of its output.
+  expect(textIn(answered)).toContain(formatDiveCount(0));
+
+  stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: false });
+  const waiting = await render(<DivesScreen />);
+  expect(textIn(waiting)).not.toContain(formatDiveCount(0));
+  expect(textIn(waiting)).toContain('Dives');
 });
 
 // The failed read keeps it too, and for a sharper reason than symmetry: this branch is the
