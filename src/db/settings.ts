@@ -189,6 +189,89 @@ export function readUnitSystem(rows: unknown[]): UnitSystem {
 }
 
 /**
+ * Which of the dive form's collapsible groups the diver last left open (DESIGN.md §2.2:
+ * "Groups remember themselves"), the third key this local-only table holds.
+ *
+ * **Display state, and local-only in the strong sense.** §6 gives this table no `updated_at`
+ * and §7's sync protocol never mentions it: a diver's phone and their tablet are allowed to
+ * disagree about which groups are open, and nothing about a dive depends on the answer.
+ *
+ * **One row holding a list, not a row per group.** A key per group would put the vocabulary of
+ * group names into the settings table's key space — where a group renamed in a later build
+ * leaves an orphan row nothing will ever read or clean up — and would make one gesture two
+ * writes. The list is a set of ids; what those ids mean is the dive form's business.
+ */
+const OPEN_FORM_GROUPS_KEY = 'form_groups_open';
+
+/** The `form_groups_open` row as a builder, for `useLiveQuery` — the same shape the two
+ * queries above take, and for the same reason. */
+export function openFormGroupsQuery(db: Db) {
+  return db.select().from(settings).where(eq(settings.key, OPEN_FORM_GROUPS_KEY));
+}
+
+/**
+ * The group ids out of `openFormGroupsQuery`'s rows: whatever was stored, or `[]` for an absent
+ * row and for anything that cannot be read as a list of ids.
+ *
+ * **It never throws and never reports a failure**, which puts it on `readUnitSystem`'s side of
+ * the asymmetry that function documents rather than `getDivesBefore`'s. A wrong `dives_before`
+ * misnumbers a whole logbook silently; a lost open-group memory means the diver taps a chevron.
+ * §2.2's own defaults are what `[]` degrades to — every group closed unless this dive has a
+ * value in it — so an unreadable row costs one gesture and states nothing false.
+ *
+ * **Unrecognised ids are kept, not dropped**, and that is the same "kept, not refused" policy
+ * §10 records for option values and equipment tokens. A build that has never heard of a group
+ * must not delete a newer build's memory of it merely by opening a form; this returns whatever
+ * strings it finds and the form writes them back untouched. What it does drop is anything that
+ * is not a string at all, since nothing could ever match one.
+ *
+ * Duplicates are collapsed here rather than left for the caller: the value is a SET of ids, and
+ * a stored `["gas","gas"]` — which only a hand-edited row or a future bug produces — must mean
+ * exactly what `["gas"]` means.
+ *
+ * `rows` is `unknown[]`, not this query's real return type, because `useLiveQuery`'s `.data` is
+ * typed that loosely — the same reason the two readers above take it.
+ */
+export function readOpenFormGroups(rows: unknown[]): string[] {
+  const row = Array.isArray(rows) ? rows.at(0) : undefined;
+  const value =
+    row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
+  if (typeof value !== 'string') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    // A row that is not JSON at all — corrupted, hand-edited, or written by something that is
+    // not this app. Degrading to §2.2's defaults is the whole contract; there is nothing here
+    // worth telling a diver about.
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return [...new Set(parsed.filter((id): id is string => typeof id === 'string'))];
+}
+
+/**
+ * Records which groups the diver has left open.
+ *
+ * Takes the whole set rather than one group and a flag, so the row it writes is always the
+ * complete answer. The alternative — a toggle that read, amended and wrote — would lose one of
+ * two gestures made before the read came back, which on a form where a diver opens two groups
+ * in a second is not a theoretical race.
+ *
+ * Nothing validates the ids, deliberately, and it is the same line `setUnitSystem` above draws
+ * from `setDivesBefore`: a dive count has exactly one legal shape and an illegal one produces
+ * dive numbers that cannot exist, where an unrecognised group id costs nothing and may well be
+ * a newer build's group that this one is faithfully writing back (`readOpenFormGroups`).
+ */
+export async function setOpenFormGroups(db: Db, groups: readonly string[]): Promise<void> {
+  const value = JSON.stringify([...groups]);
+  await db
+    .insert(settings)
+    .values({ key: OPEN_FORM_GROUPS_KEY, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } });
+}
+
+/**
  * Records the diver's unit system. Written for the Settings screen (§3), which is the only
  * thing that ever changes it — the value has no other producer, and putting the key and
  * the upsert here rather than in that screen is what keeps `readUnitSystem` above the only

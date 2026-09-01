@@ -4,9 +4,12 @@ import { settings } from './schema';
 import {
   divesBeforeQuery,
   getDivesBefore,
+  openFormGroupsQuery,
   readDivesBefore,
+  readOpenFormGroups,
   readUnitSystem,
   setDivesBefore,
+  setOpenFormGroups,
   setUnitSystem,
   unitSystemQuery,
 } from './settings';
@@ -201,5 +204,83 @@ describe('setUnitSystem', () => {
     await setUnitSystem(db, 'imperial');
     expect(await getDivesBefore(db)).toBe(247);
     expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// form_groups_open — §2.2's "groups remember themselves" (M1h)
+// ---------------------------------------------------------------------------------------
+//
+// The third key this table holds, and the one with the weakest claim on anything: a lost or
+// unreadable value costs the diver one tap on a chevron. That is why every read below degrades
+// rather than reports — §2.2's own defaults are what `[]` means, so this row can never make the
+// form say something false.
+
+describe('readOpenFormGroups', () => {
+  it('is empty on a fresh database — nothing has been remembered yet', async () => {
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+  });
+
+  it('reads back what was stored, in the order it was written', async () => {
+    await setOpenFormGroups(db, ['conditions', 'gas']);
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['conditions', 'gas']);
+  });
+
+  // Every way this row can be unreadable, and all of them mean the same thing: §2.2's defaults.
+  // A `dives_before` this corrupt throws, deliberately — see that read's own docblock for why
+  // the two are not the same kind of value.
+  it.each([
+    ['not JSON at all', 'conditions,gas'],
+    ['JSON that is not an array', '{"conditions":true}'],
+    ['JSON that is not a list of ids', '42'],
+    ['an empty string', ''],
+  ])('degrades %s to no memory rather than throwing', async (_case, value) => {
+    await db.insert(settings).values({ key: 'form_groups_open', value });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+  });
+
+  // §10's "kept, not refused", the same policy `optionalTokenSet` applies to an equipment token
+  // a newer client wrote: a build that has never heard of a group must not delete another
+  // build's memory of it merely by opening a form. What is dropped is what could never match a
+  // group at all.
+  it('keeps an id it has never heard of, and drops what is not an id', async () => {
+    await db
+      .insert(settings)
+      .values({ key: 'form_groups_open', value: JSON.stringify(['conditions', 'profile', 7, null, { id: 'gas' }]) });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['conditions', 'profile']);
+  });
+
+  // The value is a SET of ids, so a stored duplicate — which only a hand-edited row or a future
+  // bug produces — must mean exactly what one entry means.
+  it('collapses a repeated id, since the value is a set', async () => {
+    await db.insert(settings).values({ key: 'form_groups_open', value: JSON.stringify(['gas', 'gas']) });
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['gas']);
+  });
+});
+
+describe('setOpenFormGroups', () => {
+  it('overwrites the previous memory rather than adding a second row', async () => {
+    await setOpenFormGroups(db, ['conditions']);
+    await setOpenFormGroups(db, ['people', 'notes']);
+    const rows = await openFormGroupsQuery(db);
+    expect(rows).toHaveLength(1);
+    expect(readOpenFormGroups(rows)).toEqual(['people', 'notes']);
+  });
+
+  // The whole set, every time — which is what lets the form compose one write out of two quick
+  // presses instead of losing the first (DiveFormScreen's `toggleGroup`).
+  it('stores the empty set as a real answer, not as an absence', async () => {
+    await setOpenFormGroups(db, ['conditions']);
+    await setOpenFormGroups(db, []);
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual([]);
+  });
+
+  it('leaves the other two keys alone — three keys, one table', async () => {
+    await setDivesBefore(db, 247);
+    await setUnitSystem(db, 'imperial');
+    await setOpenFormGroups(db, ['gas']);
+    expect(await getDivesBefore(db)).toBe(247);
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual(['gas']);
   });
 });

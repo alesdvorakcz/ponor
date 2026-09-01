@@ -1,4 +1,5 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { useState } from 'react';
 import { Text } from 'react-native';
 
 import { themeFor } from '../theme/resolve';
@@ -40,12 +41,26 @@ function headerOf(t: RenderResult, index = 0) {
 
 const CHILD = 'Working pressure';
 
-async function renderGroup(props: { title?: string; defaultExpanded?: boolean } = {}) {
-  return render(
-    <FormGroup title={props.title ?? 'Gas & cylinders'} scheme="light" defaultExpanded={props.defaultExpanded}>
+/**
+ * The state `FormGroup` used to hold itself, held by a caller instead.
+ *
+ * M1h made the component controlled — §2.2 now remembers which groups a diver leaves open, and
+ * that memory lives in a settings row the component cannot see (`FormGroup`'s own docblock has
+ * the reasoning). Every test below still drives the real control by pressing its header; what
+ * changed is that the press goes out through `onToggle` and comes back as a prop, which is
+ * exactly the round trip the screen makes. `onToggle` itself is asserted directly, once, below.
+ */
+function Harness({ title, initiallyExpanded = false }: { title: string; initiallyExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  return (
+    <FormGroup title={title} scheme="light" expanded={expanded} onToggle={setExpanded}>
       <Text>{CHILD}</Text>
-    </FormGroup>,
+    </FormGroup>
   );
+}
+
+async function renderGroup(props: { title?: string; defaultExpanded?: boolean } = {}) {
+  return render(<Harness title={props.title ?? 'Gas & cylinders'} initiallyExpanded={props.defaultExpanded} />);
 }
 
 it('names the group and offers a way to open it, without showing what is inside', async () => {
@@ -165,8 +180,8 @@ it('draws the chevron in the header’s own muted ink, in whichever scheme is re
 });
 
 it('opens on mount when a caller asks it to, and still closes', async () => {
-  // `defaultExpanded` has no caller in the app today (§2.2: every group starts collapsed),
-  // so without this it is a prop that could stop working with nothing to notice.
+  // §2.2's groups open on mount whenever the diver left this one open last time or the dive
+  // already has a value in it, so this is the ordinary case rather than an unused prop.
   const t = await renderGroup({ defaultExpanded: true });
   expect(textIn(t)).toContain(CHILD);
   expect(headerOf(t).props.accessibilityState?.expanded).toBe(true);
@@ -181,18 +196,38 @@ it('keeps each group’s disclosure to itself', async () => {
   // would open all six at once, and every single-group test above would still pass.
   const t = await render(
     <>
-      <FormGroup title="Conditions" scheme="light">
-        <Text>Visibility</Text>
-      </FormGroup>
-      <FormGroup title="People" scheme="light">
-        <Text>Buddy</Text>
-      </FormGroup>
+      <Harness title="Conditions" />
+      <Harness title="People" />
     </>,
   );
 
   await fireEvent.press(headerOf(t, 0));
-  expect(textIn(t)).toContain('Visibility');
-  expect(textIn(t)).not.toContain('Buddy');
+  expect(textIn(t)).toContain(CHILD);
+  expect(textIn(t).filter((s) => s === CHILD)).toHaveLength(1);
+});
+
+// The other half of being controlled, and the half a harness hides: the press has to REPORT the
+// state it is asking for, not merely that it happened. A component that called `onToggle()` with
+// nothing, or always with `true`, would leave every test above green — the harness's own
+// `setExpanded` would simply receive an undefined it then coerces — while the screen, which
+// writes that value into a settings row, would remember the wrong thing for ever.
+it('reports the state a press is asking for, in both directions', async () => {
+  const onToggle = jest.fn();
+  const t = await render(
+    <FormGroup title="Conditions" scheme="light" expanded={false} onToggle={onToggle}>
+      <Text>{CHILD}</Text>
+    </FormGroup>,
+  );
+  await fireEvent.press(headerOf(t));
+  expect(onToggle).toHaveBeenLastCalledWith(true);
+
+  const open = await render(
+    <FormGroup title="Conditions" scheme="light" expanded onToggle={onToggle}>
+      <Text>{CHILD}</Text>
+    </FormGroup>,
+  );
+  await fireEvent.press(headerOf(open));
+  expect(onToggle).toHaveBeenLastCalledWith(false);
 });
 
 it('gives the header the 48 dp tap target §0.5 sets, and actually wears that style', async () => {

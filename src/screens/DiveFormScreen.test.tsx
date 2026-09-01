@@ -16,8 +16,11 @@ import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
 import { useGearPresets } from '../db/useGearPresets';
+import { useOpenFormGroups } from '../db/useOpenFormGroups';
+import { setOpenFormGroups } from '../db/settings';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
+import { diveFormSchema, TANK_FIELDS } from '../domain/diveFormSchema';
 import { formatCylinderSpec, formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
   CONFIGURATION_VALUES,
@@ -38,7 +41,15 @@ import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import DiveFormScreen from './DiveFormScreen';
+import DiveFormScreen, {
+  blankFormValues,
+  type FormGroupId,
+  defaultOpenGroups,
+  CORE_STRIP_FIELDS,
+  FORM_GROUPS,
+  FORM_GROUP_IDS,
+  OFF_FORM_FIELDS,
+} from './DiveFormScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 // Task 6: DiveFormScreen.tsx now reads useDives() for carry-over and calls createDive on
@@ -54,6 +65,16 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // — which is what keeps the existing assertions below reading in metres, unchanged.
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 
+// §2.2's remembered group state (M1h), mocked per module exactly as the three hooks above
+// are, and for the identical reason: it is a live read of a settings row, and this screen must
+// be renderable without a database. `stubOpenGroups` below is how a test says what was
+// remembered; every test that does not call it gets §2.2's own defaults — nothing remembered,
+// and the read has answered — which is what keeps every existing assertion here unchanged.
+jest.mock('../db/useOpenFormGroups', () => ({ useOpenFormGroups: jest.fn() }));
+// The write half of that memory. Mocked rather than left real because it reaches `db`, and
+// because what these tests assert about it is exactly what it was HANDED — a screen that wrote
+// the wrong set would look identical on screen.
+jest.mock('../db/settings', () => ({ ...jest.requireActual('../db/settings'), setOpenFormGroups: jest.fn() }));
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
 // M1e task 2: the cylinder presets the form applies, mocked per module for the same reason
 // `useDives` above is — it is a live database read.
@@ -81,6 +102,8 @@ const mockCreate = createDive as jest.Mock;
 const mockUpdate = updateDive as jest.Mock;
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseGearPresets = useGearPresets as jest.Mock;
+const mockUseOpenGroups = useOpenFormGroups as jest.Mock;
+const mockSetOpenGroups = setOpenFormGroups as jest.Mock;
 const mockCreatePreset = createGearPreset as jest.Mock;
 
 /**
@@ -127,10 +150,24 @@ function stubPresets(presets: GearPreset[] = [], error?: Error) {
   mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error }));
 }
 
+/**
+ * What §2.2's remembered half says — the groups the diver left open on their last dive, and
+ * whether that read has answered yet.
+ *
+ * `mockImplementation` and a fresh array per call, on `stubDives`' own reasoning: the real hook
+ * builds its list inside `readOpenFormGroups`, so a stub handing back one referentially-stable
+ * array for ever would model a contract it does not have.
+ */
+function stubOpenGroups(groups: string[] = [], resolved = true) {
+  mockUseOpenGroups.mockImplementation(() => ({ groups: [...groups], resolved }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   stubDives();
   stubPresets();
+  stubOpenGroups();
+  mockSetOpenGroups.mockResolvedValue(undefined);
   // Set explicitly rather than left to the module factory's own `jest.fn(() => true)`:
   // `clearAllMocks` clears calls but not return values, so one test overriding this would
   // otherwise leak its `false` into every test declared after it.
@@ -300,10 +337,22 @@ async function pickDate(t: RenderResult, isoDate: string) {
   await pickInto(t, 'Date', new Date(Number(year), Number(month) - 1, Number(day)));
 }
 
-/** Opens a collapsed §2.2 group, so a test can reach the fields inside it. */
+/**
+ * Makes sure a §2.2 group is open, so a test can reach the fields inside it.
+ *
+ * **"Ensure open", not "press", since M1h**, and the change is not cosmetic. A group now opens
+ * by itself when this dive already has a value in it or the diver left it open last time
+ * (§2.2), so a helper that always pressed would CLOSE the group for exactly the tests that seed
+ * a dive — which is most of the edit-mode ones. What each test means by this call has always
+ * been "let me at these fields"; that is now what it says.
+ *
+ * The disclosure tests further down deliberately do NOT use this: they press the header
+ * directly, because the press is what they are about.
+ */
 async function openGroup(t: RenderResult, title: string) {
   const header = findButton(t, title);
   if (!header) throw new Error(`no ${title} header found`);
+  if (header.props?.accessibilityState?.expanded === true) return;
   await fireEvent.press(header);
 }
 
@@ -461,6 +510,313 @@ it('names all six §2.2 groups', async () => {
   for (const group of ['Times & depth', 'Conditions', 'Gas & cylinders', 'Equipment', 'People', 'Notes & rating']) {
     expect(text).toContain(group);
   }
+});
+
+// --- §2.2: groups remember themselves ---
+//
+// "A group opens when the diver opened it last time **or** when this dive already has a value
+// in it." The second half is not optional and §2.2 says why: carry-over fills groups nobody
+// touched, so a group holding a carried value the diver cannot see is the same defect as the
+// hidden pressures, one layer down.
+//
+// The three blocks below are three different kinds of claim, and none stands in for the others.
+// The first is the LAYOUT INVARIANT: every field the schema declares is placed somewhere. The
+// second sweeps the pure rule over every one of those fields. The third proves the screen
+// actually wires each group to its own entry — which is the per-call-site hazard the field
+// sweep further down was rewritten for, arriving one level up.
+
+/** Every field path this form is responsible for: the schema's own fields, with `tanks`
+ * expanded into the cylinder leaves the form actually binds. Read off `diveFormSchema` and
+ * `TANK_FIELDS` rather than typed out, so a field added to the domain shows up here on the day
+ * it is added. */
+const ALL_FORM_FIELDS = Object.keys(diveFormSchema.shape)
+  .filter((field) => field !== 'tanks')
+  .concat(TANK_FIELDS.map((field) => `tanks.0.${field}`));
+
+it('places every field the schema declares exactly once, and invents none', () => {
+  // The checklist, and the reason `FORM_GROUPS` exists as data at all. §2.2's "already has a
+  // value in it" is a rule about which fields belong to which group; a field rendered into a
+  // group but missing from its entry leaves that group shut over a carried value, silently and
+  // with every other test in this file green. A field named here but rendered nowhere is the
+  // mirror image — a group that opens for a value no row shows.
+  const placed = [
+    ...CORE_STRIP_FIELDS,
+    ...OFF_FORM_FIELDS,
+    ...FORM_GROUP_IDS.flatMap((id) => FORM_GROUPS[id].fields),
+  ];
+  expect([...placed].sort()).toEqual([...ALL_FORM_FIELDS].sort());
+  // ...and no field is in two places, which `toEqual` on sorted lists would report only as a
+  // length mismatch with a confusing diff.
+  expect(new Set(placed).size).toBe(placed.length);
+});
+
+it('draws its groups in the order the layout declares, under the titles it declares', async () => {
+  // The other half of the constant being data: the screen must render FROM it. A screen that
+  // kept its own titles beside `FORM_GROUPS`' would pass every rule test above while persisting
+  // one id and showing another group's name.
+  const t = await render(<DiveFormScreen mode="create" />);
+  const headers = buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((label) => label.startsWith('Expand ') || label.startsWith('Collapse '))
+    .map((label) => label.replace(/^(Expand|Collapse) /, ''));
+  expect(headers).toEqual(FORM_GROUP_IDS.map((id) => FORM_GROUPS[id].title));
+});
+
+// The pure rule, swept over every placed field. A value in a group's field opens THAT group and
+// no other — which is what a field listed under the wrong group would break, and what the
+// invariant above cannot see.
+describe('defaultOpenGroups', () => {
+  /** A form value that counts as recorded, for a field of each shape the schema holds. Chosen
+   * per field rather than "any truthy thing", because `holdsValue`'s whole job is to tell a
+   * recorded `0` and an empty accessory set apart. */
+  const SAMPLE: Record<string, unknown> = {
+    avgDepthM: 12,
+    waterTempC: 20,
+    airTempC: 24,
+    visibility: 'high',
+    visibilityM: 15,
+    waves: 1,
+    current: 0,
+    surge: 2,
+    weather: 'sunny',
+    entry: 'shore',
+    salinity: 'salt',
+    waterBody: 'ocean',
+    latitude: 50.1,
+    longitude: 14.4,
+    suit: 'wet',
+    suitThicknessMm: 5,
+    equipment: ['hood'],
+    weightsKg: 0,
+    weightsFeel: 'good',
+    buddy: 'Petr',
+    guide: 'Ana',
+    title: 'Arch',
+    notes: 'Nice',
+    rating: 4,
+    'tanks.0.material': 'steel',
+    'tanks.0.sizeL': 12,
+    'tanks.0.configuration': 'single',
+    'tanks.0.workingBar': 232,
+    'tanks.0.o2Pct': 32,
+    'tanks.0.hePct': 0,
+  };
+
+  /** The form's own blank values, with one field set — built through the same path setter the
+   * screen's own `valueAtPath` reads, so a mismatch between the two is impossible. */
+  function valuesWith(path: string, value: unknown) {
+    const values = { ...blankFormValues() } as Record<string, unknown>;
+    const steps = path.split('.');
+    let target = values;
+    for (const step of steps.slice(0, -1)) {
+      target[step] = Array.isArray(target[step]) ? [...(target[step] as unknown[])] : { ...(target[step] as object) };
+      target = target[step] as Record<string, unknown>;
+    }
+    target[steps[steps.length - 1]!] = value;
+    return values as unknown as Parameters<typeof defaultOpenGroups>[0];
+  }
+
+  it.each(FORM_GROUP_IDS.flatMap((id) => FORM_GROUPS[id].fields.map((field) => [field, id] as const)))(
+    'opens the group %s belongs to, and only that one',
+    (field, id) => {
+      const sample = SAMPLE[field];
+      // Every placed field needs a sample; a new one added to a group without one would
+      // otherwise sweep through as "nothing recorded" and prove nothing.
+      expect(sample).toBeDefined();
+      expect([...defaultOpenGroups(valuesWith(field, sample), [])]).toEqual([id]);
+    },
+  );
+
+  it('opens nothing for a dive that records nothing', () => {
+    expect([...defaultOpenGroups(blankFormValues(), [])]).toEqual([]);
+  });
+
+  it('does not open Equipment for an accessory set that records no accessories', () => {
+    // The one input on which this rule and the `carried ×` rule deliberately disagree
+    // (`holdsValue` vs `hasCarriedValue`): `[]` is a real carried answer, and it is also what
+    // every untouched form holds — so opening the group for it would open it on every dive.
+    expect([...defaultOpenGroups(valuesWith('equipment', []), [])]).toEqual([]);
+  });
+
+  it('opens a group the diver left open last time even though this dive has nothing in it', () => {
+    expect([...defaultOpenGroups(blankFormValues(), ['people'])]).toEqual(['people']);
+  });
+
+  it('keeps an id it has never heard of, so an older build cannot forget a newer one’s group', () => {
+    // §10's "kept, not refused". The set is what gets written back, so an id dropped here is a
+    // memory deleted for the build that understands it.
+    expect([...defaultOpenGroups(blankFormValues(), ['profile'])]).toEqual(['profile']);
+  });
+});
+
+// The screen half. Everything above is a rule; these are the assertions that the form ASKS it,
+// of the values it was seeded with, and that a press reaches the row that remembers the answer.
+
+/** Which groups are currently open, by title, read off the state each header announces rather
+ * than off what happens to be in the tree — a group whose body rendered while its header said
+ * "Expand" would be broken in the direction a screen reader cannot recover from. */
+function expandedGroups(t: RenderResult): string[] {
+  return buttonsOf(t)
+    .filter((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Collapse '))
+    .map((n) => String(n.props?.accessibilityLabel).replace('Collapse ', ''));
+}
+
+/** The set the screen last asked `setOpenFormGroups` to store. */
+function lastRemembered(): string[] | undefined {
+  return mockSetOpenGroups.mock.calls.at(-1)?.[1] as string[] | undefined;
+}
+
+it.each([
+  ['times', { avgDepthM: 12 }],
+  ['conditions', { waterTempC: 20 }],
+  [
+    'gas',
+    {
+      tanks: [{ material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232, o2Pct: 32, hePct: null, startBar: null, endBar: null }],
+    },
+  ],
+  ['equipment', { suit: 'wet' }],
+  ['people', { buddy: 'Petr' }],
+  ['notes', { notes: 'Arch at 30 m' }],
+] as [FormGroupId, Partial<Dive>][])('opens %s over a dive that has a value in it, and leaves the other five shut', async (id, recorded) => {
+  // §2.2's second half, asked of a dive the diver opened for editing — where "already has a
+  // value in it" means the dive's own stored values. Driven per group because the wiring is per
+  // call site: a `<FormGroup>` handed another group's entry would open the wrong one with every
+  // rule test above still green.
+  //
+  // Written as a `Partial<Dive>` rather than through this file's `tank()`/`existing()` helpers
+  // because `it.each`'s table is built while the module is still evaluating and those are
+  // declared further down.
+  stubLogbookFor(dive({ id: 'target', ...recorded }));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  expect(expandedGroups(t)).toEqual([FORM_GROUPS[id].title]);
+});
+
+it('opens the group carry-over filled, which is the case §2.2 says makes this matter', async () => {
+  // "The second half is not optional — carry-over fills groups nobody touched." §2.1 makes the
+  // suit and the buddy carry and the water temperature fresh, so a new dive opens Equipment and
+  // People over values nobody on this form typed, and leaves Conditions shut.
+  stubDives({ dives: [dive({ date: '2026-08-16', suit: 'wet', buddy: 'Petr', waterTempC: 20 })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t).sort()).toEqual(['Equipment', 'People']);
+});
+
+it('opens a group the diver left open last time, though this dive has nothing in it', async () => {
+  stubOpenGroups(['people']);
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['People']);
+  // ...and the fields really are there, not merely a header claiming to be open.
+  expect(findTextInput(t, 'Buddy')).toBeDefined();
+});
+
+it('lets the diver close a group the dive has a value in, which is what a control is for', async () => {
+  stubDives({ dives: [dive({ buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['People']);
+
+  const header = findButton(t, 'People');
+  if (!header) throw new Error('no People header found');
+  await fireEvent.press(header);
+  expect(expandedGroups(t)).toEqual([]);
+});
+
+it('remembers a group the diver opens, alongside everything it already remembered', async () => {
+  stubOpenGroups(['conditions']);
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'People');
+  if (!header) throw new Error('no People header found');
+  await fireEvent.press(header);
+
+  expect(lastRemembered()?.sort()).toEqual(['conditions', 'people']);
+});
+
+it('composes one memory out of two presses, rather than losing the first', async () => {
+  // The race this exists for: a write built from the STORED set plus the single group just
+  // pressed is computed from a row the first write has not landed in yet, so opening two groups
+  // in a second would store only the second. Every toggle of this form goes into every write.
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const title of ['People', 'Notes & rating']) {
+    const header = findButton(t, title);
+    if (!header) throw new Error(`no ${title} header found`);
+    await fireEvent.press(header);
+  }
+  expect(lastRemembered()?.sort()).toEqual(['notes', 'people']);
+});
+
+it('forgets a group the diver closes', async () => {
+  stubOpenGroups(['people', 'notes']);
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'People');
+  if (!header) throw new Error('no People header found');
+  await fireEvent.press(header);
+
+  expect(lastRemembered()).toEqual(['notes']);
+});
+
+it('writes an id it has never heard of straight back, rather than deleting it', async () => {
+  // §10's "kept, not refused" at the write end, which is where it actually costs something: an
+  // older build opening one form would otherwise wipe a newer build's memory of its own group.
+  stubOpenGroups(['profile']);
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'People');
+  if (!header) throw new Error('no People header found');
+  await fireEvent.press(header);
+
+  expect(lastRemembered()?.sort()).toEqual(['people', 'profile']);
+});
+
+it('writes nothing at all before the read has answered', async () => {
+  // `[]` is what the hook reads before it has looked, and it is also what "the diver had them
+  // all closed" looks like — so a write composed then would store a set built on an answer
+  // nobody has, erasing whatever was really there. The press still opens the group; only the
+  // memory of it is skipped.
+  stubOpenGroups([], false);
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'People');
+  if (!header) throw new Error('no People header found');
+  await fireEvent.press(header);
+
+  expect(expandedGroups(t)).toEqual(['People']);
+  expect(mockSetOpenGroups).not.toHaveBeenCalled();
+});
+
+it('draws its groups without waiting for a memory that has not arrived', async () => {
+  // The one place this screen deliberately does not follow M1f's waiting frame. A collapsed
+  // group states nothing untrue about the dive — the fields are there, unexpanded — where every
+  // case that frame exists for was a screen asserting something false. So the half that needs
+  // no read at all is answered at once, and the remembered half lands when it lands.
+  stubDives({ dives: [dive({ buddy: 'Petr' })] });
+  stubOpenGroups([], false);
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  expect(findButton(t, 'People')).toBeDefined();
+  expect(expandedGroups(t)).toEqual(['People']);
+});
+
+it('opens a remembered group when the memory arrives after the first render', async () => {
+  stubOpenGroups([], false);
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual([]);
+
+  stubOpenGroups(['notes']);
+  await t.rerender(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['Notes & rating']);
+});
+
+it('never lets a late memory reopen a group the diver has closed', async () => {
+  // The diver's own gesture outranks both rules, and it has to outrank them across a read that
+  // answers afterwards — otherwise a group they shut springs open again for no visible reason.
+  stubOpenGroups([], false);
+  const t = await render(<DiveFormScreen mode="create" />);
+  const header = findButton(t, 'Notes & rating');
+  if (!header) throw new Error('no Notes & rating header found');
+  await fireEvent.press(header);
+  await fireEvent.press(header);
+  expect(expandedGroups(t)).toEqual([]);
+
+  stubOpenGroups(['notes']);
+  await t.rerender(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual([]);
 });
 
 // --- §1, "never block a save," hardened beyond the brief's one snapshot ---
@@ -1114,9 +1470,7 @@ function stubLogbookFor(target: Dive, ...alsoLive: Dive[]) {
 it('prefills a carried field from the most recent logged dive, and marks it carried', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  const peopleHeader = findButton(t, 'People');
-  if (!peopleHeader) throw new Error('no People header found');
-  await fireEvent.press(peopleHeader);
+  await openGroup(t, 'People');
 
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
   expect(findClearCarried(t, 'Buddy')).toBeDefined();
@@ -1137,9 +1491,7 @@ it('only a LOGGED dive counts as "most recent" — a newer planned one is skippe
     ],
   });
   const t = await render(<DiveFormScreen mode="create" />);
-  const peopleHeader = findButton(t, 'People');
-  if (!peopleHeader) throw new Error('no People header found');
-  await fireEvent.press(peopleHeader);
+  await openGroup(t, 'People');
 
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
 });
@@ -1147,9 +1499,7 @@ it('only a LOGGED dive counts as "most recent" — a newer planned one is skippe
 it('drops the carried chip the moment the diver types over it', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  const peopleHeader = findButton(t, 'People');
-  if (!peopleHeader) throw new Error('no People header found');
-  await fireEvent.press(peopleHeader);
+  await openGroup(t, 'People');
   expect(findClearCarried(t, 'Buddy')).toBeDefined();
 
   await typeInto(t, 'Buddy', 'Jana');
@@ -1161,9 +1511,7 @@ it('drops the carried chip the moment the diver types over it', async () => {
 it('prefills and marks a carried cylinder field too, not just top-level ones', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 12 })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  const gasHeader = findButton(t, 'Gas & cylinders');
-  if (!gasHeader) throw new Error('no Gas & cylinders header found');
-  await fireEvent.press(gasHeader);
+  await openGroup(t, 'Gas & cylinders');
   // The spec collapses into one row when it records something (§2.2), and this dive's
   // carried cylinder does — so the four fields behind it have to be opened to be read.
   await openCylinder(t);
@@ -1383,9 +1731,7 @@ it('mounts in create mode with a real carry-over source, without looping', async
   expect(textIn(t).join(' ')).toContain('New dive');
   // The carried value still lands — the fix must not have bought stability by dropping
   // carry-over on the floor.
-  const peopleHeader = findButton(t, 'People');
-  if (!peopleHeader) throw new Error('no People header found');
-  await fireEvent.press(peopleHeader);
+  await openGroup(t, 'People');
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
 });
 
@@ -1402,9 +1748,7 @@ it('mounts in edit mode too, where carry-over never applies but the same gate ra
 // "compare a stable scalar" could be satisfied by comparing a constant.
 it('re-derives the carried set when useDives resolves after the first render', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  const peopleHeader = findButton(t, 'People');
-  if (!peopleHeader) throw new Error('no People header found');
-  await fireEvent.press(peopleHeader);
+  await openGroup(t, 'People');
   expect(findClearCarried(t, 'Buddy')).toBeUndefined();
 
   // The async read lands: a real logged dive appears where there was none. `rerender`
@@ -2118,9 +2462,7 @@ it('lets the diver fill the cylinder in, after carrying over from a dive that lo
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({ dives: [dive({ date: '2026-08-10', tanks: [] })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  const gasHeader = findButton(t, 'Gas & cylinders');
-  if (!gasHeader) throw new Error('no Gas & cylinders header found');
-  await fireEvent.press(gasHeader);
+  await openGroup(t, 'Gas & cylinders');
   await typeInto(t, 'Size', '15');
   await pickDate(t, '2026-08-16');
   await pressSave(t);

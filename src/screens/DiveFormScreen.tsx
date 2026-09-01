@@ -15,6 +15,8 @@ import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
 import { useGearPresets } from '../db/useGearPresets';
+import { setOpenFormGroups } from '../db/settings';
+import { useOpenFormGroups } from '../db/useOpenFormGroups';
 import { useUnitSystem } from '../db/useUnitSystem';
 import {
   CARRIED_FIELDS,
@@ -100,6 +102,12 @@ const EMPTY_TANK: TankFormInput = {
  * from a local `new Date().toISOString().slice(0, 10)` — that is the UTC day, and it
  * opened a night dive logged at 00:30 in Prague on *yesterday's* date (DESIGN.md §10).
  *
+ * **Exported for `DiveFormScreen.test.tsx` alone**, which sweeps `defaultOpenGroups` over every
+ * field the schema declares and needs the baseline those values are a departure from. Building
+ * a blank in the test instead would be a second statement of what an untouched form holds — and
+ * the rule under test is precisely "is there anything in this group", so a baseline that
+ * disagreed with the screen's would sweep a different form than the one that ships.
+ *
  * `status` is `'logged'`, and this is the one place that decides so. **Always**, and never
  * inferred: not from the date (a dive dated next week is a perfectly ordinary backfill
  * mistake to make and an awful thing to silently reclassify), not remembered from the last
@@ -108,7 +116,7 @@ const EMPTY_TANK: TankFormInput = {
  * `initialFormValues` below. A diver who plans one dive on a boat does not want every
  * later entry defaulting to planned; §2.4 is the exception, not a mode.
  */
-function blankFormValues(): DiveFormInput {
+export function blankFormValues(): DiveFormInput {
   return {
     status: 'logged',
     date: todayCalendarDate(),
@@ -442,6 +450,181 @@ function seedStateFor(
  * MISSING a member perfectly happily. Adding one to the domain therefore produced a chip
  * the diver never saw, and no build error to say so. There is one list now.
  */
+
+/**
+ * **Where every field on this form lives, as data — and the checklist a new field joins.**
+ *
+ * §2.2 divides the form into an always-visible core strip and six collapsible groups, and
+ * until M1h that division existed only as the shape of the JSX below. That was enough while
+ * nothing had to ASK the question; §2.2's "a group opens when this dive already has a value in
+ * it" is a rule about which fields belong to which group, and a rule needs something to read.
+ *
+ * **The JSX is still written out by hand and this does not generate it**, deliberately: every
+ * row has its own props — a unit, a keyboard, an icon, an autocomplete source — and a generic
+ * renderer driven by this table would trade a visible list of thirty fields for a table plus a
+ * dispatcher, without removing the per-field decisions. What this buys instead is a question
+ * that can be asked and an invariant that can be checked: `DiveFormScreen.test.tsx` asserts
+ * that these three lists together name **every** field `diveFormSchema` declares, exactly once,
+ * so a field added to the schema and rendered into a group cannot be silently absent from the
+ * rule that opens that group. That assertion is the checklist; the last row of the table is
+ * where a new field goes.
+ *
+ * `tanks` is named by its leaves (`tanks.0.*`), because that is how this form binds them and
+ * because the array itself is in two places at once — the two pressures are core-strip fields
+ * and the rest is the cylinder group.
+ */
+export const FORM_GROUP_IDS = ['times', 'conditions', 'gas', 'equipment', 'people', 'notes'] as const;
+
+export type FormGroupId = (typeof FORM_GROUP_IDS)[number];
+
+export interface FormGroupSpec {
+  /** What the header reads. Here rather than at the call site so the persisted id and the
+   * visible word cannot drift, and so an i18next pass has one place to reach. */
+  title: string;
+  /** Every field rendered inside this group. What §2.2's "already has a value in it" is asked
+   * of, and nothing else — the group's contents are still the JSX below. */
+  fields: readonly FieldPath<DiveFormInput>[];
+}
+
+/**
+ * A `Record` keyed by `FormGroupId` rather than an array, so TypeScript requires an entry for
+ * every id and a seventh group cannot be added to the list above without one — the same
+ * "derive, or tie at compile time" shape `CYLINDERS_PER_CONFIGURATION` (domain/types.ts) uses.
+ *
+ * **The ids are what gets persisted** (`db/settings.ts`'s `form_groups_open`), which is why
+ * they are short opaque words and not the titles: a group renamed for a diver, or translated,
+ * must not lose the memory of having been opened.
+ */
+export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
+  times: { title: 'Times & depth', fields: ['avgDepthM'] },
+  conditions: {
+    title: 'Conditions',
+    fields: [
+      'waterTempC',
+      'airTempC',
+      'visibility',
+      'visibilityM',
+      'waves',
+      'current',
+      'surge',
+      'weather',
+      'entry',
+      'salinity',
+      'waterBody',
+      'latitude',
+      'longitude',
+    ],
+  },
+  gas: {
+    title: 'Gas & cylinders',
+    fields: [
+      'tanks.0.material',
+      'tanks.0.sizeL',
+      'tanks.0.configuration',
+      'tanks.0.workingBar',
+      'tanks.0.o2Pct',
+      'tanks.0.hePct',
+    ],
+  },
+  equipment: {
+    title: 'Equipment',
+    fields: ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel'],
+  },
+  people: { title: 'People', fields: ['buddy', 'guide'] },
+  notes: { title: 'Notes & rating', fields: ['title', 'notes', 'rating'] },
+};
+
+/** §2.2's core strip, as M1h amended it — always visible, so no rule ever has to ask whether
+ * one of these is worth opening something for. Listed here only so the invariant above can be
+ * checked; the strip's own order is the JSX's. */
+export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = [
+  'date',
+  'siteName',
+  'centerName',
+  'maxDepthM',
+  'durationMin',
+  'timeIn',
+  'tanks.0.startBar',
+  'tanks.0.endBar',
+];
+
+/**
+ * The fields this form holds but does not put in a row of its own, named so that "every field
+ * is somewhere" stays a checkable claim rather than one with a silent exception.
+ *
+ * `status` is §2.4's Logged/Planned control, which sits beside the heading and is emphatically
+ * not a slot in the core strip — "that strip is the dive's measurements, and a status is not
+ * one of them". `siteId` and `centerId` are §6's half of the site snapshot, written by picking
+ * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
+ */
+export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = ['status', 'siteId', 'centerId'];
+
+/**
+ * Whether a field holds something a diver would expect to find behind a closed group.
+ *
+ * **A deliberate near-duplicate of `hasCarriedValue` above, and they differ on exactly one
+ * input** (§4.1 asks for the note): an empty array. That function answers "did carry-over say
+ * something here", where `[]` is a real recorded answer — a previous dive that genuinely
+ * recorded no accessories carried that forward. This one answers "is there anything in this
+ * group for the diver to see", and an empty accessory set shows five chips reading *No*, which
+ * is what an untouched form shows too. Opening the Equipment group for it would open that group
+ * on every dive ever logged, which is the same as not having the rule.
+ *
+ * `0` and `false` count, for the reason `hasCarriedValue` gives: a diver who dove with zero
+ * weight recorded that.
+ */
+function holdsValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * One field's value out of the form's own values, by the dotted path `FORM_GROUPS` names it
+ * with — the only reader of `tanks.0.*` as a path rather than as a `Controller` name.
+ *
+ * Deliberately tiny and deliberately not a dependency: the paths it walks are the ones declared
+ * above, so it has to handle a numeric array index and nothing else. It returns `undefined` for
+ * a path that leads nowhere, which `holdsValue` above reads as "nothing here" — the honest
+ * answer for a cylinder that does not exist.
+ */
+function valueAtPath(values: DiveFormInput, path: string): unknown {
+  let current: unknown = values;
+  for (const step of path.split('.')) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[step];
+  }
+  return current;
+}
+
+/**
+ * Which of §2.2's groups should be open, before the diver touches anything: **"a group opens
+ * when the diver opened it last time, or when this dive already has a value in it."**
+ *
+ * The second half is not a nicety and §2.2 says why: carry-over fills groups nobody touched, so
+ * a group holding a carried value the diver cannot see is the same defect as the hidden
+ * pressures this milestone moved into the core strip, one layer down. It is computed from the
+ * form's values and never persisted — it is a fact about THIS dive.
+ *
+ * The first half arrives from `db/settings.ts` through `useOpenFormGroups`, asynchronously, and
+ * the two halves are combined rather than ordered: whichever says open, wins.
+ *
+ * **An id in `remembered` that names no group is kept in the returned set and simply matches
+ * nothing.** It is a newer build's group (§10's "kept, not refused" — see `readOpenFormGroups`),
+ * and the form writes it back untouched rather than deleting a memory it does not understand.
+ *
+ * A pure function, so the rule can be swept over every field in the schema without a renderer;
+ * the screen's own test then proves each `FormGroup` is actually wired to its own entry, which
+ * is the half a pure test cannot see.
+ */
+export function defaultOpenGroups(values: DiveFormInput, remembered: readonly string[]): Set<string> {
+  const open = new Set<string>(remembered);
+  for (const id of FORM_GROUP_IDS) {
+    if (FORM_GROUPS[id].fields.some((field) => holdsValue(valueAtPath(values, field)))) open.add(id);
+  }
+  return open;
+}
 
 type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 
@@ -1515,6 +1698,69 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // it.
   const cylinderSpecOpen = resolved && cylinderSpecText(carried.values.tanks, units) === null;
 
+  // §2.2's "groups remember themselves", in three layers that must be applied in this order.
+  //
+  // `remembered` is the persisted half — which groups the diver last left open — and it lands
+  // asynchronously like every other read on this screen. **The groups are drawn before it
+  // arrives rather than held back for it**, which is the one place this screen deliberately
+  // does NOT follow M1f's waiting frame, and the reason is what M1f's own rule turns on: every
+  // case that frame exists for was a screen STATING something untrue about the dive ("Dive not
+  // found." over a dive that was there, a blank form over a real one). A collapsed group states
+  // nothing — the fields are there, unexpanded, which is a state the diver reaches by hand
+  // every day — and withholding six headers until a local settings row answers would move more
+  // on screen than letting a remembered group open a frame late. The half that CAN be answered
+  // with no read at all, "does this dive already have a value in there", is answered
+  // immediately, and that is the half carry-over makes urgent.
+  //
+  // `toggled` is what the diver has done on THIS form, and it outranks both rules — including
+  // closing a group the value rule wants open, which is the whole point of a control.
+  const { groups: remembered, resolved: rememberedResolved } = useOpenFormGroups();
+  const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const openByRule = defaultOpenGroups(carried.values, remembered);
+
+  /**
+   * A diver's press on a group header: shown at once, and written back so the next dive opens
+   * the same way.
+   *
+   * **The write is the stored set with EVERY toggle of this form applied**, not just this one,
+   * and that is what makes two quick presses safe. A write composed from `remembered` plus the
+   * single group just pressed would be computed from a row that the first write has not landed
+   * in yet, so opening Conditions and then People would store `["people"]` and lose the first.
+   *
+   * **Nothing is written until the read has answered**, because `remembered` is `[]` until then
+   * and `[]` is also what "the diver had them all closed" looks like — so an early press would
+   * store a set built on an answer nobody has, erasing whatever was really there. The press
+   * still opens the group; only the memory of it is skipped, which costs one tap on the next
+   * dive and cannot destroy anything.
+   *
+   * The write is fire-and-forget with its failure swallowed, deliberately, and it is the same
+   * line `readOpenFormGroups` draws: §10's "a local save failure is shown to the diver" is about
+   * a DIVE. A notice over the form a diver is filling in, about which groups will be open next
+   * time, would be the failure `useGearPresets`' docblock describes — and §1 binds hardest here,
+   * since nothing about a display preference may interrupt a save.
+   */
+  const toggleGroup = (id: FormGroupId, open: boolean) => {
+    const next = new Map(toggled);
+    next.set(id, open);
+    setToggled(next);
+    if (!rememberedResolved) return;
+    const stored = new Set(remembered);
+    for (const [group, isOpen] of next) {
+      if (isOpen) stored.add(group);
+      else stored.delete(group);
+    }
+    void setOpenFormGroups(db, [...stored]).catch(() => {});
+  };
+
+  /** One group's props, from `FORM_GROUPS`' own entry — so a group's title, its persisted id
+   * and the fields §2.2's value rule reads cannot be three different opinions. */
+  const groupProps = (id: FormGroupId) => ({
+    title: FORM_GROUPS[id].title,
+    scheme,
+    expanded: toggled.get(id) ?? openByRule.has(id),
+    onToggle: (open: boolean) => toggleGroup(id, open),
+  });
+
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
   // alike) rather than one closure per field, so there is exactly one place that can
   // get a field's own drop logic wrong. Reads the LATEST state through a functional
@@ -1949,11 +2195,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
         </View>
 
-        <FormGroup title="Times & depth" scheme={scheme}>
+        <FormGroup {...groupProps('times')}>
           <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
         </FormGroup>
 
-        <FormGroup title="Conditions" scheme={scheme}>
+        <FormGroup {...groupProps('conditions')}>
           <ControlledTextField
             control={control}
             name="waterTempC"
@@ -2039,7 +2285,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             never opens this group, which is harmless (derived.ts skips a cylinder whose
             sizeL is null; only 0 is contradictory) but not byte-identical to "no
             cylinders recorded" either. */}
-        <FormGroup title="Gas & cylinders" scheme={scheme}>
+        <FormGroup {...groupProps('gas')}>
           {/* §2.1's presets, at the top of the group they fill — and absent entirely when
               the diver has none, so a first-time diver sees nothing new. */}
           <PresetChips presets={presets} onApply={applyPreset} scheme={scheme} />
@@ -2145,7 +2391,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledPresetCapture control={control} presets={presets} units={units} onSave={savePreset} scheme={scheme} />
         </FormGroup>
 
-        <FormGroup title="Equipment" scheme={scheme}>
+        <FormGroup {...groupProps('equipment')}>
           <ControlledOptionField
             control={control}
             name="suit"
@@ -2200,7 +2446,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
         </FormGroup>
 
-        <FormGroup title="People" scheme={scheme}>
+        <FormGroup {...groupProps('people')}>
           {/* §2.3's other two: "Buddies and guides autocomplete from your own past entries
               only — they stay private text, not user accounts." So they autocomplete exactly
               as site and centre do, and `onPairedId` finds no id column to move. */}
@@ -2226,7 +2472,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
         </FormGroup>
 
-        <FormGroup title="Notes & rating" scheme={scheme}>
+        <FormGroup {...groupProps('notes')}>
           <ControlledTextField control={control} name="title" label="Title" scheme={scheme} />
           <ControlledTextField control={control} name="notes" label="Notes" scheme={scheme} multiline />
           <ControlledTextField control={control} name="rating" label="Rating" scheme={scheme} keyboardType="decimal-pad" mono placeholder="1-5" />
