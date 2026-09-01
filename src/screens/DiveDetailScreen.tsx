@@ -11,7 +11,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { gasUsedLitres, mod, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
-import { backToDives } from '../navigation/backToDives';
+import { backToDives } from '../navigation/leaveScreen';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import {
   diveSiteLabel,
@@ -134,7 +134,7 @@ import { type ColorScheme } from '../theme/tokens';
  * - `showBackButton` (default `true`, so the routed case is unaffected) hides BackButton
  *   when `false`. Side by side, there is nothing to go back TO — the list is still on
  *   screen the entire time — and the `router.back()`/`canGoBack()` behind BackButton
- *   (`backToDives`, navigation/backToDives.ts) reads the app's real navigation stack,
+ *   (`backToDives`, navigation/leaveScreen.ts) reads the app's real navigation stack,
  *   which embedding never pushed anything onto; showing it
  *   would either do nothing a diver could make sense of or, worse, leave the Dives screen
  *   entirely, since `canGoBack()` reports on whatever brought the app to `/`, not on
@@ -235,7 +235,7 @@ function Cluster({
  * one would be, maybe more so since there's no content to scroll through either.
  *
  * Which navigation that actually performs — pop the stack, or replace to `/` when a deep
- * link left nothing to pop — belongs to `backToDives` (navigation/backToDives.ts), not to
+ * link left nothing to pop — belongs to `backToDives` (navigation/leaveScreen.ts), not to
  * this component. DiveFormScreen needs the identical rule on a successful save and used to
  * hold a character-for-character copy of it, under its own paragraph of the same reasoning;
  * that copy is gone and both screens call the one owner.

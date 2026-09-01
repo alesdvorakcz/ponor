@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 
-import { backToDives } from './backToDives';
+import { backToDives, backToSettings } from './leaveScreen';
 
 // The same expo-router shape both screen tests already mock — `router` is a plain object of
 // functions, so the whole module is replaced rather than any one method spied on.
@@ -21,25 +21,37 @@ beforeEach(() => {
 // DiveDetailScreen.test.tsx pinned these through its own back control and DiveFormScreen's
 // save path pins them again through the save, but neither of those would survive the rule
 // moving house, and the rule now has a house of its own.
-it('pops the navigation stack when there is history to go back to', () => {
+//
+// Asked of BOTH exits, because what they share is the guard and what differs is one route:
+// a `backToSettings` that quietly forgot the `canGoBack` check would pass every assertion
+// written about `backToDives` alone.
+const exits = [
+  ['backToDives', backToDives, '/'],
+  ['backToSettings', backToSettings, '/settings'],
+] as const;
+
+it.each(exits)('%s pops the navigation stack when there is history to go back to', (_name, leave) => {
   mockCanGoBack.mockReturnValue(true);
-  backToDives();
+  leave();
   expect(mockBack).toHaveBeenCalledTimes(1);
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-it('replaces to the dives list for a cold deep link with no history to pop', () => {
+// The one thing the two exits differ in, and the reason the fallback is a parameter: a diver
+// who deep-linked into the preset editor belongs back on Settings, where the preset list is,
+// not on the logbook.
+it.each(exits)('%s replaces to its own screen for a cold deep link with no history', (_name, leave, fallback) => {
   mockCanGoBack.mockReturnValue(false);
-  backToDives();
-  expect(mockReplace).toHaveBeenCalledWith('/');
+  leave();
+  expect(mockReplace).toHaveBeenCalledWith(fallback);
   expect(mockBack).not.toHaveBeenCalled();
 });
 
 // `replace`, never `push`: a cold deep-link launch must not land on `/` with a second Dives
 // screen stacked under it. Asserted rather than left to the `toHaveBeenCalledWith` above,
 // which a `push('/')` would satisfy just as well if the two were ever confused.
-it('never pushes, so the fallback cannot grow the stack', () => {
+it.each(exits)('%s never pushes, so the fallback cannot grow the stack', (_name, leave) => {
   mockCanGoBack.mockReturnValue(false);
-  backToDives();
+  leave();
   expect(mockPush).not.toHaveBeenCalled();
 });

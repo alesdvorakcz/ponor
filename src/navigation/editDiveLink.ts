@@ -23,7 +23,7 @@ import { type DiveStatus } from '../domain/types';
  * `DiveDetailScreen`'s own action both push these; `src/app/dive/[id]/edit.tsx` reads
  * them. The param's name is written here once — `src/app/**` holds nothing but thin
  * routes and carries no tests of its own by this repo's convention, so a name retyped at
- * each end is a seam no test could ever cover. `backToDives.ts` next door exists for the
+ * each end is a seam no test could ever cover. `leaveScreen.ts` next door exists for the
  * same reason: one owner beats one copy per screen.
  */
 export interface EditDiveHref {

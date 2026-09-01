@@ -9,7 +9,7 @@ import { SearchCapsule } from '../components/SearchCapsule';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
-import { backToDives } from '../navigation/backToDives';
+import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset } from '../theme/styles';
 

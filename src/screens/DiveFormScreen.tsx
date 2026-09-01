@@ -59,7 +59,7 @@ import {
   O2_LABEL,
 } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
-import { backToDives } from '../navigation/backToDives';
+import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -1502,7 +1502,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       } else {
         await createDive(db, toNewDiveInput(values, units));
       }
-      // `backToDives` (navigation/backToDives.ts), not a private copy of its guard: this
+      // `backToDives` (navigation/leaveScreen.ts), not a private copy of its guard: this
       // screen is reachable directly by URL exactly as DiveDetailScreen is, and a diver who
       // deep-linked into the form and saved must land on the list rather than sitting on a
       // form that has already been written.

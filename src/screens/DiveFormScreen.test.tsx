@@ -703,7 +703,7 @@ it('sends no zeros for fields the diver left empty, cylinders included', async (
 });
 
 // I2: a successful save leaves this screen the same way DiveDetailScreen's back control
-// leaves that one — `backToDives` (navigation/backToDives.ts) owns the rule for both. The
+// leaves that one — `backToDives` (navigation/leaveScreen.ts) owns the rule for both. The
 // two tests below are DiveDetailScreen.test.tsx's own pair of branch tests, applied to this
 // screen's own exit, because the `router.replace('/')` half had no coverage anywhere near
 // this screen: `canGoBack` was mocked true everywhere, so deleting the fallback left every
