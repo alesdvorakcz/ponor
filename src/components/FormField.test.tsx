@@ -468,9 +468,14 @@ it('names both the field and the value, so a screen reader hears where a pick la
     <FormField label="Buddy" value="" onChange={() => {}} scheme="light" suggestions={[{ value: 'Petr', id: null }]} onPickSuggestion={() => {}} />,
   );
   await focusInput(t);
-  const row = findSuggestion(t, 'Fill Buddy with Petr');
-  expect(row).toBeDefined();
-  expect(row?.props.accessibilityRole).toBe('button');
+  // `findSuggestion` filters on the button role and matches the whole label, so finding the
+  // row is already the assertion that it announces both halves.
+  expect(findSuggestion(t, 'Fill Buddy with Petr')).toBeDefined();
+  // What that query does NOT settle, and what the second half of "so a screen reader hears
+  // where a pick lands" is for: the field name belongs in the ANNOUNCEMENT and not on screen.
+  // The row draws the value alone — a visible "Fill Buddy with Petr" would be a sentence in a
+  // column of names, and repeating the label under its own row is noise a diver reads past.
+  expect(textIn(t)).toEqual(['Buddy', 'Petr']);
 });
 
 // DESIGN.md §0.5: "Tap targets never below 48 dp" — a suggestion row is a control like every
