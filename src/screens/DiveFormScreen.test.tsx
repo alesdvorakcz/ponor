@@ -137,6 +137,13 @@ const mockCreatePreset = createGearPreset as jest.Mock;
  * Every stub goes through here, spreading into a fresh array and a fresh `Map` per call,
  * so no test in this file can quietly reintroduce the stable-object fiction — and so
  * every test here exercises the hook's real worst case rather than a friendlier one.
+ *
+ * **Its default is an EMPTY logbook, and since M1i that is a world with a rule of its own**
+ * (§2.2: "the first dive opens everything"). So a create-mode test that takes this default
+ * renders with all seven groups already open, which quietly does two things: `openGroup` becomes
+ * a no-op, and "this label is not on screen" stops being a claim about a collapsed group.
+ * `stubReturningDiver()` below is the ordinary world, and a test whose subject is which groups
+ * are open — or which group a control lives in — has to say which of the two it means.
  */
 function stubDives(
   state: { dives?: Dive[]; numbers?: Map<string, number>; error?: Error; resolved?: boolean } = {},
@@ -190,7 +197,7 @@ const COLLAPSE_DEFAULT_OPEN = { times: false, gas: false } as const;
 /**
  * A logbook that is not empty, holding one dive that recorded nothing.
  *
- * `stubDives()`'s own default is an **empty** logbook, and since M1j that is a rule of its own:
+ * `stubDives()`'s own default is an **empty** logbook, and since M1i that is a rule of its own:
  * §2.2's "the first dive opens everything" opens all seven groups, so a test whose subject is
  * which groups are open has to say which of the two worlds it means. This is the ordinary one —
  * a diver who has logged before — and the dive it holds records nothing at all, so carry-over
@@ -567,7 +574,7 @@ it('keeps a second group collapsed by default, not only the one the sample test 
  * **§2.2's table, written out from the spec — the group titles in the order it lists them, and
  * each group's rows in the order it lists those.**
  *
- * Deliberately not read off `FORM_GROUPS`, and that is the whole reason it exists. Until M1j the
+ * Deliberately not read off `FORM_GROUPS`, and that is the whole reason it exists. Until M1i the
  * only order assertion on this screen compared the rendered headers against
  * `FORM_GROUP_IDS.map(...)` — which is exactly as true of §2.2's order as of any other, because
  * both sides move together when someone reorders the object literal and the JSX in one commit.
@@ -798,7 +805,7 @@ it('has a §2.2 section for every group the layout holds, naming the same fields
 });
 
 it('has no coordinate row at all, in any group — the columns stay, the two keypads do not', () => {
-  // §2.2, M1j: "The form has no latitude and longitude rows." That sentence is about the
+  // §2.2, M1i: "The form has no latitude and longitude rows." That sentence is about the
   // SCREEN, and none of the constants above can hold it — a `<ControlledTextField
   // name="latitude">` put back into a group's JSX leaves `OFF_FORM_FIELDS` and `FIELD_LABELS`
   // both untouched and every other test in this file green, which is precisely the "one value,
@@ -891,7 +898,7 @@ describe('defaultOpenGroups', () => {
   const NOTHING_STARTS_OPEN = { times: false, gas: false } as const;
 
   /** The third argument, named at every call site below rather than left as a bare `false`
-   * beside two objects. §2.2's empty-logbook rule (M1j) opens EVERY group, so a sweep that
+   * beside two objects. §2.2's empty-logbook rule (M1i) opens EVERY group, so a sweep that
    * passed it by accident would open all seven and stop being a claim about the rule under
    * test — it is the one input in this block that can make every assertion here vacuous. */
   const HAS_DIVES = false;
@@ -955,7 +962,7 @@ describe('defaultOpenGroups', () => {
     ]);
   });
 
-  // --- §2.2's empty logbook (M1j) ---
+  // --- §2.2's empty logbook (M1i) ---
   //
   // "The first dive opens everything." An addition to the STARTING STATE, in the same place
   // `startsOpen` sits, so the diver's own memory still outranks it in both directions.
@@ -1060,7 +1067,7 @@ it('opens the group carry-over filled, which is the case §2.2 says makes this m
   expect(expandedGroups(t).sort()).toEqual(['Equipment', 'People']);
 });
 
-// --- §2.2's empty logbook, on the screen (M1j) ---
+// --- §2.2's empty logbook, on the screen (M1i) ---
 
 it('opens every group on a first-ever dive, which is the one time nobody knows what the form holds', async () => {
   // `stubDives()`'s default is the empty logbook, and this is the one block that means it. Read
@@ -1079,6 +1086,18 @@ it('opens only the two default groups once one dive exists, though the form hold
   // that changed is that the logbook has a dive in it — which is what §2.2 says the rule is
   // about, and what a condition written as "the form has no values" would get wrong.
   stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(expandedGroups(t)).toEqual(['Times & depth', 'Gas & cylinders']);
+});
+
+it('does not treat a logbook holding only a plan as an empty one', async () => {
+  // The near-miss condition, and the only case that separates it from the real one: "there is
+  // nothing to carry from" is true here — `carryOverSource` takes the most recent LOGGED dive
+  // and a plan is not one — while "the logbook is empty" is false. §2.4's prepare-ahead makes
+  // this reachable on a boat: a diver who queued tomorrow's dive has used this form already,
+  // and the first-dive exception is spent. Written the way `holdsValue` and `hasCarriedValue`
+  // are: two rules that agree on every input but one, with the one named.
+  stubDives({ dives: [dive({ date: '2026-12-31', status: 'planned', siteName: 'Silfra' })] });
   const t = await render(<DiveFormScreen mode="create" />);
   expect(expandedGroups(t)).toEqual(['Times & depth', 'Gas & cylinders']);
 });
@@ -1497,7 +1516,7 @@ it('fills chips and the focused row with surface, and nothing else — least of 
 
   // Every `surface` before focus is a chip, and there are plenty of them: weather, visibility,
   // the three 0-3 scales, the suit and the weighting are all open at this point. (*Entry*,
-  // *salinity* and *water body* were on this list until M1j moved them to their own group,
+  // *salinity* and *water body* were on this list until M1i moved them to their own group,
   // which this test does not open — the count only fell.)
   const atRest = nodesFilledWith(t, surface);
   expect(atRest.length).toBeGreaterThan(5);
@@ -2351,7 +2370,7 @@ it('writes a carried zero the diver left alone as the zero it is', async () => {
 it('clears a carried chip group from its label row, and a deselection does not', async () => {
   stubDives({ dives: [dive({ date: '2026-08-10', entry: 'shore', salinity: 'salt' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  // Two groups since M1j: the carried chip rows are in *Water & entry* and the fresh ones
+  // Two groups since M1i: the carried chip rows are in *Water & entry* and the fresh ones
   // this test contrasts them with are in *Conditions*, which is the split §2.2 made.
   await openGroup(t, 'Water & entry');
   await openGroup(t, 'Conditions');
@@ -2501,6 +2520,13 @@ it.each(Object.entries(CARRIED_ROWS))(
     stubDives({ dives: [dive({ date: '2026-08-10' })] });
     const fresh = await render(<DiveFormScreen mode="create" />);
     await reveal(fresh);
+    // **The row has to be on screen for "it offers no clear control" to be a claim about it.**
+    // Found by mutation: `group` was pointed at the wrong group and the whole sweep stayed
+    // green, because the CARRIED half opens the right group by the value rule anyway (that is
+    // what carry-over does) and the FRESH half then looked for a ring inside a group that had
+    // never been drawn — absent, and passing, over nothing at all. `reveal` is what makes the
+    // row reachable, and this is what proves it did.
+    expect(new Set(textIn(fresh)).has(label)).toBe(true);
     expect(findClearCarried(fresh, label)).toBeUndefined();
   },
 );
@@ -3028,6 +3054,10 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
     ['Material', 'Gas & cylinders', TANK_MATERIAL_VALUES],
     ['Configuration', 'Gas & cylinders', CONFIGURATION_VALUES],
   ] as const)('offers one %s chip per value the domain declares', async (label, group, values) => {
+    // A returning diver, so `group` is doing work: an empty logbook opens every group (§2.2),
+    // which would make `openGroup` a no-op and this table's middle column decorative — a
+    // column nothing checks is a column that goes stale in silence.
+    stubReturningDiver();
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, group);
     // Compared as a count and as a set of the underlying values: the labels themselves are
@@ -3157,6 +3187,8 @@ const CHIP_MARKS: [string, string, number[]][] = [
 ];
 
 it.each(CHIP_MARKS)('draws the marks §0.6 gives %s, and no others', async (label, group, marks) => {
+  // A returning diver, so the group column is load-bearing — see the vocabulary sweep above.
+  stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, group);
   const counts = marks.map((_, index) => marksInside(findChip(t, label, index)).length);
@@ -3318,6 +3350,8 @@ const CHIP_WRITES = [
 ] as const;
 
 it.each(CHIP_WRITES)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
+  // A returning diver, so the group column is load-bearing — see the vocabulary sweep above.
+  stubReturningDiver();
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, group);
@@ -3379,6 +3413,7 @@ it.each(ZERO_LEVEL_CHIP_WRITES)(
     // nothing moving recorded that, and it has to reach the column as `0` — not be dropped
     // because zero is falsy, and not be confused with the untouched field beside it.
     expect(values[0]).toBe(0);
+    stubReturningDiver();
     mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, group);

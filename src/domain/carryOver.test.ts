@@ -91,10 +91,14 @@ describe('keeping what changes every dive fresh', () => {
   });
 
   it('does not carry the exact GPS point either', () => {
-    // §2.1 names latitude/longitude in neither the carried nor the fresh
-    // list. Treated as fresh by default: an exact entry point can differ
-    // dive to dive even at the same site, and silently reusing a stale pin
-    // is the same class of mistake carry-over exists to avoid for pressure.
+    // §2.1 now names latitude/longitude in its FRESH half explicitly, and
+    // says why: an exact entry point can differ dive to dive even at the
+    // same site, and silently reusing a stale pin is the same class of
+    // mistake carry-over exists to avoid for pressure. This comment used to
+    // read "§2.1 names them in neither list", which was true of the older
+    // §2.1 and was the reason they were fresh by default; the rule is
+    // written down now rather than inferred, and it is deliberately
+    // unexercised until M2's map is the thing that sets a pin (§2.2).
     const c = carryOverFrom(previous);
     expect(c.latitude ?? null).toBeNull();
     expect(c.longitude ?? null).toBeNull();

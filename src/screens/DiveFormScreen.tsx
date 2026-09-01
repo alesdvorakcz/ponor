@@ -574,7 +574,7 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
     // M1i moved back out of the strip: they are read off the cylinder they belong to, which is
     // the thing this group is about.
     //
-    // **Second, above *Conditions*** (M1j, the owner's call after using the form): §2.2 records
+    // **Second, above *Conditions*** (M1i, the owner's call after using the form): §2.2 records
     // why the pressures could not go back into the core strip — a *Start pressure* row there
     // describes `tanks.0` and says nothing about a second cylinder — so the group moved instead
     // of the fields, and the pressures are two rows further down the screen rather than behind
@@ -594,13 +594,13 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   conditions: {
     title: 'Conditions',
     startsOpen: false,
-    // **Weather leads** (M1j): it is the first thing anyone notices about a dive day. What is
+    // **Weather leads** (M1i): it is the first thing anyone notices about a dive day. What is
     // left here is what the day was like and nothing else — *entry*, *salinity* and *water
     // body* moved to `water` below, and the two coordinate rows went off the form entirely
     // (`OFF_FORM_FIELDS`).
     fields: ['weather', 'waterTempC', 'airTempC', 'visibility', 'visibilityM', 'waves', 'current', 'surge'],
   },
-  // **Where you are, which *Conditions* was answering by accident** (M1j, the owner's call).
+  // **Where you are, which *Conditions* was answering by accident** (M1i, the owner's call).
   // §2.1 gives all three away by prefilling them from the site's own defaults: they are
   // properties of the place, they carry over, and they are touched about once a trip — so they
   // sit below the group a diver actually fills, rather than above six rows of it.
@@ -642,7 +642,7 @@ export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = ['date', '
  * snapshot, written by picking
  * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
  *
- * **`latitude` and `longitude` are here because a pin is not typed** (M1j, the owner's call,
+ * **`latitude` and `longitude` are here because a pin is not typed** (M1i, the owner's call,
  * §2.2). They had two decimal keypads on this form until this milestone, and nobody has ever
  * typed a coordinate into a phone on a boat — §2.3 has specified since before any of this was
  * built that the pin comes from the map or from *use my location*. So this is a field waiting
@@ -727,7 +727,7 @@ function valueAtPath(values: DiveFormInput, path: string): unknown {
  * of it, and the alternative that costs nothing (a collapsed group saying on its header that it
  * holds carried values) is a design job rather than an inversion.
  *
- * **An empty logbook opens every group** (§2.2, M1j), and it is an addition to the *starting
+ * **An empty logbook opens every group** (§2.2, M1i), and it is an addition to the *starting
  * state* rather than a change to any of the above. With no dives at all nothing carries and
  * nothing has been remembered, so the two rules that answer for an ordinary dive would leave a
  * first-time diver looking at five closed groups on the one occasion nobody knows what they
@@ -2125,7 +2125,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // the same one this paragraph already applies to the remembered half — correct late beats
   // moving more on screen.
   //
-  // **The empty logbook is the fourth layer and it is a starting state too** (§2.2, M1j): with
+  // **The empty logbook is the fourth layer and it is a starting state too** (§2.2, M1i): with
   // no dives at all, every group opens. It is read off `dives` — the same `useDives()` call
   // carry-over already needs, never a second query — rather than off `carried.values`, because
   // the two are not the same question: a second dive whose predecessor recorded nothing holds
@@ -2687,9 +2687,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               diver wants to correct them on this dive. **Not one field fewer than before** —
               a snapshot nobody can amend is not a snapshot — and the two per-dive facts, the
               gas and the pressures below, stay directly editable because they are not part of
-              what kind of cylinder this is. (This line said "the pressures now in the core
-              strip" until M1j; M1i moved them back down here and it kept pointing at the
-              strip.) */}
+              what kind of cylinder this is. (It read "the pressures now in the core strip"
+              until this pass — they came back down here when the strip shrank, and this
+              sentence went on pointing at the strip for a milestone.) */}
           <ControlledCylinderSpec control={control} units={units} defaultExpanded={cylinderSpecOpen} scheme={scheme}>
           <ControlledOptionField
             control={control}
@@ -2816,11 +2816,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledPresetCapture control={control} presets={presets} units={units} onSave={savePreset} scheme={scheme} />
         </FormGroup>
 
-        {/* What the day was like, and nothing else (M1j, the owner's call — §2.2). *Entry*,
+        {/* What the day was like, and nothing else (M1i, the owner's call — §2.2). *Entry*,
             *salinity* and *water body* sat in here and are not conditions; they are below, in
             a group of their own. */}
         <FormGroup {...groupProps('conditions')}>
-          {/* **Weather leads** (M1j): it is the first thing anyone notices about a dive day,
+          {/* **Weather leads** (M1i): it is the first thing anyone notices about a dive day,
               and it was the last row of this group. */}
           <ControlledOptionField
             control={control}
@@ -2920,7 +2920,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
         </FormGroup>
 
-        {/* §2.2's *Water & entry* (M1j, the owner's call): where you are, which *Conditions*
+        {/* §2.2's *Water & entry* (M1i, the owner's call): where you are, which *Conditions*
             was answering by accident. All three are properties of the PLACE — §2.1 prefills
             them from the site's own defaults and carries them from the previous dive — so
             they are touched about once a trip and sit below the group a diver actually fills
