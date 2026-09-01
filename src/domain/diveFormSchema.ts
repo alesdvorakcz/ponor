@@ -297,8 +297,13 @@ const tankFormSchema = z.object({
  * `FRESH_FIELDS` follows, and what keeps `toDivePatch` below comparing a cylinder field
  * that is added later without anyone remembering to come here. The cast is safe because
  * `TankFormFieldsMatchTank` (just below) already proves the two shapes are the same.
+ *
+ * **Exported for the dive form's preset row**, which needs the typed key list to build the
+ * `tanks.<n>.<field>` paths it drops `carried` marks on after applying a preset — the same
+ * "no hand-maintained second list" rule, one call site over. Typed as `(keyof Tank)[]` and
+ * not `string[]`, which is what makes those paths a `FieldPath` without a cast.
  */
-const TANK_FIELDS = Object.keys(tankFormSchema.shape) as (keyof Tank)[];
+export const TANK_FIELDS = Object.keys(tankFormSchema.shape) as (keyof Tank)[];
 
 /**
  * Type-level proof that a parsed cylinder has exactly `Tank`'s shape — same
@@ -634,8 +639,16 @@ export function toNewDiveInput(
  * "the diver removed one" for a dive stored with a blank one (which is what `createDive`
  * writes today for a form whose Gas & cylinders group was never opened). `toDivePatch`
  * therefore normalises BOTH sides with this before comparing them.
+ *
+ * **Exported for the dive form's *Add to my presets*,** which asks the same question of the
+ * cylinders it is about to store: a preset captured from an untouched cylinder block stores
+ * nothing useful, and a chip that fills a dive with nothing is worse than no chip. That
+ * caller asks it of the cylinders **after** the pressures are stripped (§10 — a preset keeps
+ * none), which is why the question has to be "does this record anything" rather than "did
+ * the diver type anything": a block holding nothing but a gauge reading is a full-looking
+ * form and an empty preset.
  */
-function isRecordedTank(tank: Tank): boolean {
+export function isRecordedTank(tank: Tank): boolean {
   return TANK_FIELDS.some((field) => tank[field] !== null);
 }
 

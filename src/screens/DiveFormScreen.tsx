@@ -11,15 +11,26 @@ import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
+import { createGearPreset, presetNamed } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
+import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { CARRIED_FIELDS, carryOverFrom } from '../domain/carryOver';
+import {
+  CARRIED_FIELDS,
+  TANK_PRESSURE_FIELDS,
+  carryOverFrom,
+  withoutPressures,
+} from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import {
+  TANK_FIELDS,
   diveFormSchema,
+  isRecordedTank,
+  toDisplayTank,
   toDisplayUnits,
   toDivePatch,
   toNewDiveInput,
+  toStoredTanks,
   unknownBooleanNote,
   unknownOptionNote,
   type DiveFormInput,
@@ -35,6 +46,7 @@ import {
   WATER_BODY_VALUES,
   type Dive,
   type DiveStatus,
+  type GearPreset,
 } from '../domain/types';
 import {
   formatEntry,
@@ -785,6 +797,178 @@ function ControlledBooleanField({ control, name, label, scheme }: ControlledBool
 }
 
 /**
+ * DESIGN.md §2.1's cylinder presets, offered where the cylinders are: a row of chips at the
+ * top of the Gas & cylinders group, one tap each. "Named cylinder sets ('twin 12 steel',
+ * 'alu 80 nitrox') apply the whole cylinders-and-gas block in one tap."
+ *
+ * **Absent entirely when there are none**, label and all, so a diver who has never saved one
+ * sees nothing new — and so an empty row can never read as a control that failed to load.
+ *
+ * **Deliberately not `OptionChips`, and the styles are still that component's.** What
+ * `OptionChips` owns is §0.6's invert — "the chosen thing is the inverted thing" — and a
+ * preset has no chosen state for it to express: a preset is *applied*, not *selected*, so
+ * the moment after a tap the row looks exactly as it did before, and the value the diver
+ * changed is in the fields below. Passing it a permanently-null `value` would render that
+ * rule and then deny it, and would announce every chip to a screen reader as an unselected
+ * option in a fixed-choice field for ever — a lie about what pressing one does. So these are
+ * buttons ("Apply preset X"), wearing `formChip`/`formChipText` from theme/styles.ts, which
+ * is where §0.6's chip treatment actually lives. What is NOT borrowed is `formChipSelected`,
+ * which is the half `OptionChips` exists for.
+ */
+function PresetChips({
+  presets,
+  onApply,
+  scheme,
+}: {
+  presets: readonly GearPreset[];
+  onApply: (preset: GearPreset) => void;
+  scheme: ColorScheme;
+}) {
+  const styles = makeStyles(scheme);
+  if (presets.length === 0) return null;
+  return (
+    <View style={styles.formField}>
+      <View style={styles.formFieldRow}>
+        <Text style={styles.formFieldLabel}>Presets</Text>
+      </View>
+      <View style={styles.formChipRow}>
+        {presets.map((preset) => (
+          <Pressable
+            key={preset.id}
+            style={styles.formChip}
+            onPress={() => onApply(preset)}
+            accessibilityRole="button"
+            // Says what pressing it does, not merely what it is called: a row of chips
+            // announced as bare names says nothing about where a tap would land.
+            accessibilityLabel={`Apply preset ${preset.name}`}
+          >
+            <Text style={styles.formChipText}>{preset.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * The other half of §2.1's presets: capturing one from the cylinders already in front of the
+ * diver. §10, the owner's call — "saving one takes whatever cylinders are already typed into
+ * the dive you are logging, because retyping them in Settings is the work the preset exists
+ * to remove."
+ *
+ * **At the END of the group, and revealed rather than always open.** It is the position
+ * *Delete dive* occupies on the detail screen and it is there for the same stated reason: a
+ * deliberate act should take a deliberate reach, and this is not part of the flow down the
+ * fields. Tapping it reveals an inline name row and a confirm — **not** a modal and not a
+ * platform prompt: `Alert.prompt` is iOS-only, and `platform/confirmDestructive.ts` exists
+ * for destructive chrome specifically (§10), which this is not.
+ *
+ * **Nothing here says "Save".** That word belongs to the one primary control on this screen,
+ * for exactly the reason `StatusControl` above is "deliberately free of the word 'Save', so
+ * it can never be mistaken — by a screen reader or by a test query — for the save control".
+ * A second Save inside a field group is the same confusion with more at stake: one writes a
+ * dive, the other writes a shortcut.
+ *
+ * **It decides nothing.** Whether a name is empty, whether the cylinders are worth storing
+ * and whether the name is already taken are all the screen's rules (`savePreset`), because
+ * two of the three need the form's values and the live preset list. This owns the reveal,
+ * the name text, and where the answer is shown — under the row it belongs to, as text (§0.6:
+ * "a field error is text, not a field"; it shipped once as a white box the same height as an
+ * input).
+ *
+ * `onSave` returns the sentence to show, or `null` when the preset was written — one return
+ * value for a refusal and a failed write alike, because from here they are the same event:
+ * the row stays open, with what the diver typed still in it.
+ */
+function PresetCapture({
+  onSave,
+  scheme,
+}: {
+  onSave: (name: string) => Promise<string | null>;
+  scheme: ColorScheme;
+}) {
+  const styles = makeStyles(scheme);
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+  // The same two-part in-flight guard the dive's own save carries, and for the same reason:
+  // both taps of a double-tap reach the handler before React has rendered anything, so the
+  // ref is the latch and `saving` is only how that state is SHOWN. Without it a double-tap
+  // writes two presets under one name — which `presetNamed` cannot catch, because the live
+  // list has not re-rendered between the two.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+
+  const confirm = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const problem = await onSave(name);
+      setNote(problem);
+      if (problem === null) {
+        setName('');
+        setNaming(false);
+      }
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      {naming && (
+        <>
+          <FormField
+            label="Preset name"
+            value={name}
+            // Typing clears the note: it described the name that was in the box, and a
+            // sentence about a name the diver has already changed is a stale complaint.
+            onChange={(text) => {
+              setNote(null);
+              setName(text);
+            }}
+            scheme={scheme}
+            placeholder="twin 12 steel"
+          />
+          <FieldNote message={note ?? undefined} scheme={scheme} />
+        </>
+      )}
+      <View style={styles.formPresetActions}>
+        {naming && (
+          <Pressable
+            style={styles.formPresetAction}
+            onPress={() => {
+              setNaming(false);
+              setName('');
+              setNote(null);
+            }}
+            accessibilityRole="button"
+            // Announced more fully than it is written, exactly as this screen's own `‹ Cancel`
+            // is ("Leave without saving"): out of context a bare "Cancel" would be
+            // indistinguishable from the control that leaves the whole form.
+            accessibilityLabel="Cancel adding a preset"
+          >
+            <Text style={styles.formPresetActionLabel}>Cancel</Text>
+          </Pressable>
+        )}
+        <Pressable
+          style={styles.formPresetAction}
+          onPress={naming ? () => confirm() : () => setNaming(true)}
+          disabled={naming && saving}
+          accessibilityRole="button"
+          accessibilityLabel={naming ? 'Add preset' : 'Add to my presets'}
+          accessibilityState={{ disabled: naming && saving }}
+        >
+          <Text style={styles.formPresetActionLabel}>{naming ? 'Add preset' : 'Add to my presets'}</Text>
+        </Pressable>
+      </View>
+    </>
+  );
+}
+
+/**
  * DESIGN.md §2.4's Logged/Planned control — the producer half of prepare-ahead planned
  * dives, and the app's **only** way for a dive's status to change. Everything downstream
  * of it was built first: the "Up next" section, exclusion from numbering and stats, the
@@ -905,6 +1089,30 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
 const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
 
 /**
+ * The four things *Add to my presets* can say, and every one of them is a sentence rather
+ * than a blocked control — §1's "never block a save" binds this form, and even where the
+ * subject is a preset rather than a dive the shape of the answer stays the same: the diver
+ * is told what happened and what to do about it, next to the row it is about.
+ *
+ * The first three are refusals, and each names a thing the diver can actually fix. A preset
+ * with no name cannot be found again — it is the only thing a chip shows. A preset captured
+ * from an empty cylinder block stores nothing useful, and a chip that fills a dive with
+ * nothing is worse than no chip. And two chips reading "alu 80" with different cylinders is
+ * a row the diver cannot tell apart and cannot fix by looking, so a duplicate name is
+ * refused by name — `presetNamed` (db/gearPresets.ts) owns the question of when two names
+ * are the same name, and the sentence quotes the preset that already holds it rather than
+ * saying "that name is taken" about a name the diver may have spelled differently.
+ *
+ * The fourth is a failed write, said plainly for the reason §10 gives ("a local save failure
+ * is shown to the diver"): a preset that silently failed to save is one the diver goes
+ * looking for on the next dive and does not find.
+ */
+const UNNAMED_PRESET_MESSAGE = 'Give this preset a name, so you can find it again.';
+const EMPTY_PRESET_MESSAGE = 'There are no cylinders here to save yet — fill some in first.';
+const duplicatePresetMessage = (name: string) => `You already have a preset called “${name}”.`;
+const PRESET_SAVE_ERROR_MESSAGE = "Couldn't save that preset. Try again.";
+
+/**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
  * always-visible core strip — date, site, centre, max depth, duration — and everything
  * else behind six collapsible `FormGroup`s. **Only the date is required** (§2.2); every
@@ -1020,7 +1228,15 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // already absent: `useDives()` never hands one back.
   const history = target === null ? dives : dives.filter((d) => d.id !== target.id);
 
-  const { control, handleSubmit, setValue } = useForm<DiveFormInput, unknown, DiveFormValues>({
+  // §2.1's cylinder presets, from their own hook rather than a field on `useDives()` — see
+  // db/useGearPresets.ts. **Its `error` is deliberately not read here**: the chip row is
+  // absent when there are no presets, so a failed read draws exactly what a diver who has
+  // never saved one sees, and a banner over the dive being logged — about a shortcut for
+  // filling in a cylinder the diver can simply type — would be the failure that hook's own
+  // docblock describes. §3's Settings list is where the error is worth showing.
+  const { presets } = useGearPresets();
+
+  const { control, handleSubmit, setValue, getValues } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
     defaultValues: carried.values,
     // `values`, not a second `defaultValues`: react-hook-form only ever reads
@@ -1117,6 +1333,108 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       dropCarried(idField);
     },
     [setValue, dropCarried],
+  );
+
+  /**
+   * §2.1's "apply the whole cylinders-and-gas block in one tap".
+   *
+   * **Converted on the way in** (`toDisplayTank`, diveFormSchema.ts — the same function this
+   * form's own seeding goes through). A preset holds SI (§6) and this form holds the figures
+   * the diver reads, so an imperial diver tapping "alu 80" must see `3365` under a `psi`
+   * label, not `232`. The conversion has exactly one owner and this is one of its two
+   * callers; a second one here would be the mislabelled-form defect arriving through a chip.
+   *
+   * **A typed pressure survives the tap.** A preset stores none (§10: "a preset that filled
+   * in 200 bar would be inventing a reading"), so it has nothing to say about what is left in
+   * the cylinder — and clearing a gauge reading the diver typed thirty seconds ago would be
+   * the silent destruction of a diver-entered value that `withoutUndefinedFields`
+   * (db/dives.ts) exists to prevent, arriving through a tap instead of through a patch. The
+   * pressures are preserved **index-wise**, which is the pairing `toStoredTank` and
+   * `sameTanks` already use for the same arrays: cylinder 1 is cylinder 1. Which two fields
+   * those are is `TANK_PRESSURE_FIELDS` (domain/carryOver.ts), never a second copy of the
+   * pair here.
+   *
+   * A preset holding no cylinders at all leaves the block blank, pressures included: the
+   * repository allows such a row and §3's editor can make one, and there is no cylinder left
+   * for a pressure to belong to. `EMPTY_TANK` rather than `[]`, on `initialFormValues`'s own
+   * reasoning — this screen binds `tanks.0.*`, so an empty array would leave it SHOWING one
+   * cylinder while HOLDING none.
+   *
+   * `shouldDirty` keeps the applied cylinders through a reseed, exactly as `setPairedId`
+   * above needs it to: `useDives()`/`useUnitSystem()` can resolve after this gesture, and
+   * `resetOptions.keepDirtyValues` only protects a field react-hook-form knows the diver
+   * moved.
+   */
+  const applyPreset = useCallback(
+    (preset: GearPreset) => {
+      const current = getValues('tanks') ?? [];
+      const applied = preset.tanks.map((tank, index) => {
+        // The same `Record` shape `toStoredTank` itself uses to write a field list into a
+        // cylinder — a `Tank`'s fields have four different types, so a keyed write needs it.
+        const filled = { ...toDisplayTank(tank, units) } as Record<string, unknown>;
+        for (const field of TANK_PRESSURE_FIELDS) filled[field] = current[index]?.[field] ?? null;
+        return filled as TankFormInput;
+      });
+      setValue('tanks', applied.length > 0 ? applied : [EMPTY_TANK], { shouldDirty: true });
+
+      // §0.6: "overwriting is just typing, and drops the chip". A field the diver has just
+      // filled from a preset did not come from their last dive any more, and an `×` still
+      // offering to clear it would be offering to clear a value they chose. Every field the
+      // preset actually wrote, which is every cylinder field except the two it preserved —
+      // read off `TANK_FIELDS` and `TANK_PRESSURE_FIELDS` rather than listed here, so a
+      // cylinder field added later is covered the day it exists.
+      applied.forEach((_tank, index) => {
+        for (const field of TANK_FIELDS) {
+          if (!(TANK_PRESSURE_FIELDS as readonly string[]).includes(field)) {
+            dropCarried(`tanks.${index}.${field}`);
+          }
+        }
+      });
+    },
+    [getValues, setValue, units, dropCarried],
+  );
+
+  /**
+   * Captures §2.1's other half: the cylinders already typed into this dive, stored as a named
+   * preset. Returns the sentence to show, or `null` when the write went through — see
+   * `PresetCapture`, which owns the reveal and shows the answer but decides none of it.
+   *
+   * **`units` is where the diver's figures stop being true of the data**, and this is the
+   * defect this task was most likely to ship. The form holds `3365` in a field labelled
+   * `psi`; §6 stores SI and nothing else, so a preset captured without the conversion is
+   * stored in psi — and then applied, wrongly, to every later dive, converting a second time
+   * on the way back in. `toStoredTanks` (diveFormSchema.ts) is the same owner `toNewDiveInput`
+   * uses for a dive's cylinders, and it takes `units` as a required argument for the reason
+   * that function's own docblock gives: a defaulted `'metric'` "would let a call site that
+   * forgot it write feet into a metres column with nothing failing anywhere".
+   *
+   * The pressures are stripped here as well as in the repository, and that is not a second
+   * implementation — it is the same `withoutPressures` (domain/carryOver.ts), called because
+   * this has to ask a question ABOUT the stored preset before writing it: a cylinder block
+   * holding nothing but a gauge reading looks full on screen and stores nothing at all, so
+   * `isRecordedTank` has to be asked of the cylinders as they will actually be stored.
+   */
+  const savePreset = useCallback(
+    async (name: string): Promise<string | null> => {
+      const tanks = toStoredTanks(getValues('tanks'), units).map(withoutPressures);
+      // Checked before the name, deliberately: with nothing to store, what the preset is
+      // called is not the diver's problem yet.
+      if (!tanks.some(isRecordedTank)) return EMPTY_PRESET_MESSAGE;
+      const trimmed = name.trim();
+      if (trimmed === '') return UNNAMED_PRESET_MESSAGE;
+      // Asked of the live list this screen is already showing, through the one owner of the
+      // question — so the answer is the one the diver is looking at, with no second read and
+      // no race against their own render.
+      const clash = presetNamed(presets, trimmed);
+      if (clash !== null) return duplicatePresetMessage(clash.name);
+      try {
+        await createGearPreset(db, { name: trimmed, tanks });
+        return null;
+      } catch {
+        return PRESET_SAVE_ERROR_MESSAGE;
+      }
+    },
+    [getValues, units, presets],
   );
 
   // Non-null only while a save attempt has failed and not yet been retried — cleared at
@@ -1353,6 +1671,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             sizeL/count are null; only 0 is contradictory) but not byte-identical to "no
             cylinders recorded" either. */}
         <FormGroup title="Gas & cylinders" scheme={scheme}>
+          {/* §2.1's presets, at the top of the group they fill — and absent entirely when
+              the diver has none, so a first-time diver sees nothing new. */}
+          <PresetChips presets={presets} onApply={applyPreset} scheme={scheme} />
           <ControlledOptionField
             control={control}
             name="tanks.0.material"
@@ -1457,6 +1778,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit={unitLabel('pressure', units)}
           />
+          {/* And capturing one, at the END of the group — the position `Delete dive` occupies
+              on the detail screen, for the same reason it does there: a deliberate act, not
+              part of the flow down the fields. */}
+          <PresetCapture onSave={savePreset} scheme={scheme} />
         </FormGroup>
 
         <FormGroup title="Equipment" scheme={scheme}>

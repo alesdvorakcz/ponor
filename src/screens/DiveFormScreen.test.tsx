@@ -13,7 +13,9 @@ import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/
 import { router } from 'expo-router';
 
 import { createDive, updateDive } from '../db/dives';
+import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
+import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
 import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
@@ -24,6 +26,7 @@ import {
   TANK_MATERIAL_VALUES,
   WATER_BODY_VALUES,
   type Dive,
+  type GearPreset,
   type Tank,
 } from '../domain/types';
 import { themeFor } from '../theme/resolve';
@@ -47,6 +50,19 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
+// M1e task 2: the cylinder presets the form applies, mocked per module for the same reason
+// `useDives` above is — it is a live database read.
+jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn() }));
+// Only the WRITE is a mock here. `presetNamed` is a pure function over the list the screen
+// is already holding (db/gearPresets.ts), and it is the one owner of "is this name already
+// taken" — replacing it with a stub would let the duplicate-name tests below pass against a
+// screen wired to a rule that does not exist, which is this project's second-most-common
+// defect. `jest.requireActual` inside a `jest.mock` factory is one of the two references
+// babel-plugin-jest-hoist permits (`jest` and `require`).
+jest.mock('../db/gearPresets', () => ({
+  ...jest.requireActual('../db/gearPresets'),
+  createGearPreset: jest.fn(),
+}));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
 // canGoBack()-guarded pattern in that screen's BackButton.
@@ -59,6 +75,8 @@ const mockUseDives = useDives as jest.Mock;
 const mockCreate = createDive as jest.Mock;
 const mockUpdate = updateDive as jest.Mock;
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
+const mockUseGearPresets = useGearPresets as jest.Mock;
+const mockCreatePreset = createGearPreset as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -85,9 +103,21 @@ function stubDives(state: { dives?: Dive[]; numbers?: Map<string, number>; error
   }));
 }
 
+/**
+ * The same `mockImplementation`-not-`mockReturnValue` discipline `stubDives` above
+ * documents, and for the identical reason: `useGearPresets` builds its list with
+ * `toGearPresets(rows)`, which is `rows.map(...).sort(...)` — a brand-new array whenever the
+ * memo's input changes — so a stub handing back one referentially-stable array forever would
+ * model a contract the real hook does not have.
+ */
+function stubPresets(presets: GearPreset[] = [], error?: Error) {
+  mockUseGearPresets.mockImplementation(() => ({ presets: [...presets], error }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   stubDives();
+  stubPresets();
   // Set explicitly rather than left to the module factory's own `jest.fn(() => true)`:
   // `clearAllMocks` clears calls but not return values, so one test overriding this would
   // otherwise leak its `false` into every test declared after it.
@@ -2900,4 +2930,311 @@ it('offers the most-used sites the moment a carried one is cleared', async () =>
   expect(findTextInput(t, 'Site')?.props?.value).toBe('');
   // Most-used first, most recent breaking the tie — not the order the dives arrived in.
   expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole', 'Silfra']);
+});
+
+// --- §2.1: cylinder presets, applied and captured in the Gas & cylinders group (M1e) ---
+//
+// The repository, the pressure strip, the ordering and the duplicate rule are all
+// `db/gearPresets.test.ts`'s, against a real database. What is this screen's, and is tested
+// here, is the wiring: which chips appear (and when none do), what one tap does to the
+// cylinder fields the diver is looking at, and — the correctness half — that a preset
+// captured from an imperial diver's form is stored in bar and litres rather than in psi.
+
+/** A `GearPreset` with only the fields a test cares about. Ids come from a counter for the
+ * reason `diveFixture`'s own do: two presets built with identical arguments must still be
+ * distinct, since this screen keys its chip row by id. */
+let presetSeq = 0;
+const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
+  id: `preset-${String(presetSeq++).padStart(4, '0')}`,
+  name: 'twin 12 steel',
+  tanks: [],
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z',
+  deletedAt: null,
+  ...over,
+});
+
+/** A preset's own chip, by the `Apply preset <name>` label the row announces — a button that
+ * DOES something, never a fixed-choice option that stays selected (see the screen's own
+ * `PresetChips` for why this is not `OptionChips`). */
+const findPresetChip = (t: RenderResult, name: string) => findButton(t, `Apply preset ${name}`);
+
+/** Every preset chip currently offered, in the order the row draws them. */
+const presetChipsIn = (t: RenderResult): string[] =>
+  buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((label) => label.startsWith('Apply preset '))
+    .map((label) => label.slice('Apply preset '.length));
+
+/** The cylinders the screen asked the repository to store. */
+function writtenPresetTanks(): Partial<Tank>[] | undefined {
+  return (mockCreatePreset.mock.calls[0]?.[1] as { tanks?: Partial<Tank>[] } | undefined)?.tanks;
+}
+
+/** Fills the cylinder group with enough for a preset to be worth storing. */
+async function typeACylinder(t: RenderResult, size = '12', workingPressure = '232') {
+  await typeInto(t, 'Size', size);
+  await typeInto(t, 'Working pressure', workingPressure);
+}
+
+/** Reveals the name row and confirms it — the two-step the group's end offers. */
+async function addPresetNamed(t: RenderResult, name: string) {
+  const reveal = findButton(t, 'Add to my presets');
+  if (!reveal) throw new Error('no "Add to my presets" control found');
+  await fireEvent.press(reveal);
+  if (name !== '') await typeInto(t, 'Preset name', name);
+  const confirm = findButton(t, 'Add preset');
+  if (!confirm) throw new Error('the name row offered no confirm');
+  await fireEvent.press(confirm);
+}
+
+it('shows nothing new to a diver who has never saved a preset', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(presetChipsIn(t)).toEqual([]);
+  // Not merely "no chips": the row's own label must be absent too, so an empty preset row
+  // does not read as a control that failed to load.
+  expect(textIn(t).join(' ')).not.toContain('Presets');
+  // The capture control is still there — it is how the first preset ever gets made.
+  expect(findButton(t, 'Add to my presets')).toBeDefined();
+});
+
+it('offers one chip per preset, in the order the hook hands them', async () => {
+  stubPresets([preset({ name: 'alu 80' }), preset({ name: 'twin 12 steel' })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(presetChipsIn(t)).toEqual(['alu 80', 'twin 12 steel']);
+});
+
+// §2.1 puts the chips where the cylinders are, and §10 puts the capture where a deliberate
+// act belongs — "the position `Delete dive` occupies on the detail screen". Asserted by
+// position against the group's own first field rather than by looking at a style, because
+// position is the whole claim.
+it('puts the chips above the cylinder fields and the capture below them', async () => {
+  stubPresets([preset({ name: 'alu 80' })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const labels = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  const material = labels.indexOf(`Material: ${formatTankMaterial('steel')}`);
+  expect(material).toBeGreaterThan(-1);
+  expect(labels.indexOf('Apply preset alu 80')).toBeLessThan(material);
+  expect(labels.indexOf('Add to my presets')).toBeGreaterThan(material);
+});
+
+it('fills the whole cylinder block in one tap', async () => {
+  stubPresets([
+    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, count: 1, workingBar: 207, o2Pct: 32, startBar: null, endBar: null })] }),
+  ]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
+  expect(findTextInput(t, 'Count')?.props?.value).toBe('1');
+  expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('207');
+  expect(findTextInput(t, O2_LABEL)?.props?.value).toBe('32');
+  // The material is a chip row, not a text field — and "the chosen thing is the inverted
+  // thing" is what a diver actually sees change.
+  expect(findChip(t, 'Material', 1)?.props?.accessibilityState?.selected).toBe(true);
+});
+
+// A preset holds no pressures (§10), so it has nothing to say about them — and wiping a
+// gauge reading the diver typed thirty seconds ago would be the same silent destruction of
+// diver-entered data that `withoutUndefinedFields` (db/dives.ts) exists to prevent, arriving
+// through a tap instead of through a patch.
+it('leaves a pressure the diver has already typed exactly where it is', async () => {
+  stubPresets([preset({ name: 'alu 80', tanks: [tank({ sizeL: 11.1, startBar: null, endBar: null })] })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeInto(t, 'Start pressure', '210');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  expect(findTextInput(t, 'Start pressure')?.props?.value).toBe('210');
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
+});
+
+// §0.6: "overwriting is just typing, and drops the chip". A field the diver has just filled
+// from a preset is not carried from their last dive any more, and an `×` still offering to
+// clear it would be offering to clear a value they chose.
+it('drops the carried mark from the fields it fills', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 15 })] })] });
+  stubPresets([preset({ name: 'alu 80', tanks: [tank({ sizeL: 11.1, startBar: null, endBar: null })] })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findClearCarried(t, 'Size')).toBeDefined();
+
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+  expect(findClearCarried(t, 'Size')).toBeUndefined();
+});
+
+// A preset is stored in SI (§6) and the form holds what the diver reads, so applying one has
+// to convert on the way IN as surely as capturing one converts on the way out.
+it('fills an imperial diver’s fields in psi, not in the bar it stores', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  stubPresets([preset({ name: 'alu 80', tanks: [tank({ sizeL: 11.1, workingBar: 232, startBar: null, endBar: null })] })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  // 232 bar is 3365 psi (format/units.ts owns the factor and the precision).
+  expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('3365');
+  // Litres in both systems (§10): the imperial cylinder unit is the cubic foot, which is a
+  // different quantity rather than a conversion, so this figure must NOT move.
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
+});
+
+it('asks for a name before it writes anything', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  // Nothing to type into until the diver says they want a preset.
+  expect(findTextInput(t, 'Preset name')).toBeUndefined();
+
+  const reveal = findButton(t, 'Add to my presets');
+  if (!reveal) throw new Error('no "Add to my presets" control found');
+  await fireEvent.press(reveal);
+  expect(findTextInput(t, 'Preset name')).toBeDefined();
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+});
+
+/**
+ * **The defect this task is most likely to ship.** The form holds what the diver reads —
+ * `3365` in a field labelled `psi` — and §6 stores SI and nothing else, so a preset captured
+ * without the conversion is stored in psi and then applied, wrongly, to every later dive.
+ * `toNewDiveInput`'s own docblock records the identical trap for a dive.
+ */
+it('stores an imperial diver’s preset in bar, not in the psi they typed', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  mockCreatePreset.mockResolvedValue(preset({ name: 'alu 80' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t, '11.1', '3365');
+  await addPresetNamed(t, 'alu 80');
+
+  await waitFor(() => expect(mockCreatePreset).toHaveBeenCalledTimes(1));
+  expect(mockCreatePreset.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ name: 'alu 80' }));
+  // 3365 psi back to bar, exactly — the column is bar and stays bar. The figure is
+  // `format/units.ts`'s own psi-to-bar conversion of 3365 and nothing rounder, because a
+  // preset stored under the diver's psi reading would come back 3365 here and pass any
+  // assertion loose enough to call that "about 232".
+  expect(writtenPresetTanks()?.[0]?.workingBar).toBeCloseTo(232.0086, 4);
+  // Litres are litres in both systems (§10), so this one must survive untouched.
+  expect(writtenPresetTanks()?.[0]?.sizeL).toBe(11.1);
+});
+
+it('stores a metric diver’s preset exactly as they typed it', async () => {
+  mockCreatePreset.mockResolvedValue(preset({ name: 'twin 12 steel' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t, '12', '232');
+  await addPresetNamed(t, 'twin 12 steel');
+
+  await waitFor(() => expect(mockCreatePreset).toHaveBeenCalledTimes(1));
+  expect(writtenPresetTanks()?.[0]?.workingBar).toBe(232);
+  expect(writtenPresetTanks()?.[0]?.sizeL).toBe(12);
+});
+
+// §0.6: "a field error is text, not a field" — it was shipped once as a white box the same
+// height as an input.
+it('refuses an empty name, and says so in text rather than in a box', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t);
+  await addPresetNamed(t, '');
+
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('name');
+  // The name row is still open, so the diver can fix exactly the thing they were told about.
+  expect(findTextInput(t, 'Preset name')).toBeDefined();
+});
+
+it('refuses a whitespace-only name for the same reason', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t);
+  await addPresetNamed(t, '   ');
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+});
+
+// A preset captured from an untouched cylinder block stores nothing useful — and a chip that
+// fills a dive with nothing is worse than no chip.
+it('refuses to store a preset from a cylinder block with nothing in it', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await addPresetNamed(t, 'empty');
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('cylinder');
+});
+
+// The pressures are the one thing a preset does not keep (§10), so a cylinder block holding
+// nothing but a gauge reading is still an empty preset — the refusal has to be judged on
+// what would actually be STORED, not on what is on screen.
+it('counts a cylinder holding only pressures as nothing to store', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeInto(t, 'Start pressure', '210');
+  await typeInto(t, 'End pressure', '50');
+  await addPresetNamed(t, 'gauge only');
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('cylinder');
+});
+
+// Two chips reading "alu 80" with different cylinders is a row the diver cannot tell apart
+// and cannot fix by looking. `presetNamed` (db/gearPresets.ts) is the one owner of the
+// question, and it is asked of the live list this screen is already showing.
+it('refuses a name the diver already has, whatever case they typed it in', async () => {
+  stubPresets([preset({ name: 'alu 80' })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t);
+  await addPresetNamed(t, 'Alu 80');
+
+  expect(mockCreatePreset).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('alu 80');
+});
+
+it('closes the name row once the preset is written', async () => {
+  mockCreatePreset.mockResolvedValue(preset({ name: 'twin 12 steel' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t);
+  await addPresetNamed(t, 'twin 12 steel');
+
+  await waitFor(() => expect(mockCreatePreset).toHaveBeenCalled());
+  expect(findTextInput(t, 'Preset name')).toBeUndefined();
+  expect(findButton(t, 'Add to my presets')).toBeDefined();
+});
+
+// §10: "A local save failure is shown to the diver." A preset that silently failed to save
+// is one the diver will look for on the next dive and not find.
+it('says so when the write fails, and keeps what the diver typed', async () => {
+  mockCreatePreset.mockRejectedValue(new Error('disk full'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  await typeACylinder(t);
+  await addPresetNamed(t, 'twin 12 steel');
+
+  await waitFor(() => expect(textIn(t).join(' ')).toContain("Couldn't"));
+  expect(findTextInput(t, 'Preset name')?.props?.value).toBe('twin 12 steel');
+});
+
+// The preset row is a convenience for filling in a cylinder the diver can simply type, so a
+// read that failed draws exactly what a diver with no presets sees — and never a banner over
+// the dive they are in the middle of logging (`useGearPresets`' own docblock).
+it('keeps working when the preset read itself fails', async () => {
+  stubPresets([], new Error('no database'));
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(presetChipsIn(t)).toEqual([]);
+  await typeInto(t, 'Size', '15');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
 });

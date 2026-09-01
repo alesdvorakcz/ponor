@@ -23,6 +23,11 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 
 jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }));
+// §2.1's cylinder presets (M1e), mocked per module for the same reason the two hooks above
+// are: it is a live database read, and this screen must render without one. Nothing in this
+// file exercises presets — it exists for the date default alone — so the stub simply reports
+// that the diver has none, which is what draws no preset row at all.
+jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn(() => ({ presets: [], error: undefined })) }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({})),

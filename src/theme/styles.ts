@@ -1972,6 +1972,45 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: FORM_ROW_INSET,
     },
     formBackLabel: backControlLabel,
+    // §2.1's cylinder presets, at the two ends of the Gas & cylinders group (M1e).
+    //
+    // **The chips are `formChip`/`formChipText` above, unchanged and unwrapped**, and there
+    // is deliberately no `formPresetChip` of any kind: §0.6's chip is one object with one
+    // treatment, and a second set of chip properties here is exactly the drift §4.1 is
+    // about. What the preset row does NOT borrow is `formChipSelected` — a preset is
+    // *applied*, not *selected*, so there is no chosen state for the invert to express, and
+    // a chip that could never invert would be the invert rule written down and then denied.
+    // See `PresetChips` (DiveFormScreen.tsx) for why the same reasoning keeps this out of
+    // `OptionChips`, which owns that invert and nothing else.
+    //
+    // The capture control is `detailDelete`'s shape, on `detailDelete`'s own reasoning:
+    // "a deliberate act on one dive should take a deliberate reach". Saving a preset is that
+    // kind of act — it is not part of the flow down the fields — so it sits at the END of
+    // the group, wears a muted label rather than a fill, and never competes with the one
+    // primary action on the screen (`action`/`actionLabel`, which stays the dive's save).
+    // Trailing (`flex-end`) rather than centred, unlike `detailDelete`: it sits inside a
+    // group of trailing-value rows rather than alone at the bottom of a screen, and a
+    // centred label in that column would read as a heading for the group below it.
+    formPresetActions: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: FORM_ROW_INSET,
+      paddingTop: FIELD_EXTRA_CLEARANCE,
+    },
+    formPresetAction: {
+      minHeight: 48,
+      justifyContent: 'center',
+      // The 48 dp floor (§0.5) is the row's height; this is what gives a two-word label a
+      // target wider than the words themselves without a visible box around it.
+      paddingHorizontal: 8,
+    },
+    formPresetActionLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 14,
+      color: theme.fgMuted,
+    },
     // ------------------------------------------------------------------------------------
     // Settings (DESIGN.md §3, M1's two entries: units and `dives_before`)
     // ------------------------------------------------------------------------------------
