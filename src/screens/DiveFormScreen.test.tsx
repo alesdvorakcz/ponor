@@ -563,6 +563,100 @@ it('draws its groups in the order the layout declares, under the titles it decla
   expect(headers).toEqual(FORM_GROUP_IDS.map((id) => FORM_GROUPS[id].title));
 });
 
+/**
+ * **What each field's row actually reads on screen — written out here, and deliberately not
+ * derived from anything the screen exports.**
+ *
+ * That is the whole point of this table, and it is the one place in this file where a
+ * hand-maintained list is the correct answer rather than the defect §4.1 warns about. Every
+ * other assertion about `FORM_GROUPS` is built FROM `FORM_GROUPS`, so all of them stay
+ * self-consistent when an entry in it is simply wrong: moving `'weather'` from `conditions` to
+ * `people` left **1398 of 1398 tests passing** and `tsc` clean, while producing exactly §2.2's
+ * defect — an empty *People* opening while *Conditions*, holding the carried weather, stayed
+ * shut. A test derived from the thing it tests cannot catch that thing being wrong.
+ *
+ * So this is an independent witness: it says what the SCREEN renders, the group test below
+ * compares that against what the LAYOUT claims, and the two can only agree by being right. A
+ * label that goes stale fails loudly as "the layout claims a field this group does not render"
+ * rather than quietly passing.
+ *
+ * §4.1's "one deliberate exception, until i18next" already scopes duplicated **field labels** as
+ * the acceptable duplication, which is exactly what these are.
+ *
+ * Two entries are not a plain label row and say why here rather than in the assertion:
+ * `equipment` renders five accessory rows rather than one labelled row, so its probe is the
+ * first of them; the two gas fractions are labelled from `format/display.ts`'s own constants,
+ * so they are read through those rather than spelled a second time.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  date: 'Date',
+  siteName: 'Site',
+  centerName: 'Centre',
+  maxDepthM: 'Max depth',
+  durationMin: 'Duration',
+  timeIn: 'Time in',
+  'tanks.0.startBar': 'Start pressure',
+  'tanks.0.endBar': 'End pressure',
+  avgDepthM: 'Avg depth',
+  waterTempC: 'Water temp',
+  airTempC: 'Air temp',
+  visibility: 'Visibility',
+  visibilityM: 'Visibility distance',
+  waves: 'Waves',
+  current: 'Current',
+  surge: 'Surge',
+  weather: 'Weather',
+  entry: 'Entry',
+  salinity: 'Salinity',
+  waterBody: 'Water body',
+  latitude: 'Latitude',
+  longitude: 'Longitude',
+  'tanks.0.material': 'Material',
+  'tanks.0.sizeL': 'Size',
+  'tanks.0.configuration': 'Configuration',
+  'tanks.0.workingBar': 'Working pressure',
+  'tanks.0.o2Pct': O2_LABEL,
+  'tanks.0.hePct': HE_LABEL,
+  suit: 'Suit',
+  suitThicknessMm: 'Suit thickness',
+  equipment: formatEquipmentToken('hood'),
+  weightsKg: 'Weights',
+  weightsFeel: 'Weighting',
+  buddy: 'Buddy',
+  guide: 'Guide',
+  title: 'Title',
+  notes: 'Notes',
+  rating: 'Rating',
+};
+
+it('has a label for every field that has a row, and none for the three that do not', () => {
+  // Keeps the witness honest in the other direction: a field added to the schema and rendered
+  // into a group has to get a probe here, or the sweep below would silently stop watching it.
+  expect(Object.keys(FIELD_LABELS).sort()).toEqual(
+    ALL_FORM_FIELDS.filter((field) => !(OFF_FORM_FIELDS as readonly string[]).includes(field)).sort(),
+  );
+  // Exact strings, matched against whole `Text` children — so `Suit` cannot match
+  // `Suit thickness`, and `Visibility` cannot match `Visibility distance`.
+  expect(new Set(Object.values(FIELD_LABELS)).size).toBe(Object.keys(FIELD_LABELS).length);
+});
+
+it.each(FORM_GROUP_IDS)(
+  'renders exactly the fields the layout claims for %s — read off the screen, not off the layout',
+  async (id) => {
+    // One group open, five shut, nothing seeded — so what is on screen is the core strip plus
+    // this group and nothing else. Compared as a SET of field paths, so the failure names the
+    // field rather than a diff of thirty labels.
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, FORM_GROUPS[id].title);
+
+    const onScreen = new Set(textIn(t));
+    const shown = Object.entries(FIELD_LABELS)
+      .filter(([, label]) => onScreen.has(label))
+      .map(([field]) => field);
+    expect(shown.sort()).toEqual([...CORE_STRIP_FIELDS, ...FORM_GROUPS[id].fields].sort());
+  },
+);
+
 // The pure rule, swept over every placed field. A value in a group's field opens THAT group and
 // no other — which is what a field listed under the wrong group would break, and what the
 // invariant above cannot see.
@@ -1870,7 +1964,12 @@ it('never re-marks a field the diver cleared before carry-over landed', async ()
 // what their previous dives happened to record.
 
 /** The `tanks` a save actually wrote, from the one `createDive` call. */
-type WrittenTank = { sizeL?: number | null; configuration?: string | null };
+type WrittenTank = {
+  sizeL?: number | null;
+  configuration?: string | null;
+  startBar?: number | null;
+  endBar?: number | null;
+};
 
 function writtenTanks(): WrittenTank[] | undefined {
   return (mockCreate.mock.calls[0]?.[1] as { tanks?: WrittenTank[] })?.tanks;
@@ -2204,6 +2303,32 @@ it.each(EQUIPMENT_VALUES.map((token) => [formatEquipmentToken(token), token] as 
   },
 );
 
+it('saves the start pressure a diver typed, which reaches the write inside the dive’s tanks', async () => {
+  // §2.2's core strip reaches into `tanks.0` for the two pressures, which makes them the only
+  // rows on this form whose position is dive-level and whose column is not — so a repointed
+  // `name` here writes a gauge reading into another cylinder field with the row still looking
+  // perfect. `endBar` has had a payload assertion since M1d and `timeIn` has one too; this one
+  // was simply absent, which is the hole this whole section exists to close.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  // No group opened: the point is that it is reachable without one.
+  await typeInto(t, 'Start pressure', '210');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenTanks()?.[0]).toEqual(expect.objectContaining({ startBar: 210 }));
+  // ...and it did not land in the field beside it, which is what a repointed `name` looks like
+  // from the write side: the right value, the wrong column, nothing to say so.
+  expect(writtenTanks()?.[0]?.endBar).toBeNull();
+
+  // Emptying it is a real instruction, exactly as it is for every other optional field.
+  await typeInto(t, 'Start pressure', '');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  const cleared = (mockCreate.mock.calls[1]?.[1] as { tanks?: { startBar?: unknown }[] })?.tanks;
+  expect(cleared?.[0]?.startBar).toBeNull();
+});
+
 it('saves the suit thickness a diver typed, and clears it when they empty the field', async () => {
   // The one field M1h added that is TYPED rather than tapped, so it cannot ride the chip
   // table above — but it carries the identical per-call-site `name` hazard, and
@@ -2449,6 +2574,34 @@ it('does not flash the four fields open before the read that would have closed t
   // Still closed, and now holding the carried cylinder: nothing on screen changed state.
   expect(specFieldsShown(t)).toBe(false);
   expect(shownIn(t, 'Cylinder')).toBe('Single 12 l Steel · 232 bar');
+});
+
+it('marks the cylinder row with the app’s one disclosure chevron, and rotates it with the row', async () => {
+  // §0.6, as M1h generalised it: *a control that discloses further rows in place carries the
+  // chevron; one that opens a picker over the row does not.* This row discloses four fields, so
+  // it wears the mark — and it must be the SAME object `FormGroup`'s header wears
+  // (`disclosureChevron`, renamed from `formGroupChevron` for exactly this reason), never a
+  // second drawing that happens to look alike. Asserted by reference against the sheet, which
+  // is what a private copy would fail.
+  //
+  // Found by mutation: deleting this mark from the row changed no test at all.
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+  const styles = makeStyles('light');
+
+  const row = findPickerField(t, 'Cylinder');
+  if (!row) throw new Error('no Cylinder row found');
+  const markOf = () => {
+    const current = findPickerField(t, 'Cylinder');
+    return (current ? current.queryAll((n) => [n.props?.style].flat(5).includes(styles.disclosureChevron)) : [])[0];
+  };
+  expect(markOf()).toBeDefined();
+  // Closed over a recorded spec, so the mark is in its resting rotation.
+  expect([markOf()?.props?.style].flat(5)).not.toContain(styles.disclosureChevronExpanded);
+
+  await fireEvent.press(row);
+  expect([markOf()?.props?.style].flat(5)).toContain(styles.disclosureChevronExpanded);
 });
 
 it('reads the specification in the diver’s own units', async () => {
