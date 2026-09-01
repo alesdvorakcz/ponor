@@ -6,6 +6,7 @@ import {
   type Entry,
   type Salinity,
   type Suit,
+  type Tank,
   type TankMaterial,
   type WaterBody,
 } from '../domain/types';
@@ -257,6 +258,72 @@ export const HE_LABEL = 'He';
 export function formatCount(count: number | null): string | null {
   if (!isFiniteNumber(count)) return null;
   return `${count}`;
+}
+
+/**
+ * One cylinder's **specification** on a single line — `2 × 12 l steel · 232 bar · O₂ 32 %`.
+ *
+ * Deliberately not `startBar`/`endBar`. Those two are gauge readings: they describe one
+ * dive's consumption, not the cylinder, which is why a preset stores neither (DESIGN.md
+ * §10) and why a summary of "what kind of cylinder is this" has nothing to say about them.
+ * Every other field goes through this module's own per-field formatter — `formatVolume`,
+ * `formatTankMaterial`, `formatCount`, `formatPressure`, `formatPercent` — the same five
+ * `DiveDetailScreen`'s `tankFields` reads, so the two screens cannot spell one cylinder two
+ * ways. What is decided *here*, and nowhere else, is the order and the separators.
+ *
+ * **The count is a multiplier, not a field.** `2 × 12 l steel` is how a diver says a twinset
+ * out loud, and it is what makes the line scannable — where a bare `2` in a middot list
+ * ("steel · 12 l · 2 · 232 bar") names nothing at all. A count of 1 therefore says nothing:
+ * "1 × 12 l steel" is a word of noise on a line that exists to be scanned. A count with no
+ * size and no material to multiply becomes `× 2` rather than a dangling `2 ×`, which is the
+ * one arrangement of those two characters that still reads as "times two"; dropping it
+ * instead would silently lose the only thing that cylinder records.
+ *
+ * `null` when the cylinder records nothing this line can show — including a cylinder holding
+ * nothing but the two pressures above, which looks full and summarises to nothing. The
+ * caller shows a different row entirely for that, so an empty string here would draw a blank
+ * line rather than let it.
+ */
+function formatCylinder(tank: Tank, system: UnitSystem): string | null {
+  const parts: string[] = [];
+
+  // Size then material — `12 l steel`, the order a diver names a cylinder in, and the order
+  // `tankFields` already lists the two fields in one screen over.
+  const spec = [formatVolume(tank.sizeL), formatTankMaterial(tank.material)].filter((part) => part !== null).join(' ');
+  const count = isFiniteNumber(tank.count) && tank.count > 1 ? formatCount(tank.count) : null;
+  if (spec !== '') parts.push(count === null ? spec : `${count} × ${spec}`);
+  else if (count !== null) parts.push(`× ${count}`);
+
+  const working = formatPressure(tank.workingBar, system);
+  if (working !== null) parts.push(working);
+  // The two label constants, never bare percentages: a trimix cylinder shows both fractions,
+  // and `32 % · 21 %` says which is which to nobody. `O2_LABEL`/`HE_LABEL` exist because
+  // exactly these two labels had already drifted between the form and the detail.
+  const o2 = formatPercent(tank.o2Pct);
+  if (o2 !== null) parts.push(`${O2_LABEL} ${o2}`);
+  const he = formatPercent(tank.hePct);
+  if (he !== null) parts.push(`${HE_LABEL} ${he}`);
+
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
+/**
+ * A whole set of cylinders on one line — what §3's preset list shows under a preset's name
+ * (M1e), and the only caller today.
+ *
+ * **Two separators, because there are two levels.** Fields inside one cylinder are
+ * middot-separated, which is §0.6's own treatment for a row's metadata; cylinders are joined
+ * with ` + `, which is how a diver writes a bottom mix and a deco gas ("12 l steel + alu 80")
+ * and which keeps the middots readable as belonging to the cylinder on their left. One
+ * separator for both levels would flatten a two-cylinder preset into an unreadable run.
+ *
+ * A cylinder that summarises to nothing is dropped rather than joined as a gap, and `null`
+ * comes back when none of them had anything to say — `[]` and `[{ every field null }]` are
+ * the same claim under §6 ("no cylinders recorded"), so they must produce the same answer.
+ */
+export function formatCylinders(tanks: readonly Tank[], system: UnitSystem): string | null {
+  const summaries = tanks.map((tank) => formatCylinder(tank, system)).filter((part) => part !== null);
+  return summaries.length === 0 ? null : summaries.join(' + ');
 }
 
 /** A waves/current/surge reading, e.g. "1" — the bare 0–3 scale DESIGN.md §10 keeps

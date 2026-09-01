@@ -1,7 +1,11 @@
+import { type Tank } from '../domain/types';
 import {
   formatConditionScale,
   formatCoordinates,
   formatCount,
+  formatCylinders,
+  HE_LABEL,
+  O2_LABEL,
   formatDepth,
   formatDepthParts,
   formatDiveCount,
@@ -386,6 +390,103 @@ describe('formatCount', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatCount(Number.NaN)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// formatCylinders (§3's preset list, M1e) — a whole cylinder spec on one line
+// ---------------------------------------------------------------------------------------
+
+/** One cylinder with only the fields a case cares about, the same per-file fixture shape
+ * `derived.test.ts` and `diveFormSchema.test.ts` each keep for `Tank`. */
+const tank = (over: Partial<Tank> = {}): Tank => ({
+  material: null,
+  sizeL: null,
+  count: null,
+  workingBar: null,
+  o2Pct: null,
+  hePct: null,
+  startBar: null,
+  endBar: null,
+  ...over,
+});
+
+describe('formatCylinders', () => {
+  // The whole line, asserted as one string rather than by substring: what this function
+  // actually decides is the ORDER and the separators, and a `toContain('steel')` would pass
+  // against any arrangement of the same words.
+  it('reads the cylinder, then its working pressure, then its mix', () => {
+    expect(
+      formatCylinders([tank({ material: 'steel', sizeL: 12, count: 2, workingBar: 232, o2Pct: 32 })], 'metric'),
+    ).toBe('2 × 12 l Steel · 232 bar · O₂ 32 %');
+  });
+
+  // A single cylinder needs no multiplier — "1 × 12 l steel" is a word of noise on a line
+  // that exists to be scanned.
+  it('drops the multiplier for a single cylinder', () => {
+    expect(formatCylinders([tank({ material: 'steel', sizeL: 12, count: 1 })], 'metric')).toBe('12 l Steel');
+  });
+
+  // A count with nothing to multiply still says something, and it must not say it as a
+  // dangling "2 ×".
+  it('keeps a count that has no cylinder to multiply', () => {
+    expect(formatCylinders([tank({ count: 2 })], 'metric')).toBe('× 2');
+  });
+
+  // §6 stores bar; §3 shows the diver their own units. `formatPressure` owns the conversion,
+  // and this is the assertion that the summary actually goes through it.
+  it('reads the working pressure in the diver’s own units', () => {
+    expect(formatCylinders([tank({ sizeL: 11.1, workingBar: 207 })], 'imperial')).toBe('11.1 l · 3002 psi');
+  });
+
+  // §10: "Cylinder volume stays litres in both systems" — the imperial counterpart is the
+  // cubic foot, which is a different quantity rather than a conversion. So this figure must
+  // NOT move between the two cases above and this one.
+  it('leaves the size in litres in both systems', () => {
+    expect(formatCylinders([tank({ sizeL: 11.1 })], 'imperial')).toBe('11.1 l');
+    expect(formatCylinders([tank({ sizeL: 11.1 })], 'metric')).toBe('11.1 l');
+  });
+
+  // Both fractions carry the label constants `O2_LABEL`/`HE_LABEL` rather than standing as
+  // bare percentages: a trimix cylinder shows two of them, and "32 % · 21 %" says which is
+  // which to nobody. Asserted through the constants themselves, so a respelling there moves
+  // this line with it (that pair exists because those two labels had already drifted).
+  it('names each gas fraction, since a trimix cylinder shows two', () => {
+    expect(formatCylinders([tank({ o2Pct: 21, hePct: 35 })], 'metric')).toBe(
+      `${O2_LABEL} 21 % · ${HE_LABEL} 35 %`,
+    );
+  });
+
+  // A bottom mix and a deco gas are most of what a multi-cylinder preset is for, so both
+  // are shown — joined with the `+` a diver writes them with, which also keeps the middots
+  // inside one cylinder readable as belonging to it.
+  it('joins several cylinders with a plus', () => {
+    expect(
+      formatCylinders([tank({ sizeL: 12, material: 'steel' }), tank({ sizeL: 11.1, material: 'alu', o2Pct: 50 })], 'metric'),
+    ).toBe('12 l Steel + 11.1 l Alu · O₂ 50 %');
+  });
+
+  // Every field is nullable (§6) and a preset filled in halfway is ordinary, so an
+  // unrecorded field is absent rather than shown as a dash or a zero.
+  it('omits every field the cylinder does not record', () => {
+    expect(formatCylinders([tank({ material: 'alu' })], 'metric')).toBe('Alu');
+  });
+
+  // `null`, not an empty string: the caller shows a different row entirely when a preset has
+  // nothing to summarise, and an empty string would draw a blank line under the name.
+  it.each([
+    ['no cylinders at all', [] as Tank[]],
+    ['one cylinder recording nothing', [tank()]],
+    ['nothing but the gauge readings a preset never stores', [tank({ startBar: 200, endBar: 60 })]],
+  ])('is null for %s', (_case, tanks) => {
+    expect(formatCylinders(tanks, 'metric')).toBeNull();
+  });
+
+  // The material is the same closed vocabulary `formatTankMaterial` owns — the "Steel" on one
+  // screen and "steel" on the next that §4.1 names as a shipped defect. Read through that
+  // function rather than retyped, so the two cannot part company here either.
+  it('spells the material the way the rest of the app does', () => {
+    expect(formatCylinders([tank({ material: 'steel' })], 'metric')).toBe(formatTankMaterial('steel'));
   });
 });
 
