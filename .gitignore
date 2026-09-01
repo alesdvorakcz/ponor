@@ -4,6 +4,10 @@
 # secrets
 .env
 .env.*
+# ...except the template, which holds no values and documents which key may ever go in one.
+# `.env.*` matches `.env.example` too, so without this negation the file that warns against
+# committing the service_role key is itself the one file git refuses to keep.
+!.env.example
 
 # dependencies & build output (Expo scaffold will extend this in M0)
 node_modules/

@@ -28,6 +28,18 @@ const config: ExpoConfig = {
     // the iOS/Android binary and does nothing at all for web, which registers the same list
     // at runtime instead (src/theme/loadFonts.web.ts).
     ['expo-font', { fonts: Object.values(fontFiles) }],
+    // Asked for by `npx expo install expo-secure-store`, and it earns its line on Android.
+    // The plugin points `android:fullBackupContent` and `android:dataExtractionRules` at
+    // expo-secure-store's own XML rules, which EXCLUDE its store from Android Auto Backup.
+    // Without that, a backup taken on one device is restored onto another, carrying encrypted
+    // session blobs whose Keystore keys did not come with them — values that exist, cannot be
+    // decrypted, and are not absent either. A restored phone would hold a session Supabase can
+    // neither use nor cleanly discard. Nothing here is iOS-facing: the Face ID usage string
+    // the plugin can add is only emitted when `faceIDPermission` is passed, and
+    // `cloud/sessionStore.ts` deliberately leaves `requireAuthentication` off.
+    //
+    // It is a NATIVE config change, so it lands only at the next prebuild + dev-client build.
+    'expo-secure-store',
     [
       'expo-splash-screen',
       {
