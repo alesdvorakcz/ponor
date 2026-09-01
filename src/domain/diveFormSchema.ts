@@ -93,6 +93,18 @@ function normaliseDecimalSeparator(value: string): string {
  * saved nothing on entry, while on the edit path it emitted
  * `patch.maxDepthM = null` and **cleared a depth that was already there**.
  */
+const optionalNumber = z
+  .union([z.string(), z.number(), z.null(), z.undefined()])
+  .transform((raw) => {
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+    const trimmed = raw.trim();
+    if (trimmed === '') return null;
+    const parsed = Number(normaliseDecimalSeparator(trimmed));
+    return Number.isFinite(parsed) ? parsed : null;
+  })
+  .default(null);
+
 /**
  * The coercion contract read from the other end: what a stored or seeded value looks like in
  * a field the diver types into. Always a string, because `FormField`'s `value` is one —
@@ -114,18 +126,6 @@ export function toInputString(value: unknown): string {
   if (value === null || value === undefined) return '';
   return String(value);
 }
-
-const optionalNumber = z
-  .union([z.string(), z.number(), z.null(), z.undefined()])
-  .transform((raw) => {
-    if (raw === null || raw === undefined) return null;
-    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
-    const trimmed = raw.trim();
-    if (trimmed === '') return null;
-    const parsed = Number(normaliseDecimalSeparator(trimmed));
-    return Number.isFinite(parsed) ? parsed : null;
-  })
-  .default(null);
 
 /**
  * A numeric field that counts things rather than measuring them — today the
@@ -679,11 +679,12 @@ export function toNewDiveInput(
  * writes today for a form whose Gas & cylinders group was never opened). `toDivePatch`
  * therefore normalises BOTH sides with this before comparing them.
  *
- * **Exported for the dive form's *Add to my presets*,** which asks the same question of the
- * cylinders it is about to store: a preset captured from an untouched cylinder block stores
- * nothing useful, and a chip that fills a dive with nothing is worse than no chip. That
- * caller asks it of the cylinders **after** the pressures are stripped (§10 — a preset keeps
- * none), which is why the question has to be "does this record anything" rather than "did
+ * **Exported for `presetRefusal`** (domain/presets.ts), which asks the same question of the
+ * cylinders a preset is about to store — for the dive form's *Save as preset* and §3's editor
+ * alike: a preset captured from an untouched cylinder block stores nothing useful, and a chip
+ * that fills a dive with nothing is worse than no chip. That caller asks it of the cylinders
+ * **after** the pressures are stripped (§10 — a preset keeps none), which is why the question
+ * has to be "does this record anything" rather than "did
  * the diver type anything": a block holding nothing but a gauge reading is a full-looking
  * form and an empty preset.
  */

@@ -138,7 +138,7 @@ describe('listGearPresets', () => {
   });
 
   /**
-   * The ordering decision (`comparePresets`, gearPresets.ts): by name, case-insensitively.
+   * The ordering decision (`comparePresets`, domain/presets.ts): by name, case-insensitively.
    * Deliberately not the creation order the rows happen to come back in, which is what a
    * missing comparator would silently produce — so the three below are created in an order
    * that is neither the answer nor its reverse.

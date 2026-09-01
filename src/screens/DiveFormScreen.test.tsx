@@ -3033,6 +3033,97 @@ async function addPresetNamed(t: RenderResult, name: string) {
   await fireEvent.press(confirm);
 }
 
+/**
+ * **The two gestures that write into the form without going through a `Controller`, and the
+ * one flag that keeps what they wrote.**
+ *
+ * `setPairedId` and `applyPreset` both reach the form through `setValue`, so react-hook-form
+ * only knows the diver moved anything because of `{ shouldDirty: true }` — and
+ * `resetOptions.keepDirtyValues` protects nothing else. Without the flag the next `values`
+ * re-sync replaces both from carry-over: the paired id reverts to the id of a site the diver
+ * has already typed over (`siteName: "Blue Hole"` with `siteId: "site-silfra"`, which is
+ * verbatim the defect §10's autocomplete entry was amended for), and applied cylinders
+ * silently become the previous dive's again.
+ *
+ * **Deleting `{ shouldDirty: true }` from both call sites left all 1155 tests green.** It was
+ * read and adjudicated as correct by two reviews before a probe went looking — which is the
+ * milestone's own lesson, one layer below where it had been learned: reading cannot tell a
+ * guarantee that holds from one that is merely undefended.
+ *
+ * **The second dive must DIFFER from the first, and that is the whole trick.** The gate in
+ * this screen reopens on a new `sourceId`, but react-hook-form skips the reset entirely when
+ * the new `values` object is deep-equal to the old one — so a probe whose two carry-over
+ * sources held identical values passed with the flag removed. The `buddy` below is what makes
+ * these tests able to fail; it is not scenery.
+ *
+ * The same race every other re-sync test here models (`useDives()` starts empty and resolves a
+ * frame or more later), except that those all exercise TYPING, which a `Controller` marks
+ * dirty on its own — so the two gestures that bypass the `Controller` are exactly the two the
+ * suite never reached.
+ */
+
+it('keeps a picked paired id when carry-over resolves again afterwards', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra', buddy: 'Petr' }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSuggestion(t, 'Site', 'Blue Hole');
+
+  // A newer dive lands, so carry-over re-derives from a different source — and differs in a
+  // field nothing here touches, so the re-sync actually runs.
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-21', siteName: 'Silfra', siteId: 'site-silfra', buddy: 'Ondra' }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+    ],
+  });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  // The re-sync did happen: a field the diver never touched took the new source's value.
+  // Without this line the test could pass against a screen that stopped re-syncing at all,
+  // which is the other way to keep a picked id and is not the one being pinned.
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  // Asserted on the WRITE, because `siteId` has no row of its own — nothing on screen would
+  // ever show the mismatch. The name is dirty from the typing and survives either way; the id
+  // is the half only `shouldDirty` keeps.
+  expect(writtenInput().siteName).toBe('Blue Hole');
+  expect(writtenInput().siteId).toBe('site-blue');
+});
+
+it('keeps applied preset cylinders when carry-over resolves again afterwards', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubPresets([
+    preset({ name: 'alu 80', tanks: [tank({ material: 'alu', sizeL: 11.1, count: 1, workingBar: 207, startBar: null, endBar: null })] }),
+  ]);
+  stubDives({ dives: [dive({ date: '2026-08-20', buddy: 'Petr', tanks: [tank({ sizeL: 15 })] })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  const chip = findPresetChip(t, 'alu 80');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
+
+  stubDives({ dives: [dive({ date: '2026-08-21', buddy: 'Ondra', tanks: [tank({ sizeL: 15 })] })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  // On screen and in what is written: the applied cylinder, not the carried 15 l one.
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('11.1');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect((writtenInput().tanks as { sizeL?: number }[])[0]?.sizeL).toBe(11.1);
+});
+
 it('shows nothing new to a diver who has never saved a preset', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
@@ -3138,6 +3229,41 @@ it('drops the carried mark from the fields it fills', async () => {
   if (!chip) throw new Error('no preset chip found');
   await fireEvent.press(chip);
   expect(findClearCarried(t, 'Size')).toBeUndefined();
+});
+
+/**
+ * §0.6: "overwriting is just typing, and drops the chip". A preset holding NO cylinders blanks
+ * the whole block — pressures included, since there is no cylinder left for a pressure to
+ * belong to — so every `carried ×` over those fields is now offering to clear a value the
+ * diver no longer has.
+ *
+ * The bug was in the shape of the loop rather than in the rule: `applied` is `[]` for such a
+ * preset, so `applied.forEach` ran zero times while `setValue` wrote `[EMPTY_TANK]`. Dropping
+ * the marks for what was WRITTEN rather than for what the preset held is the fix, and it is
+ * the only arrangement that is true of both cases.
+ *
+ * Unreachable through either authoring path — `presetRefusal` refuses a cylinderless preset in
+ * the form and in the editor alike — and reachable the day M2's `pull_changes` delivers one,
+ * which is a row this branch writes both code and a §10 entry for.
+ */
+it('drops the carried marks from a block a cylinderless preset blanked', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank({ sizeL: 15, workingBar: 300 })] })] });
+  stubPresets([preset({ name: 'from another device', tanks: [] })]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(findClearCarried(t, 'Size')).toBeDefined();
+  expect(findClearCarried(t, 'Working pressure')).toBeDefined();
+
+  const chip = findPresetChip(t, 'from another device');
+  if (!chip) throw new Error('no preset chip found');
+  await fireEvent.press(chip);
+
+  // Blanked, which is the existing behaviour and the reason the marks are now wrong...
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('');
+  expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('');
+  // ...and no longer offering to clear what is already gone.
+  expect(findClearCarried(t, 'Size')).toBeUndefined();
+  expect(findClearCarried(t, 'Working pressure')).toBeUndefined();
 });
 
 // A preset is stored in SI (§6) and the form holds what the diver reads, so applying one has

@@ -9,7 +9,6 @@ import { db } from '../db/client';
 import { softDeleteGearPreset, updateGearPreset } from '../db/gearPresets';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { withoutPressures } from '../domain/carryOver';
 import {
   TANK_FIELDS,
   toDisplayTank,
@@ -18,7 +17,7 @@ import {
   unknownOptionNote,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { presetRefusal } from '../domain/presets';
+import { PRESET_SAVE_FAILED, PRESETS_UNREADABLE, presetRefusal } from '../domain/presets';
 import { TANK_MATERIAL_VALUES, type GearPreset, type Tank, type TankMaterial } from '../domain/types';
 import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
@@ -37,14 +36,12 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  */
 const MISSING_PRESET_MESSAGE = "Couldn't find that preset — it may have been deleted.";
 
-/**
- * The other reason there is no preset on screen, and it is a different sentence on purpose.
- * `useGearPresets`' `error` exists for exactly this distinction (its own docblock: "'Couldn't
- * load your presets' and 'you have none yet' are different sentences"), and it holds one
- * screen deeper: telling a diver their preset may have been deleted when the database simply
- * could not be read sends them looking for something that is still there.
- */
-const READ_FAILED_MESSAGE = "Couldn't load your presets. Try again.";
+/* The other reason there is no preset on screen is `PRESETS_UNREADABLE` (domain/presets.ts),
+ * and it is a different sentence on purpose: `useGearPresets`' `error` exists for exactly this
+ * distinction, and it holds one screen deeper than Settings — telling a diver their preset may
+ * have been deleted when the database simply could not be read sends them looking for
+ * something that is still there. Shared with Settings, which says the same thing about the
+ * same event; the delete failure below has no twin and stays here. */
 
 /**
  * What this editor can refuse lives in `domain/presets.ts` (`presetRefusal`), not here.
@@ -59,10 +56,11 @@ const READ_FAILED_MESSAGE = "Couldn't load your presets. Try again.";
  * What stays this screen's own decision is WHERE each is shown: see `nameNote` below.
  */
 
-/** Shown when `updateGearPreset`'s or `softDeleteGearPreset`'s write rejects. §10: "A local
- * save failure is shown to the diver" — the alternative is a diver believing an edit landed,
- * and finding the old cylinders under the chip on their next dive. */
-const SAVE_ERROR_MESSAGE = "Couldn't save that preset. Try again.";
+/** Shown when `softDeleteGearPreset`'s write rejects. Its own literal, unlike the save's
+ * (`PRESET_SAVE_FAILED`, domain/presets.ts): no other screen deletes a preset, so there is
+ * nothing here for a second copy to drift from. §10: "A local save failure is shown to the
+ * diver" — the alternative is a diver believing the preset is gone and finding it under the
+ * chips on their next dive. */
 const DELETE_ERROR_MESSAGE = "Couldn't delete that preset. Try again.";
 
 /** What the delete confirmation says — `DiveDetailScreen`'s own pair, one object over. Held
@@ -233,7 +231,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
         <BackControl styles={styles} />
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>
-            {error === undefined ? MISSING_PRESET_MESSAGE : READ_FAILED_MESSAGE}
+            {error === undefined ? MISSING_PRESET_MESSAGE : PRESETS_UNREADABLE}
           </Text>
         </View>
       </View>
@@ -257,19 +255,19 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
    * of them. Saving only what is on screen would silently delete a diver's deco gas, which is
    * most of what a multi-cylinder preset is for.
    *
-   * `withoutPressures` (domain/carryOver.ts) is the rule that a preset keeps no gauge reading,
-   * shared with carry-over's own rather than copied. It is applied here as well as in the
-   * repository so that what is written is what `presetRefusal` judged: a cylinder holding
-   * nothing but a pressure — which M2 sync can deliver, since it does not write through
-   * `createGearPreset` — looks completely full on this form and stores nothing at all. That
-   * verdict strips again for itself, which is idempotent and is what makes it impossible to
-   * ask wrongly.
+   * **The pressures are not stripped here, and that is deliberate rather than an omission.**
+   * A preset keeps no gauge reading (§10), and `withoutPressures` (domain/carryOver.ts) is that
+   * rule — with exactly the two callers that need it: `presetRefusal`, which has to judge the
+   * cylinders as they will BE (a cylinder holding nothing but a pressure looks completely full
+   * on this form and stores nothing at all), and `updateGearPreset`, which stores them. A third
+   * call here changed nothing observable, and it used to carry a docblock saying it did — which
+   * is worse than no comment, since it reads as "do not remove me".
    */
   const storedTanks = (): Tank[] =>
     [
       ...toStoredTanks([draft.tank], units, preset.tanks),
       ...preset.tanks.slice(1),
-    ].map(withoutPressures);
+    ];
 
   const save = async () => {
     if (busyRef.current) return;
@@ -302,7 +300,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
       await updateGearPreset(db, preset.id, { name: refusal.storedName, tanks });
       backToSettings();
     } catch {
-      setSaveError(SAVE_ERROR_MESSAGE);
+      setSaveError(PRESET_SAVE_FAILED);
     } finally {
       // Released on both paths, so a failed save leaves a control the diver can press again
       // rather than one that silently stopped working.

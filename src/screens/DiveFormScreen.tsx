@@ -20,7 +20,6 @@ import {
   CARRIED_FIELDS,
   TANK_PRESSURE_FIELDS,
   carryOverFrom,
-  withoutPressures,
 } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
 import {
@@ -38,7 +37,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { presetRefusal } from '../domain/presets';
+import { PRESET_SAVE_FAILED, presetRefusal } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   ENTRY_VALUES,
@@ -1053,20 +1052,13 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
  */
 const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
 
-/**
- * The one thing *Save as preset* says that is not a refusal. The three refusals — an unnamed
- * preset, a duplicate name, a cylinder block with nothing in it — live in `domain/presets.ts`
- * (`presetRefusal`), because §3's editor states exactly the same three and two of them were
- * byte-identical copies here. §4.1's "one deliberate exception, until i18next" covers duplicated
- * **field labels**; a sentence stating a rule's verdict is not one, and a copied message
- * *formatter* certainly is not.
- *
- * This one stays, because it is about this screen's own write and nothing else: a failed local
- * save, said plainly for the reason §10 gives ("a local save failure is shown to the diver") —
- * a preset that silently failed to save is one the diver goes looking for on the next dive and
- * does not find.
- */
-const PRESET_SAVE_ERROR_MESSAGE = "Couldn't save that preset. Try again.";
+/* Nothing *Save as preset* says lives on this screen any more. The three refusals — an unnamed
+ * preset, a duplicate name, a cylinder block with nothing in it — are `presetRefusal`'s
+ * (domain/presets.ts), because §3's editor states exactly the same three and two of them were
+ * byte-identical copies here; §4.1's "one deliberate exception, until i18next" covers duplicated
+ * **field labels**, and a sentence stating a rule's verdict is not one. The failed-write
+ * sentence went the same way (`PRESET_SAVE_FAILED`) for the plainer reason that the editor says
+ * it too, about the same object, in the same words. */
 
 /**
  * The dive-entry form (DESIGN.md §2.2, M1d task 4): one scrollable form with a small
@@ -1338,19 +1330,36 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         for (const field of TANK_PRESSURE_FIELDS) filled[field] = current[index]?.[field] ?? null;
         return filled as TankFormInput;
       });
-      setValue('tanks', applied.length > 0 ? applied : [EMPTY_TANK], { shouldDirty: true });
+      // What the tap actually wrote — which for a preset holding no cylinders is one blank
+      // cylinder, not nothing. Named rather than inlined because the marks below have to be
+      // dropped for exactly this, and reading `applied` there instead was the defect: it is
+      // `[]` for a cylinderless preset, so the loop ran zero times over a block the same
+      // statement had just emptied.
+      const written = applied.length > 0 ? applied : [EMPTY_TANK];
+      setValue('tanks', written, { shouldDirty: true });
 
       // §0.6: "overwriting is just typing, and drops the chip". A field the diver has just
       // filled from a preset did not come from their last dive any more, and an `×` still
-      // offering to clear it would be offering to clear a value they chose. Every field the
-      // preset actually wrote, which is every cylinder field except the two it preserved —
-      // read off `TANK_FIELDS` and `TANK_PRESSURE_FIELDS` rather than listed here, so a
-      // cylinder field added later is covered the day it exists.
-      applied.forEach((_tank, index) => {
+      // offering to clear it would be offering to clear a value they chose — or, for the
+      // blanked block, a value that is no longer there at all.
+      //
+      // Every field the preset actually wrote: normally every cylinder field except the two
+      // pressures it preserved, and ALL of them for a cylinderless preset, which blanks the
+      // pressures too because there is no cylinder left for one to belong to. Read off
+      // `TANK_FIELDS`/`TANK_PRESSURE_FIELDS` rather than listed here, so a cylinder field
+      // added later is covered the day it exists.
+      //
+      // The second arm drops nothing today, and that is a fact about a rule rather than a
+      // coincidence: a carried pressure cannot exist, because `carryOverFrom` strips both
+      // through this same `withoutPressures` (§2.1 makes them fresh every dive), which
+      // `carryOver.test.ts`'s *carries the cylinder and its gas, but not its pressures* pins.
+      // It is written conditionally anyway because the rule here is "drop the mark from every
+      // field the tap WROTE", and for a blanked block that is all of them — a form of the
+      // sentence that stays true if carry-over's own rule ever moves.
+      const preserved: readonly string[] = applied.length > 0 ? TANK_PRESSURE_FIELDS : [];
+      written.forEach((_tank, index) => {
         for (const field of TANK_FIELDS) {
-          if (!(TANK_PRESSURE_FIELDS as readonly string[]).includes(field)) {
-            dropCarried(`tanks.${index}.${field}`);
-          }
+          if (!preserved.includes(field)) dropCarried(`tanks.${index}.${field}`);
         }
       });
     },
@@ -1371,16 +1380,16 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * that function's own docblock gives: a defaulted `'metric'` "would let a call site that
    * forgot it write feet into a metres column with nothing failing anywhere".
    *
-   * The pressures are stripped here as well as in the repository, and that is not a second
-   * implementation — it is the same `withoutPressures` (domain/carryOver.ts), called because
-   * what is written must be what was judged: a cylinder block holding nothing but a gauge
-   * reading looks full on screen and stores nothing at all. `presetRefusal` strips again for
-   * its own verdict, which is idempotent and is what makes that verdict impossible to ask
-   * wrongly.
+   * **The pressures are not stripped here.** A preset keeps none (§10), and
+   * `withoutPressures` (domain/carryOver.ts) owns that rule for the two callers that need it:
+   * `presetRefusal`, which must judge the cylinders as they will BE — a block holding nothing
+   * but a gauge reading looks full on screen and stores nothing at all — and
+   * `createGearPreset`, which stores them. A third call here changed nothing observable while
+   * its docblock claimed otherwise.
    */
   const savePreset = useCallback(
     async (name: string): Promise<string | null> => {
-      const tanks = toStoredTanks(getValues('tanks'), units).map(withoutPressures);
+      const tanks = toStoredTanks(getValues('tanks'), units);
       // `presetRefusal` (domain/presets.ts) decides WHAT is wrong; this decides where to say
       // it. Asked of the live list this screen is already showing, so the answer is the one
       // the diver is looking at, with no second read and no race against their own render.
@@ -1394,7 +1403,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         await createGearPreset(db, { name: refusal.storedName, tanks });
         return null;
       } catch {
-        return PRESET_SAVE_ERROR_MESSAGE;
+        return PRESET_SAVE_FAILED;
       }
     },
     [getValues, units, presets],

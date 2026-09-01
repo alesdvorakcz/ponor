@@ -11,6 +11,7 @@ import { useDivesBefore } from '../db/useDivesBefore';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { isDiveCount } from '../domain/diveNumber';
+import { PRESETS_UNREADABLE } from '../domain/presets';
 import { type GearPreset } from '../domain/types';
 import { formatCylinders, formatUnitSystem } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
@@ -33,14 +34,15 @@ const SAVE_FAILED = "Couldn't save that. Try again.";
  * already typed into the dive you are logging"), so a diver who has never saved one is
  * looking at a section with no visible way in. Without the line the section is a mystery.
  *
- * `GearPresetScreen` shows the same read-failure sentence one route deeper, as a literal of
- * its own — the same deliberate duplication §4.1 records for the app's field labels, and the
- * shape every message in this app already has (`SAVE_FAILED` above, the dive form's
- * `SAVE_ERROR_MESSAGE`, the detail screen's `DELETE_ERROR_MESSAGE`). i18next has to key every
- * one of them, and that pass is where the set belongs.
+ * The read-failure half is `PRESETS_UNREADABLE` (domain/presets.ts) rather than a literal
+ * here, because `GearPresetScreen` says the same sentence about the same event one route
+ * deeper and the two were byte-identical. A failure message normally belongs to the screen
+ * that shows it — `SAVE_FAILED` above, the dive form's own save error, the detail screen's
+ * delete error, all of which differ because each names a different object — and that stays
+ * true; two screens naming the same object is what turns a look-alike into a copy. The empty
+ * line below has no twin and stays here.
  */
 const NO_PRESETS = 'Save one from a dive’s Gas & cylinders group and it will show up here.';
-const PRESETS_UNREADABLE = "Couldn't load your presets. Try again.";
 
 /**
  * One preset: its name, and what its cylinders are (`formatCylinders`, format/display.ts —

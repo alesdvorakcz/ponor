@@ -25,6 +25,18 @@ import type { GearPreset, Tank } from './types';
  * identity key rather than something a diver reads, and a key that changed meaning with the
  * device's locale would make the same two presets duplicates on one phone and not on
  * another.
+ *
+ * **A deliberate near-duplicate, and this is the note §4.1 asks for.** `foldForMatching`
+ * (domain/search.ts) is character-for-character the same expression — `trim().toLowerCase()`
+ * — and unifying the two would be a bug rather than a tidy-up, because they answer different
+ * questions. That one folds text **for matching**: it decides whether a query finds a dive
+ * and whether an autocomplete row is offered, and §10 has a change queued for it, since M2
+ * adds diacritic folding so `zelezna` finds `Železná`. This one is an **identity key**: it
+ * decides whether two presets are the same preset, and it must never move — the day
+ * `foldForMatching` folds diacritics, `Zelezna` and `Železná` become one match and must still
+ * be two presets, or a diver's rename would silently collide with a preset spelled
+ * differently. Same three characters today, opposite obligations about tomorrow. See
+ * `diveSiteLabel`/`tripKeyOf`/`rowLabel` for the same pattern stated three ways.
  */
 function presetNameKey(name: string): string {
   return name.trim().toLowerCase();
@@ -102,10 +114,9 @@ export function presetNamed(
  * what the same refusal says.
  *
  * Here, beside `presetNamed`, because this is where the identity half already lives — §4.1's
- * owner table names this module as owning "what counts as the same preset name, which is what
- * the duplicate refusal is decided by". The empty-cylinder half joins it rather than living at
- * a screen for the same reason: an invariant defended in two places is defended twice and
- * agreed once.
+ * owner table names this module as owning "preset ordering, preset name identity, and **what
+ * refuses a preset save**". The empty-cylinder half joins the other two for the same reason:
+ * an invariant defended in two places is defended twice and agreed once.
  *
  * **What the invariant is, and what it deliberately is not.** A preset with nothing in it is a
  * chip that blanks a diver's cylinder block, which is worse than no chip at all — so the app
@@ -130,6 +141,34 @@ export const EMPTY_PRESET_MESSAGE =
 /** Quotes the spelling the EXISTING preset has, never the one the diver just typed: sending
  * them to look for a chip that says no such thing would be its own small lie. */
 export const duplicatePresetMessage = (name: string) => `You already have a preset called “${name}”.`;
+
+/**
+ * **What the app says when a preset write or read fails**, for the two screens that each say
+ * it about the same object.
+ *
+ * These are not rule verdicts like the three above — they are what a screen shows when the
+ * repository rejects or the live read comes back empty-handed — so the question of where they
+ * belong is not settled by §4.1's owner table but by whether they are duplicated. They were:
+ * both sentences existed **byte-identically** on two screens (`GearPresetScreen` and, in turn,
+ * `DiveFormScreen`'s capture and Settings' preset list), one edit from disagreeing about the
+ * same event.
+ *
+ * **Where the line falls, since this milestone has now moved it twice.** A failure sentence
+ * belongs to the screen that says it, and the app's existing ones prove why they may look
+ * alike without being copies: Settings' `SAVE_FAILED`, the dive form's `SAVE_ERROR_MESSAGE`
+ * and the dive detail's `DELETE_ERROR_MESSAGE` all differ, because each names a different
+ * object. A single implementation is already one owner and needs no module. These two are
+ * different: two screens naming the SAME object arrive at the same words, and at that point
+ * there is a rule to own. `GearPresetScreen`'s "Couldn't delete that preset" stays where it
+ * is for exactly that reason — it has no twin.
+ *
+ * §10: "A local save failure is shown to the diver." A preset that silently failed to save is
+ * one the diver goes looking for on the next dive and does not find; a read that failed is not
+ * the same event as having none, which is what `useGearPresets`' `error` field exists to tell
+ * apart.
+ */
+export const PRESET_SAVE_FAILED = "Couldn't save that preset. Try again.";
+export const PRESETS_UNREADABLE = "Couldn't load your presets. Try again.";
 
 export interface PresetRefusal {
   /** The name as it will be stored — trimmed here, so the string that was judged is the string

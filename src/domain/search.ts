@@ -39,6 +39,14 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * anything is one question, and M2 has a change queued for it: §10 puts diacritic
  * folding (so `zelezna` finds `Železná`) in M2 alongside `pg_trgm`. Written twice, that
  * change lands in one place and quietly leaves the other behind.
+ *
+ * **Its deliberate near-duplicate is `presetNameKey` (domain/presets.ts)**, which is the same
+ * expression and must not be merged with it (§4.1: "a deliberate near-duplicate names its
+ * siblings"). That one is an *identity key* — whether two presets are the same preset — and it
+ * must never move. This one is a *match fold*, and §10 has it moving in M2. The commit that
+ * adds diacritic folding here belongs here alone: doing it to preset names as well would make
+ * `Zelezna` and `Železná` one preset, silently colliding a rename with a name spelled
+ * differently.
  */
 export function foldForMatching(text: string): string {
   return text.trim().toLowerCase();
