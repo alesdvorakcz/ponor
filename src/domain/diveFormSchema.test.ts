@@ -265,7 +265,9 @@ describe('outOfScaleNote', () => {
   });
 
   /**
-   * **Does this sentence say where the value came from?**
+   * **Does this sentence blame anybody for the value — and how much of that question can a
+   * test answer?** The honest answers are "it must not" and "less than all of it", and the
+   * second one is why this note is long.
    *
    * The property DESIGN.md §10 asks of this note is that it attributes the value to nobody:
    * these four fields are the only ones in the app where the diver could have typed the bad
@@ -282,25 +284,55 @@ describe('outOfScaleNote', () => {
    * red. It banned two spellings of one blame and pinned one spelling of one promise; neither
    * of those is the rule, and between them they protected the opposite of what was wanted.
    *
-   * The rule is grammatical, and it is small enough to state: **a sentence can only attribute
-   * a value by putting it in the past or somewhere else.** Authorship is a claim about history
-   * ("was written", "came from", "created", "typed") or about provenance ("*from* a newer
-   * version", "*by* another app"). A note that says only what is true here and now — this
-   * number is not one of the options, it is kept, tap to replace it — has no grammar left to
-   * blame anybody with. So the ban is on that class of word rather than on any one sentence,
-   * and a rewrite that stays in the present tense about the value in front of the diver is
-   * free to say it however it likes.
+   * **What replaced it is a word list, and it is less than the property. Read this before
+   * rewording the note, because the difference is the part you have to supply yourself.**
    *
-   * **It is proved rather than assumed.** The same predicate runs against
+   * `ORIGIN_WORDS` fires on two grammatical shapes: a past-tense or passive claim of
+   * authorship (`was`, `were`, `came`, `written`, `wrote`, `created`, `sent`, `arrived`,
+   * `imported`, `synced`, `typed`, `entered`, `made`), and the two prepositions provenance
+   * rides on (`from`, `by`). Those are the shapes blame is ordinarily written in, and — the
+   * load-bearing part — they are the shape the sibling this note must not become actually
+   * uses. Measured against the suite at this commit:
+   *
+   * - *"9 was written by another app, not by you. …"* → **1 failed / 1577**.
+   * - *"9 came from a newer version of Ponor. …"* → **2 failed / 1577** (this test, plus
+   *   `DiveFormScreen.test.tsx`'s narrower `not.toContain('newer version')`).
+   * - *"9 is a value made by another client. …"* → **1 failed / 1577** — no past tense in it,
+   *   caught on the preposition.
+   * - *"9 is not offered here. Your entry is kept exactly as recorded — pick one to change
+   *   it."* → **1577 green**. Rewording is free, which is the half the first defence broke.
+   *
+   * **What it does not catch, and what must not be done about that.** Blame in the present
+   * tense carrying none of those words passes: *"9 belongs to another version of Ponor, not to
+   * you. It is saved as it is — tap an option to replace it."* leaves all **1577 green**, and
+   * so does *"9 is someone else's mistake, not yours. …"*. Both were run, not reasoned about.
+   * Nothing else in the suite stops them either — the only other net anywhere is that screen
+   * test's literal `'newer version'`, which is one spelling of one sentence.
+   *
+   * That hole is **not** to be closed by lengthening the list. Attribution is a semantic
+   * property and a regex is a syntactic instrument; every word added moves the boundary
+   * without removing it, and leaves behind a check that looks more finished than it is —
+   * which is this repo's signature defect (a comment asserting a guarantee nothing delivers)
+   * dressed up as diligence. An earlier version of this very docblock committed it, claiming
+   * "a sentence can only attribute a value by putting it in the past or somewhere else"; the
+   * sentence above disproves that outright.
+   *
+   * So, plainly: **this test protects a rewrite against the usual spellings of blame and
+   * against re-becoming the sibling. It does not decide whether your sentence blames
+   * somebody.** That judgement is yours, and the suite will stay green either way.
+   *
+   * **The teeth are proved rather than assumed.** The same predicate runs against
    * `UNKNOWN_OPTION_NOTE` below — the one note in this app that deliberately DOES attribute —
-   * and it has to say so. A list of words nothing would ever contain passes for ever and
-   * defends nothing, which is precisely how the version this replaces went wrong.
+   * and it has to say so. That assertion carries the whole file: emptying the word list, and
+   * separately dropping just `came` and `from` from it, each turn this test red (**1 failed /
+   * 75** in this file, both times). A list of words nothing would ever contain passes for ever
+   * and defends nothing, which is precisely how the version this replaces went wrong.
    */
   const ORIGIN_WORDS =
     /\b(was|were|came|come|comes|written|wrote|created|sent|arrived|imported|synced|typed|entered|made|from|by)\b/i;
   const attributesAnOrigin = (note: string | undefined) => ORIGIN_WORDS.test(note ?? '');
 
-  it('attributes the value to nobody, unlike its sibling', () => {
+  it('carries no word blame is usually spelled with, unlike its sibling', () => {
     expect(attributesAnOrigin(outOfScaleNote(RATING_VALUES, 9))).toBe(false);
     expect(attributesAnOrigin(outOfScaleNote(CONDITION_SCALE_VALUES, 7))).toBe(false);
     // The teeth. `UNKNOWN_OPTION_NOTE` names a source on purpose and is right to — a value

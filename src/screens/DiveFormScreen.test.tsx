@@ -2656,11 +2656,14 @@ it('says out loud what a rating outside the scale actually is, since no dot can 
   expect(shown).toContain('9');
   // **The schema's own sentence, asked for by calling it** — not a phrase of it copied here.
   // What this screen owes is that the note reaches the diver at all; what the note SAYS is
-  // `diveFormSchema.ts`'s, and its properties (it names the number, it promises the value is
-  // kept, it attributes the value to nobody) are pinned there against the rule rather than
-  // against a spelling. Quoting a fragment instead — this line read `toContain('saved as it
-  // is')` — made every rewording of that sentence a failure on a screen test that has no
-  // opinion about the wording, which is half of the defect this round is fixing.
+  // `diveFormSchema.ts`'s, and what can be checked about it is checked there against the rule
+  // rather than against a spelling — that it names the number, and that it promises the value
+  // is kept. Its third property, that it blames nobody, is only *approximated* there by a ban
+  // on the words blame is usually written with; that test's own docblock says so and says what
+  // slips past. Do not read this line as leaning on a guarantee that exists. Quoting a fragment
+  // instead — this line read `toContain('saved as it is')` — made every rewording of that
+  // sentence a failure on a screen test that has no opinion about the wording, which is half of
+  // the defect this round is fixing.
   expect(shown).toContain(outOfScaleNote(RATING_VALUES, 9));
   // And NOT the sibling note's attribution: a 9 could have come from the diver's own keypad,
   // so blaming a newer version of Ponor would be a guess stated as a fact.
