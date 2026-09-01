@@ -16,7 +16,9 @@ import { makeStyles, screenTopInset } from '../theme/styles';
 /** The way out, in the same slot the Dives screen's magnifier occupies at the other end of
  * the app — one glyph, monochrome, in a capsule. `symbolName` (components/symbolName.ts)
  * owns the per-platform key; this is only which symbol. */
-const CLOSE_SEARCH_GLYPH = { ios: 'xmark', android: 'close' } as const;
+/* Exported so `symbolName.test.tsx` can check the `android` half against a real Material
+ * name — see `DivesScreen`'s two for why no suite that renders this screen can. */
+export const CLOSE_SEARCH_GLYPH = { ios: 'xmark', android: 'close' } as const;
 
 /**
  * Searching the logbook (DESIGN.md §3), as a screen rather than a mode on the list.

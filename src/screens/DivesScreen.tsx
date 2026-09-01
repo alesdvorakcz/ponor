@@ -153,8 +153,16 @@ function entryKey(entry: ListEntry): string {
  * up here). The `+` opens the form. Neither ever swaps for an × or a Done, so the `+`
  * cannot move out from under a thumb that was reaching for it.
  */
-const SEARCH_GLYPH = { ios: 'magnifyingglass', android: 'search' } as const;
-const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
+// Exported for one reason, and it is not a screen concern: these are the app's own
+// per-platform glyph names, and `symbolName.test.tsx` is where the `android` half — which is
+// also the browser's half — is checked against a real Material name. Nothing under this
+// screen's own suite can see it: `ActionCapsule` renders a real `SymbolView`, and
+// `SymbolView.ios.tsx` overwrites `name` with `props.name.ios` before it reaches a host node,
+// so a wrong or swapped Material name is green here and everywhere else. Kept as data rather
+// than moved to a shared module: which glyph this screen shows is this screen's decision,
+// and only the naming of it is `components/symbolName.ts`'s.
+export const SEARCH_GLYPH = { ios: 'magnifyingglass', android: 'search' } as const;
+export const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
 
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());

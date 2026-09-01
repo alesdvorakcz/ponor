@@ -1,10 +1,16 @@
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
 
+import { WEATHER_VALUES, type Weather } from '../domain/types';
+import { TAB_ROUTES } from '../navigation/tabs';
+import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
+import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
+import { ActionCapsule } from './ActionCapsule';
 import { CurrentIcon, SurgeIcon } from './ConditionMarks';
 import { EntryIcon } from './EntryIcon';
 import { SearchCapsule } from './SearchCapsule';
-import { symbolName } from './symbolName';
+import { nativeTabSymbol, symbolName, type PlatformSymbol } from './symbolName';
+import { WeatherIcon } from './WeatherIcon';
 
 // The one thing `SearchCapsule.test.tsx` and `EntryIcon.test.tsx` structurally cannot see.
 //
@@ -59,15 +65,20 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // still builds the object itself — which is the state this repo was in, twice over, before
 // symbolName.ts. DESIGN.md §4.1: "a second implementation is a defect, not a style preference."
 //
-// **This file reaches some call sites and not others, and the list is worth knowing rather
-// than assuming.** Pinned below: the search capsule's magnifier, the two `entry` chips, and
-// the two condition marks. Not pinned anywhere in the suite: `WeatherIcon`'s six sky glyphs,
-// `DivesScreen`'s search and log-dive glyphs and `SearchScreen`'s close glyph (all three
-// reaching the library through `ActionCapsule`), and `navigation/tabs.ts`' two tab glyphs. For
-// every one of those, a wrong or swapped `android` name is green here and green on a
-// simulator, for the reason the next block spells out — the same hole the marks below were in
-// until this commit. Closing them is a separate pass and not one this file should be read as
-// having done.
+// **Every `PlatformSymbol` the app ships is pinned below, and that completeness is the point
+// rather than a nicety.** The hole this file exists to close is invisible by construction —
+// the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
+// simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
+// it can only be listed. Sixteen symbols in six places: the search capsule's magnifier, the
+// two `entry` chips, the two condition marks, `WeatherIcon`'s six skies, the three capsule
+// glyphs `DivesScreen` and `SearchScreen` hand to `ActionCapsule`, and `navigation/tabs.ts`'
+// two. Five of the sixteen had a witness before this pass; the other eleven were green under
+// any wrong or swapped Material name.
+//
+// If you add a symbol, add it here. Two of the blocks below make that failure loud rather
+// than trusting this sentence — the weather table is a total `Record<Weather, …>`, so a
+// seventh sky fails `tsc` until it is named, and the tab-route block iterates `TAB_ROUTES`
+// itself. The rest cannot be derived and are listed by hand.
 it('gives the search capsule’s magnifier a web name, not just an iOS and an Android one', async () => {
   await render(<SearchCapsule scheme="dark" value="" onChangeText={() => {}} />);
   const name = nameProp();
@@ -120,6 +131,106 @@ it.each([
   const name = nameProp();
   expect(name?.android).toBe(material);
   expect(name?.web).toBe(material);
+});
+
+// --- The six skies ---
+//
+// The worst of the eleven that had no witness, and the reason is that a weather glyph is the
+// only symbol in the app whose wrongness is *readable as a fact about the dive*. A swapped
+// arrow on a condition chip is confusing; `rainy` drawing `foggy` tells an Android or browser
+// diver that a dive they logged in rain was logged in fog, next to a label that still says
+// *Rainy*, and the chip's own word is the only thing that contradicts it. Six names in one
+// record is also where a copy-paste slip is most likely to survive review — `sunny`/`cloudy`
+// and `rainy`/`foggy` are adjacent lines with plausible-looking values either way round.
+//
+// A **total** `Record<Weather, …>`, deliberately, and the same argument `WEATHER_SYMBOLS`
+// itself makes: `WEATHER_VALUES` is the vocabulary owner (§4.1), a seventh sky would be a
+// `tsc` failure here until someone writes its Material name, and iterating the vocabulary
+// rather than this table's own keys is what stops the test from agreeing with itself. A
+// `Partial` would let a new sky arrive untested and silent, which is the shape of the gap this
+// whole file exists to close.
+const WEATHER_MATERIAL: Record<Weather, string> = {
+  sunny: 'sunny',
+  cloudy: 'partly_cloudy_day',
+  overcast: 'cloud',
+  rainy: 'rainy',
+  windy: 'air',
+  foggy: 'foggy',
+};
+
+it.each(WEATHER_VALUES)('gives the %s sky an Android and a web name, not just an iOS one', async (weather) => {
+  await render(<WeatherIcon weather={weather} tintColor="#000000" />);
+  const name = nameProp();
+  expect(name?.android).toBe(WEATHER_MATERIAL[weather]);
+  expect(name?.web).toBe(WEATHER_MATERIAL[weather]);
+});
+
+// --- The three capsule glyphs ---
+//
+// These live in the two screens rather than in `ActionCapsule` — the component owns the
+// capsule's shape and material, its caller owns which glyphs go in it, which is what lets one
+// capsule serve two screens (`ActionCapsule.tsx`'s header). So the literals are the screens'
+// and they are exported for this, with each screen's own note saying why.
+//
+// Rendered through `ActionCapsule` rather than by calling `symbolName` on the constant, so
+// what is pinned is the value that actually reaches the library: a screen that stopped passing
+// its `symbol` through the capsule, or a capsule that stopped calling `symbolName`, is the
+// defect, and asserting on the constant alone would sail past both. One action per render,
+// because `nameProp()` reads the first `SymbolView` call.
+//
+// `isLiquidGlassAvailable` is mocked false at the top of this file, so the capsule takes its
+// plain `View` branch; the glyphs are identical either way (`ActionCapsule.test.tsx` is what
+// pins that, shape for shape) and this suite has no opinion about the material.
+it.each([
+  ['dive list’s magnifier', SEARCH_GLYPH, 'search'],
+  ['dive list’s plus', LOG_DIVE_GLYPH, 'add'],
+  ['search screen’s close', CLOSE_SEARCH_GLYPH, 'close'],
+] as const)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
+  await render(
+    <ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />,
+  );
+  const name = nameProp();
+  expect(name?.android).toBe(material);
+  expect(name?.web).toBe(material);
+});
+
+// --- The two tab glyphs, which are the one call site with no render to observe ---
+//
+// `TAB_ROUTES`' symbols reach the library in two different shapes on two different platforms:
+// `nativeTabSymbol` hands them to `NativeTabs.Trigger.Icon` as `{sf, md}` in `(tabs)/
+// _layout.tsx`, and `symbolName` hands them to an ordinary `SymbolView` in
+// `(tabs)/_layout.web.tsx` — the browser gets the JS tab bar, so the web `md`/`web` split is
+// not academic here, it is the only bar a browser draws.
+//
+// **Asserted against the data rather than against a render, and that is forced rather than
+// chosen.** Nothing under `src/app/` carries a test in this repo, so there is no component to
+// mount that would put these through `SymbolView`. This is the same shape as this file's very
+// first test, which calls `symbolName` directly on a literal.
+//
+// **What it cannot see, measured rather than guessed: a layout that stops calling the
+// converter at all.** Changing `(tabs)/_layout.web.tsx`'s `name={symbolName(route.symbol)}` to
+// `name={route.symbol}` leaves the whole suite green at **1588/1588** — and that is not a
+// hypothetical regression, it is precisely the original defect this module was written for,
+// since the browser's `SymbolView` reads `name.web`, finds nothing, and draws no glyph. The
+// gap is `src/app/`'s (nothing under it carries a test) rather than this file's, and it is
+// named here so the next reader does not mistake these two assertions for cover they are not.
+//
+// Both converters, because they are two functions over one value and a tab whose `md` was
+// right while its `web` was wrong would be an Android bar with glyphs and a browser bar
+// without.
+it.each([
+  ['index', 'waves'],
+  ['settings', 'settings'],
+] as const)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
+  const route = TAB_ROUTES.find((r) => r.name === name);
+  // The route existing is part of the assertion: `.find` on a name nobody ships returns
+  // `undefined`, and every expectation below would then be checking `undefined?.android`
+  // against itself. A renamed or dropped tab must fail here rather than pass vacuously.
+  expect(route).toBeDefined();
+  const symbol = route?.symbol as PlatformSymbol;
+  expect(symbolName(symbol).android).toBe(material);
+  expect(symbolName(symbol).web).toBe(material);
+  expect(nativeTabSymbol(symbol).md).toBe(material);
 });
 
 // §0.6: "*other* does not [have a symbol]" — and the fix for the web gap must not have
