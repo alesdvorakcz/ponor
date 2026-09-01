@@ -54,8 +54,80 @@ export function depthBand(metres: number): DepthBand {
   return 6;
 }
 
+/** One band of the scale, as a span of metres: `toM` is `null` on the deepest
+ * band alone, because that one is open-ended and "40 m +" is the honest way to
+ * say so. See `depthBandRanges` below. */
+export interface DepthBandRange {
+  band: DepthBand;
+  fromM: number;
+  toM: number | null;
+}
+
 /**
- * The colour that encodes this depth in the given scheme.
+ * **The whole scale as spans, for the one screen that shows the scale rather
+ * than a dive** — the first-run legend (`DepthLegend.tsx`, DESIGN.md §0.6),
+ * which is the only place in Ponor where a depth colour appears detached from a
+ * depth.
+ *
+ * It is here, and derived, for the reason §4.1 exists: a legend that retyped
+ * `0–6, 6–12, 12–20, 20–30, 30–40, 40+` would be a second copy of
+ * `depthBandLimits`, and the first palette edit would leave a first-run screen
+ * confidently teaching the wrong boundaries — colour-coded to prove it. This
+ * module is the only reader of the depth scale, so the spans are computed from
+ * the same tuple `depthBand` reads one function up, and moving a limit in
+ * `tokens.js` moves the legend with it or breaks the build.
+ *
+ * Written as an explicit ladder over the destructured limits for exactly the
+ * reason `depthBand` is: destructuring ties this to five limits at compile time,
+ * and it needs neither an index cast nor a non-null assertion to say so. The one
+ * literal is the `0` the shallowest band starts at, which is the surface and not
+ * a palette value.
+ *
+ * **Each span's `toM` belongs to that band**, matching `depthBand`'s own
+ * boundary rule ("a depth exactly on a boundary belongs to the shallower band"),
+ * so a 6.0 m dive draws in the colour the legend prints `0–6` against.
+ * `depth.test.ts` pins that agreement by asking `depthBand` itself rather than
+ * by restating the numbers.
+ */
+export const depthBandRanges: readonly DepthBandRange[] = (() => {
+  const [band1, band2, band3, band4, band5] = depthBandLimits;
+  return [
+    { band: 1, fromM: 0, toM: band1 },
+    { band: 2, fromM: band1, toM: band2 },
+    { band: 3, fromM: band2, toM: band3 },
+    { band: 4, fromM: band3, toM: band4 },
+    { band: 5, fromM: band4, toM: band5 },
+    { band: 6, fromM: band5, toM: null },
+  ];
+})();
+
+/**
+ * **The two depths §0.1's own sentence is about**, as the scale's numbers rather than as
+ * prose: "red is gone by about 5 m... blue is what is left". The shallowest band ends where
+ * red has gone; the deepest begins where only blue is left.
+ *
+ * They exist for one caller — the sentence printed under the first-run legend
+ * (`EmptyState.tsx`: "red fades out by 6 m, blue carries past 40 m — the scale follows the
+ * light") — and they are exported rather than written into that sentence for the reason
+ * `depthBandRanges` above exists. A caption that teaches the scale with two numbers typed into
+ * it holds two more copies of `depthBandLimits`, in the one place a diver is being invited to
+ * trust them; move a limit and the legend would move while the sentence explaining it stayed
+ * behind, saying something the bars beneath it contradict.
+ *
+ * Destructured out of the same tuple for the same compile-time tie: drop a limit in
+ * `tokens.js` and the tuple has no element at that position, which is an error here.
+ */
+const [shallowestLimit, , , , deepestLimit] = depthBandLimits;
+export const shallowestBandEndM: number = shallowestLimit;
+export const deepestBandStartM: number = deepestLimit;
+
+/**
+ * The colour a band is drawn in — the half of `depthColor` below that does not
+ * need a depth.
+ *
+ * Split out for the legend, which has bands and no dives: without it that screen
+ * would have to invent a depth inside each band to ask `depthColor` with, and an
+ * invented depth is a boundary rule written a second time in the caller.
  *
  * The exhaustive switch is the point: every band is looked up by name out of a
  * destructured six-tuple, so there is no index expression that could be out of
@@ -63,9 +135,9 @@ export function depthBand(metres: number): DepthBand {
  * the scale and the switch stops being exhaustive, which is a compile error on
  * the return type rather than a silently undefined colour.
  */
-export function depthColor(metres: number, scheme: ColorScheme): string {
+export function depthBandColor(band: DepthBand, scheme: ColorScheme): string {
   const [colour1, colour2, colour3, colour4, colour5, colour6] = depthScale[scheme];
-  switch (depthBand(metres)) {
+  switch (band) {
     case 1:
       return colour1;
     case 2:
@@ -79,6 +151,15 @@ export function depthColor(metres: number, scheme: ColorScheme): string {
     case 6:
       return colour6;
   }
+}
+
+/**
+ * The colour that encodes this depth in the given scheme — `depthBand` and
+ * `depthBandColor` composed, and nothing else, so a dive's colour and a legend
+ * swatch's colour cannot come out of two different lookups.
+ */
+export function depthColor(metres: number, scheme: ColorScheme): string {
+  return depthBandColor(depthBand(metres), scheme);
 }
 
 /**
