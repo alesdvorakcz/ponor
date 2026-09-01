@@ -56,6 +56,7 @@ import {
 } from '../domain/types';
 import {
   formatConfiguration,
+  formatCylinderSpec,
   formatEntry,
   formatEquipmentToken,
   formatSalinity,
@@ -846,6 +847,134 @@ function ControlledEquipmentField({ control, scheme }: { control: FormControl; s
   );
 }
 
+/** The label on the row that reads a cylinder's specification back (`ControlledCylinderSpec`
+ * below), and the word this form calls that specification by. Not "Cylinder spec": the group
+ * around it is already *Gas & cylinders*, and the gas rows beside it are what make the
+ * distinction visible without a second noun. */
+const CYLINDER_LABEL = 'Cylinder';
+
+/**
+ * What the cylinder block currently reads as — `Single 12 l Steel · 232 bar`, or `null` when
+ * it records no specification at all.
+ *
+ * **Two conversions and no third statement of anything.** The form holds the figures the
+ * diver types (a working pressure of `3365` under a `psi` label) and both `toStoredTanks` and
+ * `formatCylinderSpec` speak SI, so this parses the raw form values into SI through the one
+ * owner of that direction and hands them to the one owner of the words, the order and the
+ * separators. The round trip is deliberate rather than wasteful: formatting the display
+ * figures directly would need a formatter that does not convert, which is a second owner of
+ * cylinder text, and §4.1 has already paid for that once with "Steel" on one screen and
+ * "steel" on the next.
+ *
+ * `tanks.0` alone, like everything else this form binds — see the core strip's own note on why
+ * that stays true when "+ add cylinder" (§6) lands.
+ *
+ * **A half-typed figure cannot break this**, which is worth stating because `toStoredTanks`
+ * returns `[]` for values it cannot parse and that would blank the summary. It cannot happen
+ * here: `optionalNumber` (diveFormSchema.ts) *transforms* rather than rejects — `"1."`, `""`
+ * and even `"abc"` all become `null` — so the parse always succeeds and an unreadable field is
+ * simply absent from the line, exactly as an unrecorded one is.
+ */
+function cylinderSpecText(tanks: DiveFormInput['tanks'], units: UnitSystem): string | null {
+  const [first] = toStoredTanks(tanks, units);
+  return first === undefined ? null : formatCylinderSpec(first, units);
+}
+
+/**
+ * DESIGN.md §2.2's cylinder specification, read back as **one row** that expands into the four
+ * fields behind it.
+ *
+ * §10's snapshot ruling is what makes this possible and what makes it necessary: the dive
+ * stores its own full copy of the spec, and *storing and showing are different questions*. The
+ * owner's complaint was that he faced six cylinder fields on a form where he changes only the
+ * gas and the pressures — and the answer is not to remove any of them, because a snapshot
+ * nobody can amend is not a snapshot. So the four fields a diver sets once and reuses (rig,
+ * size, material, working pressure) collapse into `formatCylinderSpec`'s line, and the two
+ * that describe THIS dive stay directly editable beside it. The pressures went further still,
+ * into the core strip.
+ *
+ * **What the row shows and what decides whether it is open are deliberately two different
+ * reads.** The text follows the live form values, so correcting the size and collapsing again
+ * shows the correction. The DEFAULT follows the SEED (`defaultExpanded`, computed by the
+ * screen from `carried.values`): a default that followed the live values would flip to
+ * "collapsed" the instant the diver typed the first digit of a size, closing the fields under
+ * their thumb mid-edit.
+ *
+ * **Open when there is nothing to summarise, which is §2.2's group rule turned around.** A
+ * group opens when it HOLDS a value; a summary row opens when it holds none — a summary can
+ * only stand in for fields that have something in them, and with nothing to show this would be
+ * an empty labelled row, which §0.6 says reads as a control that failed to load. It would also
+ * hide the only way to enter a cylinder at all on a first-ever dive.
+ *
+ * `toggled` is the diver's own gesture and outranks both, for the life of this form — the same
+ * shape `FormGroup` uses, and for the same reason: a default that arrives late (`useDives`
+ * resolving after the first render) must reach a row nobody has touched, and must never
+ * overrule one they have.
+ *
+ * **A `Controller` around `tanks`, not a `useWatch` in the screen.** Both would re-render on
+ * every keystroke in a cylinder field; only this one confines that re-render to this subtree
+ * rather than to all thirty of the form's rows. It is the same reason `ControlledEquipmentField`
+ * above holds one `Controller` for the whole accessory set.
+ *
+ * The row is `DateTimeField`'s own shape — a label, a value trailing as text, the whole 48 dp
+ * row pressable — because it is the same kind of thing: a field whose value is read rather than
+ * typed and whose press opens something. The mark is §0.6's chevron, drawn and rotated, which
+ * is what this app already means by "there is more behind this".
+ */
+function ControlledCylinderSpec({
+  control,
+  units,
+  defaultExpanded,
+  scheme,
+  children,
+}: {
+  control: FormControl;
+  units: UnitSystem;
+  defaultExpanded: boolean;
+  scheme: ColorScheme;
+  children: ReactNode;
+}) {
+  const styles = makeStyles(scheme);
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const expanded = toggled ?? defaultExpanded;
+  return (
+    <Controller
+      control={control}
+      name="tanks"
+      render={({ field }) => {
+        const summary = cylinderSpecText(field.value as DiveFormInput['tanks'], units);
+        return (
+          <>
+            <Pressable
+              style={styles.formField}
+              onPress={() => setToggled(!expanded)}
+              accessibilityRole="button"
+              // The `label: value` shape every read-back field on this form announces
+              // (`DateTimeField`), so a screen reader hears what the cylinder is and not merely
+              // that there is a control here. The open/closed state travels as STATE beside it,
+              // exactly as `FormGroup`'s header carries it, rather than as a word in the label
+              // that would then have to change out from under it.
+              accessibilityLabel={`${CYLINDER_LABEL}: ${summary ?? NOT_RECORDED}`}
+              accessibilityState={{ expanded }}
+            >
+              <View style={styles.formFieldRow}>
+                <Text style={styles.formFieldLabel}>{CYLINDER_LABEL}</Text>
+                <View style={styles.formFieldPicker}>
+                  <Text style={summary === null ? styles.formFieldPickerTextUnset : styles.formFieldPickerText}>
+                    {summary ?? NOT_RECORDED}
+                  </Text>
+                </View>
+                <View style={[styles.formGroupChevron, expanded && styles.formGroupChevronExpanded]} />
+              </View>
+            </Pressable>
+            {expanded ? children : null}
+          </>
+        );
+      }}
+    />
+  );
+}
+
 /**
  * DESIGN.md §2.1's cylinder presets, offered where the cylinders are: a row of chips at the
  * top of the Gas & cylinders group, one tap each. "Named cylinder sets ('twin 12 steel',
@@ -1326,6 +1455,20 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   const chosenDate = typeof watchedDate === 'string' ? watchedDate : null;
 
   const carriedPaths = carried.paths;
+
+  // Whether §2.2's cylinder row starts open — see `ControlledCylinderSpec` for the rule and
+  // for why a summary's default is the mirror image of a group's.
+  //
+  // Read off the SEED (`carried.values`) rather than the live form values, so it cannot flip
+  // to "collapsed" on the first digit of a size the diver is typing; and gated on `resolved`
+  // (db/liveQuery.ts) rather than computed regardless, because create mode's first render
+  // always precedes carry-over. Without that gate the row would render OPEN for a frame — a
+  // form that always looked as though the diver had no cylinder — and then close the four
+  // fields again the moment the previous dive's cylinder landed. Collapsed is the honest
+  // answer while nothing is known: the common case is a carried cylinder, which needs no
+  // correction at all, and the rare one (a first-ever dive) grows content rather than hiding
+  // it.
+  const cylinderSpecOpen = resolved && cylinderSpecText(carried.values.tanks, units) === null;
 
   // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
   // alike) rather than one closure per field, so there is exactly one place that can
@@ -1855,6 +1998,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           {/* §2.1's presets, at the top of the group they fill — and absent entirely when
               the diver has none, so a first-time diver sees nothing new. */}
           <PresetChips presets={presets} onApply={applyPreset} scheme={scheme} />
+          {/* §10's snapshot ruling, as the diver meets it: the dive keeps its own full copy of
+              the spec, and the four fields that make it up are shown as one line until the
+              diver wants to correct them on this dive. **Not one field fewer than before** —
+              a snapshot nobody can amend is not a snapshot — and the two per-dive facts, the
+              gas below and the pressures now in the core strip, stay directly editable
+              because they are not part of what kind of cylinder this is. */}
+          <ControlledCylinderSpec control={control} units={units} defaultExpanded={cylinderSpecOpen} scheme={scheme}>
           <ControlledOptionField
             control={control}
             name="tanks.0.material"
@@ -1910,6 +2060,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit={unitLabel('pressure', units)}
           />
+          </ControlledCylinderSpec>
           {/* `O2 %` and `He %` until M1d's closing fixes: the same two fields the detail
               screen labels `O₂` and `He`, so one cylinder read two ways one screen apart —
               the same defect `formatTankMaterial`'s own docblock records for "Steel"/"steel".

@@ -10,6 +10,7 @@ import {
   formatConditionScale,
   formatCoordinates,
   formatConfiguration,
+  formatCylinderSpec,
   formatCylinders,
   HE_LABEL,
   O2_LABEL,
@@ -509,6 +510,51 @@ describe('formatCylinders', () => {
   // function rather than retyped, so the two cannot part company here either.
   it('spells the material the way the rest of the app does', () => {
     expect(formatCylinders([tank({ material: 'steel' })], 'metric')).toBe(formatTankMaterial('steel'));
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// formatCylinderSpec (the dive form's cylinder row, M1h) — the spec WITHOUT the gas
+// ---------------------------------------------------------------------------------------
+//
+// §2.2: the form collapses rig, size, material and working pressure into one row and expands
+// them when a diver wants to correct them on this dive, while the gas and the two pressures
+// stay directly editable beside it. So the two lines exist for two questions — "what kind of
+// cylinder is this" and "what is in it" — and the one thing that must not happen is a second
+// statement of the order and the separators.
+describe('formatCylinderSpec', () => {
+  it('reads the rig, cylinder and working pressure, and says nothing about the gas', () => {
+    const full = tank({ material: 'steel', configuration: 'twinset', sizeL: 12, workingBar: 232, o2Pct: 32, hePct: 21 });
+    expect(formatCylinderSpec(full, 'metric')).toBe('Twinset 12 l Steel · 232 bar');
+  });
+
+  // The composition, asserted as a composition. `formatCylinders` prefixes its line with
+  // exactly this string — so a second, drifting copy of the order or the separators inside
+  // either function fails here rather than showing one cylinder two ways on two screens. It
+  // is the same assertion shape the material test above makes against `formatTankMaterial`.
+  it('is the opening of the whole-cylinder line, not a second spelling of it', () => {
+    const full = tank({ material: 'alu', configuration: 'single', sizeL: 11.1, workingBar: 207, o2Pct: 32 });
+    const spec = formatCylinderSpec(full, 'metric');
+    expect(spec).not.toBeNull();
+    expect(formatCylinders([full], 'metric')).toBe(`${spec} · ${O2_LABEL} 32 %`);
+  });
+
+  // The pressures are a dive's gauge readings and the gas is a dive's mix; neither is part of
+  // what kind of cylinder this is. A cylinder recording only those has no spec to show, and
+  // the form draws its four fields rather than a summary for exactly this answer — so `null`
+  // here is load-bearing rather than tidy.
+  it.each([
+    ['nothing at all', tank()],
+    ['nothing but the gauge readings', tank({ startBar: 200, endBar: 60 })],
+    ['nothing but a mix', tank({ o2Pct: 32, hePct: 21 })],
+  ])('is null for a cylinder recording %s', (_case, only) => {
+    expect(formatCylinderSpec(only, 'metric')).toBeNull();
+  });
+
+  // The one figure in this line that converts (§6 stores bar), through the same owner the
+  // whole-cylinder line uses.
+  it('reads the working pressure in the diver’s own units', () => {
+    expect(formatCylinderSpec(tank({ sizeL: 11.1, workingBar: 207 }), 'imperial')).toBe('11.1 l · 3002 psi');
   });
 });
 

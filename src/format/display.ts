@@ -284,36 +284,46 @@ export function formatSuitThickness(mm: number | null): string | null {
 }
 
 /**
- * One cylinder's **specification** on a single line — `Twinset 12 l steel · 232 bar · O₂ 32 %`.
+ * **What kind of cylinder this is, and nothing about what is in it** — `Twinset 12 l Steel ·
+ * 232 bar`. The four fields a diver sets once and reuses: rig, size, material, working
+ * pressure.
  *
  * Deliberately not `startBar`/`endBar`. Those two are gauge readings: they describe one
  * dive's consumption, not the cylinder, which is why a preset stores neither (DESIGN.md
  * §10) and why a summary of "what kind of cylinder is this" has nothing to say about them.
- * Every other field goes through this module's own per-field formatter — `formatVolume`,
- * `formatTankMaterial`, `formatConfiguration`, `formatPressure`, `formatPercent` — the same
- * five `DiveDetailScreen`'s `tankFields` reads, so the two screens cannot spell one cylinder
- * two ways. What is decided *here*, and nowhere else, is the order and the separators.
+ * Every field goes through this module's own per-field formatter — `formatVolume`,
+ * `formatTankMaterial`, `formatConfiguration`, `formatPressure` — the same ones
+ * `DiveDetailScreen`'s `tankFields` reads, so the two screens cannot spell one cylinder two
+ * ways. What is decided *here*, and nowhere else, is the order and the separators.
  *
  * **The rig leads the phrase, and it is always shown.** It used to be a multiplier —
- * `2 × 12 l steel`, from the `count` field M1h removed — and the rule that came with it was
- * that a count of `1` said nothing, because "1 × 12 l steel" is a word of noise. That rule
+ * `2 × 12 l Steel`, from the `count` field M1h removed — and the rule that came with it was
+ * that a count of `1` said nothing, because "1 × 12 l Steel" is a word of noise. That rule
  * does not carry over, for two reasons. §10 makes twinset and sidemount *different rigs*
  * that merely imply the same number, so a bare `2 ×` would render both identically and lose
  * exactly the distinction the ruling established; and `single` is a fact the diver chose to
  * record about their rig, not arithmetic — suppressing it would also let a cylinder that
  * records nothing but its rig summarise to nothing at all, silently losing the only thing it
- * has to say. `Twinset 12 l steel` is how the design's own example preset names ("twin 12
+ * has to say. `Twinset 12 l Steel` is how the design's own example preset names ("twin 12
  * steel") already read.
  *
- * `null` when the cylinder records nothing this line can show — including a cylinder holding
- * nothing but the two pressures above, which looks full and summarises to nothing. The
- * caller shows a different row entirely for that, so an empty string here would draw a blank
- * line rather than let it.
+ * **Exported because the dive form reads back the spec on its own** (M1h, §2.2): the four
+ * fields collapse into one row there and expand when a diver wants to correct them on this
+ * dive, while the gas and the two pressures stay directly editable beside it — they are
+ * per-dive facts, and a summary that restated them would put the same value on screen twice
+ * with only one of the two editable. That split is why this is a function rather than a
+ * paragraph inside `formatCylinder` below: the whole-cylinder line and the spec-only line are
+ * two callers of ONE statement of the order and the separators, not two spellings of it.
+ *
+ * `null` when the cylinder records no specification at all — including a cylinder holding
+ * nothing but gas and gauge readings, which looks full on a form and has no spec to show. A
+ * caller shows something else entirely for that (the form shows the fields themselves), so an
+ * empty string here would draw a blank line rather than let it.
  */
-function formatCylinder(tank: Tank, system: UnitSystem): string | null {
+export function formatCylinderSpec(tank: Tank, system: UnitSystem): string | null {
   const parts: string[] = [];
 
-  // Rig, then size, then material — `Twinset 12 l steel`, the order a diver names a cylinder
+  // Rig, then size, then material — `Twinset 12 l Steel`, the order a diver names a cylinder
   // in, and the order `tankFields` already lists the fields in one screen over.
   const spec = [formatConfiguration(tank.configuration), formatVolume(tank.sizeL), formatTankMaterial(tank.material)]
     .filter((part) => part !== null)
@@ -322,6 +332,28 @@ function formatCylinder(tank: Tank, system: UnitSystem): string | null {
 
   const working = formatPressure(tank.workingBar, system);
   if (working !== null) parts.push(working);
+
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
+/**
+ * One whole cylinder on a single line — `Twinset 12 l Steel · 232 bar · O₂ 32 %`: its
+ * specification (`formatCylinderSpec` above) plus the gas in it.
+ *
+ * The gas is here rather than in the spec because a mix is a fact about **this dive**, not
+ * about the cylinder: the same twinset holds air on one dive and 32 % on the next. §3's
+ * preset list is the caller that wants both halves — a preset stores a mix (§2.1: "gas mixture
+ * per cylinder"), so a chip named "alu 80 nitrox" has to be able to say so.
+ *
+ * `null` when the cylinder records nothing this line can show, on `formatCylinderSpec`'s own
+ * reasoning.
+ */
+function formatCylinder(tank: Tank, system: UnitSystem): string | null {
+  const parts: string[] = [];
+
+  const spec = formatCylinderSpec(tank, system);
+  if (spec !== null) parts.push(spec);
+
   // The two label constants, never bare percentages: a trimix cylinder shows both fractions,
   // and `32 % · 21 %` says which is which to nobody. `O2_LABEL`/`HE_LABEL` exist because
   // exactly these two labels had already drifted between the form and the detail.

@@ -18,7 +18,7 @@ import { useDives } from '../db/useDives';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
-import { formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
+import { formatCylinderSpec, formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
   CONFIGURATION_VALUES,
   ENTRY_VALUES,
@@ -305,6 +305,23 @@ async function openGroup(t: RenderResult, title: string) {
   const header = findButton(t, title);
   if (!header) throw new Error(`no ${title} header found`);
   await fireEvent.press(header);
+}
+
+/**
+ * Opens §2.2's cylinder specification row, so a test can reach the four fields it reads back
+ * (rig, size, material, working pressure). The group has to be open first — this is a row
+ * inside *Gas & cylinders*, not a group of its own.
+ *
+ * **"Ensure open", not "press"**, unlike `openGroup` above, because this row's default depends
+ * on the dive: it starts open when the cylinder records no specification (there is nothing to
+ * summarise) and closed when it does. A helper that always pressed would close it for exactly
+ * the tests that seed a cylinder — which is most of them.
+ */
+async function openCylinder(t: RenderResult) {
+  const row = findPickerField(t, 'Cylinder');
+  if (!row) throw new Error('no Cylinder row found');
+  if (row.props?.accessibilityState?.expanded === true) return;
+  await fireEvent.press(row);
 }
 
 // --- §2.4: the Logged/Planned control ---
@@ -1147,6 +1164,9 @@ it('prefills and marks a carried cylinder field too, not just top-level ones', a
   const gasHeader = findButton(t, 'Gas & cylinders');
   if (!gasHeader) throw new Error('no Gas & cylinders header found');
   await fireEvent.press(gasHeader);
+  // The spec collapses into one row when it records something (§2.2), and this dive's
+  // carried cylinder does — so the four fields behind it have to be opened to be read.
+  await openCylinder(t);
 
   expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
   expect(findClearCarried(t, 'Size')).toBeDefined();
@@ -1931,6 +1951,149 @@ it('asks for the rig with chips, and asks for no cylinder count at all', async (
   expect(findTextInput(t, 'Size')?.props?.keyboardType).toBe('decimal-pad');
 });
 
+// --- §2.2: the cylinder specification reads back as one row ---
+//
+// The owner's complaint was six cylinder fields on a form where he changes only the gas and
+// the pressures. §10's snapshot ruling is what makes the answer a display question: the dive
+// stores its own full copy of the spec, and *storing and showing are different questions*. So
+// the four fields a diver sets once collapse into `formatCylinderSpec`'s line and expand when
+// they want to correct them on this dive.
+//
+// **Every test below drives the row rather than the component's props**, for the reason the
+// field sweep's own header gives: a summary that renders correctly and cannot be opened, or
+// one that opens onto fields wired to nothing, both look right from the outside.
+
+/** The four fields the summary stands in for — the ones that must vanish behind it and come
+ * back when it opens. `Size` and `Working pressure` are typed; `Material` and `Configuration`
+ * are chip rows, so this checks both kinds. */
+const SPEC_FIELD_LABELS = ['Size', 'Working pressure'] as const;
+
+function specFieldsShown(t: RenderResult): boolean {
+  return SPEC_FIELD_LABELS.every((label) => findTextInput(t, label) !== undefined);
+}
+
+/** A dive whose cylinder records a full specification and a mix — the ordinary carried case. */
+const cylinderDive = () =>
+  dive({
+    id: 'target',
+    date: '2026-08-16',
+    tanks: [tank({ material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232, o2Pct: 32 })],
+  });
+
+it('reads a recorded cylinder back as one line instead of four fields', async () => {
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  // The line itself comes from `formatCylinderSpec` (format/display.ts) rather than being
+  // spelled out here, so a screen that grew a private copy of the order or the separators
+  // fails this instead of quietly disagreeing with §3's preset list.
+  expect(shownIn(t, 'Cylinder')).toBe(formatCylinderSpec(cylinderDive().tanks[0] as Tank, 'metric'));
+  // The formatter is not returning null, which would make the line above read "Not set" and
+  // agree with a broken screen for the wrong reason.
+  expect(shownIn(t, 'Cylinder')).toBe('Single 12 l Steel · 232 bar');
+  expect(specFieldsShown(t)).toBe(false);
+  expect(findChip(t, 'Material', 0)).toBeUndefined();
+});
+
+it('gives every one of those fields back on a press — the spec is summarised, never removed', async () => {
+  // §10 is explicit that the fields stay reachable: the dive stores its own copy of the spec,
+  // "or the snapshot is a snapshot nobody can amend". A row that summarised and could not be
+  // opened would pass the test above.
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
+
+  expect(specFieldsShown(t)).toBe(true);
+  expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
+  expect(findTextInput(t, 'Working pressure')?.props?.value).toBe('232');
+  expect(findChip(t, 'Material', 0)).toBeDefined();
+  expect(findChip(t, 'Configuration', 0)).toBeDefined();
+
+  // ...and closes again, so this is a disclosure rather than a one-way door.
+  await fireEvent.press(findPickerField(t, 'Cylinder')!);
+  expect(specFieldsShown(t)).toBe(false);
+});
+
+it('follows a correction the diver makes, rather than the value it was seeded with', async () => {
+  // The summary reads the LIVE form values. A row that formatted the seed would show the old
+  // cylinder back to a diver who had just corrected it, which is the same "says one thing,
+  // does another" defect §2.4's own control was rebuilt to end.
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
+  await typeInto(t, 'Size', '15');
+
+  expect(shownIn(t, 'Cylinder')).toBe('Single 15 l Steel · 232 bar');
+});
+
+it('says nothing about the gas or the gauge readings, which stay directly editable', async () => {
+  // The split §10's ruling actually draws: the spec is what kind of cylinder this is, the mix
+  // and the pressures are what happened on this dive. Both halves are asserted — the summary
+  // omits them, and they are reachable without opening the row at all — because a summary that
+  // swallowed the mix would put one value on screen twice with only one copy editable.
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  expect(shownIn(t, 'Cylinder')).not.toContain(O2_LABEL);
+  expect(findTextInput(t, O2_LABEL)?.props?.value).toBe('32');
+  expect(findTextInput(t, HE_LABEL)).toBeDefined();
+  // The two pressures live in the core strip now and never needed this group opened.
+  expect(findTextInput(t, 'Start pressure')).toBeDefined();
+  expect(findTextInput(t, 'End pressure')).toBeDefined();
+});
+
+it('shows the fields themselves when there is no specification to summarise', async () => {
+  // §0.6: an empty labelled row reads as a control that failed to load — and on a first-ever
+  // dive this row would be the only way in to the cylinder fields at all. So the rule is §2.2's
+  // group rule turned around: a group opens when it HOLDS something, a summary opens when it
+  // holds nothing.
+  stubDives({ dives: [] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  expect(shownIn(t, 'Cylinder')).toBe('Not set');
+  expect(specFieldsShown(t)).toBe(true);
+});
+
+it('does not flash the four fields open before the read that would have closed them', async () => {
+  // `resolved` (db/liveQuery.ts) is what makes the difference, and without it this row is open
+  // on every create-mode form for a frame: the first render always precedes carry-over, so the
+  // cylinder always looks unrecorded, and the four fields would close under the diver the
+  // moment the previous dive's cylinder landed. Collapsed is the honest answer while nothing
+  // has been read — the common case then needs no correction at all.
+  // The real first frame, reproduced rather than approximated: `useDives` hands back an empty
+  // list before it has read anything, so the seed holds no cylinder and the row's own rule
+  // says "open". `resolved` is the only thing that can tell that from a diver who genuinely
+  // has none.
+  stubDives({ dives: [], resolved: false });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+  expect(specFieldsShown(t)).toBe(false);
+  expect(shownIn(t, 'Cylinder')).toBe('Not set');
+
+  stubDives({ dives: [dive({ date: '2026-08-10', tanks: [tank()] })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  // Still closed, and now holding the carried cylinder: nothing on screen changed state.
+  expect(specFieldsShown(t)).toBe(false);
+  expect(shownIn(t, 'Cylinder')).toBe('Single 12 l Steel · 232 bar');
+});
+
+it('reads the specification in the diver’s own units', async () => {
+  // §6 stores bar and the form holds what the diver types, so the summary rounds the trip
+  // through `toStoredTanks` and back out through `formatCylinderSpec`. An imperial diver whose
+  // cylinder read `232 bar` here would be reading the stored figure rather than their own.
+  mockUseUnitSystem.mockReturnValue('imperial');
+  stubLogbookFor(cylinderDive());
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  expect(shownIn(t, 'Cylinder')).toBe('Single 12 l Steel · 3365 psi');
+});
+
 it('carries a rig this build has no chip for into a new dive rather than dropping it', async () => {
   // What the rounding test that stood here defended against, arriving through the door that
   // is still open: a value from somewhere this form's controls do not govern — carry-over
@@ -2363,7 +2526,10 @@ it('writes a cylinder the diver actually changed', async () => {
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
   expect(findTextInput(t, 'Size')?.props?.value).toBe('12');
+  // The end pressure is in the core strip now, not in this group — the group is opened
+  // above for the cylinder SIZE this test also reads.
   await typeInto(t, 'End pressure', '40');
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
@@ -3343,6 +3509,7 @@ it('keeps applied preset cylinders when carry-over resolves again afterwards', a
   stubDives({ dives: [dive({ date: '2026-08-20', buddy: 'Petr', tanks: [tank({ sizeL: 15 })] })] });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
   const chip = findPresetChip(t, 'alu 80');
   if (!chip) throw new Error('no preset chip found');
   await fireEvent.press(chip);
@@ -3462,6 +3629,7 @@ it('drops the carried mark from the fields it fills', async () => {
   stubPresets([preset({ name: 'alu 80', tanks: [tank({ sizeL: 11.1, startBar: null, endBar: null })] })]);
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
   expect(findClearCarried(t, 'Size')).toBeDefined();
 
   const chip = findPresetChip(t, 'alu 80');
@@ -3490,6 +3658,7 @@ it('drops the carried marks from a block a cylinderless preset blanked', async (
   stubPresets([preset({ name: 'from another device', tanks: [] })]);
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
+  await openCylinder(t);
   expect(findClearCarried(t, 'Size')).toBeDefined();
   expect(findClearCarried(t, 'Working pressure')).toBeDefined();
 
