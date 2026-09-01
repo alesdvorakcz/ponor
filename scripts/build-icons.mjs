@@ -133,12 +133,21 @@ fs.mkdirSync(out, { recursive: true });
 // the drawing's proportions written down a second time. A trimmed asset carries
 // its own aspect ratio, so `emptyStateMark` states a width and nothing else.
 //
-// Two passes, not one chain: sharp applies `trim` early in its own fixed pipeline
-// order, so a `.resize().trim()` chain trims the source and then scales the
-// untrimmed frame back over it — it returns 360×360 and looks exactly like a trim
-// that did nothing. Rasterise, trim, then scale the trimmed result to width.
-const monoFull = await sharp(Buffer.from(monoText)).png().toBuffer();
-const monoScaled = await sharp(monoFull).trim().resize({ width: 360 }).png().toBuffer();
+// **`resize({ width })`, never `resize(w, h)`, and that is the whole hazard.**
+// sharp runs `trim` before `resize` whatever order they are chained in, so a
+// resize that forces BOTH dimensions puts the frame straight back: `.resize(360,
+// 360).trim()` returns 360×360 — indistinguishable from a trim that did nothing,
+// which is exactly how the first version of this went unnoticed until the build's
+// own log line printed the size. Constraining the width alone lets the trimmed
+// aspect ratio survive, and then chain order genuinely does not matter:
+// `.trim().resize({ width: 360 })` and `.resize({ width: 360 }).trim()` both give
+// 360×209. (An earlier note here claimed a single chain could not work at all.
+// Measured, it can; what cannot is a two-dimension resize.)
+const monoScaled = await sharp(Buffer.from(monoText))
+  .trim()
+  .resize({ width: 360 })
+  .png()
+  .toBuffer();
 const { width: monoWidth, height: monoHeight } = await sharp(monoScaled).metadata();
 
 // **The drawing is put entirely in the alpha channel, and the colour is laid down

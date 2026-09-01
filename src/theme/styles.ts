@@ -713,9 +713,19 @@ function build(scheme: ColorScheme) {
     // button, the scroll takes the slack (`flex: 1` on `emptyStateScroll`), and it is
     // `emptyStateContent` that decides where the teaching block sits inside it. Left here,
     // `flex-end` would have been a second, contradicting answer to the same question.
+    // **16, matching `divesTitle` and `divesCount` above it — one column, not two.**
+    // It was 20 from M0, when the only thing in here was a sentence and a button and there was
+    // nothing above them to line up with. The first-run block put five more elements under a
+    // title that sits at 16, so the wrap's own 20 became a **four-point step** between the
+    // heading and everything it heads. Measured on the device at 3×, not eyeballed: the mark's
+    // ink started at 20.00 pt and "0 dives" at ≈16.7. Centring had hidden it — a centred block
+    // has no left edge to disagree with — and left-aligning is what made it visible, which is
+    // the same "a design decision exposes a latent one" this screen has now produced twice.
+    // Pinned next door as a relation to `divesTitle`, because the rule is *the same column*
+    // and not *this number*.
     emptyStateWrap: {
       flex: 1,
-      paddingHorizontal: 20,
+      paddingHorizontal: 16,
       gap: 16,
     },
     // **The teaching block scrolls; the action does not** (M1h). Everything above the button

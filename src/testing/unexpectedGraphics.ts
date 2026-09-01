@@ -147,6 +147,14 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
   // second half of the same hole and free to close here.
   const nodes = [t.root, ...t.root.queryAll(() => true)];
   const mark = makeStyles(scheme).emptyStateMark as unknown;
+  // **"Exactly one" is counted, not merely described.** Matching on `emptyStateMark` alone
+  // says "every image is painted like the mark", which is not the same claim and leaves the
+  // most plausible bad edit through: a SECOND `<Image>` reusing that very style with a
+  // different source — the gradient `icon.png`, a photo — passes an identity check on its
+  // style and would draw a second graphic on a screen whose comment promises one. So the
+  // count is part of the rule, and a tree holding two images reports both rather than
+  // silently picking a winner.
+  const imageCount = nodes.filter((n) => n.type === 'Image').length;
   return nodes.filter((n) => {
     // **The one graphic Ponor draws, named** (M1h). The empty state renders the mark as an
     // `Image` — DESIGN.md §0.3's shape, monochrome, from the same `assets/mark.svg` the icons
@@ -162,6 +170,7 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
     // `makeStyles`, so an image tinted from anywhere else — a depth colour included — is
     // still reported.
     if (n.type === 'Image') {
+      if (imageCount > 1) return true;
       const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
       return style.length === 0 || !style.every((entry) => entry === mark);
     }

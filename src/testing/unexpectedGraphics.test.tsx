@@ -154,3 +154,17 @@ it('does not let a depth colour smuggle a shape in beside it', async () => {
   );
   expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
 });
+
+it('catches a second image even when it wears the mark own style, because the rule is one image', async () => {
+  // The most plausible bad edit there is, and an identity check on the style alone lets it
+  // through: somebody adds an `<Image>` for a second thing and reaches for the style that is
+  // already there. Both are reported rather than one, since nothing here can say which of two
+  // identical-looking images was meant to be the mark.
+  const t = await render(
+    <View>
+      <Image source={{ uri: 'a' }} style={styles.emptyStateMark} />
+      <Image source={{ uri: 'b' }} style={styles.emptyStateMark} />
+    </View>,
+  );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(2);
+});

@@ -25,6 +25,7 @@ import { reorderDivesForDate, softDeleteDive, type ReorderOutcome } from '../db/
 import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { formatDiveCount } from '../format/display';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { themeFor } from '../theme/resolve';
@@ -805,6 +806,37 @@ it('names the screen on an empty logbook, with no capsule beside it', async () =
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : []).toHaveLength(0);
   // The bar is there, holding the title where a populated logbook holds it.
   expect(findBar(t)).toBeTruthy();
+});
+
+// **§0.4/§0.1's guard, on the screen rather than on the components it is made of** (M1h).
+// `EmptyState.test.tsx` and `DepthLegend.test.tsx` both call `unexpectedGraphics`, and that is
+// not the same thing: those render the pieces in isolation with props a test supplies, while
+// this is the tree a diver actually meets — the bar, the title, the count and the whole
+// first-run block composed together. Review found the gap by mutation, and the mutation that
+// found it is the one this screen exists to prevent: **adding the gradient `icon.png` as a
+// second `Image` under "0 dives" left 52 tests green here.** A red literal on the branch's own
+// root survived too. Ten files call this guard and three of them are screens; this was the
+// screen with an `Image` on it and no call.
+//
+// `'light'` because that is what `useColorScheme()` reports under Jest and this screen resolves
+// its own scheme from it — the same constraint `DiveDetailScreen.test.tsx` records. Compared
+// against the other sheet, every real style in the tree would misreport as ad hoc.
+it('draws no graphic and no paint of its own on the empty logbook, which is where §0.1 is taught', async () => {
+  stubDives({ dives: [], numbers: new Map(), error: undefined });
+  const t = await render(<DivesScreen />);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+// The populated list too, for the reason the empty branch needed it: this is the tree with dive
+// rows, trip headers and a day strip in it, and none of those has ever been swept as a whole.
+// The depth values are `Text`, which the guard does not inspect, so a colour reaching a `View`
+// here would be new — which is exactly when a sweep is worth having.
+it('draws none on a populated logbook either', async () => {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
+  const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', maxDepthM: 31.4 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
+  const t = await render(<DivesScreen />);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
 // **The first-run screen is where a diver is taught the depth scale, so it has to be taught in

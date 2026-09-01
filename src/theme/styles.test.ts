@@ -1,3 +1,4 @@
+import { fonts } from './fonts';
 import { themeFor } from './resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from './styles';
 import { depthScale } from './tokens';
@@ -455,6 +456,104 @@ describe('the first-run block alignment', () => {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       expect(sheet.emptyStateContent?.alignItems).toBe('flex-start');
       expect(sheet.depthLegend?.alignSelf).toBe('stretch');
+    }
+  });
+
+  // **And it is the SAME edge as the title above it.** `emptyStateWrap` carried
+  // `paddingHorizontal: 20` from M0, when the whole screen was a sentence and a button with
+  // nothing over them to line up with; the title and the count sit at 16, so the first-run
+  // block hung four points inboard of the heading it belongs to — the mark's ink at 20.00 pt
+  // against "0 dives" at ≈16.7, measured on the device. A centred block has no left edge to
+  // disagree with, which is why left-aligning is what exposed it.
+  //
+  // Written as a RELATION, because the rule is "one column on this screen" and not "16": move
+  // the Dives title's inset and this requires the block to follow rather than quietly
+  // reintroducing the step at a new width.
+  it('shares the Dives title own column, so the screen has one left edge', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const column = sheet.divesTitle?.paddingHorizontal;
+      expect(typeof column).toBe('number');
+      expect(sheet.divesCount?.paddingHorizontal).toBe(column);
+      expect(sheet.emptyStateWrap?.paddingHorizontal).toBe(column);
+    }
+  });
+});
+
+// **The pair this sheet's own comment calls load-bearing, defended** (M1h). `emptyStateContent`
+// carries `flexGrow: 1` and `justifyContent: 'flex-end'` and the comment beside them explains
+// what each does: short content is pushed down against the button, so the composition keeps
+// §0.5's thumb zone; tall content makes the container taller than its frame, which leaves
+// `justifyContent` no free space and lays the block out from the TOP, so nothing overflows off
+// the top edge unreachable. Deleting both left 86 tests green.
+//
+// A comment asserting a guarantee that nothing defends is this project's signature defect, and
+// neither half can be checked by rendering: Jest has no layout, and the failure only appears on a
+// screen short enough to overflow. So they are pinned as the properties they are, with the reason
+// each exists written where it can be read — which is the same trade `screenBottomInset`'s own
+// tests make about a tab bar no unit test can see.
+describe('the first-run block scroll', () => {
+  it('keeps both halves of the pair that positions it', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const content = makeStyles(scheme).emptyStateContent as Record<string, unknown>;
+      // Without this the container is only as tall as its content, `justifyContent` has no
+      // space to distribute even on a tall screen, and the block floats at the top of the
+      // scroll with the button far below it.
+      expect(content.flexGrow).toBe(1);
+      // Without this the block sits at the top of a full-height container — §0.5's thumb zone
+      // emptied out, and the mark stranded under the title.
+      expect(content.justifyContent).toBe('flex-end');
+    }
+  });
+
+  // The scroll has to take the slack for either of those to mean anything: a `ScrollView` with
+  // no `flex` is sized by its content, so the container would never be shorter than the frame
+  // and the pair above would never fire.
+  it('gives the scroll the slack, so the content container has a frame to fill', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      expect((makeStyles(scheme).emptyStateScroll as Record<string, unknown>).flex).toBe(1);
+    }
+  });
+});
+
+// The three properties a first-run screen can lose without any test noticing, because each
+// degrades to something that still renders: an invisible mark, an invisible scale, and a caption
+// in the wrong face. All three survived mutation before this block existed.
+describe('the first-run block stays legible', () => {
+  it('draws the mark quietly but visibly, in both themes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const opacity = (makeStyles(scheme).emptyStateMark as Record<string, unknown>).opacity;
+      expect(typeof opacity).toBe('number');
+      // A band, not a value, because the number is a design judgement and the RULE is that the
+      // mark is present and recedes. `> 0 && < 1` was the first version of this and `0.02`
+      // passed it — a mark nobody can see, on the screen a diver meets first.
+      expect(opacity as number).toBeGreaterThanOrEqual(0.35);
+      expect(opacity as number).toBeLessThanOrEqual(0.7);
+    }
+  });
+
+  it('draws the legend swatches as bands rather than hairlines', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const bar = makeStyles(scheme).depthLegendBar as Record<string, unknown>;
+      // `height: 0` renders a legend of six invisible bars under six labels — on the screen
+      // whose entire purpose is showing the scale — and every colour assertion in
+      // `DepthLegend.test.tsx` stays green, because the styles are all still correct.
+      expect(typeof bar.height).toBe('number');
+      expect(bar.height as number).toBeGreaterThanOrEqual(4);
+      // The radius is what makes it a swatch rather than a rule, and it cannot exceed the half
+      // height without the pill becoming a lozenge of a different height than stated.
+      expect(bar.borderRadius).toBe((bar.height as number) / 2);
+    }
+  });
+
+  it('sets the caption in the face §0.2 reserves for figures', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      // "red fades out by 6 m, blue carries past 40 m" is a reading, not a sentence about the
+      // app, and it sits directly under a row of mono figures it has to agree with. Archivo
+      // here renders perfectly and quietly breaks that pairing.
+      expect(sheet.emptyStateReason?.fontFamily).toBe(fonts.mono);
+      expect(sheet.depthLegendLabel?.fontFamily).toBe(fonts.mono);
     }
   });
 });
