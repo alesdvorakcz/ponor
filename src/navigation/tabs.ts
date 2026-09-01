@@ -1,7 +1,7 @@
 import type { BottomTabNavigationOptions } from 'expo-router/js-tabs';
 import type { NativeTabsProps } from 'expo-router/unstable-native-tabs';
 
-import { type PlatformSymbol } from '../components/symbolName';
+import { nativeTabSymbol, symbolName, type PlatformSymbol } from '../components/symbolName';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -38,6 +38,83 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   { name: 'index', title: 'Dives', symbol: { ios: 'water.waves', android: 'waves' } },
   { name: 'settings', title: 'Settings', symbol: { ios: 'gearshape', android: 'settings' } },
 ];
+
+/**
+ * **The tab bar as each navigator wants to receive it — route file name, the word a diver
+ * reads, and the glyph already resolved into that navigator's own key names.**
+ *
+ * This exists because of where the two layouts live. `src/app/` is swept by expo-router as
+ * the route tree, so a test file in it ships to a diver's phone (this file's own suite
+ * records that, and it is why `DivesScreen`, `DiveDetailScreen` and `GearPresetScreen` all
+ * live outside it). Nothing under `src/app/` can therefore be tested — which was fine while
+ * the layouts only mapped over data, and was not fine at all for the one expression each of
+ * them still computed:
+ *
+ * ```tsx
+ * <SymbolView name={symbolName(route.symbol)} … />   // _layout.web.tsx
+ * <NativeTabs.Trigger.Icon {...nativeTabSymbol(route.symbol)} />   // _layout.tsx
+ * ```
+ *
+ * Dropping either converter — `name={route.symbol}` — was **measured green across the whole
+ * suite**, and it is not a hypothetical: `expo-symbols`' non-iOS `SymbolView` reads
+ * `name.web`, a raw `PlatformSymbol` has no `web` key, and the browser's tab bar would draw
+ * no glyphs at all. That is the exact defect `components/symbolName.ts` was written for,
+ * sitting in the one file no test could reach.
+ *
+ * **So the conversion moves here and the layouts lose the ingredient.** These items carry no
+ * `symbol` key — deliberately built field by field rather than spread from `TAB_ROUTES`, so
+ * the raw value is not merely unused but *absent*. A layout can no longer pass it by mistake,
+ * because there is nothing to pass: `tab.symbol` is a `tsc` error, and `tsc --noEmit` does
+ * cover `src/app/` even though Jest cannot. The guarantee is moved from "nobody edits that
+ * expression wrongly" to "the wrong edit does not compile", which is §4.1's "derive, or tie
+ * at compile time" applied to the one tree that has no other net.
+ *
+ * **What that does and does not cover, stated exactly, because the difference is the whole
+ * value of it.** It covers a layout mapping over the list it is given — the realistic slip,
+ * and the one that was measured green before this existed. It does **not** cover a layout that
+ * imports `TAB_ROUTES` again and maps over that instead: `SymbolView`'s `name` prop accepts a
+ * bare `PlatformSymbol` quite happily (measured — handing it one type-checks clean and passes
+ * every test, which is precisely why the original defect was invisible to all four gates), so
+ * the raw shape is only unreachable while the raw value is out of scope. That is a rewrite
+ * rather than an edit, and nothing here would stop it. Anyone reintroducing that import is
+ * undoing this on purpose and should read this paragraph first.
+ *
+ * Two lists rather than one for the same reason there are two appearance functions below:
+ * the native bar asks for `{sf, md}` and the browser's `SymbolView` asks for `{ios, android,
+ * web}`, and they are the same two glyphs under two vocabularies. `symbolName.ts` owns both
+ * spellings; the `icon` types are read off its own return types rather than restated here, so
+ * a change to either shape lands in one place.
+ *
+ * Computed once at module load rather than per render. Both converters are pure functions of
+ * a frozen list, so every value is identical to what the layouts computed inline; what
+ * changes is that the objects are now stable across renders instead of fresh each time, which
+ * can only reduce work downstream.
+ */
+export interface NativeTabItem {
+  name: string;
+  title: string;
+  icon: ReturnType<typeof nativeTabSymbol>;
+}
+
+export interface JsTabItem {
+  name: string;
+  title: string;
+  icon: ReturnType<typeof symbolName>;
+}
+
+/** What `(tabs)/_layout.tsx` maps over. */
+export const NATIVE_TAB_ITEMS: readonly NativeTabItem[] = TAB_ROUTES.map((route) => ({
+  name: route.name,
+  title: route.title,
+  icon: nativeTabSymbol(route.symbol),
+}));
+
+/** What `(tabs)/_layout.web.tsx` maps over. */
+export const JS_TAB_ITEMS: readonly JsTabItem[] = TAB_ROUTES.map((route) => ({
+  name: route.name,
+  title: route.title,
+  icon: symbolName(route.symbol),
+}));
 
 /**
  * What the NATIVE tab bar looks like — the props `(tabs)/_layout.tsx` spreads onto

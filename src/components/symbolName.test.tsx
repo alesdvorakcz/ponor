@@ -2,14 +2,14 @@ import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
 
 import { WEATHER_VALUES, type Weather } from '../domain/types';
-import { TAB_ROUTES } from '../navigation/tabs';
+import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
 import { CurrentIcon, SurgeIcon } from './ConditionMarks';
 import { EntryIcon } from './EntryIcon';
 import { SearchCapsule } from './SearchCapsule';
-import { nativeTabSymbol, symbolName, type PlatformSymbol } from './symbolName';
+import { symbolName } from './symbolName';
 import { WeatherIcon } from './WeatherIcon';
 
 // The one thing `SearchCapsule.test.tsx` and `EntryIcon.test.tsx` structurally cannot see.
@@ -196,41 +196,44 @@ it.each([
 
 // --- The two tab glyphs, which are the one call site with no render to observe ---
 //
-// `TAB_ROUTES`' symbols reach the library in two different shapes on two different platforms:
-// `nativeTabSymbol` hands them to `NativeTabs.Trigger.Icon` as `{sf, md}` in `(tabs)/
-// _layout.tsx`, and `symbolName` hands them to an ordinary `SymbolView` in
-// `(tabs)/_layout.web.tsx` — the browser gets the JS tab bar, so the web `md`/`web` split is
-// not academic here, it is the only bar a browser draws.
+// The tabs' symbols reach the library in two different shapes on two different platforms:
+// `{sf, md}` for `NativeTabs.Trigger.Icon` in `(tabs)/_layout.tsx`, and `{ios, android, web}`
+// for an ordinary `SymbolView` in `(tabs)/_layout.web.tsx` — the browser gets the JS tab bar,
+// so the `md`/`web` split is not academic here, it is the only bar a browser draws.
 //
 // **Asserted against the data rather than against a render, and that is forced rather than
-// chosen.** Nothing under `src/app/` carries a test in this repo, so there is no component to
-// mount that would put these through `SymbolView`. This is the same shape as this file's very
-// first test, which calls `symbolName` directly on a literal.
+// chosen.** expo-router sweeps `src/app/` as the route tree, so a test file there would ship
+// to a diver's phone; nothing under it can be mounted. This is the same shape as this file's
+// very first test, which calls `symbolName` directly on a literal.
 //
-// **What it cannot see, measured rather than guessed: a layout that stops calling the
-// converter at all.** Changing `(tabs)/_layout.web.tsx`'s `name={symbolName(route.symbol)}` to
-// `name={route.symbol}` leaves the whole suite green at **1588/1588** — and that is not a
-// hypothetical regression, it is precisely the original defect this module was written for,
-// since the browser's `SymbolView` reads `name.web`, finds nothing, and draws no glyph. The
-// gap is `src/app/`'s (nothing under it carries a test) rather than this file's, and it is
-// named here so the next reader does not mistake these two assertions for cover they are not.
+// **What that used to leave uncovered, and what changed.** While the two layouts called the
+// converters themselves, dropping the call — `name={route.symbol}` — was green across the
+// whole suite at **1588/1588**: measured, and the exact defect `symbolName.ts` was written
+// for, since the browser's `SymbolView` reads `name.web`, finds nothing on a raw
+// `PlatformSymbol`, and draws no glyph. The conversion now happens in `navigation/tabs.ts`,
+// inside the tested tree, and the items it hands each layout carry **no raw symbol at all**,
+// so that edit is a `tsc` error rather than a silent blank bar. `tabs.test.ts` owns that
+// structural property — every route resolved, in order, with nothing raw left on it.
 //
-// Both converters, because they are two functions over one value and a tab whose `md` was
-// right while its `web` was wrong would be an Android bar with glyphs and a browser bar
-// without.
+// What is read here is `NATIVE_TAB_ITEMS`/`JS_TAB_ITEMS` themselves rather than the
+// converters applied to `TAB_ROUTES`, because those two lists are literally what the layouts
+// map over: a resolution that dropped a route, or resolved it with the wrong glyph, is caught
+// here, where re-deriving the answer from the source would only have proved the converters
+// still work.
 it.each([
   ['index', 'waves'],
   ['settings', 'settings'],
 ] as const)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
-  const route = TAB_ROUTES.find((r) => r.name === name);
-  // The route existing is part of the assertion: `.find` on a name nobody ships returns
+  const native = NATIVE_TAB_ITEMS.find((tab) => tab.name === name);
+  const js = JS_TAB_ITEMS.find((tab) => tab.name === name);
+  // The routes existing is part of the assertion: `.find` on a name nobody ships returns
   // `undefined`, and every expectation below would then be checking `undefined?.android`
   // against itself. A renamed or dropped tab must fail here rather than pass vacuously.
-  expect(route).toBeDefined();
-  const symbol = route?.symbol as PlatformSymbol;
-  expect(symbolName(symbol).android).toBe(material);
-  expect(symbolName(symbol).web).toBe(material);
-  expect(nativeTabSymbol(symbol).md).toBe(material);
+  expect(native).toBeDefined();
+  expect(js).toBeDefined();
+  expect(js?.icon.android).toBe(material);
+  expect(js?.icon.web).toBe(material);
+  expect(native?.icon.md).toBe(material);
 });
 
 // §0.6: "*other* does not [have a symbol]" — and the fix for the web gap must not have

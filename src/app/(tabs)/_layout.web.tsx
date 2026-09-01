@@ -2,8 +2,7 @@ import { Tabs } from 'expo-router/js-tabs';
 import { SymbolView } from 'expo-symbols';
 import { useColorScheme } from 'react-native';
 
-import { symbolName } from '../../components/symbolName';
-import { TAB_ROUTES, jsTabsAppearance } from '../../navigation/tabs';
+import { JS_TAB_ITEMS, jsTabsAppearance } from '../../navigation/tabs';
 import { resolveScheme } from '../../theme/resolve';
 
 /**
@@ -25,28 +24,38 @@ import { resolveScheme } from '../../theme/resolve';
  * `_layout.tsx` remains the one every device loads.
  *
  * Everything below is `navigation/tabs.ts`'s data, exactly as `_layout.tsx`'s is: the same
- * `TAB_ROUTES` in the same order, so adding M2's Map or M3's Stats is still one entry there
- * plus a route file — never an edit to either layout. The two differ only in the navigator
- * they hand it to and the shape that navigator wants its icons in.
+ * routes in the same order, so adding M2's Map or M3's Stats is still one entry there plus a
+ * route file — never an edit to either layout. The two differ only in the navigator they hand
+ * it to and the shape that navigator wants its icons in.
+ *
+ * **The glyph is that data too now, and this file is where the reason bites hardest.** It used
+ * to call `symbolName(route.symbol)` inline, and dropping that call — `name={route.symbol}` —
+ * left the entire suite green, because expo-router sweeps `src/app/` as the route tree and a
+ * test file here would ship to a diver's phone, so nothing could reach it. The consequence was
+ * not subtle: the browser's `SymbolView` reads `name.web`, a raw `PlatformSymbol` has no such
+ * key, and this bar would draw no glyphs at all — the very defect `components/symbolName.ts`
+ * exists to prevent, in the one file that had no witness. `JS_TAB_ITEMS` arrives resolved and
+ * carries no raw symbol, so that edit no longer type-checks.
  */
 export default function WebTabsLayout() {
   const scheme = resolveScheme(useColorScheme());
   return (
     <Tabs screenOptions={jsTabsAppearance(scheme)}>
-      {TAB_ROUTES.map((route) => (
+      {JS_TAB_ITEMS.map((tab) => (
         <Tabs.Screen
-          key={route.name}
-          name={route.name}
+          key={tab.name}
+          name={tab.name}
           options={{
-            title: route.title,
+            title: tab.title,
             // The glyph the native bar gets through `NativeTabs.Trigger.Icon`, drawn here by
-            // the same `SymbolView` the action capsule already uses in the browser —
-            // `symbolName` (components/symbolName.ts) is §4.1's owner of the per-platform key
-            // it is asked for under, and supplies the `web` half. `color` and `size` come
-            // from the navigator so the glyph tracks the selected/resting tint and the bar's
-            // own metrics, rather than this file naming either.
+            // the same `SymbolView` the action capsule already uses in the browser. It arrives
+            // carrying the `web` key this navigator actually reads — `symbolName`
+            // (components/symbolName.ts) is §4.1's owner of that key and navigation/tabs.ts is
+            // where it is applied. `color` and `size` come from the navigator so the glyph
+            // tracks the selected/resting tint and the bar's own metrics, rather than this
+            // file naming either.
             tabBarIcon: ({ color, size }) => (
-              <SymbolView name={symbolName(route.symbol)} size={size} tintColor={color} />
+              <SymbolView name={tab.icon} size={size} tintColor={color} />
             ),
           }}
         />

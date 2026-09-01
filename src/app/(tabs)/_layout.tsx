@@ -1,8 +1,7 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useColorScheme } from 'react-native';
 
-import { nativeTabSymbol } from '../../components/symbolName';
-import { TAB_ROUTES, nativeTabsAppearance } from '../../navigation/tabs';
+import { NATIVE_TAB_ITEMS, nativeTabsAppearance } from '../../navigation/tabs';
 import { resolveScheme } from '../../theme/resolve';
 
 /**
@@ -21,6 +20,15 @@ import { resolveScheme } from '../../theme/resolve';
  * per-tab here to keep in step with that list. Adding M2's Map or M3's Stats is an entry
  * there plus a route file beside `index.tsx` — no edit to this file at all.
  *
+ * **That now includes the glyph, and the reason is that this file cannot be tested.**
+ * expo-router sweeps `src/app/` as the route tree, so a test file here would ship to a
+ * diver's phone; `navigation/tabs.test.ts` records that and it is why every screen in this app
+ * lives outside this directory. This file used to call `nativeTabSymbol` itself, which made
+ * the one expression in it that could be wrong also the one expression nothing could check.
+ * `NATIVE_TAB_ITEMS` arrives with the glyph already in the native bar's `{sf, md}` spelling
+ * and with no raw symbol on it at all, so passing the unconverted value is not a mistake this
+ * file can make — it does not compile. See that module for the measurement behind it.
+ *
  * The dive form and the dive detail stay OUTSIDE this group, in the root Stack, which is
  * what makes them full-screen over the tabs rather than a third tab: §3 is "four tabs plus
  * a **full-screen** dive form."
@@ -34,14 +42,16 @@ export default function TabsLayout() {
   const scheme = resolveScheme(useColorScheme());
   return (
     <NativeTabs {...nativeTabsAppearance(scheme)}>
-      {TAB_ROUTES.map((route) => (
-        <NativeTabs.Trigger key={route.name} name={route.name}>
-          <NativeTabs.Trigger.Label>{route.title}</NativeTabs.Trigger.Label>
-          {/* `sf` / `md`, via `nativeTabSymbol` — components/symbolName.ts is §4.1's owner
-              of the per-platform key a symbol is asked for under, and the native tab bar
-              spells those keys differently from `SymbolView`. There is no web key to pass:
-              expo-router's browser implementation renders each tab as its title alone. */}
-          <NativeTabs.Trigger.Icon {...nativeTabSymbol(route.symbol)} />
+      {NATIVE_TAB_ITEMS.map((tab) => (
+        <NativeTabs.Trigger key={tab.name} name={tab.name}>
+          <NativeTabs.Trigger.Label>{tab.title}</NativeTabs.Trigger.Label>
+          {/* Already `{sf, md}`. components/symbolName.ts is §4.1's owner of the per-platform
+              key a symbol is asked for under, and the native tab bar spells those keys
+              differently from `SymbolView`; navigation/tabs.ts is where that conversion is
+              applied, so it sits inside the tested tree. There is no web key in it either
+              way: expo-router's browser implementation of NativeTabs renders each tab as its
+              title alone, which is half of why the browser gets a different navigator. */}
+          <NativeTabs.Trigger.Icon {...tab.icon} />
         </NativeTabs.Trigger>
       ))}
     </NativeTabs>

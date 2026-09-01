@@ -1,4 +1,4 @@
-import { TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
+import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 
@@ -104,4 +104,65 @@ it('names no ground for the native bar, so iOS keeps drawing its own material', 
 it('lists the tabs once, in §3\'s order, keyed by route file name', () => {
   expect(TAB_ROUTES.map((route) => route.name)).toEqual(['index', 'settings']);
   expect(TAB_ROUTES.map((route) => route.title)).toEqual(['Dives', 'Settings']);
+});
+
+// --- What each layout is handed, and why the glyph is resolved here rather than there ---
+//
+// The header of this file says a layout cannot be tested where it lives. That was tolerable
+// while both layouts only mapped over data, and it was not tolerable for the one expression
+// each still computed: `symbolName(route.symbol)` in the browser's, `nativeTabSymbol(route.
+// symbol)` in the device's. Dropping either — `name={route.symbol}` — was **measured green
+// across the entire suite**, and the browser consequence is total: expo-symbols' non-iOS
+// `SymbolView` reads `name.web`, a raw `PlatformSymbol` has no `web` key, and the bar draws no
+// glyphs at all. The one defect `components/symbolName.ts` exists to prevent, in the one file
+// no test could reach.
+//
+// So the resolution moved into `tabs.ts` and both layouts became pure rendering. These tests
+// own the *structure* of that move — every route resolved, in order, nothing raw left on it.
+// Which Material name each glyph resolves TO is `components/symbolName.test.tsx`'s, along with
+// every other per-platform name in the app; §4.1, one owner per rule, and this file asserting
+// the names too would be the second copy that drifts.
+
+it('hands each navigator every tab, in order, with the route name and title it renders', () => {
+  // Derived from `TAB_ROUTES` rather than re-typed as `['index', 'settings']`: the order and
+  // the titles are pinned against the source above, so a tab added there but dropped by
+  // either resolver fails here instead of being invisible on one platform.
+  expect(NATIVE_TAB_ITEMS.map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
+  expect(JS_TAB_ITEMS.map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
+  expect(NATIVE_TAB_ITEMS.map((tab) => tab.title)).toEqual(TAB_ROUTES.map((route) => route.title));
+  expect(JS_TAB_ITEMS.map((tab) => tab.title)).toEqual(TAB_ROUTES.map((route) => route.title));
+});
+
+it('gives each navigator its icon under the keys that navigator actually reads', () => {
+  // Two vocabularies for one glyph. The native bar asks `NativeTabs.Trigger.Icon` for
+  // `sf`/`md`; the browser's `SymbolView` reads `ios`/`android`/`web`. Presence, not spelling
+  // — a missing key is a blank bar on the platform that reads it, and `web` is the one that
+  // was actually missing in this app once, in both icons, until symbolName.ts existed.
+  for (const tab of NATIVE_TAB_ITEMS) {
+    expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
+  }
+  for (const tab of JS_TAB_ITEMS) {
+    expect(Object.keys(tab.icon).sort()).toEqual(['android', 'ios', 'web']);
+  }
+});
+
+// **The assertion that replaces a test neither layout can have.**
+//
+// `tsc --noEmit` covers `src/app/` even though Jest cannot reach it, so the way to protect an
+// untestable file is to make the wrong edit fail to compile. Both layouts now map over these
+// items and nothing else, and the items are built field by field rather than spread from
+// `TAB_ROUTES` — so `tab.symbol` is not merely unused there, it does not exist, and a layout
+// passing the unconverted value is a type error rather than a silently blank tab bar.
+//
+// That property is invisible in the layouts (it is the absence of an option) and it would
+// survive a well-meaning `...route` spread in `tabs.ts` looking like a tidy-up, which is
+// exactly how it would come back. Asserted at runtime, here, so the tidy-up is red.
+it('hands the layouts no raw symbol to pass by mistake', () => {
+  for (const tab of [...NATIVE_TAB_ITEMS, ...JS_TAB_ITEMS]) {
+    expect(tab).not.toHaveProperty('symbol');
+  }
+  // And the list is not empty, or the loop above proves nothing at all.
+  expect(NATIVE_TAB_ITEMS.length).toBe(TAB_ROUTES.length);
+  expect(JS_TAB_ITEMS.length).toBe(TAB_ROUTES.length);
+  expect(TAB_ROUTES.length).toBeGreaterThan(0);
 });
