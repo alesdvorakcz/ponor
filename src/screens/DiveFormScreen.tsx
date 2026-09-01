@@ -315,6 +315,20 @@ interface SeedState {
    * Every field the diver has typed into or cleared on this form, ever — and the one part of
    * this state that **survives a reseed**.
    *
+   * **It does not protect what the diver typed, and must not be read as though it did.**
+   * `resetOptions.keepDirtyValues` (below) is what does that; this set feeds one thing only —
+   * `paths`, and therefore the `carried ×` chips. A screen elsewhere once cited it as the
+   * sibling of a value-protecting flag, which is exactly the misreading this paragraph exists
+   * to prevent.
+   *
+   * **Three screens hold a draft over an asynchronous read and protect it three different
+   * ways** (§4.1's "a deliberate near-duplicate names its siblings"), because each has a
+   * different thing available to compare: here, the form library already tracks which fields
+   * the diver moved, so `keepDirtyValues` needs no flag; `PresetDraft` (GearPresetScreen.tsx)
+   * has a stable source identity to compare and so needs no flag either; `countTyped`
+   * (SettingsScreen.tsx) has neither a form library nor an identity — the stored count IS the
+   * value — so it has to remember the gesture explicitly. Unifying them would be its own bug.
+   *
    * The chip means "this came from your last dive" and must mean nothing else. `useDives()`
    * resolves after the first render, so a diver who taps `+` and starts typing immediately is
    * typing into a form whose carry-over has not landed yet; when it does, `keepDirtyValues`

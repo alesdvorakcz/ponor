@@ -104,9 +104,38 @@ function blankTank(): TankFormInput {
  * which is the shape that once made the dive form throw "Too many re-renders." A string
  * compares by value and settles on the second render.
  *
- * The consequence worth stating: once seeded, the diver's draft wins over a later change to
- * the same preset from elsewhere. That is `DiveFormScreen`'s behaviour too, and it is the
- * right one — the alternative is a diver's half-typed edit being overwritten mid-keystroke.
+ * The consequence worth stating: once seeded, the diver's draft wins over a later change to the
+ * same PRESET from elsewhere — the gate compares an identity that has not changed, so there is
+ * nothing to reseed from. It is structural, and this screen needs no typed-flag because of it.
+ *
+ * **Three screens hold a draft over an asynchronous read and protect it three different ways**
+ * (§4.1's "a deliberate near-duplicate names its siblings"), because each has a different thing
+ * available to compare. `DiveFormScreen` leans on react-hook-form's `resetOptions.keepDirtyValues`
+ * — NOT on its `SeedState.typed`, which only suppresses `carried ×` chips. `countTyped`
+ * (SettingsScreen.tsx) is an explicit flag, because that row has neither a form library nor a
+ * stable identity: the stored count IS the value, so nothing there can be compared to tell "the
+ * answer changed" from "this is what the diver typed". Here the identity does that work. The
+ * principle is one; the mechanisms are three, and unifying them would be its own bug.
+ *
+ * **The `units` half of this gate does NOT protect the draft, and that is an open defect rather
+ * than a decision.** `draftFor` rebuilds `name` and `tank` from the PRESET, so a units change
+ * arriving mid-edit discards everything typed: measured, a draft holding the name "my own name"
+ * and a size of 15 reverts wholesale to "twin 12 steel" and 12, while the working pressure
+ * correctly converts to 3365. The conversion is the point of that half of the gate (see `units`
+ * above — an imperial diver must not keep bar figures under psi labels), so it cannot simply be
+ * dropped; the fix is to CONVERT the draft rather than rebuild it, which needs a rule this
+ * codebase does not yet have for text that is not a number yet ("1.", "", "abc" — `toStoredTanks`
+ * runs the whole cylinder through `safeParse` and returns `[]` for a draft mid-keystroke).
+ *
+ * **It is not reachable today, and it is worth writing down exactly what holds it shut**, since
+ * that is not a property of this file: `setUnitSystem` (db/settings.ts) has exactly one caller,
+ * `SettingsScreen`, and this editor is a route pushed ON TOP of that screen — so no gesture can
+ * change the unit system while this screen is mounted. The only trigger left is
+ * `useUnitSystem()`'s own first answer, one or two frames after mount, which no diver can type
+ * inside (verified on device). **§7's sync is specified to add the second writer**: a units
+ * change pulled from another device lands through the same live query, with this editor open and
+ * a draft in it. That is when this becomes the same class of defect `countTyped` closes on
+ * `dives_before`.
  */
 interface PresetDraft {
   sourceId: string | null;

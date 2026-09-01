@@ -166,20 +166,36 @@ export default function SettingsScreen() {
   // has to show that rather than snapping to whatever is currently in the database.
   const [countText, setCountText] = useState('');
   /**
-   * Whether the diver has typed into the count field at all — the one thing that survives every
-   * reseed below, and the reason this field is not `DiveFormScreen`'s problem all over again.
+   * Whether the diver has typed into the count field at all. It is what stops the reseed below
+   * replacing their text when a late answer arrives, and it is this screen's own mechanism —
+   * an explicit flag, because this row has neither of the two things the other seeded screens
+   * lean on.
    *
-   * `SeedState.typed` (DiveFormScreen.tsx) and `PresetDraft` (GearPresetScreen.tsx) both state
-   * the same rule for the same reason: **once a diver has touched a field, their draft wins over
-   * a later answer from the database**, because "the alternative is a diver's half-typed edit
-   * being overwritten mid-keystroke". Having been typed is a fact that does not expire, so this
-   * is never cleared.
+   * **Three screens hold a draft over an asynchronous read, and all three protect it by
+   * DIFFERENT mechanisms** (§4.1's "a deliberate near-duplicate names its siblings"). They are
+   * not one rule written three times, and unifying them would be its own bug — each screen has
+   * a different thing available to compare:
    *
-   * Sticky is safe here specifically because nothing else writes this row: `setDivesBefore`
-   * (below) is the only writer, and it is this field's own keystrokes. A reseed after the
-   * diver's own write only ever restores the text they just typed, so refusing it costs nothing;
-   * `settleCount` below still reads the stored value directly, which is what restores an
-   * unusable entry.
+   * - `DiveFormScreen`: **react-hook-form's `resetOptions.keepDirtyValues`** does the
+   *   protecting. Its `SeedState.typed` does NOT — that set only suppresses `carried ×` chips
+   *   (see its own docblock). The form library knows which fields the diver moved, so nothing
+   *   here has to.
+   * - `GearPresetScreen`: **a structural gate**, no flag at all. `PresetDraft` reseeds only when
+   *   `sourceId` or `units` changes, so a re-read of the SAME preset cannot disturb a draft —
+   *   the identity it compares is already the answer. (Its `units` half is a different story;
+   *   that docblock records it.)
+   * - Here: **this flag.** There is no form library on this row, and no source identity to
+   *   compare either — the stored count IS the value, so "has the answer changed" and "is this
+   *   what the diver typed" cannot be told apart by comparing anything. Something has to
+   *   remember the gesture, so this does.
+   *
+   * The principle all three serve is the same, and `PresetDraft` states it: a diver's half-typed
+   * edit must not be overwritten mid-keystroke.
+   *
+   * Cleared by `settleCount`, and only there — see it for why a discarded draft has nothing left
+   * to protect. Sticky everywhere else because `setDivesBefore` (below) is this row's only
+   * writer and it is this field's own keystrokes, so a reseed after the diver's own write could
+   * only ever restore the text they just typed.
    */
   const [countTyped, setCountTyped] = useState(false);
   // What `countText` was last seeded from. Compared as a scalar and adjusted during render
