@@ -1,11 +1,15 @@
 import { type RenderResult } from '@testing-library/react-native';
 
 import { makeStyles } from '../theme/styles';
-import { type ColorScheme } from '../theme/tokens';
+import { depthScale, type ColorScheme } from '../theme/tokens';
 
 /**
- * The §0.4/§0.1 guard: nothing on screen draws a graphic, and no `View` is painted with
- * anything `makeStyles(scheme)` did not hand out.
+ * The §0.4/§0.1 guard: **the only graphic on screen is the mark**, and no `View` is painted
+ * with anything `makeStyles(scheme)` did not hand out or the depth scale did not produce.
+ *
+ * Both exemptions arrived together in M1h with the first-run empty state, and both are named
+ * rather than opened as categories — see `isDepthPaint` below and the `Image` arm of the
+ * filter. Until then the claim really was "nothing draws a graphic", because nothing did.
  *
  * **Shared, unlike every other helper in this codebase's tests.** Five test files carried a
  * character-for-character copy of this, each under a comment saying it was copied "per this
@@ -43,6 +47,12 @@ import { type ColorScheme } from '../theme/tokens';
  *
  * `unexpectedGraphics.test.tsx` beside this file is what keeps both halves closed — until it
  * existed, the only thing checking the guard was the guard.
+ */
+/**
+ * An element whose own type NAME says what it draws. `image` stays in the list even though
+ * the filter now handles `Image` before reaching here: the pattern is a substring match, so
+ * this is what still catches a `FastImage`, an `ImageBackground` or anything else that draws
+ * a bitmap under a different host name, while the arm above admits exactly one styled `Image`.
  */
 const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
 
@@ -83,6 +93,42 @@ function isDeviceGeometry(entry: unknown): boolean {
   return own.length > 0 && own.every(([key, value]) => DEVICE_GEOMETRY_KEYS.includes(key) && typeof value === 'number');
 }
 
+/**
+ * The second kind of inline style a screen may compose, and the one that is about §0.1 rather
+ * than about the device: **paint taken from the depth scale itself**.
+ *
+ * `theme/depth.ts` is the only reader of that scale (§4.1), and what it returns cannot be
+ * precomputed into `makeStyles` — a band's colour depends on the band as well as on the
+ * scheme, which is exactly why `depthValue` carries no colour and `depthLegendBar` carries no
+ * background. So the one legitimate way for a hue to reach a `View` from outside the sheet is
+ * for it to *be* a depth, and this says so precisely: the value must be one of the six colours
+ * `tokens.js` declares for this scheme, and nothing else on the object.
+ *
+ * **Bounded by construction on both axes, like the geometry allowlist above.** The keys are an
+ * allowlist, so nothing here can draw a shape or set a size; the values are checked against the
+ * palette itself, so `{ backgroundColor: '#FF0000' }` is still reported and so is a *dark*
+ * band colour on a light render. That value check is the half that matters: without it this
+ * would be "a View may have a background colour", which is the guard turned off.
+ *
+ * Added for M1h's first-run legend (`DepthLegend.tsx`), the one place in Ponor where a depth
+ * colour appears without a dive under it. Before it, every depth colour in the app landed on
+ * `Text` — which this guard has never inspected — so the case had simply never arisen.
+ */
+const DEPTH_PAINT_KEYS: readonly string[] = ['backgroundColor', 'color'];
+
+function isDepthPaint(entry: unknown, scheme: ColorScheme): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const palette: readonly string[] = depthScale[scheme];
+  const own = Object.entries(entry as Record<string, unknown>);
+  return (
+    own.length > 0 &&
+    own.every(
+      ([key, value]) =>
+        DEPTH_PAINT_KEYS.includes(key) && typeof value === 'string' && palette.includes(value),
+    )
+  );
+}
+
 type Node = NonNullable<RenderResult['root']>;
 
 /**
@@ -100,13 +146,33 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
   // component whose outermost View carried the literal was therefore exempt, which is the
   // second half of the same hole and free to close here.
   const nodes = [t.root, ...t.root.queryAll(() => true)];
+  const mark = makeStyles(scheme).emptyStateMark as unknown;
   return nodes.filter((n) => {
+    // **The one graphic Ponor draws, named** (M1h). The empty state renders the mark as an
+    // `Image` — DESIGN.md §0.3's shape, monochrome, from the same `assets/mark.svg` the icons
+    // are built from — so the blanket "nothing on screen draws a graphic" is no longer true
+    // and this says the narrower thing that is: **the app draws exactly one image, and it is
+    // the mark.** Matched on `emptyStateMark`, the single style that paints it, so a second
+    // image anywhere costs a deliberate edit to this guard rather than riding in on a
+    // category that had been opened for the first one. That deliberate edit is the point:
+    // photos are a v1.1 feature (§10) and will arrive with their own decision about §0.4.
+    //
+    // The style is compared by identity against the sheet, exactly as a `View`'s is, which is
+    // also what carries the §0.1 half: the mark's `tintColor` and its half strength live in
+    // `makeStyles`, so an image tinted from anywhere else — a depth colour included — is
+    // still reported.
+    if (n.type === 'Image') {
+      const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
+      return style.length === 0 || !style.every((entry) => entry === mark);
+    }
     // An element whose own type NAME says what it draws: an SVG primitive if
     // react-native-svg is ever added, an `Image` used as a rendered sprite, or a component
     // simply named for the thing it draws (Chart, Sparkline, Profile).
     if (typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type)) return true;
     if (n.type !== 'View') return false;
     const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
-    return style.some((entry) => !known.includes(entry) && !isDeviceGeometry(entry));
+    return style.some(
+      (entry) => !known.includes(entry) && !isDeviceGeometry(entry) && !isDepthPaint(entry, scheme),
+    );
   });
 }
