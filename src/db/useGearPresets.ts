@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { type GearPreset } from '../domain/types';
 import { db } from './client';
 import { gearPresetRowsQuery, toGearPresets } from './gearPresets';
-import { isResolved } from './liveQuery';
+import { isResolved, useCurrentError } from './liveQuery';
 
 export interface GearPresetListState {
   /** Every live preset, by name (`toGearPresets`' own order — see `comparePresets`). */
@@ -43,6 +43,13 @@ export interface GearPresetListState {
    * load your presets" and "you have none yet" are different sentences, and a diver who went
    * to that screen specifically to manage presets must not be shown the second when the
    * first is true.
+   *
+   * **Set only while that failure is still what the read last said** (`useCurrentError`,
+   * db/liveQuery.ts). `useLiveQuery` never clears its own `error`, so forwarding it raw left
+   * Settings saying "Couldn't load your presets" over a list a later read had already
+   * delivered — and left the editor picking the wrong one of its two sentences for ever, since
+   * `error` is what it dispatches on: a preset that really is gone would be reported as
+   * unreadable on the strength of a failure that no longer applies.
    */
   error: Error | undefined;
 }
@@ -90,5 +97,9 @@ export function useGearPresets(): GearPresetListState {
   const rows = useLiveQuery(gearPresetRowsQuery(db));
   const rowData = rows.data;
   const presets = useMemo(() => toGearPresets(rowData), [rowData]);
-  return { presets, resolved: isResolved(rows), error: rows.error };
+  // `useCurrentError`, not `rows.error`: `useLiveQuery` sets `error` in its failure paths and
+  // never clears it, so the raw field stands for the life of the component once it has fired —
+  // through every later read that succeeds. `isResolved` still reads the raw result, and cannot
+  // disagree: an error hidden there is one a successful run has already landed on top of.
+  return { presets, resolved: isResolved(rows), error: useCurrentError(rows) };
 }

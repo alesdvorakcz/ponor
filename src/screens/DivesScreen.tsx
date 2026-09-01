@@ -549,16 +549,15 @@ export default function DivesScreen() {
         // dismiss. See this file's own top docblock (Important #3) for why a failed settings
         // read must not blank the dives below, and must not fail silently either.
         //
-        // **It does not clear itself, and this line used to say it did** (corrected M1f).
-        // `useLiveQuery` calls `setError` only in its two failure paths and never clears it
-        // (drizzle-orm/expo-sqlite/query.js), so once the settings read has failed, `error`
-        // stays set for the life of this component: a later successful re-run sets `data` and
-        // `updatedAt` and leaves the banner standing over numbers that are now correct. What
-        // to do about that is a real decision — it needs an answer to what "recovered" means
-        // given those error semantics, and possibly a wrapper around `useLiveQuery` rather
-        // than a change here — so it is recorded as owed rather than invented. The comment is
-        // corrected now regardless, because a comment asserting behaviour the code does not
-        // have is the defect class this project keeps paying for.
+        // **It does clear itself once the settings read recovers, and that took a mechanism**
+        // (M1g). `useLiveQuery` calls `setError` only in its two failure paths and never clears
+        // it (drizzle-orm/expo-sqlite/query.js), so this banner used to stand for the life of
+        // the component: a later successful re-run set `data` and `updatedAt` and left the
+        // notice over numbers that were correct again. That is the same plausible lie the
+        // banner exists to prevent, told from the other end — the numbers are right and the
+        // screen says they may not be. `useCurrentError` (db/liveQuery.ts) is where the rule
+        // lives now, and `useDives` applies it to both of its error fields; nothing on this
+        // screen decides it, which is why there is no timer, no dismiss and no comparison here.
         <View style={styles.settingsNotice}>
           <Text style={styles.settingsNoticeText}>
             Couldn&apos;t read your settings — dive numbers may be missing your pre-Ponor count.

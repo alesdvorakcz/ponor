@@ -5,7 +5,7 @@ import { assignDiveNumbers } from '../domain/diveNumber';
 import { type Dive } from '../domain/types';
 import { db } from './client';
 import { diveRowsQuery, toDives } from './dives';
-import { isResolved } from './liveQuery';
+import { isResolved, useCurrentError } from './liveQuery';
 import { divesBeforeQuery, readDivesBefore } from './settings';
 
 export interface DiveListState {
@@ -63,6 +63,11 @@ export interface DiveListState {
   /**
    * Set when the dives themselves could not be read. Fatal — DivesScreen.tsx blanks the
    * whole screen for this one, because there is nothing honest to show in its place.
+   *
+   * **Set only while that failure is still what the read last said** (`useCurrentError`,
+   * db/liveQuery.ts). `useLiveQuery` never clears its own `error`, so forwarding it raw kept
+   * the whole logbook blanked behind a failure message after a later read had already
+   * delivered the dives — the loudest possible version of a notice that cannot clear.
    */
   error: Error | undefined;
   /**
@@ -74,6 +79,13 @@ export interface DiveListState {
    * but it also must not fail silently: a diver whose numbers just quietly reset to 1 has
    * been shown a plausible lie as surely as an empty screen would be one. DivesScreen.tsx
    * surfaces this as a non-dismissible notice alongside the (otherwise unaffected) list.
+   *
+   * **Non-dismissible, but not permanent** (`useCurrentError`, db/liveQuery.ts): it is set
+   * only while the failure is still what the settings read last said, and clears the render a
+   * later run of that read succeeds. There is no dismiss control because a diver cannot
+   * dismiss the *condition* — but the same sentence that puts the notice on screen takes it
+   * off again, since a banner saying the numbers may be wrong, standing over numbers that are
+   * now right, is the identical plausible lie told from the other end.
    */
   settingsError: Error | undefined;
 }
@@ -149,7 +161,19 @@ export function useDives(): DiveListState {
     [rowData, settingsData],
   );
 
+  // Both errors go through `useCurrentError` (db/liveQuery.ts) and neither is forwarded raw:
+  // `useLiveQuery` sets `error` in its failure paths and never clears it, so `rows.error` and
+  // `settingsRows.error` each stand for the life of the component once they have fired —
+  // through every later read that succeeds. The split above is untouched by this: the two
+  // failures still travel in two fields and still mean two different things, and each is simply
+  // reported only while it is still what its own read last said.
+  const error = useCurrentError(rows);
+  const settingsError = useCurrentError(settingsRows);
+
   // `isResolved(rows)`, not `isResolved(settingsRows)` and not both — see `DiveListState`'s
-  // own field for why the loading signal deliberately parts company with the error split.
-  return { dives, numbers, resolved: isResolved(rows), error: rows.error, settingsError: settingsRows.error };
+  // own field for why the loading signal deliberately parts company with the error split. It
+  // reads the raw result rather than either field above, and cannot disagree with them: an
+  // error those hide is one a successful run has already landed on top of, which resolves the
+  // read on `updatedAt` alone.
+  return { dives, numbers, resolved: isResolved(rows), error, settingsError };
 }

@@ -96,6 +96,50 @@ it('reads as an empty list, not a failure, before the query has answered', async
 });
 
 /**
+ * `error` is not `useLiveQuery`'s own `error`, and this is the only place that can fail on it
+ * (M1g): both screens that read this hook mock the whole module.
+ *
+ * That hook sets `error` in its failure paths and NEVER clears it, so a field forwarded raw
+ * stands for the life of the component — through every later read that succeeds. Settings went
+ * on saying "Couldn't load your presets" over a list it had; the editor, which dispatches on
+ * this field to choose between its two sentences, went on picking the wrong one. The rule lives
+ * in `useCurrentError` (db/liveQuery.ts) and its own suite covers its cases; this is the wiring.
+ */
+describe('a failure that is no longer what the read says', () => {
+  it('stops reporting it once a later read succeeds', async () => {
+    const failed = new Error('disk full');
+    stubQuery({ error: failed });
+    const { result, rerender } = await renderHook(() => useGearPresets());
+    expect(result.current.error).toBe(failed);
+
+    // The shape a recovered read really has: the same error object still in `useLiveQuery`'s
+    // state, with rows and an `updatedAt` that arrived after it.
+    stubQuery({ data: [row({ name: 'alu 80' })], error: failed, updatedAt: ANSWERED });
+    await rerender(undefined);
+
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.presets.map((p) => p.name)).toEqual(['alu 80']);
+  });
+
+  it('goes on reporting one that is still the last thing the read said', async () => {
+    // A read that answered and THEN failed carries both fields at once, exactly as a recovered
+    // one does, and this one is live. Two renders, because the first is answered before any
+    // comparison is made.
+    const failed = new Error('disk full');
+    stubQuery({ data: [row({ name: 'alu 80' })], updatedAt: ANSWERED });
+    const { result, rerender } = await renderHook(() => useGearPresets());
+    expect(result.current.error).toBeUndefined();
+
+    stubQuery({ data: [row({ name: 'alu 80' })], error: failed, updatedAt: ANSWERED });
+    await rerender(undefined);
+    expect(result.current.error).toBe(failed);
+
+    await rerender(undefined);
+    expect(result.current.error).toBe(failed);
+  });
+});
+
+/**
  * M1f's own field. `presets` is `[]` in three quite different situations — nothing read yet, a
  * diver with no presets, a read that failed — and until `resolved` existed a caller could tell
  * only the third of them apart, by `error`. `GearPresetScreen` therefore said "may have been

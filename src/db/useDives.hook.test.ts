@@ -91,6 +91,10 @@ const diveRow = (over: Record<string, unknown> = {}) => ({
 /** A stand-in for the moment a query's rows landed. Any `Date` will do — `isResolved` reads its
  * presence, never its value — so one constant says "answered" everywhere below. */
 const ANSWERED = new Date('2026-08-16T09:15:00.000Z');
+/** A second, distinct answer. `useCurrentError` (db/liveQuery.ts) compares these by identity —
+ * `handleData` builds a fresh `Date` per delivery — so what matters is that it is not `ANSWERED`,
+ * not that it is two minutes later. */
+const ANSWERED_AGAIN = new Date('2026-08-16T09:17:00.000Z');
 
 interface QueryState {
   data?: unknown[];
@@ -213,6 +217,72 @@ describe('the two errors, kept apart', () => {
     // for that one and there are perfectly good dives to show.
     expect(result.current.error).toBeUndefined();
     expect(result.current.dives).toHaveLength(1);
+  });
+});
+
+/**
+ * Neither field is `useLiveQuery`'s own `error`, and this is where that is asserted (M1g).
+ *
+ * That hook sets `error` in its two failure paths and NEVER clears it, so a field forwarded raw
+ * stands for the life of the component — through every later read that succeeds. DivesScreen's
+ * settings banner therefore went up over dive numbers computed from offset 0 and stayed up over
+ * the corrected numbers that replaced them, which is the same plausible lie the banner exists to
+ * prevent, told from the other end. `useCurrentError` (db/liveQuery.ts) owns the rule and its own
+ * suite covers its cases; the two here are the WIRING, which nothing else can fail on: every
+ * screen that reads this hook mocks the whole module.
+ *
+ * A later successful read is stubbed the way the real one arrives — the same error object still
+ * sitting in `useLiveQuery`'s state, with rows and a NEW `updatedAt` around it.
+ */
+describe('a failure that is no longer what the read says', () => {
+  it('stops reporting a settings failure once a later settings read succeeds', async () => {
+    const failed = new Error('settings unreadable');
+    stubQueries({ data: [diveRow()], updatedAt: ANSWERED }, { error: failed });
+    const { result, rerender } = await renderHook(() => useDives());
+    expect(result.current.settingsError).toBe(failed);
+
+    stubQueries(
+      { data: [diveRow()], updatedAt: ANSWERED },
+      { data: [{ key: 'dives_before', value: '247' }], error: failed, updatedAt: ANSWERED_AGAIN },
+    );
+    await rerender(undefined);
+
+    expect(result.current.settingsError).toBeUndefined();
+    // ...because the offset actually arrived, not merely because a render went by: the numbers
+    // are the reason the banner was ever shown, so they are what proves it should stop being.
+    expect([...result.current.numbers.values()]).toEqual([248]);
+  });
+
+  it('stops reporting a fatal dives failure once a later dives read succeeds', async () => {
+    // The louder half. DivesScreen treats this one as fatal and shows nothing else at all, so a
+    // failure that outlives its own read blanks a logbook that has since been read successfully.
+    const failed = new Error('disk full');
+    stubQueries({ error: failed }, { data: [], updatedAt: ANSWERED });
+    const { result, rerender } = await renderHook(() => useDives());
+    expect(result.current.error).toBe(failed);
+
+    stubQueries({ data: [diveRow()], error: failed, updatedAt: ANSWERED_AGAIN }, { data: [], updatedAt: ANSWERED });
+    await rerender(undefined);
+
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.dives).toHaveLength(1);
+  });
+
+  it('goes on reporting a settings failure while it is still the last thing that read said', async () => {
+    // The direction that must not be traded away for the two above: a read that answered and
+    // THEN failed carries both fields at once, exactly as a recovered one does, and this one is
+    // a live failure. Two renders, because the first is answered before any comparison is made.
+    const failed = new Error('settings unreadable');
+    stubQueries({ data: [diveRow()], updatedAt: ANSWERED }, { data: [], updatedAt: ANSWERED });
+    const { result, rerender } = await renderHook(() => useDives());
+    expect(result.current.settingsError).toBeUndefined();
+
+    stubQueries({ data: [diveRow()], updatedAt: ANSWERED }, { data: [], error: failed, updatedAt: ANSWERED });
+    await rerender(undefined);
+    expect(result.current.settingsError).toBe(failed);
+
+    await rerender(undefined);
+    expect(result.current.settingsError).toBe(failed);
   });
 });
 
