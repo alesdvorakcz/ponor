@@ -3257,12 +3257,12 @@ it('refuses a whitespace-only name for the same reason, and says the same thing'
 it('refuses to store a preset from a cylinder block with nothing in it', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
-  expect(textIn(t).join(' ')).not.toContain('There are no cylinders here to save yet');
+  expect(textIn(t).join(' ')).not.toContain('A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 
   await addPresetNamed(t, 'empty');
 
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('There are no cylinders here to save yet');
+  expect(textIn(t).join(' ')).toContain('A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 });
 
 // The pressures are the one thing a preset does not keep (§10), so a cylinder block holding
@@ -3271,11 +3271,12 @@ it('refuses to store a preset from a cylinder block with nothing in it', async (
 it('counts a cylinder holding only pressures as nothing to store', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
+  expect(textIn(t).join(' ')).not.toContain('A preset with no cylinders fills nothing in — fill the cylinder fields first.');
   await typeInto(t, 'Start pressure', '210');
   await typeInto(t, 'End pressure', '50');
   await addPresetNamed(t, 'gauge only');
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('There are no cylinders here to save yet');
+  expect(textIn(t).join(' ')).toContain('A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 });
 
 // Two chips reading "alu 80" with different cylinders is a row the diver cannot tell apart

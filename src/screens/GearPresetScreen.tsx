@@ -12,14 +12,13 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { withoutPressures } from '../domain/carryOver';
 import {
   TANK_FIELDS,
-  isRecordedTank,
   toDisplayTank,
   toInputString,
   toStoredTanks,
   unknownOptionNote,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { presetNamed } from '../domain/presets';
+import { presetRefusal } from '../domain/presets';
 import { TANK_MATERIAL_VALUES, type GearPreset, type Tank, type TankMaterial } from '../domain/types';
 import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
@@ -48,25 +47,17 @@ const MISSING_PRESET_MESSAGE = "Couldn't find that preset — it may have been d
 const READ_FAILED_MESSAGE = "Couldn't load your presets. Try again.";
 
 /**
- * What this editor can refuse, and each one names something the diver can fix.
+ * What this editor can refuse lives in `domain/presets.ts` (`presetRefusal`), not here.
  *
- * The first two are the dive form's own sentences, word for word — the same rules, asked at
- * the other end of a preset's life. They are literals here rather than shared constants for
- * the reason §4.1 records for the twenty-five duplicated field labels: translation (i18next,
- * en + cs) has to key every diver-facing string, and that pass is where the set belongs;
- * unifying them twice is waste. `duplicatePresetMessage` quotes the spelling the EXISTING
- * preset has rather than the one just typed, because sending a diver to look for a chip that
- * says no such thing would be its own small lie.
+ * All three sentences are the dive form's too — the same three rules asked at the other end of
+ * a preset's life — and two of them shipped as byte-identical copies across the two screens,
+ * one of them a copied message *formatter*. §4.1's "one deliberate exception, until i18next"
+ * covers duplicated **field labels**; a sentence stating a rule's verdict is not one. They sit
+ * beside `presetNamed`, which the §4.1 owner table already names as owning what counts as the
+ * same preset name — the question the duplicate refusal is decided by.
  *
- * The third is this screen's alone, because only this screen can take cylinders away. A
- * preset with nothing in it is a chip that blanks a diver's cylinder block, which is worse
- * than no chip at all — the dive form refuses to create one for that reason, and an editor
- * that could empty one would be the same rule with two answers a screen apart. It names the
- * two ways out, one of which is sitting at the end of this screen.
+ * What stays this screen's own decision is WHERE each is shown: see `nameNote` below.
  */
-const UNNAMED_PRESET_MESSAGE = 'Give this preset a name, so you can find it again.';
-const duplicatePresetMessage = (name: string) => `You already have a preset called “${name}”.`;
-const EMPTY_PRESET_MESSAGE = 'A preset with no cylinders fills nothing in. Add one, or delete this preset.';
 
 /** Shown when `updateGearPreset`'s or `softDeleteGearPreset`'s write rejects. §10: "A local
  * save failure is shown to the diver" — the alternative is a diver believing an edit landed,
@@ -83,7 +74,12 @@ const DELETE_BODY = "It will be removed from your presets. This can't be undone.
 
 /**
  * A cylinder with every field unrecorded, for a preset that holds none — which
- * `createGearPreset` permits and M2 sync can deliver.
+ * `createGearPreset` permits and M2's `pull_changes` can deliver.
+ *
+ * That such a preset can *arrive* and that a diver may not *author* one (`presetRefusal`,
+ * domain/presets.ts) are different claims, and both are deliberate: everything that reads a
+ * preset tolerates it — §3's list omits the summary rather than drawing a dash, the dive form's
+ * apply blanks the block — and this function is that tolerance on this screen.
  *
  * Built from `TANK_FIELDS` (diveFormSchema.ts) rather than written out, §4.1's "derive, or
  * tie at compile time": a cylinder field added later appears here the day it exists, instead
@@ -263,10 +259,11 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
    *
    * `withoutPressures` (domain/carryOver.ts) is the rule that a preset keeps no gauge reading,
    * shared with carry-over's own rather than copied. It is applied here as well as in the
-   * repository because a question has to be asked ABOUT the stored cylinders before the write:
-   * a cylinder holding nothing but a pressure — which M2 sync can deliver, since it does not
-   * write through `createGearPreset` — stores nothing at all, and `isRecordedTank` has to be
-   * asked of the cylinders as they will be, not as they arrived.
+   * repository so that what is written is what `presetRefusal` judged: a cylinder holding
+   * nothing but a pressure — which M2 sync can deliver, since it does not write through
+   * `createGearPreset` — looks completely full on this form and stores nothing at all. That
+   * verdict strips again for itself, which is idempotent and is what makes it impossible to
+   * ask wrongly.
    */
   const storedTanks = (): Tank[] =>
     [
@@ -276,21 +273,22 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
 
   const save = async () => {
     if (busyRef.current) return;
-    const trimmed = draft.name.trim();
     const tanks = storedTanks();
 
-    // Both answers at once — see `nameNote` above. `presetNamed` (domain/presets.ts) is the
-    // one owner of "is this name already taken", asked of the live list this screen is
-    // already holding, with `exceptId` set: renaming a preset to the name it already has is
-    // not a collision with anything, and without that exception every save that did not
-    // change the name would be refused.
-    const clash = trimmed === '' ? null : presetNamed(presets, trimmed, preset.id);
-    const nameProblem =
-      trimmed === '' ? UNNAMED_PRESET_MESSAGE : clash === null ? null : duplicatePresetMessage(clash.name);
-    const cylinderProblem = tanks.some(isRecordedTank) ? null : EMPTY_PRESET_MESSAGE;
-    setNameNote(nameProblem);
-    setCylinderNote(cylinderProblem);
-    if (nameProblem !== null || cylinderProblem !== null) return;
+    // `presetRefusal` (domain/presets.ts) decides what is wrong; this decides where to say it.
+    // Asked of the live list this screen is already holding, so the answer is the one the
+    // diver is looking at, with no second read and no race against their own render, and with
+    // `exceptId` set: renaming a preset to the name it already has is not a collision with
+    // anything, and without that exception every save that did not change the name would be
+    // refused — which is most of them.
+    //
+    // **Both answers at once**, unlike the dive form's capture, which has one `FieldNote` under
+    // one row and so must pick. Here the name and the cylinders are two places on screen, so a
+    // diver who broke both is not made to fix them one at a time.
+    const refusal = presetRefusal(presets, draft.name, tanks, preset.id);
+    setNameNote(refusal.name);
+    setCylinderNote(refusal.cylinders);
+    if (refusal.refused) return;
 
     busyRef.current = true;
     setBusy(true);
@@ -301,7 +299,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
       // has nothing for a diff to express — two fields, both NOT NULL, so neither can be
       // cleared, only replaced — and it is that function, not this screen, that decides a
       // write which changes nothing is not a write.
-      await updateGearPreset(db, preset.id, { name: trimmed, tanks });
+      await updateGearPreset(db, preset.id, { name: refusal.storedName, tanks });
       backToSettings();
     } catch {
       setSaveError(SAVE_ERROR_MESSAGE);

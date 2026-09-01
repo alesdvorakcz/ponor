@@ -26,7 +26,6 @@ import { todayCalendarDate } from '../domain/datetime';
 import {
   TANK_FIELDS,
   diveFormSchema,
-  isRecordedTank,
   toDisplayTank,
   toDisplayUnits,
   toDivePatch,
@@ -39,7 +38,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { presetNamed } from '../domain/presets';
+import { presetRefusal } from '../domain/presets';
 import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   ENTRY_VALUES,
@@ -860,8 +859,8 @@ function PresetCapture({
   // The same two-part in-flight guard the dive's own save carries, and for the same reason:
   // both taps of a double-tap reach the handler before React has rendered anything, so the
   // ref is the latch and `saving` is only how that state is SHOWN. Without it a double-tap
-  // writes two presets under one name — which `presetNamed` cannot catch, because the live
-  // list has not re-rendered between the two.
+  // writes two presets under one name — which the duplicate check cannot catch, because the
+  // live list has not re-rendered between the two.
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
 
@@ -1055,27 +1054,18 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
 const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
 
 /**
- * The four things *Save as preset* can say, and every one of them is a sentence rather
- * than a blocked control — §1's "never block a save" binds this form, and even where the
- * subject is a preset rather than a dive the shape of the answer stays the same: the diver
- * is told what happened and what to do about it, next to the row it is about.
+ * The one thing *Save as preset* says that is not a refusal. The three refusals — an unnamed
+ * preset, a duplicate name, a cylinder block with nothing in it — live in `domain/presets.ts`
+ * (`presetRefusal`), because §3's editor states exactly the same three and two of them were
+ * byte-identical copies here. §4.1's "one deliberate exception, until i18next" covers duplicated
+ * **field labels**; a sentence stating a rule's verdict is not one, and a copied message
+ * *formatter* certainly is not.
  *
- * The first three are refusals, and each names a thing the diver can actually fix. A preset
- * with no name cannot be found again — it is the only thing a chip shows. A preset captured
- * from an empty cylinder block stores nothing useful, and a chip that fills a dive with
- * nothing is worse than no chip. And two chips reading "alu 80" with different cylinders is
- * a row the diver cannot tell apart and cannot fix by looking, so a duplicate name is
- * refused by name — `presetNamed` (domain/presets.ts) owns the question of when two names
- * are the same name, and the sentence quotes the preset that already holds it rather than
- * saying "that name is taken" about a name the diver may have spelled differently.
- *
- * The fourth is a failed write, said plainly for the reason §10 gives ("a local save failure
- * is shown to the diver"): a preset that silently failed to save is one the diver goes
- * looking for on the next dive and does not find.
+ * This one stays, because it is about this screen's own write and nothing else: a failed local
+ * save, said plainly for the reason §10 gives ("a local save failure is shown to the diver") —
+ * a preset that silently failed to save is one the diver goes looking for on the next dive and
+ * does not find.
  */
-const UNNAMED_PRESET_MESSAGE = 'Give this preset a name, so you can find it again.';
-const EMPTY_PRESET_MESSAGE = 'There are no cylinders here to save yet — fill some in first.';
-const duplicatePresetMessage = (name: string) => `You already have a preset called “${name}”.`;
 const PRESET_SAVE_ERROR_MESSAGE = "Couldn't save that preset. Try again.";
 
 /**
@@ -1383,25 +1373,25 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    *
    * The pressures are stripped here as well as in the repository, and that is not a second
    * implementation — it is the same `withoutPressures` (domain/carryOver.ts), called because
-   * this has to ask a question ABOUT the stored preset before writing it: a cylinder block
-   * holding nothing but a gauge reading looks full on screen and stores nothing at all, so
-   * `isRecordedTank` has to be asked of the cylinders as they will actually be stored.
+   * what is written must be what was judged: a cylinder block holding nothing but a gauge
+   * reading looks full on screen and stores nothing at all. `presetRefusal` strips again for
+   * its own verdict, which is idempotent and is what makes that verdict impossible to ask
+   * wrongly.
    */
   const savePreset = useCallback(
     async (name: string): Promise<string | null> => {
       const tanks = toStoredTanks(getValues('tanks'), units).map(withoutPressures);
-      // Checked before the name, deliberately: with nothing to store, what the preset is
-      // called is not the diver's problem yet.
-      if (!tanks.some(isRecordedTank)) return EMPTY_PRESET_MESSAGE;
-      const trimmed = name.trim();
-      if (trimmed === '') return UNNAMED_PRESET_MESSAGE;
-      // Asked of the live list this screen is already showing, through the one owner of the
-      // question — so the answer is the one the diver is looking at, with no second read and
-      // no race against their own render.
-      const clash = presetNamed(presets, trimmed);
-      if (clash !== null) return duplicatePresetMessage(clash.name);
+      // `presetRefusal` (domain/presets.ts) decides WHAT is wrong; this decides where to say
+      // it. Asked of the live list this screen is already showing, so the answer is the one
+      // the diver is looking at, with no second read and no race against their own render.
+      const refusal = presetRefusal(presets, name, tanks);
+      // One `FieldNote` under one row, so one sentence — and the cylinders come first,
+      // deliberately: with nothing to store, what the preset is called is not the diver's
+      // problem yet. §3's editor has two slots and shows both; that difference is about where
+      // each screen can speak, not about what is wrong.
+      if (refusal.refused) return refusal.cylinders ?? refusal.name;
       try {
-        await createGearPreset(db, { name: trimmed, tanks });
+        await createGearPreset(db, { name: refusal.storedName, tanks });
         return null;
       } catch {
         return PRESET_SAVE_ERROR_MESSAGE;

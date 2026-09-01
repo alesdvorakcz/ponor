@@ -8,9 +8,9 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { Alert } from 'react-native';
 
 import { softDeleteGearPreset, updateGearPreset } from '../db/gearPresets';
+import { confirmDestructive, type DestructiveConfirmation } from '../platform/confirmDestructive';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { db } from '../db/client';
@@ -18,6 +18,7 @@ import { formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
 import { TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
+import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import GearPresetScreen from './GearPresetScreen';
 
@@ -35,6 +36,24 @@ jest.mock('../db/gearPresets', () => ({
   updateGearPreset: jest.fn(),
   softDeleteGearPreset: jest.fn(),
 }));
+/**
+ * **The owner of the destructive confirmation, mocked as the owner.**
+ *
+ * The obvious thing is to spy on `Alert.alert` and read the button list off it, which is what
+ * `DiveDetailScreen.test.tsx` does — but there that spy is deliberate and means something else:
+ * it was the proof that the pre-existing `Alert.alert` call had been *moved* into
+ * `platform/confirmDestructive.ts` unchanged. That reasoning does not transfer to a new call
+ * site, whose requirement is to USE the owner. Spying one layer down leaves the test green
+ * against a screen that inlines `Alert.alert(...)` itself — and `Alert.alert` is an empty
+ * function in `react-native-web`, so that screen would ship a *Delete preset* control that
+ * silently deletes nothing in a browser. That is the precise regression this module was
+ * created to end (*Delete dive* opened no dialog on web until it existed, DESIGN.md §9).
+ *
+ * What the platform actually draws is that module's own business, and is still pinned where it
+ * belongs: `DiveDetailScreen.test.tsx` runs the real `confirmDestructive` and reads the
+ * `cancel`/`destructive` button pair off `Alert.alert`.
+ */
+jest.mock('../platform/confirmDestructive', () => ({ confirmDestructive: jest.fn() }));
 // Leaving the screen goes through `backToSettings` (navigation/leaveScreen.ts), which calls
 // canGoBack()/back()/replace() — the same shape DiveDetailScreen.test.tsx already mocks.
 jest.mock('expo-router', () => ({
@@ -48,6 +67,8 @@ const mockUpdate = updateGearPreset as jest.Mock;
 const mockSoftDelete = softDeleteGearPreset as jest.Mock;
 const mockBack = router.back as jest.Mock;
 const mockCanGoBack = router.canGoBack as jest.Mock;
+const mockReplace = router.replace as jest.Mock;
+const mockConfirm = confirmDestructive as jest.Mock;
 
 let presetSeq = 0;
 /** A `GearPreset` with only the fields a case cares about. Ids come from a counter for the
@@ -90,6 +111,9 @@ function stubPresets(presets: GearPreset[] = [], error?: Error) {
 beforeEach(() => {
   jest.clearAllMocks();
   stubPresets();
+  // The owner is replaced wholesale, so nothing here draws a dialog — a test that wants the
+  // diver to say yes runs the `onConfirm` the screen handed it (`confirmDelete` below).
+  mockConfirm.mockImplementation(() => {});
   // Set explicitly rather than left to the module factory's own defaults: `clearAllMocks`
   // clears calls but not return values, so one test's override would otherwise leak into
   // every test declared after it.
@@ -150,23 +174,20 @@ function writtenTanks(): Tank[] | undefined {
   return (mockUpdate.mock.calls[0]?.[2] as { tanks?: Tank[] } | undefined)?.tanks;
 }
 
-const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-afterEach(() => alertSpy.mockClear());
-
-/** The buttons the platform Alert was actually asked to show — the third argument of the one
- * `Alert.alert` call, exactly as `confirmDestructive` passed it. */
-function alertButtons(): { text?: string; style?: string; onPress?: () => void }[] {
-  return (alertSpy.mock.calls[0]?.[2] ?? []) as { text?: string; style?: string; onPress?: () => void }[];
+/** The question this screen asked the one owner of destructive chrome. */
+function askedConfirmation(): DestructiveConfirmation | undefined {
+  return mockConfirm.mock.calls[0]?.[0] as DestructiveConfirmation | undefined;
 }
 
-/** Presses Delete and then the dialog's own destructive button, which is the only path that
- * deletes anything. */
+/** Presses Delete and then answers the confirmation the way a diver who means it would — by
+ * running the `onConfirm` the screen handed the owner, which is the only path that deletes
+ * anything. */
 async function confirmDelete(t: RenderResult) {
   await press(t, 'Delete preset');
-  const destructive = alertButtons().find((b) => b.style === 'destructive');
-  if (!destructive) throw new Error('the confirmation offered no destructive button');
+  const asked = askedConfirmation();
+  if (!asked) throw new Error('the screen asked for no confirmation at all');
   await act(async () => {
-    destructive.onPress?.();
+    asked.onConfirm();
   });
 }
 
@@ -248,6 +269,52 @@ it('offers a visible way out that writes nothing', async () => {
   expect(mockBack).toHaveBeenCalledTimes(1);
   expect(mockUpdate).not.toHaveBeenCalled();
   expect(mockSoftDelete).not.toHaveBeenCalled();
+});
+
+/**
+ * **Which exit this screen calls, both branches.** `backToSettings` and `backToDives` are the
+ * same guard over two different fallbacks (`leaveTo`, navigation/leaveScreen.ts), so the
+ * `canGoBack === false` branch is the ONLY thing that tells them apart — and with `canGoBack`
+ * mocked true everywhere, importing `backToDives as backToSettings` left this whole suite green
+ * while a diver who deep-linked into `/preset/<id>` and left was dumped on the logbook. That is
+ * the identical hole `DiveFormScreen.test.tsx` records finding and closing one screen over
+ * ("`canGoBack` was mocked true everywhere, so deleting the fallback left every test green
+ * while a deep-linked diver saved and then sat on the form"), and it is what the whole
+ * `leaveScreen` rename exists to get right.
+ *
+ * Pinned on all three ways out of this screen — the way out itself, a successful save, and a
+ * successful delete — because each calls the exit separately and any one of them could reach
+ * for `router.back()` on its own.
+ */
+const exits = [
+  ['the way out', async (t: RenderResult) => press(t, 'Leave without saving')],
+  [
+    'a save',
+    async (t: RenderResult) => {
+      await typeInto(t, 'Preset name', 'alu 80');
+      await press(t, 'Save preset');
+    },
+  ],
+  ['a delete', confirmDelete],
+] as const;
+
+it.each(exits)('pops the navigation stack after %s, when there is history to go back to', async (_case, leave) => {
+  mockCanGoBack.mockReturnValue(true);
+  const t = await open(twin12());
+  await leave(t);
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+// **Settings, never the dives list.** `/preset/[id]` is a screen stacked on Settings, so a
+// diver who arrived by URL belongs back on the screen holding the preset list — not on the
+// logbook, which is a place they never asked to be.
+it.each(exits)('replaces to Settings after %s reached by a deep link, with no history to pop', async (_case, leave) => {
+  mockCanGoBack.mockReturnValue(false);
+  const t = await open(twin12());
+  await leave(t);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/settings'));
+  expect(mockBack).not.toHaveBeenCalled();
 });
 
 // §3's own reason for the `error` field on `useGearPresets`: "'Couldn't load your presets'
@@ -588,7 +655,7 @@ it('refuses to empty the cylinders, and says what to do instead', async () => {
   const t = await open(twin12());
   for (const field of ['Size', 'Count', 'Working pressure', O2_LABEL]) await typeInto(t, field, '');
   await press(t, `Material: ${formatTankMaterial('steel')}`);
-  await refusalFor(t, 'A preset with no cylinders fills nothing in. Add one, or delete this preset.');
+  await refusalFor(t, 'A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 });
 
 /**
@@ -605,7 +672,7 @@ it('counts a cylinder holding only the pressures it never shows as nothing to st
   for (const field of ['Size', 'Count', 'Working pressure', O2_LABEL, HE_LABEL]) {
     expect(findField(t, field)?.props?.value).toBe('');
   }
-  await refusalFor(t, 'A preset with no cylinders fills nothing in. Add one, or delete this preset.');
+  await refusalFor(t, 'A preset with no cylinders fills nothing in — fill the cylinder fields first.');
 });
 
 // §10's "keep and flag": a preset synced from a newer client can carry a material this build
@@ -633,15 +700,22 @@ it('flags a material it has no chip for, rather than showing nothing at all', as
 // Deleting (DESIGN.md §6's tombstone, §10's OS-chrome confirmation)
 // ---------------------------------------------------------------------------------------
 
-it('asks before it deletes, in chrome this app does not draw', async () => {
+it('asks through the one owner of destructive chrome, not through a platform call of its own', async () => {
   const t = await open(twin12());
   await press(t, 'Delete preset');
-  // `confirmDestructive` (platform/confirmDestructive.ts) is the one owner of that chrome —
-  // the platform `Alert` here, `window.confirm` on web, where `Alert.alert` is an empty
-  // function and *Delete dive* opened no dialog at all until that module existed.
-  expect(alertSpy).toHaveBeenCalledTimes(1);
-  expect(alertButtons().map((b) => b.style)).toEqual(['cancel', 'destructive']);
-  // Nothing yet: the first tap opens the question, it does not answer it.
+  // Asserted on `confirmDestructive` itself — see this file's mock for why spying on
+  // `Alert.alert` instead would stay green against a screen that ships a control deleting
+  // nothing on web.
+  expect(mockConfirm).toHaveBeenCalledTimes(1);
+  expect(askedConfirmation()).toMatchObject({
+    title: 'Delete this preset?',
+    body: "It will be removed from your presets. This can't be undone.",
+    confirmLabel: 'Delete',
+    cancelLabel: 'Cancel',
+  });
+  // Nothing yet: the first tap asks the question, it does not answer it. `confirmDestructive`
+  // promises `onConfirm` "is run only if the diver confirms", and this screen must not have
+  // done the work already.
   expect(mockSoftDelete).not.toHaveBeenCalled();
 });
 
@@ -663,6 +737,30 @@ it('says so when the delete fails, rather than leaving a dead control', async ()
   await confirmDelete(t);
   await waitFor(() => expect(textIn(t).join(' ')).toContain("Couldn't delete that preset"));
   expect(mockBack).not.toHaveBeenCalled();
+});
+
+/**
+ * §0.6: the primary action is the app's one filled inverted-ink button, and nothing may compete
+ * with it. Without this, swapping `styles.action` for `styles.presetDelete` on the save control
+ * leaves the whole suite green — the primary action stops being the primary action and
+ * `unexpectedGraphics` cannot see it either, because both styles are on-palette.
+ *
+ * Read off `makeStyles` rather than retyped, and asserted against the OTHER two controls on
+ * this screen, which is where "nothing competes with it" actually lives: the way out is
+ * wayfinding (`formBack` — §0.6's "leaving a screen has one treatment everywhere") and Delete
+ * is a plain muted label (§10's "the app's own control stays muted"). The same three-way
+ * assertion `DiveFormScreen.test.tsx` makes for its own footer.
+ */
+it('gives Save the one filled button, and neither of the other two controls', async () => {
+  const t = await open(twin12());
+  const styles = makeStyles('light');
+  const styleOf = (label: string) => [findControl(t, label)?.props?.style].flat(5);
+
+  expect(styleOf('Save preset')).toContain(styles.action);
+  expect(styleOf('Leave without saving')).toContain(styles.formBack);
+  expect(styleOf('Leave without saving')).not.toContain(styles.action);
+  expect(styleOf('Delete preset')).toContain(styles.presetDelete);
+  expect(styleOf('Delete preset')).not.toContain(styles.action);
 });
 
 // §0.1: colour encodes depth and nothing else, so this app's own surface stays monochrome —

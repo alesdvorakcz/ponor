@@ -1,5 +1,12 @@
-import { comparePresets, presetNamed } from './presets';
-import type { GearPreset } from './types';
+import {
+  comparePresets,
+  duplicatePresetMessage,
+  EMPTY_PRESET_MESSAGE,
+  presetNamed,
+  presetRefusal,
+  UNNAMED_PRESET_MESSAGE,
+} from './presets';
+import type { GearPreset, Tank } from './types';
 
 /**
  * A `GearPreset` with only the fields these two rules read. No database: both functions are
@@ -94,5 +101,93 @@ describe('presetNamed', () => {
     const alu = preset({ name: 'Alu 80' });
     const twin = preset({ name: 'twin 12' });
     expect(presetNamed([alu, twin], 'alu 80', twin.id)?.id).toBe(alu.id);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// presetRefusal — the one owner of what stops a preset being saved (M1e fix round 1)
+// ---------------------------------------------------------------------------------------
+
+const tank = (over: Partial<Tank> = {}): Tank => ({
+  material: null, sizeL: null, count: null, workingBar: null,
+  o2Pct: null, hePct: null, startBar: null, endBar: null, ...over,
+});
+
+const REAL_CYLINDER = [tank({ material: 'steel', sizeL: 12 })];
+
+describe('presetRefusal', () => {
+  it('lets a real preset through, and says so in one place rather than at two call sites', () => {
+    const verdict = presetRefusal([], 'twin 12 steel', REAL_CYLINDER);
+    expect(verdict).toEqual({ storedName: 'twin 12 steel', name: null, cylinders: null, refused: false });
+  });
+
+  // A preset is found by its name and by nothing else — it is all a chip shows.
+  it.each([['an empty name', ''], ['a whitespace-only name', '   ']])('refuses %s', (_case, name) => {
+    const verdict = presetRefusal([], name, REAL_CYLINDER);
+    expect(verdict.name).toBe(UNNAMED_PRESET_MESSAGE);
+    expect(verdict.refused).toBe(true);
+    // The cylinders are fine, and the verdict says so — which is what lets a screen with two
+    // slots answer both questions at once instead of one at a time.
+    expect(verdict.cylinders).toBeNull();
+  });
+
+  // Two chips reading "alu 80" with different cylinders is a row the diver cannot tell apart
+  // and cannot fix by looking. The sentence quotes the spelling the EXISTING preset has, not
+  // the one just typed: sending a diver to look for a chip that says no such thing would be
+  // its own small lie.
+  it('refuses a name another preset already has, and quotes that preset’s own spelling', () => {
+    const verdict = presetRefusal([preset({ name: 'alu 80' })], 'ALU 80', REAL_CYLINDER);
+    expect(verdict.name).toBe('You already have a preset called “alu 80”.');
+    expect(verdict.name).toBe(duplicatePresetMessage('alu 80'));
+  });
+
+  // `exceptId`: renaming a preset to the name it already has is not a collision with
+  // anything, and without the exception an editor would refuse every save that did not change
+  // the name — which is most of them.
+  it('lets a preset keep its own name, while still catching a different one', () => {
+    const mine = preset({ name: 'alu 80' });
+    const theirs = preset({ name: 'twin 12 steel' });
+    expect(presetRefusal([mine, theirs], 'alu 80', REAL_CYLINDER, mine.id).refused).toBe(false);
+    expect(presetRefusal([mine, theirs], 'twin 12 steel', REAL_CYLINDER, mine.id).name).toBe(
+      duplicatePresetMessage('twin 12 steel'),
+    );
+  });
+
+  // A preset with nothing in it is a chip that blanks a diver's cylinder block — worse than no
+  // chip at all. `[]` and `[{ every field null }]` are the same claim under §6, so they get
+  // the same verdict; a cylinder holding nothing but the pressures a preset never stores is
+  // the third spelling of it, and the one that looks full on a form.
+  it.each([
+    ['no cylinders at all', [] as Tank[]],
+    ['a cylinder recording nothing', [tank()]],
+    ['a cylinder holding only the pressures a preset never stores', [tank({ startBar: 200, endBar: 60 })]],
+  ])('refuses %s', (_case, tanks) => {
+    const verdict = presetRefusal([], 'twin 12 steel', tanks);
+    expect(verdict.cylinders).toBe(EMPTY_PRESET_MESSAGE);
+    expect(verdict.refused).toBe(true);
+  });
+
+  // Both at once, because the two screens that ask disagree about where to SAY it and must not
+  // have to disagree about what is wrong. The dive form has one slot and shows the cylinder
+  // sentence first; the editor has two and shows both.
+  it('answers both questions independently, so a caller can show either or both', () => {
+    const verdict = presetRefusal([], '', []);
+    expect(verdict.name).toBe(UNNAMED_PRESET_MESSAGE);
+    expect(verdict.cylinders).toBe(EMPTY_PRESET_MESSAGE);
+  });
+
+  // `storedName` is the name as it will be written, decided here rather than trimmed again at
+  // each writer: the check and the write must agree about which string was judged.
+  it('hands back the name as it will be stored, trimmed', () => {
+    expect(presetRefusal([], '  alu 80  ', REAL_CYLINDER).storedName).toBe('alu 80');
+  });
+
+  // `refused` is derived here rather than recomputed by every caller — §4.1's "derive, or tie
+  // at compile time". A screen that had to spell out `name !== null || cylinders !== null`
+  // could get it wrong in one place and right in the other.
+  it('reports refusal whenever either half has something to say', () => {
+    expect(presetRefusal([], '', REAL_CYLINDER).refused).toBe(true);
+    expect(presetRefusal([], 'ok', []).refused).toBe(true);
+    expect(presetRefusal([], 'ok', REAL_CYLINDER).refused).toBe(false);
   });
 });
