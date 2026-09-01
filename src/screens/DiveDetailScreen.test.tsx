@@ -14,7 +14,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
-import { HE_LABEL, N2_LABEL, O2_LABEL } from '../format/display';
+import { formatCurrent, formatSurge, formatWaves, HE_LABEL, N2_LABEL, O2_LABEL } from '../format/display';
 import { softDeleteDive } from '../db/dives';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -1006,6 +1006,47 @@ it('shows the M1h conditions and equipment fields it now records', async () => {
   // `conditionsFields`. Identical labels would be unreadable in a column and identical to a
   // screen reader.
   expect(text).toContain('Visibility distance');
+});
+
+/**
+ * **Which formatter each 0–3 scale is read back through**, on the screen the form writes
+ * into — and the reason this screen was in M1h's scope at all: picking *Small* under Waves
+ * on the form and reading *Light* back here is §4.1's opening `Steel`/`steel` drift, one
+ * screen apart instead of one word apart.
+ *
+ * Measured before this test existed, all of it at 1553 green: this screen's `formatWaves`
+ * repointed at `formatCurrent`, its `formatSurge` likewise, and — the failure with no
+ * visible trace at all — the Waves row deleted outright, which nothing could catch, because
+ * a dive that recorded no waves legitimately shows no row.
+ *
+ * **Level 1 on all three, deliberately.** It is the one level where the three vocabularies
+ * disagree word for word (*Small* · *Light* · *Some*); at level 2 they all say *Medium*, so
+ * a test written there would pass with the three rows wired to any of the three formatters.
+ * Asserted THROUGH the formatters rather than against words typed here: §4.1 gives the words
+ * to `format/display.ts` and `display.test.ts` pins what each one says, so a rewording stays
+ * one edit while a rewiring stays red.
+ */
+it('reads each 0–3 scale back through the formatter that scale owns', async () => {
+  const rows = [
+    ['Waves', formatWaves],
+    ['Current', formatCurrent],
+    ['Surge', formatSurge],
+  ] as [string, (level: number) => string | null][];
+  // The level being asked about has to be one the three formatters answer differently, or
+  // every assertion below is satisfied by any wiring at all.
+  expect(new Set(rows.map(([, format]) => format(1))).size).toBe(rows.length);
+
+  const texts = await renderDetail(dive({ date: '2026-08-16', waves: 1, current: 1, surge: 1 }));
+  for (const [label, format] of rows) {
+    const row = texts.indexOf(label);
+    // The row exists at all — deleting it is otherwise indistinguishable from a dive that
+    // simply recorded nothing for it.
+    expect(row).toBeGreaterThanOrEqual(0);
+    // ...and the value beside that label is its own scale's word. `Row` renders the label
+    // and the value as adjacent `Text`s (no `=` mark here — these are recorded, not
+    // computed), which is what makes the next string the value rather than a coincidence.
+    expect(texts[row + 1]).toBe(format(1));
+  }
 });
 
 // Review task 7, Minor #4: entry/salinity/waterBody/suit used to render as the raw stored

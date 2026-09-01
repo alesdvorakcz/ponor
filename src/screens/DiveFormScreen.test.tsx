@@ -21,8 +21,17 @@ import { useOpenFormGroups } from '../db/useOpenFormGroups';
 import { setOpenFormGroups } from '../db/settings';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
-import { diveFormSchema, TANK_FIELDS } from '../domain/diveFormSchema';
-import { formatCylinderSpec, formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
+import { diveFormSchema, outOfScaleNote, TANK_FIELDS } from '../domain/diveFormSchema';
+import {
+  formatCurrent,
+  formatCylinderSpec,
+  formatEquipmentToken,
+  formatSurge,
+  formatTankMaterial,
+  formatWaves,
+  HE_LABEL,
+  O2_LABEL,
+} from '../format/display';
 import {
   CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
@@ -2094,6 +2103,50 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
     // without pinning the wording, which format/display.ts owns.
     expect(chipsFor(t, label)).toHaveLength(values.length);
   });
+
+  /**
+   * **Which formatter each scale reads its words from** — the one thing the sweep above
+   * deliberately does not pin, and until this round the one thing nothing else pinned either.
+   *
+   * The three 0–3 rows share a single vocabulary, so every count-and-membership assertion in
+   * this file passes with all three wired to the same words. Measured, at 1553 green:
+   * repointing Waves' `displayLabel` at `formatCurrent` put *None · Light · Medium · Strong*
+   * over the sea state; repointing Surge's put *Light* where the design says *Some*; and
+   * `displayLabel={(level) => String(level)}` put the bare digits `0 1 2 3` back on the chips
+   * — the owner's original complaint about this form, restored in silence. §4.1's opening
+   * example is `Steel`/`steel` one screen apart; this is the same drift one row apart.
+   *
+   * **Asserted through the formatters, not against words typed here.** `format/display.ts`
+   * owns "every conversion of a stored value into diver-facing text" (§4.1) and
+   * `display.test.ts` pins what each of the three actually says; what this file owns is
+   * which one each row *asks*, which is a fact about the screen. The two halves together are
+   * the chain, and neither alone is worth anything: a formatter nothing calls is dead code,
+   * and a row calling the wrong one is a lie a passing suite would keep.
+   */
+  it.each([
+    ['Waves', formatWaves],
+    ['Current', formatCurrent],
+    ['Surge', formatSurge],
+  ] as [string, (level: number) => string | null][])(
+    'reads the %s chips through the formatter that scale owns',
+    async (label, format) => {
+      const t = await render(<DiveFormScreen mode="create" />);
+      await openGroup(t, 'Conditions');
+      expect(chipsFor(t, label)).toEqual(CONDITION_SCALE_VALUES.map((level) => format(level)));
+    },
+  );
+
+  // ...and the three formatters are actually three, which is what makes the assertion above
+  // able to fail. Two scales that happened to agree word for word would let either be wired
+  // to the other with everything green — and the words genuinely do overlap (level 2 is
+  // *Medium* on all three, level 3 *Strong* on two), so this is a live condition and not a
+  // ceremonial one.
+  it('is asserting against three distinguishable vocabularies, not three copies of one', () => {
+    const said = [formatWaves, formatCurrent, formatSurge].map((format) =>
+      CONDITION_SCALE_VALUES.map((level) => format(level)).join('·'),
+    );
+    expect(new Set(said).size).toBe(said.length);
+  });
 });
 
 // --- §0.6: "An icon appears only where the value has one" ---
@@ -2219,6 +2272,59 @@ it('has a marks row for every option control on the form, and none for a control
   }
 });
 
+/**
+ * **Which symbol a repeating row repeats, by name** — the half `CHIP_MARKS` above cannot hold,
+ * and deliberately does not try to.
+ *
+ * `marksInside` counts nodes and stays blind to the mechanism on purpose: "a mark that changed
+ * from a symbol to a drawn shape would still be the same claim to a diver". That is right for
+ * a count table, and it leaves one hole exactly where this milestone's design argument lives.
+ * Current and Surge carry **identical** counts — `[0, 1, 2, 3]` both, because on both rows the
+ * count IS the level — so `CHIP_MARKS` is perfectly satisfied by the two being swapped, and
+ * swapping `CurrentIcon` and `SurgeIcon` at their call sites was measured **1553 green**.
+ *
+ * The swap is not cosmetic. §0.6: Surge's mark is two-way, "which is what tells the two rows
+ * apart at a glance rather than by reading" — the single thing the bidirectional glyph buys,
+ * and the reason `ConditionMarks.tsx` gives for why a repeated wave could not serve Waves. So
+ * on these two rows the symbol's identity is not the mechanism; it is the design, and the one
+ * table that says what the SCREEN shows has to state it.
+ *
+ * Written out here rather than read back from `ConditionMarks.tsx`, for the reason
+ * `CHIP_MARKS`' own docblock gives: `ConditionMarks.test.tsx` asks `CurrentIcon` what it drew
+ * and stays perfectly self-consistent when this screen hands it to the wrong row.
+ */
+const REPEATED_MARK_SYMBOLS: [string, string, string][] = [
+  ['Current', 'Conditions', 'arrow.right'],
+  ['Surge', 'Conditions', 'arrow.left.arrow.right'],
+];
+
+it.each(REPEATED_MARK_SYMBOLS)('repeats the one symbol §0.6 gives %s, on every chip that has marks', async (label, group, name) => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, group);
+  const drawn = CONDITION_SCALE_VALUES.map((_, index) =>
+    symbolsInside(findChip(t, label, index)).map((n) => String(n.props?.name)),
+  );
+  // One set over every copy on every chip, so this says three things at once: the row draws
+  // that symbol, it draws no other (a chip mixing two glyphs would still pass a count), and
+  // it draws something at all (an empty set fails, which is what catches a row whose marks
+  // were dropped entirely).
+  expect(new Set(drawn.flat())).toEqual(new Set([name]));
+});
+
+// Keeps the table above honest in the other direction, exactly as the count table's own
+// completeness check does: a third row that repeats a symbol has to name it here, or the two
+// rows that do would quietly become the only ones anybody checked. Derived from the screen —
+// which is right for a completeness question and wrong for the names themselves, which is why
+// only this half reads the form.
+it('names the symbol of every row on this form that repeats one', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  const repeating = CHIP_MARKS.filter(([label, , marks]) =>
+    marks.some((_, index) => symbolsInside(findChip(t, label, index)).length > 1),
+  ).map(([label]) => label);
+  expect(repeating.sort()).toEqual(REPEATED_MARK_SYMBOLS.map(([label]) => label).sort());
+});
+
 // §0.6: the icon "**supplements the label rather than replacing it** — never an icon alone."
 // The failure this guards is a chip that swapped its word for a picture, which would still
 // draw an icon in the right place and still save the right value: only the word's presence,
@@ -2309,7 +2415,9 @@ function writtenInput(call = 0): Record<string, unknown> {
   return (mockCreate.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
 }
 
-it.each([
+/** The table itself, named rather than inline, because a second sweep below is derived from
+ * it — the one that taps the chip this one deliberately never taps. */
+const CHIP_WRITES = [
   ['Entry', 'Conditions', 'entry', ENTRY_VALUES],
   ['Salinity', 'Conditions', 'salinity', SALINITY_VALUES],
   ['Water body', 'Conditions', 'waterBody', WATER_BODY_VALUES],
@@ -2324,7 +2432,9 @@ it.each([
   ['Surge', 'Conditions', 'surge', CONDITION_SCALE_VALUES],
   ['Suit', 'Equipment', 'suit', SUIT_VALUES],
   ['Weighting', 'Equipment', 'weightsFeel', WEIGHTS_FEEL_VALUES],
-] as const)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
+] as const;
+
+it.each(CHIP_WRITES)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, group);
@@ -2347,6 +2457,60 @@ it.each([
   await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
   expect(writtenInput(1)).not.toHaveProperty(field);
 });
+
+// --- The chip the sweep above never taps ---
+//
+// **That sweep is blind to level 0 by construction, and level 0 is M1h's new semantic.** It
+// taps `values[1]` on purpose — "an `onChange` hard-wired to `options[0]` would pass against
+// index 0" — so the one value in the app that is *falsy* is the one value it never writes.
+// The answer is not to move its index, which would hand back the defect it was written for;
+// it is this second tap.
+//
+// What it holds is one character in `toNewDiveInput` (domain/diveFormSchema.ts): the loop
+// omits a field whose value is `null`, and narrowing that to `value !== null && value !== 0`
+// left the entire suite green while a diver tapping *Flat* on Waves or *None* on Current
+// saved their reading as "not recorded" — the chip lit, the note absent, the column empty.
+// `diveFormSchema.test.ts` pins the same line at the domain boundary; this pins the path a
+// thumb actually takes, which is the half that could still break with that boundary intact
+// (`OptionChips` compares with `===` today, and `value || ''` anywhere between the chip and
+// the form would swallow the same 0 with the domain test still green).
+//
+// Derived from the table above rather than listed again, so a vocabulary that grows a zero
+// joins on the day it does rather than on the day someone remembers this sweep exists.
+const ZERO_LEVEL_CHIP_WRITES = CHIP_WRITES.filter(([, , , values]) =>
+  (values as readonly (string | number)[]).includes(0),
+);
+
+it('sweeps every chip vocabulary that has a level 0, and there is at least one', () => {
+  // A filter that matched nothing would leave `it.each` below running against an empty table
+  // — the vacuous-guard failure this file has already paid for twice (the marks witness, the
+  // graphics sweep). The names are asserted rather than only the count, because the point is
+  // *which* rows a diver can tap a falsy value on.
+  expect(ZERO_LEVEL_CHIP_WRITES.map(([label]) => label)).toEqual(['Waves', 'Current', 'Surge']);
+});
+
+it.each(ZERO_LEVEL_CHIP_WRITES)(
+  'saves the level 0 a diver picked on %s, which is a reading and not an absence',
+  async (label, group, field, values) => {
+    // *Flat* water and *no* current are readings. A diver who looked at the sea and saw
+    // nothing moving recorded that, and it has to reach the column as `0` — not be dropped
+    // because zero is falsy, and not be confused with the untouched field beside it.
+    expect(values[0]).toBe(0);
+    mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, group);
+
+    await pressChip(t, label, 0);
+    expect(findChip(t, label, 0)?.props?.accessibilityState?.selected).toBe(true);
+    await pressSave(t);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(writtenInput(0)[field]).toBe(0);
+    // ...and it is the KEY that must be there: `undefined` is falsy too, so a written
+    // payload missing the field entirely would satisfy a looser assertion and mean exactly
+    // the failure this test exists for.
+    expect(Object.keys(writtenInput(0))).toContain(field);
+  },
+);
 
 it("saves the cylinder material a diver picked, which lives inside the dive's tanks", async () => {
   // The fifth option field, and the only one whose value is not a column of its own: it is
@@ -2490,8 +2654,14 @@ it('says out loud what a rating outside the scale actually is, since no dot can 
 
   const shown = textIn(t).join(' ');
   expect(shown).toContain('9');
-  // The number, and the promise that it is kept — §1 means nothing here refuses or rewrites it.
-  expect(shown).toContain('saved as it is');
+  // **The schema's own sentence, asked for by calling it** — not a phrase of it copied here.
+  // What this screen owes is that the note reaches the diver at all; what the note SAYS is
+  // `diveFormSchema.ts`'s, and its properties (it names the number, it promises the value is
+  // kept, it attributes the value to nobody) are pinned there against the rule rather than
+  // against a spelling. Quoting a fragment instead — this line read `toContain('saved as it
+  // is')` — made every rewording of that sentence a failure on a screen test that has no
+  // opinion about the wording, which is half of the defect this round is fixing.
+  expect(shown).toContain(outOfScaleNote(RATING_VALUES, 9));
   // And NOT the sibling note's attribution: a 9 could have come from the diver's own keypad,
   // so blaming a newer version of Ponor would be a guess stated as a fact.
   expect(shown).not.toContain('newer version');
