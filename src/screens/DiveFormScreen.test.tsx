@@ -20,12 +20,16 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { dive } from '../domain/diveFixture';
 import { formatEquipmentToken, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import {
+  CONFIGURATION_VALUES,
   ENTRY_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
+  VISIBILITY_VALUES,
   WATER_BODY_VALUES,
+  WEATHER_VALUES,
+  WEIGHTS_FEEL_VALUES,
   type Dive,
   type GearPreset,
   type Tank,
@@ -306,8 +310,8 @@ async function openGroup(t: RenderResult, title: string) {
 // --- §2.4: the Logged/Planned control ---
 //
 // Queried by the `switch` role rather than by `button`, which is exactly how the screen
-// declares it (the same idiom `BooleanField` uses for hood/gloves/boots) — and which means
-// `findSaveControl(t)` above can never accidentally land on it.
+// declares it (the same idiom `EquipmentTokenField` uses for each accessory) — and which
+// means `findSaveControl(t)` above can never accidentally land on it.
 
 /** The status control itself, or `undefined` when the screen renders none. */
 function findStatusControl(t: RenderResult) {
@@ -602,18 +606,20 @@ it('rules every field on its top edge, the way a dive row is ruled', async () =>
   expect((styles.formField as unknown as Record<string, unknown>).borderBottomWidth ?? 0).toBe(0);
 });
 
-// The three fields that are NOT a `FormField` — hood, gloves and boots are a `BooleanField`,
-// and suit and weights sit beside them — have to be rows too, or "a field is a row" is a rule
-// with three exceptions in one group. `BooleanField` used to render the bare label row with
-// no field wrapper at all, which is exactly why those three drew no hairline of their own and
-// their Yes/No chips sat flush against the end of the word instead of at the row's edge.
+// The fields that are NOT a `FormField` — each accessory in the equipment set is an
+// `EquipmentTokenField`, and suit and weights sit beside them — have to be rows too, or
+// "a field is a row" is a rule with exceptions in one group. That control used to render the
+// bare label row with no field wrapper at all, which is exactly why those rows drew no
+// hairline of their own and their Yes/No chips sat flush against the end of the word instead
+// of at the row's edge. (It was `BooleanField`, bound to `hood`/`gloves`/`boots`, until M1h
+// replaced the three columns with a token set; the body is unchanged, only what it writes.)
 it('makes a yes/no field a row like every other field, hairline and all', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   const styles = makeStyles('light');
   await openGroup(t, 'Equipment');
 
-  // By the `switch` role `BooleanField` declares, the same idiom §2.4's control uses — never
-  // `buttonsOf`, which would find neither.
+  // By the `switch` role `EquipmentTokenField` declares, the same idiom §2.4's control uses
+  // — never `buttonsOf`, which would find neither.
   const chip = (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
     (n) => String(n.props?.accessibilityLabel ?? '') === 'Hood',
   );
@@ -1145,6 +1151,24 @@ it('marks a carried 0 as carried — a zero is an answer, an empty field is not'
   expect(findClearCarried(t, HE_LABEL)).toBeDefined();
 });
 
+it('marks a carried suit thickness, and drops the mark the moment the diver types over it', async () => {
+  // §0.6's `carried ×` on the one field M1h added to `CARRIED_FIELDS`. Both halves in one
+  // test because they are two different props on one call site — `carriedPaths` is what puts
+  // the mark there and `onDropCarried` is what takes it away — and either can be left off
+  // alone. The neighbouring `weightsKg` has had both since M1d; this one arrived without them
+  // being pinned, which is the same per-call-site-prop hole the chip sweep below exists for.
+  stubDives({ dives: [dive({ date: '2026-08-10', suitThicknessMm: 5 })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Equipment');
+
+  expect(findTextInput(t, 'Suit thickness')?.props?.value).toBe('5');
+  expect(findClearCarried(t, 'Suit thickness')).toBeDefined();
+
+  await typeInto(t, 'Suit thickness', '7');
+  expect(findClearCarried(t, 'Suit thickness')).toBeUndefined();
+  expect(findTextInput(t, 'Suit thickness')?.props?.value).toBe('7');
+});
+
 it('still marks nothing on a field the previous dive left empty, beside one it filled with 0', async () => {
   // The control for the test above. "Mark everything" would satisfy it just as well, and
   // would put a `×` on fields carry-over never touched — so the same render has to show a
@@ -1524,9 +1548,9 @@ function symbolsInside(node: TestNode | undefined) {
   return node ? node.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
 }
 
-// DESIGN.md §0.6: "*Shore* and *boat* do. *Salt*, *fresh* and *brackish* do not, and neither
-// do *wet*, *semidry* and *dry* or *steel* and *alu* — drawn as icons those collapse into
-// near-identical droplets and suits separated by tally marks, which is a legend."
+// DESIGN.md §0.6: "*Shore* and *boat* pass trivially." *Salt* and *fresh* do not, and
+// neither do *wet*, *semidry* and *dry* or *steel* and *alu* — drawn as icons those collapse
+// into near-identical droplets and suits separated by tally marks, which is a legend.
 //
 // Both halves in one test, because the rule is a boundary and either half alone is
 // satisfiable by the wrong implementation: an icon on every chip passes "shore has one", and
@@ -1589,19 +1613,30 @@ it('inverts the entry icon along with the label it sits beside', async () => {
   expect(symbolsInside(findChip(t, 'Entry', 0))[0]?.props?.tintColor).toBe(theme.fg);
 });
 
-// --- The eight fields that were dead to this suite ---
+// --- Every field that would otherwise be dead to this suite ---
 //
-// `ControlledOptionField`'s `onChange={field.onChange}` and `ControlledBooleanField`'s could
-// both be replaced by `() => {}` with all 772 tests green, and so could `OptionChips`'
-// "tapping the selected chip clears it" and `BooleanField`'s `!checked`. Between them that
-// is entry, salinity, water body, suit, cylinder material, hood, gloves and boots: eight
-// fields that could silently never save, or save but never clear, with nothing to say so.
+// `ControlledOptionField`'s `onChange={field.onChange}` could be replaced by `() => {}` with
+// the whole suite green, and so could `OptionChips`' "tapping the selected chip clears it"
+// and the equipment chip's own toggle. Between them that was entry, salinity, water body,
+// suit, cylinder material and the three accessory booleans: eight fields that could
+// silently never save, or save but never clear, with nothing to say so.
 //
 // The seam is between the control and the WRITE, so every assertion below reads the payload
 // `createDive` was handed and not the component's own state — a control that updates itself
 // and never reaches the form is exactly the failure, and reading the chip back would report
-// it as working. Driven per field rather than once for the wrapper, because `name` is a
-// per-call-site prop: a chip row wired to the wrong field would save the wrong column.
+// it as working. Driven per field rather than once for the wrapper, because **`name` is a
+// per-call-site prop: a chip row wired to the wrong field would save the wrong column.**
+//
+// **M1h added seven fields to this screen and only three of them joined this sweep**, which
+// is exactly the hole the paragraph above was written about. `equipment` and
+// `tanks.0.configuration` were covered; `visibility`, `weather`, `weightsFeel` and
+// `suitThicknessMm` were not, and every one of them could be repointed at another column
+// with 1285 tests green — tapping *High* under Visibility would have written
+// `waterBody: 'high'`, a value that vocabulary does not contain and that §10 keeps rather
+// than refuses, while `visibility` stayed null for ever and §7 carried the wrong column to
+// every device. The lesson is not "write more tests": it is that a field added to this
+// screen belongs in the table below on the same commit, and that the last row of that table
+// is the checklist.
 
 /** One of a field's chips, by its position in the domain's own `*_VALUES` order — never by
  * its display string, which `format/display.ts` owns and this file has no business pinning
@@ -1640,7 +1675,10 @@ it.each([
   ['Entry', 'Conditions', 'entry', ENTRY_VALUES],
   ['Salinity', 'Conditions', 'salinity', SALINITY_VALUES],
   ['Water body', 'Conditions', 'waterBody', WATER_BODY_VALUES],
+  ['Visibility', 'Conditions', 'visibility', VISIBILITY_VALUES],
+  ['Weather', 'Conditions', 'weather', WEATHER_VALUES],
   ['Suit', 'Equipment', 'suit', SUIT_VALUES],
+  ['Weighting', 'Equipment', 'weightsFeel', WEIGHTS_FEEL_VALUES],
 ] as const)('saves the %s a diver picked, and clears it when they pick it again', async (label, group, field, values) => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
@@ -1686,6 +1724,29 @@ it("saves the cylinder material a diver picked, which lives inside the dive's ta
   expect(cleared?.[0]?.material).toBeNull();
 });
 
+it("saves the cylinder configuration a diver picked, which lives inside the dive's tanks too", async () => {
+  // The sixth option field, and the rig `count` was replaced by (§10). It was already red
+  // under a repointed `name` — but only through a preset test that reads the chip's own
+  // selected state back, which is precisely the coverage this section's header warns is not
+  // coverage ("a control that updates itself and never reaches the form is exactly the
+  // failure, and reading the chip back would report it as working"). This drives it to the
+  // write, as its sibling `Material` already is.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Gas & cylinders');
+
+  await pressChip(t, 'Configuration', 1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenTanks()?.[0]).toEqual(expect.objectContaining({ configuration: CONFIGURATION_VALUES[1] }));
+
+  await pressChip(t, 'Configuration', 1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  const cleared = (mockCreate.mock.calls[1]?.[1] as { tanks?: { configuration?: unknown }[] })?.tanks;
+  expect(cleared?.[0]?.configuration).toBeNull();
+});
+
 it.each(EQUIPMENT_VALUES.map((token) => [formatEquipmentToken(token), token] as const))(
   'adds %s to the equipment set and takes it out again — a token is not a one-way door',
   async (label, token) => {
@@ -1708,6 +1769,31 @@ it.each(EQUIPMENT_VALUES.map((token) => [formatEquipmentToken(token), token] as 
     expect(writtenInput(1).equipment).toEqual([]);
   },
 );
+
+it('saves the suit thickness a diver typed, and clears it when they empty the field', async () => {
+  // The one field M1h added that is TYPED rather than tapped, so it cannot ride the chip
+  // table above — but it carries the identical per-call-site `name` hazard, and
+  // `name="weightsKg"` in its place would quietly put millimetres in the weights column.
+  // Driven to the write for the same reason everything else in this section is.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Equipment');
+
+  await typeInto(t, 'Suit thickness', '5');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+  expect(writtenInput(0).suitThicknessMm).toBe(5);
+  // ...and it did not land in the column next to it, which is exactly what a repointed
+  // `name` looks like from the write side: the right value, the wrong field, nothing to say so.
+  expect(writtenInput(0)).not.toHaveProperty('weightsKg');
+
+  // Emptying it is a real instruction (§2.2's "only the fields you use", and unuse):
+  // `optionalNumber` turns `''` into null and `toNewDiveInput` omits a null outright.
+  await typeInto(t, 'Suit thickness', '');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(2));
+  expect(writtenInput(1)).not.toHaveProperty('suitThicknessMm');
+});
 
 it('writes the equipment set in the vocabulary\'s own order, whichever order the diver taps', async () => {
   // The order is what `domain/types.ts` says the list declares, and what `formatEquipment`

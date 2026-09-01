@@ -255,6 +255,19 @@ it('shows the computed values a diver cannot see in the raw fields', async () =>
   expect(text).toContain('MOD');
 });
 
+it('names the cylinder\'s rig, and names it as the rig rather than as the material', async () => {
+  // The row that replaced `Count` (§10). It is asserted label-and-value together and
+  // alongside its neighbour, because the two failures worth catching are the row vanishing
+  // and the row wearing the wrong label — and a bare `toContain('Twinset')` would miss the
+  // second. (`Count` was equally untested before this task; that is carried forward here
+  // rather than left carried forward.)
+  const text = (
+    await renderDetail(dive({ date: '2026-08-16', tanks: [tank({ material: 'steel', configuration: 'twinset' })] }))
+  ).join(' ');
+  expect(text).toContain('Configuration Twinset');
+  expect(text).toContain('Material Steel');
+});
+
 it('shows nitrogen on an ordinary air cylinder, which is the whole point of reading a blank helium as none', async () => {
   // The owner's ruling, at the place a diver actually meets it. A cylinder recording O2 21
   // and nothing about helium is what every air dive in a logbook looks like, and it reads

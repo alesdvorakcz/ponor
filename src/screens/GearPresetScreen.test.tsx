@@ -17,7 +17,7 @@ import { db } from '../db/client';
 import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
 import { PRESETS_UNREADABLE } from '../domain/presets';
-import { TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
+import { CONFIGURATION_VALUES, TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -747,6 +747,23 @@ it('flags a material it has no chip for, rather than showing nothing at all', as
   // is indistinguishable from a preset whose material was never recorded.
   for (const material of TANK_MATERIAL_VALUES) {
     expect(findControl(t, `Material: ${formatTankMaterial(material)}`)?.props?.accessibilityState?.selected).toBe(false);
+  }
+});
+
+// The same rule at the second call site, which is the whole point of asserting it twice:
+// `unknownOptionNote` is one owner and this editor asks it about two fields, so a flag
+// present on `Material` and absent on `Configuration` would look identical on screen to a
+// preset whose rig was simply never recorded — and would stay that way silently.
+it('flags a configuration it has no chip for, exactly as it flags a material', async () => {
+  const known = await open(twin12());
+  expect(textIn(known).join(' ')).not.toContain(UNKNOWN_OPTION_NOTE);
+
+  const t = await open(preset({ tanks: [tank({ configuration: 'rebreather' as Tank['configuration'], sizeL: 12 })] }));
+  expect(textIn(t).join(' ')).toContain(UNKNOWN_OPTION_NOTE);
+  // ...and the chip row alone said nothing: none of the three is selected, which a diver
+  // cannot tell apart from a preset that records no rig at all.
+  for (const configuration of CONFIGURATION_VALUES) {
+    expect(findControl(t, `Configuration: ${formatConfiguration(configuration)}`)?.props?.accessibilityState?.selected).toBe(false);
   }
 });
 

@@ -1449,7 +1449,7 @@ function build(scheme: ColorScheme) {
     formStatusLabelOn: selectedInk,
     // **A field is a row, not a box** (DESIGN.md §0.6, M1d design pass) — the root every
     // field on this form shares: FormField.tsx, DateTimeField.tsx, and `OptionChips` /
-    // `BooleanField` in DiveFormScreen.tsx. It is `detailRow` one screen over, made
+    // `EquipmentTokenField` in DiveFormScreen.tsx. It is `detailRow` one screen over, made
     // typeable: a label leading, the value trailing, and a hairline on the row's TOP edge,
     // "the same rule dive rows follow" (`diveRow` above records at length why the edge is
     // not interchangeable — a top edge draws the line under whatever PRECEDES the row, so a

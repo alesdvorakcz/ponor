@@ -26,11 +26,17 @@ export interface FormFieldProps {
    * takes this input's own default keyboard.
    *
    * `'number-pad'` is the third option and it is not decoration: a field that counts
-   * whole things — the cylinder `count`, "twinset = 2" (DESIGN.md §6) — must not offer a
-   * separator key at all. `decimal-pad` shows one, and on a Czech, German or French device
-   * it types a comma, so the keypad was inviting a value `derived.ts` treats as
-   * *contradictory*: a fractional count voids the whole dive's gas figure rather than
-   * skipping one cylinder. `number-pad` has no separator to press.
+   * whole things must not offer a separator key at all. `decimal-pad` shows one, and on a
+   * Czech, German or French device it types a comma, so such a keypad invites a fraction
+   * into a field where a fraction is not merely odd but wrong. `number-pad` has no separator
+   * to press.
+   *
+   * **Its one caller is Settings' `dives_before` now.** It was written for the cylinder
+   * `count`, where a fractional value was *contradictory* in `derived.ts`'s sense and voided
+   * the whole dive's gas figure; M1h replaced that field with a rig picked from chips
+   * (§10), which no keypad can produce a fraction of. The option stays because the hazard is
+   * a property of counting rather than of that one field — but a reader looking for the
+   * cylinder count it used to name will not find one.
    */
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
   multiline?: boolean;

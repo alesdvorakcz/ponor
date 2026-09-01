@@ -29,13 +29,15 @@ import { type ColorScheme } from '../theme/tokens';
  * own refusals — an empty name, a name another preset already has, cylinders emptied to
  * nothing — take the same slot, next to the row each is about.
  *
- * **A note.** The option and boolean fields no longer refuse anything at all (DESIGN.md §10,
+ * **A note.** The fixed-choice fields no longer refuse anything at all (DESIGN.md §10,
  * settled after M1d: "a value outside the expected range is saved and can be flagged; it is
- * not refused"). A value from a newer client is kept and saved, and `unknownOptionNote` /
- * `unknownBooleanNote` (diveFormSchema.ts) say so here — where a refusal used to be a dead
- * Save button and, before that, silence.
+ * not refused"). A value from a newer client is kept and saved, and `unknownOptionNote`
+ * (diveFormSchema.ts) says so here — where a refusal used to be a dead Save button and,
+ * before that, silence. A second helper, `unknownBooleanNote`, said the same for a yes/no
+ * field until M1h replaced `hood`/`gloves`/`boots` with the `equipment` token set and left
+ * a dive with no boolean field at all.
  *
- * Those two sentences come from `diveFormSchema.ts` rather than from a caller, for the same
+ * That sentence comes from `diveFormSchema.ts` rather than from a caller, for the same
  * reason: what a value means is that file's rule to state, and a copy at a screen would
  * drift the first time the rule changed.
  */

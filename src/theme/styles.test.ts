@@ -48,9 +48,9 @@ describe('the 48 dp floor a style claims is a floor it keeps', () => {
   });
 });
 
-// Every field on the dive form (FormField.tsx, DateTimeField.tsx, OptionChips/BooleanField
-// in DiveFormScreen.tsx) is one CONTROL row: §0.6's `carried ×`, a picker field's `×`,
-// hood/gloves/boots' Yes/No chip and the field's own input all land in it. The two `×`
+// Every field on the dive form (FormField.tsx, DateTimeField.tsx, OptionChips /
+// EquipmentTokenField in DiveFormScreen.tsx) is one CONTROL row: §0.6's `carried ×`, a
+// picker field's `×`, one accessory's Yes/No chip and the field's own input all land in it. The two `×`
 // controls reach §0.5's floor through `hitSlop`, and hitSlop is delivered only inside the
 // ancestors — so the row's own height is what decides whether those targets exist at all.
 // Pinned here rather than left implicit: this is the value both components' hitSlop
