@@ -107,19 +107,30 @@ interface Tally {
 }
 
 /**
- * The id on one dive, as a `Suggestion` may carry it.
+ * The id on one dive, as a `Suggestion` carries it: **whatever the dive stores, verbatim.**
  *
- * `Dive` types both id columns as `string | null`, but this runs during render over whatever
- * the database handed back, and an empty string is not an id — it is the shape a
- * half-migrated or hand-edited row takes. Anything that is not a real, non-empty string
- * becomes `null`, which is the value that already means "no site record behind this name",
- * rather than a `''` every later reader would have to learn to treat as absent.
+ * This deliberately applies no rule about what an empty id means, and that is a correction.
+ * It used to normalise `''` to `null` on the reasoning that an empty string is not an id —
+ * true, but not this module's rule to state, and stating it here made two answers to one
+ * question: `carryOverFrom` copies `siteId`/`centerId` straight across, so a dive with `''`
+ * would have carried `''` into a form field and been offered back as `null` by the row
+ * directly beneath it. That is §4.1's defect in miniature, and the invented half is this one.
+ *
+ * There already is an owner. `diveFormSchema.ts`'s `optionalText` turns `''` into `null` at
+ * the **write boundary**, which is where "empty means absent" belongs for every text column
+ * this form has — so a picked `''` is stored as `null` whatever this function hands back, and
+ * one rule decides it for the id, the name, the buddy and the notes alike.
+ *
+ * The `typeof` check is not that rule wearing a disguise. It is a type guard: `Dive` types
+ * both columns as `string | null`, this runs during render over whatever the database handed
+ * back, and a column holding a number would otherwise make a `Suggestion` whose `id` is typed
+ * `string | null` and is neither.
  */
 function pairedId(dive: Dive, field: SuggestedField): string | null {
   const idField = pairedIdField(field);
   if (idField === null) return null;
   const id = dive[idField];
-  return typeof id === 'string' && id.trim() !== '' ? id : null;
+  return typeof id === 'string' ? id : null;
 }
 
 /**

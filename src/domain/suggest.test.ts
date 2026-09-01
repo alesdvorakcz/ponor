@@ -222,3 +222,23 @@ it('survives a hole in the list rather than throwing during a render', () => {
   const dives = [null, dive({ date: '2026-08-01', siteName: 'Silfra' })] as unknown as Dive[];
   expect(valuesOf(suggestFrom(dives, 'siteName', 's'))).toEqual(['Silfra']);
 });
+
+// --- What an empty id means is not this module's question (§4.1) ---
+//
+// `carryOverFrom` copies `siteId` straight across, so a dive storing `''` carries `''` into
+// the form. A suggestion for that same dive normalising it to `null` would be a second answer
+// to one question, sitting one row beneath the first. The owner that does decide is
+// `diveFormSchema.ts`'s `optionalText`, at the write boundary, where "empty means absent"
+// covers the id, the name and every other text column together.
+it('hands back the id the dive stores, verbatim, empty string and all', () => {
+  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: '' })];
+  expect(suggestFrom(dives, 'siteName', 'sil')).toEqual([{ value: 'Silfra', id: '' }]);
+});
+
+// The one thing that IS rejected, and it is a type guard rather than a rule about emptiness:
+// `Suggestion.id` is typed `string | null`, this runs during render over whatever the
+// database handed back, and a column holding a number would make that type a lie.
+it('refuses an id that is not a string at all', () => {
+  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: 42 as unknown as string })];
+  expect(suggestFrom(dives, 'siteName', 'sil')).toEqual([{ value: 'Silfra', id: null }]);
+});
