@@ -1,9 +1,9 @@
 import { type CSSProperties, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { makeStyles } from '../theme/styles';
+import { ClearFieldControl } from './ClearFieldControl';
 import type { DateTimeField as NativeDateTimeField, DateTimeFieldProps } from './DateTimeField';
-import { CLEAR_HIT_SLOP } from './FormField';
 
 /**
  * The browser's `DateTimeField`. Web only; Metro picks this file over `DateTimeField.tsx`
@@ -99,17 +99,13 @@ export function DateTimeField({ label, value, onChange, mode, scheme, onClear }:
           />
         </View>
         {onClear !== undefined && recorded && (
-          <Pressable
-            style={styles.formFieldClear}
+          <ClearFieldControl
             // `''`, never a value derived from what this field currently holds — see
             // `FormField.onClear`'s own docblock, and DESIGN.md §10's coercion contract.
             onPress={() => onClear('')}
-            accessibilityRole="button"
             accessibilityLabel={`Clear ${label}`}
-            hitSlop={CLEAR_HIT_SLOP}
-          >
-            <Text style={styles.formFieldClearLabel}>×</Text>
-          </Pressable>
+            scheme={scheme}
+          />
         )}
       </View>
     </View>

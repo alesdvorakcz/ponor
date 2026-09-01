@@ -417,9 +417,10 @@ function build(scheme: ColorScheme) {
   // contentContainer. That is what makes a field's hairline and its focus fill span the full
   // width the way a dive row's do (§0.6: "a hairline on each row's top edge, the same rule
   // dive rows follow"), while the text inside still lands on the same 20 `detailContent` uses
-  // one screen over. It also leaves the `carried ×` chip's outward `hitSlop` (FormField.tsx)
-  // 20 dp of room INSIDE the field's own unclipped box, where the old contentContainer
-  // padding left it 20 dp outside every field — same floor, delivered closer to home.
+  // one screen over. It used to have a second job — leaving the `carried ×` chip's outward
+  // `hitSlop` 20 dp of room INSIDE the field's own unclipped box — which M1h retired along
+  // with the slop: `clearFieldControl` is a real 48 dp box laid out in the row, so it needs
+  // room rather than clearance, and this inset is what it is laid out beside.
   const FORM_ROW_INSET = 20;
 
   // What a field puts UNDER its label/value row — the option chips, an open date picker, the
@@ -528,10 +529,11 @@ function build(scheme: ColorScheme) {
       backgroundColor: theme.surface,
     },
     // One glyph's tap target inside the action capsule — 48 x 48, §0.5's floor as a real
-    // box rather than `hitSlop`. Slop is the right tool for a control sitting inline in a
-    // row of text (`CLEAR_HIT_SLOP`, FormField.tsx); here the capsule exists to hold these
-    // and nothing else, so the target can simply BE the size it needs, and two of them side
-    // by side are what give the capsule its width.
+    // box rather than `hitSlop`. The capsule exists to hold these and nothing else, so the
+    // target can simply BE the size it needs, and two of them side by side are what give the
+    // capsule its width. `clearFieldControl` below is the same answer for the same question
+    // one screen over; the form's clear used to reach the floor through slop instead, and
+    // that style records at length what an invisible target cost when it did.
     //
     // A square, not a circle: the ink is the glyph, and a rounded fill behind it would be a
     // second object competing with the capsule that already surrounds it.
@@ -1727,6 +1729,36 @@ function build(scheme: ColorScheme) {
     // `headingTitle`, the same definition `divesHeading` reads — see it for why the title
     // takes `flex: 1`.
     formHeading: headingTitle,
+    // **The line that says what the return marks below it mean** (§0.6, M1h): the drawn mark
+    // itself, then `Carried from #127 — clear any of them`.
+    //
+    // It is the mark's legend, and that is why it exists rather than being a nicety. §0.6's
+    // standing test is "a symbol that needs a legend has already failed" — the computed-value
+    // square is the precedent — and a bare `↵` down the side of a form is exactly the symbol
+    // that would need one. Stating it **once, in the same view as the marks it describes**, is
+    // the difference between a legend a diver has to carry and a sentence they read as the
+    // form opens: the marks below are on screen while the sentence is, and nothing has to be
+    // remembered for the next dive.
+    //
+    // It sits between the heading row and the core strip, so `formScrollContent`'s own `gap`
+    // spaces it; it carries no margin of its own. `FORM_ROW_INSET` puts it in the same column
+    // every field's label starts in.
+    formCarriedNote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: FORM_ROW_INSET,
+    },
+    // Muted mono 11 — the same treatment `formFieldCleared` gives the cleared tag and the §0.6
+    // type table gives a dive number, because this is the same kind of thing: metadata about
+    // the form, not a heading and not a value. `flexShrink` so the Czech translation of a
+    // sentence this long wraps rather than pushing the mark off the row (§0.5).
+    formCarriedNoteText: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      color: theme.fgMuted,
+      flexShrink: 1,
+    },
     // §2.4's Logged/Planned control (M1d). Quiet by construction, on the owner's own brief
     // — "most of the dives will not be created as planned, so this feature should not
     // scream too much" — so it borrows §0.6's existing chip vocabulary (`actionPill`, small
@@ -1776,13 +1808,13 @@ function build(scheme: ColorScheme) {
     // Plex Mono inside no box at all.
     //
     // **`minHeight: 48` is §0.5's floor and carries over from `formFieldHeader`, which this
-    // replaces.** It is not spacing and it is not decoration: the `carried ×`
-    // (FormField.tsx) and the picker fields' `×` (DateTimeField.tsx) reach the floor through
-    // `hitSlop`, and hitSlop is only ever delivered inside a target's ancestors — this row is
-    // that ancestor now, exactly as the old label row was, so the vertical slop still lands.
-    // It applies to every field rather than only to the rows currently showing a chip, for
-    // the same reason it did before: a conditional height would move the input out from under
-    // a diver's finger the moment typing dropped the chip.
+    // replaces.** It is not spacing and it is not decoration. It used to be what made the two
+    // clear controls' vertical `hitSlop` land — slop is only ever delivered inside a target's
+    // ancestors, and this row is that ancestor — and since M1h both are `clearFieldControl`,
+    // a real 48 dp box, so the floor is now what the ROW has to be for one of them to fit in
+    // it without stretching it. Either way it applies to every field rather than only to the
+    // rows currently carrying one, for the reason it always did: a conditional height would
+    // move the input out from under a diver's finger the moment a mark was dropped.
     //
     // **No vertical padding, deliberately.** `formFieldInput` below carries the same 48, so
     // the input fills the row and the whole 48 dp is a live target for focusing the field.
@@ -1851,59 +1883,59 @@ function build(scheme: ColorScheme) {
     formFieldChoice: {
       paddingVertical: 6,
     },
-    // The `carried ×` chip (§0.6, M1d task 5): "muted mono on `border`... gains no
-    // colour" — the same monochrome rule `depthValue` exists to be the one exception to
-    // (§0.1: colour encodes depth and nothing else). `theme.border` as a FILL, not just
-    // the 1 px hairline it draws everywhere else in this file, is what "on border" means
-    // here.
+    // §0.6's carried treatment, as M1h's design sheet redrew it — **a drawn return mark and
+    // a clear control, where a `carried ×` chip used to sit**. Three styles replace four, and
+    // what went with the chip is a filled `border` ground, the word "carried", the divider
+    // that made its `×` read as a control, and the `hitSlop` arithmetic all of that needed.
     //
-    // **No `overflow: 'hidden'`, and that is load-bearing rather than an omission.** It
-    // clipped nothing visible — the chip's two children are `Text` nodes with no fill and
-    // no radius of their own, and no `android_ripple` is configured — but it did clip the
-    // `×`'s `hitSlop`. React Native only descends into a view's subviews for a point
-    // outside that view when the view does NOT clip to bounds (`RCTView.hitTest`), so this
-    // one property was the whole reason the clear target could not extend past the chip,
-    // and therefore the reason it was pointed INWARD over the word "carried" instead. See
-    // `CLEAR_HIT_SLOP` (FormField.tsx).
-    formFieldCarried: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderRadius: 6,
-      backgroundColor: theme.border,
+    // The ink is `fgMuted` in all three: §0.1 spends every hue on depth, and a mark that says
+    // where a value came from is metadata about the row, not the row's value.
+    //
+    // **The ink is a style rather than a colour passed to `SymbolView` directly**, which is
+    // §4.1's rule for a drawn mark ("A *drawn* mark resolves that ink back to a sheet style
+    // rather than painting it directly — theme/styles.ts gives every token-to-property
+    // binding, and the graphics guard enforces it"). `formFieldPickerInk` above is the same
+    // shape for the same reason, one control over.
+    carriedMarkInk: {
+      color: theme.fgMuted,
     },
-    formFieldCarriedLabel: {
+    // The `— cleared` tag (§0.6, M1h): what a field reads once the diver has thrown its
+    // carried value away, so "nothing was carried here" and "I threw it away" stop looking
+    // alike. Muted mono 11 — the same treatment a dive number wears in the §0.6 type table,
+    // which is what this is: a small piece of metadata about the row, in the row's own value
+    // slot.
+    formFieldCleared: {
       fontFamily: fonts.mono,
       fontSize: 11,
       color: theme.fgMuted,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
     },
-    // The `×`'s own zone — `borderLeftWidth` draws the divider the brief calls for
-    // ("the `×` behind a divider inside the chip so it is visibly a button rather than a
-    // label"), in `fgMuted` rather than `border` because a `border`-coloured line on a
-    // `border`-filled chip would be invisible, defeating the one thing this line exists
-    // to do. The 48 dp tap-target floor (§0.5) lives in `FormField.tsx`'s own
-    // `CLEAR_HIT_SLOP`, not a bigger box here — same "small visible control, generous
-    // hidden target" split `reorderButton`/`dayStripActionPill` above already use, so
-    // this compact chip does not blow out the label row it sits inline with.
+    // **The control that empties a form row: a 20 pt drawn ring inside a real 48 dp box**
+    // (§0.5's floor, and the owner's sheet in as many words — "a 20 px ring in a 48 dp box").
+    // Shared by `FormField`'s carried clear and `DateTimeField`'s optional-picker clear,
+    // through `ClearFieldControl`, because they are one control: §4.1's "a second
+    // implementation is a defect, not a style preference".
     //
-    // `paddingHorizontal` is 14 rather than 10 so that the visible zone plus the slop the
-    // layout can actually deliver OUTWARD reaches §0.5's floor without any of it reaching
-    // back over the word "carried" — see `CLEAR_HIT_SLOP` (FormField.tsx) for the whole
-    // arithmetic. Four dp is what separates a compact chip from a control that clears a
-    // field when a diver taps its label. The room that slop is delivered into is
-    // `FORM_ROW_INSET` (this function's own top), the field row's own trailing padding —
-    // 20 dp inside the row's unclipped box, where it used to be 20 dp of ScrollView padding
-    // outside the field entirely.
-    formFieldCarriedClear: {
-      borderLeftWidth: 1,
-      borderLeftColor: theme.fgMuted,
-      paddingHorizontal: 14,
-      paddingVertical: 5,
+    // **The box IS the target, and that is the load-bearing property here.** What it replaces
+    // is a compact chip that reached §0.5's floor through `hitSlop`, and the hazard that
+    // arrangement carried is worth restating because it is the reason this is a box: slop is
+    // invisible, so it is free to point anywhere — and it did, 21 dp INWARD over the word
+    // "carried", so tapping that word cleared the field. The owner asked for a visible control
+    // precisely so clearing would be deliberate ("a label you are expected to guess is
+    // tappable is not an affordance"), and an invisible target over the label undoes exactly
+    // that. On `DateTimeField` the same inward slop would have covered the picker's own
+    // trigger, which sits immediately to this control's left — "clear the field" drawn over
+    // "open the picker".
+    //
+    // A box has no such freedom: it occupies its own trailing column in the row, nothing of it
+    // reaches back over the value or the label, and what a diver can see is exactly what a
+    // diver can press. Both components' tests assert that it carries no `hitSlop` at all.
+    clearFieldControl: {
+      minWidth: 48,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    formFieldCarriedClearLabel: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
+    clearFieldInk: {
       color: theme.fgMuted,
     },
     // `rowLabel` (this function's own top) — the detail screen's `detailLabel`, exactly, so
@@ -2047,26 +2079,12 @@ function build(scheme: ColorScheme) {
     formFieldPickerAccent: {
       color: theme.action,
     },
-    // The `×` that clears an optional picker field back to "not set" (`timeIn`). Shares the
-    // `carried ×` chip's vocabulary above — `border` as a fill, mono, muted — because it is
-    // the same gesture on the same kind of chip, but it carries no `carried` label beside it
-    // and therefore no divider: `formFieldCarriedClear`'s left border exists to separate the
-    // `×` from that word, and drawn here it would be a line against nothing.
-    // `paddingHorizontal` and the absent `overflow` match `formFieldCarriedClear` above for
-    // the same reason: this `×` reaches §0.5's floor through slop pointed outward, and a
-    // clipping ancestor — or this view's own clip, for the subviews it does not have — is
-    // what decides whether that slop is delivered at all.
-    formFieldClear: {
-      borderRadius: 6,
-      backgroundColor: theme.border,
-      paddingHorizontal: 14,
-      paddingVertical: 5,
-    },
-    formFieldClearLabel: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      color: theme.fgMuted,
-    },
+    /* The `×` that cleared an optional picker field back to "not set" (`timeIn`) used to be a
+       second chip here — `border` fill, mono, muted, its own copy of the padding, and the same
+       `hitSlop` the carried chip needed. It is `clearFieldControl` above now, through
+       `ClearFieldControl`, on the plain ground that a form row has one way to be emptied and
+       one control that does it (§4.1). Both were already the same gesture in the same slot;
+       they are now the same control. */
     // §2.3's autocomplete list (FormField.tsx), in the slot §0.6 fixes for it: "The list
     // belongs directly under the focused row" — the same second line `formChipRow` above puts
     // its chips in and an open picker takes. `paddingBottom` is `FIELD_EXTRA_CLEARANCE` for

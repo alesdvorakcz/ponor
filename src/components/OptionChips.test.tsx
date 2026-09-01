@@ -81,6 +81,112 @@ it('announces each chip as its field and its value, with its selection as state'
   expect(findChip(t, 'Salt').props.accessibilityState).toEqual({ selected: false });
 });
 
+// --- §0.6, M1h: one carried mark and one clear for the whole group ---
+
+/** Every text child in the tree, so a test can read what the label row says. */
+function textIn(t: RenderResult): string[] {
+  return (t.root ? t.root.queryAll((n) => n.type === 'Text') : [])
+    .flatMap((n) => n.children)
+    .filter((c): c is string => typeof c === 'string');
+}
+
+/** Every control in the tree, including this component's own root — `queryAll` walks
+ * descendants only, and the root is a `View` here rather than a control, but the sweep is
+ * written this way so it cannot go half-blind if that ever changes. */
+function buttonsOf(t: RenderResult) {
+  if (!t.root) return [];
+  return [t.root, ...t.root.queryAll(() => true)].filter((n) => n.props?.accessibilityRole === 'button');
+}
+
+function clearOf(t: RenderResult) {
+  return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === 'Clear carried Water');
+}
+
+/** Every drawn mark, by the host node a real `SymbolView` resolves to — see
+ * `CarriedMark.test.tsx` for why that name and not "something icon-shaped". */
+function marksIn(t: RenderResult) {
+  return t.root ? t.root.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
+}
+
+// The three states, on one control, in one test — because the rule is a distinction and each
+// state alone is satisfiable by an implementation that has lost it: a component that drew the
+// mark unconditionally passes "carried shows one", and one that drew nothing passes "a fresh
+// row shows none".
+it('reads three different ways for never-carried, carried and cleared', async () => {
+  const fresh = await renderChips();
+  expect(clearOf(fresh)).toBeUndefined();
+  expect(textIn(fresh)).not.toContain('— cleared');
+  expect(marksIn(fresh)).toHaveLength(0);
+
+  const carried = await renderChips({ value: 'salt', carried: true, onClear: () => {} });
+  expect(clearOf(carried)).toBeDefined();
+  expect(textIn(carried)).not.toContain('— cleared');
+
+  const cleared = await renderChips({ value: '', cleared: true });
+  expect(textIn(cleared)).toContain('— cleared');
+  // Nothing left to clear, exactly as on a text row: the value is already gone.
+  expect(clearOf(cleared)).toBeUndefined();
+});
+
+// §0.6/the sheet: the clear belongs to the FIELD, on its label row, and there is one of it —
+// not one per chip. A control attached to a chip would be a second thing that chip's own press
+// already does, and a mark on the selected chip would read as a fact about that option rather
+// than about the field.
+it('offers exactly one clear for the whole group, and it is not a chip', async () => {
+  const t = await renderChips({ value: 'salt', carried: true, onClear: () => {} });
+  const clears = buttonsOf(t).filter((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Clear '));
+  expect(clears).toHaveLength(1);
+  // The chips are still exactly the vocabulary, with no extra control among them: a clear
+  // that had been added per chip would show up here as four buttons for two options.
+  expect(buttonsOf(t)).toHaveLength(OPTIONS.length + 1);
+  // And it announces no selection, which is what tells it apart from a chip for a screen
+  // reader as well as for the form's own "every option control" sweep, which is keyed on
+  // exactly this. (`selected`, not the whole `accessibilityState`: RN's `Pressable` always
+  // hands the host node an object with every state key present and undefined.)
+  expect(clearOf(t)?.props.accessibilityState?.selected).toBeUndefined();
+});
+
+// The two gestures that empty this control are different gestures, and the caller has to be
+// able to tell them apart — the whole cleared state hangs on it. Pressing the selected chip is
+// the diver *choosing* (a deselection), and reports `''` through `onChange` exactly as it
+// always has; pressing the ring is the diver saying the value was never theirs.
+it('tells deselecting a chip apart from clearing the field', async () => {
+  const onChange = jest.fn();
+  const onClear = jest.fn();
+  const t = await renderChips({ value: 'salt', carried: true, onChange, onClear });
+
+  await fireEvent.press(findChip(t, 'Salt'));
+  expect(onChange).toHaveBeenCalledWith('');
+  expect(onClear).not.toHaveBeenCalled();
+
+  const clear = clearOf(t);
+  if (!clear) throw new Error('no clear control found');
+  await fireEvent.press(clear);
+  expect(onClear).toHaveBeenCalledTimes(1);
+  // ...and clearing is not routed through the typing path, which would leave the caller unable
+  // to tell it from the press above.
+  expect(onChange).toHaveBeenCalledTimes(1);
+});
+
+// The same guard `FormField` applies to its own tag: `cleared` is a claim about a gesture and
+// `— cleared` is a claim about what the row holds, so a row with a chosen chip must never say
+// it is empty. Here the contradiction would be visible twice over — an inverted chip beside a
+// tag saying nothing is set.
+it('never says cleared over a chip the diver has since chosen', async () => {
+  const t = await renderChips({ value: 'salt', cleared: true });
+  expect(textIn(t)).not.toContain('— cleared');
+});
+
+// The row a fresh field draws must be exactly the row it drew before any of this existed —
+// which is most of this form's chip rows (§2.1 marks six of the twelve fresh). Whole-tree
+// equality rather than a query, because "unchanged" is a claim about everything, including the
+// props a query would not think to ask about.
+it('is unchanged for a field that carried nothing', async () => {
+  const bare = await renderChips({ value: 'salt' });
+  const given = await renderChips({ value: 'salt', carried: false, cleared: false, onClear: () => {} });
+  expect(JSON.stringify(given.toJSON())).toBe(JSON.stringify(bare.toJSON()));
+});
+
 // §0.6: the icon "supplements the label rather than replacing it — never an icon alone", and
 // its tint is handed OUT so a symbol beside the label inverts with it instead of staying
 // `fg` on an `action` ground where it would vanish. Both halves: the label survives, and the

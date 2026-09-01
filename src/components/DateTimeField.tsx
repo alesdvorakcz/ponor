@@ -12,13 +12,13 @@ import {
 import { formatDiveDate } from '../format/display';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-// §0.5's 48 dp target for a form row's `×`, defined once beside the other one that uses it
-// (§4.1: one owner). This file used to declare a byte-identical copy under a second copy of
-// the reasoning. Read `FormField.tsx`'s docblock for the whole account — including the part
-// that is specifically about THIS control: none of the slop may point left, because since
-// §0.6's design pass the picker's own trigger sits immediately there, and left slop would
-// draw "clear the field" over "open the picker".
-import { CLEAR_HIT_SLOP } from './FormField';
+// The one control that empties a form row (§4.1). This file used to draw its own chip and its
+// own mono `×`, held to §0.5's floor by a `hitSlop` constant shared with the carried chip —
+// two copies of one control, with the shared half being the only part that had been unified.
+// Read `ClearFieldControl.tsx` for the whole account, including the part that is specifically
+// about THIS row: the picker's own trigger sits immediately to the control's left, so a target
+// that reached back over it would draw "clear the field" across "open the picker".
+import { ClearFieldControl } from './ClearFieldControl';
 
 export interface DateTimeFieldProps {
   /** Wraps rather than truncates, same as `FormField`'s (DESIGN.md §0.5, Czech). */
@@ -169,17 +169,17 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
           <Text style={recorded ? styles.formFieldPickerText : styles.formFieldPickerTextUnset}>{displayText}</Text>
         </Pressable>
         {onClear !== undefined && recorded && (
-          <Pressable
-            style={styles.formFieldClear}
+          <ClearFieldControl
             // `''`, never a value derived from what this field currently holds — see
             // `FormField.onClear`'s own docblock, and DESIGN.md §10's coercion contract.
             onPress={() => onClear('')}
-            accessibilityRole="button"
+            // No "carried" here, and the difference is real rather than a wording choice:
+            // `timeIn` is fresh every dive (§2.1), so nothing on this row was ever inherited
+            // — this control unsets an optional field, where `FormField`'s throws away a
+            // value the previous dive supplied. Same control, two true sentences.
             accessibilityLabel={`Clear ${label}`}
-            hitSlop={CLEAR_HIT_SLOP}
-          >
-            <Text style={styles.formFieldClearLabel}>×</Text>
-          </Pressable>
+            scheme={scheme}
+          />
         )}
       </View>
       {open && (

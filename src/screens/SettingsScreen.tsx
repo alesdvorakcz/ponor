@@ -177,7 +177,7 @@ export default function SettingsScreen() {
    * a different thing available to compare:
    *
    * - `DiveFormScreen`: **react-hook-form's `resetOptions.keepDirtyValues`** does the
-   *   protecting. Its `SeedState.typed` does NOT — that set only suppresses `carried ×` chips
+   *   protecting. Its `SeedState.typed` does NOT — that set only suppresses §0.6's carried marks
    *   (see its own docblock). The form library knows which fields the diver moved, so nothing
    *   here has to.
    * - `GearPresetScreen`: **a structural gate**, no flag at all. `PresetDraft` reseeds only when

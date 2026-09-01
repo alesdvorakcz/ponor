@@ -84,7 +84,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * what the cylinder is. Named as a list rather than written into `withoutPressures` below,
  * because two other places need to know exactly which fields that rule touches: the dive
  * form preserves a pressure the diver has already typed when a preset is applied over it,
- * and it leaves those same two fields out of the `carried ×` marks it drops on the way
+ * and it leaves those same two fields out of the §0.6 carried marks it drops on the way
  * (DiveFormScreen.tsx). Three copies of "startBar and endBar" would be three chances to
  * disagree about which fields a preset has no opinion on.
  */

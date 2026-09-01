@@ -107,33 +107,125 @@ it('draws nothing outside its own treatment when a chip is showing either (§0.4
   expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
 });
 
-// --- Task 5 brief, Step 1, adapted rather than pasted verbatim — see the two notes below. ---
+// --- §0.6, M1h: three states, and they must read as three ---
 //
-// (1) `scheme` is a required prop on every OTHER test in this file; the brief's own sample
-// omits it. Added here for consistency with the rest of this file rather than making
-// `scheme` optional on the component — the brief's two given assertions don't touch
-// styling, so this is a mechanical completion, not a behaviour change.
+// The rule this section defends is a distinction, not a feature, so every test here renders
+// more than one state at a time. A carried row and an untouched one, or a cleared row and an
+// untouched one, are each half the claim — and half is satisfiable by an implementation that
+// has lost the whole point: a component that marked everything passes "carried shows a mark",
+// and one that marked nothing passes "a fresh field shows none".
 //
-// (2) The brief's sample wraps the two fields in a bare `<>...</>` Fragment. Checked
-// against this file's own established gotcha first (the keyboardType test above:
-// "`render().root` is literally `container.children[0]`, so two top-level siblings
-// behind a Fragment would leave `root.queryAll` searching only inside the first one") by
-// actually rendering that exact Fragment shape and logging `textIn`/`inputsOf` — it
-// confirmed only the FIRST field was reachable at all (one label, one input, of the two
-// rendered). Under a Fragment this test would still report "1 chip found" and pass, but
-// for the wrong reason: the second, uncarried field would be invisible to the query
-// rather than correctly checked and found chip-less — exactly the "assertion that
-// couldn't prove what it claims" shape this task's brief warns about. A `<View>` root
-// (same fix the keyboardType test already uses) makes both fields actually reachable.
-it('marks a carried field and leaves a typed one unmarked', async () => {
+// The `<View>` root rather than a bare `<>...</>` Fragment is this file's own established
+// gotcha (see the keyboardType test above): `render().root` is literally
+// `container.children[0]`, so two top-level siblings behind a Fragment leave `root.queryAll`
+// searching only inside the first one — and a test written that way would report the right
+// number and be checking one field of the two.
+
+/** Every drawn mark in the tree, of either kind this component now uses — the return mark and
+ * the clear control's ring. Matched on the host node a real `SymbolView` renders down to, the
+ * same `SymbolModule` match `EntryIcon.test.tsx` and `SearchCapsule.test.tsx` use, so a drawn
+ * approximation or a typed glyph standing in for either would not answer to it. */
+function marksIn(t: RenderResult) {
+  return t.root ? t.root.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
+}
+
+it('reads three different ways for never-carried, carried and cleared', async () => {
   const t = await render(
     <View>
       <FormField label="Site" value="Blue Hole" carried onChange={() => {}} onClear={() => {}} scheme="light" />
-      <FormField label="Max depth" value="32.4" onChange={() => {}} scheme="light" />
+      <FormField label="Centre" value="" cleared onChange={() => {}} onClear={() => {}} scheme="light" />
+      <FormField label="Buddy" value="" onChange={() => {}} scheme="light" />
     </View>,
   );
-  const chips = textIn(t).filter((s) => s.includes('carried'));
-  expect(chips).toHaveLength(1);
+
+  // Carried: the mark, the value, and something to clear it with.
+  expect(findClearCarried(t, 'Site')).toBeDefined();
+  // Cleared: the tag, and nothing left to clear — the value is already gone.
+  expect(textIn(t)).toContain('— cleared');
+  expect(findClearCarried(t, 'Centre')).toBeUndefined();
+  // Never carried: neither. The row says nothing about where its (absent) value came from,
+  // because nothing came from anywhere.
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+
+  // ...and the tag appears exactly once, over the one row that was cleared. Without this the
+  // assertion above would pass for a component that drew it on every empty row, which is the
+  // very state — cleared and never-carried looking alike — this whole treatment exists to end.
+  expect(textIn(t).filter((s) => s === '— cleared')).toHaveLength(1);
+});
+
+// The marks, counted rather than described. Three rows, and exactly three symbols between
+// them: the carried row's return mark and its clear ring, and nothing at all on the other two
+// — so a mark leaking onto a cleared or an untouched row fails here rather than being noticed
+// on a device.
+it('draws the return mark and the ring on the carried row alone', async () => {
+  const carried = await render(
+    <FormField label="Site" value="Blue Hole" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  expect(marksIn(carried)).toHaveLength(2);
+
+  const cleared = await render(
+    <FormField label="Site" value="" cleared onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  expect(marksIn(cleared)).toHaveLength(0);
+
+  const plain = await render(<FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" />);
+  expect(marksIn(plain)).toHaveLength(0);
+});
+
+// §0.6: the mark **leads the value**, so it is inside the value slot and ahead of the input
+// rather than floating somewhere in the row. Read off the tree's order rather than off a
+// style, because "leading" is a fact about position and nothing about `carriedMarkInk` could
+// tell a mark before the value from one after it.
+it('puts the return mark ahead of the value, in the value slot', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue Hole" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  const styles = makeStyles('light');
+  const slot = t.root?.queryAll((n) => stylesOn(n).includes(styles.formFieldValue))[0];
+  if (!slot) throw new Error('no value slot found');
+  const inSlot = slot.queryAll(
+    (n) => n.type === 'TextInput' || (typeof n.type === 'string' && n.type.includes('SymbolModule')),
+  );
+  expect(inSlot).toHaveLength(2);
+  expect(typeof inSlot[0]?.type === 'string' && inSlot[0].type.includes('SymbolModule')).toBe(true);
+  expect(inSlot[1]?.type).toBe('TextInput');
+});
+
+// The tag is a claim about what the row HOLDS, and the row is the only thing that can check
+// it. A caller that left `cleared` set while a value arrived — a stale flag, a reseed, a bug
+// one file away — would otherwise have this component announce an empty field over a figure
+// that is about to be saved.
+it('never says cleared over a value the field actually holds', async () => {
+  const t = await render(
+    <FormField label="Weights" value="6" cleared onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  expect(textIn(t)).not.toContain('— cleared');
+  expect(inputsOf(t)[0]?.props.value).toBe('6');
+});
+
+// The two words the row says are one word to a screen reader: the em dash is typography, and
+// "dash cleared" is what a reader makes of it unaided.
+it('announces the tag as a word, not as punctuation', async () => {
+  const t = await render(
+    <FormField label="Weights" value="" cleared onChange={() => {}} onClear={() => {}} scheme="light" />,
+  );
+  const tag = textNodesOf(t).find((n) => String(n.children[0] ?? '') === '— cleared');
+  expect(tag?.props?.accessibilityLabel).toBe('cleared');
+});
+
+// §0.6 gives the empty row's slot to the unit ("so the row still says what belongs in it") and
+// M1h gives it to the tag when the diver emptied the field on purpose. One slot, one thing in
+// it: `kg — cleared` is two competing claims about a row that is simply empty, and the hint
+// comes back the moment the diver types, which is the moment it is useful again.
+it('drops the unit hint while the row is saying it was cleared, and not otherwise', async () => {
+  const cleared = await render(
+    <FormField label="Weights" value="" cleared onChange={() => {}} onClear={() => {}} scheme="light" mono unit="kg" />,
+  );
+  expect(inputsOf(cleared)[0]?.props.placeholder).toBeUndefined();
+  expect(textIn(cleared)).toContain('— cleared');
+
+  const empty = await render(<FormField label="Weights" value="" onChange={() => {}} scheme="light" mono unit="kg" />);
+  expect(inputsOf(empty)[0]?.props.placeholder).toBe('kg');
 });
 
 // --- §0.6's design pass: a field is a row, its figures are mono, and focus draws the box ---
@@ -240,94 +332,65 @@ it('still reports the blur its caller asked for, now that it also tracks focus i
   expect(onBlur).toHaveBeenCalledTimes(1);
 });
 
-/** The chip's own `×`, by the label `FormField` gives it. */
-function findClearCarried(t: RenderResult) {
+/**
+ * The clear control for one field, by the whole label `FormField` gives it.
+ *
+ * Matched exactly and per field rather than by substring, because every test above renders
+ * more than one row: a substring match would find the first control in the tree and report it
+ * as belonging to whichever field the test happened to ask about, which is how "carried shows
+ * a clear and fresh does not" passes against a component that draws one for both.
+ */
+function findClearCarried(t: RenderResult, label: string) {
   return t.root
     ? t.root
         .queryAll((n) => n.props?.accessibilityRole === 'button')
-        .find((n) => String(n.props?.accessibilityLabel ?? '').includes('Clear carried'))
+        .find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear carried ${label}`)
     : undefined;
 }
 
-// DESIGN.md §0.5: "Tap targets never below 48 dp." The `×` is a small chip segment that gets
-// there through `hitSlop`, and hitSlop reaches only where the layout can deliver it — so the
-// numbers alone prove nothing. What this checks is the pair: the target reaches 48 in both
-// directions AND every dp of it points AWAY from the word "carried".
+// DESIGN.md §0.5: "Tap targets never below 48 dp" — met, since M1h, as a real box rather than
+// by stretching a compact chip with `hitSlop`. Both halves are the assertion.
 //
-// That second half is the fix this test exists for. The slop used to be
-// `{ top: 14, bottom: 14, left: 21, right: 0 }`, reaching the floor by extending 21 dp
-// INWARD over the chip's own label — so tapping the word "carried" cleared the field, which
-// is precisely what the owner asked a visible cross to prevent.
+// The second half is what the redesign is FOR. The slop used to be
+// `{ top: 14, bottom: 14, left: 21, right: 0 }`, reaching the floor by extending 21 dp INWARD
+// over the chip's own label — so tapping the word "carried" cleared the field, which is
+// precisely what the owner asked a visible control to prevent. An invisible target is free to
+// point anywhere; a box is not, and the box is now all there is.
 //
 // There is no Yoga in this environment (react-test-renderer never lays anything out), so the
 // geometry is read off the styles the component composes, exactly as ReorderControls.test.tsx
 // reads its arrows'.
-it('reaches a 48 dp target for the clear control, all of it pointing away from the label', async () => {
+it('gives the clear control a 48 dp box and no invisible target beyond it', async () => {
   const t = await render(
     <FormField label="Weights" value="6" carried onChange={() => {}} onClear={() => {}} scheme="light" />,
   );
-  const clear = findClearCarried(t);
+  const clear = findClearCarried(t, 'Weights');
   if (!clear) throw new Error('no clear control found');
-  const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
   const styles = makeStyles('light');
 
-  // Vertical: the row is the ancestor, and it is 48 dp, so slop of at least half the
-  // difference on each side claims all of it whatever the glyph metrics turn out to be.
-  // (`formField` since §0.6's design pass collapsed the label row and the input into one
-  // row; it was `formFieldHeader`, the same floor on the ancestor that no longer exists.)
-  expect(styles.formField.minHeight).toBe(48);
-  expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
-  expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
-
-  // Nothing to the left. This is the assertion the fix is: any left slop at all lands on the
-  // word "carried", which sits inside the same filled chip and reads as part of the same
-  // object, and clearing a field by tapping its label is the opposite of deliberate.
-  expect(slop.left ?? 0).toBe(0);
-
-  // Horizontal: the `×` zone is its own `paddingHorizontal` plus one mono glyph — call it 7
-  // dp at fontSize 11 — and the rest comes from the right.
-  const clearZoneWidth = styles.formFieldCarriedClear.paddingHorizontal * 2 + 7;
-  expect(clearZoneWidth + (slop.right ?? 0)).toBeGreaterThanOrEqual(48);
-
-  // ...and that right-hand slop has somewhere to be delivered. The room is the field row's
-  // own trailing padding — the chip sits at the row's trailing content edge, and the row
-  // extends `paddingHorizontal` further before its own bounds end — so slop wider than that
-  // would be spent on nothing, which is the mistake the previous numbers were a reaction to.
-  //
-  // It used to be `formScrollContent`'s padding, which was where the room lived before §0.6's
-  // design pass moved the form's horizontal inset off the ScrollView and onto each row (so a
-  // row's hairline and its focus fill span the full width, the way a dive row's do). The room
-  // is the same 20 dp; it is now inside the field's own unclipped box rather than outside it.
-  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formField.paddingHorizontal);
+  expect(stylesOn(clear)).toContain(styles.clearFieldControl);
+  expect(styles.clearFieldControl.minWidth).toBeGreaterThanOrEqual(48);
+  expect(styles.clearFieldControl.minHeight).toBeGreaterThanOrEqual(48);
+  // Nothing beyond it: no slop, so no direction, so nothing that can reach back over the
+  // value the diver is about to type into.
+  expect(clear.props.hitSlop).toBeUndefined();
 });
 
-// The chip must not clip, or none of the slop above leaves it. React Native descends into a
-// view's subviews for a point outside that view only when the view does NOT clip to bounds
-// (`RCTView.hitTest`), so `overflow: 'hidden'` here would silently take back both the
-// outward slop and the vertical slop — and the target would be the visible zone alone.
-// Pinned as a property of the chip rather than left to a comment, because it clips nothing
-// visible and so reads as free to add back.
-it('leaves the chip unclipped, which is what lets the slop leave it at all', async () => {
-  const styles = makeStyles('light') as unknown as Record<string, Record<string, unknown>>;
-  expect(styles.formFieldCarried?.overflow).toBeUndefined();
-});
-
-it('clears when the × is pressed, and not when the word carried is', async () => {
-  // The behaviour the geometry above exists for, stated directly. `fireEvent` does not model
-  // hitSlop, so this cannot see the slop itself — what it does catch is the other way this
-  // has been built and rejected: making the whole chip the Pressable, which the owner turned
-  // down because "a label you are expected to guess is tappable is not an affordance."
+it('clears when the ring is pressed, and not when the mark beside it is', async () => {
+  // The behaviour the geometry above exists for, stated directly — and the half that survives
+  // the chip is the one the owner cared about: exactly one thing on this row clears the field,
+  // and it is the thing that looks like a control. The word "carried" was the failed version
+  // of that ("a label you are expected to guess is tappable is not an affordance"); the return
+  // mark is its replacement, and it must not have inherited the same mistake.
   const onClear = jest.fn();
   const t = await render(
     <FormField label="Weights" value="6" carried onChange={() => {}} onClear={onClear} scheme="light" />,
   );
 
-  const carriedWord = textNodesOf(t).find((n) => String(n.children[0] ?? '') === 'carried');
-  if (!carriedWord) throw new Error('the chip rendered no "carried" label');
-  await fireEvent.press(carriedWord);
-  expect(onClear).not.toHaveBeenCalled();
+  // Exactly one control on this row, so the mark is not a second, silent one.
+  expect(buttonsOf(t)).toHaveLength(1);
 
-  const clear = findClearCarried(t);
+  const clear = findClearCarried(t, 'Weights');
   if (!clear) throw new Error('no clear control found');
   await fireEvent.press(clear);
   expect(onClear).toHaveBeenCalledWith('');

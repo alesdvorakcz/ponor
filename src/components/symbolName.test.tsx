@@ -6,6 +6,8 @@ import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
+import { CarriedMark } from './CarriedMark';
+import { ClearFieldControl } from './ClearFieldControl';
 import { CurrentIcon, SurgeIcon } from './ConditionMarks';
 import { EntryIcon } from './EntryIcon';
 import { SearchCapsule } from './SearchCapsule';
@@ -69,11 +71,12 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. Sixteen symbols in six places: the search capsule's magnifier, the
+// it can only be listed. Eighteen symbols in eight places: the search capsule's magnifier, the
 // two `entry` chips, the two condition marks, `WeatherIcon`'s six skies, the three capsule
-// glyphs `DivesScreen` and `SearchScreen` hand to `ActionCapsule`, and `navigation/tabs.ts`'
-// two. Five of the sixteen had a witness before this pass; the other eleven were green under
-// any wrong or swapped Material name.
+// glyphs `DivesScreen` and `SearchScreen` hand to `ActionCapsule`, `navigation/tabs.ts`' two,
+// and M1h's carried treatment — the return mark and the clear control's ring. Five of the
+// first sixteen had a witness before that pass; the other eleven were green under any wrong or
+// swapped Material name.
 //
 // If you add a symbol, add it here. Two of the blocks below make that failure loud rather
 // than trusting this sentence — the weather table is a total `Record<Weather, …>`, so a
@@ -131,6 +134,37 @@ it.each([
   const name = nameProp();
   expect(name?.android).toBe(material);
   expect(name?.web).toBe(material);
+});
+
+// --- The two marks M1h's carried treatment added, on the same boundary ---
+//
+// Both replace something that was previously TEXT — the word "carried" and a mono `×` — so
+// neither had any Material name to be wrong before this milestone, and neither has a test
+// anywhere else that could see one: `CarriedMark.test.tsx` and `ClearFieldControl.test.tsx`
+// both render through the real `SymbolView.ios.tsx`, which overwrites `name` with
+// `props.name.ios` before the value reaches a host node. Every assertion in either file reads
+// one string, the SF name.
+//
+// What a wrong or missing Material name costs here is the whole treatment rather than a
+// nuance. On Android and in a browser the return mark simply would not draw, and a carried
+// row would be indistinguishable from an untouched one — which is the exact state §0.6 asked
+// M1h to end, restored silently on two of the three platforms. The clear control is worse: it
+// would be a 48 dp box with nothing in it, an invisible control on a row that still expects
+// one to be pressed.
+// Two tests rather than one `it.each`, because the two components take different props and a
+// table row that satisfied both would have to hand each of them the other's.
+it('gives the carried return mark an Android and a web name, not just an iOS one', async () => {
+  await render(<CarriedMark scheme="dark" />);
+  const name = nameProp();
+  expect(name?.android).toBe('keyboard_return');
+  expect(name?.web).toBe('keyboard_return');
+});
+
+it('gives the clear control’s ring an Android and a web name, not just an iOS one', async () => {
+  await render(<ClearFieldControl accessibilityLabel="Clear carried Buddy" onPress={() => {}} scheme="dark" />);
+  const name = nameProp();
+  expect(name?.android).toBe('highlight_off');
+  expect(name?.web).toBe('highlight_off');
 });
 
 // --- The six skies ---

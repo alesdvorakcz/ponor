@@ -118,7 +118,7 @@ function blankTank(): TankFormInput {
  * **Three screens hold a draft over an asynchronous read and protect it three different ways**
  * (§4.1's "a deliberate near-duplicate names its siblings"), because each has a different thing
  * available to compare. `DiveFormScreen` leans on react-hook-form's `resetOptions.keepDirtyValues`
- * — NOT on its `SeedState.typed`, which only suppresses `carried ×` chips. `countTyped`
+ * — NOT on its `SeedState.typed`, which only suppresses §0.6's carried marks. `countTyped`
  * (SettingsScreen.tsx) is an explicit flag, because that row has neither a form library nor a
  * stable identity: the stored count IS the value, so nothing there can be compared to tell "the
  * answer changed" from "this is what the diver typed". Here the identity does that work. The

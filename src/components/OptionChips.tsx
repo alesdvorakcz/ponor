@@ -3,6 +3,8 @@ import { type ReactNode } from 'react';
 
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { CarriedMark, CLEARED_ANNOUNCEMENT, CLEARED_TAG } from './CarriedMark';
+import { ClearFieldControl } from './ClearFieldControl';
 
 /**
  * What a chip's value may be: a member of a closed vocabulary (`Entry`, `Suit`, …) or **a
@@ -61,6 +63,44 @@ export interface OptionChipsProps<T extends string | number> {
    * would then own a rule ("the icon matches the label beside it") that belongs here.
    */
   icon?: (option: T, tintColor: ColorValue) => ReactNode;
+  /**
+   * DESIGN.md §0.6 as M1h's design sheet redrew it: this field's value came from the previous
+   * dive, so the row shows the return mark and offers a way to throw it away.
+   *
+   * **One mark and one clear for the whole group, on the group's LABEL row — never on a
+   * chip**, which is the sheet's own instruction and is forced anyway. A chip row has one
+   * value spread across several controls; a mark on the selected chip would read as a fact
+   * about that option rather than about the field, and a clear attached to a chip would be a
+   * second thing that chip's own press already does.
+   *
+   * The mark sits in `formFieldValue` — the same trailing slot `FormField` puts it in, and
+   * for the same reason: this is where a row says what it holds. That the chips themselves
+   * live on the line below (§0.6: "a set of options to read through, not a value to read
+   * off") does not move the state that describes them.
+   */
+  carried?: boolean;
+  /**
+   * The third state, exactly as `FormField.cleared` is and for the same reason: a chip row a
+   * diver deliberately emptied must not read as one carry-over never filled. See that prop's
+   * own docblock — the state, its owner, and why it is not `carried`'s opposite.
+   *
+   * **Note this component already had a way to clear itself** — "tapping the already-selected
+   * chip clears it back to `''`" — and that gesture is emphatically NOT this one. It hands
+   * `onChange('')` back, so the caller sees a diver *choosing*, which is what it is: a
+   * deselection, indistinguishable from picking an option and picking it away again. The
+   * clear control below is the gesture that says "this value was not mine", and only it
+   * leaves the tag.
+   */
+  cleared?: boolean;
+  /**
+   * Fired when the diver presses the clear control. No value: unlike `FormField`'s, which
+   * reports the `''` its `TextInput` now holds, there is nothing here for a caller to be told
+   * — the field's value is `''` by definition after this, and passing it would invite a call
+   * site to route this through `onChange` and lose the distinction the tag depends on.
+   *
+   * Omitted wherever `carried` is false; the control is drawn only for a carried row.
+   */
+  onClear?: () => void;
 }
 
 /**
@@ -83,8 +123,16 @@ export interface OptionChipsProps<T extends string | number> {
  * react-hook-form's `handleSubmit` would refuse to call `onValid` for the WHOLE form —
  * exactly the "never block a save" (§1) failure that screen exists to avoid.
  */
-export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon }: OptionChipsProps<T>) {
+export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
+  // The same guard `FormField` applies to its own tag, for the same reason and against the
+  // same lie: `cleared` is a claim about a gesture, `— cleared` is a claim about what the row
+  // holds, and a tag standing beside a chip the diver has since chosen would say the row is
+  // empty while an inverted chip says otherwise. `''` is what this component's own
+  // deselection reports and `null`/`undefined` is what a field nobody has touched holds, so
+  // all three count as empty here.
+  const empty = value === null || value === undefined || value === '';
+  const showCleared = cleared === true && empty;
   return (
     // The same `formField` row as every other field (§0.6), with the chips in the slot §0.6
     // gives a field's second line rather than in the row's trailing value slot: five suit
@@ -98,6 +146,26 @@ export function OptionChips<T extends string | number>({ label, value, options, 
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
+        {/* Absent entirely for a field that carried nothing, so every chip row on this form
+            that §2.1 marks fresh renders exactly the tree it rendered before this existed —
+            label row, chip row, nothing between them. */}
+        {(carried === true || showCleared) && (
+          <View style={styles.formFieldValue}>
+            {carried === true && <CarriedMark scheme={scheme} />}
+            {showCleared && (
+              <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
+                {CLEARED_TAG}
+              </Text>
+            )}
+          </View>
+        )}
+        {carried === true && (
+          <ClearFieldControl
+            accessibilityLabel={`Clear carried ${label}`}
+            onPress={() => onClear?.()}
+            scheme={scheme}
+          />
+        )}
       </View>
       <View style={styles.formChipRow}>
         {options.map((option) => {

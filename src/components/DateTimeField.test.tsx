@@ -7,7 +7,6 @@ import { fireEvent, render, type RenderResult } from '@testing-library/react-nat
 
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { CLEAR_HIT_SLOP } from './FormField';
 import { DateTimeField } from './DateTimeField';
 
 /**
@@ -233,45 +232,38 @@ it('takes every colour it gives the OS control from the theme, in both schemes',
   }
 });
 
-// The same pairing FormField.test.tsx checks for its own chip, and for the same reason: this
-// `×` is a small chip reaching §0.5's 48 dp through `hitSlop`, and hitSlop reaches only
-// where the layout can deliver it. The row's height and the DIRECTION of the horizontal slop
-// are what make the numbers real; both were wrong here, under a comment saying "48 dp (§0.5)
-// around the ×".
-it('reaches a 48 dp target for the clear control, all of it pointing away from the label', async () => {
+// §0.5's floor, met the way M1h's design sheet asks for it: **a 20 pt ring in a real 48 dp
+// box**, not a compact chip stretched to the floor by `hitSlop`.
+//
+// The pair of assertions is the point rather than the first one alone. A box that reaches 48
+// is half of it; the other half is that the box is ALL of the target, because an invisible
+// extension is free to point anywhere and this control's did — `{ left: 21 }`, 21 dp inward,
+// which on THIS row falls squarely on the picker's own trigger sitting immediately to its
+// left. "Clear this field" delivered over "open this picker" is a defect no assertion about
+// the number 48 can see.
+//
+// There is no Yoga in this environment (react-test-renderer lays nothing out), so the geometry
+// is read off the styles the component composes, exactly as `ReorderControls.test.tsx` reads
+// its arrows'.
+it('gives the clear control a 48 dp box and no invisible target beyond it', async () => {
   const t = await render(
     <DateTimeField label="Time in" value="07:30" onChange={noop} mode="time" scheme="light" onClear={noop} />,
   );
   const clear = clearOf(t, 'Time in');
   if (!clear) throw new Error('no clear control on a set optional field');
-  const slop = clear.props.hitSlop as { top?: number; bottom?: number; left?: number; right?: number };
   const styles = makeStyles('light');
 
-  // The same object `FormField`'s chip uses, not a second one that happens to hold the same
-  // four numbers (§4.1: one owner). Reference equality is the assertion, because value
-  // equality is exactly what two byte-identical declarations already had — and what they had
-  // right up until one of them was retuned. Everything below stays as it was: it describes
-  // the geometry this control needs, and it must keep holding for whatever the shared
-  // definition says, not merely agree with it by construction.
-  expect(slop).toBe(CLEAR_HIT_SLOP);
+  // The same style `FormField`'s own clear wears, not a second one that happens to hold the
+  // same numbers (§4.1: one owner). Reference equality is the assertion, because value
+  // equality is exactly what the two byte-identical declarations this replaced already had —
+  // right up until one of them was retuned.
+  expect([clear.props.style].flat(5).filter(Boolean)).toContain(styles.clearFieldControl);
+  expect(styles.clearFieldControl.minWidth).toBeGreaterThanOrEqual(48);
+  expect(styles.clearFieldControl.minHeight).toBeGreaterThanOrEqual(48);
 
-  // `formField` since §0.6's design pass collapsed the label row and the trigger into one
-  // row; it was `formFieldHeader`, the same floor on the ancestor that no longer exists.
-  expect(styles.formField.minHeight).toBe(48);
-  expect(slop.top ?? 0).toBeGreaterThanOrEqual(12);
-  expect(slop.bottom ?? 0).toBeGreaterThanOrEqual(12);
-
-  // Outward only, matching `FormField`'s chip: nothing between this control and the
-  // ScrollView clips to bounds, so slop to the right is delivered. Slop to the LEFT would
-  // now land on the picker's own trigger, which sits immediately there since the design
-  // pass — "clear this field" drawn over "open this picker" — where before it merely fell
-  // across empty space in the label row for no gain.
-  const clearZoneWidth = styles.formFieldClear.paddingHorizontal * 2 + 7;
-  expect(slop.left ?? 0).toBe(0);
-  expect(clearZoneWidth + (slop.right ?? 0)).toBeGreaterThanOrEqual(48);
-  // The room is the field row's own trailing padding now, not the ScrollView's — see
-  // FormField.test.tsx's copy of this assertion for where the inset moved and why.
-  expect(slop.right ?? 0).toBeLessThanOrEqual(styles.formField.paddingHorizontal);
+  // Nothing beyond the box. This is the assertion the redesign is: with no slop there is no
+  // direction for it to point, and the target cannot reach back over the trigger beside it.
+  expect(clear.props.hitSlop).toBeUndefined();
 });
 
 it('clears an optional field back to unrecorded, with the empty string and never a value', async () => {

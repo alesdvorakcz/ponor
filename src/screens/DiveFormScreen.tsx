@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
+import { CarriedMark } from '../components/CarriedMark';
 import { CurrentIcon, SurgeIcon } from '../components/ConditionMarks';
 import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
@@ -259,7 +260,7 @@ function initialFormValues(source: Dive | null): DiveFormInput {
 }
 
 /**
- * Whether a starting value counts as something DESIGN.md §0.6's `carried ×` chip
+ * Whether a starting value counts as something DESIGN.md §0.6's return mark
  * should mark, as opposed to a field that merely was not touched. `0` and `false` are
  * real, meaningful carried values (a diver who dove with zero weight still had that as
  * their last dive's actual answer) and must count — only
@@ -271,7 +272,8 @@ function initialFormValues(source: Dive | null): DiveFormInput {
  * An **empty array** is deliberately not on that list, and `equipment` is the field it
  * matters for: `[]` is a real recorded value meaning "no accessories" (§6), so a previous
  * dive that recorded none genuinely carried that answer forward. Nothing reads an
- * `equipment` carried mark today — the set has no `ControlledTextField` — so this is stated
+ * `equipment` carried mark today — the set has five Yes/No rows and no single row for a mark
+ * and a clear to sit on (`CARRIED_WITHOUT_A_MARK`) — so this is stated
  * rather than special-cased.
  */
 function hasCarriedValue(value: unknown): boolean {
@@ -348,16 +350,42 @@ interface SeedState {
    * than recomputed so `useForm`'s `values` option has a reference that changes only when
    * the seed dive or the unit system really does. */
   values: DiveFormInput;
-  /** DESIGN.md §0.6's `carried ×` paths for `values`, minus whatever the diver has since
-   * typed over (`dropCarried`, render body). Always empty in edit mode — see below. */
+  /** DESIGN.md §0.6's carried-mark paths for `values`, minus whatever the diver has since
+   * typed over or cleared (`noteTouched`, render body). Always empty in edit mode — see
+   * below. */
   paths: ReadonlySet<string>;
+  /**
+   * Every field the diver **emptied with the clear control**, which is the third state §0.6
+   * asks this form to show: `— cleared`, where a field carry-over never filled shows nothing
+   * at all.
+   *
+   * **It is not the complement of `paths`, and that is the whole point.** A field can be
+   * unmarked for three different reasons — nothing was carried into it, the diver typed over
+   * what was, or the diver threw what was away — and until M1h the first and the third were
+   * the same empty row. The app knew which was which and never said, so a diver who
+   * deliberately discarded a carried buddy could not tell that from the form simply not having
+   * one.
+   *
+   * **It survives a reseed, exactly as `typed` below does and for the same reason**: the seed
+   * decides the values and the marks, and a gesture the diver made is not the seed's to
+   * re-decide. It has one extra reason of its own, which is that `resetOptions.keepDirtyValues`
+   * keeps the emptied VALUE across that reseed — so without this the row would keep the blank
+   * and lose the sentence explaining it, which is precisely the state this set exists to end.
+   *
+   * Every gesture that puts a value into a field takes the field back out of here (typing, a
+   * picked suggestion, an applied preset, a chosen chip), because the tag is a claim about
+   * what the row holds and a claim about a row holding a value is false. `FormField` and
+   * `OptionChips` refuse to draw the tag over a non-empty value regardless — see either's own
+   * render body — so the two halves of that guarantee sit on both sides of the boundary.
+   */
+  cleared: ReadonlySet<string>;
   /**
    * Every field the diver has typed into or cleared on this form, ever — and the one part of
    * this state that **survives a reseed**.
    *
    * **It does not protect what the diver typed, and must not be read as though it did.**
    * `resetOptions.keepDirtyValues` (below) is what does that; this set feeds one thing only —
-   * `paths`, and therefore the `carried ×` chips. A screen elsewhere once cited it as the
+   * `paths`, and therefore §0.6's return marks. A screen elsewhere once cited it as the
    * sibling of a value-protecting flag, which is exactly the misreading this paragraph exists
    * to prevent.
    *
@@ -388,9 +416,9 @@ interface SeedState {
 }
 
 /**
- * This form's starting values, and DESIGN.md §0.6's `carried ×` paths for them.
+ * This form's starting values, and DESIGN.md §0.6's carried-mark paths for them.
  *
- * The chip means "this came from your LAST DIVE", so edit mode marks nothing at all: it
+ * The mark means "this came from your LAST DIVE", so edit mode marks nothing at all: it
  * shows the dive's OWN stored data (`diveToFormValues`), and a field holding what it has
  * always held is not carried from anywhere. Create mode marks whatever carry-over actually
  * filled in, and a `null` source — a diver's first-ever dive — marks nothing either.
@@ -406,8 +434,9 @@ interface SeedState {
  * sees the flipped control and still has to save — which is precisely why it is a starting
  * value here rather than a rule inside `onValid` about where the diver came from.
  *
- * `typed` is carried in and back out untouched, and subtracted from the marks on the way:
- * see `SeedState.typed` for the race it closes. A reseed re-derives everything the SEED
+ * `typed` and `cleared` are carried in and back out untouched, and `typed` is subtracted from
+ * the marks on the way: see `SeedState.typed` for the race that closes, and `SeedState.cleared`
+ * for why the third state has to outlive a reseed too. A reseed re-derives everything the SEED
  * decides and nothing the DIVER decided.
  */
 function seedStateFor(
@@ -416,6 +445,7 @@ function seedStateFor(
   units: UnitSystem,
   openAs?: DiveStatus,
   typed: ReadonlySet<string> = new Set<string>(),
+  cleared: ReadonlySet<string> = new Set<string>(),
 ): SeedState {
   const sourceId = seed?.id ?? null;
   // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
@@ -441,13 +471,21 @@ function seedStateFor(
       // body), so a blank form is now only ever the answer to a dive that is genuinely gone.
       values: seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
       paths: new Set<string>(),
+      // **Both diver-side sets pass straight through here, and `cleared` is empty in edit mode
+      // by consequence rather than by decree.** It could only gain a member from a clear
+      // control, a clear control is drawn only on a marked row, and `paths` above is empty —
+      // so there is nothing to blank and blanking it would be a second statement of a rule the
+      // line above already makes. (It was written as an explicit `new Set()` first; deleting
+      // that line changed no test, which is what an unreachable branch looks like, and §10's
+      // remedy for one is to remove it rather than to defend it.)
+      cleared,
       typed,
     };
   }
   const values = seedValues(initialFormValues(seed));
   const marked = seed === null ? new Set<string>() : computeCarriedPaths(values);
   for (const field of typed) marked.delete(field);
-  return { sourceId, units, values, paths: marked, typed };
+  return { sourceId, units, values, paths: marked, cleared, typed };
 }
 
 /**
@@ -639,6 +677,44 @@ export function defaultOpenGroups(values: DiveFormInput, remembered: readonly st
 
 type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 
+/**
+ * **DESIGN.md §0.6's carried treatment, as one prop rather than four.**
+ *
+ * Every field that can show the treatment needs all four pieces — which paths are marked,
+ * which were cleared, and the two gestures that move a field between those states — and a row
+ * given three of them is broken in a way nothing on screen shows: a field that marks but never
+ * unmarks keeps offering to clear a value the diver typed, and one that clears but does not
+ * record it loses the `— cleared` tag on the next reseed. Four separate optional props are
+ * four chances to pass three; one is not.
+ *
+ * That is not hypothetical here. `suitThicknessMm` shipped in M1h with `carriedPaths` and
+ * without `onDropCarried`, so its mark could be shown and never dropped, and the suite was
+ * green — the same "per-call-site prop hole" the screen's own tests now name.
+ *
+ * **Handed to every `ControlledTextField` and `ControlledOptionField`, not only the carried
+ * ones.** Which fields carry is `CARRIED_FIELDS`' answer (domain/carryOver.ts, §2.1) and
+ * `computeCarriedPaths` is what asks it; a row is marked exactly when its own `name` is in
+ * `paths`, so a fresh field passed this renders precisely what it rendered before the prop
+ * existed. Opting in per call site would be a second, hand-written copy of §2.1's split — the
+ * "hand-maintained second list" `carryOver.ts`'s own docblock warns against, one call site
+ * over from the file that draws the line — and it is the copy that goes stale the day a field
+ * moves from fresh to carried.
+ *
+ * `onDrop`/`onClear` take the field's own `name` and are given it internally (below), rather
+ * than each call site repeating its field name a second time as a plain string beside the
+ * `name` prop it already has.
+ */
+interface CarryOverControls {
+  /** Every path carry-over filled that the diver has not since touched — `SeedState.paths`. */
+  paths: ReadonlySet<string>;
+  /** Every path the diver emptied with the clear control — `SeedState.cleared`. */
+  cleared: ReadonlySet<string>;
+  /** The diver put a value here (typed, picked, applied, chose). */
+  onDrop: (name: FieldPath<DiveFormInput>) => void;
+  /** The diver emptied this with the clear control. */
+  onClear: (name: FieldPath<DiveFormInput>) => void;
+}
+
 interface ControlledTextFieldProps {
   control: FormControl;
   name: FieldPath<DiveFormInput>;
@@ -653,19 +729,9 @@ interface ControlledTextFieldProps {
   /** The figure's unit, drawn as a muted suffix and as the empty field's placeholder (§0.6).
    * See `FormFieldProps.unit` for why it is not `placeholder`. */
   unit?: string;
-  /**
-   * DESIGN.md §0.6's `carried ×` chip (M1d task 5). Both omitted at every call site
-   * whose `name` is not one of `computeCarriedPaths`' own paths — `FormField` then
-   * simply shows no chip, which is correct for the 18 of this screen's 28
-   * `ControlledTextField`s that DESIGN §2.1 marks fresh. Reads `carried` out of
-   * `carriedPaths` and hands `onDropCarried` this field's own `name` internally
-   * (below) rather than asking each call site to repeat its own field name a second
-   * time as a plain string next to the `name` prop it already has — the exact
-   * "hand-maintained second list" shape `carryOver.ts`'s own docblock warns against,
-   * just one call site over from where that module draws the line.
-   */
-  carriedPaths?: ReadonlySet<string>;
-  onDropCarried?: (name: FieldPath<DiveFormInput>) => void;
+  /** DESIGN.md §0.6's carried treatment, as one prop — see `CarryOverControls`, and pass it
+   * at every call site rather than only the carried ones. */
+  carryOver?: CarryOverControls;
   /**
    * The dives DESIGN.md §2.3's autocomplete draws on — `useDives()`'s own list, minus the
    * dive being edited (see the render body). Passed at the four call sites §2.3 names and
@@ -673,9 +739,9 @@ interface ControlledTextFieldProps {
    *
    * **Which column it draws from is decided by `name` alone**, through `asSuggestedField`
    * (domain/suggest.ts), never by a second prop spelling the field's name out again beside
-   * the `name` this row already has — the same reasoning `carriedPaths` above records for
-   * `onDropCarried`. So a call site cannot ask for autocomplete on a field §2.3 does not
-   * name, and cannot wire a row to the wrong column.
+   * the `name` this row already has — the same reasoning `CarryOverControls` above records
+   * for its two callbacks. So a call site cannot ask for autocomplete on a field §2.3 does
+   * not name, and cannot wire a row to the wrong column.
    */
   history?: Dive[];
   /**
@@ -713,8 +779,7 @@ function ControlledTextField({
   placeholder,
   mono,
   unit,
-  carriedPaths,
-  onDropCarried,
+  carryOver,
   history,
   onPairedId,
 }: ControlledTextFieldProps) {
@@ -741,10 +806,10 @@ function ControlledTextField({
               ref={field.ref}
               label={label}
               value={text}
-              // Typing drops the chip immediately (§0.6: "overwriting is just typing, and
+              // Typing drops the mark immediately (§0.6: "overwriting is just typing, and
               // drops the chip") — dropping first, then forwarding, so a field currently
-              // showing `carried` never renders even one frame of the new text next to a
-              // chip that no longer describes it.
+              // showing `carried` never renders even one frame of the new text beside a mark
+              // that no longer describes it.
               //
               // It also clears the paired id: a name the diver typed no longer refers to the
               // site the carried id names, and leaving the id behind is how a dive ends up
@@ -752,7 +817,7 @@ function ControlledTextField({
               // ever show that, which is why it happens on the same keystroke rather than
               // being reconciled later.
               onChange={(newText) => {
-                onDropCarried?.(name);
+                carryOver?.onDrop(name);
                 if (suggested !== null) onPairedId?.(suggested, null);
                 field.onChange(newText);
               }}
@@ -763,17 +828,21 @@ function ControlledTextField({
               placeholder={placeholder}
               mono={mono}
               unit={unit}
-              carried={carriedPaths?.has(name)}
-              // The `×`: same drop, same forward, but with FormField's own `''` — never
-              // this field's current (possibly numeric-looking) value — so a cleared
-              // cylinder size reaches `field.onChange` (and from there `diveFormSchema.ts`'s
-              // coercion contract) as the same empty string `optionalNumber` turns into
-              // `null`, not a derived `0`. An emptied name refers to no site at all, so the
-              // paired id goes with it for the same reason typing clears it.
-              onClear={(cleared) => {
-                onDropCarried?.(name);
+              carried={carryOver?.paths.has(name)}
+              cleared={carryOver?.cleared.has(name)}
+              // The ring: same forward, but through `onClear` rather than `onDrop` — the two
+              // gestures are told apart here and nowhere else, and §0.6's third state is what
+              // hangs on the difference (`SeedState.cleared`). The value is FormField's own
+              // `''` — never this field's current (possibly numeric-looking) value — so a
+              // cleared cylinder size reaches `field.onChange` (and from there
+              // `diveFormSchema.ts`'s coercion contract) as the same empty string
+              // `optionalNumber` turns into `null`, not a derived `0`. An emptied name refers
+              // to no site at all, so the paired id goes with it for the same reason typing
+              // clears it.
+              onClear={(emptied) => {
+                carryOver?.onClear(name);
                 if (suggested !== null) onPairedId?.(suggested, null);
-                field.onChange(cleared);
+                field.onChange(emptied);
               }}
               suggestions={suggestions}
               // Picking is the one gesture that SETS the pair, and it sets both halves from
@@ -784,7 +853,7 @@ function ControlledTextField({
                 suggested === null
                   ? undefined
                   : (suggestion) => {
-                      onDropCarried?.(name);
+                      carryOver?.onDrop(name);
                       onPairedId?.(suggested, suggestion.id);
                       field.onChange(suggestion.value);
                     }
@@ -878,6 +947,11 @@ interface ControlledOptionFieldProps<T extends string | number> {
   /** Forwarded untouched to `OptionChips` — see that component's own prop for why an icon is
    * a render prop and why only `entry` passes one. */
   icon?: (option: T, tintColor: ColorValue) => ReactNode;
+  /** The same `CarryOverControls` a text field takes, at every call site for the same reason.
+   * Six of this form's twelve chip rows are in §2.1's carried half (`entry`, `salinity`,
+   * `waterBody`, `suit`, and the cylinder's `material` and `configuration`) and the other six
+   * are fresh; which is which is `paths`' answer, not a call site's. */
+  carryOver?: CarryOverControls;
 }
 
 /**
@@ -907,7 +981,7 @@ interface ControlledOptionFieldProps<T extends string | number> {
  * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
  * rule later is covered without this screen keeping a second list of which fields can fail.
  */
-function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon }: ControlledOptionFieldProps<T>) {
+function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon, carryOver }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
@@ -919,9 +993,28 @@ function ControlledOptionField<T extends string | number>({ control, name, label
             value={field.value as unknown as T | '' | null | undefined}
             options={options}
             displayLabel={displayLabel}
-            onChange={field.onChange}
+            // Choosing a chip is this row's version of typing, so it drops the mark for the
+            // reason §0.6 gives for the keyboard: "overwriting is just typing, and drops the
+            // chip". **Including the press that deselects** — `OptionChips` reports `''` for
+            // that, and it is still the diver choosing rather than discarding, so it takes the
+            // `onDrop` path and leaves no `— cleared` behind. Only the ring says "this value
+            // was not mine".
+            onChange={(chosen) => {
+              carryOver?.onDrop(name);
+              field.onChange(chosen);
+            }}
             scheme={scheme}
             icon={icon}
+            carried={carryOver?.paths.has(name)}
+            cleared={carryOver?.cleared.has(name)}
+            // No value to forward: a chip group's cleared state is the absence of a selection,
+            // and `''` is what `optionalPicked` reads as "nothing picked" — the same value the
+            // deselect press already reports, which is why the two gestures have to be told
+            // apart here rather than by what they write.
+            onClear={() => {
+              carryOver?.onClear(name);
+              field.onChange('');
+            }}
           />
           <FieldNote message={fieldState.error?.message ?? optionNote(options, field.value)} scheme={scheme} />
         </>
@@ -1607,6 +1700,82 @@ function saveLabelFor(chosen: DiveStatus): string {
   return chosen === 'planned' ? 'Save plan' : 'Save dive';
 }
 
+/**
+ * **The sentence that names the return mark**, from the owner's design sheet: `↵ Carried from
+ * #127 — clear any of them`, under the heading and above the first field.
+ *
+ * It is the mark's legend, and that is what earns it a row. §0.6's standing test — "a symbol
+ * that needs a legend has already failed", the computed-value square's own epitaph — would
+ * otherwise be a real objection to a bare `↵` down the side of a form: the `=` before a
+ * computed value carries its meaning because that is literally what the value is, and a return
+ * arrow is a shade less self-evident than that. Saying it once, **in the same view as the marks
+ * it describes**, is the difference between a legend a diver has to remember and a caption they
+ * read as the form opens. It also answers the question the mark provokes and cannot itself
+ * answer: carried from *which* dive.
+ *
+ * **It is a caption, not a control, and that is a decision with a defect on either side of
+ * it.** §0.6 records a different affordance in the same corner of this screen — "the form
+ * header's 'from #6' is tappable and starts the dive blank, for the dive that has nothing in
+ * common with the last" — which has never been built; there is no such control on this screen
+ * today and never has been. The two are not the same thing wearing different words: this line
+ * *explains* the marks below it, and that one would *discard* every one of them in a single
+ * unconfirmed tap. Making this line tappable would be a caption that silently wipes a form —
+ * the brief's own "a line that looks like a label but starts a blank dive" — and building it as
+ * a control that reads like a caption is the same defect from the other end. So this states
+ * what the marks mean and does nothing; "start this dive blank" needs a control that looks like
+ * one, whenever it is wanted.
+ *
+ * **Two forms, because the number is not always known.** `numbers` (useDives.ts) is the offset
+ * from a settings read that lands independently of the dives themselves, so for a render or
+ * two after a cold start the map can be empty — and `#undefined` on a form is worse than not
+ * naming the dive at all, while dropping the whole line for those renders would flicker the
+ * legend out from under the marks it explains. The fallback names the dive the only other way
+ * this app can: it is `carryOverSource`'s most recent logged dive, which is what "your last
+ * dive" means here.
+ */
+function carriedFromLabel(sourceNumber: number | undefined): string {
+  const from = sourceNumber === undefined ? 'your last dive' : `#${sourceNumber}`;
+  return `Carried from ${from} — clear any of them`;
+}
+
+/**
+ * The three fields `computeCarriedPaths` marks that **no row can show a mark for**, and
+ * therefore the three that must not make the caption above appear.
+ *
+ * `siteId` and `centerId` are §6's half of the site snapshot: written by picking a suggestion,
+ * never typed, so they have no row at all (`OFF_FORM_FIELDS` already says so for a different
+ * rule). `equipment` has five rows and no single one of them: it is a token set of Yes/No
+ * chips, so there is nowhere for one mark and one clear to sit, and `[]` is itself a real
+ * carried answer meaning "no accessories" that a clear control could not distinguish itself
+ * from.
+ *
+ * **This list is what stands between the caption and a permanent lie**, which is why it is a
+ * named rule rather than an `if`. `hasCarriedValue` counts `[]` as carried on purpose (see its
+ * own docblock — an empty accessory set is an answer), and `equipment` is non-nullable (§6), so
+ * **every previous dive that has ever existed carries it**: gated on `paths.size` alone the
+ * caption would be permanent, standing over a form whose every visible mark the diver had
+ * already dealt with, telling them to clear things that are not there.
+ *
+ * `computeCarriedPaths`' own docblock already anticipates exactly this: it marks these fields
+ * "simply one nothing currently reads", so that a field growing a row later is covered
+ * automatically. That is the right default for the SET; the caption is the one reader that has
+ * to know which of its members are actually on screen.
+ *
+ * **Exported for `DiveFormScreen.test.tsx` alone**, which holds its own hand-written list of
+ * the carried fields with no row and sweeps the rest against what the screen actually renders.
+ * Comparing the two is what stops a fourth name being added here — silently turning the caption
+ * off for a dive whose only carried field is that one — without the sweep noticing.
+ */
+export const CARRIED_WITHOUT_A_MARK: ReadonlySet<string> = new Set(['siteId', 'centerId', 'equipment']);
+
+/** Whether any field on this form is currently wearing §0.6's return mark — which is the only
+ * thing the caption above has to explain, and the only condition under which "clear any of
+ * them" names anything a diver can act on. */
+function hasVisibleCarryOver(paths: ReadonlySet<string>): boolean {
+  for (const path of paths) if (!CARRIED_WITHOUT_A_MARK.has(path)) return true;
+  return false;
+}
+
 export interface DiveFormScreenProps {
   mode: 'create' | 'edit';
   /** Which dive `mode="edit"` is for — found inside `useDives()`'s own list (Task 7), never
@@ -1705,7 +1874,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // mount, and why that is handled below rather than assumed away.
   // `resolved` is read alongside the list because `dives` alone cannot say whether it has been
   // read yet — see the waiting frame below, and `DiveListState.resolved` for the mechanism.
-  const { dives, resolved } = useDives();
+  // `numbers` joins the two this screen already read (M1h): §2.5's computed dive numbers, so
+  // the carried caption below can name the dive its values came from. Read off the same call
+  // rather than recomputed, exactly as the list and the detail hero read it — a second
+  // numbering here would be §2.5's rule written twice.
+  const { dives, numbers, resolved } = useDives();
   // The diver's units (§3). Its own hook, never a field on `useDives()` — see
   // db/useUnitSystem.ts. It decides what this form's figures are expressed in, so it is
   // part of the reseed gate below exactly as the seed dive's id is.
@@ -1743,12 +1916,18 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // rather than ever committing a frame at all. Keyed on `sourceId`, the gate closes on the
   // second render and stays closed.
   //
-  // `carried.typed` goes back in on every reseed: the seed decides the VALUES and the marks,
-  // and the diver's own history of having touched a field outlives any of them — see
-  // `SeedState.typed`.
+  // `carried.typed` and `carried.cleared` go back in on every reseed: the seed decides the
+  // VALUES and the marks, and the diver's own history of having touched or emptied a field
+  // outlives any of them — see `SeedState.typed` and `SeedState.cleared`.
+  //
+  // **The gate still compares two scalars and must go on doing so** (§10): `sourceId` is a
+  // string or null and `units` is a string, so both settle by value on the render after they
+  // change. Neither of the two sets is in it, and adding one would be the object-identity
+  // comparison this gate was rewritten to stop being — a fresh `Set` every render, never equal
+  // to the last, and "Too many re-renders." on mount.
   const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, units, initialStatus));
   if (carried.sourceId !== sourceId || carried.units !== units) {
-    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed));
+    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed, carried.cleared));
   }
 
   // §2.3's "your own history", out of the one read every screen uses — never a second query
@@ -1817,8 +1996,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // day once and then never change.
   const watchedDate = useWatch({ control, name: 'date' });
   const chosenDate = typeof watchedDate === 'string' ? watchedDate : null;
-
-  const carriedPaths = carried.paths;
 
   // Whether §2.2's cylinder row starts open — see `ControlledCylinderSpec` for the rule and
   // for why a summary's default is the mirror image of a group's.
@@ -1897,34 +2074,74 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     onToggle: (open: boolean) => toggleGroup(id, open),
   });
 
-  // Shared by every carried `ControlledTextField` below (typing and the chip's `×`
-  // alike) rather than one closure per field, so there is exactly one place that can
-  // get a field's own drop logic wrong. Reads the LATEST state through a functional
-  // updater rather than a value captured at render time — the same reasoning
+  // Shared by every field below rather than one closure per field, so there is exactly one
+  // place that can get a field's own state transition wrong. Reads the LATEST state through a
+  // functional updater rather than a value captured at render time — the same reasoning
   // `ReorderControls.tsx` documents for staying stateless.
   //
-  // It does **two** things, and the second is what makes the chip honest. Dropping the mark
-  // is the visible half ("overwriting is just typing, and drops the chip", §0.6). Recording
-  // the field in `typed` is the half that has to outlive the drop: this fires on every
-  // keystroke, including keystrokes that land BEFORE `useDives()` has resolved and therefore
-  // before there is any mark to drop — and when carry-over lands a moment later, that is
-  // exactly the field a recomputed `computeCarriedPaths` would mark as carried, over text the
-  // diver typed. It used to bail out early whenever `name` was not already marked, which is
-  // the same condition, so the one case that needed recording was the one case it skipped.
+  // It does **three** things, and only the first is visible on the row it fires for.
   //
-  // The early return moved rather than disappeared: once a field is both recorded and
-  // unmarked there is nothing left to change, so a second keystroke returns the same
+  // Dropping the mark is the visible half ("overwriting is just typing, and drops the chip",
+  // §0.6). Recording the field in `typed` is the half that has to outlive the drop: this fires
+  // on every keystroke, including keystrokes that land BEFORE `useDives()` has resolved and
+  // therefore before there is any mark to drop — and when carry-over lands a moment later,
+  // that is exactly the field a recomputed `computeCarriedPaths` would mark as carried, over
+  // text the diver typed. It used to bail out early whenever `name` was not already marked,
+  // which is the same condition, so the one case that needed recording was the one case it
+  // skipped.
+  //
+  // **`emptied` is the third, and it is what tells the two gestures apart** (M1h). Both drop
+  // the mark, and until §0.6 asked for a cleared state that was the whole of what either
+  // needed to say. Now the difference is a sentence on screen: `true` puts the field in
+  // `cleared` so its row reads `— cleared`, and `false` takes it back out, because a field the
+  // diver has typed a value into is not empty and a tag saying it is would be a lie the save
+  // is about to contradict. The false direction matters as much as the true one: clear a
+  // carried buddy, change your mind, type a name — the tag has to go with the blank it
+  // described.
+  //
+  // The early return moved rather than disappeared, and it now has to account for that third
+  // fact too: only when a field is recorded, unmarked AND already on the right side of
+  // `cleared` is there nothing left to change, so a second keystroke returns the same
   // reference and re-renders nothing.
-  const dropCarried = useCallback((name: FieldPath<DiveFormInput>) => {
+  const noteTouched = useCallback((name: FieldPath<DiveFormInput>, emptied: boolean) => {
     setCarried((prev) => {
-      if (prev.typed.has(name) && !prev.paths.has(name)) return prev;
+      if (prev.typed.has(name) && !prev.paths.has(name) && prev.cleared.has(name) === emptied) return prev;
       const paths = new Set(prev.paths);
       paths.delete(name);
       const typed = new Set(prev.typed);
       typed.add(name);
-      return { ...prev, paths, typed };
+      const cleared = new Set(prev.cleared);
+      if (emptied) cleared.add(name);
+      else cleared.delete(name);
+      return { ...prev, paths, cleared, typed };
     });
   }, []);
+
+  /** The diver put a value in this field — typed it, picked it, applied a preset over it, or
+   * chose a chip. Drops the mark and any cleared tag. */
+  const dropCarried = useCallback(
+    (name: FieldPath<DiveFormInput>) => noteTouched(name, false),
+    [noteTouched],
+  );
+
+  /** The diver emptied this field with the clear control. Drops the mark and leaves §0.6's
+   * `— cleared` behind, which is the one thing that distinguishes it from the gesture above
+   * landing on an already-empty field. */
+  const clearCarried = useCallback(
+    (name: FieldPath<DiveFormInput>) => noteTouched(name, true),
+    [noteTouched],
+  );
+
+  // §0.6's carried treatment, bundled once and handed to every field row — see
+  // `CarryOverControls` for why it is one prop and why it goes to fresh rows too. Rebuilt each
+  // render, which costs nothing: these are plain props on components nothing memoises, and the
+  // two sets inside it are the very values a re-render exists to deliver.
+  const carryOver: CarryOverControls = {
+    paths: carried.paths,
+    cleared: carried.cleared,
+    onDrop: dropCarried,
+    onClear: clearCarried,
+  };
 
   // The id half of DESIGN.md §6's `site_id` + `site_name` snapshot pair, moved by whatever
   // gesture last set the name: a picked suggestion's own id, or `null` when the diver typed
@@ -2226,6 +2443,36 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <StatusControl control={control} scheme={scheme} />
         </View>
 
+        {/* §0.6's carried caption — see `carriedFromLabel` for why it exists, why it is not a
+            control, and what the two forms of its sentence are for.
+
+            **Drawn only while a mark is actually on screen, and gated on nothing else.**
+            `paths` empties as the diver types over or clears each carried field, so the legend
+            leaves with the last mark it describes rather than standing over a form with nothing
+            to explain — and it never appears at all in edit mode, on a first-ever dive, or
+            before `useDives()` has resolved, because in each of those `paths` is empty for a
+            reason of its own. Edit mode's is `seedStateFor`'s (that branch marks nothing, ever),
+            which is why there is no `mode` check here: this line had one, deleting it changed no
+            test, and reading the mechanism says why — it was a second statement of a rule
+            `seedStateFor` already owns, unreachable and therefore undefendable. §4.1 and §10
+            agree about what to do with that.
+
+            It is `hasVisibleCarryOver` rather than `paths.size > 0`, and that is not a
+            refinement: `equipment` is non-nullable and an empty set counts as carried, so every
+            previous dive that has ever existed puts a path in that set and the plain size
+            check would make this line permanent. See `CARRIED_WITHOUT_A_MARK`. */}
+        {hasVisibleCarryOver(carried.paths) && (
+          <View style={styles.formCarriedNote}>
+            {/* 12 rather than a field row's 16: the mark keeps the same relationship to the
+                line it sits on that it has beside a 15 px label — a shade larger than the
+                text, never large enough to become the loudest thing on the row. */}
+            <CarriedMark scheme={scheme} size={12} />
+            <Text style={styles.formCarriedNoteText}>
+              {carriedFromLabel(carried.sourceId === null ? undefined : numbers.get(carried.sourceId))}
+            </Text>
+          </View>
+        )}
+
         {/* Core strip (§2.2) — date, site, centre, max depth, duration, time in, start and end
             pressure, always visible.
 
@@ -2238,7 +2485,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
 
             Each of the three moved OUT of its group rather than being added here as a second
             copy: a field rendered twice would give one value two `Controller`s and two
-            `carried ×` chips, and the one the diver did not scroll to would look empty. */}
+            carried marks, and the one the diver did not scroll to would look empty. */}
         <View style={styles.formCoreStrip}>
           {/* A picker, not a text field (§10, M1d): `date` carried this form's only
               blocking rule, so a mistyped one was the single thing that could refuse a save
@@ -2253,8 +2500,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="siteName"
             label="Site"
             scheme={scheme}
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
           />
@@ -2263,13 +2509,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="centerName"
             label="Centre"
             scheme={scheme}
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
           />
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="maxDepthM"
             label="Max depth"
             scheme={scheme}
@@ -2279,6 +2525,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="durationMin"
             label="Duration"
             scheme={scheme}
@@ -2313,6 +2560,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               cylinders in general. */}
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="tanks.0.startBar"
             label="Start pressure"
             scheme={scheme}
@@ -2322,6 +2570,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="tanks.0.endBar"
             label="End pressure"
             scheme={scheme}
@@ -2332,12 +2581,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         </View>
 
         <FormGroup {...groupProps('times')}>
-          <ControlledTextField control={control} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
+          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
         </FormGroup>
 
         <FormGroup {...groupProps('conditions')}>
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="waterTempC"
             label="Water temp"
             scheme={scheme}
@@ -2345,7 +2595,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             mono
             unit={unitLabel('temperature', units)}
           />
-          <ControlledTextField control={control} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
+          <ControlledTextField control={control} carryOver={carryOver} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
           {/* Two visibility fields, deliberately (§10): nobody measures visibility, so the
               scale is the primary and the distance is an optional refinement for divers who
               estimate one. They carry two different labels because two rows both reading
@@ -2364,6 +2614,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               same pair one group down and reads no better. */}
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="visibility"
             label="Visibility"
             options={VISIBILITY_VALUES}
@@ -2376,6 +2627,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledTextField
             control={control}
+            carryOver={carryOver}
             name="visibilityM"
             label="Visibility distance"
             scheme={scheme}
@@ -2400,6 +2652,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               candidate merely labels it. */}
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="waves"
             label="Waves"
             options={CONDITION_SCALE_VALUES}
@@ -2408,6 +2661,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="current"
             label="Current"
             options={CONDITION_SCALE_VALUES}
@@ -2419,6 +2673,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="surge"
             label="Surge"
             options={CONDITION_SCALE_VALUES}
@@ -2431,6 +2686,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="weather"
             label="Weather"
             options={WEATHER_VALUES}
@@ -2444,6 +2700,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="entry"
             label="Entry"
             options={ENTRY_VALUES}
@@ -2457,6 +2714,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="salinity"
             label="Salinity"
             options={SALINITY_VALUES}
@@ -2465,14 +2723,15 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           />
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="waterBody"
             label="Water body"
             options={WATER_BODY_VALUES}
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
           />
-          <ControlledTextField control={control} name="latitude" label="Latitude" scheme={scheme} keyboardType="decimal-pad" mono />
-          <ControlledTextField control={control} name="longitude" label="Longitude" scheme={scheme} keyboardType="decimal-pad" mono />
+          <ControlledTextField control={control} carryOver={carryOver} name="latitude" label="Latitude" scheme={scheme} keyboardType="decimal-pad" mono />
+          <ControlledTextField control={control} carryOver={carryOver} name="longitude" label="Longitude" scheme={scheme} keyboardType="decimal-pad" mono />
         </FormGroup>
 
         {/* DESIGN.md §6: the form shows a single cylinder until "+ add cylinder" is
@@ -2496,6 +2755,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledCylinderSpec control={control} units={units} defaultExpanded={cylinderSpecOpen} scheme={scheme}>
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="tanks.0.material"
             label="Material"
             options={TANK_MATERIAL_VALUES}
@@ -2508,8 +2768,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Size"
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             // Lower-case `l`, where the placeholder here used to read `L`: §0.6 asks for the
             // unit "exactly as `12.2 m` reads on the detail", and `formatVolume`
@@ -2532,6 +2791,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               figure against a keypad separator. */}
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="tanks.0.configuration"
             label="Configuration"
             options={CONFIGURATION_VALUES}
@@ -2544,8 +2804,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Working pressure"
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             unit={unitLabel('pressure', units)}
           />
@@ -2563,8 +2822,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label={O2_LABEL}
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             unit="%"
           />
@@ -2574,8 +2832,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label={HE_LABEL}
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             unit="%"
           />
@@ -2592,6 +2849,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         <FormGroup {...groupProps('equipment')}>
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="suit"
             label="Suit"
             options={SUIT_VALUES}
@@ -2609,8 +2867,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Suit thickness"
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             unit="mm"
           />
@@ -2624,8 +2881,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             label="Weights"
             scheme={scheme}
             keyboardType="decimal-pad"
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             mono
             unit={unitLabel('weight', units)}
           />
@@ -2636,6 +2892,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               could prefill (carryOver.ts). */}
           <ControlledOptionField
             control={control}
+            carryOver={carryOver}
             name="weightsFeel"
             label="Weighting"
             options={WEIGHTS_FEEL_VALUES}
@@ -2653,8 +2910,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="buddy"
             label="Buddy"
             scheme={scheme}
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
           />
@@ -2663,16 +2919,15 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             name="guide"
             label="Guide"
             scheme={scheme}
-            carriedPaths={carriedPaths}
-            onDropCarried={dropCarried}
+            carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
           />
         </FormGroup>
 
         <FormGroup {...groupProps('notes')}>
-          <ControlledTextField control={control} name="title" label="Title" scheme={scheme} />
-          <ControlledTextField control={control} name="notes" label="Notes" scheme={scheme} multiline />
+          <ControlledTextField control={control} carryOver={carryOver} name="title" label="Title" scheme={scheme} />
+          <ControlledTextField control={control} carryOver={carryOver} name="notes" label="Notes" scheme={scheme} multiline />
           <ControlledRatingField control={control} scheme={scheme} />
         </FormGroup>
       </ScrollView>

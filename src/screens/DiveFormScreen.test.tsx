@@ -20,6 +20,7 @@ import { useGearPresets } from '../db/useGearPresets';
 import { useOpenFormGroups } from '../db/useOpenFormGroups';
 import { setOpenFormGroups } from '../db/settings';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { CARRIED_FIELDS, TANK_PRESSURE_FIELDS } from '../domain/carryOver';
 import { dive } from '../domain/diveFixture';
 import { diveFormSchema, outOfScaleNote, TANK_FIELDS } from '../domain/diveFormSchema';
 import {
@@ -56,6 +57,7 @@ import { depthScale } from '../theme/tokens';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveFormScreen, {
   blankFormValues,
+  CARRIED_WITHOUT_A_MARK,
   type FormGroupId,
   defaultOpenGroups,
   CORE_STRIP_FIELDS,
@@ -415,10 +417,16 @@ async function toggleStatus(t: RenderResult) {
   await fireEvent.press(control);
 }
 
-/** The DESIGN.md §0.6 `carried ×` control for one field, by FormField.tsx's own
- * `` `Clear carried ${label}` `` accessibilityLabel — present only while that exact field
- * is in DiveFormScreen.tsx's own `carriedPaths`, which is what makes this the one query
- * that can tell "this field is marked carried" from "this field merely has a value." */
+/**
+ * DESIGN.md §0.6's clear control for one field, by the `` `Clear carried ${label}` ``
+ * accessibilityLabel `FormField` and `OptionChips` both give it — present only while that exact
+ * field is in this screen's own carried paths, which is what makes this the one query that can
+ * tell "this field is marked carried" from "this field merely has a value."
+ *
+ * Matched on the WHOLE label, so `Suit` cannot answer for `Suit thickness`, and the same query
+ * serves a text row and a chip group: the two draw the treatment in different places on the row
+ * and announce it identically, which is what makes it one treatment rather than two.
+ */
 function findClearCarried(t: RenderResult, label: string) {
   return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear carried ${label}`);
 }
@@ -746,7 +754,7 @@ describe('defaultOpenGroups', () => {
   });
 
   it('does not open Equipment for an accessory set that records no accessories', () => {
-    // The one input on which this rule and the `carried ×` rule deliberately disagree
+    // The one input on which this rule and the carried-mark rule deliberately disagree
     // (`holdsValue` vs `hasCarriedValue`): `[]` is a real carried answer, and it is also what
     // every untouched form holds — so opening the group for it would open it on every dive.
     expect([...defaultOpenGroups(valuesWith('equipment', []), [])]).toEqual([]);
@@ -980,6 +988,21 @@ it('draws nothing outside its own makeStyles treatment, collapsed or expanded', 
     await openGroup(t, FORM_GROUPS[id].title);
     expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
   }
+
+  // **And every state of the carried treatment**, which the sweep above cannot reach for
+  // exactly the reason it already records about groups: a form with no previous dive draws no
+  // return mark, no clear control, no caption and no cleared tag, so the guard would have been
+  // in front of none of them. M1h added four drawn or painted things to this screen at once and
+  // a sweep that never seeds carry-over is a sweep of the half of the form that has none.
+  stubDives({ dives: [FULLY_CARRIED()] });
+  const carried = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(carried, FORM_GROUPS[id].title);
+  await openCylinder(carried);
+  expect(unexpectedGraphics(carried, 'light')).toHaveLength(0);
+
+  // ...and the third state, which is a `Text` the other two never draw.
+  await pressClear(carried, 'Buddy');
+  expect(unexpectedGraphics(carried, 'light')).toHaveLength(0);
 });
 
 // --- §0.6's design pass: a field is a row, and focus is the only thing that draws a box ---
@@ -1049,8 +1072,10 @@ it('fills chips and the focused row with surface, and nothing else — least of 
   const surface = themeFor('light').surface;
 
   // The sweep is worth nothing if it sweeps nothing: the screen has to be painting SOMETHING
-  // (the save control's inverted ink, the carried chip's `border` fill) for the classification
-  // below to mean anything at all.
+  // (the save control's inverted ink, the option chips' own `surface`) for the classification
+  // below to mean anything at all. It used to name the `carried ×` chip's `border` fill here
+  // too; M1h's carried treatment paints nothing at all — a drawn mark and a drawn ring, both
+  // tinted rather than filled — so that half of the sentence went with the chip.
   expect(fillsOn(t).length).toBeGreaterThan(0);
 
   // Every `surface` before focus is a chip, and there are plenty of them: entry, salinity,
@@ -1677,11 +1702,12 @@ it('marks a carried 0 as carried — a zero is an answer, an empty field is not'
 });
 
 it('marks a carried suit thickness, and drops the mark the moment the diver types over it', async () => {
-  // §0.6's `carried ×` on the one field M1h added to `CARRIED_FIELDS`. Both halves in one
-  // test because they are two different props on one call site — `carriedPaths` is what puts
-  // the mark there and `onDropCarried` is what takes it away — and either can be left off
-  // alone. The neighbouring `weightsKg` has had both since M1d; this one arrived without them
-  // being pinned, which is the same per-call-site-prop hole the chip sweep below exists for.
+  // §0.6's carried treatment on the one field M1h added to `CARRIED_FIELDS`. Both halves in one
+  // test because they were two different props on one call site — one put the mark there and
+  // the other took it away — and either could be left off alone. The neighbouring `weightsKg`
+  // had both since M1d; this one arrived without them being pinned, which is the per-call-site
+  // prop hole the carried sweep further up now closes for every field at once, and the reason
+  // M1h bundled the four into a single `carryOver` prop that cannot be passed by halves.
   stubDives({ dives: [dive({ date: '2026-08-10', suitThicknessMm: 5 })] });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Equipment');
@@ -1692,6 +1718,413 @@ it('marks a carried suit thickness, and drops the mark the moment the diver type
   await typeInto(t, 'Suit thickness', '7');
   expect(findClearCarried(t, 'Suit thickness')).toBeUndefined();
   expect(findTextInput(t, 'Suit thickness')?.props?.value).toBe('7');
+});
+
+// --- §0.6, M1h: three states, and the one the form knew and never showed ---
+//
+// "Nothing was carried here" and "I threw it away" were the same empty row until this
+// milestone, so a diver who deliberately discarded a carried buddy could not tell that from
+// the form simply not having one. Every test in this section renders more than one state at
+// once, because the rule is a DISTINCTION: a screen that marked everything satisfies "a
+// carried field is marked", one that marked nothing satisfies "a fresh field is not", and a
+// screen with no cleared state at all satisfies both.
+
+/** What the `— cleared` tag reads on screen, spelled here rather than imported from the
+ * component that draws it — this file's witness tables are deliberately not derived from the
+ * things they witness, and a tag read back off its own constant would agree with any rewording
+ * of it. */
+const CLEARED_ROW = '— cleared';
+
+/** How many rows are currently saying they were cleared. A count rather than a `toContain`,
+ * because the failure this section exists to prevent is a tag on the WRONG number of rows —
+ * on every empty one, or on none. */
+function clearedRows(t: RenderResult): number {
+  return textIn(t).filter((s) => s === CLEARED_ROW).length;
+}
+
+/** Presses one field's clear control, by the label `FormField`/`OptionChips` give it. */
+async function pressClear(t: RenderResult, label: string) {
+  const clear = findClearCarried(t, label);
+  if (!clear) throw new Error(`${label} was not marked carried to begin with`);
+  await fireEvent.press(clear);
+}
+
+it('reads three different ways: never carried, carried, and cleared', async () => {
+  // One previous dive, one field filled and one left empty — so the same render holds a
+  // carried row and a never-carried one, and clearing turns the first into the third.
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr', guide: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  expect(findClearCarried(t, 'Buddy')).toBeDefined();
+  expect(findClearCarried(t, 'Guide')).toBeUndefined();
+  expect(clearedRows(t)).toBe(0);
+
+  await pressClear(t, 'Buddy');
+
+  // The third state: the row says so, the mark and its control are gone, and the value with
+  // them.
+  expect(clearedRows(t)).toBe(1);
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
+  // ...and Guide, which was never carried, is still saying nothing at all — which is what
+  // makes the cleared row a distinction rather than a decoration. Both rows are empty and
+  // exactly one of them explains why.
+  expect(findTextInput(t, 'Guide')?.props?.value).toBe('');
+  expect(clearedRows(t)).toBe(1);
+});
+
+// The other gesture that empties a carried field, and it must NOT leave the tag: a diver who
+// types over a carried value and then deletes what they typed has not thrown anything away —
+// they have been editing. Only the clear control says "this was not mine".
+it('leaves no cleared tag behind when the diver empties a field by typing', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  await typeInto(t, 'Buddy', 'Jana');
+  await typeInto(t, 'Buddy', '');
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
+  expect(clearedRows(t)).toBe(0);
+});
+
+// And the reverse, which is the direction a stale flag would fail in: clear a field, change
+// your mind, type. The tag describes a blank, and the blank is gone.
+it('takes the cleared tag back off the moment the diver types a value into that row', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  await pressClear(t, 'Buddy');
+  expect(clearedRows(t)).toBe(1);
+
+  await typeInto(t, 'Buddy', 'Jana');
+  expect(clearedRows(t)).toBe(0);
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Jana');
+});
+
+// **Clear, change your mind, type, change it back** — the one sequence that can put the tag
+// back over a row the diver has since taken ownership of, and the one the component's own
+// value guard cannot catch, because by then the row really is empty again.
+//
+// Found by mutation: deleting the `else cleared.delete(name)` half of the screen's own
+// `noteTouched` left the whole suite green, because every other test that types after clearing
+// leaves a value in the box, and `FormField` refuses to draw the tag over a value whatever the
+// screen's state says. The two guards are on opposite sides of the boundary on purpose, and
+// this is the case where only the screen's half is doing anything.
+//
+// The rule it defends: the tag is what the CLEAR CONTROL left behind. A diver who typed a name
+// and then deleted it emptied the row themselves, and a row claiming they discarded a carried
+// value would be describing a gesture they did not make.
+it('does not put the cleared tag back when the diver empties a row they had typed into', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+
+  await pressClear(t, 'Buddy');
+  expect(clearedRows(t)).toBe(1);
+  await typeInto(t, 'Buddy', 'Jana');
+  await typeInto(t, 'Buddy', '');
+
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
+  expect(clearedRows(t)).toBe(0);
+});
+
+// **The cleared state survives a reseed**, which is the half `keepDirtyValues` makes necessary
+// rather than optional: that option keeps the EMPTIED VALUE across the re-sync, so a form that
+// re-derived its marks and forgot the gesture would show the blank and lose the sentence
+// explaining it — the exact state this treatment exists to end, arrived at through a race.
+//
+// The reseed is driven the way the device drives it: `useDives()` starts empty and resolves a
+// frame later, and here it resolves again from a DIFFERENT source dive, which is what actually
+// re-runs `seedStateFor`.
+it('keeps the cleared row through a reseed, tag and blank together', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr', guide: 'Ondra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  await pressClear(t, 'Buddy');
+
+  stubDives({ dives: [dive({ id: 'later', date: '2026-08-11', buddy: 'Petr', guide: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(clearedRows(t)).toBe(1);
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
+  expect(findClearCarried(t, 'Buddy')).toBeUndefined();
+  // Guide is the control: the reseed really did run and really did re-mark the field the diver
+  // never touched, so the assertion above is about the gesture surviving rather than about
+  // nothing having happened.
+  expect(findClearCarried(t, 'Guide')).toBeDefined();
+});
+
+// --- What a cleared field WRITES, which no assertion about a row can see ---
+//
+// DESIGN.md §1 and §10: "the `×` clears the field to a real blank, never a zero". That stopped
+// being theoretical the moment M1h gave `0` a chip of its own — a dive genuinely logged with no
+// weight records `weightsKg: 0`, and a diver who threw the carried figure away records nothing
+// at all, and the two are the same falsy number to anything that reads them carelessly. One
+// voids nothing; the other reaches `derived.ts` as *contradictory* data and takes the dive's
+// whole gas figure with it.
+//
+// Driven through the real control and read off the real `createDive` call, because a test that
+// set the value with `setValue` would bypass the control entirely and prove nothing about the
+// gesture — which cost this milestone a round already.
+it('writes a cleared field as null, not as the zero it was carrying', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', weightsKg: 0 })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Equipment');
+
+  // The state the whole distinction rests on: a real, recorded 0 that carried forward.
+  expect(findTextInput(t, 'Weights')?.props?.value).toBe('0');
+  await pressClear(t, 'Weights');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const written = mockCreate.mock.calls[0]?.[1] as Record<string, unknown>;
+  // A create-mode write OMITS an unrecorded field rather than naming it `null` —
+  // `toNewDiveInput`'s own `value !== null` gate — and `createDive` stores the column's own
+  // null for a key it was not given. So "cleared" reaches the repository as an absent key.
+  expect(written.weightsKg).toBeUndefined();
+  // The half §10 actually writes down, stated separately because it is the failure and the
+  // line above is only its absence: **never a zero.** `zeroPaths` walks the whole payload, so
+  // a 0 that arrived somewhere else in it — inside the cylinder, say — fails here too.
+  expect(written.weightsKg).not.toBe(0);
+  expect(zeroPaths(written)).toEqual([]);
+});
+
+it('writes a carried zero the diver left alone as the zero it is', async () => {
+  // The control for the test above, and it is not a formality: "write null whenever the field
+  // looks falsy" passes that test and destroys this one — a dive logged with no weight at all
+  // would silently stop recording that it had none.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', weightsKg: 0 })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect((mockCreate.mock.calls[0]?.[1] as Record<string, unknown>).weightsKg).toBe(0);
+});
+
+// --- Chip groups: one clear for the whole group ---
+
+// The sheet's own instruction, and the two gestures that empty a chip row have to stay
+// distinguishable: pressing the selected chip is the diver CHOOSING (a deselection), pressing
+// the ring is the diver saying the value was never theirs. Only the second leaves the tag.
+it('clears a carried chip group from its label row, and a deselection does not', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', entry: 'shore', salinity: 'salt' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+
+  expect(findClearCarried(t, 'Entry')).toBeDefined();
+  expect(findClearCarried(t, 'Salinity')).toBeDefined();
+  // Fresh chip rows are untouched by any of this — `weather` and the three 0–3 scales are in
+  // §2.1's fresh half, so there is nothing on them to carry or to clear.
+  expect(findClearCarried(t, 'Weather')).toBeUndefined();
+  expect(findClearCarried(t, 'Waves')).toBeUndefined();
+
+  // Deselecting: the mark goes, because choosing is overwriting (§0.6), and no tag is left.
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+  expect(clearedRows(t)).toBe(0);
+
+  // Clearing: the mark goes and the row says why.
+  await pressClear(t, 'Entry');
+  expect(findClearCarried(t, 'Entry')).toBeUndefined();
+  expect(clearedRows(t)).toBe(1);
+});
+
+it('writes a cleared chip group as null', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-10', entry: 'shore' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Conditions');
+  await pressClear(t, 'Entry');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const written = mockCreate.mock.calls[0]?.[1] as Record<string, unknown>;
+  // Absent, for the reason the weights test above states: a create-mode write omits what was
+  // not recorded. What must never happen is the value surviving the clear — the diver threw
+  // *shore* away, and a dive that still says `entry: 'shore'` is the same silent wrong value
+  // a stale carried figure would be.
+  expect(written.entry).toBeUndefined();
+  expect(written.entry).not.toBe('shore');
+});
+
+// --- Every field §2.1 carries, and only those ---
+
+/**
+ * **Which rows wear the carried treatment, and what each one is called on screen** — written
+ * out, and deliberately not derived from the screen.
+ *
+ * The same kind of independent witness `FIELD_LABELS` and `CHIP_MARKS` above are, and after
+ * the same failure: `suitThicknessMm` shipped in M1h able to SHOW a carried mark and unable to
+ * drop it, because one of the two props it needed was missing at its call site and every
+ * assertion about the marks was written per field rather than swept. A per-call-site prop is
+ * invisible from any test that does not ask about that call site.
+ *
+ * The membership below is checked against `CARRIED_FIELDS` (domain/carryOver.ts, §2.1's own
+ * owner) rather than against the screen, and the labels are checked against the screen. The two
+ * can only agree by both being right.
+ */
+const CARRIED_ROWS: Record<string, { label: string; group?: FormGroupId; cylinder?: true }> = {
+  siteName: { label: 'Site' },
+  centerName: { label: 'Centre' },
+  entry: { label: 'Entry', group: 'conditions' },
+  salinity: { label: 'Salinity', group: 'conditions' },
+  waterBody: { label: 'Water body', group: 'conditions' },
+  'tanks.0.material': { label: 'Material', group: 'gas', cylinder: true },
+  'tanks.0.sizeL': { label: 'Size', group: 'gas', cylinder: true },
+  'tanks.0.configuration': { label: 'Configuration', group: 'gas', cylinder: true },
+  'tanks.0.workingBar': { label: 'Working pressure', group: 'gas', cylinder: true },
+  'tanks.0.o2Pct': { label: O2_LABEL, group: 'gas' },
+  'tanks.0.hePct': { label: HE_LABEL, group: 'gas' },
+  suit: { label: 'Suit', group: 'equipment' },
+  suitThicknessMm: { label: 'Suit thickness', group: 'equipment' },
+  weightsKg: { label: 'Weights', group: 'equipment' },
+  buddy: { label: 'Buddy', group: 'people' },
+  guide: { label: 'Guide', group: 'people' },
+};
+
+/**
+ * The three carried fields that deliberately have no row of their own to wear the treatment,
+ * each for a different reason — named here so "every carried field is covered" stays a
+ * checkable claim rather than one with a silent exception.
+ *
+ * `siteId`/`centerId` are §6's half of the site snapshot: written by picking a suggestion,
+ * never typed, so there is no row and nothing to clear (`computeCarriedPaths` marks them all
+ * the same, and nothing reads that mark). `equipment` is a token set rendered as five Yes/No
+ * rows, so there is no single row for one mark and one clear to sit on — and `[]` is a real
+ * carried answer meaning "no accessories", which a clear control could not distinguish itself
+ * from. That is a known gap rather than an oversight: M1h's own note on
+ * `ControlledEquipmentField` says the honest wording for that control's own state is still
+ * outstanding.
+ */
+const CARRIED_WITHOUT_A_ROW = ['siteId', 'centerId', 'equipment'];
+
+/** A previous dive that filled every carried field there is, so one render can be asked about
+ * all of them. The two pressures are set and must NOT carry — `withoutPressures` strips them
+ * (§2.1), which is what keeps them out of the table above. */
+const FULLY_CARRIED = () =>
+  dive({
+    date: '2026-08-10',
+    siteName: 'Nautica Vis', centerName: 'Nautica',
+    entry: 'shore', salinity: 'salt', waterBody: 'ocean',
+    // `hePct` explicitly, where `tank()`'s own default leaves it null: it is a carried field
+    // like the rest, and a fixture that left it empty would sweep past its row reporting
+    // "not carried" as a pass.
+    tanks: [tank({ hePct: 20 })],
+    suit: 'wet', suitThicknessMm: 5, equipment: ['hood'], weightsKg: 6,
+    buddy: 'Petr', guide: 'Ondra',
+  });
+
+it('has a carried row for every field §2.1 carries, and names the three that have none', () => {
+  const expected = [
+    ...CARRIED_FIELDS.filter((field) => field !== 'tanks' && !CARRIED_WITHOUT_A_ROW.includes(field)),
+    // `tanks` carries only most of itself: `withoutPressures` blanks the two pressures on the
+    // way over, so a cylinder's start and end can never be carried and can never be cleared.
+    ...TANK_FIELDS.filter((field) => !(TANK_PRESSURE_FIELDS as readonly string[]).includes(field)).map(
+      (field) => `tanks.0.${field}`,
+    ),
+  ];
+  expect(Object.keys(CARRIED_ROWS).sort()).toEqual(expected.sort());
+  // Exact, distinct labels, so `Suit` cannot match `Suit thickness` in the sweep below.
+  expect(new Set(Object.values(CARRIED_ROWS).map((row) => row.label)).size).toBe(expected.length);
+
+  // The screen keeps its own copy of the three, for a different job — deciding whether the
+  // carried caption has anything left to explain — and a fourth name added there would switch
+  // that line off for a dive whose only carried field is the one just exempted, silently. The
+  // list above is pinned against what the screen RENDERS by the sweep below, so comparing the
+  // two transfers that pinning to the screen's copy rather than letting either agree with
+  // itself.
+  expect([...CARRIED_WITHOUT_A_MARK].sort()).toEqual([...CARRIED_WITHOUT_A_ROW].sort());
+});
+
+it.each(Object.entries(CARRIED_ROWS))(
+  'offers the carried treatment on %s, and only when that field carried something',
+  async (_field, { label, group, cylinder }) => {
+    const reveal = async (t: RenderResult) => {
+      if (group !== undefined) await openGroup(t, FORM_GROUPS[group].title);
+      if (cylinder === true) await openCylinder(t);
+    };
+
+    // Carried: the row offers a way to throw the value away.
+    stubDives({ dives: [FULLY_CARRIED()] });
+    const carried = await render(<DiveFormScreen mode="create" />);
+    await reveal(carried);
+    expect(findClearCarried(carried, label)).toBeDefined();
+
+    // Not carried: the same row, from a previous dive that recorded nothing, offers none. The
+    // pair is the assertion — a screen that put a clear control on every row would pass the
+    // first half alone, and it would be offering to clear values the diver typed themselves.
+    stubDives({ dives: [dive({ date: '2026-08-10' })] });
+    const fresh = await render(<DiveFormScreen mode="create" />);
+    await reveal(fresh);
+    expect(findClearCarried(fresh, label)).toBeUndefined();
+  },
+);
+
+// --- The header line that names the mark ---
+//
+// §0.6's carried caption: `↵ Carried from #127 — clear any of them`. It is the mark's legend,
+// which is what earns it a row at all (§0.6's standing test is that a symbol needing a legend
+// has already failed, and stating the legend in the same view as the marks is the difference
+// between a caption and a thing to memorise).
+
+/** What the caption currently reads, or `undefined` when the form is not drawing one. */
+function captionIn(t: RenderResult): string | undefined {
+  return textIn(t).find((s) => s.startsWith('Carried from '));
+}
+
+it('names the dive its carried values came from, by number', async () => {
+  const previous = dive({ id: 'previous', date: '2026-08-10', buddy: 'Petr' });
+  stubDives({ dives: [previous], numbers: new Map([[previous.id, 127]]) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(captionIn(t)).toBe('Carried from #127 — clear any of them');
+});
+
+it('names the dive some other way rather than saying #undefined', async () => {
+  // `numbers` lands from a settings read that resolves independently of the dives themselves
+  // (useDives.ts), so for a render or two the map can be empty while carry-over has already
+  // filled the form. A caption reading `#undefined` would be worse than not naming the dive,
+  // and dropping the line for those renders would flicker the legend out from under the marks
+  // it explains.
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(captionIn(t)).toBe('Carried from your last dive — clear any of them');
+});
+
+it('says nothing about carry-over where there is none to explain', async () => {
+  // A first-ever dive, an edit, and a form whose every mark the diver has dealt with: three
+  // different reasons for an empty `paths`, and the legend has nothing to legend in any of
+  // them. The third is the one a `mode === 'create'` check alone would miss.
+  const empty = await render(<DiveFormScreen mode="create" />);
+  expect(captionIn(empty)).toBeUndefined();
+
+  stubDives({ dives: [dive({ id: 'target', date: '2026-08-10', buddy: 'Petr' })] });
+  const editing = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  expect(captionIn(editing)).toBeUndefined();
+
+  const cleared = await render(<DiveFormScreen mode="create" />);
+  await openGroup(cleared, 'People');
+  expect(captionIn(cleared)).toBeDefined();
+  await pressClear(cleared, 'Buddy');
+  expect(captionIn(cleared)).toBeUndefined();
+});
+
+// The line is a CAPTION, not a control — §0.6 records a different affordance in the same
+// corner ("the form header's 'from #6' is tappable and starts the dive blank") which has never
+// been built, and the two are opposite defects: a caption that silently wipes a form, or a
+// control that reads as a label. Pinned because "make the line tappable" is the obvious next
+// edit and it is the wrong one.
+it('is a caption and not a control, so reading it cannot blank the form', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const caption = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('Carried from '));
+  expect(caption).toBeDefined();
+  expect(caption?.props?.accessibilityRole).toBeUndefined();
+  expect(caption?.props?.onPress).toBeUndefined();
 });
 
 it('still marks nothing on a field the previous dive left empty, beside one it filled with 0', async () => {
@@ -4670,7 +5103,7 @@ it('drops the carried mark from the fields it fills', async () => {
 /**
  * §0.6: "overwriting is just typing, and drops the chip". A preset holding NO cylinders blanks
  * the whole block — pressures included, since there is no cylinder left for a pressure to
- * belong to — so every `carried ×` over those fields is now offering to clear a value the
+ * belong to — so every carried mark over those fields is now offering to clear a value the
  * diver no longer has.
  *
  * The bug was in the shape of the loop rather than in the rule: `applied` is `[]` for such a
@@ -4933,7 +5366,7 @@ it('applies every cylinder a preset holds, not just the one the form shows', asy
 });
 
 // The third gesture that moves §6's snapshot pair, and the one nothing defended until now:
-// the `carried ×`. Typing and picking are pinned on the write payload above; clearing was
+// the clear control. Typing and picking are pinned on the write payload above; clearing was
 // not, and deleting its `onPairedId` line left all 1012 tests green.
 //
 // **Create mode, because that is the only mode the chip exists in** — it means "this came

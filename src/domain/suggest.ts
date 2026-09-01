@@ -66,7 +66,7 @@ const SUGGESTED_FIELD_SET: ReadonlySet<string> = new Set(SUGGESTED_FIELDS);
  * wiring up a row asks this about the field name it already has rather than repeating that
  * name a second time beside it.
  *
- * `DiveFormScreen`'s own `carriedPaths` docblock draws the same line for the same reason:
+ * `DiveFormScreen`'s own `CarryOverControls` docblock draws the same line for the same reason:
  * "asking each call site to repeat its own field name a second time as a plain string next
  * to the `name` prop it already has" is the hand-maintained second list §4.1 warns about,
  * one call site over from the module that owns it. A row can therefore neither claim

@@ -4,6 +4,8 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { type Suggestion } from '../domain/suggest';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { CarriedMark, CLEARED_ANNOUNCEMENT, CLEARED_TAG } from './CarriedMark';
+import { ClearFieldControl } from './ClearFieldControl';
 
 export interface FormFieldProps {
   /** Wraps rather than truncates — never `numberOfLines`, never `ellipsizeMode` (DESIGN.md
@@ -68,18 +70,37 @@ export interface FormFieldProps {
    */
   unit?: string;
   /**
-   * DESIGN.md §0.6: "A prefilled field shows a `carried ×` chip." Owned entirely by the
-   * caller (`DiveFormScreen.tsx` derives it from `CARRIED_FIELDS`, M1d task 3) — this
-   * component has no opinion on WHY a value is carried, only on how to show that it is.
-   * There is no internal "was this edited" state here either: a caller drops the chip by
-   * simply rendering this component again with `carried={false}` (or omitted) the next
-   * time, which is exactly what happens the instant `onChange`/`onClear` fires and the
-   * caller's own state updates — "overwriting is just typing, and drops the chip" (§0.6)
-   * is a fact about the CALLER's state, not something this component tracks itself.
+   * DESIGN.md §0.6: a prefilled field shows a drawn return mark leading its value, and a
+   * clear control at the row's trailing edge. Owned entirely by the caller
+   * (`DiveFormScreen.tsx` derives it from `CARRIED_FIELDS`, M1d task 3) — this component has
+   * no opinion on WHY a value is carried, only on how to show that it is. There is no
+   * internal "was this edited" state here either: a caller drops the mark by simply rendering
+   * this component again with `carried={false}` (or omitted) the next time, which is exactly
+   * what happens the instant `onChange`/`onClear` fires and the caller's own state updates —
+   * "overwriting is just typing, and drops the chip" (§0.6) is a fact about the CALLER's
+   * state, not something this component tracks itself.
    */
   carried?: boolean;
   /**
-   * Fired when the diver taps the chip's `×`, with the field's new value — always `''`,
+   * DESIGN.md §0.6, M1h: **the diver emptied this field on purpose**, so the row reads
+   * `— cleared` instead of looking exactly like a field carry-over never filled.
+   *
+   * That distinction is the whole reason this prop exists. Before it, a diver who threw away
+   * a carried buddy saw precisely what a diver whose last dive had no buddy saw — an empty
+   * row — so the app knew something it never showed. Three states, three readings: nothing
+   * carried is a plain empty row, carried is the mark plus the value plus the clear control,
+   * cleared is the tag alone.
+   *
+   * **Never `carried` at the same time**, and this component does not have to police that:
+   * clearing is what puts a field here, and it drops the mark in the same gesture. What this
+   * component DOES police is the tag against the field's own `value` — see the render body.
+   * The state is the caller's (`SeedState.cleared`, DiveFormScreen.tsx), because only the
+   * caller knows which gesture emptied the field and only the caller's copy survives a
+   * reseed.
+   */
+  cleared?: boolean;
+  /**
+   * Fired when the diver taps the clear control, with the field's new value — always `''`,
    * the same "the value the field reports after clearing must be ''" contract `onChange`
    * itself already carries. Never `0`: `diveFormSchema.ts`'s coercion contract
    * (`optionalNumber`/`optionalText`) turns `''` into `null` at the write boundary, where
@@ -87,10 +108,10 @@ export interface FormFieldProps {
    * figure (DESIGN.md §10) — this is the one interaction that could violate that contract
    * from the UI side, so this component only ever passes the literal empty string, never
    * derives one from the field's own (numeric-looking) current value. Kept as a distinct
-   * prop from `onChange`, rather than this component calling `onChange('')` itself on `×`,
-   * so a caller that wants to tell "the diver cleared this" apart from "the diver typed a
-   * value" — `DiveFormScreen.tsx` does, to drop the field from its carried set either way
-   * but through one shared path — still can.
+   * prop from `onChange`, rather than this component calling `onChange('')` itself on the
+   * ring, so a caller that wants to tell "the diver cleared this" apart from "the diver typed
+   * a value" still can — `DiveFormScreen.tsx` does, and since M1h it does something with the
+   * answer: only the clearing gesture leaves `— cleared` behind.
    */
   onClear?: (value: string) => void;
   /**
@@ -125,59 +146,17 @@ export interface FormFieldProps {
   onPickSuggestion?: (suggestion: Suggestion) => void;
 }
 
-/**
- * 48 dp (§0.5's own floor) around a form row's `×`, via `hitSlop` rather than an inflated
- * visible box — the same "small visible control, generous hidden target" split
- * `ReorderControls.tsx`'s own `ARROW_HIT_SLOP` documents at length, and for the same
- * reason: the control sits inline in a field's row, and a 48 x 48 visible box would make
- * that row far taller than the 15 px label text beside it.
+/*
+ * `CLEAR_HIT_SLOP` used to live here: 48 dp around a form row's `×` via `hitSlop`, exported
+ * because two components (this one's `carried ×` chip and `DateTimeField`'s picker `×`) each
+ * reached §0.5's floor that way. Both draw `ClearFieldControl` now, which is a real 48 dp box,
+ * so there is no slop left to point anywhere and no constant to share.
  *
- * **Exported, because two components clear a form row**: this file's `carried ×` chip and
- * `DateTimeField`'s picker `×`. They are the same control in the same row and were two
- * byte-identical `const CLEAR_HIT_SLOP` declarations, each under its own copy of the
- * reasoning below — §4.1's "one rule written in two places, then drifting", with the
- * drift still pending. One definition now, imported there; a number that has to move
- * moves once.
- *
- * **All of it points away from the label. That is the load-bearing property, not the
- * numbers.** The previous values were `{ top: 14, bottom: 14, left: 21, right: 0 }`, which
- * reached the floor by extending the clear target 21 dp INWARD — over the word "carried" —
- * so tapping that word cleared the field. The owner asked for a visible cross specifically
- * so that clearing would be a deliberate act ("a label you are expected to guess is
- * tappable is not an affordance"), and a target covering the label undoes exactly that, the
- * more so because the word sits inside the same filled chip and reads as part of the same
- * object. `left: 0` is therefore not a spare zero to be balanced away if the numbers are
- * ever retuned; both components' tests assert it directly.
- *
- * Inward is worse still on `DateTimeField`'s copy of this control, and for a second reason:
- * since §0.6's design pass the picker's own trigger sits immediately to that `×`'s LEFT, so
- * left slop would put "clear the field" over "open the picker" — the same mistake with a
- * control in place of a word. There it was never merely wasteful; on a field whose `×` sits
- * alone the old inward slop fell across empty space in the label row and cost nothing, which
- * is why that copy went unnoticed while this one was being fixed.
- *
- * **What made inward look like the only direction, and why it was not.** The reasoning
- * recorded here was "slop is only delivered where every ancestor also contains the point",
- * so anything right of a chip flush with the row's trailing edge is delivered to nobody.
- * That is not what React Native does: `RCTView.hitTest` descends into a view's subviews
- * for a point outside that view whenever the view does **not** clip to bounds
- * (`if (![self clipsToBounds] || isPointInside)`). Every ancestor here is unclipped except
- * one — `formFieldCarried` carried `overflow: 'hidden'`, clipping nothing visible and the
- * slop with it. Dropping that property (theme/styles.ts) is what makes outward real.
- *
- * **The arithmetic.** The `×` zone is `formFieldCarriedClear`'s own `paddingHorizontal: 14`
- * plus one mono glyph at fontSize 11 — call it 35 dp — and 14 dp of slop to its right
- * brings it past 48. That 14 has somewhere to go: `formField`'s own trailing padding
- * (`FORM_ROW_INSET`, theme/styles.ts) is 20 dp of room inside the row's own unclipped box,
- * between the chip's trailing edge and the row's. Before §0.6's design pass the same 20 came
- * from `formScrollContent`'s padding, outside the field entirely; the room moved inward with
- * the inset and got no smaller. Vertically the 14 above and below is spent inside
- * `formField`'s `minHeight: 48`, which is what makes the target the row's full height
- * whatever the glyph's exact metrics turn out to be. `DateTimeField`'s row is the same
- * `formField`, so the arithmetic holds there unchanged — which is what made the two
- * declarations identical in the first place.
+ * The reasoning did not go with it — see `ClearFieldControl.tsx` and `clearFieldControl`
+ * (theme/styles.ts), which carry the whole account of why an invisible target is free to point
+ * the wrong way and did (21 dp inward, over the word "carried", so tapping the label cleared
+ * the field), and why a box cannot.
  */
-export const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
 
 /**
  * One form field (DESIGN.md §2.2, restyled to §0.6): **a row, not a box** — the label at the
@@ -202,11 +181,21 @@ export const CLEAR_HIT_SLOP = { top: 14, bottom: 14, left: 0, right: 14 };
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, onClear, suggestions, onPickSuggestion },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion },
   ref,
 ) {
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
+
+  // **The tag is drawn only over a row that is actually empty**, and that guard belongs here
+  // rather than only in the caller. `cleared` is a claim about a gesture; `— cleared` is a
+  // claim about what the row HOLDS, and this is the only place that can see both. A tag
+  // sitting beside a value the diver has since typed would be the loudest kind of lie this
+  // form can tell — the row would say it is empty while showing a number that is about to be
+  // saved. The caller drops `cleared` on every gesture that writes a value (DiveFormScreen's
+  // own `noteTouched`), so in practice this never fires; it is what makes the rendering
+  // honest whatever the caller's state does.
+  const showCleared = cleared === true && value === '';
 
   // Notes, and notes alone. The detail screen renders notes as a full-width paragraph rather
   // than as a row (`detailNotes`), because a paragraph right-aligned into a trailing slot is
@@ -239,7 +228,13 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       // §0.6: an empty numeric field shows its unit as the placeholder, "so the row still
       // says what belongs in it". `placeholder` covers the fields whose hint is not a unit —
       // a conditions scale's `0-3`, a rating's `1-5`.
-      placeholder={unit ?? placeholder}
+      //
+      // **A cleared row shows neither**, for the same reason a filled one shows no
+      // placeholder: the slot says one thing at a time. `kg — cleared` reads as two competing
+      // claims about a row that is simply empty on purpose, and the tag is the one the diver
+      // has not seen before. The hint comes back the moment they type, which is the moment it
+      // is useful again.
+      placeholder={showCleared ? undefined : (unit ?? placeholder)}
       placeholderTextColor={styles.formFieldLabel.color}
       accessibilityLabel={label}
     />
@@ -251,31 +246,41 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
         <Text style={styles.formFieldLabel}>{label}</Text>
         {!stacked && (
           <View style={styles.formFieldValue}>
+            {/* §0.6's return mark, **leading the value** — the same slot, and the same
+                relationship, as the muted `=` the detail screen puts before a computed value.
+                It sits at the leading edge of the value column rather than hard against the
+                text, because the input keeps its `flex: 1`: that flex is what makes the whole
+                trailing half of the row a live target for focusing the field (§0.5, and
+                `formFieldInput`'s own note), and a mark that shrank the input to its text
+                would buy adjacency with a tap target. */}
+            {carried === true && <CarriedMark scheme={scheme} />}
             {input}
             {/* The muted suffix (§0.6), drawn only while there is a figure for it to follow:
                 an empty field is already showing this same word as its placeholder, and both
                 at once would read as "m m". */}
             {unit !== undefined && value !== '' && <Text style={styles.formFieldUnit}>{unit}</Text>}
+            {/* The third state (§0.6, M1h). It stands where the value would be, so a row the
+                diver emptied on purpose reads differently from one carry-over never filled —
+                which is the entire point of the state, and the thing this form knew and never
+                showed. */}
+            {showCleared && (
+              <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
+                {CLEARED_TAG}
+              </Text>
+            )}
           </View>
         )}
-        {carried && (
-          <View style={styles.formFieldCarried}>
-            <Text style={styles.formFieldCarriedLabel}>carried</Text>
-            {/* The owner's own correction (task brief): an earlier design made the whole
-                chip tappable with no visible `×` — "nothing about the word 'carried' says
-                tap me to remove it... a label you are expected to guess is tappable is not
-                an affordance." `formFieldCarriedClear`'s left border is the divider that
-                makes only THIS segment read as a control. */}
-            <Pressable
-              style={styles.formFieldCarriedClear}
-              onPress={() => onClear?.('')}
-              accessibilityRole="button"
-              accessibilityLabel={`Clear carried ${label}`}
-              hitSlop={CLEAR_HIT_SLOP}
-            >
-              <Text style={styles.formFieldCarriedClearLabel}>×</Text>
-            </Pressable>
-          </View>
+        {/* The clear control, at the row's trailing edge: a 20 pt ring in a real 48 dp box.
+            Only ever on a carried row — clearing is what a diver does to a value they did not
+            enter, and a control offering to empty a field they typed themselves would be
+            offering to destroy their own work. It goes with the mark in the same gesture, so
+            a cleared row has neither. */}
+        {carried === true && (
+          <ClearFieldControl
+            accessibilityLabel={`Clear carried ${label}`}
+            onPress={() => onClear?.('')}
+            scheme={scheme}
+          />
         )}
       </View>
       {stacked && input}
