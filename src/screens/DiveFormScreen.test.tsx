@@ -3044,11 +3044,18 @@ it('shows nothing new to a diver who has never saved a preset', async () => {
   expect(findButton(t, 'Save as preset')).toBeDefined();
 });
 
+// The order is `comparePresets`' (domain/presets.ts), decided once and applied inside
+// `toGearPresets` — this screen must draw the list it is handed and never re-sort it, or the
+// chips and §3's Settings list would disagree about where a preset sits.
+//
+// Stubbed in the order that is NOT sorted, deliberately: with `['alu 80', 'twin 12 steel']`
+// — which is already the comparator's answer — a screen that re-sorted would pass this test
+// while breaking the claim its name makes.
 it('offers one chip per preset, in the order the hook hands them', async () => {
-  stubPresets([preset({ name: 'alu 80' }), preset({ name: 'twin 12 steel' })]);
+  stubPresets([preset({ name: 'twin 12 steel' }), preset({ name: 'alu 80' })]);
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
-  expect(presetChipsIn(t)).toEqual(['alu 80', 'twin 12 steel']);
+  expect(presetChipsIn(t)).toEqual(['twin 12 steel', 'alu 80']);
 });
 
 // §2.1 puts the chips where the cylinders are, and §10 puts the capture where a deliberate
@@ -3203,24 +3210,46 @@ it('stores a metric diver’s preset exactly as they typed it', async () => {
 
 // §0.6: "a field error is text, not a field" — it was shipped once as a white box the same
 // height as an input.
+/**
+ * **The three refusals below assert the whole sentence the diver reads, and assert it ABSENT
+ * first.** They did not, and that was the defect this block shipped with: `toContain('name')`
+ * is satisfied by the field's own "Preset name" label, `toContain('cylinder')` by the "Gas &
+ * cylinders" group header, and `toContain('alu 80')` by the stubbed chip's own text. All
+ * three passed with `PresetCapture`'s `<FieldNote>` deleted outright — so the diver being
+ * told **nothing at all** was green.
+ *
+ * The brief's requirement is the half that was unguarded: "An empty name does not save. Say
+ * so in muted text under the row — §0.6: 'a field error is text, not a field'", and §0.6
+ * records that this exact rule shipped broken once already. The `not.toContain` before the
+ * gesture is what makes each assertion provably a function of the message rather than of the
+ * surrounding UI: a substring already on screen fails the first half.
+ *
+ * The sentences are literals here, and that is the same deliberate duplication §4.1 records
+ * for this screen's field labels — the words a diver reads are part of what this suite pins,
+ * and a test that followed a renamed constant would stop pinning them. `says so when the
+ * write fails` below has always done it this way.
+ */
 it('refuses an empty name, and says so in text rather than in a box', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
   await typeACylinder(t);
+  expect(textIn(t).join(' ')).not.toContain('Give this preset a name');
+
   await addPresetNamed(t, '');
 
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('name');
+  expect(textIn(t).join(' ')).toContain('Give this preset a name, so you can find it again.');
   // The name row is still open, so the diver can fix exactly the thing they were told about.
   expect(findTextInput(t, 'Preset name')).toBeDefined();
 });
 
-it('refuses a whitespace-only name for the same reason', async () => {
+it('refuses a whitespace-only name for the same reason, and says the same thing', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
   await typeACylinder(t);
   await addPresetNamed(t, '   ');
   expect(mockCreatePreset).not.toHaveBeenCalled();
+  expect(textIn(t).join(' ')).toContain('Give this preset a name, so you can find it again.');
 });
 
 // A preset captured from an untouched cylinder block stores nothing useful — and a chip that
@@ -3228,9 +3257,12 @@ it('refuses a whitespace-only name for the same reason', async () => {
 it('refuses to store a preset from a cylinder block with nothing in it', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
+  expect(textIn(t).join(' ')).not.toContain('There are no cylinders here to save yet');
+
   await addPresetNamed(t, 'empty');
+
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('cylinder');
+  expect(textIn(t).join(' ')).toContain('There are no cylinders here to save yet');
 });
 
 // The pressures are the one thing a preset does not keep (§10), so a cylinder block holding
@@ -3243,7 +3275,7 @@ it('counts a cylinder holding only pressures as nothing to store', async () => {
   await typeInto(t, 'End pressure', '50');
   await addPresetNamed(t, 'gauge only');
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('cylinder');
+  expect(textIn(t).join(' ')).toContain('There are no cylinders here to save yet');
 });
 
 // Two chips reading "alu 80" with different cylinders is a row the diver cannot tell apart
@@ -3254,10 +3286,18 @@ it('refuses a name the diver already has, whatever case they typed it in', async
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Gas & cylinders');
   await typeACylinder(t);
+  // The chip already puts the bare words "alu 80" on screen, which is exactly why the
+  // assertion below is the whole sentence and not the name.
+  expect(textIn(t).join(' ')).toContain('alu 80');
+  expect(textIn(t).join(' ')).not.toContain('You already have a preset called');
+
   await addPresetNamed(t, 'Alu 80');
 
   expect(mockCreatePreset).not.toHaveBeenCalled();
-  expect(textIn(t).join(' ')).toContain('alu 80');
+  // Quoting the spelling the diver ALREADY has, not the one they just typed — "You already
+  // have a preset called “Alu 80”" would send them looking for a chip that says no such
+  // thing.
+  expect(textIn(t).join(' ')).toContain('You already have a preset called “alu 80”.');
 });
 
 it('closes the name row once the preset is written', async () => {
