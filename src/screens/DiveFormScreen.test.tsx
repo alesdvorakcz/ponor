@@ -657,9 +657,16 @@ it.each(FORM_GROUP_IDS)(
   },
 );
 
-// The pure rule, swept over every placed field. A value in a group's field opens THAT group and
-// no other — which is what a field listed under the wrong group would break, and what the
-// invariant above cannot see.
+// The pure rule, swept over every placed field: a value in a group's field opens THAT group and
+// no other.
+//
+// **It cannot see a field listed under the wrong group, and this comment said it could.** The
+// sweep is built FROM `FORM_GROUPS`, so it stays perfectly self-consistent when an entry in it
+// is wrong — moving `'weather'` to `people` left the whole suite green. What this defends is
+// `holdsValue`, `valueAtPath` and the two halves of the rule; **the membership itself is pinned
+// against the screen** by the label sweep above, which is the only assertion in this file that
+// does not read `FORM_GROUPS` to decide what to expect. A false claim here is what let the gap
+// read as covered, so it is corrected rather than deleted.
 describe('defaultOpenGroups', () => {
   /** A form value that counts as recorded, for a field of each shape the schema holds. Chosen
    * per field rather than "any truthy thing", because `holdsValue`'s whole job is to tell a
