@@ -295,8 +295,9 @@ export default function AccountScreen() {
     setSignOutError(null);
     try {
       // `endSession` wipes first and ends the session only if the wipe succeeded — see its own
-      // docblock for why that order is a safety property rather than a preference, and
-      // `cloud/localLogbook.ts` for why the wipe is not wired up in this build.
+      // docblock for why that order is a safety property rather than a preference. M2g wired the
+      // seam, so the refusal below is no longer the ordinary case: it now means the push left
+      // rows still owed, which is the one state in which wiping would lose them (§7.4).
       const outcome = await endSession(client, localLogbook);
       if (!outcome.ok) setSignOutError(outcome.message);
     } finally {

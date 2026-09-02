@@ -304,9 +304,10 @@ describe('signed out', () => {
      * `toHaveBeenCalledWith(CLIENT, 'signIn', …, localLogbook)` this test passes with the
      * screen handing over an inline `{ wired: false }` — found by making exactly that edit and
      * watching the suite stay green, because `toHaveBeenCalledWith` compares structurally and
-     * the app's unwired seam and a fresh copy of it are the same shape. A copy is precisely
-     * the defect `cloud/localLogbook.ts` exists to name: it would go on working today and
-     * would be the one call site left behind on the day the real seam is wired.
+     * the app's seam and a fresh copy of it were the same shape while it was unwired. A copy is
+     * precisely the defect `cloud/localLogbook.ts` exists to name: it went on working for as
+     * long as the seam did nothing, and would have been the one call site left behind when M2g
+     * wired it — which is exactly what has now happened to every other copy that existed.
      *
      * The client is pinned the same way, for the same reason: `cloud` holds exactly one, and a
      * screen constructing its own would build a second `GoTrueClient` against one storage key
@@ -649,10 +650,11 @@ describe('signing out', () => {
   });
 
   /**
-   * The state this build actually ships in: the wipe is not wired, so `endSession` refuses and
-   * the diver is told, out loud, that nothing happened. §10 — "a local save failure is shown to
-   * the diver" — and a silent refusal here would be a screen that swallowed the one destructive
-   * action in the app.
+   * A sign-out that could not be carried out says so. Until M2g this was the state every build
+   * shipped in, because the wipe was unwired; now it is the state of a device whose push left
+   * rows still owed (§7.4), which is rarer and more important — it is the case where wiping
+   * would destroy them. §10 — "a local save failure is shown to the diver" — and a silent
+   * refusal here would be a screen that swallowed the one destructive action in the app.
    */
   it('says so when the sign-out could not be carried out', async () => {
     mockEndSession.mockImplementation(async (): Promise<SignOutOutcome> => ({
