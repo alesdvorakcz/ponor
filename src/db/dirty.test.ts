@@ -17,7 +17,7 @@ import {
   wipeDiveCenters,
   wipeDiveSites,
 } from './catalogue';
-import { clearDirtyFlags, type PushableTable } from './dirty';
+import { clearDirtyFlags, onLocalWrite, type PushableTable } from './dirty';
 import * as divesModule from './dives';
 import {
   adoptDives,
@@ -641,6 +641,159 @@ describe('a write that changes nothing must not flag (§6, §7)', () => {
 
     expect(unchanged.updatedAt).toBe(preset.updatedAt);
     expect(await isDirty(gearPresets, preset.id)).toBe(false);
+  });
+});
+
+describe('the announcement a write makes (§7.5’s save trigger)', () => {
+  /**
+   * §7.5's third trigger is "a debounced 10 s after any save", and `onLocalWrite` is how the
+   * engine hears about one. It is subscribed here, at the one choke point, rather than at the
+   * eight sites across three repositories that flag a row — this file's whole reason.
+   *
+   * Everything below fails silently if it goes: a listener that is never called is a logbook
+   * that never syncs until the diver next foregrounds the app, and a listener that is called
+   * by *sync's own writes* is a cycle that schedules the next one, for ever.
+   */
+  it('tells a listener when a dive is written', async () => {
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    await createDive(db, { date: '2026-08-16' });
+    expect(heard.length).toBe(1);
+
+    stop();
+  });
+
+  it('tells it again for a preset, a site and a centre — every table §7 pushes', async () => {
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    await createGearPreset(db, { name: 'twin 12 steel' });
+    await createDiveSite(db, { name: 'Blue Hole' });
+    await createDiveCenter(db, { name: 'Dahab Divers' });
+
+    expect(heard.length).toBe(3);
+    stop();
+  });
+
+  it('tells it about a deletion, which is a write like any other (§7.2)', async () => {
+    const dive = await createDive(db, { date: '2026-08-16' });
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    await softDeleteDive(db, dive.id);
+
+    expect(heard.length).toBe(1);
+    stop();
+  });
+
+  /**
+   * **A no-op write announces nothing**, which follows from where the announcement lives rather
+   * than from a second rule: both repositories return before they reach `stampLocalWrite`. A
+   * save the diver made without changing anything would otherwise arm a sync window for a row
+   * that is not dirty.
+   */
+  it('says nothing when a write changed nothing', async () => {
+    const dive = await createDive(db, { date: '2026-08-16', notes: 'kelp' });
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    await updateDive(db, dive.id, {});
+
+    expect(heard).toEqual([]);
+    stop();
+  });
+
+  /**
+   * **And sync's own writes announce nothing**, which is what stops a cycle scheduling the
+   * next one. None of these takes a stamp, deliberately and for reasons that predate §7.5:
+   * a pulled row is a row that does not have to go up, adoption must not advance a clock, and
+   * clearing a flag is the server's word rather than this device's.
+   */
+  it('says nothing for a pulled row, an adoption or a cleared flag', async () => {
+    const dive = await createDive(db, { date: '2026-08-16' });
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    await applyPulledDives(db, [
+      {
+        id: dive.id,
+        date: '2026-08-17',
+        status: 'logged',
+        createdAt: dive.createdAt,
+        updatedAt: '2099-01-01T00:00:00.000Z',
+      } as unknown as Parameters<typeof applyPulledDives>[1][number],
+    ]);
+    await adoptDives(db);
+    await clearDiveDirtyFlags(db, [{ id: dive.id, updatedAt: '2099-01-01T00:00:00.000Z' }]);
+
+    expect(heard).toEqual([]);
+    stop();
+  });
+
+  it('stops telling a listener that has unsubscribed', async () => {
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+    await createDive(db, { date: '2026-08-16' });
+    stop();
+
+    await createDive(db, { date: '2026-08-17' });
+
+    expect(heard.length).toBe(1);
+  });
+
+  /**
+   * **A listener that throws must not cost the diver their save**, which is §10's line between
+   * the two failure classes: a *local save* failure is shown to the diver and a *sync* failure
+   * is not. Without the catch, a broken sync trigger comes back out of `createDive` as a failed
+   * save — the app reporting a dive was not written, about a dive that was.
+   */
+  it('writes the dive anyway when a listener throws', async () => {
+    const stop = onLocalWrite(() => {
+      throw new Error('a trigger that is having a bad day');
+    });
+
+    const dive = await createDive(db, { date: '2026-08-16' });
+
+    expect(await getDive(db, dive.id)).not.toBeNull();
+    expect(await isDirty(dives, dive.id)).toBe(true);
+    stop();
+  });
+
+  /**
+   * **An unsubscribe takes effect at once, even from inside the announcement.** The walk is
+   * over the set itself rather than a copy of it, which is the difference between a listener
+   * that has just stopped listening being called anyway and not being called — and it is the
+   * only observable difference between the two, which is why the copy is not there.
+   */
+  it('obeys an unsubscribe made from inside the announcement', async () => {
+    const heard: string[] = [];
+    const stopSecond = () => stopper();
+    let stopper = () => {};
+    const stopFirst = onLocalWrite(() => {
+      heard.push('first');
+      stopSecond();
+    });
+    stopper = onLocalWrite(() => heard.push('second'));
+
+    await createDive(db, { date: '2026-08-16' });
+
+    expect(heard).toEqual(['first']);
+    stopFirst();
+  });
+
+  it('still tells the listeners that did not throw', async () => {
+    const heard: string[] = [];
+    const stopBad = onLocalWrite(() => {
+      throw new Error('a trigger that is having a bad day');
+    });
+    const stopGood = onLocalWrite(() => heard.push('good'));
+
+    await createDive(db, { date: '2026-08-16' });
+
+    expect(heard).toEqual(['good']);
+    stopBad();
+    stopGood();
   });
 });
 

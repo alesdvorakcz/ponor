@@ -9,6 +9,7 @@ import { forgetLastPulledAt } from '../db/syncState';
 import type { Db } from '../db/types';
 import { countUnsyncedRows, pushPendingRows } from './sync';
 import { cloud } from './supabase';
+import { syncEngine } from './syncEngine';
 
 /**
  * **The two things signing in and signing out do to the local database.**
@@ -152,6 +153,22 @@ export interface LocalLogbookDeps {
    * that stubs `cloud` behind a getter had `localLogbook` evaluate first and read `undefined`.
    */
   readonly client: () => SupabaseClient | null;
+  /**
+   * Runs the wipe with §7.5's engine held (`cloud/syncEngine.ts`'s `runExclusive`), so that no
+   * sync cycle can run inside it.
+   *
+   * **This became load-bearing the moment anything triggered a cycle at all** (M2h). Until
+   * then `wipe` was the only caller of `pushPendingRows` in the running app and there was
+   * nothing to overlap it. Now four triggers can fire while a diver is signing out, and the
+   * one that lands between the erase and `auth.signOut()` **pulls the whole logbook back onto
+   * a device that is being signed out** — §7.4's "the only way a second account could ever see
+   * them", produced by the feature that was supposed to keep the logbook safe.
+   *
+   * Injected rather than imported so the rule is visible in the type: a `wipe` built without
+   * it does not compile, which is what stops the next caller of `createLocalLogbook` quietly
+   * getting an unprotected one.
+   */
+  readonly exclusive: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -199,28 +216,33 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
      * **Nothing is deleted before the count is taken**, which is the ordering that makes the
      * rule mean anything: the check is only a check while there is still something to refuse.
      */
-    wipe: async () => {
-      const client = deps.client();
-      if (client !== null) {
-        try {
-          await pushPendingRows(deps.db, client);
-        } catch {
-          // Deliberately not reported: the count below is what decides, and it is unaffected
-          // by why the push did not happen.
+    wipe: () =>
+      // Held for the whole of it — push, count and erase — rather than around the erase alone.
+      // A cycle overlapping the *push* is the double-push `syncEngine.ts` exists to prevent,
+      // and one overlapping the *count* would have the gate read flags a concurrent push was
+      // in the middle of clearing. See `LocalLogbookDeps.exclusive`.
+      deps.exclusive(async () => {
+        const client = deps.client();
+        if (client !== null) {
+          try {
+            await pushPendingRows(deps.db, client);
+          } catch {
+            // Deliberately not reported: the count below is what decides, and it is unaffected
+            // by why the push did not happen.
+          }
         }
-      }
 
-      const pending = await countUnsyncedRows(deps.db);
-      if (pending > 0) return { done: false, pending };
+        const pending = await countUnsyncedRows(deps.db);
+        if (pending > 0) return { done: false, pending };
 
-      await wipeDives(deps.db);
-      await wipeGearPresets(deps.db);
-      await wipeDiveSites(deps.db);
-      await wipeDiveCenters(deps.db);
-      await forgetLastPulledAt(deps.db);
-      await forgetDivesBefore(deps.db);
-      return { done: true };
-    },
+        await wipeDives(deps.db);
+        await wipeGearPresets(deps.db);
+        await wipeDiveSites(deps.db);
+        await wipeDiveCenters(deps.db);
+        await forgetLastPulledAt(deps.db);
+        await forgetDivesBefore(deps.db);
+        return { done: true };
+      }),
   };
 }
 
@@ -237,4 +259,7 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
 export const localLogbook: LocalLogbook = createLocalLogbook({
   db,
   client: () => (cloud.configured ? cloud.client : null),
+  // Read inside the call for `client`'s reason above: a module-scope read of another module's
+  // constant would tie this file's evaluation to that one's.
+  exclusive: (work) => syncEngine.runExclusive(work),
 });

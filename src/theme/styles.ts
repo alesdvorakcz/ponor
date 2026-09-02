@@ -1280,6 +1280,37 @@ function build(scheme: ColorScheme) {
       paddingRight: DIVES_HEADER_TRAILING_INSET,
       paddingBottom: 8,
     },
+    // **§7.5's quiet indicator** (M2h): `3 changes waiting to sync`, under the summary line,
+    // drawn only while a signed-in device is holding something the account has not received.
+    //
+    // **It is the summary's own treatment and not a new one**, deliberately. §7 asks for an
+    // indicator that is *quiet*, §0.1 rules out a hue for it, and §0.6 already has exactly one
+    // vocabulary for a muted mono line of figures hanging under the title — inventing a second
+    // size, weight or ink for one line would be new vocabulary for one control, which is the
+    // argument §0.6 makes about the "Up next" header and about the `+` in the capsule. Ink
+    // versus muted ink is the only lever there is, and this line is on the muted side of it,
+    // below a summary that is already there: it can be read without being looked at, which is
+    // what quiet means here.
+    //
+    // **Same trailing cap, same column** (`DIVES_HEADER_TRAILING_INSET`, M1m). The cap is on
+    // the header's column rather than on one line of it, and this is a line of that column; a
+    // pending count running under the floating capsule would be the same defect the cap was
+    // added for.
+    //
+    // **It appears and disappears, and what that moves is the list and never the title.** The
+    // whole header block is the SectionList's `ListHeaderComponent`, so the title and the
+    // summary above this line keep the exact position §0.6 measures them at, and the rows below
+    // shift by one line when a save arrives. That is the opposite way round from M1l's
+    // mistake, which bought clearance out of vertical space above the title and made the title
+    // itself look wrong.
+    divesPending: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      paddingHorizontal: CONTENT_INSET,
+      paddingRight: DIVES_HEADER_TRAILING_INSET,
+      paddingBottom: 8,
+    },
     // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------
@@ -1632,6 +1663,20 @@ function build(scheme: ColorScheme) {
     // dismiss — it clears itself once the settings read next succeeds.
     settingsNotice: noticeBanner,
     settingsNoticeText: noticeBannerText,
+    // The banner DivesScreen shows when a sync the diver **asked for** — pull-to-refresh,
+    // §7.5 — could not run. The same `noticeBanner` shape again, and Pressable like
+    // `reorderNotice` rather than standing like `settingsNotice`, because it reports one
+    // attempt rather than a condition: the diver made a gesture, it failed, and the notice is
+    // finished the moment they have read it.
+    //
+    // **There is no style here for an automatic cycle failing, and there must not be.** §1
+    // makes a sync failure something the logbook survives rather than something the app
+    // reports, and the pending line under the title (`divesPending` above) already says the
+    // only true thing there is to say about it — the account has not got these yet. A banner
+    // that appeared by itself every time a boat lost signal would be that same fact, said
+    // alarmingly, over and over.
+    syncNotice: noticeBanner,
+    syncNoticeText: noticeBannerText,
     // DiveDetailScreen's hero (§0.6, M1c task 5): the site name, a `#N · date · centre`
     // mono sub-line, and the 34 px depth anchor (DepthValue's `variant="hero"`, from task
     // 1) — "the same anchor idea the row now uses, at detail scale." Sits above

@@ -172,9 +172,11 @@ function noBackendMessage(): string {
  * 5. *Signed in* — who, §7.4's adoption sentence if there is one, and the way out of the
  *    account.
  *
- * **What is deliberately not here.** No sync trigger and no pending indicator (§7.5 and the
- * engine are their own task; this one only has to leave a session where that engine can find
- * it, which `useAuthSession` is). No Apple or Google (§5 has both before release; Apple is
+ * **What is deliberately not here.** No sync trigger and no pending indicator: §7.5's triggers
+ * are subscriptions with the app's lifetime (`cloud/syncTriggers.tsx`, mounted at the root) and
+ * the indicator belongs on the screen a diver is actually looking at (`DivesScreen.tsx`) — this
+ * screen's part is to leave a session where the engine can find it, which `useAuthSession` is.
+ * No Apple or Google (§5 has both before release; Apple is
  * mandatory once Google is offered). No password reset — it needs the `ponor://` deep link
  * handled, which is its own task, and this screen says nothing about recovery in either
  * direction: a link that cannot work is the dead affordance §10 has an entry about, and a line

@@ -9,13 +9,21 @@ import { DiveRow } from '../components/DiveRow';
 import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
 import { TripHeader } from '../components/TripHeader';
+import { syncEngine } from '../cloud/syncEngine';
+import { useAuthSession } from '../cloud/useAuthSession';
+import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
 import { type Dive } from '../domain/types';
-import { diveSiteLabel, formatDiveCount, formatLogbookSummary } from '../format/display';
+import {
+  diveSiteLabel,
+  formatDiveCount,
+  formatLogbookSummary,
+  formatPendingChanges,
+} from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
@@ -165,6 +173,25 @@ function entryKey(entry: ListEntry): string {
 export const SEARCH_GLYPH = { ios: 'magnifyingglass', android: 'search' } as const;
 export const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
 
+/**
+ * What a diver reads when the sync **they asked for** could not run (§7.5's pull-to-refresh).
+ *
+ * §1 is why there is nothing like this for an automatic cycle: "sync failures never block
+ * logging", and a boat losing signal is not news. A gesture is different — a diver who pulled
+ * the list down and got nothing back has no way to tell a sync that found nothing from one
+ * that never happened, and an app that answers a deliberate act with silence reads as broken.
+ *
+ * It says what is *safe* rather than what *failed*, which is the register `SERVER_UNREACHABLE`
+ * (cloud/auth.ts) already sets for the same situation one screen over: the only thing at stake
+ * is whether the account has the dives yet, and the answer is that nothing was lost. It names
+ * no cause, because this screen cannot know one — the engine reports `failed` and deliberately
+ * carries no server text (§9's Sentry, and `cloud/sync.ts`'s rule about error messages).
+ *
+ * Exported so its test asserts the same string a diver reads.
+ */
+export const SYNC_FAILED_MESSAGE =
+  'Couldn’t sync just now. Your dives are safe on this phone — try again when you’re online.';
+
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
   // The diver's units (§3), read once here and threaded down exactly as `scheme` is — one
@@ -176,6 +203,27 @@ export default function DivesScreen() {
   // signal is `updatedAt` rather than an empty `data`.
   const { dives, numbers, error, settingsError, resolved } = useDives();
   const wide = useWideLayout();
+  /**
+   * **Whether anyone is signed in, and it gates both of this screen's §7.5 additions.**
+   *
+   * Without it the pending line is nonsense on the app's most common device. Every local write
+   * sets the dirty flag whether or not there is an account (`db/dirty.ts` — the flag is about
+   * the row, not the diver), so a guest with 128 dives has 128 pending rows, for ever, and
+   * would read "128 changes waiting to sync" under a title on a phone with nothing to sync
+   * *to*. And pull-to-refresh on a signed-out device is a gesture whose only possible outcome
+   * is the engine refusing it, which is a control that does nothing.
+   *
+   * `resolved` is deliberately not read: while the session read is still out, `session` is
+   * null and both of these are simply absent, which is what they are on the far more likely
+   * answer. Neither states anything, so there is nothing for a not-yet-answered branch to
+   * withhold (`db/liveQuery.ts` is the owner of that distinction, and `usePendingChanges.ts`
+   * records why it does not bind here either).
+   */
+  const signedIn = useAuthSession().session !== null;
+  // §7.5's "quiet indicator shows pending changes", live off the dirty flags
+  // (cloud/usePendingChanges.ts). Read unconditionally — hooks are not optional — and turned
+  // into a line, or into nothing, by `formatPendingChanges` below.
+  const pending = usePendingChanges();
   // The device's own safe area, read for how far down this screen's content begins: this
   // screen's root (`root` below), the wide layout's list column, and the wide layout's
   // "nothing selected" pane, all three through `screenTopInset` — the one owner every screen
@@ -200,6 +248,39 @@ export default function DivesScreen() {
   // `reorderGroup` rows instead of plain ones; `renderItem` below reads it a second time
   // to dim every row that is not part of that one active date.
   const [activeReorderDate, setActiveReorderDate] = useState<string | null>(null);
+  // §7.5's fourth trigger. `refreshing` is the platform control's own spinner; `syncMessage`
+  // is set only when a sync the diver ASKED for could not run (`SYNC_FAILED_MESSAGE` above) —
+  // never by an automatic cycle, which reports itself through the pending line and nothing
+  // else.
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  /**
+   * Pull-to-refresh (§7.5). One cycle, through the app's one engine, so a pull made while a
+   * foreground or save-triggered cycle is already running queues behind it rather than
+   * racing it (`cloud/syncEngine.ts`).
+   *
+   * **Undefined when signed out**, which is what removes the control rather than disabling it:
+   * a spinner that appears and then reports nothing is worse than a gesture the list does not
+   * answer at all, and there is genuinely nothing for it to do.
+   *
+   * The spinner is cleared in a `finally` for the reason every busy flag in this app is: a
+   * control that silently stopped working is the failure, not the failure it was reporting.
+   * `engine.request()` does not reject — §1 — so the `finally` is belt to the engine's braces.
+   */
+  const refresh = async () => {
+    setRefreshing(true);
+    setSyncMessage(null);
+    try {
+      const outcome = await syncEngine.request();
+      // `skipped` is deliberately silent and is unreachable from here anyway: this control does
+      // not exist unless a session does. `synced` says nothing either — the list itself is the
+      // answer, redrawn by `useDives`'s live query as rows land.
+      if (outcome.kind === 'failed') setSyncMessage(SYNC_FAILED_MESSAGE);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Wide: stay on this screen and just show the pick in the detail pane — there is no
   // route to push to that would put both list and detail on screen at once. Narrow:
@@ -334,6 +415,33 @@ export default function DivesScreen() {
   const title = <Text style={styles.divesTitle}>Dives</Text>;
 
   /**
+   * **§7.5's quiet indicator, or nothing** — `3 changes waiting to sync`, under the summary
+   * line (`heading`, below).
+   *
+   * **Here, on the front door, and in one place only.** §7 asks for one indicator and §4.1 for
+   * one owner of any rule; the candidates were this screen, Settings' account row, and the
+   * account screen itself. The last two are behind a tap and a tap, and a diver who has to go
+   * looking for a status has not been shown one — the whole point of *quiet* is that it is
+   * seen without being sought, and the list is the screen a diver is already on. It also sits
+   * directly under a line about the same logbook, in the same ink and face, which is what keeps
+   * it from reading as an alert.
+   *
+   * **Only when signed in** (`signedIn`, above — a guest's rows are all flagged and none of
+   * them is waiting for anything), and **only when there is something to say**
+   * (`formatPendingChanges` returns null at zero, format/display.ts). A device that is up to
+   * date draws no line at all, so the title block is its §0.6 self on every ordinary screen.
+   *
+   * **It is also the whole of what this app tells a diver about a failed sync**, and that is a
+   * decision rather than an omission — see `SYNC_FAILED_MESSAGE` above for the one exception.
+   * A cycle that fails leaves the flags exactly where they were, so this line simply stays,
+   * saying the true thing (the account has not got these yet) instead of the alarming one (a
+   * request did not complete). §1 makes that the rule: sync failures never block logging, and a
+   * banner that fired every time a boat lost signal would be a failure notice a diver would
+   * learn to ignore — which is worse than none, because the day it matters it is furniture.
+   */
+  const pendingLine = signedIn ? formatPendingChanges(pending) : null;
+
+  /**
    * **The title with §3's three figures under it** (§0.6, M1l — the owner's sheet): `128 dives
    * · 96 h 12 min · deepest 41.2 m`, in muted mono, summarising the logbook the screen is
    * about to draw.
@@ -360,6 +468,7 @@ export default function DivesScreen() {
     <>
       {title}
       <Text style={styles.divesSummary}>{formatLogbookSummary(logbookStats(dives), units)}</Text>
+      {pendingLine !== null && <Text style={styles.divesPending}>{pendingLine}</Text>}
     </>
   );
 
@@ -585,6 +694,21 @@ export default function DivesScreen() {
           </Text>
         </View>
       )}
+      {/* The one thing this screen says about sync in words, and only ever about a pull the
+          diver made themselves (`refresh` above). Pressable and dismissible like
+          `reorderMessage` and unlike `settingsNotice`, because it reports one attempt rather
+          than a standing condition — and pinned above the list with the other two, because a
+          diver who has just pulled the list down is looking at the top of it. */}
+      {syncMessage !== null && (
+        <Pressable
+          style={styles.syncNotice}
+          onPress={() => setSyncMessage(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss message"
+        >
+          <Text style={styles.syncNoticeText}>{syncMessage}</Text>
+        </Pressable>
+      )}
       {/* **The region the capsule floats in**, and it is a wrapper with one job: its top edge
           is the title's top edge, so `divesCapsuleFloat` can position against it and land
           beside the title rather than at a measured distance from the display. Both branches
@@ -644,6 +768,17 @@ export default function DivesScreen() {
             // native arrangement (`heading` above). It scrolls away with the logbook, and
             // nothing sticks in its place.
             ListHeaderComponent={heading}
+            // **§7.5's fourth trigger** — the platform's own pull-to-refresh, which §0.6
+            // allows for exactly this ("the platform control is fine"): it is chrome the app
+            // does not draw, the same reasoning §10 already applies to a destructive
+            // confirmation, so it carries no colour of ours and cannot compete with the depth
+            // palette (§0.1).
+            //
+            // **`undefined` when signed out, which removes the control rather than disabling
+            // it.** A guest has nowhere to sync to, and a spinner that spins and reports
+            // nothing is a worse answer than a list that simply does not pull.
+            onRefresh={signedIn ? () => void refresh() : undefined}
+            refreshing={refreshing}
             // **The last row's clearance is the device's, not a number** (M1h) —
             // `screenBottomInset(insets.bottom)`, the same owner the empty state below asks and
             // the bottom-edge sibling of the `screenTopInset` this screen's root spends above.

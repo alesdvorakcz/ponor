@@ -251,9 +251,35 @@ export class FakeSyncServer {
   }
 }
 
-/** The fake dressed as the one method `cloud/sync.ts` calls on a Supabase client. */
-export function fakeSupabaseClient(server: FakeSyncServer) {
+/**
+ * The fake dressed as the parts of a Supabase client this app's sync path touches: `rpc`, and
+ * the `auth.getSession` that `cloud/syncEngine.ts` asks before it runs anything at all.
+ *
+ * **Signed in by default**, because that is the state every test of the protocol itself is
+ * about — `cloud/sync.test.ts` and `cloud/localLogbook.test.ts` call the RPCs directly and
+ * never look at this. `session: null` is how a test says *a guest*, and `session: 'unreadable'`
+ * how it says *a keychain that will not answer*; §7.5 gives those two the same outcome and the
+ * engine's own tests are what prove it.
+ *
+ * It is deliberately not a model of auth. Nothing here checks a token, and `push_changes`'
+ * real gate is RLS on the server, which this fake does not model either (see the docblock
+ * above) — what it models is the one question the client asks itself before it dials.
+ */
+export function fakeSupabaseClient(
+  server: FakeSyncServer,
+  options: { readonly session?: 'signedIn' | null | 'unreadable' } = {},
+) {
+  // `'session' in options`, never `??`: `null` is a value this function has a meaning for —
+  // a guest — and `options.session ?? 'signedIn'` would silently sign that guest back in,
+  // which is a test asserting the opposite of what it says.
+  const session = 'session' in options ? options.session : 'signedIn';
   return {
     rpc: (rpc: string, args: Record<string, unknown>) => server.call(rpc, args),
+    auth: {
+      getSession: async () => {
+        if (session === 'unreadable') throw new Error('fakeSyncServer: the keychain refused');
+        return { data: { session: session === 'signedIn' ? { user: { id: 'a-diver' } } : null } };
+      },
+    },
   };
 }

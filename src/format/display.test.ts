@@ -21,6 +21,7 @@ import {
   formatDepthBandRange,
   formatDepthParts,
   formatDiveCount,
+  formatPendingChanges,
   formatDuration,
   formatDiveDate,
   isDisplayableDepth,
@@ -383,6 +384,36 @@ describe('formatDiveCount', () => {
   // would make in the other direction.
   it('uses the plural for none', () => {
     expect(formatDiveCount(0)).toBe('0 dives');
+  });
+});
+
+// §7.5's quiet indicator. The two things worth pinning are the word and the silence: the count
+// spans all four synced tables, so "dives" would be a claim a diver could disprove by having a
+// preset in it, and zero has to produce nothing at all or the line stops being quiet.
+describe('formatPendingChanges', () => {
+  it('says nothing at all when the account has everything', () => {
+    expect(formatPendingChanges(0)).toBeNull();
+  });
+
+  // A count cannot go negative, and a formatter that answered `-1 changes waiting` for one
+  // that had would be a sentence about an impossibility rather than a caught mistake.
+  it('says nothing for a nonsense count either', () => {
+    expect(formatPendingChanges(-1)).toBeNull();
+  });
+
+  it('uses the singular for exactly one', () => {
+    expect(formatPendingChanges(1)).toBe('1 change waiting to sync');
+  });
+
+  it('uses the plural for more than one', () => {
+    expect(formatPendingChanges(4)).toBe('4 changes waiting to sync');
+  });
+
+  // The word is deliberate and is the opposite choice from §7.4's adoption sentence, which
+  // counts dives and says "dives". This one counts rows across `dives`, `gear_presets`,
+  // `dive_sites` and `dive_centers` (cloud/sync.ts), so it must not name any one of them.
+  it('never calls them dives', () => {
+    expect(formatPendingChanges(3)).not.toContain('dive');
   });
 });
 

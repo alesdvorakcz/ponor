@@ -746,6 +746,30 @@ export function formatDiveCount(count: number): string {
   return `${count} ${count === 1 ? 'dive' : 'dives'}`;
 }
 
+/**
+ * §7.5's quiet indicator, in words: "3 changes waiting to sync", or **null when there is
+ * nothing waiting**.
+ *
+ * Null rather than "0 changes waiting to sync", which is this module's standing rule (a figure
+ * with nothing behind it is omitted, never drawn as a placeholder) and is also what makes the
+ * indicator quiet: on a device that is up to date there is no line at all, so the only thing
+ * the diver ever sees here is a fact worth their attention.
+ *
+ * **"changes", not "dives", and the word is load-bearing.** The count is rows across all four
+ * synced tables (`cloud/sync.ts`), so a cylinder preset and a site created on the boat are in
+ * it. §7.4's adoption sentence goes the other way — it counts *dives* and says so — for the
+ * matching reason: a number that says "dives" must be dives. Saying "3 dives waiting" over a
+ * count that includes a preset would be a sentence a diver could go and disprove.
+ *
+ * Nothing here says *why* they are waiting, and that is deliberate: a diver on a boat is not
+ * being told about a failure (§1, "sync failures never block logging"), they are being told
+ * what is true — the account has not got these yet, and it will.
+ */
+export function formatPendingChanges(count: number): string | null {
+  if (count <= 0) return null;
+  return `${count} ${count === 1 ? 'change' : 'changes'} waiting to sync`;
+}
+
 const MONTH_NAMES: readonly string[] = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',

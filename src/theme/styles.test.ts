@@ -798,7 +798,7 @@ describe('the app content column', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       const column = sheet.diveRow?.paddingHorizontal;
-      for (const name of ['reorderNotice', 'settingsNotice', 'formSaveError', 'presetNotice']) {
+      for (const name of ['reorderNotice', 'settingsNotice', 'syncNotice', 'formSaveError', 'presetNotice']) {
         expect([name, sheet[name]?.marginHorizontal]).toEqual([name, column]);
       }
     }
@@ -808,8 +808,14 @@ describe('the app content column', () => {
   // sets both edges, and an edge-specific `paddingRight` beside it wins on the right — which is
   // how the Dives header stops short of the floating capsule while its left edge stays in the
   // column. The sweep above reads only `paddingHorizontal`, so it would stay green over a style
-  // whose real right edge is anywhere at all; this is the half that says only two styles are
-  // allowed to be doing that, and which two.
+  // whose real right edge is anywhere at all; this is the half that says only the header's own
+  // lines are allowed to be doing that, and which they are.
+  //
+  // **`divesPending` joined them in M2h** (§7.5's quiet indicator) and had to: the cap is on the
+  // header's COLUMN rather than on one line of it, so a pending count that kept the plain column
+  // would run under the floating capsule exactly as the summary did before M1m fixed it. A new
+  // line in this block that is NOT here is the same defect; a line here that is not in the
+  // header is a style borrowing the capsule's clearance for no reason.
   it('lets only the Dives header override that column trailing edge', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
@@ -817,7 +823,7 @@ describe('the app content column', () => {
         .filter(([, style]) => style?.paddingRight !== undefined || style?.paddingEnd !== undefined)
         .map(([name]) => name)
         .sort();
-      expect(overriding).toEqual(['divesSummary', 'divesTitle']);
+      expect(overriding).toEqual(['divesPending', 'divesSummary', 'divesTitle']);
     }
   });
 

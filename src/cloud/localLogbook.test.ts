@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { eq } from 'drizzle-orm';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { createDiveCenter, createDiveSite, listDiveCenters, listDiveSites } from '../db/catalogue';
 import type { PushableTable } from '../db/dirty';
@@ -49,9 +51,32 @@ beforeEach(() => {
   client = fakeSupabaseClient(server) as unknown as SupabaseClient;
 });
 
-function seam(over: { client?: SupabaseClient | null } = {}): LocalLogbook {
+/**
+ * The seam over the real database and the fake server.
+ *
+ * `exclusive` is §7.5's engine lock (`cloud/syncEngine.ts`'s `runExclusive`), and the default
+ * here is a pass-through that **records that it was entered** — so every wipe below is running
+ * inside it, and one test can say so out loud rather than every test assuming it. `over.hold`
+ * replaces it with a lock that never grants, which is how "the erase waits for the lock" is
+ * proved rather than read.
+ */
+let lockedRuns: number;
+
+beforeEach(() => {
+  lockedRuns = 0;
+});
+
+function seam(over: { client?: SupabaseClient | null; hold?: boolean } = {}): LocalLogbook {
   const backend = 'client' in over ? over.client ?? null : client;
-  return createLocalLogbook({ db, client: () => backend });
+  return createLocalLogbook({
+    db,
+    client: () => backend,
+    exclusive: (work) => {
+      lockedRuns += 1;
+      if (over.hold === true) return new Promise<never>(() => {});
+      return work();
+    },
+  });
 }
 
 function wired(logbook: LocalLogbook) {
@@ -275,6 +300,50 @@ describe('wipe — §7.4’s erase, and the rule that gates it', () => {
     expect(await wired(seam()).wipe()).toEqual({ done: true });
     expect(await listDives(db)).toEqual([]);
   });
+
+  /**
+   * **The erase runs inside §7.5's engine lock, and every wipe above proves it by running at
+   * all** — the `exclusive` those seams are built with counts its entries, and if `wipe` stopped
+   * going through it that count would be zero while everything else still passed.
+   *
+   * The reason it has to is M2h's, not M2g's: until triggers existed, nothing in the running app
+   * could sync while a diver was signing out. Now a foreground, a save window or a retry can
+   * land mid-erase, and the one that lands between the delete and `auth.signOut()` puts the
+   * whole logbook back on a device that is leaving the account — §7.4's "the only way a second
+   * account could ever see them", produced by the feature meant to keep the logbook safe.
+   */
+  it('takes the sync engine’s lock, once, around the whole of itself', async () => {
+    await createDive(db, { date: '2026-08-16' });
+
+    expect(lockedRuns).toBe(0);
+    expect(await wired(seam()).wipe()).toEqual({ done: true });
+    expect(lockedRuns).toBe(1);
+  });
+
+  /**
+   * **And it is genuinely *inside* the lock rather than merely beside it.** The lock here never
+   * grants, so a wipe that had taken it would do nothing whatever; one that had not would push
+   * and erase regardless, and this is the only way to tell those apart from outside.
+   *
+   * The push is checked as well as the erase, because the whole of the wipe is what has to be
+   * held: a cycle overlapping the push is the double-push the engine exists to prevent, and one
+   * overlapping the count would have the gate read flags a concurrent push was clearing.
+   */
+  it('does nothing at all — not even the push — while the lock is held elsewhere', async () => {
+    await createDive(db, { date: '2026-08-16' });
+
+    let settled = false;
+    void wired(seam({ hold: true }))
+      .wipe()
+      .then(() => {
+        settled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(settled).toBe(false);
+    expect(server.calls).toEqual([]);
+    expect((await listDives(db)).length).toBe(1);
+  });
 });
 
 describe('the seam the app actually ships', () => {
@@ -286,5 +355,22 @@ describe('the seam the app actually ships', () => {
    */
   it('is wired', () => {
     expect(localLogbook.wired).toBe(true);
+  });
+
+  /**
+   * **And it is wired to §7.5's engine, not to a pass-through.**
+   *
+   * Every wipe above runs against a lock this file supplies, which proves the *rule* and says
+   * nothing about the *app*: a singleton built with `exclusive: (work) => work()` passes all of
+   * them and leaves a diver's sign-out open to the cycle that pulls their logbook back onto the
+   * device they are leaving. The singleton cannot be exercised here — it holds the app's real
+   * database, which is a native module under Jest — so this reads the wiring off the source, the
+   * same way `syncTriggers.test.tsx` reads the app root's one line.
+   */
+  it('takes its lock from the app’s one sync engine', () => {
+    const source = fs.readFileSync(path.join(__dirname, 'localLogbook.ts'), 'utf8');
+
+    expect(source).toContain("import { syncEngine } from './syncEngine'");
+    expect(source).toContain('exclusive: (work) => syncEngine.runExclusive(work)');
   });
 });

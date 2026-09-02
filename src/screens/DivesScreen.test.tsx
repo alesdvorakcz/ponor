@@ -17,6 +17,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { syncEngine } from '../cloud/syncEngine';
+import { useAuthSession } from '../cloud/useAuthSession';
+import { usePendingChanges } from '../cloud/usePendingChanges';
 import { dive } from '../domain/diveFixture';
 // The real numbering rule, not a stub: §2.5's numbers are computed, so a test that
 // hand-wrote them would be asserting its own arithmetic rather than the app's.
@@ -26,12 +29,12 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { formatDiveCount, NON_BREAKING_SPACE } from '../format/display';
+import { formatDiveCount, formatPendingChanges, NON_BREAKING_SPACE } from '../format/display';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { depthBandColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
-import DivesScreen from './DivesScreen';
+import DivesScreen, { SYNC_FAILED_MESSAGE } from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.
@@ -42,6 +45,21 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // system without one. Left on its own default, `metric`, by every test that does not care
 // — which is what keeps the existing assertions below reading in metres, unchanged.
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+// §7.5's three new dependencies of this screen, each mocked per module for the reason
+// `useDives` above is: all three are live reads of something outside the screen — the dirty
+// flags, the keychain, and the app's one sync engine — and this screen has to be renderable in
+// every combination of them without any of the three.
+//
+// **The defaults are what a signed-out device with nothing owed looks like**, which is exactly
+// what every pre-existing test in this file was rendering before M2h: no pending line, no
+// refresh control, nothing changed. Only the tests that are about §7.5 move them.
+jest.mock('../cloud/usePendingChanges', () => ({ usePendingChanges: jest.fn(() => 0) }));
+jest.mock('../cloud/useAuthSession', () => ({
+  useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
+}));
+jest.mock('../cloud/syncEngine', () => ({
+  syncEngine: { request: jest.fn(), requestAfterSave: jest.fn(), runExclusive: jest.fn(), stop: jest.fn() },
+}));
 
 // DivesScreen calls this one directly (via ReorderControls.tsx's applyReorder), unlike
 // every read, which goes through the mocked useDives() above — mocked separately so a
@@ -280,6 +298,16 @@ const mockSoftDelete = softDeleteDive as jest.Mock;
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 afterEach(() => alertSpy.mockClear());
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
+// §7.5's three, with the same "put back, not reset" treatment `useUnitSystem` above records:
+// each of these has a *default* that every other test in this file depends on silently — a
+// signed-out device, nothing pending, an engine nobody calls — and `mockReset()` would leave
+// them returning `undefined`, which no render survives.
+const mockPendingChanges = usePendingChanges as jest.Mock;
+const mockAuthSession = useAuthSession as jest.Mock;
+const mockSyncRequest = syncEngine.request as jest.Mock;
+const mockSignedOut = () => mockAuthSession.mockReturnValue({ session: null, resolved: true });
+const mockSignedIn = () =>
+  mockAuthSession.mockReturnValue({ session: { user: { id: 'a-diver' } }, resolved: true });
 const mockRouterPush = router.push as jest.Mock;
 const mockRouterBack = router.back as jest.Mock;
 const mockRouterReplace = router.replace as jest.Mock;
@@ -298,6 +326,9 @@ afterEach(() => {
   // ordering to decide which suites still read in metres. Caught by that test leaking into
   // "shows no arrows until the day strip is switched on", eleven tests later.
   mockUseUnitSystem.mockReturnValue('metric');
+  mockPendingChanges.mockReturnValue(0);
+  mockSignedOut();
+  mockSyncRequest.mockReset();
 });
 
 it('shows the empty state when there are no dives', async () => {
@@ -1971,3 +2002,214 @@ it('gives a completed plan its number back, and renumbers the dives above it', a
   expect(rowLabelFor(after, 'Canyon')).toContain('Dive 3');
 });
 
+
+// ------------------------------------------------------------------------------------------
+// **DESIGN.md §7.5 on this screen** (M2h): the quiet indicator, and pull-to-refresh.
+//
+// Both are gated on a session, and that gate is the load-bearing part of each. Every local
+// write sets the dirty flag whether or not anybody is signed in (`db/dirty.ts` — the flag is
+// about the row, not the diver), so a guest with 128 dives has 128 pending rows for ever; and
+// a refresh control on a device with nowhere to sync to is a gesture whose only possible
+// outcome is the engine refusing it.
+// ------------------------------------------------------------------------------------------
+
+/** The one Text node carrying the pending treatment, found by the style only it wears — the
+ * same identity lookup `findSummary` above uses. */
+function findPendingLine(t: RenderResult) {
+  return t.root
+    ? t.root.queryAll((n) => n.type === 'Text' && [n.props?.style].flat(5).includes(makeStyles('light').divesPending))
+    : [];
+}
+
+/** The platform's own pull-to-refresh, present only when the list was given an `onRefresh`.
+ * `RCTRefreshControl` is what `VirtualizedList` renders for one and nothing at all otherwise,
+ * so its presence is the observable — the prop itself never reaches a host node. */
+function findRefreshControls(t: RenderResult) {
+  return t.root ? t.root.queryAll((n) => String(n.type) === 'RCTRefreshControl') : [];
+}
+
+/** A logbook with something in it, so the branch under test is the list rather than the empty
+ * state — which draws no SectionList and therefore no refresh control. */
+function aLogbook() {
+  const a = dive({ date: '2026-08-18', siteName: 'Blue Hole', durationMin: 44, maxDepthM: 12.2 });
+  stubDives({ dives: [a], numbers: assignDiveNumbers([a], 0), error: undefined });
+}
+
+it('says how much is waiting to sync, under the summary line, when a diver is signed in', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockPendingChanges.mockReturnValue(3);
+
+  const t = await render(<DivesScreen />);
+
+  // `formatPendingChanges(3)`, not the string it currently returns: the words belong to
+  // format/display.ts (§4.1) and this asserts the screen asks it rather than keeping a copy.
+  expect(textIn(t)).toContain(formatPendingChanges(3));
+  expect(findPendingLine(t)).toHaveLength(1);
+});
+
+// **Quiet means absent, not "0 changes".** §7 asks for an indicator that shows pending
+// changes; a device that is up to date has none, and the line is simply not there — which is
+// this module's standing rule about a figure with nothing behind it, and is also what keeps
+// the title block its §0.6 self on every ordinary screen.
+it('says nothing at all when the account has everything', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockPendingChanges.mockReturnValue(0);
+
+  const t = await render(<DivesScreen />);
+
+  expect(findPendingLine(t)).toHaveLength(0);
+  expect(textIn(t).join(' ')).not.toContain('waiting to sync');
+});
+
+/**
+ * **The guard that matters on the commonest device there is.** A guest's whole logbook is
+ * flagged — that is what the flag means, and it is set by every write whether or not there is
+ * an account — so without this a diver who has never signed in reads "128 changes waiting to
+ * sync" under a title, on a phone with nothing to sync *to*.
+ */
+it('tells a diver with no account nothing about syncing, however many rows are flagged', async () => {
+  aLogbook();
+  mockSignedOut();
+  mockPendingChanges.mockReturnValue(128);
+
+  const t = await render(<DivesScreen />);
+
+  expect(findPendingLine(t)).toHaveLength(0);
+  expect(textIn(t).join(' ')).not.toContain('waiting to sync');
+});
+
+// It belongs to the list's own scroll content, beneath the summary — so the title and the
+// summary above it keep the position §0.6 measures them at when it appears and disappears, and
+// what moves is the rows below. The opposite arrangement is M1l's own recorded mistake:
+// clearance bought out of vertical space above the title makes the title look wrong.
+it('puts the pending line inside the scroll, under the summary and above the first trip', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockPendingChanges.mockReturnValue(2);
+
+  const t = await render(<DivesScreen />);
+  const lines = textIn(t);
+
+  expect(lines.indexOf('Dives')).toBeLessThan(lines.indexOf(formatPendingChanges(2) ?? ''));
+  expect(lines.indexOf(formatDiveCount(1))).toBeLessThan(lines.indexOf(formatPendingChanges(2) ?? ''));
+  // Inside the scrolling content, like the title and the summary — not pinned above the list
+  // the way the two failure notices are.
+  const scrollable = findScrollable(t);
+  const inScroll = scrollable.queryAll((n) => n.type === 'Text' && [n.props?.style].flat(5).includes(makeStyles('light').divesPending));
+  expect(inScroll).toHaveLength(1);
+});
+
+// **Quiet, in §0.6's own vocabulary and not a new one**: the summary's treatment — muted mono,
+// the header column's own inset, no colour of any kind. §0.1 reserves colour for depth, and a
+// pending count is not a depth; a hue here would be the one thing on the screen competing with
+// the palette the whole app is built on.
+it('draws the pending line in the same muted mono as the summary, with no colour of its own', () => {
+  const styles = makeStyles('light');
+  const theme = themeFor('light');
+
+  expect(styles.divesPending?.color).toBe(theme.fgMuted);
+  expect(styles.divesPending?.color).toBe(styles.divesSummary?.color);
+  expect(styles.divesPending?.fontFamily).toBe(styles.divesSummary?.fontFamily);
+  expect(styles.divesPending?.fontSize).toBe(styles.divesSummary?.fontSize);
+  // The same trailing cap as the title and the summary (M1m): the cap is on the header's
+  // COLUMN, and a pending count running under the floating capsule is the defect it exists for.
+  expect(styles.divesPending?.paddingRight).toBe(styles.divesSummary?.paddingRight);
+  expect(styles.divesPending?.paddingHorizontal).toBe(styles.divesSummary?.paddingHorizontal);
+});
+
+// The two branches with no answer say nothing about sync either, for the same reason they say
+// nothing about the logbook: a screen with no answer must not state one (§10). Neither draws
+// `heading` at all, which is what makes this true by construction rather than by a third check.
+it('says nothing about syncing on a failed read or one that has not answered', async () => {
+  mockSignedIn();
+  mockPendingChanges.mockReturnValue(5);
+
+  stubDives({ dives: [], numbers: new Map(), error: new Error('disk') });
+  expect(findPendingLine(await render(<DivesScreen />))).toHaveLength(0);
+
+  stubDives({ dives: [], numbers: new Map(), error: undefined, resolved: false });
+  expect(findPendingLine(await render(<DivesScreen />))).toHaveLength(0);
+});
+
+it('offers pull-to-refresh on the list when a diver is signed in', async () => {
+  aLogbook();
+  mockSignedIn();
+
+  expect(findRefreshControls(await render(<DivesScreen />))).toHaveLength(1);
+});
+
+// **Removed, not disabled.** A guest has nowhere to sync to, so a spinner that appears and
+// then reports nothing is a worse answer than a list that simply does not pull.
+it('offers none to a diver with no account', async () => {
+  aLogbook();
+  mockSignedOut();
+
+  expect(findRefreshControls(await render(<DivesScreen />))).toHaveLength(0);
+});
+
+it('runs one sync cycle when the list is pulled down, through the app’s one engine', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockSyncRequest.mockResolvedValue({ kind: 'synced', report: { pushed: 0, pulled: 0 } });
+
+  const t = await render(<DivesScreen />);
+  const [control] = findRefreshControls(t);
+  await fireEvent(control!, 'refresh');
+
+  expect(mockSyncRequest).toHaveBeenCalledTimes(1);
+});
+
+/**
+ * **A gesture is answered in words; an automatic cycle never is.** §1 makes a sync failure
+ * something the logbook survives rather than something the app reports, and the pending line
+ * is already the honest account of one — but a diver who pulled the list down and got nothing
+ * back cannot tell a sync that found nothing from one that never happened.
+ */
+it('says so when a sync the diver asked for could not run, and lets them dismiss it', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockSyncRequest.mockResolvedValue({ kind: 'failed' });
+
+  const t = await render(<DivesScreen />);
+  const [control] = findRefreshControls(t);
+  await fireEvent(control!, 'refresh');
+
+  expect(textIn(t)).toContain(SYNC_FAILED_MESSAGE);
+
+  const [dismiss] = t.root
+    ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Dismiss message')
+    : [];
+  await fireEvent.press(dismiss!);
+  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+});
+
+it('says nothing when the sync worked', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockSyncRequest.mockResolvedValue({ kind: 'synced', report: { pushed: 1, pulled: 2 } });
+
+  const t = await render(<DivesScreen />);
+  const [control] = findRefreshControls(t);
+  await fireEvent(control!, 'refresh');
+
+  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+});
+
+// A refused cycle is not a failure — it is the engine correctly declining, and there is no
+// sentence for it because there is nothing wrong. Unreachable from this control today, since
+// it does not exist unless a session does; asserted because "anything that is not `synced`"
+// is the obvious wrong reading of the outcome, and it would put a failure notice on screen
+// every time the keychain was slow.
+it('says nothing when the engine refused the cycle', async () => {
+  aLogbook();
+  mockSignedIn();
+  mockSyncRequest.mockResolvedValue({ kind: 'skipped' });
+
+  const t = await render(<DivesScreen />);
+  const [control] = findRefreshControls(t);
+  await fireEvent(control!, 'refresh');
+
+  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+});

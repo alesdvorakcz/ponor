@@ -66,9 +66,85 @@ const DIRTY_KEY = 'dirty' satisfies keyof PushableTable;
  * whole: a no-op write that flagged the row would push an unchanged row and let the server
  * restamp it, which is the same conflict lost by a slower route. `updateGearPreset` compares
  * before it writes and `updateDive` returns early on an empty patch; both are tested.
+ *
+ * **It also announces the write** (`onLocalWrite`, below — §7.5's debounced trigger). That is
+ * not a second job: the announcement says exactly what the stamp means, and it is made here
+ * because here is the one place in the app where a row becomes something the server has not
+ * seen.
  */
 export function stampLocalWrite(): { readonly updatedAt: string; readonly dirty: true } {
-  return { updatedAt: new Date().toISOString(), dirty: true };
+  const stamp = { updatedAt: new Date().toISOString(), dirty: true } as const;
+  announceLocalWrite();
+  return stamp;
+}
+
+/** Told that this device has just made a change the server has not seen. Takes no argument:
+ * §7.5's trigger is "after any save", and which row it was makes no difference to a cycle
+ * that reads the whole push set for itself. */
+export type LocalWriteListener = () => void;
+
+const localWriteListeners = new Set<LocalWriteListener>();
+
+/**
+ * **Subscribes to "this device just wrote something the server has not seen."** DESIGN.md
+ * §7.5's third trigger — "a debounced 10 s after any save" — needs to know when a save
+ * happened, and this is the only honest place to learn it.
+ *
+ * **Here rather than in the three repositories, for this file's whole reason.** `db/dives.ts`,
+ * `db/gearPresets.ts` and `db/catalogue.ts` between them hold eight writes that flag a row, and
+ * a ninth arrives with every feature; a notification bolted onto each of them is eight places
+ * to forget and one of them would be the one nobody looked at. `stampLocalWrite` is already
+ * the single choke point — §4.1 and the docblock above make it so — and the fact it produces
+ * *is* the fact §7.5 wants.
+ *
+ * **And it is why sync cannot trigger itself.** `applyPulledRows`, `clearDirtyFlags`,
+ * `flagAllRows` and `recordPull` all write rows and none of them takes a stamp, deliberately
+ * and for reasons that predate this. So a cycle's own writes announce nothing, and there is no
+ * loop to break — which the obvious alternative, `expo-sqlite`'s `addDatabaseChangeListener`,
+ * would have needed a filter to avoid (every pull writes `sync_state`, so every cycle would
+ * have scheduled the next one, for ever).
+ *
+ * **The announcement comes a moment before the row lands.** The stamp is taken, announced, and
+ * then used in the UPDATE or INSERT, so a listener that went and *read* the database here
+ * would see the row as it was. The one subscriber schedules a cycle ten seconds out
+ * (`cloud/syncEngine.ts`), which is why that is safe; anything wanting to act immediately must
+ * not be wired here.
+ *
+ * Returns its own unsubscribe, so a caller with a lifetime — a mounted component — can end it.
+ */
+export function onLocalWrite(listener: LocalWriteListener): () => void {
+  localWriteListeners.add(listener);
+  return () => {
+    localWriteListeners.delete(listener);
+  };
+}
+
+/**
+ * Tells every listener, and **lets none of them cost the diver their save**.
+ *
+ * §10 draws the line this catch sits on: a *local save* failure is shown to the diver and a
+ * *sync* failure is not. A listener that threw would come back out of `createDive` as a failed
+ * save — the app reporting that a dive was not written when it was about to be — which is the
+ * loudest possible version of the wrong one of those two rules. The listener is a sync
+ * trigger; the worst its failure can cost is a cycle, and the next trigger runs one anyway.
+ *
+ * **Iterated over the set itself, not a copy**, and that is a decision rather than an
+ * oversight. A `Set` is well defined under both mutations during iteration — a value deleted
+ * before it is reached is skipped, one added is visited — so the copy buys nothing structural,
+ * and the two differ only in what happens to a listener that has *just unsubscribed*: over a
+ * copy it is called anyway. Called-after-unsubscribing is the wrong answer, and a copy taken
+ * "for safety" would have been a line no test could ever have failed over.
+ */
+function announceLocalWrite(): void {
+  for (const listener of localWriteListeners) {
+    try {
+      listener();
+    } catch {
+      // Deliberately silent, and deliberately not `console`: §9 wires Sentry in M3 and turns
+      // console output into breadcrumbs, and `cloud/auth.ts` records why nothing in this app
+      // writes one on a path a diver's own data travels.
+    }
+  }
 }
 
 /**
@@ -166,8 +242,20 @@ export async function flagAllRows(db: Db, table: PushableTable): Promise<string[
  * push set can never disagree about what "still owed" means.
  */
 export async function countPendingRows(db: Db, table: PushableTable): Promise<number> {
-  const rows = await db.select({ id: table.id }).from(table).where(pendingRows(table));
-  return rows.length;
+  return (await pendingRowsQuery(db, table)).length;
+}
+
+/**
+ * The same question as a query builder, for `useLiveQuery` — §7.5's quiet indicator
+ * (`cloud/usePendingChanges.ts`) watching what this device still owes.
+ *
+ * **One builder, two readers**, which is the point: the awaited count above and the live one
+ * the indicator draws must never be able to disagree about which rows are owed. It selects the
+ * id alone because the count is all either reader wants, and because a `select()` of whole
+ * dives re-read on every write would be the logbook coming back through a second door.
+ */
+export function pendingRowsQuery(db: Db, table: PushableTable) {
+  return db.select({ id: table.id }).from(table).where(pendingRows(table));
 }
 
 /**
