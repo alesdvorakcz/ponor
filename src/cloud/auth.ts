@@ -113,6 +113,23 @@ export type SignOutOutcome = { readonly ok: true } | { readonly ok: false; reado
 
 /** Nothing was typed in the email row. Refused here rather than at the server: the answer is
  * certain, and a round trip to be told so is a round trip a diver on a boat may not have. */
+/**
+ * Where the confirmation link sends the diver back to — the app's own scheme (`app.config.ts`).
+ *
+ * **Passed explicitly rather than left to the project's Site URL, because the default is wrong
+ * and fails silently.** Supabase falls back to that dashboard setting when a caller says
+ * nothing, and a fresh project's is `http://localhost:3000`: the address is still verified
+ * server-side, so the account really is confirmed, and the diver is then dropped on a dead page
+ * carrying their access token in the fragment. Everything worked and nothing looked like it
+ * did — found by the owner on the first real sign-up this project has ever had.
+ *
+ * A literal rather than a read of the config: `expo-linking`'s resolver is a native module this
+ * file has no other reason to reach for, and the scheme is a published fact about the app, not
+ * a build-time variable. `src/cloud/auth.test.ts` pins it against `app.config.ts` so the two
+ * cannot drift.
+ */
+export const CONFIRMATION_REDIRECT = 'ponor://';
+
 export const EMAIL_REQUIRED = 'Enter your email address.';
 /** Nothing was typed in the password row. */
 export const PASSWORD_REQUIRED = 'Enter your password.';
@@ -332,7 +349,11 @@ export async function authenticate(
 
   try {
     if (mode === 'signUp') {
-      const { data, error } = await client.auth.signUp({ email, password });
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: CONFIRMATION_REDIRECT },
+      });
       if (error) return { kind: 'failed', message: messageFor(error, mode) };
       if (data.session === null) {
         // A user with no session is confirmation waiting to happen — unless there is no user

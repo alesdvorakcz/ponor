@@ -7,6 +7,7 @@ import {
 import {
   authenticate,
   credentialRefusal,
+  CONFIRMATION_REDIRECT,
   CONFIRMATION_REQUIRED,
   CREDENTIALS_REJECTED,
   EMAIL_MALFORMED,
@@ -285,8 +286,37 @@ describe('authenticate', () => {
 
     await authenticate(client, 'signUp', { email: 'a@b.c', password: 'p' }, UNWIRED);
 
-    expect(auth.signUp).toHaveBeenCalledWith({ email: 'a@b.c', password: 'p' });
+    expect(auth.signUp).toHaveBeenCalledWith({
+      email: 'a@b.c',
+      password: 'p',
+      options: { emailRedirectTo: CONFIRMATION_REDIRECT },
+    });
     expect(auth.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  /**
+   * **The redirect is passed, and it is the app's own scheme.**
+   *
+   * Omitting it is not an error anywhere: Supabase falls back to the project's Site URL, the
+   * address is still confirmed server-side, and the diver is dropped on whatever that setting
+   * says — `http://localhost:3000` on a fresh project. The account works, the landing is dead,
+   * and nothing raises. That is what happened on this project's first real sign-up.
+   *
+   * Two assertions rather than one, because they fail for different reasons: the first says the
+   * option is *sent*, the second says the value still matches `app.config.ts`. A scheme rename
+   * that updated only the config would leave the first green.
+   */
+  it('sends the confirmation back to the app, at the scheme app.config.ts publishes', async () => {
+    const { client, auth } = fakeClient();
+
+    await authenticate(client, 'signUp', { email: 'a@b.c', password: 'p' }, UNWIRED);
+
+    const [args] = auth.signUp.mock.calls[0] as [{ options?: { emailRedirectTo?: string } }];
+    expect(args.options?.emailRedirectTo).toBe(CONFIRMATION_REDIRECT);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const appConfig = require('../../app.config.ts') as { default: { scheme: string } };
+    expect(CONFIRMATION_REDIRECT).toBe(`${appConfig.default.scheme}://`);
   });
 
   /**
