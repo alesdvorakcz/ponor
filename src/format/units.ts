@@ -377,6 +377,10 @@ const DIVE_FIELD_QUANTITY: { readonly [K in keyof Dive]: Quantity | null } = {
   createdAt: null,
   updatedAt: null,
   deletedAt: null,
+  // Sync bookkeeping, not a measurement (§7). It is here because this map is keyed by every
+  // field of a `Dive` — which is the point of it: a field added to the domain type has to be
+  // classified before this compiles.
+  dirty: null,
 };
 
 /**

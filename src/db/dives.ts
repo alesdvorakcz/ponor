@@ -3,6 +3,7 @@ import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
+import { clearDirtyFlags, pendingRows, stampLocalWrite, type PushedRow } from './dirty';
 import { dives } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -19,8 +20,14 @@ import type { Db } from './types';
  * readability and forging it silently reopens, with nothing to catch it.
  * M2 adds user_id to every synced table; with this in place that is one
  * edit here, not three.
+ *
+ * `dirty` joined them in M2d and is the one that is not a timestamp: §7's flag is a
+ * consequence of a write, never its subject. A patch that could carry `dirty: false` would
+ * be a caller telling the repository "pretend the server has seen this", which is a row
+ * that never syncs and raises nothing — so it does not compile, and a cast past that is
+ * stripped here. The flag moves through `stampLocalWrite` and `clearDiveDirtyFlags` alone.
  */
-const IMMUTABLE_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt'] as const;
+const IMMUTABLE_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'dirty'] as const;
 type ImmutableField = (typeof IMMUTABLE_FIELDS)[number];
 
 /** Anything a caller may set. Only the date is required — DESIGN.md §6. */
@@ -78,8 +85,6 @@ export type Mutual = Assert<
  */
 export const liveDives = liveRows(dives);
 
-const now = () => new Date().toISOString();
-
 function toDive(row: typeof dives.$inferSelect): Dive {
   // Belt to the schema's braces. The real guard is the `jsonArray` decoder in
   // schema.ts, which is the only thing that can catch an *unparseable* blob:
@@ -102,15 +107,17 @@ function toDive(row: typeof dives.$inferSelect): Dive {
 }
 
 export async function createDive(db: Db, input: NewDiveInput): Promise<Dive> {
-  const timestamp = now();
+  // The clock and the dirty flag together (db/dives.ts is a §7 writer — see `stampLocalWrite`),
+  // and `createdAt` taken from the same stamp so the two cannot disagree by a millisecond.
+  const stamp = stampLocalWrite();
   const id = newId();
   const row = {
     ...withNormalisedFields(withoutUndefinedFields(withoutImmutableFields(input))),
     id,
     status: input.status ?? 'logged',
     tanks: input.tanks ?? [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    createdAt: stamp.updatedAt,
+    ...stamp,
     deletedAt: null,
   };
   // Read back rather than returning `row` as-is: fields NewDiveInput left unset
@@ -411,7 +418,7 @@ export async function updateDive(db: Db, id: string, patch: DivePatch): Promise<
 
   const rows = await db
     .update(dives)
-    .set({ ...safe, updatedAt: now() })
+    .set({ ...safe, ...stampLocalWrite() })
     .where(and(eq(dives.id, id), liveDives))
     .returning();
   const row = rows.at(0);
@@ -535,7 +542,7 @@ export async function reorderDivesForDate(
 
   await db
     .update(dives)
-    .set({ manualOrder: sql.join(branches, sql` `), updatedAt: now() })
+    .set({ manualOrder: sql.join(branches, sql` `), ...stampLocalWrite() })
     .where(and(eq(dives.date, day), liveDives, inArray(dives.id, orderedIds)));
 
   // What the day will actually show, computed by putting the hand orders this
@@ -567,11 +574,36 @@ export async function reorderDivesForDate(
  * id that never existed, rather than being treated as a successful no-op.
  */
 export async function softDeleteDive(db: Db, id: string): Promise<void> {
-  const timestamp = now();
+  // A delete is a write, and §7 propagates it as a row: the tombstone has to go up or the
+  // diver's other device keeps showing a dive they deleted. So it takes the same stamp every
+  // other write takes, flag included, and `deletedAt` comes from that stamp.
+  const stamp = stampLocalWrite();
   const result = await db
     .update(dives)
-    .set({ deletedAt: timestamp, updatedAt: timestamp })
+    .set({ deletedAt: stamp.updatedAt, ...stamp })
     .where(and(eq(dives.id, id), liveDives))
     .returning({ id: dives.id });
   if (result.length === 0) throw new Error(`softDeleteDive: dive not found: ${id}`);
+}
+
+/**
+ * Every dive still waiting to go up (§7.1) — **tombstoned ones included**, because a deletion
+ * travels as a row and a push set filtered by `liveDives` would leave every deletion on the
+ * phone. `pendingRows` (db/dirty.ts) is that condition and carries the reasoning.
+ *
+ * Unsorted, unlike `listDives`: §2.5's order is what a diver reads, and a push set is not
+ * read by anybody.
+ */
+export async function pendingDives(db: Db): Promise<Dive[]> {
+  const rows = await db.select().from(dives).where(pendingRows(dives));
+  return rows.map(toDive);
+}
+
+/**
+ * Clears the flag on dives that have gone up, and only where the dive has not been edited
+ * since it was read for the push — see `clearDirtyFlags` (db/dirty.ts) for the edit-in-flight
+ * this refuses to lose. Returns the ids actually cleared.
+ */
+export async function clearDiveDirtyFlags(db: Db, pushed: readonly PushedRow[]): Promise<string[]> {
+  return clearDirtyFlags(db, dives, pushed);
 }

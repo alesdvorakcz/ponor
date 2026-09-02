@@ -39,13 +39,20 @@ const twelveSteel = (over: Partial<Tank> = {}): Tank => ({
   ...over,
 });
 
-describe('migration 0001', () => {
+describe('the gear_presets column set', () => {
+  // Named for what it checks rather than for a migration number: it was written when a
+  // migration dropped five columns from this table, that history has since been collapsed
+  // into `0000_thin_warpath` (§10), and there is a `0001` again now that means something
+  // else entirely (M2d's dirty flag).
   it('leaves gear_presets holding cylinders and gas, and nothing else', async () => {
     const columns = (await db.all<{ name: string }>(sql`pragma table_info(gear_presets)`)).map(
       (column) => column.name,
     );
     expect(columns.sort()).toEqual(
-      ['created_at', 'deleted_at', 'id', 'name', 'tanks', 'updated_at'].sort(),
+      // `dirty` is §7's flag (M2d) and not a sixth preset field — bookkeeping, like the three
+      // timestamps beside it, and the reason it is spelled out here rather than excused is
+      // that this list exists to make a column arriving on this table a deliberate act.
+      ['created_at', 'deleted_at', 'dirty', 'id', 'name', 'tanks', 'updated_at'].sort(),
     );
     // Named individually as well as by the whole list, so a failure says which of the
     // owner's five dropped columns came back rather than printing two sorted arrays.

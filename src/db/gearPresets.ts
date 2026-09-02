@@ -5,6 +5,7 @@ import { sameTanks } from '../domain/diveFormSchema';
 import { newId } from '../domain/ids';
 import { comparePresets } from '../domain/presets';
 import type { GearPreset } from '../domain/types';
+import { clearDirtyFlags, pendingRows, stampLocalWrite, type PushedRow } from './dirty';
 import { gearPresets } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -17,8 +18,12 @@ import type { Db } from './types';
  * runtime strip in `withoutImmutableFields`, so the type-level guarantee and the runtime one
  * cannot drift apart. M2 adds `user_id` to every synced table; with this in place that is
  * one edit here, not three.
+ *
+ * `dirty` joined them in M2d, on `db/dives.ts`'s reasoning word for word: §7's flag is a
+ * consequence of a write and never its subject, and a patch able to carry `dirty: false`
+ * would be a caller telling the repository that the server has seen something it has not.
  */
-const IMMUTABLE_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt'] as const;
+const IMMUTABLE_FIELDS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'dirty'] as const;
 type ImmutableField = (typeof IMMUTABLE_FIELDS)[number];
 
 /**
@@ -68,8 +73,6 @@ export type MutualGearPreset = Assert<
  */
 const livePresets = liveRows(gearPresets);
 
-const now = () => new Date().toISOString();
-
 function toGearPreset(row: typeof gearPresets.$inferSelect): GearPreset {
   // Belt to the schema's braces, exactly as `toDive` is. The real guard is `tanksJson`'s
   // decoder in schema.ts, which is the only thing that can catch an *unparseable* blob —
@@ -98,15 +101,17 @@ function withoutStoredPressures(tanks: readonly GearPreset['tanks'][number][]): 
 }
 
 export async function createGearPreset(db: Db, input: NewGearPresetInput): Promise<GearPreset> {
-  const timestamp = now();
+  // The clock and the dirty flag from one stamp, and `createdAt` from the same one — see
+  // `stampLocalWrite` (db/dirty.ts) and `createDive`, which is written identically.
+  const stamp = stampLocalWrite();
   const id = newId();
   const row = {
     ...withoutImmutableFields(input),
     id,
     name: input.name,
     tanks: withoutStoredPressures(input.tanks ?? []),
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    createdAt: stamp.updatedAt,
+    ...stamp,
     deletedAt: null,
   };
   // RETURNING rather than a trailing `getGearPreset`, for the two reasons `createDive`
@@ -265,7 +270,7 @@ export async function updateGearPreset(
 
   const rows = await db
     .update(gearPresets)
-    .set({ name, tanks, updatedAt: now() })
+    .set({ name, tanks, ...stampLocalWrite() })
     .where(and(eq(gearPresets.id, id), livePresets))
     .returning();
   const row = rows.at(0);
@@ -283,11 +288,33 @@ export async function updateGearPreset(
  * it is already gone, so it is reported the same as an id that never existed.
  */
 export async function softDeleteGearPreset(db: Db, id: string): Promise<void> {
-  const timestamp = now();
+  // A delete is a write and its tombstone has to go up, so it carries the flag exactly as
+  // `softDeleteDive` does — and `deletedAt` comes from the same stamp.
+  const stamp = stampLocalWrite();
   const result = await db
     .update(gearPresets)
-    .set({ deletedAt: timestamp, updatedAt: timestamp })
+    .set({ deletedAt: stamp.updatedAt, ...stamp })
     .where(and(eq(gearPresets.id, id), livePresets))
     .returning({ id: gearPresets.id });
   if (result.length === 0) throw new Error(`softDeleteGearPreset: preset not found: ${id}`);
+}
+
+/**
+ * Every preset still waiting to go up (§7.1), tombstoned ones included — `pendingDives`'s
+ * counterpart, and see `pendingRows` (db/dirty.ts) for why the tombstone filter is absent.
+ */
+export async function pendingGearPresets(db: Db): Promise<GearPreset[]> {
+  const rows = await db.select().from(gearPresets).where(pendingRows(gearPresets));
+  return rows.map(toGearPreset);
+}
+
+/**
+ * Clears the flag on presets that have gone up, and only where the preset has not been edited
+ * since it was read for the push — see `clearDirtyFlags` (db/dirty.ts).
+ */
+export async function clearGearPresetDirtyFlags(
+  db: Db,
+  pushed: readonly PushedRow[],
+): Promise<string[]> {
+  return clearDirtyFlags(db, gearPresets, pushed);
 }

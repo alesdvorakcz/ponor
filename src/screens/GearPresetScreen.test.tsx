@@ -81,6 +81,8 @@ const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
   tanks: [],
   createdAt: '2026-08-16T00:00:00.000Z',
   updatedAt: '2026-08-16T00:00:00.000Z',
+  // Never written by the repository, so never flagged (§7.1) — `diveFixture`'s reasoning.
+  dirty: false,
   deletedAt: null,
   ...over,
 });

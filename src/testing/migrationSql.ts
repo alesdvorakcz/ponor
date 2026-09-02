@@ -51,6 +51,44 @@ export const UNSYNCED_TABLES: Record<string, string> = {
     'suggestion is open, applied or rejected.',
 };
 
+/**
+ * The other direction: what exists **only on the device** and must therefore never be named by
+ * §7's RPCs, with the reason each. `UNSYNCED_TABLES` above is a table Postgres has that the
+ * protocol skips; these are things Postgres does not have at all.
+ *
+ * Shared between the two parity checks for the same reason that list is: `schemaParity`
+ * classifies them as local-only against `src/db/schema.ts`, and `syncRpcParity` asserts that
+ * no RPC mentions them. Written twice, a column could be local in one file and on the wire in
+ * the other, and the check that mattered would be the one nobody edited (§4.1). Both ends are
+ * verified — every name here must really be absent from the Postgres schema, and really
+ * present on the device.
+ */
+export const DEVICE_ONLY_TABLES: Record<string, string> = {
+  settings:
+    '§6, "Local only": units, locale, hidden groups and the dives_before offset. The one ' +
+    'value that does travel — dives_before — syncs into profiles.dives_before, so the ' +
+    'table itself has no server counterpart.',
+  sync_state:
+    '§6, "Local only", and M2d built it: where §7.3\'s pull watermark lives. It is the ' +
+    "SERVER's timestamp kept on the device, so a copy of it on the server would be the " +
+    'server storing what it already knows, per device, for no reader.',
+};
+
+/**
+ * Columns that exist only on the device. One so far: §7.1's dirty flag.
+ *
+ * It is on every table §7 pushes and on no table in Postgres, and it must stay that way in
+ * both directions. A `dirty` column on the server would be one device's bookkeeping visible
+ * to another; a `dirty` key in a push payload is refused outright by
+ * `sync_reject_unknown_keys`, which would take the diver's whole sync down.
+ */
+export const DEVICE_ONLY_COLUMNS: Record<string, string> = {
+  dirty:
+    "§7.1: \"rows flagged dirty go up … the client clears its flags\". Which rows this " +
+    'device still owes the server is a fact about this device alone, and the server neither ' +
+    'has the column nor would accept the key.',
+};
+
 // ──────────────────────────────────────────────────────────────────────────────────────
 // Statements
 // ──────────────────────────────────────────────────────────────────────────────────────

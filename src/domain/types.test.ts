@@ -128,7 +128,7 @@ describe('the vocabularies', () => {
     // hand-maintained list of the lists, which is §4.1's defect one level up and exactly what
     // this file exists to catch one level down. Every `*_VALUES` export is swept, so a
     // vocabulary added to `domain/types.ts` is covered on the commit that adds it.
-    expect(VOCABULARIES.map(([name]) => name)).toHaveLength(10);
+    expect(VOCABULARIES.map(([name]) => name)).toHaveLength(11);
     for (const [, vocabulary] of VOCABULARIES) {
       for (const member of vocabulary) {
         expect(member).toMatch(/^[a-z]+$/);

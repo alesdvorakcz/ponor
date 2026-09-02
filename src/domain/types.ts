@@ -54,6 +54,15 @@ export const VISIBILITY_VALUES = ['high', 'average', 'low'] as const;
 export const SUIT_VALUES = ['none', 'shorty', 'wet', 'semidry', 'dry'] as const;
 export const WEIGHTS_FEEL_VALUES = ['under', 'good', 'over'] as const;
 export const EQUIPMENT_VALUES = ['hood', 'gloves', 'boots', 'torch', 'camera'] as const;
+/**
+ * What a community site or centre may be in (§5, §6): `active` is the ordinary state,
+ * `merged` says an admin has folded it into the row `mergedInto` names, and `hidden` is a
+ * bad entry taken out of circulation. **The only vocabulary here no form ever offers** — §5
+ * gives all three to the admin in Studio — but it is declared the same way as the rest,
+ * because it is still a closed list a type is derived from rather than written twice, and
+ * because a device now stores it (M2d).
+ */
+export const CATALOGUE_STATUS_VALUES = ['active', 'merged', 'hidden'] as const;
 
 /**
  * The 0–3 scale `waves`, `current` and `surge` are recorded on — **as chips to offer**, which
@@ -131,6 +140,19 @@ export type Visibility = (typeof VISIBILITY_VALUES)[number];
 export type Suit = (typeof SUIT_VALUES)[number];
 export type WeightsFeel = (typeof WEIGHTS_FEEL_VALUES)[number];
 export type Equipment = (typeof EQUIPMENT_VALUES)[number];
+export type CatalogueStatus = (typeof CATALOGUE_STATUS_VALUES)[number];
+
+/**
+ * The one status under which a catalogue row may be **offered to a diver** — written once,
+ * here, because it decides two things that must not disagree: the status a site created on
+ * the boat starts in, and the status `db/catalogue.ts`'s reads filter for.
+ *
+ * M2c's `search_sites` draws the same line on the server ("a pull delivers tombstoned,
+ * merged and hidden rows because the device has to be TOLD about them; a search offers
+ * something to pick"), and offering a merged duplicate re-creates the duplicate an admin
+ * just merged away.
+ */
+export const ACTIVE_CATALOGUE_STATUS: CatalogueStatus = 'active';
 
 /**
  * How many cylinders each rig is, and **the one place that says so** (§4.1).
@@ -305,6 +327,22 @@ export interface Dive {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /**
+   * Whether this row is still waiting to go up (§7.1: "rows flagged dirty go up"). Storage
+   * bookkeeping, like the three timestamps above it, and it is on the domain type for the
+   * same reason they are: `db/dives.ts`'s `Mutual` asserts that the row and this interface
+   * describe the same shape, and an exception carved out of that assertion for one column is
+   * a hole in the check that has already caught real drift.
+   *
+   * **Nothing may set it as a field.** It is in `db/dives.ts`'s `IMMUTABLE_FIELDS`, so a
+   * patch naming it does not compile and a cast past that is stripped — the flag moves only
+   * as a consequence of a write, never as the subject of one.
+   *
+   * §7's push payload must not carry it: `push_changes` raises on a key the server has no
+   * column for, deliberately (`sync_reject_unknown_keys`). That failure is loud, which is the
+   * right direction, and it is M2e's to avoid.
+   */
+  dirty: boolean;
 }
 
 /**
@@ -334,4 +372,63 @@ export interface GearPreset {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  /** Waiting to go up (§7.1) — see `Dive['dirty']` for what it is and what may move it. */
+  dirty: boolean;
+}
+
+/**
+ * A community dive site as the device holds it — the on-device copy §2.3's offline
+ * autocomplete reads and §5 promises syncs to every device.
+ *
+ * Mirrors the `dive_sites` table, which mirrors the Postgres one with a single documented
+ * difference: the server's PostGIS `location` is this pair of nullable coordinates, exactly
+ * as a dive's own GPS point is (§6). Everything is nullable except the id, the status and
+ * the two stamps — **including `name`**, because the server's column is, and §1's "a save is
+ * never blocked" reaches the catalogue through `push_changes` in one transaction.
+ *
+ * `status` and `mergedInto` are the admin's (§5), never this device's: `push_changes`
+ * refuses both from a client, so a locally created site is `active` and stays that way until
+ * a pull says otherwise.
+ */
+export interface DiveSite {
+  id: string;
+  name: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  salinity: Salinity | null;
+  waterBody: WaterBody | null;
+  entry: Entry | null;
+  /** The site's own depth (§6), not any one dive's. */
+  maxDepthM: number | null;
+  /** The diver who contributed it — null once they delete their account (§5). */
+  createdBy: string | null;
+  status: CatalogueStatus;
+  mergedInto: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  /** Waiting to go up (§7.1) — see `Dive['dirty']`. True only for a site this device created. */
+  dirty: boolean;
+}
+
+/**
+ * A community dive centre as the device holds it — `DiveSite`'s sibling in every respect
+ * (§5 covers "a site or center" in one sentence), differing only in the facts a centre has:
+ * a `website` instead of the salinity/water body/entry/depth a site prefills a dive with.
+ */
+export interface DiveCenter {
+  id: string;
+  name: string | null;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  website: string | null;
+  createdBy: string | null;
+  status: CatalogueStatus;
+  mergedInto: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  dirty: boolean;
 }

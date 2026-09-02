@@ -1,4 +1,6 @@
 import {
+  DEVICE_ONLY_COLUMNS,
+  DEVICE_ONLY_TABLES,
   matchParen,
   parseFunctionSql,
   parseReads,
@@ -327,6 +329,44 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
     for (const table of Object.keys(UNSYNCED_TABLES)) {
       expect(rpc.statements.join(' ')).not.toContain(table);
     }
+  });
+
+  it('never names anything that exists only on the device (§6, §7.1)', () => {
+    // The mirror of the exclusion above, and the same shape of check: `UNSYNCED_TABLES` is a
+    // table the server HAS and the protocol skips, `DEVICE_ONLY_*` is a table or column the
+    // server does not have at all — `settings`, `sync_state`, and the dirty flag.
+    //
+    // Naming one here is not a silent failure but a loud one, and that is precisely why it is
+    // worth a check rather than a comment: `push_changes` refuses a key its table has no column
+    // for (`sync_reject_unknown_keys`), and §7 pushes in ONE transaction, so a stray `dirty` in
+    // a payload takes the diver's entire sync down until the client stops sending it.
+    //
+    // Read from the comment-stripped statements, so the sentence "do not mark a community row
+    // dirty unless you created it" — which is in the push_changes header comment, and is the
+    // client obligation this column exists to meet — does not fail its own rule.
+    const body = rpc.statements.join(' ');
+    expect(Object.keys(DEVICE_ONLY_TABLES).length + Object.keys(DEVICE_ONLY_COLUMNS).length).toBeGreaterThan(2);
+    for (const name of [...Object.keys(DEVICE_ONLY_TABLES), ...Object.keys(DEVICE_ONLY_COLUMNS)]) {
+      expect(body).not.toContain(name);
+    }
+    // No device-only table may be a Postgres table either — that would not be "device-only",
+    // it would be a table both sides have and one side ignores, which is `UNSYNCED_TABLES`.
+    const serverTables = schema.tables.map((table) => table.name);
+    expect(Object.keys(DEVICE_ONLY_TABLES).filter((name) => serverTables.includes(name))).toEqual([]);
+
+    // **A positive control, because the sweep above is an absence check and an absence check
+    // over an empty haystack passes.** A name that IS in this file is found by the same
+    // search, so a reader that returned nothing cannot make the loop green by giving it
+    // nothing to look at.
+    expect(body).toContain('push_changes');
+    expect(body.length).toBeGreaterThan(2000);
+
+    // **What this file cannot check, said out loud** (found by mutation, M43 in the M2d
+    // report): whether the names on those lists are the REAL local table and column names. A
+    // list whose key is misspelled is absent from this file too, so it passes here. Its
+    // reality is proved once, in `src/db/schemaParity.test.ts`, which reads `src/db/schema.ts`
+    // — the misspelling turns that file red. One list, verified where the other side is
+    // visible, and used here; two copies of the verification would be the drift §4.1 names.
   });
 
   it('names the same six tables the schema does, in every list that names one', () => {

@@ -1,16 +1,18 @@
 import { sql } from 'drizzle-orm';
 import { customType, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type {
-  DiveStatus,
-  Entry,
-  Equipment,
-  Salinity,
-  Suit,
-  Tank,
-  Visibility,
-  WaterBody,
-  Weather,
-  WeightsFeel,
+import {
+  ACTIVE_CATALOGUE_STATUS,
+  type CatalogueStatus,
+  type DiveStatus,
+  type Entry,
+  type Equipment,
+  type Salinity,
+  type Suit,
+  type Tank,
+  type Visibility,
+  type WaterBody,
+  type Weather,
+  type WeightsFeel,
 } from '../domain/types';
 
 /**
@@ -65,6 +67,39 @@ const jsonArray = <T>() =>
 
 const tanksJson = jsonArray<Tank>();
 const equipmentJson = jsonArray<Equipment>();
+
+/**
+ * The name of the flag below, for the checks that have to say "this column never leaves the
+ * device" without spelling it a second time.
+ */
+export const DIRTY_COLUMN = 'dirty';
+
+/**
+ * **"Rows flagged dirty go up" (DESIGN.md §7.1)** — this is that flag, on every table §7
+ * pushes, and it is the one column here that is local by design rather than by accident.
+ *
+ * *An explicit flag rather than a derived one.* The tempting alternative is
+ * `updated_at > last_pushed_at`, and it is wrong for a reason §7.3 already states about a
+ * different value: those two timestamps come from different clocks — one the phone's, one
+ * the server's — and divers change time zones constantly. A device whose clock is a minute
+ * behind the server's would compare a freshly-written row as *already pushed* and never send
+ * it again. Nothing raises; the row simply stays on the phone. §7 asks for a flag, and a flag
+ * is what this is.
+ *
+ * *One builder for all four tables, and no `.default()`.* Drizzle makes a column with a
+ * default OPTIONAL in an insert, so `.default(...)` here would let a new write path forget
+ * the flag and still compile — which is a row that never syncs and never raises. Without one,
+ * `dives.$inferInsert` requires it and `db/dives.ts`'s `createDive` does not build without
+ * saying what it means. The SQL side carries `default 1` all the same (see the 0001
+ * migration): SQLite cannot add a NOT NULL column to an existing table without one, and 1 is
+ * the fail-safe direction — a row wrongly dirty costs one redundant push, a row wrongly clean
+ * is a diver's data that never leaves the phone.
+ *
+ * `mode: 'boolean'` is not cosmetic either: it gives the column Drizzle's `SQLiteBoolean`
+ * type rather than `SQLiteInteger`, which is what keeps it out of `db/dives.ts`'s
+ * `INTEGER_COLUMNS` rounding pass — that file's own docblock predicted this column.
+ */
+const dirtyFlag = () => integer(DIRTY_COLUMN, { mode: 'boolean' }).notNull();
 
 /**
  * One row per dive. SI units throughout (DESIGN.md §6): metres, bar, °C, kg, litres.
@@ -167,6 +202,7 @@ export const dives = sqliteTable('dives', {
   updatedAt: text('updated_at').notNull(),
   /** Tombstone. Rows are never hard-deleted, so sync can propagate the deletion. */
   deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
 });
 
 /**
@@ -204,10 +240,110 @@ export const gearPresets = sqliteTable('gear_presets', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
+});
+
+/**
+ * The device's copy of the community dive-site catalogue (DESIGN.md §5, §2.3).
+ *
+ * **§6 said the device kept no catalogue and §5 and §2.3 both require one** — "the compact
+ * site/center catalogue syncs to every device, so autocomplete works fully offline", and
+ * "typing a site or center searches your own history first, then the on-device copy of the
+ * community catalogue — both instant and fully offline". `pull_changes` has returned this
+ * catalogue since M2b with nowhere on the device to put it. This is that place, and §6's
+ * "Local only" line needs a sentence saying so (reported, not edited, per M2d's brief).
+ *
+ * **Column for column the Postgres table (`supabase/migrations/20260902090100_schema.sql`),
+ * with exactly one difference:** SQLite has no point type, so the server's single PostGIS
+ * `location` is the `latitude`/`longitude` pair here — precisely the rule §6 already states
+ * for a dive's own GPS point, and precisely what `public.sync_site` puts on the wire in both
+ * directions. `src/db/schemaParity.test.ts` carries that difference as a named exception and
+ * fails on any other.
+ *
+ * **`merged_into` carries no foreign key**, for the reason §6 gives for `dives.site_id`: a
+ * pull delivers rows in whatever order the server rendered them, so a self-reference to a
+ * survivor that has not been written yet would reject the row — and a rejected community row
+ * during a pull is a device that never gets the merge it was being told about. The server's
+ * own copy keeps its FK, where the whole catalogue is written in one transaction.
+ *
+ * **`created_by` is here although the device has no `user_id` anywhere** (§7.4). Those are
+ * different facts: `user_id` would repeat one value on every row of a one-diver device, where
+ * `created_by` names *other* divers and is what §5's "the creator edits its facts, everyone
+ * else suggests a correction" is decided by. It arrives with the pulled row and is never
+ * written by this device — the server sets it from `auth.uid()` on push.
+ */
+export const diveSites = sqliteTable('dive_sites', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  country: text('country'),
+  /** The pair, not a point — see this table's docblock and §6. */
+  latitude: real('latitude'),
+  longitude: real('longitude'),
+  salinity: text('salinity').$type<Salinity>(),
+  waterBody: text('water_body').$type<WaterBody>(),
+  entry: text('entry').$type<Entry>(),
+  /** The site's own depth, not a dive's — §6 names it as one of the facts a site prefills. */
+  maxDepthM: real('max_depth_m'),
+  createdBy: text('created_by'),
+  status: text('status').$type<CatalogueStatus>().notNull().default(ACTIVE_CATALOGUE_STATUS),
+  mergedInto: text('merged_into'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
+});
+
+/**
+ * The device's copy of the community dive-centre catalogue — the same model as `diveSites`
+ * above, and §5 covers "a site or center" in one sentence. See that table's docblock for the
+ * point/pair difference, the missing foreign key and `created_by`.
+ */
+export const diveCenters = sqliteTable('dive_centers', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  country: text('country'),
+  latitude: real('latitude'),
+  longitude: real('longitude'),
+  website: text('website'),
+  createdBy: text('created_by'),
+  status: text('status').$type<CatalogueStatus>().notNull().default(ACTIVE_CATALOGUE_STATUS),
+  mergedInto: text('merged_into'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
 });
 
 /** Local-only key/value settings: units, locale, hidden field groups, dives_before. */
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+});
+
+/**
+ * Where §7's pull watermark lives (DESIGN.md §6, "Local only": `sync_state`).
+ *
+ * **One row with typed columns, not a second key/value table.** `settings` is key/value and
+ * §4.1 says of it that "a second key/value path is the defect this table exists to name" —
+ * so this is deliberately the other shape. Three reasons it is the right one here. The value
+ * is not a diver's preference but protocol state, and mixing the two would put the watermark
+ * in reach of anything that clears, exports or resets settings. It has one type and one
+ * meaning, so `db/settings.ts`'s whole coercion apparatus — what a stored string is allowed
+ * to mean — reduces here to "a non-empty string or nothing". And a misspelled key in a
+ * key/value store reads as *never pulled*, which is survivable, while a misspelled key on the
+ * WRITE side means a watermark that never advances and a device that re-pulls the world
+ * forever; a column cannot be misspelled at runtime.
+ *
+ * `id` exists only to make the single row addressable, and `db/syncState.ts` is the one
+ * writer that knows its value — see that module for what a missing or unreadable row must
+ * degrade to, which is the same question `db/settings.ts` answers for its own table.
+ */
+export const syncState = sqliteTable('sync_state', {
+  id: text('id').primaryKey(),
+  /**
+   * **The server's timestamp, never this phone's** (§7.3): the watermark `pull_changes`
+   * returned, stored exactly as it was received and handed back to the next pull unread.
+   * Nothing here parses it, compares it to a local clock, or invents one.
+   */
+  lastPulledAt: text('last_pulled_at'),
 });

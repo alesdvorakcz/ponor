@@ -37,6 +37,10 @@ export const dive = (over: Partial<Dive> = {}): Dive => {
     buddy: null, guide: null, importSource: null, importId: null,
     createdAt: '2026-08-16T00:00:00.000Z', updatedAt: '2026-08-16T00:00:00.000Z',
     deletedAt: null,
+    // A fixture dive has never been written by the repository, so it has never been flagged
+    // (§7.1). `false` is also the value that makes an accidental assertion about the flag
+    // fail here rather than pass by accident — a real created dive is dirty.
+    dirty: false,
   };
   return { ...base, ...over } as Dive;
 };

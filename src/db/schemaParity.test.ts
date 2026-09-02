@@ -2,6 +2,8 @@ import { is } from 'drizzle-orm';
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import {
+  DEVICE_ONLY_COLUMNS,
+  DEVICE_ONLY_TABLES,
   MIGRATIONS_DIR,
   parseMigrationSql,
   readMigrations,
@@ -86,26 +88,31 @@ const localTable = (name: string) => {
 // somebody made and not a tolerance.
 // ──────────────────────────────────────────────────────────────────────────────────────
 
-/** The tables §6 puts on both sides. These are the ones compared column for column. */
-const SYNCED_TABLES = ['dives', 'gear_presets'] as const;
+/**
+ * The tables §6 puts on both sides. These are the ones compared column for column.
+ *
+ * **The two community tables joined this list in M2d**, where they had been whole-table
+ * Postgres-only exceptions since M2a. That exception said "the local mirror arrives with M2's
+ * offline catalogue", and this is that: §5's "the compact site/center catalogue syncs to every
+ * device, so autocomplete works fully offline" and §2.3's "the on-device copy of the community
+ * catalogue" both require a local copy, and `pull_changes` has been returning one since M2b
+ * with nowhere to put it. What was a table-shaped difference is now a column-shaped one — the
+ * PostGIS point against the coordinate pair — which is the difference §6 already rules on.
+ */
+const SYNCED_TABLES = ['dives', 'gear_presets', 'dive_sites', 'dive_centers'] as const;
 
 type SyncedTable = (typeof SYNCED_TABLES)[number];
 
-const LOCAL_ONLY_TABLES: Record<string, string> = {
-  settings:
-    '§6, "Local only": units, locale, hidden groups and the dives_before offset. The one ' +
-    'value that does travel — dives_before — syncs into profiles.dives_before, so the ' +
-    'table itself has no server counterpart. §6 names `sync_state` in the same breath and ' +
-    'it does not exist locally yet; when it does it belongs on this list, never in Postgres.',
-};
+/**
+ * Tables the device has and the server does not. The list itself lives in
+ * `src/testing/migrationSql.ts` (`DEVICE_ONLY_TABLES`), shared with `syncRpcParity.test.ts`
+ * so that "local-only" and "never named by an RPC" cannot be two different answers — see
+ * that constant for why, and the sync-RPC file for the other half of the check.
+ */
+const LOCAL_ONLY_TABLES: Record<string, string> = DEVICE_ONLY_TABLES;
 
 const POSTGRES_ONLY_TABLES: Record<string, string> = {
   profiles: '§6: display_name + dives_before. A device has one diver, so nothing local mirrors it.',
-  dive_sites:
-    '§5/§6: the community catalogue, server-authoritative — which is why its coordinates are ' +
-    'one PostGIS `location` where a dive keeps a latitude/longitude pair. The local mirror ' +
-    'arrives with M2\'s offline catalogue; today no SQLite table faces this one.',
-  dive_centers: 'As dive_sites: community, server-authoritative, no local mirror yet.',
   certifications: '§6 specifies it; M3 builds the wallet screen. No local table until then.',
   site_edits:
     "§5's review queue — \"everyone else taps *suggest a correction*, which lands in a review " +
@@ -161,12 +168,42 @@ const POSTGRES_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
   gear_presets: {
     user_id: 'As dives.user_id — ownership is a server-side fact.',
   },
+  dive_sites: {
+    location:
+      '§6: "SQLite has no point type … Postgres composes them into a PostGIS point — the ' +
+      'sync payload carries the pair, and the server owns the geometry." The device holds ' +
+      'the latitude/longitude pair below instead, which is the same rule a dive\'s own GPS ' +
+      'point already follows, and `public.sync_site` is the one place the two forms meet.',
+  },
+  dive_centers: {
+    location: 'As dive_sites.location — the point is the server\'s, the pair is the device\'s.',
+  },
 };
 
-/** Nothing yet. A local column with no Postgres counterpart is a row that syncs to nowhere. */
+/**
+ * Columns the device has and Postgres does not, and there are two kinds — which is the whole
+ * reason this list carries reasons rather than a tolerance.
+ *
+ * `latitude`/`longitude` **do travel**: they are what `sync_site` renders `location` as, and
+ * `syncRpcParity.test.ts` requires them on the wire (`PAYLOAD_EXTRAS`). `dirty` is the
+ * opposite — it never leaves the device at all (`DEVICE_ONLY_COLUMNS`), and the assertion
+ * below checks that every table §7 pushes carries it, so a table cannot quietly lose the flag
+ * that is the only reason its rows ever go up.
+ */
 const LOCAL_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
-  dives: {},
-  gear_presets: {},
+  dives: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
+  gear_presets: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
+  dive_sites: {
+    latitude: '§6: the pair the device holds in place of the server\'s PostGIS point; it is on ' +
+      'the wire either way, as `sync_site` renders it and `push_changes` reads it back.',
+    longitude: 'As dive_sites.latitude — one point, two columns, both on the wire.',
+    dirty: DEVICE_ONLY_COLUMNS.dirty ?? '',
+  },
+  dive_centers: {
+    latitude: 'As dive_sites.latitude.',
+    longitude: 'As dive_sites.longitude.',
+    dirty: DEVICE_ONLY_COLUMNS.dirty ?? '',
+  },
 };
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -283,10 +320,49 @@ describe('the migrations and src/db/schema.ts describe the same schema (DESIGN.m
     );
   });
 
+  it('puts §7\'s dirty flag on every table it pushes, and on nothing the server has', () => {
+    // The flag is the ONLY reason a row ever goes up (§7.1), so a synced table without one is
+    // a table whose every edit stays on the phone — no error, no failing gate, no screen that
+    // looks wrong. Derived from the schemas on both sides rather than listed, so a fifth
+    // synced table is covered by the commit that adds it.
+    const flagged = localTables
+      .filter((table) => table.columns.some((column) => column.name in DEVICE_ONLY_COLUMNS))
+      .map((table) => table.name)
+      .sort();
+    expect(flagged).toEqual([...SYNCED_TABLES].sort());
+    // And the list's key is the name `schema.ts` actually declares the column by, rather than
+    // a second spelling of it typed into a test.
+    expect(Object.keys(DEVICE_ONLY_COLUMNS)).toContain(localSchema.DIRTY_COLUMN);
+    // Floored, because an extractor that found nothing would make the line above compare two
+    // empty lists if SYNCED_TABLES were ever emptied as well.
+    expect(flagged.length).toBeGreaterThan(3);
+
+    // NOT NULL, and that is not tidiness: a nullable flag is a third state nothing means, and
+    // `dirty is null` matches neither `= 1` nor `= 0`, so such a row would never be picked up
+    // by the push set and never be reported as unpushed either.
+    const nullability = localTables.flatMap((table) =>
+      table.columns
+        .filter((column) => column.name in DEVICE_ONLY_COLUMNS)
+        .map((column) => `${table.name}.${column.name}: notNull ${column.notNull}`),
+    );
+    expect(nullability.length).toBe(flagged.length);
+    expect(nullability.filter((column) => !column.endsWith(': notNull true'))).toEqual([]);
+
+    // And the server has none of it. A `dirty` column in Postgres would be one device's
+    // bookkeeping stored where another device can read it; a `dirty` key in a push payload is
+    // refused by `sync_reject_unknown_keys` and takes the diver's whole sync down with it.
+    expect(
+      postgres.tables.flatMap((table) =>
+        table.columns.filter((column) => column.name in DEVICE_ONLY_COLUMNS).map((column) => `${table.name}.${column.name}`),
+      ),
+    ).toEqual([]);
+  });
+
   it('every exception names a reason, so the list cannot rot into a tolerance', () => {
     const reasons = [
       ...Object.values(LOCAL_ONLY_TABLES),
       ...Object.values(POSTGRES_ONLY_TABLES),
+      ...Object.values(DEVICE_ONLY_COLUMNS),
       ...Object.values(POSTGRES_ONLY_COLUMNS).flatMap((columns) => Object.values(columns)),
       ...Object.values(LOCAL_ONLY_COLUMNS).flatMap((columns) => Object.values(columns)),
     ];
