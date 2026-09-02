@@ -27,6 +27,31 @@ import path from 'node:path';
  */
 
 // ──────────────────────────────────────────────────────────────────────────────────────
+// One fact about the schema that both parity checks need
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tables that exist on this server and take **no part in §7's sync**, with the reason each.
+ *
+ * It lives here rather than in either test because both need it and they would disagree:
+ * `schemaParity` scopes §6's "all synced tables carry `created_at`, `updated_at` and
+ * `deleted_at`" by it, and `syncRpcParity` scopes "`push_changes` carries every column of
+ * every table" by it. Written twice, a table could be unsynced in one file and synced in the
+ * other, and the check that mattered would be the one nobody edited (§4.1).
+ *
+ * Both readers assert that every key here is a real table in the migrations, so a stale entry
+ * fails as loudly as a missing one — an exception list you have to edit deliberately.
+ */
+export const UNSYNCED_TABLES: Record<string, string> = {
+  site_edits:
+    "§5's review queue (M2c). A suggestion is made online by an RPC call, about a row the " +
+    'device already has, and is read by an admin in Studio — so it is never pushed, never ' +
+    'pulled, and has no SQLite counterpart. That is also why it carries no `deleted_at`: §6 ' +
+    'gives the tombstone column to synced tables, and here `status` already says whether a ' +
+    'suggestion is open, applied or rejected.',
+};
+
+// ──────────────────────────────────────────────────────────────────────────────────────
 // Statements
 // ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -552,6 +577,41 @@ export function parseUpserts(body: string): ParsedUpsert[] {
   }
 
   return upserts;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// Reading the names a function body uses
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Column references of the form `<qualifier>.<name>`, ignoring `public.`-style schema names.
+ *
+ * Shared by both RPC parity checks (M2c moved it here from `syncRpcParity.test.ts`) because
+ * each of them sweeps a function body for the columns it names and compares them against the
+ * schema migration. Two copies would be two answers to "what does this body reference", and
+ * the copy that quietly returned fewer would leave its sweep green — which is why both callers
+ * also floor the number of references they checked.
+ */
+export function qualifiedReferences(text: string, qualifier: string): string[] {
+  const pattern = new RegExp(`\\b${qualifier}\\.([a-z_][a-z0-9_]*)`, 'g');
+  return [...text.matchAll(pattern)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
+/** JSON keys read out of a raw payload row, as `payload->>'key'`. */
+export function payloadKeys(text: string): string[] {
+  return [...text.matchAll(/->>'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
+}
+
+/**
+ * The same text with every `'…'` literal emptied, so an assertion about SQL *syntax* cannot be
+ * fooled by SQL *data*. The case it exists for: `raise exception 'no site %', p_id` puts a bare
+ * `%` in a body that must not contain a bare `%` operator, and `'active'` puts a status value in
+ * a body being searched for column names.
+ */
+export function withoutLiterals(text: string): string {
+  return text.replace(/'(?:[^']|'')*'/g, "''");
 }
 
 export interface ParsedRead {

@@ -242,7 +242,7 @@ create table if not exists public.profiles (
 -- changed since a watermark, and that is exactly this key.
 --
 -- The trigram and GiST indexes are §5's "the map and the dedupe are features of the
--- database, not app code" — `search_sites` and `similar_sites` are next task's RPCs, and
+-- database, not app code" — `search_sites` and `similar_sites` are file 6's RPCs, and
 -- without these they would be sequential scans over the whole catalogue.
 -- ─────────────────────────────────────────────────────────────────────────────────────
 

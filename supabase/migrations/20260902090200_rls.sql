@@ -25,8 +25,8 @@
 --
 -- 2. A CREATOR MAY EDIT THE SITE THEY CREATED; NOBODY ELSE MAY. That is §5 verbatim —
 --    "the creator and the admin edit its facts, everyone else taps *suggest a
---    correction*" — and `suggest_site_edit` (next task's RPC) is what the everyone-else
---    half routes through, landing a suggestion in a review queue rather than an UPDATE.
+--    correction*" — and `suggest_site_edit` (file 6) is what the everyone-else half routes
+--    through, landing a suggestion in `public.site_edits` (file 5) rather than an UPDATE.
 --
 -- 3. NOTHING IS EVER HARD-DELETED, AND THAT IS ENFORCED TWICE. §5 says community rows are
 --    never hard-deleted and §7 says deletion propagates as a tombstone, so `deleted_at`
@@ -43,8 +43,9 @@
 
 -- ─── profiles — one row, the diver's own ─────────────────────────────────────────────
 -- Read, create and edit your own profile. `id` IS the auth user id, so the check is the
--- identity itself. No delete: an account is removed by §5's `delete_account` RPC, which
--- next task writes as `security definer`, not by a client DELETE.
+-- identity itself. No delete: an account is removed by §5's `delete_account` RPC (file 6),
+-- which is `security definer` and deletes one row from `auth.users` — this table then goes
+-- by the cascade below, not by a client DELETE.
 
 alter table public.profiles enable row level security;
 revoke all on table public.profiles from anon, authenticated;

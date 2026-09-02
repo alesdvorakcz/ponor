@@ -3,9 +3,12 @@ import {
   parseFunctionSql,
   parseReads,
   parseUpserts,
+  payloadKeys,
+  qualifiedReferences,
   readMigrationFile,
   readMigrations,
   splitTopLevel,
+  UNSYNCED_TABLES,
   type ParsedFunction,
   type ParsedRead,
   type ParsedUpsert,
@@ -61,8 +64,19 @@ const isoZ = fn('public.iso_z');
 const syncRow = fn('public.sync_row');
 const syncSite = fn('public.sync_site');
 
-/** Every table the schema migration declares — the other side of every check below. */
-const SCHEMA_TABLES = schema.tables.map((table) => table.name).sort();
+/**
+ * Every table the schema migrations declare that §7 syncs — the other side of every check
+ * below. It was every table full stop until M2c added `site_edits`, §5's review queue, which
+ * is written by an RPC and read by an admin and never travels; `UNSYNCED_TABLES` carries that
+ * exclusion and its reason, shared with `schemaParity.test.ts` so the two cannot disagree.
+ *
+ * The exclusion is checked rather than trusted, immediately below: a name in that list that is
+ * not a table here would silently shrink every `it.each` in this file.
+ */
+const SCHEMA_TABLES = schema.tables
+  .map((table) => table.name)
+  .filter((name) => !(name in UNSYNCED_TABLES))
+  .sort();
 
 function schemaColumns(table: string): string[] {
   const found = schema.tables.find((candidate) => candidate.name === table);
@@ -213,18 +227,10 @@ export function renderToChar(template: string, date: Date): string {
   return out;
 }
 
-/** Column references of the form `<qualifier>.<name>`, ignoring `public.`-style schema names. */
-function qualifiedReferences(text: string, qualifier: string): string[] {
-  const pattern = new RegExp(`\\b${qualifier}\\.([a-z_][a-z0-9_]*)`, 'g');
-  return [...text.matchAll(pattern)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
-}
-
-/** JSON keys read out of a raw payload row, as `payload->>'key'`. */
-function payloadKeys(text: string): string[] {
-  return [...text.matchAll(/->>'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
-    match[1] === undefined ? [] : [match[1]],
-  );
-}
+// (`qualifiedReferences` and `payloadKeys` moved to src/testing/migrationSql.ts in M2c, when
+// src/db/catalogueRpcParity.test.ts came to sweep §5's four RPCs the same way. Their mutation
+// kills are re-proved there and in the M2c report — a shared extractor that could return `[]`
+// would leave two sweeps green instead of one.)
 
 // ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -307,6 +313,22 @@ describe('the RPC reader', () => {
 });
 
 describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §7)', () => {
+  it('syncs every table the schema has but the ones deliberately kept out (§7)', () => {
+    // The exclusion list is the one place a table can leave §7's protocol without any list in
+    // this file changing, so it is checked from both ends: every name on it is a real table,
+    // and no name on it is mentioned anywhere in the RPC file at all. Without the second half,
+    // a `public.site_edits` read added to `pull_changes` would sync a queue nobody may read.
+    const allTables = schema.tables.map((table) => table.name);
+    expect(Object.keys(UNSYNCED_TABLES).filter((name) => !allTables.includes(name))).toEqual([]);
+    expect(Object.values(UNSYNCED_TABLES).filter((reason) => reason.trim().length < 20)).toEqual([]);
+    expect(SCHEMA_TABLES.length).toBe(allTables.length - Object.keys(UNSYNCED_TABLES).length);
+    expect(SCHEMA_TABLES.length).toBeGreaterThan(5);
+
+    for (const table of Object.keys(UNSYNCED_TABLES)) {
+      expect(rpc.statements.join(' ')).not.toContain(table);
+    }
+  });
+
   it('names the same six tables the schema does, in every list that names one', () => {
     // Seven independent lists inside the RPC file, each compared against the schema migration
     // rather than against each other: a table missing from any one of them is a table whose

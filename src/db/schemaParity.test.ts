@@ -5,6 +5,7 @@ import {
   MIGRATIONS_DIR,
   parseMigrationSql,
   readMigrations,
+  UNSYNCED_TABLES,
   type ParsedTable,
 } from '../testing/migrationSql';
 import * as localSchema from './schema';
@@ -106,6 +107,47 @@ const POSTGRES_ONLY_TABLES: Record<string, string> = {
     'arrives with M2\'s offline catalogue; today no SQLite table faces this one.',
   dive_centers: 'As dive_sites: community, server-authoritative, no local mirror yet.',
   certifications: '§6 specifies it; M3 builds the wallet screen. No local table until then.',
+  site_edits:
+    "§5's review queue — \"everyone else taps *suggest a correction*, which lands in a review " +
+    'queue" — created by M2c, which also found that §6\'s table list never mentioned it. ' +
+    'Written by `suggest_site_edit`, read by an admin in Studio, and never synced: a ' +
+    'suggestion is made online about a row the device already has. See UNSYNCED_TABLES.',
+};
+
+/**
+ * Every column that references `auth.users`, and what an account deletion does to the rows
+ * that carry it. §8 makes in-app deletion a hard App Store requirement and §5 says community
+ * rows are never hard-deleted, and **this list is where those two are reconciled**: M2c's
+ * `delete_account` is one `delete from auth.users`, so what survives a diver leaving is
+ * decided here and nowhere else.
+ *
+ * Getting an entry wrong is silent in both directions. A personal table that stops cascading
+ * keeps a departed diver's dives forever; a community table that starts cascading destroys
+ * sites other divers' logbooks point at, and that one cannot be undone. So the check below is
+ * exhaustive over the schema rather than a sample: a table added later with an `auth.users`
+ * reference and no entry here fails until somebody decides which kind it is.
+ */
+const ACCOUNT_DELETION: Record<string, { readonly action: 'cascade' | 'set null'; readonly why: string }> = {
+  'dives.user_id': { action: 'cascade', why: "A diver's dives are theirs alone (§5) and go with the account." },
+  'gear_presets.user_id': { action: 'cascade', why: 'Private, as dives — one diver\'s named cylinder sets.' },
+  'certifications.user_id': { action: 'cascade', why: 'Private, as dives — the §6 wallet is one person\'s cards.' },
+  'profiles.id': {
+    action: 'cascade',
+    why: '§6 makes a profile BE the user, so it cannot outlive them; it also holds the only ' +
+      'display name, which §8 counts as personal data.',
+  },
+  'dive_sites.created_by': {
+    action: 'set null',
+    why: '§5: "history never breaks". Other divers\' dives carry site_id references, and the ' +
+      'row keeps its pin, its defaults and everyone\'s map marker. Authorship is severed, the ' +
+      'site stays — and null matches no auth.uid(), so nobody may edit it through the app again.',
+  },
+  'dive_centers.created_by': { action: 'set null', why: 'As dive_sites.created_by — §5 covers "a site or center" in one sentence.' },
+  'site_edits.suggested_by': {
+    action: 'set null',
+    why: 'A suggestion is about a SITE, not about its author, and an admin may already have ' +
+      'acted on it. Severing the author is the reversible choice; deleting the queue is not.',
+  },
 };
 
 const POSTGRES_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
@@ -255,6 +297,14 @@ describe('the migrations and src/db/schema.ts describe the same schema (DESIGN.m
 
 describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () => {
   const allTables = [...SYNCED_TABLES, ...Object.keys(POSTGRES_ONLY_TABLES)];
+  /**
+   * §6's three-timestamp rule is stated about **synced** tables, and until M2c every table
+   * here was one. `site_edits` is not: it is written by an RPC and read by an admin, so a
+   * `deleted_at` on it would claim a protocol it has no part in. The exclusion is shared
+   * with `syncRpcParity.test.ts` (`UNSYNCED_TABLES`), and checked below rather than trusted —
+   * a name on that list that is not a table here would quietly shrink the counts.
+   */
+  const syncedTables = allTables.filter((table) => !(table in UNSYNCED_TABLES));
   const columnDefinitions = postgres.tables.flatMap((table) =>
     table.columns.map((column) => ({ table: table.name, ...column })),
   );
@@ -275,6 +325,14 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     // push_changes, and a trigger there would be a second owner for the same rule (§4.1)
     // — one the RPC could not override. `default now()` is the whole mechanism: a value
     // the client sends survives, and a row inserted without one still gets a timestamp.
+    //
+    // The counts below are over EVERY table, synced or not — `created_at` and `updated_at`
+    // mean the same thing on the review queue as anywhere else — while the `deleted_at` count
+    // is over the synced ones alone, since a tombstone is a §7 idea. Both are exact, and the
+    // exclusion list is verified here so it cannot silently narrow either.
+    expect(Object.keys(UNSYNCED_TABLES).filter((name) => !allTables.includes(name))).toEqual([]);
+    expect(syncedTables.length).toBeGreaterThan(5);
+
     const timestamps = columnDefinitions.filter((column) =>
       ['created_at', 'updated_at'].includes(column.name),
     );
@@ -289,7 +347,10 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     const syncColumns = columnDefinitions.filter((column) =>
       ['created_at', 'updated_at', 'deleted_at'].includes(column.name),
     );
-    expect(syncColumns.length).toBe(allTables.length * 3);
+    expect(syncColumns.length).toBe(allTables.length * 2 + syncedTables.length);
+    expect(columnDefinitions.filter((column) => column.name === 'deleted_at').length).toBe(
+      syncedTables.length,
+    );
     expect(
       syncColumns
         .filter((column) => !/^timestamptz\b/.test(column.definition))
@@ -379,19 +440,35 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     expect(policies.filter((statement) => /\banon\b/i.test(statement))).toEqual([]);
   });
 
-  it('lets a community row outlive the account that created it (§5)', () => {
-    // "History never breaks": a deleted account must not take the sites it contributed
-    // with it, so created_by is nulled rather than cascaded — which is also why that
-    // column is nullable while dives.user_id is not.
-    for (const table of ['dive_sites', 'dive_centers']) {
-      const createdBy = postgresTable(table).columns.find((column) => column.name === 'created_by');
-      expect(createdBy?.definition).toMatch(/on delete set null/);
-      expect(createdBy?.notNull).toBe(false);
-    }
-    for (const table of ['dives', 'gear_presets', 'certifications']) {
-      const userId = postgresTable(table).columns.find((column) => column.name === 'user_id');
-      expect(userId?.definition).toMatch(/on delete cascade/);
-      expect(userId?.notNull).toBe(true);
+  it('decides for every table what an account deletion does to it (§5, §8)', () => {
+    // "History never breaks": a deleted account must not take the sites it contributed with
+    // it, so created_by is nulled rather than cascaded — which is also why that column is
+    // nullable while dives.user_id is not. M2c's `delete_account` is one `delete from
+    // auth.users`, so THIS is the rule it fires: there is no second list of DELETE statements
+    // in the RPC, deliberately (§4.1), which makes these seven definitions load-bearing.
+    //
+    // Read exhaustively out of the schema rather than from a hand list of tables. The version
+    // this replaced named five tables and missed `profiles.id` entirely — its cascade could
+    // have been dropped and nothing here would have noticed, leaving a departed diver's
+    // display name behind for good.
+    const references = columnDefinitions
+      .filter((column) => /references auth\.users\b/.test(column.definition))
+      .map((column) => ({ key: `${column.table}.${column.name}`, ...column }));
+
+    expect(references.map((column) => column.key).sort()).toEqual(Object.keys(ACCOUNT_DELETION).sort());
+    expect(references.length).toBeGreaterThan(6);
+
+    for (const column of references) {
+      const rule = ACCOUNT_DELETION[column.key];
+      expect(rule).toBeDefined();
+      expect(`${column.key}: ${column.definition}`).toContain(`on delete ${rule?.action}`);
+      // A severed reference has to be able to hold a null, and an owning one must not: a
+      // NOT NULL column with `on delete set null` is a delete that fails at runtime, and a
+      // nullable ownership column is a private row belonging to nobody.
+      expect(`${column.key}: notNull ${column.notNull}`).toBe(
+        `${column.key}: notNull ${rule?.action === 'cascade'}`,
+      );
+      expect((rule?.why ?? '').trim().length).toBeGreaterThan(20);
     }
   });
 });
