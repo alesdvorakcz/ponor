@@ -2848,7 +2848,15 @@ function build(scheme: ColorScheme) {
     // The two controls on this screen that are deliberate acts rather than its primary one:
     // switching between signing in and creating an account, and signing out. `mutedControl`
     // at the top of this function — the object *Delete dive*, *Delete preset* and *Save as
-    // preset* already are, centred at the end of the screen's content.
+    // preset* already are.
+    //
+    // **The treatment is one thing and the placement is another, and only the treatment is
+    // here** (M2f). Sign-out is centred at the end of its branch's content, where the two
+    // deletes sit; the mode toggle is in the footer directly under the primary action,
+    // because it is about that action rather than about the page (AccountScreen.tsx's
+    // `SWITCH_TO`). Both are still this one definition: a `mutedControl` centres its label
+    // inside a real 48 dp box wherever it is put, which is what let one of them move without
+    // the sheet gaining a second spelling of the same six properties.
     //
     // **One pair for both, named for what they share rather than for either caller.** They
     // are the same object doing the same job: §0.1 spends every hue on depth, so a control

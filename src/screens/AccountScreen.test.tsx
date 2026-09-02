@@ -9,6 +9,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
   authenticate,
@@ -242,7 +243,7 @@ describe('signed out', () => {
 
     expect(findField(t, 'Email')).toBeDefined();
     expect(findField(t, 'Password')).toBeDefined();
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create an account', 'Sign in']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
   });
 
   /**
@@ -282,10 +283,10 @@ describe('signed out', () => {
 
     await pressControl(t, 'Create an account');
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'I already have an account', 'Create account']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create account', 'I already have an account']);
 
     await pressControl(t, 'I already have an account');
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create an account', 'Sign in']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
   });
 
   it('signs in with what was typed, in the mode on screen, through the app’s own seam', async () => {
@@ -502,7 +503,7 @@ describe('after a sign-up that sent a confirmation', () => {
 
     await pressControl(t, 'Back to sign in');
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create an account', 'Sign in']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
   });
 });
 
@@ -728,5 +729,128 @@ describe('the app’s own visual language', () => {
     const styles = makeStyles('light');
     expect(findControl(t, 'Sign out')?.props.style).toBe(styles.accountSecondaryAction);
     expect(findControl(t, 'Sign out')?.props.style).not.toBe(styles.action);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Where the two controls of the bottom block are (M2f)
+// ---------------------------------------------------------------------------------------
+
+/** The fixed footer, found by the style it is drawn with rather than by its position in the
+ * tree — DiveFormScreen.test.tsx locates its own the same way, and for the same reason: an
+ * index would go on matching whatever ended up last. */
+function footerOf(t: RenderResult) {
+  const [footer] = t.root
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFooter))
+    : [];
+  if (!footer) throw new Error('AccountScreen rendered no footer');
+  return footer;
+}
+
+/** The scrolling content, by the one prop only a ScrollView has. */
+function scrollOf(t: RenderResult) {
+  const [scroll] = t.root ? t.root.queryAll((n) => n.props?.contentContainerStyle !== undefined) : [];
+  if (!scroll) throw new Error('AccountScreen rendered no scroll');
+  return scroll;
+}
+
+/** The controls **inside** one node, in the order it draws them. `queryAll` does not return
+ * the node it is called on, so a footer that is itself pressable could not pad this. */
+function controlsUnder(node: ReturnType<typeof footerOf>): string[] {
+  return node
+    .queryAll((n) => n.props?.accessibilityRole === 'button')
+    .map((n) => String(n.props?.accessibilityLabel ?? ''));
+}
+
+/**
+ * **The defect M2f fixed, and the only kind of assertion that could have caught it.**
+ *
+ * The mode toggle shipped at the end of the scrolling content, where — measured on an iPhone
+ * 17 Pro — it floated ~150 pt below the password row with ~400 pt of empty screen under it,
+ * centred while every other element on the screen is left-aligned on the content inset. It
+ * belongs to the primary action, because what it says is "the button below is the wrong verb
+ * for me", so it is drawn with that button in the one bottom block.
+ *
+ * **Every test in this file was green while it was wrong**, and the labels-and-order check in
+ * `signed out` above was green too: which parent a control hangs off is a layout fact, and a
+ * Jest tree has no layout. So these assert CONTAINMENT, which is the part of a layout that
+ * does live in the tree — the footer holds both, the scroll holds neither.
+ */
+describe('the mode toggle and the action it belongs to', () => {
+  it('draws both in the one bottom block, the action leading', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(controlsUnder(footerOf(t))).toEqual(['Sign in', 'Create an account']);
+  });
+
+  /** The other half, and not a restatement of it: the first would still pass with the toggle
+   * drawn twice, once in each place. */
+  it('leaves no control at all in the scrolling content', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(controlsUnder(scrollOf(t))).toEqual([]);
+  });
+
+  /** The pair is the arrangement, not the two strings that happen to be in it — the whole
+   * point of the control is that both of its labels appear. */
+  it('keeps the pairing after the mode is switched', async () => {
+    const t = await render(<AccountScreen />);
+
+    await pressControl(t, 'Create an account');
+
+    expect(controlsUnder(footerOf(t))).toEqual(['Create account', 'I already have an account']);
+    expect(controlsUnder(scrollOf(t))).toEqual([]);
+  });
+
+  /**
+   * §0.5's floor, **met by the box and not by `hitSlop`** — the combination
+   * `CLEAR_HIT_SLOP`'s own note (FormField.tsx) was written about: an invisible target is
+   * free to point somewhere the ink is not, and one did, 21 dp inward over the word
+   * "carried", so tapping a label cleared the field. This control is a text link in a block
+   * with a full-width button, which is exactly where a compact label stretched by slop gets
+   * reached for.
+   */
+  it('reaches the 48 dp floor with a real box, carrying no slop', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(findControl(t, 'Create an account')?.props.hitSlop).toBeUndefined();
+    const toggle = makeStyles('light').accountSecondaryAction as Record<string, unknown>;
+    expect(toggle.minHeight).toBe(48);
+  });
+
+  /**
+   * **The clearance under the block is still the device's**, and the block being measured is
+   * the one both controls are in — the two halves are one test because either alone is an
+   * arbitrary claim about a number. §10 records this project putting a bottom control under
+   * the device's own chrome and fixing it twice, and M2f added an element BELOW the button
+   * that had that clearance, which is precisely how it would be spent by accident.
+   */
+  it('spends the device’s own bottom inset on the block that holds them', async () => {
+    const footerAt = async (bottom: number) => {
+      const t = await render(
+        <SafeAreaProvider
+          initialMetrics={{ frame: { x: 0, y: 0, width: 402, height: 874 }, insets: { top: 62, left: 0, right: 0, bottom } }}
+        >
+          <AccountScreen />
+        </SafeAreaProvider>,
+      );
+      const footer = footerOf(t);
+      const style = [footer.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+      // LAST wins, not first: RN resolves a style array in order, and `formFooter` carries a
+      // base `paddingBottom` the call site's device value overrides. Reading the first would
+      // report the sheet's own number and conclude the footer ignores the device.
+      const padding = style.reduce<unknown>((acc, s) => (s.paddingBottom !== undefined ? s.paddingBottom : acc), undefined);
+      if (typeof padding !== 'number') throw new Error('the footer composed no paddingBottom');
+      return { padding, controls: controlsUnder(footer) };
+    };
+
+    const onAPhone = await footerAt(34);
+    const onNothing = await footerAt(0);
+
+    // It is the block with both controls in it that stands on the bottom edge — so the toggle
+    // cannot have been moved below the padding that keeps it off the home indicator.
+    expect(onAPhone.controls).toEqual(['Sign in', 'Create an account']);
+    expect(onAPhone.padding).toBeGreaterThan(onNothing.padding);
+    expect(onAPhone.padding).toBeGreaterThanOrEqual(34);
   });
 });

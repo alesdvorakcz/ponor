@@ -36,8 +36,22 @@ const ACTION_LABEL: Record<AuthMode, string> = {
  * The way to the other mode — **named for where it goes, not for where it is**.
  *
  * `mutedControl`'s treatment (theme/styles.ts): a deliberate act that is not the screen's
- * primary one, exactly as *Delete preset* and *Save as preset* are, sitting at the end of the
- * content so it never competes with the action in the footer.
+ * primary one, exactly as *Delete preset* and *Save as preset* are, and muted so it never
+ * competes with the action it sits under.
+ *
+ * **It is paired with that action rather than left at the end of the content** (M2f). What
+ * this control says is *"the button below is the wrong verb for me"*, so it belongs to the
+ * primary action and not to the form — and at the end of the scroll it was attached to
+ * nothing: on an iPhone 17 Pro it sat ~150 pt under the password row with ~400 pt of empty
+ * screen beneath it, and it **centred while every other element on this screen is
+ * left-aligned on the content inset**, which is a second idiom for one control. In the
+ * footer the centring is the button's own — that button is full width and centres its
+ * label — so the two read as one decision instead of two arrangements.
+ *
+ * Found by looking at the running screen, and nothing in this file's tests could have found
+ * it: which sibling a control is rendered under is a layout fact, and a Jest tree has no
+ * layout. The pinning that closed it is therefore about *containment* — the footer holds
+ * both controls and the scroll holds neither (AccountScreen.test.tsx).
  *
  * A muted control rather than a chip row, though §0.6 has chips and this looks like a choice.
  * Two reasons. A chip row is a *field* — "a field is a row, label leading" — and this is not a
@@ -444,8 +458,10 @@ export default function AccountScreen() {
       <BackControl styles={styles} />
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's and Settings'
           own ScrollViews: RN's default spends the first tap dismissing the keyboard, so with
-          the password field open a tap on *Create an account* would do nothing visible and
-          need a second tap. */}
+          the password field open a tap on the *Email* row above it would do nothing visible
+          and need a second tap. It used to be the mode toggle that made the case, which is
+          no longer in here to make it — the rows are, and a diver correcting the address
+          they typed is exactly the gesture that costs two taps without this. */}
       <ScrollView
         style={styles.settingsScroll}
         contentContainerStyle={styles.settingsContent}
@@ -494,6 +510,35 @@ export default function AccountScreen() {
               and lands under the last row of it. */}
           <FieldNote message={noteFor('password')} scheme={scheme} />
         </View>
+      </ScrollView>
+
+      {/* §0.5: the primary action sits in the bottom third — a fixed footer outside the
+          scroll, the dive form's and the preset editor's own arrangement. `insets.bottom` is
+          the one value here that cannot live in a scheme-only stylesheet, and it stays
+          composed onto the footer rather than onto the toggle now standing below the button:
+          the clearance belongs to whatever this block's bottom edge turns out to be, and it
+          is the one number on this screen §10 records the project breaking twice.
+
+          **The first footer in the app with two children in it**, and the second is the
+          mode toggle — see `SWITCH_TO` above for why it is here rather than at the end of
+          the content. It needs no gap of its own: `mutedControl` is a real 48 dp box
+          (§0.5's floor met by geometry, never `hitSlop` — FormField.tsx keeps the account of
+          what an invisible target cost when it was not), so its own centring is what sets
+          the label off the button's bottom edge. */}
+      <View style={[styles.formFooter, { paddingBottom: insets.bottom + 24 }]}>
+        <Pressable
+          style={styles.action}
+          onPress={() => void submit()}
+          // Disabled only while a request is in flight, never for validity: §1's "never block"
+          // binds the control itself, and a refusal here is a sentence next to the rows it is
+          // about rather than a control that does nothing.
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={ACTION_LABEL[mode]}
+          accessibilityState={{ disabled: busy }}
+        >
+          <Text style={styles.actionLabel}>{ACTION_LABEL[mode]}</Text>
+        </Pressable>
 
         <Pressable
           style={styles.accountSecondaryAction}
@@ -510,25 +555,6 @@ export default function AccountScreen() {
           accessibilityState={{ disabled: busy }}
         >
           <Text style={styles.accountSecondaryActionLabel}>{SWITCH_TO[mode]}</Text>
-        </Pressable>
-      </ScrollView>
-
-      {/* §0.5: the primary action sits in the bottom third — a fixed footer outside the
-          scroll, the dive form's and the preset editor's own arrangement. `insets.bottom` is
-          the one value here that cannot live in a scheme-only stylesheet. */}
-      <View style={[styles.formFooter, { paddingBottom: insets.bottom + 24 }]}>
-        <Pressable
-          style={styles.action}
-          onPress={() => void submit()}
-          // Disabled only while a request is in flight, never for validity: §1's "never block"
-          // binds the control itself, and a refusal here is a sentence next to the rows it is
-          // about rather than a control that does nothing.
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={ACTION_LABEL[mode]}
-          accessibilityState={{ disabled: busy }}
-        >
-          <Text style={styles.actionLabel}>{ACTION_LABEL[mode]}</Text>
         </Pressable>
       </View>
     </View>
