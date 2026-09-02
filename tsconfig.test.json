@@ -9,6 +9,7 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "src/db/testDb.ts",
+    "src/testing/migrationSql.ts",
     "src/testing/unexpectedGraphics.ts"
   ],
   // Un-excludes the test files tsconfig.json excludes ("exclude" replaces rather than merges

@@ -1,9 +1,12 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import { is } from 'drizzle-orm';
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
+import {
+  MIGRATIONS_DIR,
+  parseMigrationSql,
+  readMigrations,
+  type ParsedTable,
+} from '../testing/migrationSql';
 import * as localSchema from './schema';
 
 /**
@@ -35,6 +38,11 @@ import * as localSchema from './schema';
  * column that no longer exists fails too. An exception list you have to edit deliberately
  * is the whole point of it.
  *
+ * **The reader itself lives in `src/testing/migrationSql.ts`** (moved there by M2b, when
+ * `src/db/syncRpcParity.test.ts` came to need the same statements). Its own fixtures —
+ * "the SQL reader" below — moved with nothing else changed; a second copy of a parser both
+ * parity checks lean on would be exactly the defect this file exists to name.
+ *
  * ── What this file does NOT prove, stated plainly ──────────────────────────────────────
  *
  * **It does not prove the SQL runs.** No Postgres executes here — the migrations have
@@ -51,247 +59,8 @@ import * as localSchema from './schema';
  */
 
 // ──────────────────────────────────────────────────────────────────────────────────────
-// A deliberately strict SQL reader.
-//
-// A regex that skims for `create table` and shrugs at everything else is the thing the
-// brief warns against, and it fails in the one direction that matters: a column it cannot
-// read is a column it silently reports as absent, and "absent from both sides" is what
-// this file calls agreement. So the reader **throws on anything it does not understand** —
-// an unknown statement, an unreadable column, a comment style it has not been taught. A
-// migration written in a shape this parser has not seen turns the suite red and demands
-// to be taught, which is the correct direction for a check whose whole job is to notice
-// that something changed.
-// ──────────────────────────────────────────────────────────────────────────────────────
-
-interface ParsedColumn {
-  readonly name: string;
-  readonly notNull: boolean;
-  /** Everything after the column name, lowercased — what the type/default assertions read. */
-  readonly definition: string;
-}
-
-interface ParsedTable {
-  readonly name: string;
-  readonly columns: readonly ParsedColumn[];
-}
-
-interface ParsedSql {
-  readonly tables: readonly ParsedTable[];
-  /** Every statement, comments stripped and whitespace collapsed. */
-  readonly statements: readonly string[];
-}
-
-/**
- * Statement heads this schema legitimately contains and that say nothing about a column
- * set. Anything not on this list throws — including `alter table ... add column`, which is
- * exactly the shape a future migration would drift through, and which this parser must be
- * taught to fold into the column set before it can be used.
- */
-const IGNORED_STATEMENT_HEADS = [
-  'set ',
-  'create schema ',
-  'create extension ',
-  'create index ',
-  'create unique index ',
-  'create policy ',
-  'drop policy ',
-  // Two heads are ignored here **so that the assertions below can be the thing that
-  // rejects them**, rather than the parser throwing first. A guarantee whose violation
-  // never reaches its own assertion is an assertion that can never fail — this project's
-  // most-repeated defect, and it was in this file until it was mutation-tested. A trigger
-  // and an enum type both parse cleanly now and are refused by name, under "the guarantees
-  // the SQL text carries".
-  'create trigger ',
-  'create or replace trigger ',
-  'create type ',
-  'create or replace function ',
-  'create function ',
-  'grant ',
-  'revoke ',
-  'comment on ',
-];
-
-/** The only `alter table` forms that are not a column-set change. */
-const ALLOWED_ALTER_TABLE = /^alter table \S+ (enable|disable|force|no force) row level security$/;
-
-/**
- * Strips `--` comments and splits on `;`, both **outside** string and dollar-quoted
- * literals. The quote-awareness is not decoration: `'[]'::jsonb` and the `$$ … $$` bodies
- * the sync RPCs will arrive as in the next task both contain characters that a naive split
- * would cut a statement in half on.
- */
-function splitStatements(sql: string): string[] {
-  const statements: string[] = [];
-  let current = '';
-  let index = 0;
-
-  while (index < sql.length) {
-    const rest = sql.slice(index);
-
-    // A dollar-quoted body ($$ … $$ or $tag$ … $tag$) is copied through whole.
-    const dollar = /^\$[A-Za-z_]*\$/.exec(rest);
-    if (dollar) {
-      const tag = dollar[0];
-      const end = sql.indexOf(tag, index + tag.length);
-      if (end === -1) throw new Error(`Unterminated dollar-quoted string opened with ${tag}`);
-      current += sql.slice(index, end + tag.length);
-      index = end + tag.length;
-      continue;
-    }
-
-    const char = sql[index];
-
-    if (char === "'") {
-      const end = sql.indexOf("'", index + 1);
-      if (end === -1) throw new Error('Unterminated string literal');
-      current += sql.slice(index, end + 1);
-      index = end + 1;
-      continue;
-    }
-
-    if (char === '"') {
-      const end = sql.indexOf('"', index + 1);
-      if (end === -1) throw new Error('Unterminated quoted identifier');
-      current += sql.slice(index, end + 1);
-      index = end + 1;
-      continue;
-    }
-
-    if (rest.startsWith('--')) {
-      const newline = sql.indexOf('\n', index);
-      index = newline === -1 ? sql.length : newline;
-      continue;
-    }
-
-    if (rest.startsWith('/*')) {
-      throw new Error('Block comments are not supported by the schema-parity parser');
-    }
-
-    if (char === ';') {
-      statements.push(current);
-      current = '';
-      index += 1;
-      continue;
-    }
-
-    current += char;
-    index += 1;
-  }
-
-  if (current.trim() !== '') throw new Error(`Trailing SQL with no terminating ";": ${current.trim()}`);
-
-  return statements.map((statement) => statement.replace(/\s+/g, ' ').trim()).filter((s) => s !== '');
-}
-
-/** Splits a `create table` body on commas at paren depth 0 — `geography(Point, 4326)` stays whole. */
-function splitColumnDefinitions(body: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let depth = 0;
-
-  for (const char of body) {
-    if (char === '(') depth += 1;
-    if (char === ')') depth -= 1;
-    if (char === ',' && depth === 0) {
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-  parts.push(current);
-
-  return parts.map((part) => part.trim()).filter((part) => part !== '');
-}
-
-/** Table-level constraints, which are not columns and must not be counted as one. */
-const TABLE_CONSTRAINT_HEADS = /^(constraint|primary key|foreign key|unique|check|exclude|like)\b/;
-
-const COLUMN_NAME = /^("?)([a-z_][a-z0-9_]*)\1\s+(.+)$/is;
-
-function parseCreateTable(statement: string): ParsedTable {
-  const header = /^create table (?:if not exists )?(?:public\.)?("?)([a-z_][a-z0-9_]*)\1 \(/i.exec(statement);
-  const tableName = header?.[2];
-  if (tableName === undefined) throw new Error(`Unreadable create table header: ${statement.slice(0, 80)}`);
-
-  const open = statement.indexOf('(');
-  const close = statement.lastIndexOf(')');
-  if (close <= open) throw new Error(`Unbalanced parentheses in: ${statement.slice(0, 80)}`);
-
-  const columns: ParsedColumn[] = [];
-  for (const definition of splitColumnDefinitions(statement.slice(open + 1, close))) {
-    if (TABLE_CONSTRAINT_HEADS.test(definition.toLowerCase())) continue;
-
-    const match = COLUMN_NAME.exec(definition);
-    const name = match?.[2];
-    const remainder = match?.[3];
-    if (name === undefined || remainder === undefined) {
-      throw new Error(`Unreadable column definition: ${definition}`);
-    }
-
-    const rest = remainder.toLowerCase();
-    columns.push({
-      name: name.toLowerCase(),
-      // A primary key is NOT NULL in Postgres whether or not the words are written, and
-      // Drizzle reports the SQLite side the same way — so reading only `not null` here
-      // would report every `id` column as a mismatch and teach the next reader to loosen
-      // the comparison.
-      notNull: /\bnot\s+null\b/.test(rest) || /\bprimary\s+key\b/.test(rest),
-      definition: rest,
-    });
-  }
-
-  if (columns.length === 0) throw new Error(`No columns parsed from: ${statement.slice(0, 80)}`);
-
-  return { name: tableName.toLowerCase(), columns };
-}
-
-export function parseMigrationSql(sql: string): ParsedSql {
-  const statements = splitStatements(sql);
-  const tables: ParsedTable[] = [];
-
-  for (const statement of statements) {
-    const lower = statement.toLowerCase();
-
-    if (/^create table\b/.test(lower)) {
-      tables.push(parseCreateTable(statement));
-      continue;
-    }
-    if (/^alter table\b/.test(lower)) {
-      if (ALLOWED_ALTER_TABLE.test(lower)) continue;
-      throw new Error(`alter table form the parity parser has not been taught: ${statement}`);
-    }
-    if (IGNORED_STATEMENT_HEADS.some((head) => lower.startsWith(head))) continue;
-
-    throw new Error(`Statement the parity parser has not been taught: ${statement.slice(0, 120)}`);
-  }
-
-  return { tables, statements };
-}
-
-// ──────────────────────────────────────────────────────────────────────────────────────
 // The two sides, each read from its own source.
 // ──────────────────────────────────────────────────────────────────────────────────────
-
-const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'supabase', 'migrations');
-
-function readMigrations(): ParsedSql {
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((file) => file.endsWith('.sql'))
-    .sort();
-
-  if (files.length === 0) throw new Error(`No .sql files in ${MIGRATIONS_DIR}`);
-
-  const tables: ParsedTable[] = [];
-  const statements: string[] = [];
-  for (const file of files) {
-    const parsed = parseMigrationSql(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
-    tables.push(...parsed.tables);
-    statements.push(...parsed.statements);
-  }
-  return { tables, statements };
-}
 
 const postgres = readMigrations();
 const postgresTable = (name: string): ParsedTable => {
@@ -587,8 +356,14 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     // DELETE has no legitimate client caller. Guarded twice because it is the one failure
     // here that cannot be undone: no policy permits it, and the privilege is not granted.
     const grants = postgres.statements.filter((statement) => /^grant\b/i.test(statement));
-    expect(grants.length).toBe(allTables.length);
+    // Counted over TABLE grants alone. M2b's sync RPCs add `grant execute on function`
+    // lines, which are a different object and are counted by src/db/syncRpcParity.test.ts;
+    // an exact count over every `grant` in the tree would have turned red on a statement
+    // that has nothing to do with hard-deleting a row. The DELETE sweep below stays over
+    // ALL of them, because a `grant delete` anywhere is the thing being refused.
+    expect(grants.filter((statement) => /\bon table\b/i.test(statement)).length).toBe(allTables.length);
     expect(grants.filter((statement) => /\bdelete\b/i.test(statement))).toEqual([]);
+    expect(grants.filter((statement) => /\ball\b/i.test(statement))).toEqual([]);
 
     const policies = postgres.statements.filter((statement) => /^create policy\b/i.test(statement));
     expect(policies.filter((statement) => /\bfor delete\b/i.test(statement))).toEqual([]);
