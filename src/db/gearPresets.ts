@@ -5,7 +5,15 @@ import { sameTanks } from '../domain/diveFormSchema';
 import { newId } from '../domain/ids';
 import { comparePresets } from '../domain/presets';
 import type { GearPreset } from '../domain/types';
-import { clearDirtyFlags, pendingRows, stampLocalWrite, type PushedRow } from './dirty';
+import {
+  applyPulledRows,
+  clearDirtyFlags,
+  countPendingRows,
+  flagAllRows,
+  pendingRows,
+  stampLocalWrite,
+  type PushedRow,
+} from './dirty';
 import { gearPresets } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -317,4 +325,39 @@ export async function clearGearPresetDirtyFlags(
   pushed: readonly PushedRow[],
 ): Promise<string[]> {
   return clearDirtyFlags(db, gearPresets, pushed);
+}
+
+/** How many presets this device still owes the server — `countPendingRows` (db/dirty.ts). */
+export async function countPendingGearPresets(db: Db): Promise<number> {
+  return countPendingRows(db, gearPresets);
+}
+
+/** A preset as `pull_changes` hands it over — `PulledDive` (db/dives.ts) for why the flag is
+ * missing from the type rather than merely unset. */
+export type PulledGearPreset = Omit<GearPreset, 'dirty'>;
+
+/**
+ * Writes presets the server sent, clean, and only where they may safely replace what is here —
+ * `applyPulledRows` (db/dirty.ts) is the rule.
+ */
+export async function applyPulledGearPresets(
+  db: Db,
+  rows: readonly PulledGearPreset[],
+): Promise<string[]> {
+  return applyPulledRows(db, gearPresets, rows);
+}
+
+/**
+ * §7.4's adoption, for presets — `flagAllRows` (db/dirty.ts) is the rule, and `adoptDives`
+ * (db/dives.ts) carries the reasoning. Nothing is counted here: §7.4's sentence names dives,
+ * and `cloud/localLogbook.ts`'s `adopt` says why that number is deliberately a subset.
+ */
+export async function adoptGearPresets(db: Db): Promise<void> {
+  await flagAllRows(db, gearPresets);
+}
+
+/** §7.4's sign-out erase, for presets — `wipeDives` (db/dives.ts) carries the reasoning,
+ * including why this is a hard delete where `softDeleteGearPreset` is a tombstone. */
+export async function wipeGearPresets(db: Db): Promise<void> {
+  await db.delete(gearPresets);
 }

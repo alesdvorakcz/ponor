@@ -3,7 +3,15 @@ import { storedCalendarDate, storedTimeOfDay } from '../domain/datetime';
 import { compareDiveOrder } from '../domain/diveNumber';
 import { newId } from '../domain/ids';
 import type { Dive } from '../domain/types';
-import { clearDirtyFlags, pendingRows, stampLocalWrite, type PushedRow } from './dirty';
+import {
+  applyPulledRows,
+  clearDirtyFlags,
+  countPendingRows,
+  flagAllRows,
+  pendingRows,
+  stampLocalWrite,
+  type PushedRow,
+} from './dirty';
 import { dives } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -606,4 +614,67 @@ export async function pendingDives(db: Db): Promise<Dive[]> {
  */
 export async function clearDiveDirtyFlags(db: Db, pushed: readonly PushedRow[]): Promise<string[]> {
   return clearDirtyFlags(db, dives, pushed);
+}
+
+/** How many dives this device still owes the server — `countPendingRows` (db/dirty.ts). */
+export async function countPendingDives(db: Db): Promise<number> {
+  return countPendingRows(db, dives);
+}
+
+/**
+ * A dive as `pull_changes` hands it over: everything the row has **except the flag**, which is
+ * not the server's to have an opinion about. `PulledSite` (db/catalogue.ts) is the same type
+ * for the same reason — the type is the guarantee, because a pulled row that could say
+ * `dirty: true` would push itself back on the next cycle and never stop.
+ */
+export type PulledDive = Omit<Dive, 'dirty'>;
+
+/**
+ * Writes dives the server sent, clean, and only where they may safely replace what is here —
+ * `applyPulledRows` (db/dirty.ts) is the rule and carries the three reasons it exists.
+ *
+ * The one dive-shaped thing worth saying here: this is the only write in this file that does
+ * **not** go through `withoutImmutableFields`, and that is the point of it rather than an
+ * oversight. `createdAt` is immutable *to a caller of this app* because §2.5 orders same-day
+ * untimed dives by it; the server is not a caller, it is where that value came back from, and
+ * `push_changes` is written never to regenerate it (M2b, rule 2). A pulled row that dropped
+ * `created_at` would silently reorder a diver's day on the second device.
+ */
+export async function applyPulledDives(db: Db, rows: readonly PulledDive[]): Promise<string[]> {
+  return applyPulledRows(db, dives, rows);
+}
+
+/**
+ * §7.4's adoption: flags every dive on this phone for the next push and reports **how many of
+ * them a diver would count** — live dives, tombstones excluded.
+ *
+ * The two halves differ on purpose and both are §7. The *flagging* takes every row, because a
+ * deletion travels as a row (`flagAllRows`, db/dirty.ts). The *count* is what §7.4 puts on
+ * screen — "4 dives from this phone were added to your logbook" — and a diver who deleted two
+ * dives last week does not count them, so the number is taken from `liveDives`, the same
+ * filter every read of this table applies.
+ */
+export async function adoptDives(db: Db): Promise<number> {
+  await flagAllRows(db, dives);
+  const live = await db.select({ id: dives.id }).from(dives).where(liveDives);
+  return live.length;
+}
+
+/**
+ * §7.4's sign-out erase: "signing out wipes the local logbook… it is the one destructive
+ * action in v1."
+ *
+ * A hard `delete` and not a tombstone, which is the opposite of `softDeleteDive` two functions
+ * up and is not a contradiction: a tombstone is how this device tells the *server* a dive is
+ * gone, and these dives are not gone — they are in the account, which is the whole basis of
+ * the sentence the diver just read. Tombstoning them here would push a deletion for every dive
+ * in the logbook on the next sign-in.
+ *
+ * **Nothing here checks whether those rows ever reached the server.** That gate is
+ * `cloud/localLogbook.ts`'s, one layer up and stated once, because it is a fact about the
+ * whole device rather than about this table: a wipe that ran per-table with a per-table check
+ * would erase the dives of a diver whose *presets* had not gone up.
+ */
+export async function wipeDives(db: Db): Promise<void> {
+  await db.delete(dives);
 }

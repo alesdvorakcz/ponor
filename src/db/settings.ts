@@ -321,3 +321,20 @@ export async function setUnitSystem(db: Db, system: UnitSystem): Promise<void> {
     .values({ key: UNITS_KEY, value: system })
     .onConflictDoUpdate({ target: settings.key, set: { value: system } });
 }
+
+/**
+ * Forgets the pre-Ponor dive count — the **one** settings key §7.4's sign-out takes with it.
+ *
+ * §7.4: "`settings` **stays** — units, locale and the form-group memory are things this diver
+ * set on this device and re-asking would be hostile — with `dives_before` the one exception,
+ * because §6 syncs it to the profile and leaving it would hand the next account a wrong
+ * pre-Ponor number that shifts every dive number after it."
+ *
+ * So this is a `where key = 'dives_before'` and never a `delete from settings`, and it lives
+ * here because `DIVES_BEFORE_KEY` does: a sign-out that spelled the key itself would be the
+ * second key/value path §4.1 names as this table's defining defect, and it would be spelled in
+ * the one file that never reads it back.
+ */
+export async function forgetDivesBefore(db: Db): Promise<void> {
+  await db.delete(settings).where(eq(settings.key, DIVES_BEFORE_KEY));
+}

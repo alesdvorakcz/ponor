@@ -32,8 +32,9 @@ import type { Db } from './types';
  * left behind belongs to the account that left, and the next account's first pull would start
  * from a moment it has never seen — so every row changed before it is skipped, on that device,
  * for ever. Losing the watermark costs one full pull; keeping somebody else's costs the
- * logbook. There is no sign-out path in the repository yet, which is why this is a sentence
- * rather than a test.
+ * logbook. M2d wrote that as a sentence because there was no sign-out path to attach it to;
+ * `forgetLastPulledAt` at the bottom of this file is that sentence with a caller
+ * (`cloud/localLogbook.ts`) and a test.
  */
 
 /**
@@ -109,4 +110,22 @@ export async function recordPull(db: Db, serverTimestamp: string): Promise<void>
     .insert(syncState)
     .values({ id: SYNC_STATE_ROW, lastPulledAt: value })
     .onConflictDoUpdate({ target: syncState.id, set: { lastPulledAt: value } });
+}
+
+/**
+ * Forgets the watermark — §7.4's sign-out, and the obligation this module's docblock has
+ * carried since M2d as a sentence with nothing to enforce it.
+ *
+ * "A watermark left behind belongs to the account that left, and the next account's first pull
+ * would start from a moment it has never seen — so every row changed before it is skipped, on
+ * that device, for ever. Losing the watermark costs one full pull; keeping somebody else's
+ * costs the logbook." There is a sign-out path in the repository now (`cloud/localLogbook.ts`),
+ * so it is a function.
+ *
+ * Deletes the row rather than writing an empty string into it, for `recordPull`'s reason: an
+ * empty value and no row are the same fact, and storing the first would be a second way to say
+ * the second.
+ */
+export async function forgetLastPulledAt(db: Db): Promise<void> {
+  await db.delete(syncState);
 }

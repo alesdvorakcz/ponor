@@ -23,6 +23,7 @@ import {
   SIGN_UP_FAILED,
   SIGNUP_DISABLED,
   TOO_MANY_TRIES,
+  UNPUSHED_CHANGES,
   WIPE_FAILED,
   type AuthMode,
 } from './auth';
@@ -68,7 +69,7 @@ function fakeClient(): { client: SupabaseClient; auth: FakeAuth } {
  * asserted rather than inferred from a result. */
 function wiredLogbook(over: { adopt?: jest.Mock; wipe?: jest.Mock } = {}) {
   const adopt = over.adopt ?? jest.fn().mockResolvedValue(0);
-  const wipe = over.wipe ?? jest.fn().mockResolvedValue(undefined);
+  const wipe = over.wipe ?? jest.fn().mockResolvedValue({ done: true });
   const logbook: LocalLogbook = { wired: true, adopt, wipe };
   return { logbook, adopt, wipe };
 }
@@ -424,6 +425,7 @@ describe('endSession', () => {
     const { logbook } = wiredLogbook({
       wipe: jest.fn().mockImplementation(async () => {
         order.push('wipe');
+        return { done: true };
       }),
     });
 
@@ -446,9 +448,11 @@ describe('endSession', () => {
   });
 
   /**
-   * The refusal this build actually shows, because the seam is not wired (`localLogbook.ts`).
-   * The assertion that matters is the second one: signing out without wiping would leave the
-   * device holding a logbook that the confirmation dialog had just promised to remove.
+   * The refusal for a build whose seam is not wired (`localLogbook.ts`). The shipped seam is
+   * wired from M2g, so this arm is now unreachable through the app and is kept for the same
+   * reason `SIGN_OUT_UNAVAILABLE` is: the assertion that matters is the second one, and signing
+   * out without wiping would leave the device holding a logbook that the confirmation dialog
+   * had just promised to remove.
    */
   it('refuses to sign out at all when the device cannot be wiped yet', async () => {
     const { client, auth } = fakeClient();
@@ -484,18 +488,46 @@ describe('endSession', () => {
 
     await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: SIGN_OUT_FAILED });
   });
+
+  /**
+   * §7.4's wipe refusing because this phone is still holding rows the account has not received
+   * (`cloud/localLogbook.ts`). **It is not a failure**, and the two things it must not do are
+   * both here: it must not end the session, and it must not be reported with `WIPE_FAILED`,
+   * whose sentence says the erase was attempted and could not be done.
+   */
+  it('keeps the session and says why when the device still owes the server', async () => {
+    const { client, auth } = fakeClient();
+    const { logbook } = wiredLogbook({ wipe: jest.fn().mockResolvedValue({ done: false, pending: 3 }) });
+
+    await expect(endSession(client, logbook)).resolves.toEqual({
+      ok: false,
+      message: UNPUSHED_CHANGES,
+    });
+    expect(auth.signOut).not.toHaveBeenCalled();
+  });
+
+  /** The two refusals are different sentences, because they ask the diver for different things:
+   * one is "connect and try again", the other is "this did not work". A single message for both
+   * would tell a diver at sea that their phone is broken. */
+  it('tells a refusal apart from a failed erase', async () => {
+    expect(UNPUSHED_CHANGES).not.toBe(WIPE_FAILED);
+    expect(UNPUSHED_CHANGES).not.toBe(SIGN_OUT_FAILED);
+    expect(UNPUSHED_CHANGES).not.toBe(SIGN_OUT_UNAVAILABLE);
+  });
 });
 
 /**
  * The state of the seam this build actually ships with, asserted rather than assumed — every
- * behaviour above that says "not wired" is a claim about the app only while this holds.
+ * behaviour above is a claim about the app only while this holds.
  *
- * **This test is meant to be deleted by whoever wires it**, together with the arm it pins. It
- * is here because the alternative is a suite that would go on passing, unchanged and
- * meaningless, after the one edit that matters.
+ * M2e wrote this test the other way round (`wired` was `false`, and the test said out loud that
+ * it was "meant to be deleted by whoever wires it"). M2g wired it, so the assertion turns over
+ * rather than going away: `endSession`'s `SIGN_OUT_UNAVAILABLE` arm is now unreachable through
+ * the app, and if this ever flipped back, that is the sentence a diver would meet at the one
+ * control §7.4 calls destructive.
  */
 describe('the shipped local-logbook seam', () => {
-  it('is not wired, so the app in this tree signs in and refuses to sign out', () => {
-    expect(localLogbook.wired).toBe(false);
+  it('is wired, so the app in this tree really erases on sign-out', () => {
+    expect(localLogbook.wired).toBe(true);
   });
 });

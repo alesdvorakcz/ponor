@@ -247,19 +247,44 @@ describe('applying what a pull returned (§7.2)', () => {
     expect(stored?.dirty).toBe(true);
   });
 
-  it('takes a newer server row over a local one, flag included', async () => {
-    // The other half of §7's whole-row last-write-wins: the newer row wins, and once it has,
-    // there is nothing left on this device to send.
+  it('takes a newer server row over an older clean one, flag included', async () => {
+    // The other half of §7's whole-row last-write-wins, on the rows it applies to: a row this
+    // device has nothing outstanding on takes whatever the server last said.
+    await applyPulledDiveSites(db, [site({ name: 'Shark Point', updatedAt: '2026-01-01T00:00:00.000Z' })]);
+
+    const written = await applyPulledDiveSites(db, [
+      site({ name: 'Shark Point (canonical)', updatedAt: '2099-01-01T00:00:00.000Z' }),
+    ]);
+
+    expect(written).toEqual(['site-1']);
+    const stored = await storedSite('site-1');
+    expect(stored?.name).toBe('Shark Point (canonical)');
+    expect(stored?.dirty).toBe(false);
+  });
+
+  it('leaves a row this device still owes the server alone, however new the server’s copy is', async () => {
+    // **M2g changed this case, and M2d's own test asserted the opposite** — that a newer server
+    // row wins over a dirty local one and clears its flag. It was right about the rule §7 states
+    // and wrong about what produces the comparison, which is a difference push made real:
+    // `push_changes` restamps `updated_at` with the SERVER's clock, so the server's echo of a
+    // row can carry a later timestamp than an edit made on this phone after the push went out —
+    // purely because phones run behind. Under the old rule that echo wins, and the diver's edit
+    // is gone with the flag that would have sent it. There is no second author in that story at
+    // all; it is one device losing to itself.
+    //
+    // So a dirty row is left alone until it has gone up, and the server resolves the conflict on
+    // the next push, which is where §7 puts that decision. `clearDirtyFlags` protects the flag
+    // through a push; this protects the row it points at.
     const created = await createDiveSite(db, { name: 'Shark Point' });
 
     const written = await applyPulledDiveSites(db, [
-      site({ id: created.id, name: 'Shark Point (canonical)', updatedAt: '2099-01-01T00:00:00.000Z' }),
+      site({ id: created.id, name: 'Server echo', updatedAt: '2099-01-01T00:00:00.000Z' }),
     ]);
 
-    expect(written).toEqual([created.id]);
+    expect(written).toEqual([]);
     const stored = await storedSite(created.id);
-    expect(stored?.name).toBe('Shark Point (canonical)');
-    expect(stored?.dirty).toBe(false);
+    expect(stored?.name).toBe('Shark Point');
+    expect(stored?.dirty).toBe(true);
   });
 
   it('compares the timestamps as strings, in the ISO-Z spelling §7 makes the RPCs return', async () => {

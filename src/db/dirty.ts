@@ -1,4 +1,4 @@
-import { and, eq, or, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, or, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { Db } from './types';
 
@@ -11,6 +11,13 @@ import type { Db } from './types';
  * and returns canonical rows … the client clears its flags". The first clause is
  * `stampLocalWrite` below, the third is `clearDirtyFlags`, and the second belongs to the
  * server. Nothing here talks to one.
+ *
+ * M2g added the three other ways the flag legitimately moves, each of them §7 as well:
+ * `flagAllRows` is §7.4's adoption ("every local row is marked dirty and pushed"),
+ * `applyPulledRows` is §7.2's upsert (a row that came down is a row that does not have to go
+ * up), and `countPendingRows` is what §7.4's wipe is gated on. They are here rather than
+ * copied into three repositories for this file's whole reason: the rules are identical on all
+ * four synced tables, and the copy that got one wrong would be the one nobody looked at.
  *
  * **Every failure this file exists to prevent is silent.** A write that forgets the flag is a
  * row that never reaches the server and raises nothing, on one device, possibly for months. A
@@ -30,6 +37,16 @@ export type PushableTable = SQLiteTable & {
   readonly updatedAt: SQLiteColumn;
   readonly dirty: SQLiteColumn;
 };
+
+/**
+ * The two property keys `applyPulledRows` reasons about by name, tied to the type so that
+ * renaming either on `PushableTable` is a compile error rather than a sweep that quietly
+ * stops excluding anything. `schema.ts`'s `DIRTY_COLUMN` is the *SQL* name of the same flag
+ * and is a different fact — that one is what must never appear in a payload; this one is what
+ * must never be taken from `excluded`.
+ */
+const ID_KEY = 'id' satisfies keyof PushableTable;
+const DIRTY_KEY = 'dirty' satisfies keyof PushableTable;
 
 /**
  * **The stamp every local write carries: the clock and the flag, produced together.**
@@ -111,4 +128,113 @@ export async function clearDirtyFlags(
     .returning({ id: table.id });
 
   return cleared.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
+}
+
+/**
+ * Flags **every** row of a table, tombstones included — DESIGN.md §7.4's adoption: "on first
+ * sign-in, every local row is marked dirty and pushed". Returns the ids it flagged.
+ *
+ * **It sets the flag and nothing else, and that is the whole of it.** No `stampLocalWrite`
+ * here, deliberately: adoption changes no dive, so advancing `updated_at` would be this
+ * device claiming a write it did not make, and §6's last-write-wins would then let it beat a
+ * genuine edit made on the diver's other phone a moment earlier. §7.4 says the same thing
+ * from the other end — "nothing on the client changes at sign-in but the dirty flags".
+ *
+ * Tombstoned rows are flagged too, for `pendingRows`' reason: a deletion travels as a row, so
+ * an adoption that skipped the tombstones would hand the account a logbook containing dives
+ * the diver had already thrown away.
+ */
+export async function flagAllRows(db: Db, table: PushableTable): Promise<string[]> {
+  const flagged = await db
+    .update(table)
+    .set({ dirty: true } as Record<string, unknown>)
+    .returning({ id: table.id });
+  return flagged.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
+}
+
+/**
+ * How many rows of this table the server has not acknowledged yet.
+ *
+ * **This is the question the wipe is gated on** (`cloud/localLogbook.ts`), which is why it is
+ * a read of the database and not a number a push handed back. §7.4 promises a diver that
+ * their logbook "stays in your account, and signing back in brings it back", and that is true
+ * of a pushed row and false of a dirty one — so the erase has to be able to *check*, from the
+ * rows themselves, rather than to trust a caller's account of what it sent. A push that threw,
+ * a push that half-succeeded and a push that was never attempted all read the same here.
+ *
+ * The same condition `pendingRows` builds, counted rather than selected, so the gate and the
+ * push set can never disagree about what "still owed" means.
+ */
+export async function countPendingRows(db: Db, table: PushableTable): Promise<number> {
+  const rows = await db.select({ id: table.id }).from(table).where(pendingRows(table));
+  return rows.length;
+}
+
+/**
+ * Writes rows the server sent, **clean**, and only where they may safely replace what is here.
+ *
+ * Lifted out of `db/catalogue.ts` in M2g, unchanged in intent and with one condition added
+ * (see 3 below): `dives` and `gear_presets` need exactly this and the copy that got it wrong
+ * would be the one nobody looked at (§4.1). The three tables' owners keep the named wrappers.
+ *
+ * Three rules, all of them §7.2's ("the client upserts by comparing `updated_at`"), and every
+ * one of them silent when wrong:
+ *
+ * 1. **Never dirty.** A pulled row that arrived flagged would push itself straight back on the
+ *    next sync, ask the server to restamp `updated_at`, and hand the conflict to whichever
+ *    device echoed last — for ever, because every echo re-arms it. The flag is written here,
+ *    from types (`PulledDive`, `PulledSite`, …) that cannot carry one.
+ * 2. **Only if newer.** An older row must not overwrite a newer one. The comparison is
+ *    `excluded.updated_at > <table>.updated_at`, a plain string comparison in the ISO-Z
+ *    spelling §7 makes the RPCs return (M2a): the client's own `toISOString()` shape, so the
+ *    two sides sort together. Both sides of it are read off the table's own column rather than
+ *    spelled here, so a renamed column cannot leave this comparing something else.
+ * 3. **Never over a row this device still owes the server** (M2g). This is the one that was
+ *    missing, and the case is not exotic — it is the ordinary one. `push_changes` restamps
+ *    `updated_at` with the *server's* clock, so the server's echo of a row can carry a later
+ *    timestamp than a local edit made after the push went out, purely because the phone's
+ *    clock runs behind. Rule 2 alone would then let that echo win, silently dropping an edit
+ *    that exists nowhere else — the very edit `clearDirtyFlags` just went to the trouble of
+ *    keeping flagged. A dirty row is therefore left alone until it has gone up; the next push
+ *    sends it and the server resolves the conflict, which is where §7 puts that decision.
+ *
+ * **The update set is derived from the table's own columns**, never listed here. §10 records
+ * why in M2b's words — "a helper is only a single owner if its output cannot lose a column" —
+ * and the failure a hand-written list produces is a column that quietly stops being updated by
+ * pulls: it would arrive on first insert, look right, and then never change again.
+ *
+ * Returns the ids actually written, so a caller can tell what landed rather than assume its
+ * own list did. (A very large catalogue should be handed over in batches: §9's web-spike note
+ * puts a 1 MiB ceiling on a single synchronous result in the browser.)
+ */
+export async function applyPulledRows(
+  db: Db,
+  table: PushableTable,
+  rows: readonly Record<string, unknown>[],
+): Promise<string[]> {
+  if (rows.length === 0) return [];
+
+  const columns = getTableColumns(table);
+  const fromServer = Object.entries(columns)
+    .filter(([key]) => key !== ID_KEY && key !== DIRTY_KEY)
+    .map(([key, column]) => [key, sql.raw(`excluded.${column.name}`)] as const);
+  const set: Record<string, unknown> = Object.fromEntries(fromServer);
+  // Not from `excluded`: the server has no flag to send, and this is rule 1 — a row that came
+  // down is a row that does not have to go up.
+  set[DIRTY_KEY] = false;
+
+  const written = await db
+    .insert(table)
+    .values(rows.map((row) => ({ ...row, [DIRTY_KEY]: false })))
+    .onConflictDoUpdate({
+      target: table.id,
+      set,
+      setWhere: and(
+        sql`${sql.raw(`excluded.${table.updatedAt.name}`)} > ${table.updatedAt}`,
+        eq(table.dirty, false),
+      ),
+    })
+    .returning({ id: table.id });
+
+  return written.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
 }

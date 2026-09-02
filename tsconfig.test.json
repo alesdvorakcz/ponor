@@ -9,6 +9,7 @@
     "**/*.test.ts",
     "**/*.test.tsx",
     "src/db/testDb.ts",
+    "src/testing/fakeSyncServer.ts",
     "src/testing/migrationSql.ts",
     "src/testing/unexpectedGraphics.ts"
   ],

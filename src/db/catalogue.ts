@@ -1,9 +1,18 @@
-import { and, eq, getTableColumns, sql, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { newId } from '../domain/ids';
 import { ACTIVE_CATALOGUE_STATUS, type DiveCenter, type DiveSite } from '../domain/types';
-import { clearDirtyFlags, pendingRows, stampLocalWrite, type PushableTable, type PushedRow } from './dirty';
+import {
+  applyPulledRows,
+  clearDirtyFlags,
+  countPendingRows,
+  flagAllRows,
+  pendingRows,
+  stampLocalWrite,
+  type PushableTable,
+  type PushedRow,
+} from './dirty';
 import { diveCenters, diveSites } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -217,65 +226,16 @@ export async function createDiveCenter(db: Db, input: NewDiveCenterInput): Promi
 // ──────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Writes rows the server sent, **clean**, and only where they are newer than what is already
- * here.
- *
- * Two rules, both of them §7.2's ("the client upserts by comparing `updated_at`"), and both
- * of them silent when wrong:
- *
- * 1. **Never dirty.** A pulled row that arrived flagged would push itself straight back on
- *    the next sync, ask the server to restamp `updated_at`, and hand the conflict to whichever
- *    device echoed last. The flag is written here, from a type that cannot carry one.
- * 2. **Only if newer.** An older row must not overwrite a newer one — which includes not
- *    overwriting a *locally edited* one with a stale echo of itself, and would silently drop
- *    the diver's edit if it did. The comparison is `excluded.updated_at > <table>.updated_at`,
- *    a plain string comparison in the ISO-Z spelling §7 makes the RPCs return (M2a): the
- *    client's own `toISOString()` shape, so the two sides sort together.
- *
- * **The update set is derived from the table's own columns**, never listed here. §10 records
- * why in M2b's words — "a helper is only a single owner if its output cannot lose a column" —
- * and the failure a hand-written list produces is a column that quietly stops being updated by
- * pulls: it would arrive on first insert, look right, and then never change again.
- *
- * Returns the ids actually written, so a caller can tell what landed rather than assume its
- * own list did. (A very large catalogue should be handed over in batches: §9's web-spike note
- * puts a 1 MiB ceiling on a single synchronous result in the browser.)
+ * Writes rows the server sent, **clean**, and only where they may safely replace what is here
+ * — `applyPulledRows` (db/dirty.ts) is the rule and carries the three reasons. It lived here
+ * until M2g, and moved when `dives` and `gear_presets` turned out to need exactly it.
  */
-async function applyPulled(
-  db: Db,
-  table: CatalogueTable,
-  rows: readonly Record<string, unknown>[],
-): Promise<string[]> {
-  if (rows.length === 0) return [];
-
-  const columns = getTableColumns(table);
-  const fromServer = Object.entries(columns)
-    .filter(([key]) => key !== 'id' && key !== 'dirty')
-    .map(([key, column]) => [key, sql.raw(`excluded.${column.name}`)] as const);
-  const set: Record<string, unknown> = Object.fromEntries(fromServer);
-  // Not from `excluded`: the server has no flag to send, and this is the rule — a row that
-  // came down is a row that does not have to go up.
-  set.dirty = false;
-
-  const written = await db
-    .insert(table)
-    .values(rows.map((row) => ({ ...row, dirty: false })))
-    .onConflictDoUpdate({
-      target: table.id,
-      set,
-      setWhere: sql`excluded.updated_at > ${table.updatedAt}`,
-    })
-    .returning({ id: table.id });
-
-  return written.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
-}
-
 export async function applyPulledDiveSites(db: Db, rows: readonly PulledSite[]): Promise<string[]> {
-  return applyPulled(db, diveSites, rows);
+  return applyPulledRows(db, diveSites, rows);
 }
 
 export async function applyPulledDiveCenters(db: Db, rows: readonly PulledCenter[]): Promise<string[]> {
-  return applyPulled(db, diveCenters, rows);
+  return applyPulledRows(db, diveCenters, rows);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -303,4 +263,56 @@ export async function clearDiveSiteDirtyFlags(db: Db, pushed: readonly PushedRow
 
 export async function clearDiveCenterDirtyFlags(db: Db, pushed: readonly PushedRow[]): Promise<string[]> {
   return clearDirtyFlags(db, diveCenters, pushed);
+}
+
+/** How many sites this device still owes the server — `countPendingRows` (db/dirty.ts). */
+export async function countPendingDiveSites(db: Db): Promise<number> {
+  return countPendingRows(db, diveSites);
+}
+
+export async function countPendingDiveCenters(db: Db): Promise<number> {
+  return countPendingRows(db, diveCenters);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────
+// What an account arriving and an account leaving do to this table (§7.4)
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * §7.4's adoption, for the catalogue — `flagAllRows` (db/dirty.ts) is the rule.
+ *
+ * Sites and centres are adopted along with everything else and are **not counted**: §7.4's
+ * sentence is about dives, and `cloud/localLogbook.ts`'s `adopt` says why the number is
+ * deliberately a subset. What is being adopted here is a site the diver created on the boat,
+ * which is the only kind of catalogue row a device that has never pulled can hold — see
+ * `wipeDiveSites` for why that stays true.
+ */
+export async function adoptDiveSites(db: Db): Promise<void> {
+  await flagAllRows(db, diveSites);
+}
+
+export async function adoptDiveCenters(db: Db): Promise<void> {
+  await flagAllRows(db, diveCenters);
+}
+
+/**
+ * §7.4's sign-out erase, for the catalogue — and the least obvious of the four tables it
+ * names, so the reason is worth repeating here rather than only in DESIGN.md.
+ *
+ * "The catalogue tables go too… they arrive by pull, so a guest never had them, and keeping
+ * them would leave a site created offline sitting in the next account's dirty set to be pushed
+ * as **their** creation." That second half is what makes this a correctness rule rather than a
+ * tidy-up: `adoptDiveSites` above flags every row in this table, so a row left behind by one
+ * diver is a row the next diver's first push claims authorship of.
+ *
+ * A hard `delete`, not a tombstone: §6's `deleted_at` exists so a deletion can *propagate*,
+ * and nothing about this device forgetting the community catalogue is news for the server. A
+ * tombstone here would be this device asking the server to delete everybody's sites.
+ */
+export async function wipeDiveSites(db: Db): Promise<void> {
+  await db.delete(diveSites);
+}
+
+export async function wipeDiveCenters(db: Db): Promise<void> {
+  await db.delete(diveCenters);
 }

@@ -1,6 +1,6 @@
 import { isAuthRetryableFetchError, type SupabaseClient } from '@supabase/supabase-js';
 
-import { type LocalLogbook } from './localLogbook';
+import { type LocalLogbook, type WipeOutcome } from './localLogbook';
 
 /**
  * **Signing in, signing up and signing out — the three acts, and every sentence a diver reads
@@ -184,6 +184,21 @@ export const SIGN_UP_FAILED = 'Couldn’t create the account. Try again.';
 export const SIGN_OUT_UNAVAILABLE = 'Sign-out can’t clear this device yet, so nothing was signed out.';
 /** The erase itself rejected. Same refusal, without the "yet". */
 export const WIPE_FAILED = 'Couldn’t clear this device’s logbook, so nothing was signed out.';
+/**
+ * **This phone is holding something the account has not received, so it was not erased.**
+ *
+ * §7.4 makes sign-out "the one destructive action in v1", and the dialog in front of it
+ * promises the logbook stays in the account and comes back on the next sign-in. That promise
+ * is true of a row that has been pushed and false of one that has not — so the wipe pushes
+ * first and refuses when anything is still flagged (`cloud/localLogbook.ts`). This is the
+ * refusal, and it is the ordinary answer for a diver signing out at sea rather than a
+ * malfunction, which is why it says what to do rather than what went wrong.
+ *
+ * It quotes no number. §0.6 wants error text that names an action, and "3 changes" invites a
+ * diver to go looking for three things no screen can point at.
+ */
+export const UNPUSHED_CHANGES =
+  'This phone has dives your account hasn’t received yet. Connect and try again — nothing was cleared, and you’re still signed in.';
 /** The logbook went and the session did not. Says both halves, because the diver is now
  * looking at an empty logbook and is owed the reason. */
 export const SIGN_OUT_FAILED = 'This device’s logbook was cleared, but signing out didn’t finish. Try again.';
@@ -354,6 +369,14 @@ export async function authenticate(
  * is a signed-out device still holding a logbook, which is the one outcome §7.4 exists to
  * prevent. The reverse order makes that outcome the ordinary result of a failed erase.
  *
+ * **A refusal is a third way, and it is not a failure of anything.** The wipe pushes this
+ * device's pending rows first and declines to erase what the server has not acknowledged
+ * (`cloud/localLogbook.ts`); a diver signing out on a boat gets `UNPUSHED_CHANGES` and keeps
+ * both their logbook and their session. It is told apart from a rejected erase by the value
+ * the wipe returns rather than by the class of a thrown error, because a diver reads a
+ * different sentence for each and `WIPE_FAILED` would be the wrong one — it says the erase was
+ * attempted and could not be done, and here it was not attempted at all.
+ *
  * **`scope: 'local'`, not the default.** Supabase signs out globally unless told otherwise,
  * which revokes every refresh token the account has — so signing out on the phone would sign
  * the diver out of the tablet as well. §7 is built on one person owning several devices
@@ -372,11 +395,13 @@ export async function endSession(
 ): Promise<SignOutOutcome> {
   if (!logbook.wired) return { ok: false, message: SIGN_OUT_UNAVAILABLE };
 
+  let wiped: WipeOutcome;
   try {
-    await logbook.wipe();
+    wiped = await logbook.wipe();
   } catch {
     return { ok: false, message: WIPE_FAILED };
   }
+  if (!wiped.done) return { ok: false, message: UNPUSHED_CHANGES };
 
   try {
     const { error } = await client.auth.signOut({ scope: 'local' });

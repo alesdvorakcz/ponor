@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import * as catalogueModule from './catalogue';
 import {
+  adoptDiveCenters,
+  adoptDiveSites,
   applyPulledDiveCenters,
   applyPulledDiveSites,
   clearDiveCenterDirtyFlags,
@@ -12,10 +14,14 @@ import {
   createDiveCenter,
   createDiveSite,
   pendingDiveSites,
+  wipeDiveCenters,
+  wipeDiveSites,
 } from './catalogue';
 import { clearDirtyFlags, type PushableTable } from './dirty';
 import * as divesModule from './dives';
 import {
+  adoptDives,
+  applyPulledDives,
   clearDiveDirtyFlags,
   createDive,
   getDive,
@@ -23,14 +29,18 @@ import {
   reorderDivesForDate,
   softDeleteDive,
   updateDive,
+  wipeDives,
 } from './dives';
 import * as presetsModule from './gearPresets';
 import {
+  adoptGearPresets,
+  applyPulledGearPresets,
   clearGearPresetDirtyFlags,
   createGearPreset,
   pendingGearPresets,
   softDeleteGearPreset,
   updateGearPreset,
+  wipeGearPresets,
 } from './gearPresets';
 import { diveCenters, diveSites, dives, gearPresets } from './schema';
 import { createTestDb, type TestDb } from './testDb';
@@ -103,6 +113,12 @@ interface Subject {
  * from the server and was never this device's to send. `reads` is everything that is not a
  * write at all, and it carries a reason so that reclassifying a writer as a reader is a
  * sentence somebody has to write rather than a line somebody deletes.
+ *
+ * `erases` is M2g's third answer, and it is a write with no flag to have an opinion about:
+ * §7.4's sign-out takes the row away entirely. It carries a reason for `reads`' reason, and
+ * it is **exercised** rather than merely declared — the block at the bottom of this file
+ * requires each one to leave its table empty, so filing a writer as an erase does not buy
+ * anybody a free pass.
  */
 type WritePath =
   | {
@@ -110,6 +126,15 @@ type WritePath =
       /** Prepares the row the write acts on. Omitted where the write creates its own. */
       readonly given?: (database: TestDb) => Promise<Subject>;
       readonly when: (database: TestDb, given: Subject | null) => Promise<Subject>;
+    }
+  | {
+      readonly erases: string;
+      readonly table: PushableTable;
+      readonly seed: (database: TestDb) => Promise<unknown>;
+      /** Named `erase` rather than `when` so the three arms stay tellable apart by their keys:
+       * two arms with a `when` of different shapes leaves an object literal with nothing to
+       * pick an arm by, and every callback in the file loses its parameter types. */
+      readonly erase: (database: TestDb) => Promise<void>;
     }
   | { readonly reads: string };
 
@@ -137,6 +162,27 @@ const aCenter = async (database: TestDb): Promise<Subject> => {
 function required(given: Subject | null): Subject {
   if (given === null) throw new Error('this write path declares a `given` and did not get one');
   return given;
+}
+
+/**
+ * A dive as a pull would deliver it, built out of a real row so that every column is present
+ * and the shape cannot drift from the schema — and given an id this database has never seen,
+ * because the insert branch is where the flag has to be written explicitly. On an UPDATE a
+ * forgotten `dirty` would inherit whatever the row already held; on an INSERT it falls back to
+ * the SQL column default, which is `1` (see the 0001 migration), so a pull that stopped saying
+ * `false` would arrive dirty and push itself straight back.
+ */
+async function pulledDive(database: TestDb, id: string) {
+  const seed = await createDive(database, { date: '2026-08-16', maxDepthM: 18 });
+  const { dirty: _flag, ...row } = seed;
+  return { ...row, id, updatedAt: '2099-01-01T00:00:00.000Z' };
+}
+
+/** `pulledDive` for a preset. */
+async function pulledPreset(database: TestDb, id: string) {
+  const seed = await createGearPreset(database, { name: 'alu 80' });
+  const { dirty: _flag, ...row } = seed;
+  return { ...row, id, updatedAt: '2099-01-01T00:00:00.000Z' };
 }
 
 const DIVES: Record<keyof typeof divesModule, WritePath> = {
@@ -187,7 +233,30 @@ const DIVES: Record<keyof typeof divesModule, WritePath> = {
       return subject;
     },
   },
+  adoptDives: {
+    leaves: 'dirty',
+    given: aDive,
+    when: async (database, given) => {
+      const subject = required(given);
+      await adoptDives(database);
+      return subject;
+    },
+  },
+  applyPulledDives: {
+    leaves: 'clean',
+    when: async (database) => {
+      await applyPulledDives(database, [await pulledDive(database, 'pulled-dive')]);
+      return { table: dives, id: 'pulled-dive' };
+    },
+  },
+  wipeDives: {
+    erases: '§7.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: dives,
+    seed: aDive,
+    erase: (database) => wipeDives(database),
+  },
   liveDives: { reads: 'The tombstone filter (db/tombstone.ts), not a write.' },
+  countPendingDives: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
   toDives: { reads: 'Rows to sorted domain dives — a mapper over what a read returned.' },
   getDive: { reads: 'A read.' },
   diveRowsQuery: { reads: 'A query builder for useLiveQuery.' },
@@ -232,7 +301,30 @@ const PRESETS: Record<keyof typeof presetsModule, WritePath> = {
       return subject;
     },
   },
+  adoptGearPresets: {
+    leaves: 'dirty',
+    given: aPreset,
+    when: async (database, given) => {
+      const subject = required(given);
+      await adoptGearPresets(database);
+      return subject;
+    },
+  },
+  applyPulledGearPresets: {
+    leaves: 'clean',
+    when: async (database) => {
+      await applyPulledGearPresets(database, [await pulledPreset(database, 'pulled-preset')]);
+      return { table: gearPresets, id: 'pulled-preset' };
+    },
+  },
+  wipeGearPresets: {
+    erases: '\u00a77.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: gearPresets,
+    seed: aPreset,
+    erase: (database) => wipeGearPresets(database),
+  },
   getGearPreset: { reads: 'A read.' },
+  countPendingGearPresets: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
   gearPresetRowsQuery: { reads: 'A query builder for useLiveQuery.' },
   toGearPresets: { reads: 'Rows to sorted domain presets — a mapper.' },
   listGearPresets: { reads: 'A read.' },
@@ -290,21 +382,47 @@ const CATALOGUE: Record<keyof typeof catalogueModule, WritePath> = {
   },
   applyPulledDiveSites: {
     leaves: 'clean',
-    given: aSite,
-    when: async (database, given) => {
-      const subject = required(given);
-      await applyPulledDiveSites(database, [pulledSite(subject.id, '2099-01-01T00:00:00.000Z')]);
-      return subject;
+    when: async (database) => {
+      await applyPulledDiveSites(database, [pulledSite('pulled-site', '2099-01-01T00:00:00.000Z')]);
+      return { table: diveSites, id: 'pulled-site' };
     },
   },
   applyPulledDiveCenters: {
     leaves: 'clean',
+    when: async (database) => {
+      await applyPulledDiveCenters(database, [pulledCenter('pulled-center', '2099-01-01T00:00:00.000Z')]);
+      return { table: diveCenters, id: 'pulled-center' };
+    },
+  },
+  adoptDiveSites: {
+    leaves: 'dirty',
+    given: aSite,
+    when: async (database, given) => {
+      const subject = required(given);
+      await adoptDiveSites(database);
+      return subject;
+    },
+  },
+  adoptDiveCenters: {
+    leaves: 'dirty',
     given: aCenter,
     when: async (database, given) => {
       const subject = required(given);
-      await applyPulledDiveCenters(database, [pulledCenter(subject.id, '2099-01-01T00:00:00.000Z')]);
+      await adoptDiveCenters(database);
       return subject;
     },
+  },
+  wipeDiveSites: {
+    erases: '\u00a77.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: diveSites,
+    seed: aSite,
+    erase: (database) => wipeDiveSites(database),
+  },
+  wipeDiveCenters: {
+    erases: '\u00a77.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: diveCenters,
+    seed: aCenter,
+    erase: (database) => wipeDiveCenters(database),
   },
   clearDiveSiteDirtyFlags: {
     leaves: 'clean',
@@ -336,6 +454,8 @@ const CATALOGUE: Record<keyof typeof catalogueModule, WritePath> = {
   getDiveCenter: { reads: 'A read.' },
   pendingDiveSites: { reads: 'The push set — reads the flag, never moves it.' },
   pendingDiveCenters: { reads: 'The push set — reads the flag, never moves it.' },
+  countPendingDiveSites: { reads: 'Counts the push set — reads the flag, never moves it.' },
+  countPendingDiveCenters: { reads: 'Counts the push set — reads the flag, never moves it.' },
 };
 
 const OWNERS: Record<string, { module: Record<string, unknown>; paths: Record<string, WritePath> }> = {
@@ -344,9 +464,18 @@ const OWNERS: Record<string, { module: Record<string, unknown>; paths: Record<st
   'db/catalogue.ts': { module: catalogueModule, paths: CATALOGUE },
 };
 
+type FlagPath = Extract<WritePath, { leaves: 'dirty' | 'clean' }>;
+type ErasePath = Extract<WritePath, { erases: string }>;
+
 const writePaths = Object.entries(OWNERS).flatMap(([owner, { paths }]) =>
   Object.entries(paths).flatMap(([name, path_]) =>
-    'reads' in path_ ? [] : [[`${owner} ${name}`, path_] as const],
+    'leaves' in path_ ? [[`${owner} ${name}`, path_] as FlagPath extends never ? never : [string, FlagPath]] : [],
+  ),
+);
+
+const erasePaths = Object.entries(OWNERS).flatMap(([owner, { paths }]) =>
+  Object.entries(paths).flatMap(([name, path_]) =>
+    'erases' in path_ ? [[`${owner} ${name}`, path_] as [string, ErasePath]] : [],
   ),
 );
 
@@ -367,12 +496,12 @@ describe('every write path is classified, and the classification is exhaustive (
     // never be exercised, which is a green suite that has stopped checking the thing it is
     // named after. These are today's counts, and they go UP by a deliberate edit.
     const FLOORS: Record<string, number> = {
-      // create · update · reorder · soft-delete · clear
-      'db/dives.ts': 5,
-      // create · update · soft-delete · clear
-      'db/gearPresets.ts': 4,
-      // create ×2 · apply-pulled ×2 · clear ×2
-      'db/catalogue.ts': 6,
+      // create · update · reorder · soft-delete · clear · adopt · apply-pulled
+      'db/dives.ts': 7,
+      // create · update · soft-delete · clear · adopt · apply-pulled
+      'db/gearPresets.ts': 6,
+      // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
+      'db/catalogue.ts': 8,
     };
     expect(Object.keys(FLOORS).sort()).toEqual(Object.keys(OWNERS).sort());
     for (const [owner, floor] of Object.entries(FLOORS)) {
@@ -380,7 +509,13 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(15);
+    expect(writePaths.length).toBe(21);
+
+    // §7.4's erases, counted the same way and for the same reason: one filed as a read would
+    // never be run, and a sign-out that quietly left a table behind is a device holding one
+    // person's logbook after they have gone.
+    // dives · presets · sites · centres
+    expect(erasePaths.length).toBe(4);
 
     // And a read is classified with a reason, not with an empty string.
     for (const { paths } of Object.values(OWNERS)) {
@@ -388,6 +523,20 @@ describe('every write path is classified, and the classification is exhaustive (
         if ('reads' in path_) expect(path_.reads.trim().length).toBeGreaterThan(5);
       }
     }
+  });
+});
+
+describe('§7.4\u2019s erases really erase, exercised against a real database', () => {
+  it.each(erasePaths)('%s', async (_name, path_) => {
+    // Seeded first, and the count is checked before as well as after: a `delete` against an
+    // empty table passes trivially, which would make every one of these a check that cannot
+    // fail — the fourth such finding in five tasks.
+    await path_.seed(db);
+    expect((await db.select({ id: path_.table.id }).from(path_.table)).length).toBeGreaterThan(0);
+
+    await path_.erase(db);
+
+    expect(await db.select({ id: path_.table.id }).from(path_.table)).toEqual([]);
   });
 });
 
