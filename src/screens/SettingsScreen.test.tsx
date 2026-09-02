@@ -497,11 +497,15 @@ it('opens the editor for the preset whose row was tapped', async () => {
 // exactly as *Delete dive* sits at the end of the dive detail rather than on a row of the
 // dive list. That is what keeps the list a list. Asserted as "one control per row, and it is
 // the row" — a delete added beside a name would be a second button inside it.
+//
+// The account row (§3, M2e) is listed with it and is the reason this is an exhaustive list
+// rather than a filter: it is the whole inventory of what this screen can be pressed on, so a
+// control added anywhere on it — a delete on a preset row included — lands here.
 it('carries no delete of its own, so the list stays a list', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
-  expect(labels).toEqual(['Edit preset twin 12 steel']);
+  expect(labels).toEqual(['Edit preset twin 12 steel', 'Open account & sync']);
 });
 
 // A diver who has never saved one must not find an unexplained empty section — the preset is
@@ -582,14 +586,14 @@ it('carries M1’s two settings and no more', async () => {
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Three rows with one preset: Units, Dives before Ponor, and the preset's own — which wears
-// the same `formField` row as the two settings above it, so a preset is a row of this screen
-// rather than a new kind of object drawn beside them.
+// Four rows with one preset: Units, Dives before Ponor, the preset's own, and §3's account &
+// sync — every one of them the same `formField` row, so a preset and a destination are rows of
+// this screen rather than new kinds of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(3);
+  expect(rows).toHaveLength(4);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks
@@ -681,4 +685,54 @@ it('spends the device bottom inset on its scroll, so the last row clears the tab
   expect(underNothing).toBeGreaterThanOrEqual(screenBottomInset(0));
   // ...and it tracks the device, which is the half no constant can do.
   expect(underTabBar).toBeGreaterThan(underNothing);
+});
+
+// ---------------------------------------------------------------------------------------
+// Account & sync (DESIGN.md §3, M2e)
+// ---------------------------------------------------------------------------------------
+
+// **The only route into the account screen at all.** §1 makes an account optional, so there is
+// deliberately no launch screen, no prompt and no other entry point — which means this one row
+// is the whole of "reachable". A screen nothing opens is the same defect as a control that does
+// nothing, and it is the harder one to see: every test of `AccountScreen` would stay green.
+it('opens the account screen, which nothing else in the app does', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+  const [row] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Open account & sync') : [];
+  if (!row) throw new Error('SettingsScreen rendered no account row');
+
+  await fireEvent.press(row);
+
+  // The absolute path, which is what expo-router's typed routes check against the routes that
+  // actually exist on disk.
+  expect(mockPush).toHaveBeenCalledWith('/account');
+});
+
+// §3's own words. A row labelled anything else would still navigate, and a diver looking for
+// where an account lives would not find it.
+it('names the row the way §3 names it', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+
+  expect(textIn(t)).toContain('Account & sync');
+});
+
+// **It is a destination, not a setting, and the ink is what says so** (§0.6: "ink versus muted
+// ink is the only lever" — §0.1 rules out a hue, and the chevron "is never spent on
+// navigation"). Asserted by identity against the sheet and CONTRASTED with a real setting's
+// label, because the assertion that matters is the difference: a row that took `formFieldLabel`
+// would be indistinguishable from `Units` with its value missing.
+it('reads as a destination rather than as a setting with no value', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+  const styles = makeStyles('light');
+
+  const labelStyleOf = (label: string) => {
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(label)) : [];
+    if (!text) throw new Error(`SettingsScreen rendered no ${label} label`);
+    return text.props.style;
+  };
+
+  expect(labelStyleOf('Account & sync')).toBe(styles.settingsAccountLabel);
+  expect(labelStyleOf('Account & sync')).not.toBe(labelStyleOf('Units'));
 });

@@ -642,3 +642,60 @@ it('is unchanged by the new props when a caller passes neither', async () => {
   await focusInput(offered);
   expect(JSON.stringify(offered.toJSON())).toBe(bareFocused);
 });
+
+// ---------------------------------------------------------------------------------------
+// The three credential props (M2e — the account screen's two rows)
+// ---------------------------------------------------------------------------------------
+
+// **A password rendering in the clear is the failure §0.6 collects**: "shipped once and only
+// found by using the app". Nothing errors, no test fails, and the one secret this app handles
+// is on screen in a café. Asserted on the input's own prop, because that is what React Native
+// masks on.
+it('masks the value when a caller asks it to, and never otherwise', async () => {
+  const masked = await render(
+    <FormField label="Password" value="hunter2" onChange={() => {}} scheme="light" secureTextEntry />,
+  );
+  expect(inputsOf(masked)[0]?.props.secureTextEntry).toBe(true);
+
+  const plain = await render(<FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" />);
+  expect(inputsOf(plain)[0]?.props.secureTextEntry).toBeUndefined();
+});
+
+// The pair that stops a device rewriting a value that is not prose. Set EXPLICITLY at the two
+// call sites that need `'none'` rather than inferred from `keyboardType` or `secureTextEntry`
+// — the same rule `mono` follows, for the same reason: a site name, a buddy and a dive centre
+// are names and must keep the device's help, and they reach this component through these very
+// props.
+it('passes the capitalise and correct answers through, and leaves the platform’s own where a caller gave none', async () => {
+  const credential = await render(
+    <FormField label="Email" value="" onChange={() => {}} scheme="light" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />,
+  );
+  const input = inputsOf(credential)[0];
+  expect(input?.props.autoCapitalize).toBe('none');
+  expect(input?.props.autoCorrect).toBe(false);
+  expect(input?.props.keyboardType).toBe('email-address');
+
+  const name = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  expect(inputsOf(name)[0]?.props.autoCapitalize).toBeUndefined();
+  expect(inputsOf(name)[0]?.props.autoCorrect).toBeUndefined();
+  expect(inputsOf(name)[0]?.props.keyboardType).toBe('default');
+});
+
+// The three are opt-in in exactly the sense the two suggestion props are: a field that passes
+// none of them must render the tree it rendered before they existed. Whole-tree equality
+// rather than a query, because "unchanged" is a claim about everything.
+it('leaves every field written before these props existed rendering identically', async () => {
+  const before = await render(<FormField label="Buddy" value="Jana" onChange={() => {}} scheme="light" />);
+  const after = await render(
+    <FormField
+      label="Buddy"
+      value="Jana"
+      onChange={() => {}}
+      scheme="light"
+      secureTextEntry={undefined}
+      autoCapitalize={undefined}
+      autoCorrect={undefined}
+    />,
+  );
+  expect(JSON.stringify(after.toJSON())).toBe(JSON.stringify(before.toJSON()));
+});

@@ -95,10 +95,10 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * tree for the reason `DivesScreen.tsx` records: a test colocated with a route would be
  * bundled into the app.
  *
- * **Two settings and one list, and §3 lists more on purpose.** The certification wallet,
- * account and sync, data export and delete-account all belong to later milestones — the
- * wallet and export to M3, account and sync to M2. M1 is "the local logbook", and the two
- * settings below are the two that M1's own screens already depend on.
+ * **Two settings, one list, one destination, and §3 lists more on purpose.** The certification
+ * wallet, data export and delete-account all belong to M3. §3's **account & sync** arrived in
+ * M2e as the last item below — a row that opens `/account` and writes nothing itself, which is
+ * this screen's second navigation row and the only route into the account screen at all.
  *
  * §3 listed a **"Fields I use"** screen here until M1i dropped it: §2.2's collapse rule
  * already hides a group nobody fills, and a carried field that keeps one open can be
@@ -391,6 +391,36 @@ export default function SettingsScreen() {
             </View>
           )}
         </View>
+
+        {/* §3's **account & sync**, and the only way into the account screen — §1 makes an
+            account optional, so there is no launch screen, no prompt and no other route to it
+            (M2e).
+
+            **One row and no section heading**, unlike the preset list above. A cluster label
+            names a *group* of rows (§0.6), and this is one row; a heading over a single row
+            would be the label written twice. It is separated from the presets by this
+            scroll's own gap and by the row's own top hairline, which `formField` draws.
+
+            **It says nothing about who is signed in**, which is a decision and not a gap. That
+            would need a second live read of the session on a screen that is opened on every
+            app launch, and §4.1's whole subject is a second reader that is free to disagree
+            with the first — `useAuthSession` is the one owner of that answer, and the account
+            screen is where it is asked. */}
+        <Pressable
+          style={styles.formField}
+          // Absolute and interpolated for `PresetRow`'s own recorded reason: expo-router's
+          // typed routes check an absolute path against the routes that actually exist on
+          // disk, where a relative one is resolved at runtime and checked against nothing.
+          onPress={() => router.push('/account')}
+          accessibilityRole="button"
+          // Says what pressing it does rather than merely what it is called, the same shape
+          // `Edit preset X` uses one row-type above.
+          accessibilityLabel="Open account & sync"
+        >
+          <View style={styles.formFieldRow}>
+            <Text style={styles.settingsAccountLabel}>Account &amp; sync</Text>
+          </View>
+        </Pressable>
       </ScrollView>
     </View>
   );

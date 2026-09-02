@@ -278,6 +278,29 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // A sentence under a row or a heading, explaining what the thing IS — Settings'
+  // "Dives you logged before Ponor", and the account screen's line about what an account is
+  // for. §0.6's "a field error is text, not a field" turned around: that message trails, into
+  // the column of the value it is about, because it names what went wrong with something the
+  // diver typed; this one LEADS, under the label, because it is read before the value rather
+  // than after it. Same absence of a box, for the reason `formFieldError` records — a
+  // bordered, filled message under a row reads as a second, empty row.
+  //
+  // One definition rather than two, the same reasoning `noticeBanner`, `backControl` and
+  // `mutedControl` above each record. It was Settings' alone until §3's "account & sync"
+  // needed the identical sentence-under-a-row, and a second screen retyping five properties
+  // is exactly how `reorderNotice`/`settingsNotice` came to be two copies of one banner.
+  const captionBlock: ViewStyle = {
+    paddingHorizontal: CONTENT_INSET,
+    paddingTop: 6,
+  };
+  const captionText: TextStyle = {
+    fontFamily: fonts.sans,
+    fontSize: 12.5,
+    color: theme.fgMuted,
+    lineHeight: 17,
+  };
+
   // §0.6's quiet control: "a bordered pill in tracked uppercase, not plain text, so it
   // reads as a control rather than a label." Written once and used by the day strip's
   // Reorder/Done, by an "Up next" row's *Complete dive* (§2.4), and by the form's own
@@ -510,6 +533,20 @@ function build(scheme: ColorScheme) {
     fontFamily: fonts.sans,
     fontSize: 15,
     color: theme.fgMuted,
+  };
+
+  // The same row label in **full ink**, for the two rows on Settings that are not settings:
+  // a cylinder preset's name, and §3's "account & sync". §0.6: "Ink versus muted ink is the
+  // only lever", which it already spends this way twice (`detailActionLabel` over
+  // `detailBackLabel`, `tripTitleUpNext` over a trip's own title). "Units" and "Dives before
+  // Ponor" are fixed words naming a setting and are muted; these two are not.
+  //
+  // `flexShrink: 1` for the reason `formFieldLabel` records: §0.5's "Czech runs 20–30 %
+  // longer", and a long label must wrap rather than truncate.
+  const settingsRowInk: TextStyle = {
+    ...rowLabel,
+    color: theme.fg,
+    flexShrink: 1,
   };
 
   // A row's trailing half, in the two faces §0.2 splits on content — "Figures in mono, names
@@ -2707,22 +2744,11 @@ function build(scheme: ColorScheme) {
     // A sentence under a row, explaining what the row does — `dives_before`'s "every dive
     // number moves with this", and the note shown when the stored value cannot be read.
     //
-    // Shaped after `formFieldError` (§0.6: "A field error is text, not a field. Muted...")
-    // and turned around: that message trails, into the column of the value it is about,
-    // because it names what went wrong with something the diver typed. This one LEADS,
-    // under the label, because it explains what the row IS — read before the value, not
-    // after it. Same absence of a box, for the reason recorded there: a bordered, filled
-    // message under a row reads as a second, empty row.
-    settingsCaption: {
-      paddingHorizontal: CONTENT_INSET,
-      paddingTop: 6,
-    },
-    settingsCaptionText: {
-      fontFamily: fonts.sans,
-      fontSize: 12.5,
-      color: theme.fgMuted,
-      lineHeight: 17,
-    },
+    // `captionBlock`/`captionText` at the top of this function, which carry the whole account
+    // of the treatment and of why the account screen shares this definition rather than
+    // retyping it.
+    settingsCaption: captionBlock,
+    settingsCaptionText: captionText,
     // A named group of rows on this screen — §3's cylinder presets, which is the first thing
     // here that is a *list* rather than a setting and so needs saying what it is.
     //
@@ -2749,11 +2775,19 @@ function build(scheme: ColorScheme) {
     //
     // `flexShrink: 1` for the reason `formFieldLabel` records: §0.5's "Czech runs 20–30 %
     // longer", and a long name must wrap rather than truncate.
-    settingsPresetName: {
-      ...rowLabel,
-      color: theme.fg,
-      flexShrink: 1,
-    },
+    settingsPresetName: settingsRowInk,
+    // §3's "account & sync" row, which takes the same ink for a related but distinct reason,
+    // and it is worth naming the difference rather than letting one key serve both. A
+    // preset's name is full ink because it is the diver's own data; this row is full ink
+    // because it is a **destination** — a row that opens another screen rather than holding a
+    // value, and the only other one on this screen. §0.6 leaves exactly one lever for that
+    // ("ink versus muted ink is the only lever"): §0.1 rules out a hue, and the chevron is
+    // spoken for — it "marks in-place disclosure... and nothing else", with the explicit
+    // rider that "the mark is never spent on navigation".
+    //
+    // One definition, two keys, on `detailBack`/`formBack`'s own precedent: the treatment is
+    // shared and cannot drift, while each caller keeps a name that says what it is.
+    settingsAccountLabel: settingsRowInk,
     // The cylinders under that name (`formatCylinders`, format/display.ts) — §0.6's row
     // metadata, which is precisely what this is: "Plex Mono 11.5 · time · duration · rating,
     // middot-separated". Mono because it is almost entirely figures (§0.6: "Figures in mono,
@@ -2777,6 +2811,53 @@ function build(scheme: ColorScheme) {
     settingsPresetEmpty: {
       paddingHorizontal: CONTENT_INSET,
     },
+    // ------------------------------------------------------------------------------------
+    // The account screen (DESIGN.md §5's auth bullet and §7.4, M2e) — `AccountScreen`
+    // ------------------------------------------------------------------------------------
+    // **Not one new shape between them.** §0.6's origin is "a screen that was built to spec
+    // and then styled by default into a different language", and a sign-in screen is where
+    // that happens by reflex: every app has one, they all look alike, and none of them looks
+    // like this app. So this screen is the form's own grammar — `formBack` out of it,
+    // `FormField` rows, `FieldNote` for what went wrong, `action` in a fixed footer — and the
+    // six keys below are the same six definitions the preset editor takes one screen over,
+    // each under a name that says which screen it is placed on.
+    //
+    // The title: `screenHeading` plus the row inset, exactly as `presetHeading` and
+    // `settingsHeading` are. Two keys from one definition rather than one key shared across
+    // screens, on `detailBack`/`formBack`'s precedent — the placement is per screen, the type
+    // is not.
+    accountHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // What an account is for, and what signing out will do — `captionBlock`/`captionText` at
+    // the top of this function, the same sentence-under-a-row Settings uses.
+    accountCaption: captionBlock,
+    accountCaptionText: captionText,
+    // The signed-in address, trailing its row. `rowValueSans` — §0.6's "Figures in mono,
+    // names in sans": an e-mail address is a name, not a data figure, however little it looks
+    // like one. It is read, never typed, so it is a `Text` in a `formFieldRow` rather than a
+    // `FormField`; the row it sits in is the form's.
+    accountEmail: rowValueSans,
+    // A failed sign-out, said plainly (§10: "a local save failure is shown to the diver").
+    // `noticeBanner`'s shape with its horizontal margin intact, exactly as `presetNotice`
+    // takes it and for the same reason: this screen's scroll content carries no horizontal
+    // padding of its own, so the banner has to bring its own.
+    accountNotice: noticeBanner,
+    accountNoticeText: noticeBannerText,
+    // The two controls on this screen that are deliberate acts rather than its primary one:
+    // switching between signing in and creating an account, and signing out. `mutedControl`
+    // at the top of this function — the object *Delete dive*, *Delete preset* and *Save as
+    // preset* already are, centred at the end of the screen's content.
+    //
+    // **One pair for both, named for what they share rather than for either caller.** They
+    // are the same object doing the same job: §0.1 spends every hue on depth, so a control
+    // you should not hit by accident is a plain muted label, and the weight for the one that
+    // destroys something goes into the platform dialog this app does not draw (§10). A second
+    // key would be two spellings of one treatment, which is the drift `mutedControl` itself
+    // exists to have stopped three times already.
+    accountSecondaryAction: mutedControl,
+    accountSecondaryActionLabel: mutedControlLabel,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

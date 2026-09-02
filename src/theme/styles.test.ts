@@ -165,7 +165,14 @@ describe('a screen title', () => {
   it('reads the same on every screen that draws one', () => {
     const styles = makeStyles('dark');
     const dives = styles.divesTitle as Record<string, unknown>;
-    for (const other of [styles.formHeading, styles.settingsHeading] as Record<string, unknown>[]) {
+    for (const other of [
+      styles.formHeading,
+      styles.settingsHeading,
+      styles.presetHeading,
+      // M2e. A sign-in screen is where a title quietly grows a size of its own, because every
+      // app has one and none of them is this app.
+      styles.accountHeading,
+    ] as Record<string, unknown>[]) {
       expect(dives.fontFamily).toBe(other.fontFamily);
       expect(dives.fontSize).toBe(other.fontSize);
       expect(dives.color).toBe(other.color);
@@ -182,6 +189,7 @@ describe('a screen title', () => {
     expect((styles.formHeading as Record<string, unknown>).flex).toBe(1);
     expect((styles.divesTitle as Record<string, unknown>).flex).toBeUndefined();
     expect((styles.settingsHeading as Record<string, unknown>).flex).toBeUndefined();
+    expect((styles.accountHeading as Record<string, unknown>).flex).toBeUndefined();
   });
 });
 
@@ -918,5 +926,46 @@ describe('the first-run block stays legible', () => {
       expect(sheet.emptyStateReason?.fontFamily).toBe(fonts.mono);
       expect(sheet.depthLegendLabel?.fontFamily).toBe(fonts.mono);
     }
+  });
+});
+
+/**
+ * **The account screen borrows and invents nothing** (M2e). §0.6's whole origin is "a screen
+ * that was built to spec and then styled by default into a different language", and a sign-in
+ * screen is where that happens by reflex. Asserted by IDENTITY against the definitions the
+ * other screens already use — a look-alike copy would satisfy any property-by-property check
+ * and is exactly what `noticeBanner`, `backControl` and `mutedControl` were each written after
+ * finding.
+ */
+describe('the account screen', () => {
+  it.each(['dark', 'light'] as const)('takes the app’s existing definitions rather than copies of them (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+
+    // The sentence under a row, shared with Settings — one definition, two names.
+    expect(styles.accountCaption).toBe(styles.settingsCaption);
+    expect(styles.accountCaptionText).toBe(styles.settingsCaptionText);
+    // The notice, shared with the preset editor's own failed save.
+    expect(styles.accountNotice).toBe(styles.presetNotice);
+    expect(styles.accountNoticeText).toBe(styles.presetNoticeText);
+    // The deliberate-reach control, shared with *Delete preset* — §10's "the app's own control
+    // stays muted", with the weight in a dialog this app does not draw.
+    expect(styles.accountSecondaryAction).toBe(styles.presetDelete);
+    expect(styles.accountSecondaryActionLabel).toBe(styles.presetDeleteLabel);
+  });
+
+  /**
+   * The two rows on Settings that are not settings — a preset's name and §3's account & sync —
+   * wear one ink, and it is not the ink a label wears. §0.6: "ink versus muted ink is the only
+   * lever", §0.1 rules out a hue, and the chevron "is never spent on navigation".
+   */
+  it.each(['dark', 'light'] as const)('marks a destination with ink, from one definition (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    const theme = themeFor(scheme);
+
+    expect(styles.settingsAccountLabel).toBe(styles.settingsPresetName);
+    expect((styles.settingsAccountLabel as Record<string, unknown>).color).toBe(theme.fg);
+    // The contrast is the rule: a row taking the label's own muted ink would be
+    // indistinguishable from `Units` with its value missing.
+    expect((styles.formFieldLabel as Record<string, unknown>).color).toBe(theme.fgMuted);
   });
 });

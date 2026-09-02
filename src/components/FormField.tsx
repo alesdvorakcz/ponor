@@ -39,9 +39,45 @@ export interface FormFieldProps {
    * (§10), which no keypad can produce a fraction of. The option stays because the hazard is
    * a property of counting rather than of that one field — but a reader looking for the
    * cylinder count it used to name will not find one.
+   *
+   * `'email-address'` is M2e's, for the account screen's one address row: a keyboard with
+   * `@` and `.` on it and no space bar to walk into the middle of an address.
    */
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
+  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address';
   multiline?: boolean;
+  /**
+   * Masks what is typed — the account screen's password row and nothing else in this app
+   * (M2e). It is the one field in Ponor whose value is a secret, and the three rules that
+   * follow from that live where they can be enforced (`cloud/auth.ts`): it is never logged,
+   * never wrapped into an error, and never persisted anywhere but the auth call.
+   *
+   * **This component adds no rule of its own for it, deliberately.** A "clear the value on
+   * blur" or "never hand it to `onChange`" here would break the field for its one caller
+   * while protecting nothing: the value has to live in the caller's state to be typed at all.
+   * What this prop does is exactly what its name says.
+   *
+   * Never combined with `multiline` — React Native ignores masking on a multiline input, and
+   * a password that renders in the clear because a second prop was set is precisely the kind
+   * of silent failure §0.6's "shipped once and only found by using the app" collects.
+   */
+  secureTextEntry?: boolean;
+  /**
+   * Whether the keyboard capitalises for this field, and — with `autoCorrect` below — the
+   * pair that stops a device "helping" with a value that is not prose.
+   *
+   * Set **explicitly at the two call sites that need `'none'`** rather than inferred from
+   * `keyboardType` or from `secureTextEntry`, on `mono`'s own reasoning above: the two
+   * questions look joined and are not. An address and a password must not be capitalised or
+   * corrected; a site name, a buddy and a dive centre — every other text field in this app —
+   * must, and they reach this component through the same props.
+   *
+   * Omitted everywhere else, which leaves React Native's own defaults exactly as they were
+   * before this prop existed.
+   */
+  autoCapitalize?: 'none' | 'sentences';
+  /** The other half of the pair above. An e-mail address run through autocorrect is a
+   * different address, and the diver does not see it happen. */
+  autoCorrect?: boolean;
   placeholder?: string;
   /**
    * DESIGN.md §0.6: "**Figures in mono, names in sans.** A depth, duration, pressure or
@@ -182,7 +218,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -226,6 +262,12 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       }}
       keyboardType={keyboardType ?? 'default'}
       multiline={multiline}
+      // Passed straight through, and only where a caller asked: `undefined` leaves React
+      // Native's own default in place, so every field written before these existed renders
+      // exactly as it did.
+      secureTextEntry={secureTextEntry}
+      autoCapitalize={autoCapitalize}
+      autoCorrect={autoCorrect}
       // §0.6: an empty numeric field shows its unit as the placeholder, "so the row still
       // says what belongs in it". `placeholder` covers the fields whose hint is not a unit —
       // a conditions scale's `0-3`, a rating's `1-5`.
