@@ -16,6 +16,7 @@ import {
 import { diveCenters, diveSites } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
+import { EVERY_ROW } from './wipe';
 
 /**
  * The device's copy of the community catalogue — every read and every write of `dive_sites`
@@ -308,11 +309,16 @@ export async function adoptDiveCenters(db: Db): Promise<void> {
  * A hard `delete`, not a tombstone: §6's `deleted_at` exists so a deletion can *propagate*,
  * and nothing about this device forgetting the community catalogue is news for the server. A
  * tombstone here would be this device asking the server to delete everybody's sites.
+ *
+ * **`EVERY_ROW` is not decoration** — `db/wipe.ts` has the whole of it: without a WHERE, this
+ * statement is SQLite's truncate optimisation, which deletes the rows without telling anything
+ * on screen that it did.
  */
 export async function wipeDiveSites(db: Db): Promise<void> {
-  await db.delete(diveSites);
+  await db.delete(diveSites).where(EVERY_ROW);
 }
 
+/** The same erase for centres, and the same `EVERY_ROW` for the same reason (db/wipe.ts). */
 export async function wipeDiveCenters(db: Db): Promise<void> {
-  await db.delete(diveCenters);
+  await db.delete(diveCenters).where(EVERY_ROW);
 }

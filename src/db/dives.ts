@@ -15,6 +15,7 @@ import {
 import { dives } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
+import { EVERY_ROW } from './wipe';
 
 /**
  * Fields nothing may set after the row is created: id is the primary key,
@@ -674,7 +675,12 @@ export async function adoptDives(db: Db): Promise<number> {
  * `cloud/localLogbook.ts`'s, one layer up and stated once, because it is a fact about the
  * whole device rather than about this table: a wipe that ran per-table with a per-table check
  * would erase the dives of a diver whose *presets* had not gone up.
+ *
+ * **`EVERY_ROW` is load-bearing and reads like a no-op — `db/wipe.ts` says why** (M2i). In
+ * short: `db.delete(dives)` on its own is SQLite's truncate optimisation, which visits no row,
+ * fires no update hook, and therefore tells `useLiveQuery` nothing — so the dives were erased
+ * and the list went on drawing them until the app restarted.
  */
 export async function wipeDives(db: Db): Promise<void> {
-  await db.delete(dives);
+  await db.delete(dives).where(EVERY_ROW);
 }

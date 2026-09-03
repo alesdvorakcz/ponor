@@ -334,6 +334,12 @@ export async function setUnitSystem(db: Db, system: UnitSystem): Promise<void> {
  * here because `DIVES_BEFORE_KEY` does: a sign-out that spelled the key itself would be the
  * second key/value path §4.1 names as this table's defining defect, and it would be spelled in
  * the one file that never reads it back.
+ *
+ * **The one §7.4 erase that must not take `db/wipe.ts`'s `EVERY_ROW`**, and it is worth a line
+ * because the four others now do and this reads like the odd one out. It is not: the clause
+ * here is a real filter, not the truncate defeat that one is, and swapping it for `EVERY_ROW`
+ * would delete the diver's units, locale and form-group memory — the settings §7.4 says
+ * explicitly stay. It also means this was the only erase of the five that always notified.
  */
 export async function forgetDivesBefore(db: Db): Promise<void> {
   await db.delete(settings).where(eq(settings.key, DIVES_BEFORE_KEY));

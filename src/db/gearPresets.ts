@@ -17,6 +17,7 @@ import {
 import { gearPresets } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
+import { EVERY_ROW } from './wipe';
 
 /**
  * Fields nothing may set after the row is created — the same four `db/dives.ts` names, for
@@ -357,7 +358,9 @@ export async function adoptGearPresets(db: Db): Promise<void> {
 }
 
 /** §7.4's sign-out erase, for presets — `wipeDives` (db/dives.ts) carries the reasoning,
- * including why this is a hard delete where `softDeleteGearPreset` is a tombstone. */
+ * including why this is a hard delete where `softDeleteGearPreset` is a tombstone, and
+ * `db/wipe.ts` carries why the WHERE that looks like a no-op is the difference between the
+ * presets going and the screen being told they went. */
 export async function wipeGearPresets(db: Db): Promise<void> {
-  await db.delete(gearPresets);
+  await db.delete(gearPresets).where(EVERY_ROW);
 }

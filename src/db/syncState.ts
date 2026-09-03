@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { syncState } from './schema';
 import type { Db } from './types';
+import { EVERY_ROW } from './wipe';
 
 /**
  * What `sync_state` *means* — the one reader and the one writer of §7's pull watermark, and
@@ -125,7 +126,13 @@ export async function recordPull(db: Db, serverTimestamp: string): Promise<void>
  * Deletes the row rather than writing an empty string into it, for `recordPull`'s reason: an
  * empty value and no row are the same fact, and storing the first would be a second way to say
  * the second.
+ *
+ * **`EVERY_ROW` looks pointless on a table that holds one row and is not** — `db/wipe.ts` has
+ * the reason, and it is the same reason on one row as on a hundred: a `delete` with no WHERE
+ * is a truncate, and a truncate notifies nobody. Nothing draws the watermark today, so this is
+ * the site where the missing clause would cost nothing *yet*, which is exactly how the other
+ * four would come back.
  */
 export async function forgetLastPulledAt(db: Db): Promise<void> {
-  await db.delete(syncState);
+  await db.delete(syncState).where(EVERY_ROW);
 }
