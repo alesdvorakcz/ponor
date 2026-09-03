@@ -1,8 +1,14 @@
--- Ponor · M2c · 6 of 6 — the four remaining RPCs of DESIGN.md §5
+-- Ponor · M2c, extended by M2j · 6 of 6 — the catalogue RPCs of DESIGN.md §5
 --
+--   name_fold(text)         §10's "`zelezna` finds `Železná`", server-side (M2j). The one
+--                           place a name is folded before it is compared, and the IMMUTABLE
+--                           wrapper the trigram indexes below are built over.
+--   name_match_floor()      The fuzzy cut-off, written once for both of its readers.
 --   search_sites(...)       §2.3's ONLINE SUPPLEMENT to on-device autocomplete, and §5's
 --                           "sites near me". Fuzzy name match (pg_trgm) and/or a radius
 --                           around a point (PostGIS), best first, capped.
+--   search_centers(...)     The same for dive centres (M2j). §2.3 promises live search for
+--                           "a site or center" and §5's RPC list had only the first half.
 --   similar_sites(...)      §5's dedupe: "before saving a new entry, a fuzzy check suggests
 --                           near-matches", and the same check re-run against a site that has
 --                           just been pushed. One function, both callers — see below.
@@ -10,22 +16,29 @@
 --                           review queue file 5 creates.
 --   delete_account()        §8's in-app account deletion, "a hard App Store requirement".
 --
+-- It also carries the two GIN trigram indexes, which file 2 used to hold. They index
+-- `name_fold(name)` rather than `name`, they have to come after the function they call, and
+-- an index over an expression no query compares is one the planner will never reach for —
+-- so the fold, unindexed, turns both searches into sequential scans over the whole catalogue.
+--
 -- **None of this has ever been run against Postgres.** Nobody working in this repository has
 -- credentials for the project and none will be added (supabase/README.md, "Keys"). Grammar
 -- is checked offline with libpg_query, and what these functions NAME is tied to the schema by
--- src/db/catalogueRpcParity.test.ts. Neither is a server, and three things in this file are
+-- src/db/catalogueRpcParity.test.ts. Neither is a server, and four things in this file are
 -- unprovable from here in particular; they are called out where they occur.
 --
 -- ─────────────────────────────────────────────────────────────────────────────────────────
--- WHY THE FIRST THREE ARE `security invoker` AND THE FOURTH IS NOT.
+-- WHY EVERYTHING HERE IS `security invoker` EXCEPT ONE FUNCTION.
 --
 -- `dive_sites` is a community table with RLS on it, and M2a took a deliberate decision about
 -- who may read it: signed-in users, never `anon`, on the reasoning that opening it later is
 -- two statements and closing it after a scrape is impossible. **A `security definer` function
 -- over that table is how that decision quietly reverses**: the function would run as its
 -- owner, RLS would not apply to it, and every row would be readable by anyone who could call
--- it. So the three catalogue functions run as the caller, file 3's SELECT policy applies to
--- every statement in them, and the decision stays where M2a put it.
+-- it. So the catalogue functions run as the caller, file 3's SELECT policy applies to every
+-- statement in them, and the decision stays where M2a put it. `dive_centers` is the same
+-- table under a different name (file 2 gives it the same shape and file 3 the same policy),
+-- so `search_centers` inherits the decision rather than reopening it.
 --
 -- `delete_account` is the exception and it is the only one. It has to delete a row from
 -- `auth.users`, which no client role may touch, so it runs as its owner — and everything
@@ -44,22 +57,32 @@
 -- even then. Execute is revoked from PUBLIC (which is how `anon` loses it) and granted to
 -- `authenticated` alone, matching file 3 and file 4.
 --
--- `volatile` on all five, as in file 4, and for the same reason: volatility decides which
--- HTTP verbs PostgREST accepts, and supabase-js calls an RPC with POST. The honest marking
--- for the two read-only ones would be `stable`; the safe one is the default, and being wrong
--- here is a call that 404s rather than a call that lies.
+-- `volatile` on every function a client calls, as in file 4, and for the same reason:
+-- volatility decides which HTTP verbs PostgREST accepts, and supabase-js calls an RPC with
+-- POST. The honest marking for the read-only ones would be `stable`; the safe one is the
+-- default, and being wrong here is a call that 404s rather than a call that lies.
+--
+-- **The two exceptions are `name_match_floor` and `name_fold`, and both are `immutable`
+-- because something needs them to be.** The floor is a constant the planner may fold into a
+-- query; `name_fold` is an INDEX EXPRESSION, and Postgres refuses to build one over anything
+-- less than immutable. Neither is a function a client ever calls over HTTP, so the PostgREST
+-- argument above does not reach them. See the block above `name_fold` for why the marking is
+-- honest rather than a convenient lie — it is the one place in these migrations where being
+-- wrong would produce wrong answers instead of an error.
 --
 -- ─────────────────────────────────────────────────────────────────────────────────────────
--- WHAT THE `extensions` SCHEMA COSTS, since M2a installed both extensions into it (file 1)
--- and this is the first file that actually uses them.
+-- WHAT THE `extensions` SCHEMA COSTS, since file 1 installs all three extensions into it and
+-- this is the file that actually uses them.
 --
 -- A FUNCTION is easy: `extensions.similarity(...)`, `extensions.st_dwithin(...)`, qualified
 -- outright. An OPERATOR is not, and this is the trap worth naming: `name % query` resolves
 -- through the `search_path`, and the `search_path` here is EMPTY. A bare `%` would not
 -- resolve at all — the failure is loud, at create time, but only if someone runs the file —
 -- so pg_trgm's operator is written the long way, `operator(extensions.%)`. That form is what
--- lets the GIN trigram indexes M2a built (`dive_sites_name_trgm_idx`) actually be used;
--- `similarity(...) >= floor` alone cannot use an index.
+-- lets the GIN trigram indexes below (`dive_sites_name_fold_trgm_idx` and its centre twin)
+-- actually be used; `similarity(...) >= floor` alone cannot use an index. Since M2j those
+-- indexes are over `public.name_fold(name)`, so the LEFT SIDE of every `%` has to be written
+-- that same way too — an index the query no longer matches is not an error, only a scan.
 --
 -- The `%` operator's own cut-off is the session GUC `pg_trgm.similarity_threshold`, whose
 -- default is 0.3 — and `public.name_match_floor()` below is written to be exactly that
@@ -75,8 +98,110 @@
 -- PostGIS 3 schema-qualifies those internally, so this should hold under an empty
 -- `search_path`. **This is the statement to watch when the file is first pasted in.** If it
 -- raises `operator does not exist`, the one-word fix is `set search_path = extensions` on the
--- two functions that call it — still a pinned path, still not the mutable one Supabase's
+-- three functions that call it — still a pinned path, still not the mutable one Supabase's
 -- linter flags.
+
+
+-- ─── name_fold — how a name is read before it is matched, and the one place that says ─────
+--
+-- §10, since M1: "`zelezna` finds `Železná`". `domain/search.ts`'s `foldForMatching` is the
+-- client's half of that sentence and this is the server's. It exists because the two halves
+-- disagreeing is not a cosmetic difference: §2.3 makes live search a SUPPLEMENT to what the
+-- device already answers, so a query that finds a site here and not there — or there and not
+-- here — is one feature giving two answers, which is §4.1's defining defect wearing a
+-- language it is hard to notice in.
+--
+-- **What was actually wrong, measured rather than assumed.** Trigram similarity is tolerant
+-- of an accent by accident and not by design: on the owner's project `similarity('Sarka',
+-- 'Šárka')` is 0.333 against `name_match_floor()`'s 0.3. That clears by 0.033 on a
+-- five-letter word with ONE accent; *Divoká Šárka* typed as *Divoka Sarka* has two and does
+-- not clear at all. So the server was already failing exactly the names §10 named.
+--
+-- ── WHY THIS IS `IMMUTABLE` WHEN `unaccent` IS NOT, WHICH IS THE WHOLE DIFFICULTY ─────────
+--
+-- `extensions.unaccent(text)` is **STABLE**, not immutable, because the one-argument form
+-- looks its dictionary up through the `search_path` at call time and a dictionary can be
+-- redefined. Postgres will not put a STABLE function in an index expression, and without an
+-- index this fold turns both search functions into sequential scans over the whole catalogue
+-- — which looks perfectly fine on ten sites and is the only thing that matters at ten
+-- thousand. So an IMMUTABLE wrapper is not a nicety here; it is the difference between the
+-- fold being affordable and not.
+--
+-- **The marking is honest only because the dictionary is named.** This calls the TWO-argument
+-- form with `'extensions.unaccent'::regdictionary` written out, so there is no search_path
+-- lookup left to vary: the result can change only if somebody edits the `unaccent.rules` file
+-- on the server's disk, or redefines the dictionary with `alter text search dictionary`.
+-- Either is a deployment act rather than a query-time dependency, and if one ever happened
+-- the remedy is `reindex index public.dive_sites_name_fold_trgm_idx` — the same obligation
+-- every expression index in every schema already carries.
+-- Marking the one-argument form immutable would be a lie, and lying here would produce wrong
+-- ANSWERS rather than an error, because the planner is entitled to believe it.
+--
+-- **It will not be inlined**, which is the trap this recipe is usually caught by. Postgres
+-- inlines simple SQL functions, and an inlined body is only as immutable as what it calls —
+-- an index would then stop being used with nothing to say so. Two independent things stop it
+-- here: `inline_function` refuses to inline an IMMUTABLE function whose body contains a
+-- mutable one (that check exists precisely to protect this pattern), and it refuses any
+-- function carrying a `SET` clause, which every function in this file has. Both are facts
+-- about Postgres rather than about this SQL, so neither is checkable from here; `explain`
+-- on the first real search is what confirms the index is being used.
+--
+-- ── WHAT THE FOLD IS, PIECE BY PIECE, AND WHERE IT DIFFERS FROM THE CLIENT'S ──────────────
+--
+--   btrim      — the same trim `foldForMatching` opens with, so `nullif(name_fold(p_query),
+--                '')` below is the whole of "is this query empty", in one expression rather
+--                than a trim here and a fold there.
+--   normalize  — to NFC, so a name that arrived decomposed (a paste out of macOS; some IMEs)
+--                is composed before the dictionary is consulted. `unaccent`'s rules are keyed
+--                on precomposed characters, so WITHOUT this line a decomposed `Železná` is
+--                left completely unfolded and stored beside a precomposed one that folds —
+--                two rows the catalogue cannot tell apart and search treats as unrelated.
+--                The client's `normalize('NFD')` is the same insurance from the other end.
+--   unaccent   — the rule table above.
+--   lower      — outermost, because the table maps `Æ` to `AE` and a fold that returned an
+--                uppercase letter would not match a lowercased query.
+--
+-- **The two folds are not the same function and cannot be made so.** The client strips
+-- combining marks (U+0300–U+036F); this applies a rule table that also rewrites letters with
+-- no decomposition at all — `ø`→`o`, `ß`→`ss`, `æ`→`ae`, `ł`→`l`. They agree on Czech, which
+-- is what §10 asked for, and on every accented Latin-1 vowel. `src/domain/search.test.ts`
+-- pins each known divergence by name; copying this dictionary into JavaScript would be a
+-- second copy of a table Postgres itself refuses to call immutable.
+create or replace function public.name_fold(p_text text)
+  returns text
+  language sql
+  immutable
+  parallel safe
+  security invoker
+  set search_path = ''
+as $$
+  select lower(
+           extensions.unaccent('extensions.unaccent'::regdictionary, normalize(btrim(p_text), nfc))
+         );
+$$;
+
+
+-- ─── the trigram indexes, over the expression the queries actually compare ────────────────
+--
+-- Here rather than in file 2 because they reference `name_fold` above and a table file 2
+-- creates, and a function has to exist before an index can call it.
+--
+-- **The old pair indexed the raw name and is dropped**, not left standing. After this file no
+-- query compares `name` itself, so those indexes would be maintained on every write and read
+-- by nothing. Dropping them is also what makes this file's effect complete on a project that
+-- has already had file 2 applied — the owner pastes files 1 and 6 and needs no other change.
+--
+-- The expression has to be written the same way here and in every `where` below or the
+-- planner will not match them, which is the silent half of this change: a mismatch costs no
+-- error and no wrong answer, only a sequential scan. That is why both sides say
+-- `public.name_fold(...)` and neither spells the fold out inline.
+drop index if exists public.dive_sites_name_trgm_idx;
+drop index if exists public.dive_centers_name_trgm_idx;
+
+create index if not exists dive_sites_name_fold_trgm_idx
+  on public.dive_sites using gin (public.name_fold(name) extensions.gin_trgm_ops);
+create index if not exists dive_centers_name_fold_trgm_idx
+  on public.dive_centers using gin (public.name_fold(name) extensions.gin_trgm_ops);
 
 
 -- ─── name_match_floor — the one place the fuzzy cut-off is written down ───────────────────
@@ -93,6 +218,22 @@
 -- a longer name, so a diver who has typed `sh` gets nothing back from here. That is correct
 -- and is why §2.3 makes the on-device history and catalogue the FIRST answer and this one a
 -- supplement — a supplement that stays quiet until the query is long enough to mean something.
+--
+-- **STILL 0.3 AFTER THE FOLD, and that was a question rather than an omission** (M2j). The
+-- fold changes what this number is doing, so it is worth saying what it now does and does not
+-- have to absorb. `Sarka` against `Šárka` was 0.333 — the accent cost roughly two thirds of
+-- the similarity, and 0.3 was silently paying for that as well as separating a near-match
+-- from noise. Folded, the pair is 1.0, and this number is back to its one job.
+--
+-- So the fold makes 0.3 MORE right, not less, in both directions. Downward: the reason
+-- somebody would have argued for lowering it — that real Czech names were falling through —
+-- is gone, and lowering it would be actively wrong, because the `%` pre-filter's own cut-off
+-- is the session GUC `pg_trgm.similarity_threshold` at 0.3 and a floor beneath that would let
+-- this file promise rows the index has already refused to hand it. Upward: two names that
+-- differ only by accents are not similar names, they are the same name, so nothing that
+-- folding newly admits is a false positive worth raising the bar against. What folding does
+-- move is `similar_sites`' sensitivity — `Divoka Sarka` will now be offered as a possible
+-- duplicate of `Divoká Šárka`, which is precisely the duplicate §5 asks it to catch.
 create or replace function public.name_match_floor()
   returns double precision
   language sql
@@ -146,7 +287,11 @@ create or replace function public.search_sites(
 as $$
 declare
   v_uid uuid := (select auth.uid());
-  v_query text := nullif(btrim(coalesce(p_query, '')), '');
+  -- Folded HERE, once, and compared against a folded name below — §4.1's "both sides go
+  -- through it", which is the whole of what makes a fold a rule rather than a convenience.
+  -- `name_fold` trims, so this one expression is also the empty-query test it used to need
+  -- a separate `btrim` for.
+  v_query text := nullif(public.name_fold(p_query), '');
   v_point extensions.geography;
   v_radius_m double precision := least(greatest(coalesce(p_radius_m, 50000), 0), 500000);
   v_limit integer := least(greatest(coalesce(p_limit, 20), 1), 50);
@@ -178,7 +323,7 @@ begin
     select s.id as site_id,
            case
              when v_query is null then null
-             else extensions.similarity(s.name, v_query)::double precision
+             else extensions.similarity(public.name_fold(s.name), v_query)::double precision
            end as score,
            case
              when v_point is null or s.location is null then null
@@ -191,8 +336,8 @@ begin
          v_query is null
          or (
            s.name is not null
-           and s.name operator(extensions.%) v_query
-           and extensions.similarity(s.name, v_query) >= public.name_match_floor()
+           and public.name_fold(s.name) operator(extensions.%) v_query
+           and extensions.similarity(public.name_fold(s.name), v_query) >= public.name_match_floor()
          )
        )
        and (
@@ -209,6 +354,110 @@ begin
     into v_rows
     from matches as m
     join public.dive_sites as s on s.id = m.site_id;
+
+  return v_rows;
+end;
+$$;
+
+
+-- ─── search_centers — the other half of §2.3's sentence, which §5's list never had ────────
+--
+-- §2.3: "Typing a site **or center** searches your own history first, then the on-device copy
+-- of the community catalogue… Live search adds anything newer when online." §5's RPC list
+-- names `search_sites` and nothing for centres, so until now a centre typed online was
+-- answered only from the device's own copy — which is fully offline-correct and silently
+-- misses everything added since that device last pulled. M2c found the gap and recorded it in
+-- §5 as belonging "to whichever task first makes online search real"; this is that task.
+--
+-- **A mirror of `search_sites`, deliberately, down to the argument list.** Same criteria and
+-- the same rule that at least one of them is required, same clamps, same `status`/tombstone
+-- filter, same `security invoker` so file 3's SELECT policy still decides who reads the
+-- catalogue, same empty `search_path` with `extensions.`-qualified operators, and the same
+-- accent fold on both sides of the name comparison. A centre and a site are the same kind of
+-- community row (file 2 gives them the same shape, §5 covers them in one sentence), so a
+-- client that has written the merge for one has written it for the other.
+--
+-- Rendered with `public.sync_site` although the name says site: that function is the one
+-- place a PostGIS point becomes §6's latitude/longitude pair, and `pull_changes` already
+-- calls it for `dive_centers` for exactly this reason. One writer for a catalogue row on the
+-- client, not one per source (§4.1) — and the client must not advance `last_pulled_at` on
+-- the strength of a search here either, for the reason `search_sites` gives.
+--
+-- **What is deliberately NOT here is `similar_centers`.** §5 asks for the fuzzy duplicate
+-- check about a *site* — "before saving a new entry, a fuzzy check suggests near-matches" —
+-- and the symmetric centre version is another forty lines with no §5 sentence behind it yet.
+-- It is reported rather than assumed; `create or replace function` adds a function freely, so
+-- nothing about doing it later is more expensive than doing it now.
+create or replace function public.search_centers(
+  p_query text default null,
+  p_latitude double precision default null,
+  p_longitude double precision default null,
+  p_radius_m double precision default 50000,
+  p_limit integer default 20
+)
+  returns jsonb
+  language plpgsql
+  volatile
+  security invoker
+  set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_query text := nullif(public.name_fold(p_query), '');
+  v_point extensions.geography;
+  v_radius_m double precision := least(greatest(coalesce(p_radius_m, 50000), 0), 500000);
+  v_limit integer := least(greatest(coalesce(p_limit, 20), 1), 50);
+  v_rows jsonb;
+begin
+  if v_uid is null then
+    raise exception 'search_centers: no authenticated user' using errcode = '28000';
+  end if;
+
+  if p_latitude is not null and p_longitude is not null then
+    -- (LONGITUDE, LATITUDE), as everywhere else in these migrations. Backwards is silent.
+    v_point := extensions.st_setsrid(
+      extensions.st_makepoint(p_longitude, p_latitude), 4326)::extensions.geography;
+  end if;
+
+  if v_query is null and v_point is null then
+    raise exception 'search_centers: needs a query, a position, or both' using errcode = '22023';
+  end if;
+
+  with matches as (
+    select c.id as center_id,
+           case
+             when v_query is null then null
+             else extensions.similarity(public.name_fold(c.name), v_query)::double precision
+           end as score,
+           case
+             when v_point is null or c.location is null then null
+             else extensions.st_distance(c.location, v_point)
+           end as distance_m
+      from public.dive_centers as c
+     where c.deleted_at is null
+       and c.status = 'active'
+       and (
+         v_query is null
+         or (
+           c.name is not null
+           and public.name_fold(c.name) operator(extensions.%) v_query
+           and extensions.similarity(public.name_fold(c.name), v_query) >= public.name_match_floor()
+         )
+       )
+       and (
+         v_point is null
+         or (c.location is not null and extensions.st_dwithin(c.location, v_point, v_radius_m))
+       )
+     order by score desc nulls last, distance_m asc nulls last, c.id
+     limit v_limit
+  )
+  select coalesce(
+           jsonb_agg(public.sync_site(to_jsonb(c), c.location)
+                     order by m.score desc nulls last, m.distance_m asc nulls last, c.id),
+           '[]'::jsonb)
+    into v_rows
+    from matches as m
+    join public.dive_centers as c on c.id = m.center_id;
 
   return v_rows;
 end;
@@ -257,7 +506,10 @@ create or replace function public.similar_sites(
 as $$
 declare
   v_uid uuid := (select auth.uid());
-  v_name text := nullif(btrim(coalesce(p_name, '')), '');
+  -- Folded, as in `search_sites` — and it matters more here, because this is the check that
+  -- stops a second `Divoká Šárka` being created as `Divoka Sarka` (§5). Unfolded, the two
+  -- scored 0.333 and the dedupe warning a diver needs was one accent from never appearing.
+  v_name text := nullif(public.name_fold(p_name), '');
   v_point extensions.geography;
   v_radius_m double precision := least(greatest(coalesce(p_radius_m, 25000), 0), 500000);
   v_limit integer := least(greatest(coalesce(p_limit, 5), 1), 25);
@@ -278,14 +530,14 @@ begin
 
   with matches as (
     select s.id as site_id,
-           extensions.similarity(s.name, v_name)::double precision as score
+           extensions.similarity(public.name_fold(s.name), v_name)::double precision as score
       from public.dive_sites as s
      where s.deleted_at is null
        and s.status = 'active'
        and s.name is not null
        and (p_exclude_id is null or s.id <> p_exclude_id)
-       and s.name operator(extensions.%) v_name
-       and extensions.similarity(s.name, v_name) >= public.name_match_floor()
+       and public.name_fold(s.name) operator(extensions.%) v_name
+       and extensions.similarity(public.name_fold(s.name), v_name) >= public.name_match_floor()
        and (
          v_point is null
          or s.location is null
@@ -513,14 +765,22 @@ $$;
 -- caller who could reach `delete_account` would be reaching a `security definer` function, and
 -- an anonymous caller who could reach `suggest_site_edit` would be an unauthenticated writer
 -- into a queue a human reads.
+-- `name_fold` needs the same treatment as the rest, and for a reason worth stating: the
+-- functions that call it are `security invoker`, so it runs as the caller and the caller
+-- needs EXECUTE on it. Without the grant, every search would raise `permission denied for
+-- function name_fold` — loud, at least, rather than an empty catalogue.
+revoke all on function public.name_fold(text) from public;
 revoke all on function public.name_match_floor() from public;
 revoke all on function public.search_sites(text, double precision, double precision, double precision, integer) from public;
+revoke all on function public.search_centers(text, double precision, double precision, double precision, integer) from public;
 revoke all on function public.similar_sites(text, double precision, double precision, double precision, uuid, integer) from public;
 revoke all on function public.suggest_site_edit(uuid, jsonb, text) from public;
 revoke all on function public.delete_account() from public;
 
+grant execute on function public.name_fold(text) to authenticated;
 grant execute on function public.name_match_floor() to authenticated;
 grant execute on function public.search_sites(text, double precision, double precision, double precision, integer) to authenticated;
+grant execute on function public.search_centers(text, double precision, double precision, double precision, integer) to authenticated;
 grant execute on function public.similar_sites(text, double precision, double precision, double precision, uuid, integer) to authenticated;
 grant execute on function public.suggest_site_edit(uuid, jsonb, text) to authenticated;
 grant execute on function public.delete_account() to authenticated;

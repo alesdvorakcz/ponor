@@ -13,18 +13,26 @@ Dashboard → **SQL Editor** → paste one file → Run. In this order:
 
 | # | File | What it does |
 |---|---|---|
-| 1 | `migrations/20260902090000_extensions.sql` | `postgis` and `pg_trgm`, both into the `extensions` schema (§5) |
-| 2 | `migrations/20260902090100_schema.sql` | The six tables of §6, plus the indexes §5 and §7 need |
+| 1 | `migrations/20260902090000_extensions.sql` | `postgis`, `pg_trgm` and `unaccent`, all into the `extensions` schema (§5) |
+| 2 | `migrations/20260902090100_schema.sql` | The six tables of §6, plus the `updated_at` and GiST indexes §5 and §7 need |
 | 3 | `migrations/20260902090200_rls.sql` | Row-Level Security on every table, and every policy |
 | 4 | `migrations/20260902090300_sync_rpcs.sql` | `push_changes` and `pull_changes` — §7's whole protocol |
 | 5 | `migrations/20260902090400_site_edits.sql` | The review queue §5 requires and §6 never listed, and its policies |
-| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `search_sites`, `similar_sites`, `suggest_site_edit`, `delete_account` |
+| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `name_fold`, `search_sites`, `search_centers`, `similar_sites`, `suggest_site_edit`, `delete_account`, and the two trigram indexes |
 
 Order matters five times: file 2 uses the PostGIS type file 1 installs, file 3 alters the
 tables file 2 creates, file 4's functions read those tables and the PostGIS functions from
 file 1, file 5's table references `dive_sites` from file 2, and file 6 writes into file 5's
-table and calls `public.sync_site` from file 4. Run each one whole — file 2 begins with a
-`set search_path` that the statements after it rely on.
+table, calls `public.sync_site` from file 4 and `extensions.unaccent` from file 1, and
+indexes two of file 2's tables. Run each one whole — file 2 begins with a `set search_path`
+that the statements after it rely on.
+
+**Applying M2j to a project that already has files 1–6 is files 1 and 6, in that order, and
+nothing else.** File 1 adds `unaccent` (`create extension if not exists`, a no-op for the
+other two); file 6 creates `name_fold`, drops the two raw-name trigram indexes and builds
+the folded pair, and replaces the search functions. No table is dropped and no row moves.
+File 2 changed too — its two trigram index lines moved into file 6 — but re-running it is
+not required and would do nothing either way.
 
 With the Supabase CLI instead: `supabase link --project-ref <ref>` then `supabase db push`.
 The filenames are already in the CLI's `<timestamp>_name.sql` form and sort into that order.
@@ -53,17 +61,13 @@ parity test below goes red, which is what it is for.
   owner's, by his own division of labour. All six of §5's RPCs now exist (files 4 and 6);
   none of them can be reached without a session, so nothing in this directory works until
   that half is configured.
-- **A live search for dive *centres*.** §2.3 says "typing a site or center searches your own
-  history first… live search adds anything newer when online", but §5's RPC list names only
-  `search_sites`. Centres reach every device through `pull_changes` and autocomplete offline
-  exactly as sites do; what they lack is the online supplement and the fuzzy duplicate check.
-  A symmetric pair (`search_centers` / `similar_centers`) is about forty lines, and it is a
-  §5 edit rather than an oversight — see the M2c report.
-- **Diacritic folding on the server.** §10 puts it in M2, and `domain/search.ts` owns the
-  client half. Trigram similarity is partly tolerant of it by accident and not by design, so
-  `zelezna` may or may not find `Železná`. Doing it properly needs the `unaccent` extension
-  plus an IMMUTABLE wrapper to index through — `unaccent(text)` is only STABLE — which is a
-  third extension and a second GIN index, and belongs with the client work rather than here.
+- **`similar_centers`, the fuzzy duplicate check for a dive *centre*.** M2j built
+  `search_centers`, so §2.3's "typing a site **or center** … live search adds anything newer
+  when online" is now answered for both. Its dedupe twin is not: §5 asks for the near-match
+  warning about a *site* — "before saving a new entry, a fuzzy check suggests near-matches"
+  — and says nothing about centres, so building one would be inventing a requirement rather
+  than meeting one. It is about forty lines when §5 asks for it, and `create or replace
+  function` adds a function freely, so waiting costs nothing.
 - **`dive_photos` and `dive_samples`.** §6 calls these *reserved* — named in the plan so
   nothing migrates painfully later, not built now. No table is created for either, and
   §0.4's rule that no profile curve is drawn without a real sample series is untouched by
@@ -159,6 +163,14 @@ sync failures never block logging) and tells the owner a migration is missing.
 - **A short query gets nothing back, by design.** Trigram similarity is near zero for two or
   three characters against a longer name. The device's own history and catalogue copy are §2.3's
   first answer; this one stays quiet until the query means something.
+- **The client does NOT pre-fold a query before sending it** (M2j). `public.name_fold` runs on
+  both sides of every name comparison inside these functions, so a caller passes the diver's
+  raw text — `p_query` is trimmed, NFC-normalised, unaccented and lowercased on arrival. A
+  client that folded first would be folding twice, harmlessly today and wrongly the day the two
+  folds differ, and `domain/search.ts` already records that they DO differ: JavaScript strips
+  combining marks and Postgres applies `unaccent`'s rule table, which also rewrites `ø`, `ß`,
+  `æ` and `ł`. Where the two disagree, the on-device answer and the online supplement disagree,
+  and §2.3 shows both — so the merged list is the union, which is the failure mode to prefer.
 - **`delete_account` does not sign anybody out.** A JWT is stateless and stays valid until it
   expires, so the client signs out immediately after the call returns — and wipes the local
   database, for the reason §7.4 already gives for sign-out. It returns how many sites and
@@ -198,6 +210,15 @@ account deletion takes; and that no catalogue function is `security definer`, wh
 table with RLS quietly becomes public. It also pins what a suggestion may propose, against
 `dive_sites`' own columns in both directions.
 
+M2j added a fourth silent failure to that list, and it is the one with no wrong answer
+attached: **the accent fold and the trigram indexes must be the same expression.** A fold the
+query applies and the index does not raises nothing, returns the right rows, and turns every
+search into a sequential scan over the whole catalogue — invisible at ten sites. So the
+expected index expression is derived from what the functions actually compare rather than
+written out beside them, and the value side of every comparison is swept exhaustively (three
+folded references per function, floored), because a fold applied to the query alone is the
+half that would ship.
+
 It also asserts the guarantees the SQL text carries that a column comparison cannot see:
 no serial or identity anywhere (ids are the client's UUIDv7), no trigger stamping
 `created_at` or `updated_at`, no enum or CHECK on a vocabulary column (§10: an unknown
@@ -211,18 +232,23 @@ first person to paste these files into Studio is the first person to find out wh
 are valid.
 
 All six files have been through **libpg_query** — the real PostgreSQL grammar — including
-the plpgsql bodies and every SQL fragment inside them, and all six parse. That was run from a
+the plpgsql bodies and every SQL fragment inside them, and all six parse. Re-run for M2j, with
+the checker itself checked: a broken `name_fold` body, a broken `search_centers` CTE and a
+broken index expression were each introduced deliberately and each was caught. That was run from a
 scratchpad and adds no dependency to this repository, so it is not part of `npm test`; it also
 proves nothing beyond grammar. It cannot see a column that does not exist, a table that does
 not exist, a latitude handed to `ST_MakePoint` where a longitude belongs, or a
 `delete from public.dive_sites` in the one function that must never contain one — which is the
 list the two RPC parity checks exist to cover.
 
-Three things in file 6 are unprovable from here in particular and are marked where they occur:
+Four things in file 6 are unprovable from here in particular and are marked where they occur:
 the privilege on `auth.users` above; whether `extensions.st_dwithin` resolves its own `&&`
 operator under an empty `search_path` (PostGIS 3 qualifies it internally, so it should — if it
-raises `operator does not exist`, the fix is `set search_path = extensions` on the two
-functions that call it); and that the `%` operator's cut-off is the session GUC
+raises `operator does not exist`, the fix is `set search_path = extensions` on the three
+functions that call it); whether the planner really uses the folded trigram indexes, which is
+a claim about SQL-function inlining rather than about this text and is settled by one `explain`
+(M2j; the fallback if it does not is that searches are correct and slow, not wrong); and that
+the `%` operator's cut-off is the session GUC
 `pg_trgm.similarity_threshold`, which `public.name_match_floor()` is written to equal. If that
 GUC is ever raised on this project, both search functions quietly return less, and the remedy
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.

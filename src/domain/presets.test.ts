@@ -105,6 +105,47 @@ describe('presetNamed', () => {
     const twin = preset({ name: 'twin 12' });
     expect(presetNamed([alu, twin], 'alu 80', twin.id)?.id).toBe(alu.id);
   });
+
+  /**
+   * **Two presets a match fold would collide** — the assertion `presetNameKey`'s docblock
+   * points at, and the reason M2j's diacritic fold went into `foldForMatching` and stopped
+   * there.
+   *
+   * The two functions were character-for-character identical until that commit, so the
+   * obvious tidy-up was to delete one and call the other. Do that — `import
+   * { foldForMatching } from './search'` and use it as `presetNameKey` — and every other
+   * test in this file still passes, because none of them holds an accent. What breaks is a
+   * diver's rename: `Železná` and `Zelezna` become one preset name, so naming a second
+   * cylinder set the unaccented way is refused for colliding with a chip that visibly says
+   * something else. `Alu 80` / `alu 80` staying one name is the SAME line under test from
+   * the other side, so both directions are asserted here.
+   */
+  it('keeps two names apart when only their accents differ', () => {
+    const zelezna = preset({ name: 'Železná' });
+    expect(presetNamed([zelezna], 'Zelezna')).toBeNull();
+    expect(presetNamed([preset({ name: 'Zelezna' })], 'Železná')).toBeNull();
+    expect(presetNamed([zelezna], 'železná')?.id).toBe(zelezna.id);
+  });
+
+  /**
+   * The ordering half of the same key, so a fold cannot slip in through `comparePresets`
+   * while `presetNamed` stays strict — one normaliser, both questions.
+   *
+   * Asserted as "the comparator separates them" rather than as a sorted list, because a list
+   * of two names is two names long whichever way it comes out. Both presets carry the same
+   * `createdAt`, so the tie-break cannot answer: a folded key makes these two the same name
+   * AND the same instant, and the comparator returns exactly 0.
+   */
+  it('does not treat two accent-distinct names as one name to order', () => {
+    const at = '2026-08-16T00:00:00.000Z';
+    const compared = comparePresets(
+      preset({ name: 'Železná', createdAt: at }),
+      preset({ name: 'Zelezna', createdAt: at }),
+    );
+    expect(compared).not.toBe(0);
+    // ...while case and surrounding space still ARE one name, which is what the key is for.
+    expect(comparePresets(preset({ name: ' Alu 80 ', createdAt: at }), preset({ name: 'alu 80', createdAt: at }))).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------------------

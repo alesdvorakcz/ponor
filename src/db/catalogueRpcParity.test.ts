@@ -1,4 +1,5 @@
 import {
+  matchParen,
   parseFunctionSql,
   qualifiedReferences,
   readMigrationFile,
@@ -47,6 +48,8 @@ import {
 
 const CATALOGUE_FILE = '20260902090500_catalogue_rpcs.sql';
 const SYNC_FILE = '20260902090300_sync_rpcs.sql';
+const SCHEMA_FILE = '20260902090100_schema.sql';
+const EXTENSIONS_FILE = '20260902090000_extensions.sql';
 
 const rpc = parseFunctionSql(readMigrationFile(CATALOGUE_FILE));
 const sync = parseFunctionSql(readMigrationFile(SYNC_FILE));
@@ -58,14 +61,30 @@ function fn(name: string): ParsedFunction {
   return found;
 }
 
+const nameFold = fn('public.name_fold');
 const floor = fn('public.name_match_floor');
 const search = fn('public.search_sites');
+const searchCenters = fn('public.search_centers');
 const similar = fn('public.similar_sites');
 const suggest = fn('public.suggest_site_edit');
 const deleteAccount = fn('public.delete_account');
 
-/** The two that read the community catalogue, and therefore carry guarantee 3. */
-const CATALOGUE_READS = [search, similar];
+/**
+ * The three that read the community catalogue, and therefore carry guarantee 3 — each with
+ * the table it reads, the alias it reads it under, and the id its ranking CTE carries.
+ *
+ * Written as a table rather than as three near-identical assertions because M2j added a
+ * centre-shaped copy of a site-shaped function: the useful checks are the ones that say
+ * "each of these does X to ITS OWN row", and a sweep hard-coded to `s` and `dive_sites`
+ * would have passed `search_centers` without ever looking at it.
+ */
+const CATALOGUE_SOURCES = [
+  { fn: search, table: 'dive_sites', alias: 's', cteKey: 'site_id' },
+  { fn: searchCenters, table: 'dive_centers', alias: 'c', cteKey: 'center_id' },
+  { fn: similar, table: 'dive_sites', alias: 's', cteKey: 'site_id' },
+] as const;
+
+const CATALOGUE_READS: readonly ParsedFunction[] = CATALOGUE_SOURCES.map((source) => source.fn);
 
 function schemaColumns(table: string): string[] {
   const found = schema.tables.find((candidate) => candidate.name === table);
@@ -96,17 +115,23 @@ const COMMUNITY_TABLES = schema.tables
 // ──────────────────────────────────────────────────────────────────────────────────────
 
 const TABLE_ALIASES: Record<string, Record<string, string>> = {
+  'public.name_fold': {},
   'public.name_match_floor': {},
   'public.search_sites': { s: 'dive_sites' },
+  'public.search_centers': { c: 'dive_centers' },
   'public.similar_sites': { s: 'dive_sites' },
   'public.suggest_site_edit': { s: 'dive_sites' },
   'public.delete_account': { s: 'dive_sites', c: 'dive_centers' },
 };
 
 const OTHER_ALIASES: Record<string, Record<string, string>> = {
+  'public.name_fold': {},
   'public.name_match_floor': {},
   'public.search_sites': {
     m: 'the `matches` CTE, whose columns are site_id/score/distance_m — a ranking, not a row.',
+  },
+  'public.search_centers': {
+    m: 'the `matches` CTE, as in search_sites, keyed center_id rather than site_id.',
   },
   'public.similar_sites': { m: 'the `matches` CTE, as in search_sites.' },
   'public.suggest_site_edit': {
@@ -134,12 +159,33 @@ function qualifiers(body: string): string[] {
  * resolve at all, so this list is what the "everything is schema-qualified" sweep is over.
  */
 const EXTENSION_FUNCTIONS = [
+  'unaccent',
   'similarity',
   'st_setsrid',
   'st_makepoint',
   'st_dwithin',
   'st_distance',
 ];
+
+/**
+ * Which extension each `extensions.` name comes from — **types included** — checked in both
+ * directions against the extensions migration and against this file's own bodies.
+ *
+ * It exists because a mutation survived without it: deleting `create extension … unaccent`
+ * from file 1 left every assertion here green while `public.name_fold` went on calling a
+ * function nothing installs. That failure is loud when the file is pasted, but it is loud on
+ * the one server nobody working here can reach, which is the worst place to find it — and it
+ * is the exact shape §5's "unaccent is not installed" gap had before this task.
+ */
+const PROVIDED_BY: Record<string, string> = {
+  unaccent: 'unaccent',
+  similarity: 'pg_trgm',
+  st_setsrid: 'postgis',
+  st_makepoint: 'postgis',
+  st_dwithin: 'postgis',
+  st_distance: 'postgis',
+  geography: 'postgis',
+};
 
 /** Statements of a plpgsql body, split outside literals. */
 function statementsOf(body: string): string[] {
@@ -157,9 +203,17 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // Asserting the whole set means a fifth function added to this file has to be named on
     // purpose — and `name_match_floor` is exactly such a deliberate addition (§4.1: the fuzzy
     // cut-off is a rule with two readers, so it gets one owner).
+    //
+    // M2j adds two more, and each is a deliberate entry rather than a drive-by: `name_fold`
+    // for the same §4.1 reason the floor is here (§10's accent rule has two readers and must
+    // have one owner), and `search_centers` because §2.3 promises live search for "a site or
+    // center" while §5's list named only the first — a gap M2c recorded in §5 and this task
+    // closes.
     expect(rpc.functions.map((declared) => declared.name).sort()).toEqual([
       'public.delete_account',
+      'public.name_fold',
       'public.name_match_floor',
+      'public.search_centers',
       'public.search_sites',
       'public.similar_sites',
       'public.suggest_site_edit',
@@ -185,11 +239,11 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // does not apply, and the catalogue is then readable by anyone who can call the function —
     // which is the decision M2a deliberately took the other way, on the grounds that opening it
     // later is two statements and closing it after a scrape is not possible at all.
-    for (const declared of [...CATALOGUE_READS, suggest, floor]) {
+    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold]) {
       expect(`${declared.name}: ${declared.attributes}`).toContain('security invoker');
       expect(`${declared.name}: ${declared.attributes}`).not.toContain('security definer');
     }
-    expect(CATALOGUE_READS.length).toBe(2);
+    expect(CATALOGUE_READS.length).toBe(3);
 
     // And `delete_account` is the ONE exception, stated from both ends so neither a lost
     // `definer` there nor a stray one anywhere else can pass.
@@ -330,14 +384,21 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     //
     // `sync_row` instead of `sync_site` would ship `location` as PostGIS' own WKB hex and no
     // coordinates at all — every pin missing, raising nothing. That is the mutation this kills.
-    for (const declared of CATALOGUE_READS) {
+    //
+    // `search_centers` renders with `sync_site` too, and the name is not a slip: that function
+    // is the one place a PostGIS point becomes §6's coordinate pair, and `pull_changes`
+    // already calls it for `dive_centers` for exactly this reason. One writer per catalogue
+    // row on the client, not one per source.
+    for (const { fn: declared, table, alias, cteKey } of CATALOGUE_SOURCES) {
       expect(`${declared.name}: ${declared.body}`).toContain(
-        'public.sync_site(to_jsonb(s), s.location)',
+        `public.sync_site(to_jsonb(${alias}), ${alias}.location)`,
       );
       expect(declared.body).not.toMatch(/public\.sync_row\(to_jsonb\(/);
       // Rendered from the table row itself rather than from the ranking CTE, so a score cannot
       // leak into a row the client is about to store as a catalogue entry.
-      expect(declared.body).toMatch(/join public\.dive_sites as s on s\.id = m\.site_id/);
+      expect(`${declared.name}: ${declared.body}`).toContain(
+        `join public.${table} as ${alias} on ${alias}.id = m.${cteKey}`,
+      );
     }
   });
 
@@ -346,9 +407,9 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // `merged` and `hidden` rows because the device has to be TOLD about them. A search offers
     // something to choose, so offering a merged duplicate would re-create the duplicate an
     // admin has just merged away — and offering a tombstoned site would resurrect it.
-    for (const declared of CATALOGUE_READS) {
-      expect(`${declared.name}: ${declared.body}`).toContain('s.deleted_at is null');
-      expect(`${declared.name}: ${declared.body}`).toContain("s.status = 'active'");
+    for (const { fn: declared, alias } of CATALOGUE_SOURCES) {
+      expect(`${declared.name}: ${declared.body}`).toContain(`${alias}.deleted_at is null`);
+      expect(`${declared.name}: ${declared.body}`).toContain(`${alias}.status = 'active'`);
     }
     // The site a suggestion names has to be one an admin can act on, for the same reason.
     expect(suggest.body).toContain("s.status = 'active'");
@@ -366,6 +427,14 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     }
     expect([...floor.body.matchAll(/0\.\d+/g)].length).toBe(1);
     expect(floor.attributes).toContain('immutable');
+
+    // **Still 0.3 after M2j's accent fold, which was a question rather than an omission.**
+    // The number is pinned to pg_trgm's own `similarity_threshold` default, so the `%`
+    // pre-filter and this file's contract agree by construction; a floor BELOW it would
+    // promise rows the index has already refused to hand over. Folding removed the only
+    // argument for lowering it — `Sarka`/`Šárka` scored 0.333 unfolded and scores 1.0 now —
+    // so the literal is asserted rather than left to drift with the reasoning behind it.
+    expect(floor.body).toContain('0.3');
   });
 
   it('writes pg_trgm\'s operator the only way an empty search_path can resolve it (§5)', () => {
@@ -381,7 +450,7 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // contain no bare one, and a stripper that stopped stripping would fail here rather than
     // leaving this assertion quietly true of nothing (mutation-found).
     const whole = withoutLiterals(rpc.functions.map((declared) => declared.body).join('\n'));
-    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(2);
+    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(3);
     expect(whole.replace(/operator\(extensions\.%\)/g, '')).not.toContain('%');
 
     // Every PostGIS and pg_trgm name is schema-qualified, everywhere in the file.
@@ -392,6 +461,34 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     expect(whole).toContain('extensions.st_dwithin(');
   });
 
+  it('calls only extension names that file 1 actually installs (§5)', () => {
+    // Two-sided and exhaustive. Every `extensions.` name these bodies use has to be claimed
+    // by an extension the first migration creates, and every claim has to be about a name
+    // that is really used — so an extension dropped from file 1, or a function called from a
+    // fourth extension nobody installed, fails here rather than when the file is pasted.
+    const installed = readMigrationFile(EXTENSIONS_FILE).toLowerCase();
+    const used = new Set(
+      rpc.functions.flatMap((declared) =>
+        qualifiedReferences(withoutLiterals(declared.body), 'extensions'),
+      ),
+    );
+
+    expect([...used].sort()).toEqual(Object.keys(PROVIDED_BY).sort());
+    // The function half of that set is the same list the qualification sweep above is over,
+    // so neither list can grow without the other.
+    expect(Object.keys(PROVIDED_BY).filter((name) => name !== 'geography').sort()).toEqual(
+      [...EXTENSION_FUNCTIONS].sort(),
+    );
+
+    for (const [name, extension] of Object.entries(PROVIDED_BY)) {
+      expect(`extensions.${name} needs ${extension}: ${installed}`).toContain(
+        `create extension if not exists ${extension} with schema extensions`,
+      );
+    }
+    // And `%` is pg_trgm's, written the long way above — the one name the sweep cannot see.
+    expect(installed).toContain('create extension if not exists pg_trgm with schema extensions');
+  });
+
   it('puts longitude on X and latitude on Y (§6)', () => {
     // The classic silent PostGIS bug, in the two functions that would show it as "no results
     // near me" rather than as an error. Asserted where each point is built, the same way
@@ -399,7 +496,7 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     const points = [...withoutLiterals(rpc.functions.map((f) => f.body).join('\n'))
       .matchAll(/st_makepoint\(([^)]*)\)/g)]
       .flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
-    expect(points.length).toBe(2);
+    expect(points.length).toBe(3);
     for (const args of points) {
       const [x, y] = splitTopLevel(args);
       expect(x).toContain('longitude');
@@ -434,7 +531,152 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     }
     // An empty question gets an error rather than the catalogue.
     expect(search.body).toMatch(/if v_query is null and v_point is null then\s*raise exception/);
+    expect(searchCenters.body).toMatch(/if v_query is null and v_point is null then\s*raise exception/);
     expect(similar.body).toMatch(/if v_name is null then\s*raise exception/);
+  });
+});
+
+describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3, §4.1)', () => {
+  /** The `extensions.unaccent(...)` call inside `name_fold`, read as an argument list. */
+  const unaccentArgs = (): string[] => {
+    const call = 'extensions.unaccent(';
+    const at = nameFold.body.indexOf(call);
+    expect(at).toBeGreaterThan(-1);
+    const open = at + call.length - 1;
+    return splitTopLevel(nameFold.body.slice(open + 1, matchParen(nameFold.body, open)));
+  };
+
+  it('folds through an IMMUTABLE function, which is the only kind an index may call', () => {
+    // Without this marking there is no expression index, and without the index every query
+    // that folds is a sequential scan over the whole catalogue — which looks perfectly fine
+    // on ten sites. That is the failure this file exists to catch: not wrong, just quietly
+    // unusable at the size the community is supposed to reach.
+    expect(nameFold.attributes).toContain('immutable');
+    expect(
+      rpc.functions
+        .filter((declared) => declared.attributes.includes('immutable'))
+        .map((declared) => declared.name)
+        .sort(),
+    ).toEqual(['public.name_fold', 'public.name_match_floor']);
+  });
+
+  it('names its dictionary outright, which is what makes that marking honest', () => {
+    // `extensions.unaccent(text)` — the ONE-argument form — is STABLE precisely because it
+    // resolves its dictionary through the `search_path` at call time, and the `search_path`
+    // in this file is empty. Calling the two-argument form with the dictionary written out
+    // leaves nothing to resolve, so the only thing that could change the result is somebody
+    // editing `unaccent.rules` on the server's disk. Marking the one-argument form immutable
+    // would be a lie the planner is entitled to believe — and unlike everything else this
+    // file cannot verify, being wrong there would produce wrong ANSWERS, not an error.
+    const args = unaccentArgs();
+    expect(args).toHaveLength(2);
+    expect(args[0]).toBe("'extensions.unaccent'::regdictionary");
+  });
+
+  it('normalises before it unaccents, and lowercases after (§10)', () => {
+    // Each piece is here for a failure of its own, so each is asserted rather than the shape
+    // as a whole. `normalize(..., nfc)`: `unaccent`'s rules are keyed on precomposed
+    // characters, so a name that arrived decomposed — a paste out of macOS, some IMEs —
+    // would be left completely unfolded and would sit in the catalogue looking identical to
+    // a row that folds. `btrim`: the same trim the client's fold opens with, and what makes
+    // `nullif(name_fold(p_query), '')` below the whole of "is this query empty". `lower`
+    // outermost: the rule table maps `Æ` to `AE`, and a fold that returned an uppercase
+    // letter would not match a lowercased query.
+    const args = unaccentArgs();
+    expect(args[1]).toBe('normalize(btrim(p_text), nfc)');
+    expect(nameFold.body).toMatch(/select\s+lower\(\s*extensions\.unaccent\(/);
+  });
+
+  it('folds BOTH sides of every name comparison, in all three readers (§4.1)', () => {
+    // §4.1's rule about `foldForMatching` stated in SQL: "a query folded one way and a value
+    // folded another is a matcher that disagrees with itself." The half that would ship is
+    // the query, because it is the string a developer is thinking about while they write the
+    // line — so the VALUE side is swept exhaustively here rather than sampled.
+    for (const { fn: declared, alias } of CATALOGUE_SOURCES) {
+      // The query side, folded once where it is declared.
+      expect(`${declared.name}: ${declared.body}`).toMatch(
+        /v_(?:query|name) text := nullif\(public\.name_fold\(p_(?:query|name)\), ''\)/,
+      );
+      expect(declared.body).not.toContain('btrim(coalesce(p_');
+
+      // The value side: every reference to the row's own name, with exactly one exemption —
+      // `is not null`, which is a guard and not a comparison.
+      //
+      // The lookbehind is load-bearing and was found by this test failing: for the centre
+      // function the alias is `c`, and a plain search for `c.name` also hits the `c.name` in
+      // `public.name_fold` itself — every folded call would have been reported as an unfolded
+      // reference. `\b` at the end is the same guard from the other side, against `name_fold`.
+      const body = withoutLiterals(declared.body);
+      const REFERENCE = new RegExp(String.raw`(?<![\w.])${alias}\.name\b`, 'g');
+      const unfolded: string[] = [];
+      let folded = 0;
+      for (const match of body.matchAll(REFERENCE)) {
+        const at = match.index;
+        const before = body.slice(Math.max(0, at - 'public.name_fold('.length), at);
+        const after = body.slice(at + match[0].length);
+        if (before.endsWith('public.name_fold(')) {
+          folded += 1;
+          continue;
+        }
+        if (/^\s+is not null\b/.test(after)) continue;
+        unfolded.push(`${declared.name}: ...${body.slice(Math.max(0, at - 40), at + 40)}...`);
+      }
+      expect(unfolded).toEqual([]);
+      // A sweep that found nothing to sweep would pass for the wrong reason. Three folded
+      // references each: the score, the `%` pre-filter and the floor comparison.
+      expect(`${declared.name} folded references: ${folded}`).toBe(
+        `${declared.name} folded references: 3`,
+      );
+    }
+  });
+
+  it('indexes the very expression the queries compare, derived from them (§5)', () => {
+    // **A fold the query applies and the index does not is not a wrong answer, it is a
+    // sequential scan** — no error, no missing row, nothing to notice until the catalogue is
+    // large. So the expected index expression is BUILT from what each function actually
+    // compares rather than written out here: change the fold in a body and this fails, change
+    // it in the index and this fails, change both together and it passes, which is correct.
+    const statements = rpc.statements.map((statement) => statement.toLowerCase());
+    for (const { fn: declared, table, alias } of CATALOGUE_SOURCES) {
+      const applied = `public.name_fold(${alias}.name)`;
+      expect(`${declared.name}: ${declared.body}`).toContain(applied);
+      // `(${alias}.` rather than `${alias}.`, for the reason the sweep above records: with
+      // alias `c`, replacing the first `c.` rewrites `public.` and produces nonsense.
+      const indexed = applied.replace(`(${alias}.`, '(');
+      expect(statements).toContain(
+        `create index if not exists ${table}_name_fold_trgm_idx ` +
+          `on public.${table} using gin (${indexed} extensions.gin_trgm_ops)`,
+      );
+    }
+  });
+
+  it('drops the raw-name indexes it replaces, rather than leaving them to be maintained', () => {
+    // After this file no query compares `name` itself, so the old pair would be written on
+    // every insert and read by nothing. Dropping them is also what makes this file complete
+    // on a project that has already had file 2 applied — the owner pastes files 1 and 6 and
+    // needs no other change and no dropped table.
+    const statements = rpc.statements.map((statement) => statement.toLowerCase());
+    expect(statements.filter((statement) => statement.startsWith('drop index'))).toEqual([
+      'drop index if exists public.dive_sites_name_trgm_idx',
+      'drop index if exists public.dive_centers_name_trgm_idx',
+    ]);
+    // And file 2 no longer creates them, or a re-run of it would put them straight back.
+    expect(readMigrationFile(SCHEMA_FILE)).not.toContain('gin (name extensions.gin_trgm_ops)');
+  });
+
+  it('answers §2.3\'s "a site or center" with one function shape, not two dialects', () => {
+    // §2.3 covers sites and centres in one sentence and §5's RPC list named only the first,
+    // so a device typing a centre online was answered from its own copy alone — correct
+    // offline, and silently missing everything added since that device last pulled.
+    //
+    // Asserted as "identical to `search_sites` except for the table it reads", because the
+    // real risk in a copied function is not that it is missing but that it quietly diverges:
+    // a different clamp, a different default radius, a forgotten `security invoker`.
+    expect(searchCenters.args).toBe(search.args);
+    expect(searchCenters.attributes).toBe(search.attributes);
+    expect(searchCenters.body).toContain('from public.dive_centers as c');
+    expect(searchCenters.body).not.toContain('dive_sites');
+    expect(search.body).not.toContain('dive_centers');
   });
 });
 

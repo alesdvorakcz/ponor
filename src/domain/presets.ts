@@ -27,16 +27,18 @@ import type { GearPreset, Tank } from './types';
  * device's locale would make the same two presets duplicates on one phone and not on
  * another.
  *
- * **A deliberate near-duplicate, and this is the note §4.1 asks for.** `foldForMatching`
- * (domain/search.ts) is character-for-character the same expression — `trim().toLowerCase()`
- * — and unifying the two would be a bug rather than a tidy-up, because they answer different
- * questions. That one folds text **for matching**: it decides whether a query finds a dive
- * and whether an autocomplete row is offered, and §10 has a change queued for it, since M2
- * adds diacritic folding so `zelezna` finds `Železná`. This one is an **identity key**: it
- * decides whether two presets are the same preset, and it must never move — the day
- * `foldForMatching` folds diacritics, `Zelezna` and `Železná` become one match and must still
- * be two presets, or a diver's rename would silently collide with a preset spelled
- * differently. Same three characters today, opposite obligations about tomorrow. See
+ * **A deliberate near-duplicate, and this is the note §4.1 asks for — and the day it was for
+ * has now come.** `foldForMatching` (domain/search.ts) was character-for-character this same
+ * expression until M2j, and unifying the two would have been a bug rather than a tidy-up,
+ * because they answer different questions. That one folds text **for matching**: it decides
+ * whether a query finds a dive and whether an autocomplete row is offered, and §10 had
+ * diacritic folding queued for it so that `zelezna` finds `Železná`. M2j added it there, and
+ * **deliberately not here**. This one is an **identity key**: it decides whether two presets
+ * are the same preset. `Zelezna` and `Železná` are now one *match* and must still be two
+ * *presets*, or a diver renaming one would be refused for colliding with a preset spelled
+ * differently — a refusal naming a chip that says no such thing. The two expressions have
+ * genuinely parted; what stops them being re-merged is this note and the test that fails if
+ * they are (`presets.test.ts`, "two presets a match fold would collide"). See
  * `diveSiteLabel`/`tripKeyOf`/`rowLabel` for the same pattern stated three ways.
  */
 function presetNameKey(name: string): string {

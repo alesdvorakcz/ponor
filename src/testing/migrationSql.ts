@@ -123,6 +123,11 @@ const IGNORED_STATEMENT_HEADS = [
   'create extension ',
   'create index ',
   'create unique index ',
+  // M2j: file 6 drops the two raw-name trigram indexes it replaces with folded ones. A `drop
+  // index` says nothing about a column set, which is what this parser reads — but it is on
+  // this list rather than absent from it, so that the day one appears naming a table's only
+  // index it is a line somebody wrote on purpose.
+  'drop index ',
   'create policy ',
   'drop policy ',
   // Two heads are ignored here **so that the assertions in schemaParity.test.ts can be the
@@ -486,8 +491,24 @@ export function splitTopLevel(text: string): string[] {
 
 /**
  * Reads a migration made of `create or replace function` statements, plus the `grant` and
- * `revoke` lines that decide who may call them. Anything else throws.
+ * `revoke` lines that decide who may call them, plus the index DDL below. Anything else throws.
+ *
+ * **Indexes are on the list only because M2j put two of them in an RPC file, and the reason is
+ * worth keeping.** They index `public.name_fold(name)` — a function that file defines — and an
+ * index cannot call a function that does not exist yet, so they cannot live with the other
+ * indexes in the schema migration. They are *skipped* here rather than parsed: this reader
+ * answers "what do these functions say", and `catalogueRpcParity.test.ts` reads the index
+ * statements out of the raw file text, because what matters about them is that their
+ * expression is character-for-character the one the queries compare.
  */
+const IGNORED_FUNCTION_FILE_HEADS = [
+  'grant',
+  'revoke',
+  'create index',
+  'create unique index',
+  'drop index',
+];
+
 export interface ParsedFunctionSql {
   readonly functions: readonly ParsedFunction[];
   readonly statements: readonly string[];
@@ -500,7 +521,7 @@ export function parseFunctionSql(sql: string): ParsedFunctionSql {
   for (const statement of statements) {
     const lower = statement.toLowerCase();
 
-    if (/^(grant|revoke)\b/.test(lower)) continue;
+    if (IGNORED_FUNCTION_FILE_HEADS.some((head) => lower.startsWith(`${head} `))) continue;
 
     if (!/^create or replace function\b/.test(lower)) {
       throw new Error(`Statement the RPC reader has not been taught: ${statement.slice(0, 120)}`);

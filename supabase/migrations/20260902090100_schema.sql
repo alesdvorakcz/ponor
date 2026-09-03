@@ -241,9 +241,10 @@ create table if not exists public.profiles (
 -- of a table scan: `pull_changes(last_pulled_at)` asks each table for one user's rows
 -- changed since a watermark, and that is exactly this key.
 --
--- The trigram and GiST indexes are §5's "the map and the dedupe are features of the
+-- The GiST indexes are half of §5's "the map and the dedupe are features of the
 -- database, not app code" — `search_sites` and `similar_sites` are file 6's RPCs, and
--- without these they would be sequential scans over the whole catalogue.
+-- without these they would be sequential scans over the whole catalogue. The trigram
+-- half of that sentence is in file 6 now; see the note beside the GiST pair below.
 -- ─────────────────────────────────────────────────────────────────────────────────────
 
 create index if not exists dives_user_id_updated_at_idx on public.dives (user_id, updated_at);
@@ -253,8 +254,14 @@ create index if not exists certifications_user_id_updated_at_idx on public.certi
 create index if not exists dive_sites_updated_at_idx on public.dive_sites (updated_at);
 create index if not exists dive_centers_updated_at_idx on public.dive_centers (updated_at);
 
-create index if not exists dive_sites_name_trgm_idx on public.dive_sites using gin (name extensions.gin_trgm_ops);
-create index if not exists dive_centers_name_trgm_idx on public.dive_centers using gin (name extensions.gin_trgm_ops);
+-- **The two trigram indexes are in file 6, not here, and that is a consequence of M2j
+-- rather than a filing accident.** They index `public.name_fold(name)` — the accent fold
+-- §10 requires — because an index over the raw name cannot serve a query that folds, and
+-- a fold the query applies and the index does not is a sequential scan over the whole
+-- catalogue. `name_fold` is a function, functions come after tables, and an index cannot
+-- reference one that does not exist yet; so both moved to sit directly beneath it. File 6
+-- also drops the raw-name indexes this file used to create, for a project that already
+-- has them.
 
 create index if not exists dive_sites_location_idx on public.dive_sites using gist (location);
 create index if not exists dive_centers_location_idx on public.dive_centers using gist (location);

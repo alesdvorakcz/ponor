@@ -142,12 +142,14 @@ function pairedId(dive: Dive, field: SuggestedField): string | null {
  * edited, or a tombstoned row, is the caller's business, exactly as `carryOverFrom` reads
  * whichever dive it is handed without deciding which one that is.
  *
- * **Matching** goes through `foldForMatching` (domain/search.ts) on both sides — trimmed and
+ * **Matching** goes through `foldForMatching` (domain/search.ts) on both sides — trimmed,
  * `toLowerCase()`d, never `toLocaleLowerCase()`, so a match never depends on the viewing
- * device's OS locale. Plain substring, deliberately: §10 puts diacritic folding and fuzzy
- * "did you mean" in M2, where §5's `pg_trgm` arrives and site search is reworked around the
- * shared catalogue, "and §0.6 already froze the same boundary for the list's styling."
- * Building either now means building it twice.
+ * device's OS locale, and since M2j **accent-folded**, so a diver typing `zelezna` is offered
+ * `Železná` (§10). That last part arrived here for free, and that is the point of reading the
+ * shared function rather than writing `trim().toLowerCase()` out again: the fold moved once
+ * and both features moved with it. Still a plain substring, deliberately — §10's other half,
+ * the fuzzy "did you mean" that stops duplicate sites, is `similar_sites` on the server (§5),
+ * where `pg_trgm` lives and where the community catalogue this list cannot see already is.
  *
  * **An empty query is not "no suggestions."** It returns the diver's most-used values for the
  * field — §2.1's "the app learns: pickers order options by your usage frequency" applied to a

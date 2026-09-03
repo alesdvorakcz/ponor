@@ -26,6 +26,30 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * the app's content languages (English and Czech). Czech diacritics fold identically
  * under both functions, so nothing is lost by avoiding the locale-sensitive form.
  *
+ * **Then the accents come off** (M2j), which is §10's queued rule — `zelezna` finds `Železná` —
+ * and the reason it is queued rather than obvious: a Czech diver types on whatever keyboard is
+ * in front of them, and *Divoká Šárka* typed as *Divoka Sarka* was two accents away from
+ * matching nothing at all.
+ *
+ * `normalize('NFD')` splits every precomposed letter into a base and its combining marks, and
+ * the marks are then dropped. **The range is `U+0300–U+036F` — Combining Diacritical Marks —
+ * and not `\p{Mn}`, which is the wider set and the wrong one.** `\p{Mn}` would also strip
+ * Arabic harakat and Indic vowel signs, where a mark is not an accent on a letter but part of
+ * what the letter says; Postgres' `unaccent` leaves those alone, so the wider regex would
+ * *manufacture* the disagreement between the two sides that this change exists to remove.
+ * Normalising first is also what makes the fold indifferent to how the text arrived: an iOS
+ * keyboard gives `Železná` precomposed and a paste from macOS gives it decomposed, and those
+ * are two different strings until this line runs on both.
+ *
+ * **The two folds are not the same function, and the gap is recorded rather than papered over.**
+ * `public.name_fold` (supabase/migrations/20260902090500_catalogue_rpcs.sql) is the server's
+ * half, and it is Postgres' `unaccent` dictionary, which folds things this does not: `ø`→`o`,
+ * `ß`→`ss`, `æ`→`ae`, `ł`→`l` have no canonical decomposition, so NFD leaves them exactly as
+ * they were. They agree on Czech, which is what §10 asked for, and on every accented Latin-1
+ * vowel. `search.test.ts` pins each known divergence by name — copying `unaccent`'s rule table
+ * into JavaScript would be a second copy of a dictionary Postgres itself calls mutable, which
+ * is why the gap is documented instead of closed.
+ *
  * **Both sides go through it**, which is what makes this a rule rather than a
  * convenience: a query folded one way and a value folded another is a matcher that
  * disagrees with itself. Trimming the value changes no `includes` result — a needle
@@ -36,20 +60,25 @@ const SEARCHABLE_FIELDS: readonly (keyof Pick<
  * rather than writing the same two calls out again. They answer different questions —
  * `searchDives` below asks which DIVES match, `suggestFrom` asks which VALUES of one
  * field to offer — but what a typed string *means* before either of them compares
- * anything is one question, and M2 has a change queued for it: §10 puts diacritic
- * folding (so `zelezna` finds `Železná`) in M2 alongside `pg_trgm`. Written twice, that
- * change lands in one place and quietly leaves the other behind.
+ * anything is one question. That is not hypothetical any more: M2j added the diacritic
+ * fold *here*, and both features got it in the same edit. Written twice, it would have
+ * landed in one and quietly left the other behind.
  *
- * **Its deliberate near-duplicate is `presetNameKey` (domain/presets.ts)**, which is the same
- * expression and must not be merged with it (§4.1: "a deliberate near-duplicate names its
- * siblings"). That one is an *identity key* — whether two presets are the same preset — and it
- * must never move. This one is a *match fold*, and §10 has it moving in M2. The commit that
- * adds diacritic folding here belongs here alone: doing it to preset names as well would make
- * `Zelezna` and `Železná` one preset, silently colliding a rename with a name spelled
- * differently.
+ * **Its deliberate near-duplicate is `presetNameKey` (domain/presets.ts)**, which was the same
+ * expression until this line changed and must still not be merged with it (§4.1: "a deliberate
+ * near-duplicate names its siblings"). That one is an *identity key* — whether two presets are
+ * the same preset — and it must never move. This one is a *match fold*, and §10 had it moving
+ * in M2. **They have now genuinely parted**, which is the whole reason the note was there:
+ * folding preset names too would make `Zelezna` and `Železná` one preset, so a diver renaming
+ * one would silently collide with a preset spelled differently. `presets.test.ts` holds that
+ * apart by name.
  */
 export function foldForMatching(text: string): string {
-  return text.trim().toLowerCase();
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 /**
