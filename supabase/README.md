@@ -2,7 +2,7 @@
 
 DESIGN.md §5, §6 and §7 in SQL. Six files, applied in order, on the project the owner owns.
 
-Nothing in here has ever been run. **No one working in this repository has credentials for
+All six files have now been run, by the owner, on his own project — see [Applied](#applied) below. **No one working in this repository has credentials for
 the project and none will be added** — see [Keys](#keys-what-may-never-appear-here) below.
 So these files are written to be pasted into the **Supabase Studio SQL editor** by hand;
 the CLI is supported but not required, and nothing assumes a linked project.
@@ -225,11 +225,32 @@ no serial or identity anywhere (ids are the client's UUIDv7), no trigger stampin
 value is stored and flagged, never rejected), `tanks`/`equipment` NOT NULL with a `'[]'`
 default, RLS enabled on all six tables, and no client role granted DELETE.
 
-**What neither proves:** that this SQL runs. It has never been executed against
-Postgres — not here, not anywhere. The readers are strict on purpose (they throw on anything
-they have not been taught rather than skipping it), but a reader is not a server, and the
-first person to paste these files into Studio is the first person to find out whether they
-are valid.
+**What neither proves:** that this SQL runs. **Nothing in this repository can establish that**
+— the readers are strict on purpose (they throw on anything they have not been taught rather
+than skipping it), but a reader is not a server. That gap was closed from outside, by the owner
+pasting the files in; see [Applied](#applied). Anything written here after that date is
+unproven again until he says otherwise, and the honest default for a new file is that it has
+never run.
+
+<a id="applied"></a>
+### Applied
+
+All six files ran clean on the owner's project (2026-09-02 to 09-04). What that established
+beyond "the grammar is valid" — each of these was explicitly unprovable from here:
+
+- **The whole of §7's protocol, end to end.** Two dives logged with no account were adopted on
+  sign-in and pushed; a third went up on the debounce; sign-out pushed, counted what was still
+  owed, found nothing and erased the device; signing back in pulled all three home. The ISO
+  timestamp spelling, the server clock, the dirty flags and the watermark all held.
+- **`delete_account` may delete from `auth.users`** — the privilege question §8's App Store
+  requirement rests on, and the one thing here that could have needed a different mechanism.
+- **The `extensions` schema resolves** under an empty `search_path`: `similarity`, `st_dwithin`
+  and `unaccent` all reachable, which is what every function in files 4 and 6 depends on.
+- **The folded trigram index is used**, confirmed by `explain analyze` rather than assumed —
+  the one failure in M2j with no error attached, since an unused index returns correct answers
+  by scanning every row.
+- **`name_fold` folds both sides to a score of 1** for `Divoká Šárka` against `Divoka Sarka`,
+  which scored below the 0.3 floor and returned nothing before.
 
 All six files have been through **libpg_query** — the real PostgreSQL grammar — including
 the plpgsql bodies and every SQL fragment inside them, and all six parse. Re-run for M2j, with
