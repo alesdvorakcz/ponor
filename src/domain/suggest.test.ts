@@ -145,16 +145,35 @@ it('offers an unaccented name to a diver who typed the accents', () => {
   expect(valuesOf(suggestFrom(dives, 'siteName', 'Železn'))).toEqual(['Zelezna']);
 });
 
-// **A query that folds to the whole stored value is still not offered back**, and after M2j
-// that rule reaches further than it used to: `zelezna` typed in full now EQUALS the folded
-// `Železná`, so the offer is suppressed as "the value the field already holds" although the
-// two strings visibly differ and picking the row would set the paired `site_id` (§6).
-// Pinned rather than changed: which values are never offered is this module's own rule, the
-// same suppression has always applied to `blue hole` against `Blue Hole`, and widening it is
-// a §2.3 decision. Flagged in the M2j report.
-it('still suppresses an offer whose folded form is exactly what was typed', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Železná' })];
-  expect(suggestFrom(dives, 'siteName', 'zelezna')).toEqual([]);
+// --- What "the value the field already holds" means: the RAW spelling (§2.3, M2k) ---
+//
+// **A query that FOLDS to the whole stored value is still a query.** M2j suppressed this as
+// "the value the field already holds", which the folded comparison made it look like; §2.3
+// answers that a suggestion is offered when picking it would DO something, and picking this
+// one does two things — it writes the catalogue's own spelling, and it sets the paired
+// `site_id` (§6) that typing cleared on the first keystroke. The id is asserted rather than
+// the text alone precisely because it is the half that has no row on screen.
+//
+// **The query is capitalised, and that is the whole point of the fixture.** `Zelezna` against
+// `Železná` differs from the stored spelling by ACCENTS ALONE — the case matches — so this
+// test fails on its own for a suppression that folds accents (and only that one), leaving the
+// casing test below green. The pair is what makes the two independent rather than one test
+// written twice; M2j's report is explicit that a fix covering one is half a change.
+it('offers a name the diver typed without its accents, id and all (§2.3, §6)', () => {
+  const dives = [dive({ date: '2026-08-01', siteName: 'Železná', siteId: 'site-zelezna' })];
+  expect(suggestFrom(dives, 'siteName', 'Zelezna')).toEqual([{ value: 'Železná', id: 'site-zelezna' }]);
+  // ...and in §2.3's own spelling of it, all lower case.
+  expect(suggestFrom(dives, 'siteName', 'zelezna')).toEqual([{ value: 'Železná', id: 'site-zelezna' }]);
+});
+
+// **The casing half of the same one rule**, which has been suppressed since long before the
+// fold existed and is the half M2j's report says a diacritics-only fix would leave behind.
+// `blue hole` against `Blue Hole` differs by CASE ALONE, so a suppression that trims and
+// lowercases — the shape this comparison had for its whole life — fails here while the accent
+// test above stays green. Checked by mutation in both directions, not by reading.
+it('offers a spelling that differs from the typed one only by case', () => {
+  const dives = [dive({ date: '2026-08-01', siteName: 'Blue Hole', siteId: 'site-blue' })];
+  expect(suggestFrom(dives, 'siteName', 'blue hole')).toEqual([{ value: 'Blue Hole', id: 'site-blue' }]);
 });
 
 // The other direction of the same rule, and the one that has a visible consequence: two
@@ -169,12 +188,14 @@ it('treats an accented and an unaccented spelling as one value, newest spelling 
   expect(suggestFrom(dives, 'siteName', 'zel')).toEqual([{ value: 'Železná', id: null }]);
 });
 
-// And the value the field already holds is still never offered back — matched through the
-// same fold, so a field carrying `Železná` is not handed `Železná` because the diver's own
-// text happened to be spelled with its accents and the stored one without.
-it('does not offer back a value that differs from the query only by accents', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Zelezna' })];
-  expect(suggestFrom(dives, 'siteName', 'Železná')).toEqual([]);
+// The mirror direction, which is the same rule and not a second one: a diver who typed the
+// accents is still offered their own past unaccented spelling, because picking it is still
+// what sets the pair. Stated separately because the two sides are two different calls —
+// `foldForMatching` runs over the stored value and over the query — and a suppression written
+// against one of them would leave the other alone.
+it('offers an unaccented past spelling to a diver who typed the whole name accented', () => {
+  const dives = [dive({ date: '2026-08-01', siteName: 'Zelezna', siteId: 'site-zelezna' })];
+  expect(suggestFrom(dives, 'siteName', 'Železná')).toEqual([{ value: 'Zelezna', id: 'site-zelezna' }]);
 });
 
 // --- The id/name pair (§6, and §10's own note on this task) ---
@@ -230,19 +251,29 @@ it('skips a value that is nothing but whitespace', () => {
 });
 
 // §0.6-adjacent, and the reason this rule exists at all: a carried "Blue Hole" offering
-// "Blue Hole" back is a row of nothing under a field that already says it.
-it('never offers back the value the field already holds', () => {
+// "Blue Hole" back is a row of nothing under a field that already says it. What survives M2k
+// is exactly this — the EXACT text, and nothing that merely folds to it.
+it('never offers back the exact text the field already holds', () => {
   // Dated so the recency tier below is not the thing under test: "Blue Hole" is the more
-  // recent dive, so the third assertion's order is settled before the exclusion is.
+  // recent dive, so the later assertions' order is settled before the exclusion is.
   const dives = [
     dive({ date: '2026-08-02', siteName: 'Blue Hole' }),
     dive({ date: '2026-08-01', siteName: 'Blue Hole Deep' }),
   ];
-  expect(valuesOf(suggestFrom(dives, 'siteName', 'Blue Hole'))).toEqual(['Blue Hole Deep']);
-  // Case-insensitively — the diver's own spelling of the value they hold is still that value.
-  expect(valuesOf(suggestFrom(dives, 'siteName', 'BLUE HOLE'))).toEqual(['Blue Hole Deep']);
+  // This first assertion is also what holds the two sides of the comparison to the same
+  // reading: compare the stored spelling against the FOLDED needle — one side folded and the
+  // other not, the mistake M2j found twice elsewhere — and `Blue Hole` differs from
+  // `blue hole`, so the held value is offered straight back.
+  //
+  // A trailing space is not a different spelling, and trimming is the one thing the raw
+  // comparison still does: the stored side is trimmed, so this side is too.
+  expect(valuesOf(suggestFrom(dives, 'siteName', '  Blue Hole  '))).toEqual(['Blue Hole Deep']);
   // ...and a genuine prefix of it is still a query, not a held value.
   expect(valuesOf(suggestFrom(dives, 'siteName', 'Blue'))).toEqual(['Blue Hole', 'Blue Hole Deep']);
+  // Where the old rule reached and this one does not: a differently-cased spelling of the
+  // held value is offered now, because picking it rewrites the field to the stored spelling
+  // and sets the paired id.
+  expect(valuesOf(suggestFrom(dives, 'siteName', 'BLUE HOLE'))).toEqual(['Blue Hole', 'Blue Hole Deep']);
 });
 
 // --- The limit ---

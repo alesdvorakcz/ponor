@@ -183,9 +183,22 @@ function pairedId(dive: Dive, field: SuggestedField): string | null {
  * winning dive whose own id is `null` therefore yields `null`, even when an older dive
  * spelled the same name and did have one.
  *
- * **The value the field already holds is never offered back**, matched case-insensitively
- * against the query — the query *is* the field's own text, so a carried "Blue Hole" offering
- * "Blue Hole" would be a row of nothing under a field already saying it.
+ * **The value the field already holds is never offered back — matched on the RAW text.** The
+ * query *is* the field's own text, so a carried "Blue Hole" offering "Blue Hole" would be a
+ * row of nothing under a field already saying it. That is the whole of the rule, and §2.3
+ * states the reason it stops there: *a suggestion is offered when picking it would do
+ * something*, which is not the same as when it differs from what was typed.
+ *
+ * Comparing the **folded** forms said more than that, and cost two offers worth making (M2j
+ * found the first and named the second). `zelezna` typed in full folds to the stored
+ * `Železná` and was suppressed; `blue hole` had never been offered `Blue Hole` at all. Picking
+ * either does something — it sets the paired `site_id` (§6), which typing cleared on the first
+ * keystroke, and it writes the catalogue's own spelling into the field. So the suppression is
+ * on the raw text and the fold is left to decide matching alone.
+ *
+ * Both sides are trimmed, because the stored side already is (above) and a trailing space is
+ * not a different spelling — that is the one thing the raw comparison still normalises, and it
+ * is the same trim `foldForMatching` opens with rather than a second rule about whitespace.
  *
  * `null` and whitespace-only stored values are skipped, never coerced: `String(null)` is
  * `"null"`, which would offer the word "null" as a site and match a diver typing "ull" —
@@ -203,6 +216,10 @@ export function suggestFrom(
   limit: number = SUGGESTION_LIMIT,
 ): Suggestion[] {
   const needle = foldForMatching(query);
+  // The field's own text as it is actually spelled — the *only* thing compared raw. Trimmed,
+  // and no further: lowercasing or folding it here would be the folded suppression back under
+  // another name, which is what §2.3 moved off.
+  const held = query.trim();
 
   // Newest first, so the FIRST time a folded value is seen is its most recent dive — which
   // is what makes the spelling, the id and the recency rank below all come from one dive
@@ -224,7 +241,11 @@ export function suggestFrom(
     }
   });
 
-  const matches = [...tallies].filter(([key]) => key !== needle && key.includes(needle));
+  // Two conditions about two different things, deliberately not one expression: the folded key
+  // decides what MATCHES, the raw spelling decides only what is worth OFFERING. Written the
+  // other way round — one comparison serving both — is precisely how the fold reached the
+  // suppression in the first place.
+  const matches = [...tallies].filter(([key, tally]) => key.includes(needle) && tally.value !== held);
 
   matches.sort(([aKey, a], [bKey, b]) => {
     const aStarts = aKey.startsWith(needle);
