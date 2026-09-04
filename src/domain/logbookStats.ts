@@ -238,8 +238,23 @@ const RMV_WINDOW = 5;
 export interface RmvTrend {
   /** Mean RMV over the most recent window, in l/min. Always a real, positive number. */
   recent: number;
-  /** How many dives that mean is over — 1 to `RMV_WINDOW`, and never more. */
-  recentCount: number;
+  /**
+   * **The dives that mean is over, oldest to newest** — 1 to `RMV_WINDOW` real, positive
+   * l/min values, and never more.
+   *
+   * It was a `recentCount: number` until M3d, and the series replaced the count rather than
+   * joining it because §4.1 computes a list from another rather than keeping two: the caption
+   * asks for `recentValues.length` and cannot then disagree with what is drawn from the same
+   * array. What wanted the values is the sparkline beside the figure (`RmvSparkline`,
+   * components/RmvSparkline.tsx), and giving it a window of its own was the alternative — a
+   * drawing and the number beside it computed from two different populations, which is the
+   * drift this module exists to prevent, arriving as a picture.
+   *
+   * `recent` above stays even though it is the mean of exactly these values: the Stats screen
+   * does no arithmetic of its own (its docblock says so), and a caller that had to average
+   * this array would be the second implementation of a figure two screens already share.
+   */
+  recentValues: readonly number[];
   /**
    * Mean RMV over the window before it, or `null` when no dive earlier than the recent window
    * has one — in which case there is no trend to state, only a figure.
@@ -274,6 +289,9 @@ export type DiveRmv = DiveOrdering & Pick<Dive, 'tanks' | 'avgDepthM' | 'duratio
  * the array it was handed. That is the difference between a trend and a coincidence: `useDives`
  * hands back newest-first today, and a function that read the ends of the array would silently
  * invert the day anything re-sorted it — including `MapScreen`, which passes one site's dives.
+ * `recentValues` comes back in that same order, **oldest first**, which since M3d is drawn as
+ * well as averaged: a mean survives a reversed array and a sparkline does not, so the direction
+ * is part of what this returns rather than a detail of how it slices.
  *
  * `null` when no logged dive has an RMV at all, which is an ordinary logbook rather than an
  * error: nothing to say, and the caller says nothing.
@@ -289,11 +307,14 @@ export function rmvTrend(dives: readonly DiveRmv[]): RmvTrend | null {
   }
   if (values.length === 0) return null;
 
-  const recent = values.slice(-RMV_WINDOW);
-  const previous = values.slice(Math.max(0, values.length - RMV_WINDOW * 2), values.length - recent.length);
+  const recentValues = values.slice(-RMV_WINDOW);
+  const previous = values.slice(
+    Math.max(0, values.length - RMV_WINDOW * 2),
+    values.length - recentValues.length,
+  );
   return {
-    recent: mean(recent),
-    recentCount: recent.length,
+    recent: mean(recentValues),
+    recentValues,
     previous: previous.length === 0 ? null : mean(previous),
   };
 }

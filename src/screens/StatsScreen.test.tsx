@@ -18,7 +18,7 @@ import { type Dive, type DiveSite, type Tank } from '../domain/types';
 import { formatLogbookSummary } from '../format/display';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthScale } from '../theme/tokens';
-import { makeStyles, screenBottomInset } from '../theme/styles';
+import { makeStyles, RMV_SPARK_STEPS, screenBottomInset } from '../theme/styles';
 import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import StatsScreen, {
   COUNTRIES_UNKNOWN_NOTE,
@@ -159,6 +159,36 @@ function counters(t: RenderResult): Record<string, string> {
     if (label !== undefined) found[label] = value ?? '';
   }
   return found;
+}
+
+/**
+ * **The RMV sparkline, read as numbers — and read from inside the RMV row itself.**
+ *
+ * Every bar's height in cells, in the order drawn, found by walking down from the row whose
+ * label is `RMV` rather than by sweeping the screen for cells. That is the §0.6 assertion this
+ * helper can actually make: the bars are *a shape beside a number*, so a sparkline that grew
+ * into a block of its own — the card §0.6's brief for this screen asked it not to invent —
+ * would be found by no test below rather than passing them all in a new place.
+ */
+function rmvBars(t: RenderResult): number[] {
+  const styles = makeStyles('light');
+  const row = allNodes(t)
+    .filter((n) => [n.props?.style].flat(5).includes(styles.formFieldRow))
+    .find(
+      (candidate) =>
+        [candidate, ...candidate.queryAll(() => true)]
+          .filter((n) => n.type === 'Text')
+          .flatMap((n) => n.children)
+          .filter((c): c is string => typeof c === 'string')[0] === 'RMV',
+    );
+  if (!row) return [];
+  return row
+    .queryAll((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.rmvSparkBar))
+    .map(
+      (bar) =>
+        bar.queryAll((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.rmvSparkCell))
+          .length,
+    );
 }
 
 /** Every `color` any style on the screen sets — the sweep §0.1 needs on `Text`, which
@@ -394,6 +424,72 @@ it('draws no window caption when there is no RMV to qualify', async () => {
   const t = await show();
   expect(counters(t)).toMatchObject({ RMV: NO_FIGURE, Trend: NO_FIGURE });
   expect(textIn(t).join(' ')).not.toContain('Averaged over the last');
+});
+
+/**
+ * **And it draws no sparkline either — the case every fixture of complete dives walks straight
+ * past** (M3d). This is not an edge: it is every logbook until somebody records a cylinder
+ * size, the same eight real dives the tests above use, and the state the owner's own simulator
+ * is in. A chart's usual failure here is to draw its furniture anyway — an empty track, a
+ * baseline, a row of bars at the floor — and any of those would say "your consumption is flat"
+ * beside a row that has just said it does not know it.
+ */
+it('draws no bars for a logbook where no dive has an RMV at all', async () => {
+  mockUseDives.mockReturnValue(divesState(logbook()));
+  const t = await show();
+  expect(counters(t).RMV).toBe(NO_FIGURE);
+  expect(rmvBars(t)).toEqual([]);
+});
+
+/**
+ * **The bars are the dives the figure is averaged over, and the caption counts the same
+ * array.** Three gas dives scattered through eight — the shape of a real logbook, where RMV
+ * needs three fields §1 asks for none of — so the five without gas contribute no bar at all:
+ * not a zero-height one, which would say the diver used no gas, and not a gap, which at this
+ * size is the same mark as a short bar.
+ */
+it('draws one bar per dive with gas, and none for the dives without it', async () => {
+  mockUseDives.mockReturnValue(
+    divesState([
+      ...logbook(),
+      gasDive(12, { date: daysAgo(30) }),
+      gasDive(6, { date: daysAgo(29) }),
+      gasDive(12, { date: daysAgo(28) }),
+    ]),
+  );
+  const t = await show();
+  // The caption states the same count the row draws — one array, so the sentence and the shape
+  // cannot disagree about how many dives this is.
+  expect(textIn(t)).toContain('Averaged over the last 3 dives with gas recorded.');
+  expect(rmvBars(t)).toHaveLength(3);
+  // Eleven dives in the logbook and three bars: the eight without gas are not in the series.
+  expect(counters(t).Dives).toBe('11');
+});
+
+/**
+ * **Only the window the figure covers**, oldest at the leading edge. Seven dives with gas, and
+ * the two earliest are the two heaviest — so a row that drew the whole logbook would draw seven
+ * bars, and one that drew the right five against the wrong maximum would draw them all shorter.
+ * The expectation is written as proportions of the tallest bar in the window (`RMV_SPARK_STEPS`
+ * cells), which is what a bar measured from zero means.
+ */
+it('draws the window the figure is averaged over, and not the whole logbook', async () => {
+  const trip = [20, 20, 12, 6, 2, 12, 6].map((value, index) =>
+    gasDive(value, { date: daysAgo(20 - index) }),
+  );
+  mockUseDives.mockReturnValue(divesState(trip));
+  const t = await show();
+  expect(rmvBars(t)).toEqual([
+    RMV_SPARK_STEPS,
+    RMV_SPARK_STEPS / 2,
+    RMV_SPARK_STEPS / 6,
+    RMV_SPARK_STEPS,
+    RMV_SPARK_STEPS / 2,
+  ]);
+  // Drawn, and still nothing the sheet did not hand out: a bar whose height was composed inline
+  // at render is the "dropped-in chart" `unexpectedGraphics` exists to report, and the sweep two
+  // tests below runs on a logbook with no gas in it, where there is nothing drawn to sweep.
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
 // --- Currency, and the difference between a dive and a booking ---

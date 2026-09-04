@@ -153,6 +153,27 @@ export function screenBottomInset(safeAreaBottom: number): number {
   return Math.max(safeAreaBottom, MIN_SCREEN_BOTTOM_INSET);
 }
 
+/**
+ * **How many units tall the tallest bar of the RMV sparkline is** (M3d — `RmvSparkline`,
+ * components/RmvSparkline.tsx), and the reason a bar is drawn in units at all.
+ *
+ * This app has no drawing primitive: `react-native-svg` is deliberately absent (§10, and
+ * `EmptyState`'s mark records the same absence), so a sparkline is `View`s — which is how the
+ * depth legend's six bars and §0.6's rating dots are already drawn. What those two do not
+ * have is a **height that depends on data**, and this sheet is §4.1's owner of every place a
+ * token meets a style property: a `{ height: value / max * 18 }` composed in a component
+ * would put the app's drawing outside its one styling owner, and `unexpectedGraphics` — the
+ * guard that keeps §0.1 and §0.4 honest — reports exactly that shape and should keep doing so.
+ *
+ * So a bar's height is its **count** of one sheet-defined cell (`rmvSparkCell` below), and
+ * this is how many cells the tallest can be. The quantisation is not a workaround being
+ * apologised for: §0.4 already says a sparkline in a row *"contributes shape and the number
+ * magnitude"*, so this is a shape beside a figure that carries the exact value, and six steps
+ * is enough for a shape at this size. Exported because the component counts the cells and the
+ * sheet sizes the track they stack in (`rmvSparkBar`), and those two are one fact.
+ */
+export const RMV_SPARK_STEPS = 6;
+
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
@@ -659,6 +680,12 @@ function build(scheme: ColorScheme) {
   // and a hand-computed `-15` are the same rule in two places, which is §4.1's defect.
   const RATING_DOT_FIELD_SIZE = 18;
   const RATING_TARGET_SIZE = 48;
+
+  // One unit of the RMV sparkline's height (`rmvSparkCell`/`rmvSparkBar` far below, and
+  // `RMV_SPARK_STEPS` at the top of this file for why a bar is drawn in units at all). Named
+  // for the same reason the pair above it is: the track's height is `RMV_SPARK_STEPS` of
+  // these, and a track written as its own number is one edit from clipping the tallest bar.
+  const RMV_SPARK_CELL = 3;
 
   // A scrolling column of §0.6 rows — the dive form, and now Settings, which is the same
   // grammar asking about the app instead of about a dive. One definition rather than two,
@@ -1633,6 +1660,50 @@ function build(scheme: ColorScheme) {
     // already share, rather than a fourth definition of muted Archivo.
     statsCaption: captionBlock,
     statsCaptionText: captionText,
+    // **§3's RMV, as a shape beside its number** (M3d — `RmvSparkline`, components/
+    // RmvSparkline.tsx). One bar per dive in the window the figure is averaged over, oldest at
+    // the leading edge, in the middle of the row the label and the figure already occupy.
+    //
+    // **Not a card and not a panel** (§0.6, which asked this screen not to invent one): these
+    // three keys add a shape to `formFieldRow`, the row the whole screen is built from, and
+    // nothing about the row changes when they are drawn — `rmvSparkline`'s height is
+    // `RMV_SPARK_STEPS` cells whatever the data, so the row's 48 dp floor is never what is
+    // holding it open and a logbook that gains its first gas dive does not move the rows
+    // beneath it.
+    //
+    // `marginStart: 'auto'` is what puts the shape **against the figure** rather than adrift
+    // in the middle of the row: `formFieldRow` is `space-between`, so with three children the
+    // free space would otherwise fall on both sides of this one. An auto margin takes that
+    // space before `justifyContent` can, leaving the row's own 12 pt gap between the last bar
+    // and the number it is the shape of.
+    rmvSparkline: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
+      gap: 3,
+      marginStart: 'auto',
+    },
+    // One dive's bar: a fixed-height track its cells stack up from the bottom of, so every bar
+    // shares a baseline and a short one is short rather than merely low. The track is the
+    // tallest bar by construction (`RMV_SPARK_STEPS` cells), never a rounded number typed
+    // beside them — a track and a ladder that disagreed would clip the tallest bar or float
+    // it, and this is the same tie `ratingDotField` makes between a dot's size and its radius.
+    rmvSparkBar: {
+      height: RMV_SPARK_STEPS * RMV_SPARK_CELL,
+      justifyContent: 'flex-end',
+    },
+    // The unit a bar is drawn in. **Monochrome, and `fgMuted` specifically** — §0.1 spends
+    // colour on depth and an RMV is not a depth at all, so there is no band this could borrow
+    // even if an aggregate were allowed one (§10 has ruled that twice: M1l's summary line and
+    // M2n's map pins). Muted rather than `fg` for the reason §0.6 gives a row's metadata that
+    // ink: the figure is what the row is for, and the shape is beside it.
+    //
+    // Square, with no radius and no gap between cells, so a bar reads as one bar: the cells
+    // are how its height is expressed, not something a diver is meant to count.
+    rmvSparkCell: {
+      width: 5,
+      height: RMV_SPARK_CELL,
+      backgroundColor: theme.fgMuted,
+    },
     // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------

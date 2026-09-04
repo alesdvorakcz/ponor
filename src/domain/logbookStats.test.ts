@@ -322,7 +322,19 @@ describe('rmvTrend', () => {
   );
 
   it('averages the recent window and the window before it', () => {
-    expect(rmvTrend(improving)).toEqual({ recent: 10, recentCount: 5, previous: 20 });
+    expect(rmvTrend(improving)).toEqual({ recent: 10, recentValues: [10, 10, 10, 10, 10], previous: 20 });
+  });
+
+  // **The window's own dives, oldest first** (M3d). The figure is a mean and a mean survives a
+  // reversed array; the sparkline drawn from these values does not, so the direction is part of
+  // the answer rather than a detail of the slice. Five distinct values, because `improving`'s
+  // recent window is five identical ones and would read the same drawn backwards — which is
+  // exactly the assertion that would pass while the row showed a diver their trip in reverse.
+  it('hands back the dives that mean is over, oldest first', () => {
+    const trip = [18, 17, 15, 14, 12].map((value, index) =>
+      gasDive(value, { date: `2026-08-${String(index + 1).padStart(2, '0')}` }),
+    );
+    expect(rmvTrend([...trip].reverse())?.recentValues).toEqual([18, 17, 15, 14, 12]);
   });
 
   // **The guard the rest of this block rests on.** Every other figure in this module is
@@ -344,7 +356,7 @@ describe('rmvTrend', () => {
     const many = Array.from({ length: 30 }, (_, index) =>
       gasDive(index < 25 ? 20 : 10, { date: `2026-08-${String(index + 1).padStart(2, '0')}` }),
     );
-    expect(rmvTrend(many)).toEqual({ recent: 10, recentCount: 5, previous: 20 });
+    expect(rmvTrend(many)).toEqual({ recent: 10, recentValues: [10, 10, 10, 10, 10], previous: 20 });
   });
 
   // **A dive with no gas recorded is skipped, never counted as zero** — RMV needs an average
@@ -357,7 +369,7 @@ describe('rmvTrend', () => {
       dive({ date: '2026-08-02' }),
       dive({ date: '2026-08-03', durationMin: 40, maxDepthM: 18 }),
     ];
-    expect(rmvTrend(dives)).toEqual({ recent: 10, recentCount: 1, previous: null });
+    expect(rmvTrend(dives)).toEqual({ recent: 10, recentValues: [10], previous: null });
   });
 
   // No earlier window means no trend — a direction stated from one figure is a direction made
@@ -365,7 +377,7 @@ describe('rmvTrend', () => {
   it('reports no previous window when nothing precedes the recent one', () => {
     expect(rmvTrend([gasDive(14, { date: '2026-08-01' })])).toEqual({
       recent: 14,
-      recentCount: 1,
+      recentValues: [14],
       previous: null,
     });
   });
@@ -378,7 +390,7 @@ describe('rmvTrend', () => {
         gasDive(10, { date: '2026-08-01', status: 'logged' }),
         gasDive(20, { date: '2026-08-02', status: 'planned' }),
       ]),
-    ).toEqual({ recent: 10, recentCount: 1, previous: null });
+    ).toEqual({ recent: 10, recentValues: [10], previous: null });
   });
 
   it('has nothing to say about a logbook with no gas in it, and survives a corrupt read', () => {
@@ -387,7 +399,7 @@ describe('rmvTrend', () => {
     expect(rmvTrend(null as unknown as [])).toBeNull();
     expect(rmvTrend([gasDive(12), null, undefined] as unknown as Dive[])).toEqual({
       recent: 12,
-      recentCount: 1,
+      recentValues: [12],
       previous: null,
     });
   });

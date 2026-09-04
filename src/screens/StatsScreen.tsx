@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RmvSparkline } from '../components/RmvSparkline';
 import { useDives } from '../db/useDives';
 import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import { useDiveSites } from '../db/useDiveSites';
@@ -127,12 +128,31 @@ export const REFRESHER_MESSAGE =
  * `value` is `string | null` because every formatter in `format/display.ts` answers null for a
  * figure with nothing behind it, and this is the one place that decides what null looks like
  * (`NO_FIGURE`) — so no caller has to remember, and no two rows can disagree.
+ *
+ * **`shape` is the row's optional middle**, and it is a slot rather than a second component
+ * (M3d). §0.6's brief for this screen was not to invent a card, and a chart is where that
+ * temptation actually arrives: the RMV sparkline is *a shape beside a number*, so it goes in
+ * the row that already carries the label and the figure — between them, so the figure keeps
+ * the trailing slot every other row's does and the column of totals still lines up. One row
+ * carries one today; a `GasCounter` of its own would be the fourth vocabulary for a label
+ * beside a number, which is the thing §0.6 asked this screen not to build.
  */
-function Counter({ label, value, styles }: { label: string; value: string | null; styles: Styles }) {
+function Counter({
+  label,
+  value,
+  shape = null,
+  styles,
+}: {
+  label: string;
+  value: string | null;
+  shape?: ReactNode;
+  styles: Styles;
+}) {
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
         <Text style={styles.formFieldLabel}>{label}</Text>
+        {shape}
         <Text style={styles.statsValue}>{value ?? NO_FIGURE}</Text>
       </View>
     </View>
@@ -182,13 +202,22 @@ function Note({ message, styles }: { message: string | null; styles: Styles }) {
  * arithmetic at all: the one expression in this file that looks like a decision — whether a
  * country count is a figure or a dash — is a decision about *words*, and it is stated below.
  *
- * ── Counters, not charts ──────────────────────────────────────────────────────────────────
+ * ── Counters, and one shape ───────────────────────────────────────────────────────────────
  *
- * §3 says so outright, and the RMV row is where that had to be interpreted: a *trend* drawn as
- * counters is a direction and a recent average, so it is two rows — where the diver is now, and
- * which way it moved from the window before — plus a caption saying what "recent" covers.
- * `rmvTrend` computes the pair and `formatRmvTrend` says the direction; nothing here plots
- * anything, and §9's shelf is where a chart would go.
+ * §3 says *"charts later, counters first"*, and the RMV row is where that had to be
+ * interpreted: a *trend* drawn as counters is a direction and a recent average, so it is two
+ * rows — where the diver is now, and which way it moved from the window before — plus a
+ * caption saying what "recent" covers. `rmvTrend` computes the pair and `formatRmvTrend` says
+ * the direction.
+ *
+ * **M3d added the one drawing, on the owner's ask, and it is a shape in a row rather than a
+ * chart on the screen.** The distinction is §0.6's and it is what keeps *counters first* true:
+ * the RMV row keeps its label, its figure and its place in the column, and gains a sparkline of
+ * the very dives that figure averages, in the space the row was already leaving empty. Nothing
+ * gained a panel, a card, an axis or a legend; no other figure here is drawn; the row's height
+ * does not depend on whether there is data to draw. `RmvSparkline` (components/) owns the
+ * drawing and the argument for it — including that this app has no drawing primitive, so it is
+ * `View`s, exactly as the first-run depth legend's bars are.
  *
  * ── The mark that is deliberately absent ──────────────────────────────────────────────────
  *
@@ -340,13 +369,26 @@ export default function StatsScreen() {
             of them), so a dash here is the ordinary state of a perfectly good logbook rather
             than a fault. */}
         <Group title="Gas" styles={styles}>
-          <Counter label="RMV" value={trend === null ? null : formatRmv(trend.recent)} styles={styles} />
+          <Counter
+            label="RMV"
+            value={trend === null ? null : formatRmv(trend.recent)}
+            // **The one drawn figure on the screen** (M3d), and the dives it draws are the
+            // dives the number beside it is averaged over — `rmvTrend`'s own window, handed
+            // over whole rather than re-selected here. A window of its own would have been a
+            // drawing and a figure computed from two populations under one caption, which is
+            // §4.1's defining defect with a picture attached; `RmvSparkline` carries the rest
+            // of the reasoning, including why a dive with no RMV is not a bar of no height.
+            shape={trend === null ? null : <RmvSparkline values={trend.recentValues} scheme={scheme} />}
+            styles={styles}
+          />
           <Counter label="Trend" value={trend === null ? null : formatRmvTrend(trend)} styles={styles} />
           {/* Only when there is a figure to qualify. An unstated window makes an RMV
               unreadable — five dives and fifty answer different questions — and a caption
-              explaining the window of a dash would be explaining nothing. */}
+              explaining the window of a dash would be explaining nothing. It counts the same
+              array the bars are drawn from, so the sentence and the shape cannot disagree
+              about how many dives this is. */}
           <Note
-            message={trend === null ? null : formatRmvWindow(trend.recentCount)}
+            message={trend === null ? null : formatRmvWindow(trend.recentValues.length)}
             styles={styles}
           />
         </Group>

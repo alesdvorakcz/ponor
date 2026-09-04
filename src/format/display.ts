@@ -423,8 +423,14 @@ export function formatRmv(litresPerMin: number | null): string | null {
  * and this deliberately does not say "better": §1's never-shame-the-form stance is about not
  * grading a diver's data, and a dive that was cold, over-weighted or spent towing a student is
  * a bigger RMV for a good reason. The figure moved; that is all the app knows.
+ *
+ * **The two means and nothing else** (M3d). `RmvTrend` also carries the recent window's own
+ * values, because the Stats screen draws them; this sentence is about where the figure moved
+ * from and reads neither the series nor its length, so it asks for the pair it uses — the
+ * `Pick` this file's own callers already take, and what keeps a fixture in its test from
+ * having to invent five dives to format one word.
  */
-export function formatRmvTrend(trend: RmvTrend): string | null {
+export function formatRmvTrend(trend: Pick<RmvTrend, 'recent' | 'previous'>): string | null {
   if (trend.previous === null) return null;
   const before = formatRmv(trend.previous);
   const now = formatRmv(trend.recent);

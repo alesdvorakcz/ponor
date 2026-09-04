@@ -496,8 +496,8 @@ describe('formatRmv', () => {
  */
 describe('formatRmvTrend', () => {
   it('names the direction and the figure it moved from', () => {
-    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: 16.1 })).toBe('down from 16.1 l/min');
-    expect(formatRmvTrend({ recent: 16.1, recentCount: 5, previous: 14.8 })).toBe('up from 14.8 l/min');
+    expect(formatRmvTrend({ recent: 14.8, previous: 16.1 })).toBe('down from 16.1 l/min');
+    expect(formatRmvTrend({ recent: 16.1, previous: 14.8 })).toBe('up from 14.8 l/min');
   });
 
   // **Decided on the formatted figures, not the raw ones.** These two means differ by four
@@ -505,26 +505,26 @@ describe('formatRmvTrend', () => {
   // contradict the row above it is "steady". Asserted from both sides, because a comparison
   // written the other way round would call one of them a direction.
   it('calls a difference the app cannot show steady', () => {
-    expect(formatRmvTrend({ recent: 14.82, recentCount: 5, previous: 14.78 })).toBe('steady');
-    expect(formatRmvTrend({ recent: 14.78, recentCount: 5, previous: 14.82 })).toBe('steady');
-    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: 14.8 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.82, previous: 14.78 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.78, previous: 14.82 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.8, previous: 14.8 })).toBe('steady');
   });
 
   // ...and a difference it CAN show is never called steady, or the rule above would have
   // swallowed the whole feature.
   it('still names a direction the app can draw', () => {
-    expect(formatRmvTrend({ recent: 14.74, recentCount: 5, previous: 14.91 })).toBe('down from 14.9 l/min');
+    expect(formatRmvTrend({ recent: 14.74, previous: 14.91 })).toBe('down from 14.9 l/min');
   });
 
   // No earlier window, no direction — the caller draws the recent figure alone rather than a
   // trend stated from one dive.
   it('says nothing at all when there is no earlier window', () => {
-    expect(formatRmvTrend({ recent: 14.8, recentCount: 1, previous: null })).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, previous: null })).toBeNull();
   });
 
   it('returns null rather than rendering NaN', () => {
-    expect(formatRmvTrend({ recent: Number.NaN, recentCount: 5, previous: 16.1 })).toBeNull();
-    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: Number.NaN })).toBeNull();
+    expect(formatRmvTrend({ recent: Number.NaN, previous: 16.1 })).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, previous: Number.NaN })).toBeNull();
   });
 });
 
