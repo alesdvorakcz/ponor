@@ -480,7 +480,7 @@ function build(scheme: ColorScheme) {
 
   // **How far the Dives header's text column stops short of the screen's trailing edge** (§0.6,
   // M1m — the correction to M1l). The floating capsule's trailing edge sits at `CONTENT_INSET`
-  // (`divesCapsuleFloat`), so its LEADING edge is that plus its own width, and the header's text
+  // (`capsuleFloat`), so its LEADING edge is that plus its own width, and the header's text
   // stops one `CAPSULE_CLEARANCE` before that. The summary line then wraps under the capsule
   // instead of into it, which is what the owner's sheet draws.
   //
@@ -500,10 +500,25 @@ function build(scheme: ColorScheme) {
   const DIVES_HEADER_TRAILING_INSET =
     CONTENT_INSET + actionCapsuleWidth(DIVES_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
 
+  // **The same clearance for the Map tab's header, and it is a different number because that
+  // capsule holds a different number of glyphs** — one, the layer toggle §3 asks for ("toggle
+  // to explore all community sites"), against the Dives screen's magnifier and `+`.
+  //
+  // Two constants rather than one, and derived rather than typed, for exactly the reason
+  // `actionCapsuleWidth` exists: the inset is a consequence of what is in the capsule, so the
+  // screen with fewer glyphs must get a narrower reserve on its own rather than inheriting the
+  // other screen's. Sharing one number would put 61 pt of empty reserve on this title today and
+  // would silently under-reserve the day either capsule changes. `MapScreen.test.tsx` counts the
+  // glyphs this screen actually renders against the count assumed here, exactly as
+  // `DivesScreen.test.tsx` does for its own — the half a scheme-only sheet cannot see.
+  const MAP_CAPSULE_GLYPHS = 1;
+  const MAP_HEADER_TRAILING_INSET =
+    CONTENT_INSET + actionCapsuleWidth(MAP_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
+
   // The row that title sits in on the one screen where something shares its line: §2.4's
   // Logged/Planned control on the dive form. The Dives list used to be the second — the
   // search/`+` capsule sat at this row's trailing edge — until the capsule stopped being IN
-  // that line: it floats over the list beside the title now (`divesCapsuleFloat`/`divesTitle`
+  // that line: it floats over the list beside the title now (`capsuleFloat`/`divesTitle`
   // below), which is a different arrangement from sharing a flex row with it and needs none
   // of this. Kept as its own definition rather than folded into
   // `formHeadingRow`, because `headingTitle` beneath it is the half that matters: a title
@@ -751,7 +766,7 @@ function build(scheme: ColorScheme) {
     // absences rather than a style with nothing to say. Neither may quietly come back.
     //
     // **No `paddingTop`, and M1k is the second arrangement to need that said.** The capsule
-    // floats over this list again (`divesCapsuleFloat` below) — but it floats BESIDE the
+    // floats over this list again (`capsuleFloat` below) — but it floats BESIDE the
     // large title, in the space a five-letter heading leaves empty at the trailing edge, not
     // above it. So there is still nothing overhead for the first row to clear. It carried 60
     // — the capsule's 48 plus the gap under it — the first time the capsule floated, when it
@@ -1140,7 +1155,7 @@ function build(scheme: ColorScheme) {
     // **The region the capsule floats in** (M1k) — the large title and the list beneath it,
     // which on this screen are one object: the title is the list's `ListHeaderComponent`.
     // Nothing but `flex: 1`, and its whole job is to be a containing block whose TOP EDGE is
-    // the title's own top edge, so `divesCapsuleFloat` below can say `top: 0` and mean
+    // the title's own top edge, so `capsuleFloat` below can say `top: 0` and mean
     // "beside the title" rather than "this far down the screen".
     //
     // That is what makes the float survive the two notices (DivesScreen.tsx), which stay
@@ -1176,7 +1191,16 @@ function build(scheme: ColorScheme) {
     // that is deliberately glass. Nothing the list draws needs to be hidden by this wrapper —
     // the list is clipped by the screen root's own safe-area padding, which is what keeps
     // content out of the status bar now that there is no bar to do it.
-    divesCapsuleFloat: {
+    //
+    // **Named for the rule rather than for its first screen** (M2n), which is the same
+    // correction `CONTENT_INSET` and `disclosureChevron` each record. It was `divesCapsuleFloat`
+    // while the Dives list was the only screen with a capsule beside its title; §3's Map tab now
+    // floats its layer toggle in exactly this position, against exactly this kind of region, and
+    // a second style holding the same three properties under a second name is §4.1's defining
+    // defect. The two screens differ in what the capsule HOLDS and therefore in how far their
+    // header text has to stop short of it (`DIVES_HEADER_TRAILING_INSET`,
+    // `MAP_HEADER_TRAILING_INSET`) — not in where the capsule sits.
+    capsuleFloat: {
       position: 'absolute',
       top: 0,
       right: CONTENT_INSET,
@@ -1192,7 +1216,7 @@ function build(scheme: ColorScheme) {
     // title is 34 pt bold, and taking that here would have split that rule three ways for
     // one screen.
     //
-    // Same 16 dp column as the rows below and as `divesCapsuleFloat`'s trailing edge, so the
+    // Same 16 dp column as the rows below and as `capsuleFloat`'s trailing edge, so the
     // title, the capsule and every trip title line up.
     //
     // **`paddingTop` is `SCREEN_HEADING_TOP`, and that is the owner's M1k call in one
@@ -1311,6 +1335,195 @@ function build(scheme: ColorScheme) {
       paddingRight: DIVES_HEADER_TRAILING_INSET,
       paddingBottom: 8,
     },
+    // ------------------------------------------------------------------------------------
+    // The Map tab (MapScreen.tsx, components/DiveMap.tsx — DESIGN.md §3's Map bullet)
+    // ------------------------------------------------------------------------------------
+    //
+    // **Everything here is monochrome, and on this screen that is a decision rather than a
+    // default.** §0.1 spends every hue on depth; a map is made of colour, and the marks on it
+    // are the app's. `DiveMap.tsx`'s own docblock carries the three arguments that settled it —
+    // in short, §3's mark stands for a SET of dives at several depths (§0.6 already ruled that
+    // an aggregate depth takes no band), and a mark at map scale has nowhere to put the number
+    // that §0.1 requires beside every colour. So the depth palette appears on this screen only
+    // where it appears on every other one: on the `DiveRow`s inside the site sheet.
+    //
+    // The region the capsule floats in — `divesListArea`'s sibling and the same one property,
+    // for the same reason: its top edge is the title's top edge, so `capsuleFloat` can say
+    // `top: 0` and mean "beside the title" rather than "this far down the display". Its own
+    // definition rather than a shared one because what it contains differs (a list there, a
+    // header block over a map here) and only the containing-block job is common; the shared
+    // half is `capsuleFloat` itself.
+    mapArea: { flex: 1 },
+    // The `MapView` itself, filling what is left under the title block. No ground of its own:
+    // the map paints the whole rectangle, and a `backgroundColor` here would only ever be seen
+    // in the frame before it does.
+    mapSurface: { flex: 1 },
+    // The large title, in every respect the Dives title's twin apart from its trailing cap —
+    // this screen's capsule holds ONE glyph (the layer toggle) rather than two, and
+    // `MAP_HEADER_TRAILING_INSET` is derived from that count rather than copied from the other
+    // screen's number. `screenHeading` is what a screen calls itself (§4.1, one rule); the
+    // 16 dp column and `SCREEN_HEADING_TOP` are what put "Map" on exactly the line "Dives" and
+    // "Settings" sit on.
+    mapTitle: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+      paddingRight: MAP_HEADER_TRAILING_INSET,
+      paddingTop: SCREEN_HEADING_TOP,
+      paddingBottom: 8,
+    },
+    // The line under it — which layer is showing and what is on it, e.g. `My dives · 3 sites ·
+    // 7 of 24 pinned`. `divesSummary`'s treatment exactly (mono, muted, the header's own
+    // column and cap), because it is the same object: a muted mono line of figures hanging
+    // under a title. §0.6's argument against inventing a second size or ink for one line is
+    // what makes that a rule rather than a convenience — and it is also how this screen says
+    // which layer the toggle has selected, in words, since §0.1 leaves no hue to say it with.
+    mapSummary: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      paddingHorizontal: CONTENT_INSET,
+      paddingRight: MAP_HEADER_TRAILING_INSET,
+      paddingBottom: 8,
+    },
+    // **One mark's tap target** — §0.5's 48 dp floor as a real box, exactly as `capsuleGlyph`
+    // above is for a capsule's glyph and for the same reason: the visible mark has to be small
+    // enough that nine sites in one bay are readable, and the thing a wet thumb has to hit does
+    // not. Transparent and centred, so the mark sits ON its coordinate rather than beside it.
+    mapMarkTarget: {
+      width: CAPSULE_GLYPH,
+      height: CAPSULE_GLYPH,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    // **A place of the diver's own: a pill carrying its dive count** (§3: "badge = count per
+    // site"). Always the count, including `1` — a bare mark for a single dive would make the
+    // ABSENCE of a number mean "one", which is a legend, and §0.6/§10 have twice ruled that a
+    // symbol needing one has already failed.
+    //
+    // `surface` behind it with a full-ink hairline, which is §0.6's option-chip rule read on a
+    // map: "`surface` behind an unselected chip, `action` ink behind the selected one". The
+    // border is `fg` rather than the `border` token every seam inside the app uses, and that is
+    // the one place this screen departs from the sheet's habits on purpose: a hairline tuned to
+    // separate two surfaces of the app's own ground disappears over Apple's cartography, which
+    // is neither. Ink against the map, ink inside the app.
+    mapMarkBadge: {
+      minWidth: 26,
+      height: 26,
+      borderRadius: 13,
+      paddingHorizontal: 7,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.fg,
+      backgroundColor: theme.surface,
+    },
+    // The chosen mark is the inverted one — `selectedFill`'s own rule, spelled out here rather
+    // than composed from it because this also has to overwrite the border: an inverted pill
+    // with a `fg` hairline would draw a ring in its own fill colour.
+    mapMarkBadgeSelected: {
+      borderColor: theme.action,
+      backgroundColor: theme.action,
+    },
+    // The count. Mono because it is a figure (§0.2), medium so it holds against a busy map at
+    // 12 pt, and full ink — never a depth colour, for the reasons at the top of this block.
+    mapMarkBadgeLabel: {
+      fontFamily: fonts['mono-medium'],
+      fontSize: 12,
+      color: theme.fg,
+    },
+    mapMarkBadgeLabelSelected: {
+      color: theme.actionFg,
+    },
+    // **A community site: a dot, because there is no count to show.** §3 badges "your dives"
+    // per site, and a catalogue site the diver has never dived has none — a badge reading `0`
+    // would be a number about the wrong thing. Same two-state ink as the badge above, so the
+    // toggle changes what a mark IS without changing the vocabulary it is drawn in.
+    mapMarkDot: {
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      borderWidth: 1,
+      borderColor: theme.fg,
+      backgroundColor: theme.surface,
+    },
+    mapMarkDotSelected: {
+      borderColor: theme.action,
+      backgroundColor: theme.action,
+    },
+    // **The sheet a tapped mark opens** (§3: "tapping a site shows your dives there with a
+    // depth/temp summary"), anchored over the bottom of the map.
+    //
+    // **Absolute rather than a sibling below the map**, so the map keeps its size when a site
+    // is selected: a map that resized under the diver's finger would move every other mark away
+    // from the one they were aiming at. `maxHeight` in per cent rather than points because what
+    // it is protecting is the map, not the list — the sheet may never take more than half the
+    // surface it is describing, on a phone or on an iPad.
+    //
+    // `surface` with the app's own hairline and a rounded top: the same card `noticeBanner`
+    // above is, at the scale of a panel. Rounded at the top only, since the bottom runs off the
+    // screen edge behind the tab bar.
+    mapSheet: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      maxHeight: '50%',
+      backgroundColor: theme.surface,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+    },
+    // Its title row: the site's name, and the way out at the trailing edge. `space-between`
+    // rather than `marginLeft: 'auto'` on the control, because both children are always drawn
+    // here — unlike the dive detail's bar, whose back control disappears in the wide layout.
+    mapSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // The site's name. `headingTitle` rather than `screenHeading`: it shares its line with the
+    // close control, so it has to be free to wrap rather than squeeze that control off the row
+    // — §0.5's "Czech runs 20–30 % longer", the same answer `formHeadingRow`'s title gives.
+    mapSheetTitle: headingTitle,
+    // **The way out of the sheet, in the app's one treatment for a way out** (§0.6: "Leaving a
+    // screen has one treatment everywhere" — mono, muted, small, and it must never compete with
+    // the content beside it). `backControl`'s own definition, so this cannot become a third
+    // spelling of the dive detail's back and the form's `‹ Cancel`. No `paddingHorizontal` of
+    // its own: the row above already sets the column, and a second inset would push the
+    // control's 48 dp box off the screen's trailing edge.
+    mapSheetClose: backControl,
+    mapSheetCloseLabel: backControlLabel,
+    // §3's "depth/temp summary" — `formatSiteSummary` (format/display.ts) owns every word.
+    // `divesSummary`'s treatment for the same reason it is used above: one vocabulary for a
+    // muted mono line of figures under a heading. **No colour**, and the `deepest` in it is
+    // why that is a rule: an aggregate over the dives at a place is a claim no single band is
+    // true of (§0.6, the Dives header's own argument).
+    mapSheetSummary: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 8,
+    },
+    // What the catalogue knows about a community site — `formatSiteFacts`. Archivo rather than
+    // mono: §0.2 splits the two faces on content, and "Croatia · shore · salt" is a list of
+    // names with one figure in it rather than a line of figures.
+    mapSheetFacts: {
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      color: theme.fgMuted,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 12,
+    },
+    // The dive rows inside the sheet. Its bottom padding is composed at the call site from
+    // `screenBottomInset` (this module's own owner of "how far above the bottom edge content
+    // may end"), because the sheet's own bottom edge is the display's and the tab bar is in
+    // front of it — the exact defect that constant was written for, arriving on a second
+    // screen.
+    mapSheetList: {},
     // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------
@@ -2019,7 +2232,7 @@ function build(scheme: ColorScheme) {
     //
     // `headingRow` at the top of this function is the shape, and this is now its one caller:
     // the Dives screen's title had the identical row until its capsule left the line
-    // altogether (`headingRow`'s own comment, and `divesCapsuleFloat`).
+    // altogether (`headingRow`'s own comment, and `capsuleFloat`).
     formHeadingRow: {
       ...headingRow,
       paddingHorizontal: CONTENT_INSET,

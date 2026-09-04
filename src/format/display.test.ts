@@ -11,6 +11,7 @@ import {
   formatCurrent,
   formatSurge,
   formatWaves,
+  formatCommunitySummary,
   formatCoordinates,
   formatConfiguration,
   formatCylinderSpec,
@@ -21,7 +22,11 @@ import {
   formatDepthBandRange,
   formatDepthParts,
   formatDiveCount,
+  formatMyDivesSummary,
   formatPendingChanges,
+  formatSiteFacts,
+  formatSiteSummary,
+  formatTemperatureRange,
   formatDuration,
   formatDiveDate,
   isDisplayableDepth,
@@ -982,5 +987,158 @@ describe('formatUnitSystem', () => {
   it('reads "Metric" and "Imperial"', () => {
     expect(formatUnitSystem('metric')).toBe('Metric');
     expect(formatUnitSystem('imperial')).toBe('Imperial');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The Map tab's own sentences (M2n — DESIGN.md §3's Map bullet)
+// ---------------------------------------------------------------------------------------
+
+// §3 asks the site sheet for a "depth/temp summary", and the temp half is a SPAN rather than a
+// mean because a mean is a reading no dive took (`waterTempRange`, domain/mapSites.ts, carries
+// that argument). What this function decides is only how the two figures read.
+describe('formatTemperatureRange', () => {
+  it('writes the unit once, after the pair', () => {
+    expect(formatTemperatureRange({ coldestC: 18, warmestC: 24 }, 'metric')).toBe('18–24 °C');
+  });
+
+  // A range with nothing in it is not a range. The comparison is on the CONVERTED, rounded
+  // figures rather than on the stored Celsius, which is what a diver is actually reading.
+  it('collapses to one figure when both ends print the same', () => {
+    expect(formatTemperatureRange({ coldestC: 21, warmestC: 21 }, 'metric')).toBe('21 °C');
+    expect(formatTemperatureRange({ coldestC: 21.2, warmestC: 21.4 }, 'metric')).toBe('21 °C');
+  });
+
+  it('converts both ends, and decides the collapse in the diver’s own system', () => {
+    expect(formatTemperatureRange({ coldestC: 18, warmestC: 24 }, 'imperial')).toBe('64–75 °F');
+    // 21.2 °C and 21.4 °C are one figure in Celsius and two in Fahrenheit, which is correct:
+    // the figures a diver reads are what may or may not differ.
+    expect(formatTemperatureRange({ coldestC: 21.2, warmestC: 21.9 }, 'imperial')).toBe('70–71 °F');
+  });
+
+  it('keeps the sign on water below zero', () => {
+    expect(formatTemperatureRange({ coldestC: -1, warmestC: 4 }, 'metric')).toBe('-1–4 °C');
+  });
+
+  it('says nothing when there is no range, and nothing about a corrupt one', () => {
+    expect(formatTemperatureRange(null, 'metric')).toBeNull();
+    expect(formatTemperatureRange({ coldestC: Number.NaN, warmestC: 4 }, 'metric')).toBeNull();
+  });
+});
+
+// §3: "tapping a site shows your dives there with a depth/temp summary". The count and the depth
+// come from `logbookStats` — the same owner the Dives header asks — so the figures cannot mean
+// one thing there and another here.
+describe('formatSiteSummary', () => {
+  it('reads count, depth and water', () => {
+    expect(
+      formatSiteSummary({ dives: 4, minutes: 180, deepestM: 18.2 }, { coldestC: 18, warmestC: 24 }, 'metric'),
+    ).toBe('4 dives · deepest 18.2 m · 18–24 °C');
+  });
+
+  // **Not `formatLogbookSummary`, and the difference is one figure.** That line is §3's Stats
+  // triple about a whole logbook; this is §3's depth/temp pair about one place, so the hours are
+  // absent even when `logbookStats` has them. A near-duplicate that answers a different question
+  // (§4.1) — asserted, because "reuse the other one" is the obvious wrong tidy-up.
+  it('leaves the hours out, even when the stats carry them', () => {
+    const line = formatSiteSummary({ dives: 4, minutes: 180, deepestM: 18.2 }, null, 'metric');
+    expect(line).not.toContain('h');
+    expect(line).toBe('4 dives · deepest 18.2 m');
+  });
+
+  // This module's standing rule: a figure with nothing behind it is omitted, never drawn as a
+  // placeholder. The count is the one that always stays.
+  it('omits a figure with nothing behind it', () => {
+    expect(formatSiteSummary({ dives: 1, minutes: null, deepestM: null }, null, 'metric')).toBe('1 dive');
+    expect(
+      formatSiteSummary({ dives: 2, minutes: null, deepestM: null }, { coldestC: 12, warmestC: 12 }, 'metric'),
+    ).toBe('2 dives · 12 °C');
+  });
+
+  it('converts to the diver’s own system', () => {
+    expect(
+      formatSiteSummary({ dives: 3, minutes: null, deepestM: 18.2 }, { coldestC: 18, warmestC: 24 }, 'imperial'),
+    ).toBe('3 dives · deepest 60 ft · 64–75 °F');
+  });
+
+  // §0.6's rule for the Dives header applies here for the identical reason and is enforced by
+  // the caller's style, not by this string — but the words must not sneak a colour in either, so
+  // this is the line's own half of it: no band, no hue, just the figure.
+  it('says the depth as an aggregate, with no claim about a band', () => {
+    expect(formatSiteSummary({ dives: 9, minutes: null, deepestM: 41.2 }, null, 'metric')).toBe(
+      '9 dives · deepest 41.2 m',
+    );
+  });
+});
+
+// The line under the Map tab's title. It says which layer is showing — the toggle is one glyph
+// and cannot report a state, and §0.1 leaves no hue to say it with — and how much of the logbook
+// is actually on the map, which is the honest half: no dive logged before M2l can carry a fix.
+describe('the map layer lines', () => {
+  it('names the layer and states the coverage', () => {
+    expect(formatMyDivesSummary(3, 7, 24)).toBe('Your dives · 3 sites · 7 of 24 dives on the map');
+  });
+
+  // "7 of 7 dives on the map" is a sentence nobody writes, and "1 of 1 dives" is worse.
+  it('drops the "of" once every dive is on the map', () => {
+    expect(formatMyDivesSummary(2, 24, 24)).toBe('Your dives · 2 sites · 24 dives on the map');
+    expect(formatMyDivesSummary(1, 1, 1)).toBe('Your dives · 1 site · 1 dive on the map');
+  });
+
+  // **"on the map", not "pinned"**, and the words are not interchangeable: the figure counts
+  // every dive at a place the map could position, including dives there carrying no fix of their
+  // own — which is exactly what the badges add up to.
+  it('counts dives at a placed site, not fixes', () => {
+    expect(formatMyDivesSummary(1, 4, 9)).toContain('4 of 9 dives on the map');
+  });
+
+  it('pluralises a single site', () => {
+    expect(formatMyDivesSummary(1, 2, 2)).toContain('1 site ·');
+    expect(formatCommunitySummary(1)).toBe('Community · 1 site');
+    expect(formatCommunitySummary(12)).toBe('Community · 12 sites');
+  });
+
+  // The two lines are different shapes on purpose — a community site is not the diver's, so
+  // there is no coverage figure to give and nothing that could be reported for the wrong layer.
+  it('says nothing about coverage on the community layer', () => {
+    expect(formatCommunitySummary(12)).not.toContain('on the map');
+    expect(formatCommunitySummary(12)).not.toContain('Your dives');
+  });
+});
+
+// What the catalogue knows about a site, under its name on the community layer. Every element is
+// one of this module's existing formatters, so a site's `entry` reads the same word here as on
+// the dive that was logged there (§4.1).
+describe('formatSiteFacts', () => {
+  it('reads country, entry, salinity, water body and the site’s own depth', () => {
+    expect(
+      formatSiteFacts(
+        { country: 'Croatia', entry: 'boat', salinity: 'salt', waterBody: 'ocean', maxDepthM: 34 },
+        'metric',
+      ),
+    ).toBe('Croatia · Boat · Salt · Ocean · 34.0 m');
+  });
+
+  // §5 asks a new site only for a name, so a row with nothing else is the expected shape rather
+  // than a degraded one — null, so a caller draws no line at all rather than an empty one.
+  it('says nothing at all about a site that carries nothing but a name', () => {
+    expect(
+      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+    ).toBeNull();
+    expect(
+      formatSiteFacts({ country: '', entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+    ).toBeNull();
+  });
+
+  it('omits whichever facts are missing rather than reserving a slot for them', () => {
+    expect(
+      formatSiteFacts({ country: 'Croatia', entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'metric'),
+    ).toBe('Croatia · 34.0 m');
+  });
+
+  it('converts the site depth to the diver’s own system', () => {
+    expect(
+      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
+    ).toBe('112 ft');
   });
 });

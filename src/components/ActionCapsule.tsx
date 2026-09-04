@@ -44,9 +44,9 @@ const GLYPH_SIZE = 19;
  * This component owns the capsule's shape, its material and the glyphs inside it; its caller
  * owns where it sits — the same division of labour `SearchCapsule` next door has, which is
  * what lets one capsule serve two screens. On the Dives screen it floats beside the large
- * title, over the list (`divesCapsuleFloat`, theme/styles.ts); on the search screen it sits in
+ * title, over the list (`capsuleFloat`, theme/styles.ts); on the search screen it sits in
  * the dock beside the field. It carried a recede-on-scroll while it floated the first time,
- * and then sat in a pinned bar for two milestones — see `divesCapsuleFloat` for why it needs
+ * and then sat in a pinned bar for two milestones — see `capsuleFloat` for why it needs
  * neither now, and what had to stop being sticky for that to be true.
  *
  * **Equal glyphs, and that settles a question §3 left open**: "Whether `+` is an equal glyph

@@ -224,7 +224,7 @@ function stickyIndices(t: RenderResult): unknown {
  * time, over a list whose headers no longer stick. */
 function findCapsule(t: RenderResult) {
   const [node] = t.root
-    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat))
+    ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').capsuleFloat))
     : [];
   if (!node) throw new Error('DivesScreen did not render its floating capsule');
   return node;
@@ -869,7 +869,7 @@ it('spends the device bottom inset on the list, so the last dive clears the tab 
 // inset moves both with it rather than silently splitting them.
 it('aligns the capsule and the title to the same column the list rows use', async () => {
   const styles = makeStyles('dark');
-  const inset = (styles.divesCapsuleFloat as Record<string, unknown>).right;
+  const inset = (styles.capsuleFloat as Record<string, unknown>).right;
   expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
   expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
   expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
@@ -901,7 +901,7 @@ it('caps the header wide enough for every glyph the capsule actually renders', a
     (styles.actionCapsulePlain?.paddingHorizontal as number) * 2 +
     glyphs * (styles.capsuleGlyph?.width as number) +
     (glyphs - 1) * (styles.capsuleDivider?.width as number);
-  const leadingEdge = (styles.divesCapsuleFloat?.right as number) + capsuleWidth;
+  const leadingEdge = (styles.capsuleFloat?.right as number) + capsuleWidth;
 
   expect(styles.divesTitle?.paddingRight).toBeGreaterThanOrEqual(leadingEdge);
   expect(styles.divesSummary?.paddingRight).toBeGreaterThanOrEqual(leadingEdge);
@@ -959,7 +959,7 @@ it('names the screen on an empty logbook, with no capsule beside it', async () =
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : []).toHaveLength(0);
   // Nothing floats here, so nothing may be laid out to make room for it either: the title is
   // the root's first child, exactly as it is the list's first content on the branch next door.
-  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat)) : []).toHaveLength(0);
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').capsuleFloat)) : []).toHaveLength(0);
   const root = findRoot(t);
   const [firstText] = root.queryAll((n) => n.type === 'Text');
   expect(firstText?.children).toContain('Dives');
@@ -1210,7 +1210,7 @@ it('names the screen on a failed read, with no capsule beside it', async () => {
   expect(textIn(t)).toContain('Dives');
   expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't open your logbook");
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
-  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').divesCapsuleFloat)) : []).toHaveLength(0);
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').capsuleFloat)) : []).toHaveLength(0);
   expect(findRoot(t)).toBeTruthy();
 });
 
@@ -1743,13 +1743,13 @@ it('keeps the title inside the list column on a wide layout, not across the wind
 
   const [column] = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.wideListColumn)) : [];
   if (!column) throw new Error('the wide layout rendered no list column');
-  expect(column.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesCapsuleFloat))).toHaveLength(1);
+  expect(column.queryAll((n) => [n.props?.style].flat(5).includes(styles.capsuleFloat))).toHaveLength(1);
   // The title itself, in the column's own list — so it is the list it names on a wide layout,
   // not the dive beside it.
   expect(column.queryAll((n) => n.type === 'Text' && n.children.includes('Dives'))).toHaveLength(1);
   // ...and each is the only one on screen, so the detail pane did not grow a second capsule or
   // a second title of its own out of the shared fragment.
-  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.divesCapsuleFloat)) : []).toHaveLength(1);
+  expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.capsuleFloat)) : []).toHaveLength(1);
   expect(findTitles(t)).toHaveLength(1);
   // **The column composes the top inset itself** (M1k). The pinned bar it used to begin with
   // spent that clearance; without it the column would start its title at the very top of the

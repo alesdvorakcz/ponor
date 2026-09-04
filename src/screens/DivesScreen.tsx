@@ -710,7 +710,7 @@ export default function DivesScreen() {
         </Pressable>
       )}
       {/* **The region the capsule floats in**, and it is a wrapper with one job: its top edge
-          is the title's top edge, so `divesCapsuleFloat` can position against it and land
+          is the title's top edge, so `capsuleFloat` can position against it and land
           beside the title rather than at a measured distance from the display. Both branches
           below are inside it, because both draw the title. See theme/styles.ts. */}
       <View style={styles.divesListArea}>
@@ -795,9 +795,9 @@ export default function DivesScreen() {
         {/* **The capsule, floating at the title's trailing side** (§0.6, §10 — the owner's
             call, M1k). Rendered AFTER the list so it paints over it, and last inside this
             region so nothing it overlaps can cover it back.
-            `styles.divesCapsuleFloat` is the whole of its position; there is no inset
+            `styles.capsuleFloat` is the whole of its position; there is no inset
             arithmetic here, because the region's own top edge is where it belongs. */}
-        <View style={styles.divesCapsuleFloat}>
+        <View style={styles.capsuleFloat}>
           <ActionCapsule scheme={scheme} actions={capsuleActions} />
         </View>
       </View>

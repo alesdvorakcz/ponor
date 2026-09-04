@@ -358,7 +358,7 @@ describe('the Dives screen floating capsule', () => {
   // and would be the pinned bar rebuilt as an overlay, which is the arrangement §10 rejected.
   it('floats out of flow at the top trailing corner, sized by the capsule and not by the screen', () => {
     for (const scheme of ['dark', 'light'] as const) {
-      const float = makeStyles(scheme).divesCapsuleFloat as Record<string, unknown>;
+      const float = makeStyles(scheme).capsuleFloat as Record<string, unknown>;
       expect(float.position).toBe('absolute');
       expect(float.top).toBe(0);
       expect(float.left).toBeUndefined();
@@ -412,7 +412,7 @@ describe('the Dives screen floating capsule', () => {
   // list's inset moves all of them rather than silently splitting them.
   it('shares the list rows own column with the title beneath it', () => {
     const styles = makeStyles('dark');
-    const inset = (styles.divesCapsuleFloat as Record<string, unknown>).right;
+    const inset = (styles.capsuleFloat as Record<string, unknown>).right;
     expect(inset).toBe((styles.divesTitle as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.tripHeader as Record<string, unknown>).paddingHorizontal);
     expect(inset).toBe((styles.diveRow as Record<string, unknown>).paddingHorizontal);
@@ -441,7 +441,7 @@ describe('the Dives screen floating capsule', () => {
         (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 +
         (sheet.capsuleGlyph?.width as number) * 2 +
         (sheet.capsuleDivider?.width as number);
-      const leadingEdge = (sheet.divesCapsuleFloat?.right as number) + capsuleWidth;
+      const leadingEdge = (sheet.capsuleFloat?.right as number) + capsuleWidth;
       expect(leadingEdge).toBeGreaterThan(0);
 
       // Both lines of the header, because the cap is on the COLUMN. `divesSummary` is the line
@@ -734,6 +734,10 @@ describe('the app content column', () => {
     'reorderNotice',
     'settingsNotice',
     'presetNotice',
+    // A map mark's own pill: the padding inside the badge that holds a dive count, at map
+    // scale. Nothing about it is where a screen's content begins — it is not on a screen's
+    // column at all, it is on Apple's cartography.
+    'mapMarkBadge',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -765,6 +769,15 @@ describe('the app content column', () => {
     'settingsCaption',
     'settingsSectionTitle',
     'settingsPresetEmpty',
+    // The Map tab (M2n): its title and the layer line under it, and the three blocks of the
+    // sheet a tapped site opens. The sheet is a panel over the map rather than a screen, and it
+    // still hangs off the app's one column — a site's name starting 4 pt inboard of the dive
+    // rows listed beneath it is exactly the step M1l found between Dives and Settings.
+    'mapTitle',
+    'mapSummary',
+    'mapSheetHeader',
+    'mapSheetSummary',
+    'mapSheetFacts',
   ];
 
   it('starts every screen content at the same edge, in both schemes', () => {
@@ -816,14 +829,54 @@ describe('the app content column', () => {
   // would run under the floating capsule exactly as the summary did before M1m fixed it. A new
   // line in this block that is NOT here is the same defect; a line here that is not in the
   // header is a style borrowing the capsule's clearance for no reason.
-  it('lets only the Dives header override that column trailing edge', () => {
+  //
+  // **The Map tab's two header lines joined them in M2n**, and they carry a DIFFERENT reserve
+  // rather than the same one: that capsule holds one glyph (§3's layer toggle) against this
+  // one's two, so `MAP_HEADER_TRAILING_INSET` is narrower than `DIVES_HEADER_TRAILING_INSET` by
+  // one glyph box and one hairline. Both are derived from `actionCapsuleWidth`; neither is
+  // typed. The test below asserts the membership; the two `it`s after it assert that each set
+  // clears its own capsule.
+  it('lets only the two screens with a floating capsule override that column trailing edge', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       const overriding = Object.entries(sheet)
         .filter(([, style]) => style?.paddingRight !== undefined || style?.paddingEnd !== undefined)
         .map(([name]) => name)
         .sort();
-      expect(overriding).toEqual(['divesPending', 'divesSummary', 'divesTitle']);
+      expect(overriding).toEqual(['divesPending', 'divesSummary', 'divesTitle', 'mapSummary', 'mapTitle']);
+    }
+  });
+
+  // **The Map tab's own cap, read the same way and against its own capsule** (M2n).
+  //
+  // Written as a relation for the reason the Dives one is, and with one difference that is the
+  // whole point of it being a separate test: the capsule this clears holds **one** glyph, so the
+  // sum below counts one glyph box and no divider. A sheet that gave this header the Dives
+  // reserve would pass every "is it capped" check and leave 61 pt of empty column on a screen
+  // whose summary line is the longest thing on it; a sheet that gave the Dives header THIS
+  // reserve would put its summary back under the glass. Neither can happen while both are
+  // derived, and this is what fails if either stops being.
+  it('stops the map header text column short of its own one-glyph capsule', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      const oneGlyphCapsule =
+        (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 + (sheet.capsuleGlyph?.width as number);
+      const leadingEdge = (sheet.capsuleFloat?.right as number) + oneGlyphCapsule;
+      expect(leadingEdge).toBeGreaterThan(0);
+
+      const short = ['mapTitle', 'mapSummary'].filter((name) => {
+        const inset = sheet[name]?.paddingRight;
+        return typeof inset !== 'number' || inset < leadingEdge;
+      });
+      expect(short).toEqual([]);
+      // One column, so one cap across both lines of the block.
+      expect(sheet.mapSummary?.paddingRight).toBe(sheet.mapTitle?.paddingRight);
+      // ...and it is narrower than the Dives header's, because that capsule is wider. Asserted
+      // rather than left implied: the cheapest wrong edit here is reusing the other screen's
+      // constant, which is invisible to every other assertion in this file.
+      expect(sheet.mapTitle?.paddingRight).toBeLessThan(sheet.divesTitle?.paddingRight as number);
+      // The LEADING edge is untouched, exactly as on the Dives header.
+      expect(sheet.mapTitle?.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
     }
   });
 
@@ -833,7 +886,7 @@ describe('the app content column', () => {
   it('lands the floating capsule on the same column, from the trailing side', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
-      expect(sheet.divesCapsuleFloat?.right).toBe(sheet.diveRow?.paddingHorizontal);
+      expect(sheet.capsuleFloat?.right).toBe(sheet.diveRow?.paddingHorizontal);
     }
   });
 

@@ -6,10 +6,15 @@ import { isCalendarDate } from '../domain/datetime';
 // at compile time, which is exactly what the two modules' split requires: the figures are
 // computed there and worded here, and only the shape of the answer crosses.
 import type { LogbookStats } from '../domain/logbookStats';
+// A type, on the same terms and for the same reason as `LogbookStats` above: `domain/
+// mapSites.ts` imports `diveSiteLabel` from this module (a map place is called what a dive row
+// calls it), so only the shape of its answer may come back the other way.
+import type { WaterTempRange } from '../domain/mapSites';
 import {
   type ConditionLevel,
   type Configuration,
   type Dive,
+  type DiveSite,
   type DiveStatus,
   type Entry,
   type Equipment,
@@ -204,6 +209,123 @@ export function formatTemperature(celsius: number | null, system: UnitSystem): s
   if (!isFiniteNumber(celsius)) return null;
   const parts = displayFigure('temperature', celsius, system);
   return `${parts.value} ${parts.unit}`;
+}
+
+/**
+ * The water a place has been dived in, as a span — `"18–24 °C"`, or `"21 °C"` when every
+ * reading rounds to the same figure. Null when there is no range to show.
+ *
+ * `formatTemperature`'s sibling, and the *temp* half of §3's *"depth/temp summary"* on the Map
+ * tab. It is a span rather than an average because an average is a reading no dive took
+ * (`waterTempRange`, domain/mapSites.ts, has the argument); this function only decides how the
+ * two figures read.
+ *
+ * **The unit is written once, after the pair**, exactly as `formatDepthBandRange` writes it
+ * once for the deepest band: `18 °C–24 °C` says the same thing twice in a slot that is already
+ * one figure among three. The en dash is unpadded, which is the compact spelling this module
+ * splits on — `formatDepthBandRange` and `dateRangeOf` (domain/trips.ts) use it for a numeric
+ * span in a narrow slot, `formatTimeRange` pads its own for two clock times.
+ *
+ * **Equal figures collapse to one**, and the comparison is on the CONVERTED, rounded text
+ * rather than on the stored Celsius: two dives at 21.2 °C and 21.4 °C both print `21`, and
+ * `21–21 °C` is a range with nothing in it. In Fahrenheit the boundary lands elsewhere, which
+ * is correct — the figures a diver reads are what may or may not differ.
+ */
+export function formatTemperatureRange(range: WaterTempRange | null, system: UnitSystem): string | null {
+  if (range === null) return null;
+  const { coldestC, warmestC } = range;
+  if (!isFiniteNumber(coldestC) || !isFiniteNumber(warmestC)) return null;
+  const coldest = displayFigure('temperature', coldestC, system);
+  const warmest = displayFigure('temperature', warmestC, system);
+  if (coldest.value === warmest.value) return `${coldest.value} ${coldest.unit}`;
+  return `${coldest.value}–${warmest.value} ${warmest.unit}`;
+}
+
+/**
+ * **What a map site adds up to** — `"4 dives · deepest 18.2 m · 18–24 °C"`, the sentence §3
+ * asks the Map tab for when a site is tapped: *"tapping a site shows your dives there with a
+ * depth/temp summary"*.
+ *
+ * **Neither figure is computed here.** The count and the depth come from `logbookStats`
+ * (domain/logbookStats.ts) — the same owner the Dives header asks, so "how many dives" cannot
+ * mean one thing on one screen and another here — and the temperatures from `waterTempRange`
+ * (domain/mapSites.ts). This function owns only the words and the order.
+ *
+ * **Not `formatLogbookSummary`, and the difference is one figure.** That line is §3's Stats
+ * triple — count, hours underwater, deepest — said about a whole logbook. This one is §3's
+ * *depth/temp* pair said about one place, so the hours drop out and the water comes in. They
+ * are near-duplicates that answer different questions (§4.1), and unifying them would mean one
+ * of the two screens showing a figure its own section never asked for.
+ *
+ * The standing rules of this module both hold: a figure with nothing behind it is **omitted**
+ * rather than drawn as a dash (this line reserves no slots, so there is nothing for a dash to
+ * sit in), and the count is always present — including `0 dives`, which cannot occur here since
+ * a site exists only because a dive is at it, but which is the formatter's rule rather than
+ * this caller's luck.
+ *
+ * **The depth in it takes no band colour**, and the caller's style is where that is enforced
+ * (`mapSiteSummary`, theme/styles.ts), exactly as §0.6 requires of the Dives header for the
+ * identical reason: `deepest` is an aggregate over the dives at a place, and one band would be
+ * a claim about a set no single band is true of.
+ *
+ * The non-breaking spaces `formatLogbookSummary` sets inside its figures are **deliberately not
+ * set here**. That rule exists because the Dives header has a measure — a column capped against
+ * a floating capsule — and has to choose where it folds. This line sits in a sheet the full
+ * width of the screen with nothing floating over it, so there is no fold to place, and copying
+ * the mechanism would be copying a constraint rather than a rule.
+ */
+export function formatSiteSummary(
+  stats: LogbookStats,
+  temperatures: WaterTempRange | null,
+  system: UnitSystem,
+): string {
+  const parts: string[] = [formatDiveCount(stats.dives)];
+
+  const deepest = formatDepth(stats.deepestM, system);
+  if (deepest !== null) parts.push(`deepest ${deepest}`);
+
+  const water = formatTemperatureRange(temperatures, system);
+  if (water !== null) parts.push(water);
+
+  return parts.join(METADATA_SEPARATOR);
+}
+
+/**
+ * **What the catalogue knows about a site**, as one middot line under its name on the Map
+ * tab's community layer — `"Croatia · shore · salt · 24 m"`, or null when the row carries
+ * nothing but a name.
+ *
+ * Every element is one of this module's existing formatters (§4.1: a site's `entry` reads the
+ * same word here as on the dive that was logged there), and every one of them is omitted when
+ * absent rather than drawn as a placeholder — the same rule `formatSiteSummary` above and
+ * `formatCylinderSpec` further down already follow. Null, not `''`, so a caller renders no line
+ * at all rather than an empty one: §5 asks a new site only for a name, so a row with nothing
+ * else is the *expected* shape rather than a degraded one.
+ *
+ * The depth is the SITE's own (§6: *"`max_depth_m` (site depth)"*), not any dive's, which is
+ * why it comes last and carries no `deepest` — that word belongs to `formatSiteSummary`, where
+ * the figure really is the deepest of something.
+ */
+export function formatSiteFacts(
+  site: Pick<DiveSite, 'country' | 'entry' | 'salinity' | 'waterBody' | 'maxDepthM'>,
+  system: UnitSystem,
+): string | null {
+  const parts: string[] = [];
+  if (site.country !== null && site.country !== '') parts.push(site.country);
+
+  const entry = formatEntry(site.entry);
+  if (entry !== null) parts.push(entry);
+
+  const salinity = formatSalinity(site.salinity);
+  if (salinity !== null) parts.push(salinity);
+
+  const waterBody = formatWaterBody(site.waterBody);
+  if (waterBody !== null) parts.push(waterBody);
+
+  const depth = formatDepth(site.maxDepthM, system);
+  if (depth !== null) parts.push(depth);
+
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /** Cylinder pressure, e.g. "208 bar" or "3016 psi" — whole units in both systems. */
@@ -744,6 +866,62 @@ export function diveSiteLabel(dive: Pick<Dive, 'siteName' | 'centerName'>): stri
  */
 export function formatDiveCount(count: number): string {
   return `${count} ${count === 1 ? 'dive' : 'dives'}`;
+}
+
+/**
+ * How many places, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling above, and
+ * private because both callers are the two Map tab lines directly below it. English needs one
+ * comparison and Czech needs three forms (§0.5, i18next in M3), which is the whole reason a
+ * plural lives in this module rather than in a template literal on a screen.
+ */
+function formatSiteCount(count: number): string {
+  return `${count} ${count === 1 ? 'site' : 'sites'}`;
+}
+
+/**
+ * **The line under the Map tab's title while it is showing the diver's own dives** — `"Your
+ * dives · 3 sites · 7 of 24 dives on the map"`.
+ *
+ * It has two jobs and the second is the one that makes it a rule rather than a nicety.
+ *
+ * **It says which layer is showing**, because §3's toggle is a single glyph in the top-right
+ * capsule and a glyph cannot report a state. §0.1 leaves no hue to say it with and §0.6 has
+ * already refused a second size or weight for one control, so the layer is named in words, in
+ * the line the screen was going to draw anyway.
+ *
+ * **And it says how much of the logbook is actually on the map**, which is the honest half.
+ * §10 records that no dive logged before M2l can carry a GPS point, so the ordinary state of
+ * this screen for a while is a handful of pins over a logbook of dozens — and a map that
+ * silently drew four sites from twenty-four dives would look like a map of everything.
+ *
+ * **"on the map", not "pinned", and the words are not interchangeable.** The figure counts every
+ * dive at a place the map could position, including dives at that place carrying no coordinates
+ * of their own — which is exactly what the badges add up to (`groupDivesByPlace`, domain/
+ * mapSites.ts: a site's badge counts your dives there, not your fixes there). Calling them
+ * "pinned" would make this line disagree with the numbers drawn beside it.
+ *
+ * `formatDiveCount` owns both plurals; nothing here counts anything.
+ */
+export function formatMyDivesSummary(places: number, onMap: number, logged: number): string {
+  const coverage = onMap < logged ? `${onMap} of ${formatDiveCount(logged)} on the map` : `${formatDiveCount(onMap)} on the map`;
+  return ['Your dives', formatSiteCount(places), coverage].join(METADATA_SEPARATOR);
+}
+
+/**
+ * The same line while the toggle is showing §3's *"all community sites"* — `"Community · 12
+ * sites"`.
+ *
+ * Shorter than its sibling above because there is less that is true: the catalogue's sites are
+ * not the diver's, so there is no coverage figure to give and nothing to say about how much of
+ * anything is on the map. It names the layer, which is the job the toggle cannot do, and counts
+ * what is drawn.
+ *
+ * A separate function rather than one taking a layer, so neither line can grow a branch that
+ * silently reports the wrong layer's figure — the shapes of the two answers are genuinely
+ * different, and a shared signature would have to carry two arguments one of them ignores.
+ */
+export function formatCommunitySummary(places: number): string {
+  return ['Community', formatSiteCount(places)].join(METADATA_SEPARATOR);
 }
 
 /**

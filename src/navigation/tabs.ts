@@ -36,6 +36,12 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // app's iconography on water rather than on documents — a list glyph would say "rows",
   // which is the least interesting true thing about this screen.
   { name: 'index', title: 'Dives', symbol: { ios: 'water.waves', android: 'waves' } },
+  // §3's second tab (M2n). It sits between Dives and Settings because that is §3's own order —
+  // Dives, Map, Stats, Settings — and M3's Stats tab goes in the gap this leaves rather than on
+  // the end. `map`/`map` is the same word in both vocabularies, which is a coincidence of these
+  // two libraries and not a rule: `symbolName.test.tsx` pins the Material half like every other
+  // glyph, because "they happen to agree today" is exactly the shape that stops being true.
+  { name: 'map', title: 'Map', symbol: { ios: 'map', android: 'map' } },
   { name: 'settings', title: 'Settings', symbol: { ios: 'gearshape', android: 'settings' } },
 ];
 
