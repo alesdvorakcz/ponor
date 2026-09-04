@@ -644,6 +644,158 @@ it('is unchanged by the new props when a caller passes neither', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// §2.3's create offer, in the list's own slot (M2o)
+// ---------------------------------------------------------------------------------------
+
+const ADD_SITE = 'Add “Kotelna” as a new site';
+
+/** One offer, with a press this file can watch. `busy` is stated at every call site rather
+ * than defaulted, because it is the difference between a control and a control that has gone
+ * quiet, and a test that forgot it would be asserting about neither. */
+const addition = (onPress: () => void, busy = false) => ({ label: ADD_SITE, onPress, busy });
+
+// The same `focused` gate the list is under, and driven through the input's real focus/blur
+// for the same reason: an offer wired to a condition it could never satisfy fails here.
+it('draws the create offer only while its own row holds focus', async () => {
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
+  );
+  expect(textIn(t)).not.toContain(ADD_SITE);
+
+  const input = await focusInput(t);
+  expect(textIn(t)).toContain(ADD_SITE);
+
+  await fireEvent(input, 'blur');
+  expect(textIn(t)).not.toContain(ADD_SITE);
+});
+
+// **The common case, and the one an "offer it under the suggestions" implementation misses**:
+// a brand-new site matches nothing in the diver's history, so the list is empty and the offer
+// is the only row there is. Without this the affordance would appear exactly when it was not
+// needed and vanish when it was.
+it('draws the offer with no suggestions above it at all', async () => {
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  expect(findSuggestion(t, ADD_SITE)).toBeDefined();
+});
+
+// Last, after the offers: they are what the diver most likely meant, and publishing a new
+// record is what is left when none of them was. Read off the drawn order rather than off a
+// prop, because the order is the whole claim.
+it('offers what the diver has already used first, and the new record last', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  expect(textIn(t)).toEqual(['Site', 'Blue Hole', 'Silfra', ADD_SITE]);
+});
+
+// Creating a community record is a deliberate act, and this is the gesture. Neither of the
+// two paths a field already has may hear about it: `onChange` clears the paired id one layer
+// up (a typed name refers to no site), and `onPickSuggestion` fills the field from a
+// suggestion that does not exist here.
+it('runs the caller’s own gesture, and neither the typing nor the picking path', async () => {
+  const onPress = jest.fn();
+  const onChange = jest.fn();
+  const onPick = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={onChange} scheme="light" suggestions={OFFERS} onPickSuggestion={onPick} addition={addition(onPress)} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, ADD_SITE);
+  if (!row) throw new Error('no create offer found');
+  await fireEvent.press(row);
+  expect(onPress).toHaveBeenCalledTimes(1);
+  expect(onChange).not.toHaveBeenCalled();
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+// In flight, the row says so and refuses a second press — `ControlledPositionField`'s
+// *Locating…* is the same shape. **Both `disabled` and `accessibilityState`**: the first stops
+// the press, the second stops a screen reader announcing an available control that ignores
+// taps, and `busy` is the word for one that will come back.
+it('shuts the offer while it is in flight, in both the press and the announcement', async () => {
+  const onPress = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(onPress, true)} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, ADD_SITE);
+  if (!row) throw new Error('no create offer found');
+  expect(row.props.accessibilityState).toEqual({ disabled: true, busy: true });
+  await fireEvent.press(row);
+  expect(onPress).not.toHaveBeenCalled();
+});
+
+// §0.5: "Tap targets never below 48 dp". The same box a suggestion gets, because it is the
+// same kind of thing to a wet thumb.
+it('gives the create offer §0.5\'s 48 dp floor', async () => {
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  const styles = makeStyles('light');
+  expect(stylesOn(findSuggestion(t, ADD_SITE))).toContain(styles.formSuggestion);
+});
+
+// §0.6 leaves "ink versus muted ink" as the only lever for telling two things apart without
+// new vocabulary, and this is where it is spent: a suggestion is muted because it is not yet a
+// value, and an act is not a value at all. Asserted on the two styles being DIFFERENT and on
+// which is which, so a version that drew the offer in the suggestion's own treatment — the
+// obvious way to write this — fails rather than looking tidy.
+it('separates the act from the names by ink alone', async () => {
+  const scheme = 'light';
+  const styles = makeStyles(scheme);
+  const theme = themeFor(scheme);
+  expect(styles.formSuggestionAdd.color).toBe(theme.fg);
+  expect(styles.formSuggestionText.color).toBe(theme.fgMuted);
+
+  const t = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme={scheme} suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  const drawn = (label: string) =>
+    textNodesOf(t).find((n) => n.children.includes(label));
+  expect(stylesOn(drawn(ADD_SITE))).toContain(styles.formSuggestionAdd);
+  expect(stylesOn(drawn('Blue Hole'))).toContain(styles.formSuggestionText);
+});
+
+// ...and goes muted again in flight, which is what says "gone quiet, will come back" rather
+// than "dead" — the pairing `formFieldPickerText` / `formFieldPickerTextUnset` already draws.
+it('mutes the offer while it is in flight', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {}, true)} />,
+  );
+  await focusInput(t);
+  const drawn = textNodesOf(t).find((n) => n.children.includes(ADD_SITE));
+  expect(stylesOn(drawn)).toContain(styles.formSuggestionAddBusy);
+  expect(styles.formSuggestionAddBusy.color).toBe(themeFor('light').fgMuted);
+});
+
+// The row announces its own sentence rather than the `Fill ... with ...` a suggestion
+// announces: it does not fill the field, it publishes a record, and the two must not sound
+// alike to anyone who only hears them.
+it('announces the act, never a fill', async () => {
+  const t = await render(
+    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  const announced = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  expect(announced).toEqual([ADD_SITE]);
+});
+
+it('draws nothing outside its own treatment with an offer showing either (§0.4/§0.1)', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
+  );
+  await focusInput(t);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+});
+
+// ---------------------------------------------------------------------------------------
 // The three credential props (M2e — the account screen's two rows)
 // ---------------------------------------------------------------------------------------
 

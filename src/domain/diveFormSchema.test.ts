@@ -1,6 +1,8 @@
 import { dive } from './diveFixture';
 import {
+  centerFactsFrom,
   diveFormSchema,
+  siteFactsFrom,
   toDisplayUnits,
   toDivePatch,
   toInputString,
@@ -797,5 +799,141 @@ describe('sameEquipment', () => {
     expect(sameEquipment(['hood', 'hood'], ['hood', 'gloves'])).toBe(false);
     // ...and a duplicate against the fact it duplicates is still the same fact.
     expect(sameEquipment(['hood', 'hood'], ['hood'])).toBe(true);
+  });
+});
+
+// --- M2o: what a brand-new catalogue row inherits from the dive being logged ---
+//
+// The decision itself is `siteFactsFrom`'s docblock. What is checked here is that the code
+// makes it — including, at length, the fields it deliberately does NOT take, which is the half
+// no screen would ever show.
+
+describe('siteFactsFrom', () => {
+  it('takes the name it was handed, not a second reading of the form', () => {
+    const facts = siteFactsFrom('Železná', { ...base, siteName: 'something else entirely' });
+    expect(facts.name).toBe('Železná');
+  });
+
+  // §2.1 calls exactly these three the site defaults, and §2.2 spends a paragraph on why they
+  // are properties of the place rather than conditions. Without them §2.1's prefill has
+  // nothing to prefill from on any site this app creates.
+  it('seeds §2.1\'s three site defaults', () => {
+    const facts = siteFactsFrom('Blue Hole', {
+      ...base,
+      entry: 'boat',
+      salinity: 'salt',
+      waterBody: 'ocean',
+    });
+    expect(facts.entry).toBe('boat');
+    expect(facts.salinity).toBe('salt');
+    expect(facts.waterBody).toBe('ocean');
+  });
+
+  it('seeds the pin the diver took at the site', () => {
+    const facts = siteFactsFrom('Blue Hole', { ...base, latitude: 43.5081, longitude: 16.4402 });
+    expect(facts.latitude).toBe(43.5081);
+    expect(facts.longitude).toBe(16.4402);
+  });
+
+  // Both columns or neither (§6): half a point is not a place, and a seeded dive can hold a
+  // half that `ControlledPositionField` could never produce.
+  it.each([
+    ['latitude alone', { latitude: 43.5081 }],
+    ['longitude alone', { longitude: 16.4402 }],
+  ])('drops a half-recorded pin — %s', (_case, half) => {
+    const facts = siteFactsFrom('Blue Hole', { ...base, ...half });
+    expect(facts.latitude).toBeNull();
+    expect(facts.longitude).toBeNull();
+  });
+
+  // The offline answer, and the one the brief singles out: no pin is a real state, not a
+  // failure, and the row is created without one rather than not at all.
+  it('carries no pin when the dive has none', () => {
+    const facts = siteFactsFrom('Blue Hole', base);
+    expect(facts.latitude).toBeNull();
+    expect(facts.longitude).toBeNull();
+  });
+
+  // **The half of the decision that is invisible on screen.** `max_depth_m` on a site is the
+  // SITE's depth (§6), and one dive's max depth is how deep that diver went — a 12 m dive on a
+  // 40 m wall would publish "this site is 12 m deep" to everybody. Asserted as an absent key,
+  // not merely a null one, so a version that seeded it as `null` and a version that seeded the
+  // depth are both caught.
+  it('never seeds the site depth from one dive\'s max depth', () => {
+    const facts = siteFactsFrom('Blue Hole', { ...base, maxDepthM: '12' });
+    expect(facts).not.toHaveProperty('maxDepthM');
+  });
+
+  // Everything else on the form is what one day was like or what one diver wore. Swept rather
+  // than listed one by one, so a field added to the form joins this by construction: the row
+  // holds the six keys the decision names and no others.
+  it('takes nothing else off the dive at all', () => {
+    const facts = siteFactsFrom('Blue Hole', {
+      ...base,
+      maxDepthM: '31',
+      avgDepthM: '18',
+      durationMin: '47',
+      waterTempC: '19',
+      airTempC: '28',
+      visibility: 'high',
+      visibilityM: '25',
+      weather: 'sunny',
+      waves: '1',
+      current: '2',
+      surge: '0',
+      suit: 'wet',
+      suitThicknessMm: '5',
+      weightsKg: '6',
+      buddy: 'Anna',
+      guide: 'Karel',
+      title: 'Best dive yet',
+      notes: 'Arch at 30 m',
+      rating: '5',
+      centerName: 'Emperor',
+      status: 'planned',
+    });
+    expect(Object.keys(facts).sort()).toEqual(
+      ['entry', 'latitude', 'longitude', 'name', 'salinity', 'waterBody'].sort(),
+    );
+  });
+
+  // §2.3 says country is INFERRED, from the pin and by `platform/geocode.ts`. It is not a form
+  // value, so nothing here may invent one — a site created offline gets none.
+  it('never carries a country, which is inferred and not typed', () => {
+    const facts = siteFactsFrom('Blue Hole', { ...base, latitude: 43.5081, longitude: 16.4402 });
+    expect(facts).not.toHaveProperty('country');
+  });
+
+  // Read through the schema's own `pick`, so the coercions are the save path's rather than a
+  // second transcription of them: a Czech decimal comma is a decimal point here too, and a
+  // blank picker is `null` and not `''`.
+  it('reads raw form values through the schema\'s own coercions', () => {
+    const facts = siteFactsFrom('Blue Hole', {
+      ...base,
+      latitude: '43,5081',
+      longitude: '16,4402',
+      entry: '',
+    });
+    expect(facts.latitude).toBe(43.5081);
+    expect(facts.longitude).toBe(16.4402);
+    expect(facts.entry).toBeNull();
+  });
+
+  // The form's one blocking rule is the date (§2.2), and it has nothing to do with a site —
+  // so this reads the fields it needs and never the whole schema. A diver mid-correction of a
+  // date must still be able to add the site they are standing on (§1).
+  it('is unaffected by a date the whole schema would refuse', () => {
+    const facts = siteFactsFrom('Blue Hole', { date: 'not a date', entry: 'shore' });
+    expect(facts.entry).toBe('shore');
+  });
+});
+
+describe('centerFactsFrom', () => {
+  // The asymmetry with a site is the decision. A dive happened AT the site and knows its
+  // entry, its water and where it is; the centre is a shop on shore that the dive knows the
+  // name of and nothing more. Seeding the dive's pin would file the dive site as the centre's
+  // address, and inferring a country from that pin would be a guess.
+  it('takes the name and nothing else — not the pin, not a country', () => {
+    expect(centerFactsFrom('Emperor')).toEqual({ name: 'Emperor' });
   });
 });

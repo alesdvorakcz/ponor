@@ -2656,6 +2656,25 @@ function build(scheme: ColorScheme) {
     // left-to-right." Trailing it would put every offer in the value column, where the value
     // it has not yet become already sits.
     formSuggestionText: rowLabel,
+    // §2.3's *add this to the catalogue* offer, in the same slot and the same box as the
+    // suggestions above it (M2o) — the field label's face and size, leading, so the list reads
+    // as one list rather than as a list with a button stuck to it.
+    //
+    // **Full ink is the whole difference, and it is the lever §0.6 leaves for exactly this**:
+    // "Ink versus muted ink is the only lever", already spent this way by `settingsRowInk`
+    // over `rowLabel`, `detailActionLabel` over `detailBackLabel` and `tripTitleUpNext` over a
+    // trip's own title. A suggestion is muted because it is not yet a value; this is not a
+    // value at all but an act, and the one thing it must never look like is another name to
+    // pick. §0.1 rules out a hue and a new shape would be new vocabulary for one row.
+    formSuggestionAdd: {
+      ...rowLabel,
+      color: theme.fg,
+    },
+    // The same row while the write is in flight, muted again — the pairing
+    // `formFieldPickerText` / `formFieldPickerTextUnset` already draws for a value that is not
+    // there yet, and what says "this control has gone quiet and will come back" rather than
+    // "this control is dead".
+    formSuggestionAddBusy: rowLabel,
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this

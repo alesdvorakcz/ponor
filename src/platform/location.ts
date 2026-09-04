@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 
 import { locationPermission, requestLocationPermission, type LocationPermissionState } from './locationPermission';
+import { withTimeout } from './withTimeout';
 
 /**
  * **Every way asking the device where it is can fail to produce a pin** — the closed
@@ -137,7 +138,7 @@ export async function currentPosition(): Promise<PositionOutcome> {
     const standing = await locationPermission();
     const permission = standing === 'granted' ? standing : await requestLocationPermission();
     if (permission !== 'granted') return { found: false, reason: refusalFor(permission) };
-    const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }));
+    const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }), POSITION_TIMEOUT_MS);
     if (fix === null) return { found: false, reason: 'timedOut' };
     const { latitude, longitude, accuracy } = fix.coords;
     // A pair that is not two numbers is not a point. It should be unreachable — the native
@@ -189,28 +190,12 @@ function refusalFor(permission: Exclude<LocationPermissionState, 'granted'>): Po
   }
 }
 
-/**
- * The work, or `null` when `POSITION_TIMEOUT_MS` passed first.
- *
- * `null` rather than a rejection, so the caller tells a timeout from a real failure by the
- * value instead of by inspecting an error it did not raise.
- *
- * The timer is cleared on every path, the winning one included: a twenty-second timer left
- * running holds the timer queue open long after the answer is on screen, and under Jest's
- * fake timers it is the difference between a test that ends and one that does not.
- * `Promise.race` attaches its own handler to both promises, so a fix that rejects *after* the
- * timeout has already answered is handled rather than surfacing as an unhandled rejection.
+/*
+ * `withTimeout` — the race that turns a fix that never comes into a `null` — lived here until
+ * M2o, when `platform/geocode.ts` needed the identical thing for the identical reason: a call
+ * into the device with no timeout of its own, made while a diver watches a control that has
+ * gone quiet. It is `platform/withTimeout.ts` now, carrying the whole of its reasoning, and it
+ * takes the wait as an argument rather than reading `POSITION_TIMEOUT_MS` itself — that
+ * constant is this module's rule about a GPS receiver and says nothing about anybody else's
+ * call.
  */
-async function withTimeout<T>(work: Promise<T>): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), POSITION_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}

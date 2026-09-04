@@ -16,10 +16,12 @@ import { FieldNote } from '../components/FieldNote';
 import { CarriedMark } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
 import { EntryIcon } from '../components/EntryIcon';
-import { FormField } from '../components/FormField';
+import { FormField, type FieldAddition } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
+import { useAuthSession } from '../cloud/useAuthSession';
+import { createDiveCenter, createDiveSite } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -36,7 +38,9 @@ import {
 import { todayCalendarDate } from '../domain/datetime';
 import {
   TANK_FIELDS,
+  centerFactsFrom,
   diveFormSchema,
+  siteFactsFrom,
   toDisplayTank,
   toDisplayUnits,
   toDivePatch,
@@ -50,7 +54,7 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
-import { asSuggestedField, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
+import { asSuggestedField, hasPairedId, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
@@ -91,6 +95,7 @@ import {
 } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
 import { backToDives } from '../navigation/leaveScreen';
+import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
@@ -816,6 +821,103 @@ interface CarryOverControls {
   onClear: (name: FieldPath<DiveFormInput>) => void;
 }
 
+/**
+ * **§2.3's *"any signed-in user can add a site or center"*, as the two rows it can be and the
+ * sentence each one reads** (M2o).
+ *
+ * Keyed by the **id column** rather than by the name field, and that is what keeps one rule in
+ * one place. `pairedIdField` (domain/suggest.ts) already owns "which of §2.3's four fields
+ * pairs with a catalogue row"; `buddy` and `guide` answer `null` there because they *"stay
+ * private text, not user accounts"*. Keyed by the name field this record would need two `null`
+ * members restating that, and a fifth suggested field would then have two places to be
+ * forgotten in. Keyed this way it is total by construction: every key here is a catalogue
+ * table, and the gate that decides whether a field has one is somebody else's.
+ *
+ * **The wording says *what it makes*, not *where it goes*.** "Catalogue" is this project's
+ * word for the table, not a diver's word for anything, and §1's own sentence for the feature
+ * is *"the map grows itself"*. So the row reads `Add “Kotelna” as a new site` — the name the
+ * diver typed, quoted back, and the thing that will exist afterwards.
+ */
+interface CatalogueAddition {
+  /** The offer, with the name the diver is looking at quoted into it. */
+  readonly offer: (name: string) => string;
+  /** The same row while the write is in flight — the shape `ControlledPositionField`'s
+   * *Locating…* already uses, and it names the noun rather than saying a bare "Adding…",
+   * because a screen reader meets this sentence with no row around it. */
+  readonly busy: string;
+  /**
+   * Makes the row and answers with its id, which is what the dive's `site_id`/`center_id`
+   * is then set to (§6's pairing).
+   *
+   * Every rule about **what the row holds** is elsewhere and deliberately so: `siteFactsFrom`
+   * / `centerFactsFrom` (domain/diveFormSchema.ts) decide what a dive may tell a community
+   * record about the place it happened at, `platform/geocode.ts` infers the country from the
+   * pin and from nothing else (§2.3), and `db/catalogue.ts` writes the row — dirty, with a
+   * client-generated UUIDv7, `status` active, and `created_by` left to `push_changes`, which
+   * stamps `auth.uid()` and ignores whatever a client sent (§5, §6, §7).
+   */
+  readonly create: (name: string, values: DiveFormInput) => Promise<string>;
+}
+
+const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
+  siteId: {
+    offer: (name) => `Add “${name}” as a new site`,
+    busy: 'Adding the site…',
+    create: async (name, values) => {
+      const facts = siteFactsFrom(name, values);
+      // Country is inferred from the row's own pin (§2.3), so this is awaited before the
+      // insert rather than patched in afterwards: a second write would restamp `updated_at`
+      // on a row the first one just created, which §7's last-push-wins is keyed on. It is
+      // bounded and it answers `null` for every failure, so a site created on a boat with no
+      // signal is created — without a country, and with the pin that is the evidence for one.
+      const country = await countryFor(facts.latitude, facts.longitude);
+      const created = await createDiveSite(db, { ...facts, country });
+      return created.id;
+    },
+  },
+  centerId: {
+    offer: (name) => `Add “${name}” as a new dive centre`,
+    busy: 'Adding the centre…',
+    // No country and no pin — `centerFactsFrom` carries the whole of why a dive knows the
+    // site it happened at and knows nothing about the shop on shore but its name.
+    create: async (name) => {
+      const created = await createDiveCenter(db, centerFactsFrom(name));
+      return created.id;
+    },
+  },
+};
+
+/**
+ * What the row says when the write did not happen.
+ *
+ * **§1 is the whole sentence**: *"never block a save"*, and the brief's own reading of it —
+ * the dive is the thing being logged and the catalogue row is a by-product. So this reports a
+ * failure and immediately says what it did **not** cost, because the diver's next question is
+ * whether their dive is in trouble. It is not: the name snapshot is what §6 stores beside every
+ * `site_id` for exactly this, and the save path never sees this failure at all.
+ *
+ * One sentence for both tables. The row it appears under says which one, and a second copy of
+ * this differing only in the noun would be two strings to keep in step for no reader's benefit.
+ */
+const CATALOGUE_ADD_FAILED = 'Could not add that just now — the dive keeps the name.';
+
+/**
+ * One live offer to publish what a field's text names: what the row reads, what it reads while
+ * writing, and the write itself.
+ *
+ * **`add` answers the same way `savePreset` does** — the sentence to show, or `null` when it
+ * went through — so the row that draws it decides where a problem is said and nothing about
+ * what the problem is. Success is deliberately silent: the offer simply stops being offered,
+ * because the dive now holds the id and there is nothing left to add. That is `PresetCapture`'s
+ * behaviour on the same screen (the naming row closes; *Save as preset* disappears once the
+ * cylinders match a preset), and §0.6's rule that accepting costs nothing.
+ */
+interface CatalogueOffer {
+  readonly label: string;
+  readonly busyLabel: string;
+  readonly add: () => Promise<string | null>;
+}
+
 interface ControlledTextFieldProps {
   control: FormControl;
   name: FieldPath<DiveFormInput>;
@@ -857,6 +959,18 @@ interface ControlledTextFieldProps {
    * have to know which of the four it is.
    */
   onPairedId?: (field: SuggestedField, id: string | null) => void;
+  /**
+   * §2.3's *add this to the catalogue* offer, asked of this row's own field and its own live
+   * text — `undefined` back when there is nothing to offer, which is most of the time and for
+   * several different reasons (§5's signed-in rule, an empty name, a name that already names a
+   * row). **Which reasons those are is the screen's**, exactly as `history` above leaves the
+   * ranking to `suggestFrom`: this row asks the question and draws the answer.
+   *
+   * Passed at the same four call sites `history` is, and gated inside by `pairedIdField`
+   * rather than by a second list of which fields have a catalogue — so a row can no more offer
+   * to publish a buddy than it can suggest one from the wrong column.
+   */
+  catalogue?: (field: SuggestedField, text: string) => CatalogueOffer | undefined;
 }
 
 /**
@@ -883,10 +997,46 @@ function ControlledTextField({
   carryOver,
   history,
   onPairedId,
+  catalogue,
 }: ControlledTextFieldProps) {
   // Which of §2.3's four fields this row is, if it is one at all — read off the `name` this
   // row already carries. See `history` above for why it is not a prop.
   const suggested = asSuggestedField(name);
+
+  // §2.3's create offer, in flight and afterwards. Held HERE rather than in the screen, and
+  // rather than inside the `Controller` render prop below, for two different reasons: the
+  // render prop is a plain function call where a hook would be illegal, and the screen has no
+  // business knowing which of its rows is currently writing — `PresetCapture` keeps its own
+  // `saving` and its own note for the same reason.
+  const [adding, setAdding] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  /**
+   * The press.
+   *
+   * **No ref latch, unlike the dive's own save, and that is a decision rather than an
+   * oversight** — the same one `ControlledPositionField` records: nothing here is async before
+   * the flag, `setAdding(true)` runs inside the press handler itself, React flushes a discrete
+   * event's updates before delivering the next event, so a second tap always meets a shut
+   * control. `onValid` needs its ref because `handleSubmit` runs an async resolver ahead of it.
+   * A latch here would be a guard nothing could ever catch failing, and §10 declines those.
+   */
+  const runAddition = async (offer: CatalogueOffer) => {
+    setAdding(true);
+    // Cleared at the START of the attempt, never on a timer or a dismiss tap, so the sentence
+    // reads as "still true" for exactly as long as it still is — the rule `saveError` and
+    // `ControlledPositionField`'s own note both follow.
+    setNote(null);
+    try {
+      setNote(await offer.add());
+    } finally {
+      // Released on both paths: a failure that left this shut would strand the diver on a
+      // control they cannot press again, which is the dead control the sentence above exists
+      // to prevent, reached from the other side.
+      setAdding(false);
+    }
+  };
+
   return (
     <Controller
       control={control}
@@ -901,6 +1051,14 @@ function ControlledTextField({
         // illegal rather than merely unnecessary.
         const suggestions =
           suggested !== null && history !== undefined ? suggestFrom(history, suggested, text) : undefined;
+        // §2.3's other answer to the same question the list answers — see `catalogue` above.
+        // Asked on every render off this field's live text, so the offer names what the diver
+        // is looking at and disappears the moment the dive holds the id.
+        const offer = suggested === null ? undefined : catalogue?.(suggested, text);
+        const addition: FieldAddition | undefined =
+          offer === undefined
+            ? undefined
+            : { label: adding ? offer.busyLabel : offer.label, busy: adding, onPress: () => void runAddition(offer) };
         return (
           <>
             <FormField
@@ -920,6 +1078,10 @@ function ControlledTextField({
               onChange={(newText) => {
                 carryOver?.onDrop(name);
                 if (suggested !== null) onPairedId?.(suggested, null);
+                // A refusal described the name that was in the box, and a sentence about a
+                // name the diver has already changed is a stale complaint — `PresetCapture`
+                // clears its own note on the same keystroke and for the same reason.
+                setNote(null);
                 field.onChange(newText);
               }}
               onBlur={field.onBlur}
@@ -959,8 +1121,20 @@ function ControlledTextField({
                       field.onChange(suggestion.value);
                     }
               }
+              addition={addition}
             />
-            <FieldNote message={fieldState.error?.message} scheme={scheme} />
+            {/* One note under one row, so one sentence — the `??` chain
+                `ControlledOptionField` below already uses to join a field's own refusal to a
+                second sentence about the same row.
+
+                **The order is not a rule, and saying so is the point.** The two cannot both be
+                set: no field with a blocking rule is offered a catalogue row, and `siteName`
+                and `centerName` have none, so nothing can reach the branch where one outranks
+                the other. It was written as a precedence with a paragraph defending it, and
+                the mutation that swaps the two sides stays green — which is what a claim
+                nothing can falsify looks like. The chain stays because it is the idiom; the
+                claim goes. */}
+            <FieldNote message={fieldState.error?.message ?? note ?? undefined} scheme={scheme} />
           </>
         );
       }}
@@ -2495,6 +2669,32 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // a chip for an id today (`computeCarriedPaths` marks it, nothing reads that mark), but a
   // set that still called the id carried after the diver replaced it would be wrong in the
   // quiet way that only shows up the day something does read it.
+  /**
+   * **§5: *"any signed-in user can add a site or center"* — and a guest is told nothing.**
+   *
+   * The offer below is simply absent without a session, which is the whole of what the form
+   * says about it. §1 makes the account optional (*"an account is only needed to back up, sync
+   * a second device, and contribute named sites"*), and the two alternatives both break it: a
+   * row that says *"sign in to add this"* is a control that cannot act — the dead control §0.6
+   * complains about in four places — and it would sit under the site field of the app's
+   * most-used gesture, on every dive, which is a nag by any reading. The place a diver asks
+   * what an account is for is the account screen, which answers there in one sentence and
+   * gates nothing.
+   *
+   * `session === null` rather than `resolved`, deliberately: a keychain that has not answered
+   * yet is a form drawn with no offer, and the offer appears when the answer arrives. Nothing
+   * is claimed in the meantime — the absence of a control states nothing, which is exactly the
+   * distinction M1f's waiting frame turns on.
+   */
+  const signedIn = useAuthSession().session !== null;
+
+  // The id half of §6's pair, watched rather than read once: it is written by `setPairedId`
+  // below (and by carry-over through a reseed), and the offer has to disappear the instant the
+  // dive holds one. `useWatch`, for `chosenStatus`' own reason — `getValues` would produce the
+  // right answer once and then never change.
+  const heldSiteId = useWatch({ control, name: 'siteId' });
+  const heldCenterId = useWatch({ control, name: 'centerId' });
+
   const setPairedId = useCallback(
     (field: SuggestedField, id: string | null) => {
       const idField = pairedIdField(field);
@@ -2506,6 +2706,82 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     },
     [setValue, dropCarried],
   );
+
+  /**
+   * **Whether this field's text is worth publishing, and the sentence to publish it with** —
+   * `ControlledTextField`'s `catalogue` prop, asked once per row per render.
+   *
+   * Four things keep the offer away, and each is a different question:
+   *
+   * 1. **The field has no catalogue at all.** `pairedIdField` (domain/suggest.ts) owns that,
+   *    and answering it here rather than at the call sites is what stops a buddy ever being
+   *    offered up as a community record.
+   * 2. **Nobody is signed in** (§5) — see `signedIn` above for what a guest is told.
+   * 3. **There is no name.** An empty field names no place; the offer appears with the first
+   *    character and the trimmed spelling is what the row would carry.
+   * 4. **The name already names a row.** Twice over, because there are two ways to know: the
+   *    dive in front of the diver already holds a paired id (they picked a suggestion, or
+   *    carry-over brought both halves across), or some dive in their own history pairs this
+   *    same name with an id (`hasPairedId`). Either way a second row would be a duplicate of
+   *    something this logbook can already see.
+   *
+   * **What is deliberately NOT a reason, and what the next task inherits.** The device's own
+   * copy of the community catalogue is not consulted, so a diver typing the name of a site
+   * they have never dived — one that arrived in a pull — is offered a second row for it. That
+   * is knowing, and it is the brief's: §2.3's fuzzy *"Did you mean Shark Point?"* and §5's
+   * server-side recheck on push are the next task, and they own the whole class of "the
+   * catalogue already has something like this". Half-answering it here would produce the worse
+   * shape — an offer that vanishes with nothing on screen to say why, on a screen that also
+   * cannot yet offer the row it found instead, so the diver would be left with no gesture at
+   * all and no explanation.
+   *
+   * A plain function rather than a `useCallback`, unlike `dropCarried` and `setPairedId`
+   * above: nothing depends on its identity, and every value it closes over — `history`, the two
+   * watched ids — is rebuilt each render anyway, so memoising it would buy a stale answer at
+   * best. Same reasoning `carryOver` above records for being rebuilt each render.
+   */
+  const catalogueOffer = (field: SuggestedField, text: string): CatalogueOffer | undefined => {
+    const idField = pairedIdField(field);
+    if (idField === null) return undefined;
+    if (!signedIn) return undefined;
+    const name = text.trim();
+    if (name === '') return undefined;
+    // `toInputString` (diveFormSchema.ts) rather than a cast or a truthiness test: this is a
+    // raw form value, which is a string when this screen wrote it and whatever a seeded dive
+    // held otherwise, and there is one owner of reading one as text.
+    if (toInputString(idField === 'siteId' ? heldSiteId : heldCenterId).trim() !== '') return undefined;
+    if (hasPairedId(history, field, name)) return undefined;
+    const kind = CATALOGUE_ADDITIONS[idField];
+    return {
+      label: kind.offer(name),
+      busyLabel: kind.busy,
+      add: async () => {
+        try {
+          // `getValues()` rather than a watched copy: the row is made from the dive as it
+          // stands at the moment of the press, and `siteFactsFrom` reads five fields this
+          // screen does not otherwise subscribe to.
+          const id = await kind.create(name, getValues());
+          // The trimmed spelling goes back into the field, so §6's snapshot and the row it
+          // points at are the same string — the same thing picking a suggestion does when it
+          // writes the catalogue's own spelling. `shouldDirty` keeps it through a reseed
+          // (`resetOptions.keepDirtyValues`), exactly as `setPairedId` needs it to.
+          //
+          // The carried mark is deliberately NOT dropped here. §0.6 drops it on
+          // *overwriting*, and nothing was overwritten: a carried site name that the diver has
+          // now published is still the name their last dive had. Clearing the row afterwards
+          // still unsets the id, because `onClear` routes through `onPairedId` like any other
+          // gesture that empties a name.
+          setValue(field, name, { shouldDirty: true });
+          setPairedId(field, id);
+          return null;
+        } catch {
+          // §1: the dive is the thing being logged and the row is a by-product. Nothing here
+          // reaches the save path, and the dive goes on holding its name snapshot (§6).
+          return CATALOGUE_ADD_FAILED;
+        }
+      },
+    };
+  };
 
   /**
    * §2.1's "apply the whole cylinders-and-gas block in one tap".
@@ -2839,6 +3115,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
+            catalogue={catalogueOffer}
           />
           <ControlledTextField
             control={control}
@@ -2848,6 +3125,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
+            catalogue={catalogueOffer}
           />
         </View>
 
@@ -3253,7 +3531,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         <FormGroup {...groupProps('people')}>
           {/* §2.3's other two: "Buddies and guides autocomplete from your own past entries
               only — they stay private text, not user accounts." So they autocomplete exactly
-              as site and centre do, and `onPairedId` finds no id column to move. */}
+              as site and centre do, and `onPairedId` finds no id column to move. **They are
+              handed `catalogue` for the same reason they are handed `onPairedId`**: the answer
+              comes from the field's own name through `pairedIdField`, so a row can no more
+              offer to publish a buddy than it can suggest one from the wrong column — and the
+              alternative, passing it at two call sites out of four, is the hand-maintained
+              second list §4.1 warns about. */}
           <ControlledTextField
             control={control}
             name="buddy"
@@ -3262,6 +3545,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
+            catalogue={catalogueOffer}
           />
           <ControlledTextField
             control={control}
@@ -3271,6 +3555,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             carryOver={carryOver}
             history={history}
             onPairedId={setPairedId}
+            catalogue={catalogueOffer}
           />
         </FormGroup>
 

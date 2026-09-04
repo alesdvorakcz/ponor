@@ -17,13 +17,21 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  * §1, said to a diver rather than to a planner: "an account is only needed to back up, sync a
  * second device, and contribute named sites."
  *
+ * **The third clause was missing until M2o, and it was missing because it was not yet true**:
+ * nothing in the app could add a site, so a sentence promising it would have been the spec
+ * asserting an unbuilt feature that §0.6 has already been caught doing twice. §2.3's *add this
+ * to the catalogue* offer is that half arriving, and it is **the only place a guest is told
+ * about it** — the offer is simply absent on the dive form, because a row there reading "sign
+ * in to add this" would be a dead control and a nag on the app's most-used gesture, every
+ * dive. This screen is where a diver comes to ask what an account is for, and it gates nothing.
+ *
  * It leads the form because it is the answer to the question a diver arrives with, and because
  * §1 makes the answer *"you don't have to"* — this screen is reached from a Settings row and
  * never gates anything, and the sentence is what says so on the screen itself rather than only
  * in the navigation.
  */
 const WHAT_AN_ACCOUNT_IS_FOR =
-  'Ponor works fully without an account. One backs your logbook up and syncs it to your other devices.';
+  'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.';
 
 /** The two things a diver does here, as the action's own label. The mode is one value and
  * these are two views of it (`SWITCH_TO`, below, is the third). */

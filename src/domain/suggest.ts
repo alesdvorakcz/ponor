@@ -134,6 +134,45 @@ function pairedId(dive: Dive, field: SuggestedField): string | null {
 }
 
 /**
+ * **Whether the diver has already dived this name at a place the catalogue knows** — that is,
+ * whether any dive in `dives` spells `name` the same way (folded) *and* carries a paired id
+ * for it.
+ *
+ * §5 lets any signed-in diver add a site, and M2o gives the form the gesture. This is the half
+ * that keeps that gesture from manufacturing the duplicate §2.3's fuzzy check exists to
+ * prevent: a name the diver has used before **with an id** already names a community row, so
+ * offering to create a second one would publish a duplicate of a site this very logbook can
+ * see. A name used before with **no** id is the opposite case and gets no answer from here —
+ * it is exactly the site worth adding, and every dive logged before M2o is one of them.
+ *
+ * ── The sibling, named because §4.1 asks a near-duplicate to name one ─────────────────────
+ *
+ * `suggestFrom` below walks the same column of the same dives and answers a different
+ * question, so the two must not be merged. It asks *which spelling and which id win* — newest
+ * dive first, one tally per folded value — because an offer has to be one row with one id.
+ * This asks *does any dive at all pair this name*, which is deliberately the stricter reading:
+ * a duplicate guard that only consulted the most recent dive would let an older, paired dive
+ * be re-created because a newer unpaired one spelled the name the same way.
+ *
+ * Folding is `foldForMatching`'s (domain/search.ts), so `zelezna` and `Železná` are the same
+ * place here exactly as they are everywhere else (§2.3, M2j). An empty or whitespace-only
+ * name pairs nothing: there is no such site, and folding it would match every row.
+ *
+ * Runs during render over the diver's own logbook, like `suggestFrom`, so it may not throw on
+ * a row it cannot read — a null entry or a column holding something that is not a string costs
+ * one dive's opinion rather than the form.
+ */
+export function hasPairedId(dives: readonly Dive[], field: SuggestedField, name: string): boolean {
+  const wanted = foldForMatching(name);
+  if (wanted === '') return false;
+  return dives.some((d) => {
+    if (d === null || d === undefined) return false;
+    const raw = d[field];
+    return typeof raw === 'string' && foldForMatching(raw) === wanted && pairedId(d, field) !== null;
+  });
+}
+
+/**
  * DESIGN.md §2.3's autocomplete, over the diver's own history and nothing else — the one
  * place that decides what a suggestion is and what order suggestions come in.
  *

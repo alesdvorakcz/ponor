@@ -13,6 +13,8 @@ import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-lib
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { useAuthSession } from '../cloud/useAuthSession';
+import { createDiveCenter, createDiveSite } from '../db/catalogue';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
@@ -51,6 +53,7 @@ import {
   type GearPreset,
   type Tank,
 } from '../domain/types';
+import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, POSITION_REFUSALS } from '../platform/location';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -115,6 +118,24 @@ jest.mock('../platform/location', () => ({
   ...jest.requireActual('../platform/location'),
   currentPosition: jest.fn(),
 }));
+// M2o: §5's "any signed-in user can add a site or center" — so this screen now reads whether
+// anybody is signed in. Mocked per module exactly as the database reads above are, and for a
+// sharper reason: left real it answers off `cloud.configured`, which is a property of whether
+// the test machine happens to have the two EXPO_PUBLIC variables set. **Its default here is a
+// GUEST**, which is what keeps every test written before this one unchanged — and which makes
+// the signed-in path something a test has to ask for out loud.
+jest.mock('../cloud/useAuthSession', () => ({
+  useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
+}));
+// The two catalogue writes. Mocked rather than left real for the reason `createDive` is: they
+// reach `db`, and what these tests assert about them is exactly what they were HANDED — a
+// screen that seeded the wrong facts into a community record would look identical on screen.
+jest.mock('../db/catalogue', () => ({ createDiveSite: jest.fn(), createDiveCenter: jest.fn() }));
+// §2.3's inferred country, mocked at the same level `currentPosition` is and for the same
+// reason: it is a call to the device (a network round trip through the platform's geocoder).
+// What a point's country IS, and that a missing pin yields none, is `platform/geocode.test.ts`'s
+// — what this file owns is that the screen asks about the row's own pin and stores the answer.
+jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
 // canGoBack()-guarded pattern in that screen's BackButton.
@@ -132,6 +153,10 @@ const mockUseOpenGroups = useOpenFormGroups as jest.Mock;
 const mockSetOpenGroups = setOpenFormGroups as jest.Mock;
 const mockCreatePreset = createGearPreset as jest.Mock;
 const mockPosition = currentPosition as jest.Mock;
+const mockUseAuthSession = useAuthSession as jest.Mock;
+const mockCreateSite = createDiveSite as jest.Mock;
+const mockCreateCentre = createDiveCenter as jest.Mock;
+const mockCountry = countryFor as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -248,6 +273,16 @@ beforeEach(() => {
   // A device that answers, so a test whose subject is not the GPS row never has to say so.
   // Every test that IS about a refusal overrides this explicitly.
   mockPosition.mockResolvedValue(FOUND_HERE);
+  // Set explicitly for the reason `canGoBack` and the unit system above are: `clearAllMocks`
+  // clears calls but not return values, so one signed-in test would otherwise leak an account
+  // into every test declared after it. **A guest is the default**, which is what leaves every
+  // test written before M2o describing exactly the screen it always described.
+  mockUseAuthSession.mockReturnValue({ session: null, resolved: true });
+  // A geocoder that answers, on `mockPosition`'s own reasoning — the offline case is a test of
+  // its own and says so. What the answer MEANS is `platform/geocode.test.ts`'s.
+  mockCountry.mockResolvedValue('HR');
+  mockCreateSite.mockResolvedValue({ id: 'new-site' });
+  mockCreateCentre.mockResolvedValue({ id: 'new-centre' });
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -6330,4 +6365,447 @@ it('leaves the form scroll indifferent to the device, and its footer is what spe
   // the device anywhere at all.
   expect(underTabBar.footer).toBeGreaterThan(underNothing.footer);
   expect(underTabBar.footer).toBeGreaterThanOrEqual(83);
+});
+
+// =========================================================================================
+// M2o — §5's "any signed-in user can add a site or center", from the form
+// =========================================================================================
+//
+// The catalogue write itself is `db/catalogue.ts`'s and was tested in M2d; what a new row
+// INHERITS from the dive is `diveFormSchema.test.ts`'s; what a point's country is, and that a
+// missing pin has none, is `platform/geocode.test.ts`'s. What is this screen's, and is tested
+// here, is the gesture: who is offered it, when it appears and disappears, what it hands the
+// two writers, and that §1 holds when it fails.
+
+/**
+ * **The sentences this feature puts on screen, written out here and not read off the screen's
+ * own table.**
+ *
+ * The same independent witness `FIELD_LABELS`, `CHIP_MARKS` and `REFUSAL_SENTENCES` are, for
+ * the same reason: a sweep that asked the screen for its wording would agree with a screen
+ * that said the wrong thing, or said one thing twice. Three properties are checked below and
+ * none implies the others — that each row reads THIS, that a site and a centre never read
+ * alike, and that the quoted name is the diver's own text rather than a fixed word.
+ *
+ * The offer names **what will exist afterwards**, not where it goes: "catalogue" is this
+ * project's word for the table and not a diver's word for anything.
+ */
+const CATALOGUE_SENTENCES = {
+  site: { offer: (name: string) => `Add “${name}” as a new site`, busy: 'Adding the site…' },
+  centre: { offer: (name: string) => `Add “${name}” as a new dive centre`, busy: 'Adding the centre…' },
+};
+
+/** §1, said in a row: the write failed and the dive did not. */
+const ADD_FAILED = 'Could not add that just now — the dive keeps the name.';
+
+/** A signed-in diver. The session object is only ever compared against `null` by this screen
+ * (§5 asks whether anyone is signed in, never who), so this is the smallest thing that is not
+ * one — the same stand-in `syncTriggers.test.tsx` uses. */
+function signedIn() {
+  mockUseAuthSession.mockReturnValue({ session: { user: { id: 'diver' } }, resolved: true });
+}
+
+/** Every *add* offer on screen, in the order it is drawn, read off the label each row
+ * announces — so this sees exactly what a screen reader would, and can never mistake one of
+ * §2.3's `Fill … with …` suggestions for one of these. */
+function addOffersIn(t: RenderResult): string[] {
+  return buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((announced) => announced.startsWith('Add '));
+}
+
+/** Leaves a field, which is what a device does the moment another one is focused — and which
+ * `fireEvent(input, 'focus')` on a sibling deliberately does not do here, since these are two
+ * bare `TextInput`s in a test renderer and not a real focus manager. Spelled out rather than
+ * assumed, because "the offer belongs to the focused row" is a claim about both edges. */
+async function blurField(t: RenderResult, label: string) {
+  const input = findTextInput(t, label);
+  if (!input) throw new Error(`no field labelled ${label}`);
+  await fireEvent(input, 'blur');
+}
+
+async function pressAddOffer(t: RenderResult, label: string) {
+  const row = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === label);
+  if (!row) throw new Error(`no offer reading ${label}`);
+  await fireEvent.press(row);
+}
+
+/** Types a name into a field the diver has focused — which is what draws both answers to
+ * "what does this name mean": the list, and the offer to publish it. */
+async function nameInto(t: RenderResult, label: string, value: string) {
+  await focusField(t, label);
+  await typeInto(t, label, value);
+}
+
+/** What `createDiveSite` / `createDiveCenter` were handed, minus the database. */
+function siteCreated(call = 0): Record<string, unknown> {
+  return (mockCreateSite.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
+}
+
+function centreCreated(call = 0): Record<string, unknown> {
+  return (mockCreateCentre.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
+}
+
+// --- Who is offered this at all ---
+
+// **§5 is the rule and this is the test that can fail on it.** A test that stubs a session and
+// creates a site says nothing about what a guest gets, so this is the other half: the offer is
+// absent, and — the part that is a design decision rather than a permission check — the form
+// says NOTHING about why. §1 makes the account optional, so a row reading "sign in to add
+// this" would be both a dead control and a nag, on the app's most-used gesture, on every dive.
+it('offers a guest nothing, and says nothing to them about an account', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  expect(addOffersIn(t)).toEqual([]);
+
+  await nameInto(t, 'Centre', 'Emperor');
+  expect(addOffersIn(t)).toEqual([]);
+
+  // Nothing anywhere on the form mentions signing in, an account, or the community — not a
+  // note under the row, not a caption, not a disabled control.
+  const said = textIn(t).join(' ').toLowerCase();
+  for (const word of ['sign in', 'sign up', 'account', 'community']) expect(said).not.toContain(word);
+  expect(fieldNotesIn(t)).toEqual([]);
+});
+
+// The same form, the same typing, one thing different — which is what makes the test above a
+// statement about the gate rather than about the offer never appearing at all.
+it('offers a signed-in diver the site their text names', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
+});
+
+// §5 covers "a site or center" in one sentence, and the two rows must not read alike: the
+// diver is publishing a place or a business, and only the wording says which.
+it('offers a centre in its own words, under its own row', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Centre', 'Emperor');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.centre.offer('Emperor')]);
+  expect(CATALOGUE_SENTENCES.site.offer('Emperor')).not.toBe(CATALOGUE_SENTENCES.centre.offer('Emperor'));
+});
+
+// §2.3: buddies and guides "stay private text, not user accounts". They autocomplete exactly
+// as site and centre do and are handed the same prop, so the only thing keeping a diver's
+// buddy out of a shared table is `pairedIdField` answering `null` for them.
+it('never offers to publish a buddy or a guide', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  await nameInto(t, 'Buddy', 'Anna');
+  expect(addOffersIn(t)).toEqual([]);
+  await nameInto(t, 'Guide', 'Karel');
+  expect(addOffersIn(t)).toEqual([]);
+});
+
+it('offers nothing for an empty field, and offers again from the first character', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', '');
+  expect(addOffersIn(t)).toEqual([]);
+  await typeInto(t, 'Site', '   ');
+  expect(addOffersIn(t)).toEqual([]);
+  await typeInto(t, 'Site', 'K');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('K')]);
+});
+
+// §0.6 gives the list to the FOCUSED row, and the offer shares that slot — so a form with four
+// autocompleting fields never shows two of these at once.
+it('draws the offer under the focused row and nowhere else', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Kotelna', centerName: 'Emperor' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(addOffersIn(t)).toEqual([]);
+
+  await focusField(t, 'Site');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
+
+  await blurField(t, 'Site');
+  expect(addOffersIn(t)).toEqual([]);
+
+  await focusField(t, 'Centre');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.centre.offer('Emperor')]);
+});
+
+// --- When the name already names a row ---
+
+// The dive in front of the diver already holds the pair (§6): carry-over brought both halves
+// across, or they picked a suggestion. There is nothing to add.
+//
+// **In edit mode, and that is what makes this test about the form's own id rather than about
+// the history guard beneath it.** `history` excludes the dive under edit, so the only dive
+// pairing "Kotelna" is the one being edited — and `hasPairedId` cannot see it. Written in
+// create mode first, where carry-over's source dive is ALSO in the history and suppressed the
+// offer twice over: the test passed with this gate deleted, which is the vacuous guard this
+// file has paid for three times already.
+it('stops offering once the dive already holds a paired id', async () => {
+  signedIn();
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', siteName: 'Kotelna', siteId: 'site-kotelna' }));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await focusField(t, 'Site');
+  expect(addOffersIn(t)).toEqual([]);
+
+  // ...and offers again the moment the name stops referring to that row, which is the same
+  // keystroke that clears the id.
+  await typeInto(t, 'Site', 'Kotelna II');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna II')]);
+});
+
+// **The duplicate this app is most likely to create: one of the diver's own.** A name they
+// have dived before at a site that IS in the catalogue must not be offered a second row —
+// `hasPairedId` (domain/suggest.ts) is what answers, over the whole history rather than the
+// most recent spelling. Paired with the second half, so this cannot pass by never offering.
+it('stops offering a name the diver has already dived at a catalogued site', async () => {
+  signedIn();
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Silfra' }),
+      dive({ date: '2026-08-01', siteName: 'Kotelna', siteId: 'site-kotelna' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'kotelna');
+  expect(addOffersIn(t)).toEqual([]);
+
+  await typeInto(t, 'Site', 'Kotelna II');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna II')]);
+});
+
+// **The case §5 exists for, and the one a "matches nothing you have used before" rule would
+// lose.** Every dive logged before M2o carries a name and no id, so a diver's home site — the
+// one they have logged forty times — is exactly the site worth publishing. The offer has to
+// survive a full history of it.
+it('keeps offering a name the diver dives constantly and has never published', async () => {
+  signedIn();
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Kotelna' }),
+      dive({ date: '2026-08-10', siteName: 'Kotelna' }),
+      dive({ date: '2026-08-01', siteName: 'Kotelna' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  // Carry-over opened the form on it, so the diver need not type a character.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+  await focusField(t, 'Site');
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
+});
+
+// --- What the row is made of ---
+
+// §2.1 calls entry, salinity and water body the SITE DEFAULTS and §2.2 says why they are
+// properties of the place; §2.3 says a pin comes from "use my location, pressed right on the
+// boat"; §2.3 says the country is inferred. Everything else on the form is what one day was
+// like. The decision is `siteFactsFrom`'s docblock and its own tests; what is asserted here is
+// that this screen hands the writer that and nothing else — including the max depth typed two
+// rows away, which is a fact about the diver and not about the wall they dived.
+it('hands the site the facts the dive can speak for, and nothing else', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await typeInto(t, 'Max depth', '12');
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  await pressChip(t, 'Entry', 1);
+  await pressChip(t, 'Salinity', 0);
+  await pressChip(t, 'Water body', 0);
+
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(siteCreated()).toEqual({
+    name: 'Kotelna',
+    latitude: FOUND_HERE.latitude,
+    longitude: FOUND_HERE.longitude,
+    entry: ENTRY_VALUES[1],
+    salinity: SALINITY_VALUES[0],
+    waterBody: WATER_BODY_VALUES[0],
+    country: 'HR',
+  });
+  // The dive's own depth is 12 m; the SITE's depth (§6) is a different fact with one name, and
+  // no single dive establishes it.
+  expect(siteCreated()).not.toHaveProperty('maxDepthM');
+});
+
+// §2.3: "country is inferred". Inferred FROM THE PIN — the row's own point and nothing else,
+// which is why the pair this screen hands over is the one it is about to store. What the
+// module then does with it, including a missing pin, is `platform/geocode.test.ts`'s.
+it('asks about the row’s own pin when inferring a country', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(mockCountry).toHaveBeenCalledWith(FOUND_HERE.latitude, FOUND_HERE.longitude);
+});
+
+// **The boat with no signal.** A geocoder that cannot answer costs the row its country and
+// nothing else: the site is created, it keeps the pin that is the evidence for a country, and
+// nobody is shown a guess.
+it('creates the site without a country when none can be inferred', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCountry.mockResolvedValue(null);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(siteCreated().country).toBeNull();
+  expect(siteCreated().latitude).toBe(FOUND_HERE.latitude);
+  expect(fieldNotesIn(t)).toEqual([]);
+});
+
+// A dive knows the site it happened at and knows nothing about the shop on shore but its
+// name — so a centre gets no pin (which would file the dive site as the centre's address) and
+// no country (which would be inferred from that same wrong pin, and a guess is not a country).
+// Asserted with a pin ON the form, so a screen that seeded one would fail here.
+it('hands a centre its name alone, with a pin sitting right there on the form', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  await nameInto(t, 'Centre', 'Emperor');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
+
+  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
+  expect(centreCreated()).toEqual({ name: 'Emperor' });
+  expect(mockCountry).not.toHaveBeenCalled();
+  expect(mockCreateSite).not.toHaveBeenCalled();
+});
+
+// The trimmed spelling is what the row carries AND what the field keeps, so §6's snapshot and
+// the row it points at are one string rather than two that differ by a space.
+it('publishes the trimmed name and writes it back into the field', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', '  Kotelna  ');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(siteCreated().name).toBe('Kotelna');
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+});
+
+// --- The whole point: an unpaired name is text, a paired one is a place ---
+
+// §6's pairing, asserted on the WRITE, because `siteId` has no row of its own and nothing on
+// screen would ever show it. The id is the one the writer handed back, so a screen that paired
+// the dive with anything else — a name, a fresh id of its own — fails on provenance.
+it('pairs the dive with the row it just created, on both halves', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+
+  await nameInto(t, 'Centre', 'Emperor');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
+  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Kotelna');
+  expect(writtenInput().siteId).toBe('new-site');
+  expect(writtenInput().centerName).toBe('Emperor');
+  expect(writtenInput().centerId).toBe('new-centre');
+});
+
+// Success is silent and the offer simply stops being offered — `PresetCapture` on this same
+// screen behaves identically (the naming row closes, and *Save as preset* disappears once the
+// cylinders match a preset), and §0.6 says accepting costs nothing. What would be wrong is a
+// receipt: a sentence under the row a diver has to read past on the way to saving their dive.
+it('goes quiet once the row exists, rather than reporting back', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(addOffersIn(t)).toEqual([]));
+  expect(fieldNotesIn(t)).toEqual([]);
+});
+
+// --- In flight, and when it fails ---
+
+// The row says what it is doing and refuses a second press — a control that has gone quiet
+// must say it will come back, and two presses would publish the same site twice under two ids,
+// which no duplicate check can undo afterwards.
+it('shuts the offer while it writes, and says what it is doing', async () => {
+  signedIn();
+  stubReturningDiver();
+  let finish: (row: { id: string }) => void = () => {};
+  mockCreateSite.mockReturnValue(new Promise<{ id: string }>((resolve) => { finish = resolve; }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  expect(addOffersIn(t)).toEqual([]);
+  expect(textIn(t)).toContain(CATALOGUE_SENTENCES.site.busy);
+  const busyRow = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === CATALOGUE_SENTENCES.site.busy);
+  expect(busyRow?.props?.accessibilityState).toEqual({ disabled: true, busy: true });
+  await fireEvent.press(busyRow!);
+  expect(mockCreateSite).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    finish({ id: 'new-site' });
+  });
+  expect(textIn(t)).not.toContain(CATALOGUE_SENTENCES.site.busy);
+});
+
+// **§1, in the direction the brief states it: the dive is the thing being logged and the
+// catalogue row is a by-product.** The write fails, the row says so, and the dive saves with
+// its name snapshot and no id — which is exactly what §6 stores that snapshot for. Both halves
+// together, because the failure that matters is the pair coming apart.
+it('says so when the row cannot be created, and never blocks the dive', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCreateSite.mockRejectedValue(new Error('no'));
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
+  // Still offered, so the diver can try again — a refusal that took the control away would be
+  // the dead control the sentence exists to prevent, reached from the other side.
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Kotelna');
+  expect(writtenInput()).not.toHaveProperty('siteId');
+});
+
+// The sentence described the name that was in the box, so it goes with it — the same rule
+// `PresetCapture` follows on this screen and `ControlledPositionField` follows one group down.
+it('drops the failure sentence on the next keystroke', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCreateSite.mockRejectedValue(new Error('no'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
+
+  await typeInto(t, 'Site', 'Kotelna II');
+  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
 });

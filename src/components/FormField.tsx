@@ -181,6 +181,41 @@ export interface FormFieldProps {
    * through the typing path would set the id and clear it again in one gesture.
    */
   onPickSuggestion?: (suggestion: Suggestion) => void;
+  /**
+   * DESIGN.md §2.3's *"creating a new site asks only for a name"*, as the one gesture that
+   * does it (M2o) — offered **in the slot the suggestion list already owns**, and drawn by
+   * this component for exactly the reason the list is: §0.6 makes the position a fact about
+   * the row, and a caller placing it would place it twice.
+   *
+   * It belongs there rather than beside the row because it is the same question's other
+   * answer. A diver types a name; the list says *"one of these is what you mean"* and this
+   * says *"none of them is — publish this one"*. §0.6's own words for why it is not a button
+   * bolted onto a field: the form has a grammar, and this is a row of it.
+   *
+   * **This component decides only where the offer goes and when it is drawn — never whether
+   * there is one.** Who may create a catalogue row (§5: signed in), and whether creating one
+   * would duplicate something, are the screen's (`DiveFormScreen.tsx`); it hands this
+   * `undefined` when the answer is no, and a field given `undefined` renders exactly what it
+   * rendered before this prop existed. The same split `carried` and `suggestions` above draw.
+   */
+  addition?: FieldAddition;
+}
+
+/**
+ * One offer to create something the field's text names — the label the diver reads, what
+ * pressing it does, and whether it is in flight.
+ *
+ * `busy` is a state and not a second control: the row stays where it is, says what it is
+ * doing, and refuses a second press — `ControlledPositionField`'s *Locating…* is the same
+ * shape for the same reason, and both are how a control that has gone quiet says it will come
+ * back rather than looking dead.
+ */
+export interface FieldAddition {
+  /** What the row reads, including while `busy` — the caller owns both wordings, since only
+   * it knows what is being added. */
+  label: string;
+  onPress: () => void;
+  busy: boolean;
 }
 
 /*
@@ -218,7 +253,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion, addition },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -246,6 +281,12 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // empty array draws nothing at all rather than an empty container: a field holding its
   // carried value matches nothing but itself, which is most of a logging session.
   const offered = focused && suggestions !== undefined ? suggestions : [];
+
+  // §2.3's create offer, under the same `focused` gate the list is under and in the same
+  // container — one slot, one rule about where a field's second line goes. It is drawn whether
+  // or not there are suggestions above it, because the common case for a brand-new site is
+  // that the diver's history matched nothing at all and the list is empty.
+  const offeredAddition = focused ? addition : undefined;
 
   const input = (
     <TextInput
@@ -354,7 +395,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           input would blur first, `focused` would go false, and this list would unmount out
           from under the finger that was pressing it. It is a property of the hosts, not of
           this component, which is why it is named here rather than assumed. */}
-      {offered.length > 0 && (
+      {(offered.length > 0 || offeredAddition !== undefined) && (
         <View style={styles.formSuggestions}>
           {offered.map((suggestion) => (
             <Pressable
@@ -375,6 +416,34 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
             </Pressable>
           ))}
+          {/* Last in the list, always: the offers are what the diver most likely meant, and
+              publishing a new record is what is left when none of them was. §0.6 leaves "ink
+              versus muted ink" as the lever for telling two things apart without new
+              vocabulary, and it is spent here — a suggestion is muted because it is not yet a
+              value, and this is an action in full ink. While in flight it goes muted again,
+              exactly as `formFieldPickerTextUnset` reads for a value that is not there yet.
+
+              **Both `disabled` and `accessibilityState`**, never one: the first stops the
+              press, the second stops a screen reader announcing an available control that
+              ignores taps — the save control's own rule, and `busy` is the word for a control
+              that will come back. */}
+          {offeredAddition !== undefined && (
+            <Pressable
+              style={styles.formSuggestion}
+              onPress={offeredAddition.onPress}
+              accessibilityRole="button"
+              // The label itself, not a `Fill ... with ...` sentence: this row does not fill
+              // the field, it publishes a record, and the two must not read alike to anyone
+              // who only hears them.
+              accessibilityLabel={offeredAddition.label}
+              disabled={offeredAddition.busy}
+              accessibilityState={{ disabled: offeredAddition.busy, busy: offeredAddition.busy }}
+            >
+              <Text style={offeredAddition.busy ? styles.formSuggestionAddBusy : styles.formSuggestionAdd}>
+                {offeredAddition.label}
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>

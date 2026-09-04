@@ -257,6 +257,25 @@ describe('signed out', () => {
   });
 
   /**
+   * **All three of §1's reasons, because since M2o all three are true** — and because this
+   * screen is the only place a guest is told the third one. §2.3's *add this to the catalogue*
+   * offer is absent for a guest by design (a row reading "sign in to add this" would be a dead
+   * control on the app's most-used gesture), so the sentence that answers "what would an
+   * account get me" has to carry it.
+   *
+   * Each clause separately, rather than the whole sentence in one `toContain`: a rewording that
+   * kept the words and dropped a reason is exactly the drift this is for.
+   */
+  it('names all three things §1 says an account is for', async () => {
+    const t = await render(<AccountScreen />);
+    const said = screenText(t);
+
+    expect(said).toContain('backs your logbook up');
+    expect(said).toContain('syncs it to your other devices');
+    expect(said).toContain('add dive sites and centres other divers can use');
+  });
+
+  /**
    * **The one secret this app handles.** A password field rendering in the clear is the exact
    * failure §0.6 collects — "shipped once and only found by using the app" — because nothing
    * about it errors, and the other two props are what stop a device silently rewriting a

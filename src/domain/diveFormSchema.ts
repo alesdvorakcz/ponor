@@ -19,6 +19,8 @@ import {
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   type Dive,
+  type DiveCenter,
+  type DiveSite,
   type DiveStatus,
   type Equipment,
   type Tank,
@@ -786,6 +788,134 @@ export function toNewDiveInput(
     }
   }
   return input;
+}
+
+/**
+ * **What the dive being logged tells a brand-new catalogue row about the place it happened
+ * at** — the facts half of §2.3's *"creating a new site asks only for a name"*, and the one
+ * decision behind M2o's *add to the catalogue* offer that is not visible on screen.
+ *
+ * §2.3's sentence is about what a diver is **asked**, not about what is **stored**, and the
+ * two must not be confused: the form is already holding facts that belong to the place, and a
+ * row created with a name and nothing else would make §2.1's *"picking a site prefills entry,
+ * salinity and water body from the site's own defaults"* dead for every site this app ever
+ * creates. So four things are seeded, and everything else is deliberately not.
+ *
+ * ── What is seeded, and why each one is a fact about the place ────────────────────────────
+ *
+ * · **The pin.** §2.3 says a new site's pin comes from *"use my location — pressed right on
+ *   the boat"*, and `platform/location.ts` is the only thing in the app that produces one:
+ *   the form's pair is a fix a diver took **at this site**, good to `COARSEST_USABLE_FIX_M`
+ *   or it would not be there. It is how the first pin gets onto a community record at all.
+ *   **Both columns or neither** — §6 stores the pair, `formatCoordinates` refuses to draw
+ *   half of one, and half a point is not a place.
+ *
+ * · **`entry`, `salinity` and `waterBody`.** §2.1 calls these three the **site defaults** and
+ *   §2.2 spends a paragraph on why they are not conditions: *"Entry, salinity and water body
+ *   sat in Conditions and are not conditions — §2.1 gives all three away by prefilling them
+ *   from the site's own defaults. They are properties of the place."* Seeding them is that
+ *   classification taken at its word, and it is what closes the loop: the next diver to pick
+ *   this site gets the defaults prefilled, which is the mechanism §2.1 describes and which
+ *   nothing has ever been able to feed.
+ *
+ * ── What is not, and this is the harder half ──────────────────────────────────────────────
+ *
+ * · **`maxDepthM` — the site's own depth (§6), not this dive's.** They are different facts
+ *   with one name: a 12 m dive on a 40 m wall would publish *"this site is 12 m deep"* to
+ *   everybody, and no single dive can establish how deep a site is. It is the clearest case
+ *   of the brief's own warning — *"seeding everything puts one dive's conditions into a
+ *   community record"* — and the column stays null until someone who knows the site fills it.
+ *
+ * · **`country`** is not a form value at all: §2.3 says it is *inferred*, and
+ *   `platform/geocode.ts` owns that, from the pin above and from nothing else.
+ *
+ * · **Everything else on the dive** — depths, temperatures, visibility, waves, the gas, the
+ *   suit, the buddy. All of it is what one day was like or what one diver wore.
+ *
+ * **No compile-time tie to `DiveSite`'s column list, deliberately.** §4.1 asks for one where
+ * two lists must agree; here they must *not* — this is a decision about which subset a dive
+ * can speak for, and a new column on `dive_sites` should default to **not** being seeded from
+ * a dive. The types are still tied: every field but the name is `Pick`ed off `DiveSite`, so a
+ * column that changes type breaks the build here rather than writing the wrong thing.
+ *
+ * Typed from `DiveSite` alone rather than importing `db/catalogue.ts`'s `NewDiveSiteInput`,
+ * for the reason `toNewDiveInput` above records at length: `domain/` is the lower layer, and a
+ * `db` import here would run the dependency backwards. The shape is structurally what that
+ * type names, so `createDiveSite(db, { ...siteFactsFrom(name, values), country })` typechecks
+ * at the call site.
+ *
+ * `name` is passed rather than read out of `values.siteName`, and that is the point of it: the
+ * row's name must be **exactly the string the diver was shown in the offer they pressed**, not
+ * a second reading of the same field taken a moment later.
+ *
+ * Reads the raw `DiveFormInput` through the schema's **own** `pick`, so every value arrives
+ * coerced by the same `optionalNumber`/`optionalPicked` the save path uses — never a second
+ * transcription of those rules, and never the whole schema, whose `date` refinement is the one
+ * thing on this form that can fail and has nothing to do with a site.
+ */
+export type NewSiteFacts = Pick<DiveSite, 'latitude' | 'longitude' | 'entry' | 'salinity' | 'waterBody'> & {
+  name: string;
+};
+
+const siteFactsSchema = diveFormSchema.pick({
+  latitude: true,
+  longitude: true,
+  entry: true,
+  salinity: true,
+  waterBody: true,
+});
+
+export function siteFactsFrom(name: string, values: DiveFormInput): NewSiteFacts {
+  const { latitude, longitude, entry, salinity, waterBody } = siteFactsSchema.parse(values);
+  // Both or neither — see the docblock. Written as one condition rather than two independent
+  // copies so the pair cannot come apart on a form holding a longitude and no latitude, which
+  // is a state `ControlledPositionField` cannot produce and a seeded dive could.
+  const pinned = latitude !== null && longitude !== null;
+  return {
+    name,
+    latitude: pinned ? latitude : null,
+    longitude: pinned ? longitude : null,
+    entry,
+    salinity,
+    waterBody,
+  };
+}
+
+/**
+ * **What the same dive tells a brand-new dive centre: its name, and nothing else.**
+ *
+ * The asymmetry with `siteFactsFrom` above is the decision, not an unfinished version of it.
+ * A dive knows a great deal about the *site* — it happened there — and almost nothing about
+ * the *centre*, which is a shop somewhere on shore.
+ *
+ * · **Not the pin.** The form's pair is where the diver **entered the water**
+ *   (`platform/location.ts`: a dive's own point, precise enough to *outrank* a site's surveyed
+ *   pin on the personal map). Writing it into `dive_centers.location` would publish the dive
+ *   site as the centre's address — a fact about one place filed under another, and wrong by
+ *   however far the boat travelled.
+ *
+ * · **Not the country either, and this is the same rule rather than a second one.** Country is
+ *   inferred from the row's own pin (`platform/geocode.ts`), so a row with no pin has nothing
+ *   to infer from. Deriving the centre's country from the *dive's* pin would be a guess — true
+ *   almost always, and unfalsifiable when it is not, which is exactly what a shared record must
+ *   not contain. `null` is a legitimate country; a guess is not.
+ *
+ * · **Not `website`**, which no dive has ever held.
+ *
+ * What the row is *for* is therefore §2.3's first line — *"autocomplete keeps names
+ * consistent"* — plus an id every later dive can point at (§6's pairing). The creator and the
+ * admin can fill in the rest (§5); everyone else suggests a correction.
+ *
+ * A function for one field rather than an inlined object literal, because this is where the
+ * reasoning above lives and because the two offers are wired identically at the call site —
+ * the day a centre does learn something from a dive, there is one place to put it.
+ */
+export interface NewCenterFacts {
+  name: DiveCenter['name'] & string;
+}
+
+export function centerFactsFrom(name: string): NewCenterFacts {
+  return { name };
 }
 
 /**
