@@ -40,6 +40,14 @@ import { type ColorScheme } from '../theme/tokens';
  * That sentence comes from `diveFormSchema.ts` rather than from a caller, for the same
  * reason: what a value means is that file's rule to state, and a copy at a screen would
  * drift the first time the rule changed.
+ *
+ * **A report about something outside the form** (M2l). The dive form's GPS row asks the device
+ * where it is, and a device can decline in four different ways — Location Services off, the
+ * permission refused, no fix in time, a fix too rough to be a dive site. Each owes the diver a
+ * different sentence and every one of them lands here, under the row it is about, because §1
+ * forbids any of it reaching the save: a diver who cannot get a pin logs the dive without one.
+ * The row is where it belongs for the reason above — it is a message, not a field — and the
+ * treatment is identical to the two kinds already described, which is the point.
  */
 export function FieldNote({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
   const styles = makeStyles(scheme);

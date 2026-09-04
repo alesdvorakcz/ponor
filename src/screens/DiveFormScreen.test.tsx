@@ -51,6 +51,7 @@ import {
   type GearPreset,
   type Tank,
 } from '../domain/types';
+import { COARSEST_USABLE_FIX_M, currentPosition, POSITION_REFUSALS } from '../platform/location';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
@@ -104,6 +105,16 @@ jest.mock('../db/gearPresets', () => ({
   ...jest.requireActual('../db/gearPresets'),
   createGearPreset: jest.fn(),
 }));
+// M2l: the device's own answer to "where am I", mocked per module exactly as the database
+// reads above are and for the same reason — it is the one thing on this screen that talks to
+// hardware, and a test machine has none. The rest of that module stays real
+// (`jest.requireActual`), so `POSITION_REFUSALS` and `COARSEST_USABLE_FIX_M` below are the
+// shipped values rather than a fixture agreeing with itself; what each refusal MEANS is
+// `platform/location.test.ts`'s, and what the screen SAYS about it is this file's.
+jest.mock('../platform/location', () => ({
+  ...jest.requireActual('../platform/location'),
+  currentPosition: jest.fn(),
+}));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
 // canGoBack()-guarded pattern in that screen's BackButton.
@@ -120,6 +131,7 @@ const mockUseGearPresets = useGearPresets as jest.Mock;
 const mockUseOpenGroups = useOpenFormGroups as jest.Mock;
 const mockSetOpenGroups = setOpenFormGroups as jest.Mock;
 const mockCreatePreset = createGearPreset as jest.Mock;
+const mockPosition = currentPosition as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -209,6 +221,17 @@ function stubReturningDiver() {
   stubDives({ dives: [dive({ date: '2026-08-10' })] });
 }
 
+/**
+ * A fix the device is happy with, and how `formatCoordinates` renders it.
+ *
+ * The two are written out separately and deliberately: the string is spelled here rather than
+ * computed from the pair, so it is a claim about what a diver reads — five decimal places, one
+ * comma, one space — rather than a re-run of the formatter's own arithmetic. `display.test.ts`
+ * owns the formatter; this owns that the row shows what the dive detail will show.
+ */
+const FOUND_HERE = { found: true, latitude: 28.51234, longitude: 34.51234 } as const;
+const PIN_TEXT = '28.51234, 34.51234';
+
 beforeEach(() => {
   jest.clearAllMocks();
   stubDives();
@@ -222,6 +245,9 @@ beforeEach(() => {
   // Set explicitly for the same reason `canGoBack` is: `clearAllMocks` clears calls but not
   // return values, so one imperial test would otherwise leak into every test after it.
   mockUseUnitSystem.mockReturnValue('metric');
+  // A device that answers, so a test whose subject is not the GPS row never has to say so.
+  // Every test that IS about a refusal overrides this explicitly.
+  mockPosition.mockResolvedValue(FOUND_HERE);
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -603,7 +629,10 @@ const SECTION_ORDER: readonly (readonly [string, readonly string[]])[] = [
     ],
   ],
   ['Conditions', ['weather', 'waterTempC', 'airTempC', 'visibility', 'visibilityM', 'waves', 'current', 'surge']],
-  ['Water & entry', ['entry', 'salinity', 'waterBody']],
+  // §2.2 gives this group "where you are", and M2l's GPS row is exactly that — last, because
+  // the three above it come from the site and carry over while a pin is taken on the spot. The
+  // pair shares one row: see `PAIRED_ON_ONE_ROW` below.
+  ['Water & entry', ['entry', 'salinity', 'waterBody', 'latitude', 'longitude']],
   ['Equipment', ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel']],
   ['People', ['buddy', 'guide']],
   ['Notes & rating', ['title', 'notes', 'rating']],
@@ -697,6 +726,10 @@ it('draws its groups in the order the layout declares, under the titles it decla
  * `equipment` renders five accessory rows rather than one labelled row, so its probe is the
  * first of them; the two gas fractions are labelled from `format/display.ts`'s own constants,
  * so they are read through those rather than spelled a second time.
+ *
+ * A third shape arrived with M2l and it is the mirror image of `equipment`'s: **two fields
+ * under one row** (`PAIRED_ON_ONE_ROW` below), because §6 stores a point as two nullable
+ * columns and a half-recorded point is not a place.
  */
 const FIELD_LABELS: Record<string, string> = {
   date: 'Date',
@@ -719,6 +752,8 @@ const FIELD_LABELS: Record<string, string> = {
   entry: 'Entry',
   salinity: 'Salinity',
   waterBody: 'Water body',
+  latitude: 'GPS',
+  longitude: 'GPS',
   'tanks.0.material': 'Material',
   'tanks.0.sizeL': 'Size',
   'tanks.0.configuration': 'Configuration',
@@ -737,15 +772,37 @@ const FIELD_LABELS: Record<string, string> = {
   rating: 'Rating',
 };
 
-it('has a label for every field that has a row, and none for the five that do not', () => {
+/**
+ * **The fields that share a row with another field, rather than having one of their own.**
+ *
+ * One entry, and it is §6's own consequence rather than a layout choice: SQLite has no point
+ * type, so a dive's pin is `latitude` + `longitude`, and "a lone latitude or longitude isn't a
+ * point a diver could read" (`formatCoordinates`). One row, one label, one gesture that writes
+ * both — so the witness above maps two fields to one word on purpose.
+ *
+ * Stated as data rather than as a loosened assertion, because what the uniqueness check below
+ * defends is real: two *unrelated* fields sharing a probe word would make every sweep in this
+ * file ambiguous, and "some labels may repeat" would give that away. This says exactly which
+ * ones may, and the two assertions under it hold the rest of the rule.
+ */
+const PAIRED_ON_ONE_ROW: readonly (readonly string[])[] = [['latitude', 'longitude']];
+
+it('has a label for every field that has a row, and none for the three that do not', () => {
   // Keeps the witness honest in the other direction: a field added to the schema and rendered
   // into a group has to get a probe here, or the sweep below would silently stop watching it.
   expect(Object.keys(FIELD_LABELS).sort()).toEqual(
     ALL_FORM_FIELDS.filter((field) => !(OFF_FORM_FIELDS as readonly string[]).includes(field)).sort(),
   );
   // Exact strings, matched against whole `Text` children — so `Suit` cannot match
-  // `Suit thickness`, and `Visibility` cannot match `Visibility distance`.
-  expect(new Set(Object.values(FIELD_LABELS)).size).toBe(Object.keys(FIELD_LABELS).length);
+  // `Suit thickness`, and `Visibility` cannot match `Visibility distance`. One label per ROW,
+  // where a declared pair is one row; anything else sharing a word is still a failure.
+  const rows = Object.keys(FIELD_LABELS).length - PAIRED_ON_ONE_ROW.reduce((shared, pair) => shared + pair.length - 1, 0);
+  expect(new Set(Object.values(FIELD_LABELS)).size).toBe(rows);
+  // ...and a declared pair really does share one word, so the arithmetic above cannot be
+  // satisfied by two unrelated fields colliding while the pair sits on two separate rows.
+  for (const pair of PAIRED_ON_ONE_ROW) {
+    expect(new Set(pair.map((field) => FIELD_LABELS[field]))).toHaveProperty('size', 1);
+  }
 });
 
 it.each(FORM_GROUP_IDS)(
@@ -786,7 +843,11 @@ it.each(SECTION_ORDER)(
     const t = await render(<DiveFormScreen mode="create" />);
     await openGroup(t, title);
 
-    const expected = fields.map((field) => FIELD_LABELS[field]);
+    // Consecutive repeats collapse, which is exactly what "two fields, one row"
+    // (`PAIRED_ON_ONE_ROW`) looks like from the screen: the pair contributes its word once.
+    // **Only consecutive ones**, deliberately — two fields that share a label while sitting
+    // apart in the order are not one row, and this still fails for them.
+    const expected = fields.map((field) => FIELD_LABELS[field]).filter((label, at, all) => label !== all[at - 1]);
     const wanted = new Set(expected);
     expect(textIn(t).filter((shown) => wanted.has(shown))).toEqual(expected);
   },
@@ -804,17 +865,15 @@ it('has a §2.2 section for every group the layout holds, naming the same fields
   );
 });
 
-it('has no coordinate row at all, in any group — the columns stay, the two keypads do not', () => {
-  // §2.2, M1i: "The form has no latitude and longitude rows." That sentence is about the
-  // SCREEN, and none of the constants above can hold it — a `<ControlledTextField
-  // name="latitude">` put back into a group's JSX leaves `OFF_FORM_FIELDS` and `FIELD_LABELS`
-  // both untouched and every other test in this file green, which is precisely the "one value,
-  // two controls" shape M1h paid for twice.
-  //
-  // Synchronous and derived, because what it really asks is that the two paths are OFF the
-  // form; the screen half is the assertion below it.
-  expect([...OFF_FORM_FIELDS]).toEqual(expect.arrayContaining(['latitude', 'longitude']));
-});
+// --- M1i's rule, which M2l keeps: a coordinate is taken, never typed ---
+//
+// §2.2 said "the form has no latitude and longitude rows", and §10 records what the owner
+// actually ruled out — *"no one will ever type it manually"*. M2l gives the pair a row again
+// and the rule is untouched, because the row holds no keyboard: what came off this form was
+// two decimal keypads, and they must not come back. None of the constants above can hold that
+// — a `<ControlledTextField name="latitude">` added to a group leaves `FIELD_LABELS` and
+// `FORM_GROUPS` both satisfied and every other test in this file green, which is the "one
+// value, two controls" shape M1h paid for twice.
 
 it('draws no Latitude or Longitude row with every group open', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
@@ -823,8 +882,309 @@ it('draws no Latitude or Longitude row with every group open', async () => {
   expect(shown.has('Latitude')).toBe(false);
   expect(shown.has('Longitude')).toBe(false);
   // The control that stops this from passing over a form that rendered nothing at all: the row
-  // the coordinates used to sit under is really on screen.
+  // the coordinates sit under is really on screen.
   expect(shown.has('Water body')).toBe(true);
+});
+
+it('offers no keyboard for a coordinate anywhere on the form', async () => {
+  // The half that survives from M1i, said about the CONTROL rather than about the row's
+  // existence. Every `TextInput` on the form is swept rather than three labels being checked,
+  // so a keypad wired to `latitude` under any label at all fails here.
+  const t = await render(<DiveFormScreen mode="create" />);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const label of ['Latitude', 'Longitude', 'GPS']) {
+    expect(findTextInput(t, label)).toBeUndefined();
+  }
+  // The GPS row is really on screen while this is asserted — otherwise "no coordinate keypad"
+  // is satisfied by a form that has no coordinate control at all.
+  expect(findPickerField(t, 'GPS')).toBeDefined();
+  // ...and the form does still have text fields, so `findTextInput` is not simply blind.
+  expect(findTextInput(t, 'Buddy')).toBeDefined();
+});
+
+// --- §2.3's "use my location", which is the only way a dive gets a pin (M2l) ---
+//
+// Nothing in the app had ever written `latitude`/`longitude` before this: M1i took the two
+// keypads off the form and §2.1 keeps the pin out of carry-over, so both columns were null on
+// every dive ever logged and the dive detail's GPS row was live and unreachable.
+//
+// What is this file's to check is the WIRING and the SENTENCES — that the row writes both
+// columns, that every way the device can refuse says something a diver can act on, and that
+// none of it can stop a dive being logged (§1). What each refusal means is
+// `platform/location.test.ts`'s, and it is mocked here for exactly that reason.
+
+/** The GPS row's own control, by the `` `${label}: ${value}` `` shape every read-back field on
+ * this form announces. */
+async function pressGps(t: RenderResult) {
+  const row = findPickerField(t, 'GPS');
+  if (!row) throw new Error('no GPS row found');
+  await fireEvent.press(row);
+}
+
+/** The row's clear control — `Clear GPS`, not `Clear carried GPS`: §2.1 puts the pin in the
+ * fresh half, so there is never anything inherited on this row to throw away. */
+function findClearGps(t: RenderResult) {
+  return buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === 'Clear GPS');
+}
+
+/** Every sentence currently under a field, in `formFieldErrorText`'s own treatment (§0.6: "a
+ * field error is text, not a field"). Read off the style rather than by matching words, so
+ * this cannot be satisfied by a sentence rendered somewhere else on the form. */
+function fieldNotesIn(t: RenderResult): string[] {
+  const sheet = makeStyles('light');
+  return textNodesOf(t)
+    .filter((n) => [n.props?.style].flat(3).includes(sheet.formFieldErrorText))
+    .flatMap((n) => n.children)
+    .filter((child): child is string => typeof child === 'string');
+}
+
+it('offers §2.3’s own words in Water & entry, and holds no pin until one is taken', async () => {
+  stubReturningDiver();
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
+  const t = await render(<DiveFormScreen mode="create" />);
+  // The row is inside the group §2.2 gives "where you are" — so it is NOT on screen until that
+  // group is opened, which is what makes this a claim about where it lives rather than about
+  // its existence.
+  expect(findPickerField(t, 'GPS')).toBeUndefined();
+  await openGroup(t, 'Water & entry');
+
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+  // Nothing to clear on a row that holds nothing — the ring is what empties a pin, and offering
+  // one over an empty row is the affordance-that-does-nothing this screen keeps avoiding.
+  expect(findClearGps(t)).toBeUndefined();
+  // ...and nothing has been asked of the device merely by drawing the row.
+  expect(mockPosition).not.toHaveBeenCalled();
+});
+
+it('writes both columns from one fix and saves them, which no dive has ever carried before', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+
+  // What the diver reads is what the dive detail will read back: `formatCoordinates` is §4.1's
+  // one owner of how a pair is spelled, and this row calls it rather than formatting its own.
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const written = mockCreate.mock.calls[0]?.[1] as Record<string, unknown>;
+  // **Both**, and as numbers: half a point is not a place, and a string in a `real` column is
+  // the silent wrong value this codebase keeps paying for.
+  expect(written.latitude).toBe(28.51234);
+  expect(written.longitude).toBe(34.51234);
+});
+
+it('takes the pin whether or not a site is picked, because a dive’s own point outranks the site’s', async () => {
+  // §6 keeps a dive's optional point *because* a diver may disagree with the community site's
+  // pin, and §5 says the personal map prefers the dive's own — so "the site already has one"
+  // is not a reason to skip the write, and there is deliberately no rule here about `siteId`.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ id: 'prev', date: '2026-08-10', siteId: 'site-1', siteName: 'Blue Hole' })] });
+  stubOpenGroups({ water: true });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pressGps(t);
+  await pressSave(t);
+
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  const written = mockCreate.mock.calls[0]?.[1] as Record<string, unknown>;
+  // The carried site is still there, and the dive carries its own pin beside it.
+  expect(written.siteId).toBe('site-1');
+  expect(written.latitude).toBe(28.51234);
+});
+
+it('shows a stored pin when a dive is opened for editing, and opens the group holding it', async () => {
+  // The other direction, and the reason both columns are named in `FORM_GROUPS.water.fields`:
+  // §2.2's "a group opens when this dive already has a value in it" has to open *Water & entry*
+  // for a dive whose only value in it is the pin.
+  stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', latitude: 28.51234, longitude: 34.51234 }));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  expect(expandedGroups(t)).toEqual(['Water & entry']);
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+});
+
+it('never carries a pin into the next dive, however recent the dive it came from', async () => {
+  // §2.1 puts the exact GPS point in the fresh half: "the *site* carries, which is the right
+  // granularity, but the exact entry position is a claim of precision that a stale value would
+  // make falsely." `carryOver.test.ts` owns the rule; this is the screen actually obeying it,
+  // which is the half that was unexercised for two milestones because nothing wrote a pin.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({
+    dives: [dive({ id: 'prev', date: '2026-08-10', siteName: 'Blue Hole', latitude: 28.51234, longitude: 34.51234 })],
+  });
+  stubOpenGroups({ water: true });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+  // The seed really was that dive, so this is carry-over declining to bring the pin rather than
+  // a form that was seeded from nothing.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0]?.[1]).not.toHaveProperty('latitude');
+});
+
+it('keeps a pin taken before carry-over landed, which is when a diver on a boat takes one', async () => {
+  // `useDives()` resolves after the first render, and a reseed re-syncs every field
+  // react-hook-form does not know the diver moved (`resetOptions.keepDirtyValues`). Without
+  // `shouldDirty` on the two writes, a pin taken in the first moment of a new form is silently
+  // wiped by carry-over landing a beat later — and nothing on screen would say so.
+  stubOpenGroups({ water: true });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pressGps(t);
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+
+  stubDives({ dives: [dive({ id: 'prev', date: '2026-08-10', siteName: 'Blue Hole' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  // The reseed really happened — the carried site is now in the form — and the pin survived it.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+});
+
+it('empties both columns to a real blank when the pin is cleared, never to a zero', async () => {
+  // §1 and §10's coercion contract, on the one field where a zero is not merely wrong but
+  // *plausible*: latitude 0, longitude 0 is a real place in the Gulf of Guinea, and a row
+  // cleared to it would read as a pin somebody set.
+  const target = dive({ id: 'target', date: '2026-08-16', latitude: 28.51234, longitude: 34.51234 });
+  stubLogbookFor(target);
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Water & entry');
+
+  const clear = findClearGps(t);
+  expect(clear).toBeDefined();
+  await fireEvent.press(clear!);
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  const patch = mockUpdate.mock.calls[0]?.[2] as Record<string, unknown>;
+  // An edit-mode patch names a cleared field explicitly — `null` is "clear this", where an
+  // absent key means "leave it alone" (db/dives.ts's contract). **Both**, because half a point
+  // is not a place.
+  expect(patch.latitude).toBeNull();
+  expect(patch.longitude).toBeNull();
+  expect(zeroPaths(patch)).toEqual([]);
+});
+
+// --- The four ways a device can decline, and the sentence each one owes the diver ---
+
+/**
+ * **What the screen says for each refusal, written out here and not read off the screen's own
+ * table.**
+ *
+ * The same independent witness `FIELD_LABELS` and `CHIP_MARKS` are, for the same reason: a
+ * sweep that asked the screen for its sentences would agree with a screen that said the wrong
+ * thing, or the same thing five times. Two properties are checked below and neither implies
+ * the other — that each refusal produces THIS sentence, and that the five are distinct.
+ *
+ * `denied` is the one that carries a rule rather than a wording, and it is why this table is
+ * worth its length: **iOS raises the permission sheet once ever**, so a diver who declines it
+ * gets no sheet on the second tap and a silent control would simply stop working. The sentence
+ * has to name where the switch actually is.
+ */
+const REFUSAL_SENTENCES: Record<string, string> = {
+  servicesOff: 'Location Services are off for this device. Turn them on to pin a dive.',
+  denied: 'Ponor is not allowed to use your location. Allow it in the device’s Settings, then tap again.',
+  timedOut: 'That took too long. Try again where there is more sky.',
+  imprecise: `That fix was only good to about ${COARSEST_USABLE_FIX_M} m — too rough to pin a dive site. Try again where there is more sky.`,
+  failed: 'Could not get a location fix. Try again in a moment.',
+};
+
+it('has a sentence for every refusal the device can give, and no two alike', () => {
+  // Keeps the witness honest in both directions: a refusal added to `platform/location.ts`
+  // without a sentence would leave the row silent for it, and two refusals sharing a sentence
+  // would send a diver to the wrong switch.
+  expect(Object.keys(REFUSAL_SENTENCES).sort()).toEqual([...POSITION_REFUSALS].sort());
+  expect(new Set(Object.values(REFUSAL_SENTENCES)).size).toBe(POSITION_REFUSALS.length);
+});
+
+it.each(POSITION_REFUSALS)('says what happened when the device answers %s, and still saves the dive', async (reason) => {
+  // §1 binds every one of these: a refused pin is text under a row, never a blocked save. Both
+  // halves are asserted together because the failure that matters is the pair coming apart —
+  // a form that says why and then will not save is as broken as one that saves in silence.
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  mockPosition.mockResolvedValue({ found: false, reason });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+
+  expect(fieldNotesIn(t)).toContain(REFUSAL_SENTENCES[reason]);
+  // The row is unchanged and still invites the next tap — no pin, and nothing for the diver to
+  // clear before they can save.
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(mockCreate.mock.calls[0]?.[1]).not.toHaveProperty('latitude');
+});
+
+it('asks again on the next tap after a refusal, rather than going quiet', async () => {
+  // **The dead-control rule, at the screen.** iOS asks once ever, so a diver who declined and
+  // then allowed it in Settings comes back to this same form — and the second tap has to reach
+  // the device. A screen that remembered the refusal would look identical and never work again.
+  mockPosition.mockResolvedValueOnce({ found: false, reason: 'denied' });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  expect(fieldNotesIn(t)).toContain(REFUSAL_SENTENCES.denied);
+
+  mockPosition.mockResolvedValueOnce(FOUND_HERE);
+  await pressGps(t);
+  expect(mockPosition).toHaveBeenCalledTimes(2);
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+  // ...and the sentence goes with the failure it reported, rather than standing over a row that
+  // now holds a pin.
+  expect(fieldNotesIn(t)).not.toContain(REFUSAL_SENTENCES.denied);
+});
+
+/**
+ * Whether a touch can even start on a control — the gate `disabled` actually closes on a
+ * device, read off the host node React Native rendered.
+ *
+ * **It is here because "the second tap did nothing" is not proof of anything.** RTL refuses to
+ * deliver a press to a node whose *announced* state says disabled, which a real device does
+ * not: a control carrying `accessibilityState={{ disabled: true }}` and no `disabled` prop is
+ * inert in this file and perfectly pressable on a phone. Dropping the prop left all 373 tests
+ * green until this existed. `onStartShouldSetResponder` is the one thing that tells the two
+ * apart, because only the prop closes it.
+ */
+function touchableIn(t: RenderResult, label: string): boolean {
+  return findPickerField(t, label)?.props?.onStartShouldSetResponder?.() !== false;
+}
+
+it('says it is locating, and turns away a second tap until the device has answered', async () => {
+  // The in-flight state. A tap that appears to do nothing invites another, and two fixes in
+  // flight would let the older one win the write.
+  let answer: (outcome: unknown) => void = () => {};
+  mockPosition.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+
+  expect(shownIn(t, 'GPS')).toBe('Locating…');
+  // Announced as well as shut: a control that ignores a tap it still announces as available is
+  // its own kind of dead button (the save control's own rule), and one that announces itself
+  // shut while still taking touches is the same failure mirrored.
+  expect(findPickerField(t, 'GPS')?.props?.accessibilityState).toEqual({ disabled: true, busy: true });
+  expect(touchableIn(t, 'GPS')).toBe(false);
+  // Nothing to clear mid-flight either — there is no pin yet, and the ring would be offering to
+  // empty a row that is in the middle of being filled.
+  expect(findClearGps(t)).toBeUndefined();
+
+  await pressGps(t);
+  expect(mockPosition).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    answer(FOUND_HERE);
+  });
+  expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
+  expect(findPickerField(t, 'GPS')?.props?.accessibilityState).toEqual({ disabled: false, busy: false });
+  // ...and the row takes touches again, so "shut" was a state rather than a one-way door.
+  expect(touchableIn(t, 'GPS')).toBe(true);
 });
 
 // The pure rule, swept over every placed field: a value in a group's field opens THAT group and
@@ -857,6 +1217,11 @@ describe('defaultOpenGroups', () => {
     entry: 'shore',
     salinity: 'salt',
     waterBody: 'ocean',
+    // Half a pin each, and that is the claim being swept: §2.2's value rule reads the two
+    // columns separately, so a dive holding one of them still opens the group the pair lives
+    // in rather than hiding a value the diver cannot see.
+    latitude: 28.5,
+    longitude: 34.5,
     suit: 'wet',
     suitThicknessMm: 5,
     equipment: ['hood'],

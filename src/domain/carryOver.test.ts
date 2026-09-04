@@ -97,8 +97,15 @@ describe('keeping what changes every dive fresh', () => {
     // mistake carry-over exists to avoid for pressure. This comment used to
     // read "§2.1 names them in neither list", which was true of the older
     // §2.1 and was the reason they were fresh by default; the rule is
-    // written down now rather than inferred, and it is deliberately
-    // unexercised until M2's map is the thing that sets a pin (§2.2).
+    // written down now rather than inferred.
+    //
+    // **It stopped being unexercised in M2l**, and the sentence here said it
+    // would be M2's map that ended that. It was the other half of §2.3 — the
+    // dive form's *use my location* row — which is worth correcting rather
+    // than quietly updating, because "the rule waits for the map" is exactly
+    // the kind of claim that survives the thing it was waiting for. The
+    // screen half now has its own witness (`DiveFormScreen.test.tsx`, "never
+    // carries a pin into the next dive").
     const c = carryOverFrom(previous);
     expect(c.latitude ?? null).toBeNull();
     expect(c.longitude ?? null).toBeNull();

@@ -1,5 +1,12 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { Controller, useForm, useWatch, type Control, type FieldPath } from 'react-hook-form';
+import {
+  Controller,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldPath,
+  type UseFormSetValue,
+} from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
 import { CarriedMark } from '../components/CarriedMark';
+import { ClearFieldControl } from '../components/ClearFieldControl';
 import { EntryIcon } from '../components/EntryIcon';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
@@ -64,6 +72,7 @@ import {
 } from '../domain/types';
 import {
   formatConfiguration,
+  formatCoordinates,
   formatCurrent,
   formatCylinderSpec,
   formatEntry,
@@ -82,6 +91,7 @@ import {
 } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
 import { backToDives } from '../navigation/leaveScreen';
+import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -595,9 +605,9 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
     title: 'Conditions',
     startsOpen: false,
     // **Weather leads** (M1i): it is the first thing anyone notices about a dive day. What is
-    // left here is what the day was like and nothing else — *entry*, *salinity* and *water
-    // body* moved to `water` below, and the two coordinate rows went off the form entirely
-    // (`OFF_FORM_FIELDS`).
+    // left here is what the day was like and nothing else — *entry*, *salinity*, *water body*
+    // and, since M2l, the GPS pin all sit in `water` below, because where you are is a
+    // different question from what the day was like.
     fields: ['weather', 'waterTempC', 'airTempC', 'visibility', 'visibilityM', 'waves', 'current', 'surge'],
   },
   // **Where you are, which *Conditions* was answering by accident** (M1i, the owner's call).
@@ -609,7 +619,18 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   // gave `readOpenFormGroups` a third state, and an absent id already means *never decided* —
   // so an M1i-era row saying `{"times": false, "conditions": true}` leaves this group to
   // `startsOpen` below, which is what a new group should get.
-  water: { title: 'Water & entry', fields: ['entry', 'salinity', 'waterBody'], startsOpen: false },
+  //
+  // **The GPS pin is here because a pin is a property of the place** (M2l, §2.2: this group
+  // holds "where you are", which is exactly what a coordinate says). It is two fields on one
+  // row — §6 stores the pair as two nullable columns because SQLite has no point type, and a
+  // half-recorded point is not a place a diver could read — so both are named here: §2.2's
+  // "a group opens when this dive already has a value in it" has to open *Water & entry* for a
+  // dive that has nothing in it but a pin.
+  water: {
+    title: 'Water & entry',
+    fields: ['entry', 'salinity', 'waterBody', 'latitude', 'longitude'],
+    startsOpen: false,
+  },
   equipment: {
     title: 'Equipment',
     startsOpen: false,
@@ -642,27 +663,17 @@ export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = ['date', '
  * snapshot, written by picking
  * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
  *
- * **`latitude` and `longitude` are here because a pin is not typed** (M1i, the owner's call,
- * §2.2). They had two decimal keypads on this form until this milestone, and nobody has ever
- * typed a coordinate into a phone on a boat — §2.3 has specified since before any of this was
- * built that the pin comes from the map or from *use my location*. So this is a field waiting
- * for M2, not a field the form declines to have: the columns stay (§6), `formatCoordinates`
- * still reads them and the dive detail still shows a GPS row when a point exists, and §7's
- * payload is unchanged.
- *
- * The consequence is worth stating plainly so nobody reads the omission as an oversight and
- * "fixes" it with a keypad: **no dive can carry a GPS point until the Map tab lands.** Nothing
- * writes one — carry-over deliberately does not (§2.1 puts both in the fresh half), and there
- * is no other producer — so the detail screen's GPS row and the coordinate formatter are
- * correct, live, and unreachable until M2 gives them a source.
+ * **`latitude` and `longitude` were here for two milestones and are not any more** (M2l).
+ * M1i took their two decimal keypads off this form because nobody has ever typed a coordinate
+ * into a phone on a boat, and recorded the consequence rather than leaving it to be
+ * discovered: no dive could carry a GPS point until something else wrote one. That something
+ * is now the *GPS* row in *Water & entry* (`ControlledPositionField`) — §2.3's *"pressed right
+ * on the boat"*, which is the affordance the plan had always named. **What M1i actually ruled
+ * out was a keypad, not a row**, so the pair leaves this list by gaining a control that takes
+ * the value rather than asking for it, and `DiveFormScreen.test.tsx` still holds that half:
+ * there is no text input anywhere on this form that a coordinate can be typed into.
  */
-export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = [
-  'status',
-  'siteId',
-  'centerId',
-  'latitude',
-  'longitude',
-];
+export const OFF_FORM_FIELDS: readonly FieldPath<DiveFormInput>[] = ['status', 'siteId', 'centerId'];
 
 /**
  * Whether a field holds something a diver would expect to find behind a closed group.
@@ -1110,6 +1121,218 @@ function ControlledOptionField<T extends string | number>({ control, name, label
         </>
       )}
     />
+  );
+}
+
+/**
+ * The label on the GPS row, and the word this form calls a pin by.
+ *
+ * **`DiveDetailScreen`'s own word for the same pair**, deliberately — §4.1's "one deliberate
+ * exception, until i18next" scopes duplicated *field labels* as the acceptable duplication,
+ * and §0.6's whole account of this form is that it is "the dive detail you can type into". A
+ * diver sets `GPS` here and reads `GPS` back there.
+ */
+const POSITION_LABEL = 'GPS';
+
+/** What the row reads while it holds no pin. **An invitation rather than a placeholder**, and
+ * that is the one way this row departs from `DateTimeField`'s "Not set": a date field's
+ * trailing slot can say what it holds and leave the gesture to be guessed, because everyone
+ * has met a date picker. Nothing about an empty coordinate row says a tap would ask the
+ * device where you are, so the row says it — in §2.3's own words, which have named this
+ * affordance since before any of it was built. */
+const USE_MY_LOCATION = 'Use my location';
+
+/** What the row reads while the device is being asked. Present tense and no punctuation
+ * beyond the ellipsis: it is a state, not a sentence, and it stands in the same slot the pin
+ * will occupy so nothing moves when the answer arrives. */
+const LOCATING = 'Locating…';
+
+/**
+ * **What each way of failing to get a pin says to the diver** — one sentence per refusal, and
+ * a `Record` over `POSITION_REFUSALS` so a refusal added to `platform/location.ts` cannot
+ * arrive without one (§4.1's "derive, or tie at compile time"). A missing key is a build
+ * error; a missing sentence would be a control that did nothing.
+ *
+ * **That a denial says something at all is the load-bearing part** (§10's "a local save
+ * failure is shown to the diver", applied to the one other thing on this screen that can fail
+ * without the diver having done anything wrong). iOS raises its permission sheet **once
+ * ever**: a diver who declines it and later wants a pin gets no sheet on the second tap, so
+ * without a sentence the control would simply stop working, silently and permanently. That is
+ * the dead-control shape §0.6 has already recorded three times — the hidden pull-down search,
+ * the invisible clear target over the word "carried", the form with no visible way out — and
+ * each was found by using the app rather than by a test.
+ *
+ * So `denied` names the place the switch is and invites the next tap, which is the half a
+ * sentence alone would not have: the row goes on asking every time it is pressed
+ * (`platform/locationPermission.ts` caches nothing), so a diver who goes to Settings and comes
+ * back gets a pin without reopening the form. **§3's Settings screen is where this stops being
+ * a sentence and becomes a control** (the owner's call, M2l): a location row there shows the
+ * standing permission and offers the way into the device's own Settings app. It is a separate
+ * task, and `locationPermission()` — which reads the state without ever raising a prompt — is
+ * the surface it will read.
+ *
+ * `imprecise` names the threshold rather than what the fix actually reported, because the
+ * figure comes from the one place that owns it (`COARSEST_USABLE_FIX_M`) rather than being
+ * retyped here, and because what the diver can act on is the standard, not the miss.
+ *
+ * §1 binds every one of these: they are text under a row, never a blocked save. A diver who
+ * cannot get a pin logs the dive without one.
+ */
+const POSITION_REFUSAL_NOTES: Record<PositionRefusal, string> = {
+  servicesOff: 'Location Services are off for this device. Turn them on to pin a dive.',
+  denied: 'Ponor is not allowed to use your location. Allow it in the device’s Settings, then tap again.',
+  timedOut: 'That took too long. Try again where there is more sky.',
+  imprecise: `That fix was only good to about ${COARSEST_USABLE_FIX_M} m — too rough to pin a dive site. Try again where there is more sky.`,
+  failed: 'Could not get a location fix. Try again in a moment.',
+};
+
+/**
+ * §2.3's *"a GPS pin can be set from the map or **use my location** — pressed right on the
+ * boat"*, as the half that needs no map (M2l). **The only thing in the app that writes a
+ * dive's `latitude`/`longitude`**, and therefore the reason the dive detail's GPS row and
+ * `formatCoordinates` stop being unreachable.
+ *
+ * **A field row like any other** (§0.6): the label leading, the value trailing, a hairline on
+ * the top edge, and the clear control in the trailing state slot every other row puts it in.
+ * It is `DateTimeField`'s anatomy rather than a button bolted into the form — a value that is
+ * *taken* rather than typed, with the gesture behind the value slot, and the same
+ * `label: value` announcement every read-back field on this form makes. It carries **no
+ * chevron**, which is §0.6's rule and not an omission: a chevron marks a control that
+ * discloses further rows in place, and this one discloses nothing.
+ *
+ * **Two form fields, one row, and one `Controller` for neither.** §6 stores the point as two
+ * nullable columns (SQLite has no point type) and a half-recorded point is not a place, so the
+ * row reads both through `useWatch` and writes both through `setValue` in the same gesture —
+ * the shape `ControlledCylinderSpec` above already uses for a row that reads several fields,
+ * for the same reason it uses it: two `Controller`s over one row would be two subscriptions
+ * that can disagree about what the row holds.
+ *
+ * **`shouldDirty` on every write, and it is load-bearing rather than tidy.** `useDives()` and
+ * `useUnitSystem()` both resolve after this screen's first render, and a reseed re-syncs every
+ * field react-hook-form does not know the diver moved (`resetOptions.keepDirtyValues`, the
+ * render body). Without it a pin taken in the first moment of a new form — the exact moment a
+ * diver on a boat taps it — would be silently wiped by carry-over landing a beat later. The
+ * same flag is what makes a *cleared* pin survive that reseed in edit mode.
+ *
+ * **The pin is written whether or not a site is picked, always.** The obvious objection is
+ * that the site already has one, and §6 answers it before it is raised: a dive keeps its own
+ * optional point *because* a diver may disagree with the community site's pin, and §5 says the
+ * personal map prefers the dive's own. So there is no rule here about `siteId`, and there
+ * should not be one.
+ *
+ * **In flight, the control is shut, and — unlike the save control — that is the whole of the
+ * guard.** §4.1 asks a deliberate near-duplicate to name its sibling, and this is the reverse:
+ * a place that deliberately does *not* copy one. `onValid` below carries a `savingRef` because
+ * `handleSubmit` runs an async resolver before it, so both taps of a double-tap reach it before
+ * any state update renders and `disabled` could never have enforced anything. Nothing here is
+ * async before the flag: `setLocating(true)` runs inside the press handler itself, React flushes
+ * a discrete event's updates before the next event is delivered, and a second tap therefore
+ * always meets a shut control. A ref latch here would be a guard nothing could ever catch
+ * failing — §10 declines those rather than banking them, and it was written and removed on
+ * exactly that ground.
+ */
+function ControlledPositionField({
+  control,
+  setValue,
+  scheme,
+}: {
+  control: FormControl;
+  setValue: UseFormSetValue<DiveFormInput>;
+  scheme: ColorScheme;
+}) {
+  const styles = makeStyles(scheme);
+  const [locating, setLocating] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  // `toFormNumber` (diveFormSchema.ts) rather than a cast, for `RatingField`'s reason one
+  // control over: this is the form's raw value, which is a number when this row wrote it and
+  // can be anything a seeded dive held, and there is one owner of reading it as a figure.
+  const latitude = toFormNumber(useWatch({ control, name: 'latitude' }));
+  const longitude = toFormNumber(useWatch({ control, name: 'longitude' }));
+  // §4.1's owner of how a pair reads, and the same call the dive detail's GPS row makes — so
+  // a pin set here and read back there cannot be two spellings of one point. `null` unless
+  // BOTH are real, which is also exactly the condition for showing the clear control.
+  const pin = formatCoordinates(latitude, longitude);
+  const shown = locating ? LOCATING : (pin ?? USE_MY_LOCATION);
+
+  const locate = async () => {
+    setLocating(true);
+    // Cleared at the START of the attempt, never on a timer or a dismiss tap, so the sentence
+    // reads as "still true" for exactly as long as it still is — the same rule `saveError`
+    // follows in the render body below.
+    setNote(null);
+    try {
+      const outcome = await currentPosition();
+      if (outcome.found) {
+        setValue('latitude', outcome.latitude, { shouldDirty: true });
+        setValue('longitude', outcome.longitude, { shouldDirty: true });
+      } else {
+        setNote(POSITION_REFUSAL_NOTES[outcome.reason]);
+      }
+    } finally {
+      // Released on both paths, exactly as the save control's own flag is: a refusal that left
+      // this shut would strand the diver on a control they cannot press again, which is the
+      // dead control the sentences above exist to prevent, reached from the other side.
+      setLocating(false);
+    }
+  };
+
+  return (
+    <>
+      <View style={[styles.formField, locating && styles.formFieldFocused]}>
+        <View style={styles.formFieldRow}>
+          <Text style={styles.formFieldLabel}>{POSITION_LABEL}</Text>
+          <Pressable
+            style={styles.formFieldPicker}
+            onPress={() => void locate()}
+            accessibilityRole="button"
+            // The `label: value` shape every read-back field on this form announces
+            // (`DateTimeField`, `ControlledCylinderSpec`), so a screen reader hears what the
+            // row holds — and, while it holds nothing, hears the invitation rather than an
+            // empty slot.
+            accessibilityLabel={`${POSITION_LABEL}: ${shown}`}
+            // Both, never one: `disabled` is what stops the press, `accessibilityState` is
+            // what stops a screen reader announcing an available control that ignores taps —
+            // the save control's own rule, and `busy` is the word for a control that will
+            // come back.
+            disabled={locating}
+            accessibilityState={{ disabled: locating, busy: locating }}
+          >
+            <Text style={pin === null || locating ? styles.formFieldPickerTextUnset : styles.formFieldPickerText}>
+              {shown}
+            </Text>
+          </Pressable>
+          {pin !== null && !locating && (
+            <ClearFieldControl
+              // `null`, never `0` and never a value derived from what the row holds (§1, §10):
+              // a zero latitude is a real place in the Gulf of Guinea, and `optionalNumber`
+              // would keep it. This is the form's own blank — the value `blankFormValues`
+              // seeds both columns with — so a cleared pin and a pin never taken reach
+              // `toNewDiveInput`/`toDivePatch` as the same absence.
+              //
+              // **Both columns go together**, because half a point is not a place: §6 stores
+              // the pair, `formatCoordinates` refuses to draw one without the other, and a row
+              // that cleared the latitude alone would leave a longitude nothing on any screen
+              // would ever show.
+              onPress={() => {
+                setValue('latitude', null, { shouldDirty: true });
+                setValue('longitude', null, { shouldDirty: true });
+                setNote(null);
+              }}
+              // No "carried" here, for `DateTimeField`'s own stated reason: §2.1 puts the GPS
+              // point in the fresh half, so nothing on this row was ever inherited and there
+              // is no `— cleared` tag to leave behind. This control unsets an optional field.
+              accessibilityLabel={`Clear ${POSITION_LABEL}`}
+              scheme={scheme}
+            />
+          )}
+        </View>
+      </View>
+      {/* §0.6: "A field error is text, not a field. Muted, trailing, under the row it belongs
+          to." The same slot every other row's refusals and notes take, through the same
+          component, rather than a banner over a form the diver is still filling in. */}
+      <FieldNote message={note ?? undefined} scheme={scheme} />
+    </>
   );
 }
 
@@ -2926,9 +3149,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             they are touched about once a trip and sit below the group a diver actually fills
             on every dive.
 
-            There were two more rows under these until this milestone. `latitude` and
-            `longitude` came off the form entirely rather than moving here; the columns stay
-            and `OFF_FORM_FIELDS` says why. */}
+            **The GPS row is last, and it is the only one here that is not carried** (M2l).
+            The three above it come from the site and from the previous dive; a pin is fresh
+            every dive (§2.1) and taken on the spot, so it sits at the end of the group where
+            a diver reaches for it deliberately rather than passing it on the way down. It is
+            what M1i's two coordinate keypads were removed in favour of — §2.3 has named this
+            affordance since before any of this was built. */}
         <FormGroup {...groupProps('water')}>
           <ControlledOptionField
             control={control}
@@ -2962,6 +3188,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
           />
+          {/* No `carryOver` prop, and that is the one call site on this form where its absence
+              is the point rather than an oversight: §2.1 puts the exact GPS point in the fresh
+              half, so there is never a mark to show or a carried value to clear. The row has
+              its own clear control for the pin the diver just took. */}
+          <ControlledPositionField control={control} setValue={setValue} scheme={scheme} />
         </FormGroup>
 
         <FormGroup {...groupProps('equipment')}>
