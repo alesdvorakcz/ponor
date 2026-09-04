@@ -18,10 +18,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '../db/client';
 import { setDivesBefore, setUnitSystem } from '../db/settings';
+import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { type GearPreset, type Tank } from '../domain/types';
+import { todayCalendarDate } from '../domain/datetime';
+import { type Certification, type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
 import {
@@ -51,6 +53,20 @@ jest.mock('../db/useDivesBefore', () => ({ useDivesBefore: jest.fn() }));
 // the two above are — it is a database read, and this screen must render against any list of
 // presets, and against a read that failed, without one.
 jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn() }));
+// The fourth live read (M3b): §3's certification wallet, mocked per module for the same reason
+// the three above are — it is a database read, and this screen must render against any wallet,
+// and against a read that failed, without one.
+jest.mock('../db/useCertifications', () => ({ useCertifications: jest.fn() }));
+// **What day it is, faked so a wallet row can be judged against a known one** (M3b). §4.1 gives
+// that question to `domain/datetime.ts`, and this screen asks it once per render and hands the
+// answer down — so faking the OWNER is what proves the screen asks it, where a fixed date in a
+// fixture would only prove `formatCertificationSummary` can be handed one. `requireActual`
+// keeps every other date rule real: this file's own `parseDiveCount` mock records why a rule
+// left stubbed leaves the test asserting against its own idea of the app.
+jest.mock('../domain/datetime', () => ({
+  ...jest.requireActual('../domain/datetime'),
+  todayCalendarDate: jest.fn(() => '2026-09-04'),
+}));
 // A preset row pushes `/preset/<id>`; nothing else here navigates.
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
@@ -82,6 +98,7 @@ jest.mock('expo-linking', () => ({ ...jest.requireActual('expo-linking'), openSe
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
 const mockUseGearPresets = useGearPresets as jest.Mock;
+const mockUseCertifications = useCertifications as jest.Mock;
 const mockSetUnitSystem = setUnitSystem as jest.Mock;
 const mockSetDivesBefore = setDivesBefore as jest.Mock;
 const mockPush = router.push as jest.Mock;
@@ -105,12 +122,31 @@ const preset = (over: Partial<GearPreset> = {}): GearPreset => ({
   ...over,
 });
 
+let cardSeq = 0;
+/** A `Certification` with only the fields a case cares about — `preset`'s own shape, and ids
+ * from a counter for its reason: two cards built with identical arguments must still be
+ * distinct, since this list keys its rows by id and the editor is opened by one. */
+const certification = (over: Partial<Certification> = {}): Certification => ({
+  id: `cert-${String(cardSeq++).padStart(4, '0')}`,
+  agency: 'PADI',
+  course: 'Rescue Diver',
+  cardNumber: null,
+  issuedOn: null,
+  expiresOn: null,
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z',
+  // Never written by the repository, so never flagged (§7.1) — `preset`'s own reasoning.
+  dirty: false,
+  deletedAt: null,
+  ...over,
+});
+
 const tank = (over: Partial<Tank> = {}): Tank => ({
   material: null, configuration: null, sizeL: null, workingBar: null,
   o2Pct: null, hePct: null, startBar: null, endBar: null, ...over,
 });
 
-/** All three reads at once, so no test can forget one and render against `undefined`.
+/** All four reads at once, so no test can forget one and render against `undefined`.
  *
  * The presets stub spreads into a fresh array per call for the reason `stubDives`
  * (DiveFormScreen.test.tsx) records at length: the real hook builds its list with
@@ -122,6 +158,9 @@ function stubSettings({
   presets = [],
   presetsError,
   presetsResolved = true,
+  certifications = [],
+  certificationsError,
+  certificationsResolved = true,
   divesBeforeResolved = true,
   permission = 'granted',
 }: {
@@ -130,6 +169,9 @@ function stubSettings({
   presets?: GearPreset[];
   presetsError?: Error;
   presetsResolved?: boolean;
+  certifications?: Certification[];
+  certificationsError?: Error;
+  certificationsResolved?: boolean;
   divesBeforeResolved?: boolean;
   permission?: LocationPermissionState;
 } = {}) {
@@ -151,6 +193,14 @@ function stubSettings({
     presets: [...presets],
     error: presetsError,
     resolved: presetsResolved,
+  }));
+  // A fresh array per call, for the reason the presets stub spreads: the real hook builds its
+  // list with `rows.map(...).sort(...)`, so a stub handing back one referentially-stable array
+  // for ever would model a contract it does not have.
+  mockUseCertifications.mockImplementation(() => ({
+    certifications: [...certifications],
+    error: certificationsError,
+    resolved: certificationsResolved,
   }));
 }
 
@@ -191,6 +241,7 @@ afterEach(() => {
   mockUseUnitSystem.mockReset();
   mockUseDivesBefore.mockReset();
   mockUseGearPresets.mockReset();
+  mockUseCertifications.mockReset();
   mockSetUnitSystem.mockReset();
   mockSetDivesBefore.mockReset();
   mockPush.mockReset();
@@ -234,6 +285,22 @@ function presetRowNames(t: RenderResult): string[] {
 function findPresetRow(t: RenderResult, name: string) {
   const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === `Edit preset ${name}`) : [];
   if (!node) throw new Error(`SettingsScreen rendered no row for the preset "${name}"`);
+  return node;
+}
+
+function findCertificationRow(t: RenderResult, name: string) {
+  const [node] = t.root
+    ? t.root.queryAll((n) => n.props?.accessibilityLabel === `Edit certification ${name}`)
+    : [];
+  if (!node) throw new Error(`SettingsScreen rendered no row for the certification "${name}"`);
+  return node;
+}
+
+function findAddCertificationRow(t: RenderResult) {
+  const [node] = t.root
+    ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Add a certification')
+    : [];
+  if (!node) throw new Error('SettingsScreen did not render the add-a-certification row');
   return node;
 }
 
@@ -564,19 +631,33 @@ it('opens the editor for the preset whose row was tapped', async () => {
 // dive list. That is what keeps the list a list. Asserted as "one control per row, and it is
 // the row" — a delete added beside a name would be a second button inside it.
 //
-// The account row (§3, M2e) and the location row (§3, M2m) are listed with it and are the
-// reason this is an exhaustive list rather than a filter: it is the whole inventory of what
-// this screen can be pressed on, so a control added anywhere on it — a delete on a preset row
-// included — lands here.
+// The account row (§3, M2e), the location row (§3, M2m) and the wallet's two (§3, M3b) are
+// listed with it and are the reason this is an exhaustive list rather than a filter: it is the
+// whole inventory of what this screen can be pressed on, so a control added anywhere on it — a
+// delete on a preset row or on a certification row included — lands here.
+//
+// **The list grows by §3's entries arriving and never by being loosened**, which is the same
+// discipline the labelled-settings assertion below keeps. M3b added two: a card's own row, and
+// the *Add a certification* row the preset list has no counterpart for (§10 puts preset
+// creation in the dive form; a card has nowhere else to come from).
 it('carries no delete of its own, so the list stays a list', async () => {
-  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
+  stubSettings({
+    presets: [preset({ name: 'twin 12 steel' })],
+    certifications: [certification({ agency: 'PADI', course: 'Rescue Diver' })],
+  });
   const t = await render(<SettingsScreen />);
-  // Waited for, because one of the three announces a permission this screen has to read before
-  // it can say anything about it — and an inventory taken before that read answers would be an
+  // Waited for, because one of them announces a permission this screen has to read before it
+  // can say anything about it — and an inventory taken before that read answers would be an
   // inventory of a screen mid-load.
   await waitFor(() => {
     const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
-    expect(labels).toEqual(['Edit preset twin 12 steel', 'Location access: Allowed', 'Open account & sync']);
+    expect(labels).toEqual([
+      'Edit preset twin 12 steel',
+      'Location access: Allowed',
+      'Edit certification PADI Rescue Diver',
+      'Add a certification',
+      'Open account & sync',
+    ]);
   });
 });
 
@@ -636,41 +717,257 @@ it('drops the empty line once there is a preset to show', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// §3's certification wallet (M3b)
+// ---------------------------------------------------------------------------------------
+
+/** Every certification row's name, in the order the screen drew them — read off the announced
+ * labels, which is also what proves each row says what pressing it DOES rather than merely
+ * repeating the name it shows. `presetRowNames`' shape, and whole-label matching for its
+ * reason: a loose match is what let a save control hide behind a preset one earlier on. */
+function certificationRowNames(t: RenderResult): string[] {
+  return buttonLabels(t)
+    .filter((label) => label.startsWith('Edit certification '))
+    .map((label) => label.slice('Edit certification '.length));
+}
+
+// The order is the hook's (`compareCertifications`, domain/certifications.ts), never this
+// screen's — the same rule the preset list keeps. A screen that sorted would be a second
+// comparator, free to disagree with the one the editor and the repository both read through.
+it('lists every card in the order the hook hands them, never its own', async () => {
+  stubSettings({
+    certifications: [
+      certification({ agency: 'SSI', course: 'Rescue Diver' }),
+      certification({ agency: 'PADI', course: 'Open Water' }),
+      certification({ agency: 'CMAS', course: 'Two Star' }),
+    ],
+  });
+  const t = await render(<SettingsScreen />);
+
+  expect(certificationRowNames(t)).toEqual([
+    'SSI Rescue Diver',
+    'PADI Open Water',
+    'CMAS Two Star',
+  ]);
+});
+
+// The row's name is `certificationLabel`'s (format/display.ts, §4.1), so a card holding only
+// half of it still has a heading and a card holding neither is not a blank line.
+it('names a card by whichever of its agency and course it has', async () => {
+  stubSettings({
+    certifications: [
+      certification({ agency: 'SSI', course: null }),
+      certification({ agency: null, course: 'Open Water' }),
+      certification({ agency: null, course: null }),
+    ],
+  });
+  const t = await render(<SettingsScreen />);
+
+  expect(certificationRowNames(t)).toEqual(['SSI', 'Open Water', 'Certification']);
+});
+
+// The second line, from `formatCertificationSummary` — the card number and what its dates say.
+it('shows a card’s number and dates under its name', async () => {
+  stubSettings({
+    certifications: [certification({ cardNumber: '1234567', issuedOn: '2018-07-14' })],
+  });
+  const t = await render(<SettingsScreen />);
+
+  expect(textIn(t).join(' ')).toContain('#1234567 · issued 14 Jul 2018');
+});
+
+/**
+ * **An expired card says so, and nothing else happens.** The fact is the whole of it: no
+ * colour (§0.1 spends hue on depth alone), no icon, no banner. §3 gives *currency* and its
+ * refresher sentence to the Stats screen, which is where a sentence telling a diver to go and
+ * do something belongs.
+ *
+ * **The day comes from the mocked owner, and the two cards sit one day either side of it.**
+ * That is what makes this an assertion about the SCREEN rather than about
+ * `formatCertificationSummary`: a screen that read the clock itself — `new
+ * Date().toISOString().slice(0, 10)`, the UTC day — would judge these rows against a different
+ * day from the one the diver is having, which is the defect
+ * `certifications.utc-plus-14.test.ts` demonstrates in full.
+ */
+it('says a card has expired, and says a live one expires, judged against the device’s day', async () => {
+  (todayCalendarDate as jest.Mock).mockReturnValue('2026-09-04');
+  stubSettings({
+    certifications: [
+      certification({ course: 'Oxygen Provider', expiresOn: '2026-09-03' }),
+      certification({ course: 'First Aid', expiresOn: '2026-09-04' }),
+    ],
+  });
+  const t = await render(<SettingsScreen />);
+  const said = textIn(t).join(' ');
+
+  expect(said).toContain('expired 3 Sep 2026');
+  // The same day the device reports is still current: a certification is valid through its
+  // printed date (`certificationExpiry`, domain/certifications.ts).
+  expect(said).toContain('expires 4 Sep 2026');
+});
+
+/** And moving the device's day moves the verdict, which is the half that proves the screen is
+ * reading it at all rather than having been handed a lucky fixture. */
+it('follows the device’s day when it moves', async () => {
+  (todayCalendarDate as jest.Mock).mockReturnValue('2026-09-05');
+  stubSettings({ certifications: [certification({ expiresOn: '2026-09-04' })] });
+  const t = await render(<SettingsScreen />);
+
+  expect(textIn(t).join(' ')).toContain('expired 4 Sep 2026');
+});
+
+// A card holding nothing beyond its name draws no second line at all — a preset with no
+// cylinders makes the same call one section up, because an empty second line under a name
+// reads as a value that failed to load.
+it('draws no second line for a card with nothing to put in it', async () => {
+  stubSettings({ certifications: [certification({ agency: 'PADI', course: 'Rescue Diver' })] });
+  const t = await render(<SettingsScreen />);
+
+  expect(textIn(t)).toContain('PADI Rescue Diver');
+  expect(textIn(t).join(' ')).not.toContain('issued');
+  expect(textIn(t).join(' ')).not.toContain('#');
+});
+
+it('opens the editor for the card whose row was tapped', async () => {
+  const wanted = certification({ agency: 'SSI', course: 'Rescue Diver' });
+  stubSettings({ certifications: [certification({ agency: 'PADI', course: 'Open Water' }), wanted] });
+  const t = await render(<SettingsScreen />);
+
+  fireEvent.press(findCertificationRow(t, 'SSI Rescue Diver'));
+
+  expect(mockPush).toHaveBeenCalledWith(`/certification/${wanted.id}`);
+});
+
+/**
+ * **The wallet has a way in and the preset list does not**, which is the one structural
+ * difference between the two sections. §10 puts preset creation in the dive form, "where the
+ * cylinders are already typed"; a certification is copied off a plastic card with no dive
+ * attached to it, so without this row the section would have no way to fill itself.
+ */
+it('offers a way to add a card, whether or not the wallet holds any', async () => {
+  for (const cards of [[], [certification()]]) {
+    stubSettings({ certifications: cards });
+    const t = await render(<SettingsScreen />);
+    expect(`${String(cards.length)}: ${String(buttonLabels(t).includes('Add a certification'))}`).toBe(
+      `${String(cards.length)}: true`,
+    );
+  }
+});
+
+it('opens the editor in create mode from that row', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+
+  fireEvent.press(findAddCertificationRow(t));
+
+  expect(mockPush).toHaveBeenCalledWith('/certification/new');
+});
+
+/**
+ * **A failed read is said, and it is not the same sentence as an empty wallet** —
+ * `useCertifications`' `error` field exists for that distinction, and the sentence is the
+ * editor's own (`CERTIFICATIONS_UNREADABLE`) rather than a second literal here.
+ */
+it('says the read failed rather than leaving an empty section', async () => {
+  stubSettings({ certifications: [], certificationsError: new Error('no database') });
+  const t = await render(<SettingsScreen />);
+
+  expect(textIn(t).join(' ')).toContain("Couldn't load your certifications");
+});
+
+/**
+ * **And nothing is said before there is an answer to say it about** (M1f) — the gate the
+ * preset section keeps for its own pair, and the reason `resolved` exists at all. A screen
+ * with no answer must not state one.
+ *
+ * The other half of the guard is the empty case: an unread wallet and an empty one must both
+ * be silent, because the *Add* row already says what to do. That is what makes this different
+ * from the presets, where the empty case has a sentence of its own.
+ */
+it('says nothing about the wallet before the read has answered, nor when it is simply empty', async () => {
+  stubSettings({ certifications: [], certificationsResolved: false, certificationsError: new Error('x') });
+  const unread = await render(<SettingsScreen />);
+  expect(textIn(unread).join(' ')).not.toContain("Couldn't load your certifications");
+  // The section still names itself, so nothing above the line moves when the line arrives.
+  expect(textIn(unread).join(' ')).toContain('Certifications');
+
+  stubSettings({ certifications: [], certificationsResolved: true });
+  const empty = await render(<SettingsScreen />);
+  expect(textIn(empty).join(' ')).not.toContain("Couldn't load your certifications");
+  expect(textIn(empty).join(' ')).toContain('Certifications');
+});
+
+/**
+ * **A failed read of one list must not blank the other**, which is why the two are separate
+ * hooks (`useCertifications`' own docblock, quoting `useGearPresets`' at length). This is that
+ * separation asserted through the screen rather than stated in a comment.
+ */
+it('keeps the presets when the wallet cannot be read, and the other way round', async () => {
+  stubSettings({
+    presets: [preset({ name: 'twin 12 steel' })],
+    certifications: [],
+    certificationsError: new Error('no database'),
+  });
+  const t = await render(<SettingsScreen />);
+  expect(presetRowNames(t)).toEqual(['twin 12 steel']);
+
+  stubSettings({
+    presets: [],
+    presetsError: new Error('no database'),
+    certifications: [certification({ agency: 'PADI', course: 'Open Water' })],
+  });
+  const other = await render(<SettingsScreen />);
+  expect(certificationRowNames(other)).toEqual(['PADI Open Water']);
+});
+
+// ---------------------------------------------------------------------------------------
 // Scope and grammar
 // ---------------------------------------------------------------------------------------
 
-// §3 lists more under Settings — the certification wallet, export, delete account — and every
-// one of them belongs to M3. This is a scope assertion, and it can fail: a stray control added
-// here would show up as a fourth labelled field.
+// §3 lists more under Settings — data export, delete account, language — and every one of them
+// belongs to a later part of M3. This is a scope assertion, and it can fail: a stray control
+// added here would show up as a fourth labelled field.
 //
 // **The list grows by §3's entries arriving, one deliberate edit at a time, and never by being
 // loosened.** §3's location access is the third and arrived in M2m — a row whose label is a
 // setting's label because it reports a value, even though the value belongs to the operating
 // system and this screen cannot write it. Cylinder presets are a §3 entry too and are NOT here,
 // because they are a LIST rather than a setting and carry a section heading instead of a field
-// label; account & sync likewise, as a destination in full ink. "Fields I use" was on this list
-// until M1i dropped it from v1 (§2.2, §9) — it is not a later milestone, it is not coming, and
-// this test should not start expecting it.
+// label; **§3's certification wallet arrived in M3b and is NOT here for exactly that reason**,
+// which is the point of this assertion rather than an exception to it — an entry landing on
+// this screen has to be classified as a setting or as a list, and the wallet is a list. Account
+// & sync likewise, as a destination in full ink. "Fields I use" was on this list until M1i
+// dropped it from v1 (§2.2, §9) — it is not a later milestone, it is not coming, and this test
+// should not start expecting it.
 it('carries §3’s three labelled settings and no more', async () => {
-  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
+  stubSettings({
+    presets: [preset({ name: 'twin 12 steel' })],
+    certifications: [certification()],
+  });
   const t = await render(<SettingsScreen />);
   const labels = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFieldLabel)) : [];
   expect(labels.flatMap((n) => n.children)).toEqual(['Units', 'Dives before Ponor', 'Location access']);
   expect(textIn(t)).toContain('Cylinder presets');
+  // And the wallet really is on screen while that list stays at three, so this cannot pass
+  // because the section failed to render at all.
+  expect(textIn(t)).toContain('Certifications');
 });
 
 // §0.6, and the reason the screen borrows the form's components rather than restating them:
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Five rows with one preset: Units, Dives before Ponor, the preset's own, §3's location access
-// and §3's account & sync — every one of them the same `formField` row, so a preset, a report
-// and a destination are rows of this screen rather than new kinds of object drawn beside them.
+// Seven rows with one preset and one card: Units, Dives before Ponor, the preset's own, §3's
+// location access, the card's own, *Add a certification* and §3's account & sync — every one of
+// them the same `formField` row, so a preset, a card, a report, an action and a destination are
+// rows of this screen rather than new kinds of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
-  stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
+  stubSettings({
+    presets: [preset({ name: 'twin 12 steel' })],
+    certifications: [certification()],
+  });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(5);
+  expect(rows).toHaveLength(7);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks

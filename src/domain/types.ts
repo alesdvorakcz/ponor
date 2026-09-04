@@ -390,6 +390,42 @@ export interface GearPreset {
 }
 
 /**
+ * One card in the diver's certification wallet (DESIGN.md §3, §6). Mirrors the
+ * `certifications` table, which mirrors the Postgres one.
+ *
+ * **Every field nullable, and this one really does mean every field** — unlike a dive, which
+ * keeps its `date`, and unlike a preset, which keeps its `name`. §6 says so, and the reason
+ * is what a wallet is for: a diver transcribing a plastic card may have the agency and the
+ * course and no number, or a number and no dates, and there is no one field the others are
+ * meaningless without. What a card may not be is *entirely* empty, and that is a rule about a
+ * save rather than about the shape — `domain/certifications.ts` owns it.
+ *
+ * **`agency` and `course` are free text.** §6's `PADI·SSI·CMAS·…` names three of dozens, and
+ * a course name is a marketing string that changes with each agency's syllabus; there is no
+ * closed list here for this file to own (see `certifications` in db/schema.ts for the whole
+ * argument, including why §10's store-and-flag ruling argues *against* a vocabulary here
+ * rather than for one).
+ *
+ * **`issuedOn` and `expiresOn` are `YYYY-MM-DD` calendar dates**, never timestamps — the
+ * strings `domain/datetime.ts` owns (§4.1). Most cards never expire; §6 names the two kinds
+ * that do, "(O₂, first aid)", which is why the column exists and why a null in it means "this
+ * card does not expire" rather than "nobody has typed it yet".
+ */
+export interface Certification {
+  id: string;
+  agency: string | null;
+  course: string | null;
+  cardNumber: string | null;
+  issuedOn: string | null;
+  expiresOn: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  /** Waiting to go up (§7.1) — see `Dive['dirty']` for what it is and what may move it. */
+  dirty: boolean;
+}
+
+/**
  * A community dive site as the device holds it — the on-device copy §2.3's offline
  * autocomplete reads and §5 promises syncs to every device.
  *

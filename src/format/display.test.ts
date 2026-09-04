@@ -8,6 +8,9 @@ import {
   type Tank,
 } from '../domain/types';
 import {
+  certificationLabel,
+  formatCertificationSummary,
+  UNTITLED_CERTIFICATION,
   formatCurrent,
   formatSurge,
   formatWaves,
@@ -1231,5 +1234,92 @@ describe('formatSiteFacts', () => {
     expect(
       formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
     ).toBe('112 ft');
+  });
+});
+
+
+/**
+ * **§3's certification wallet, as a diver reads it** (M3b).
+ *
+ * Both of these fail quietly: a label that falls back too eagerly turns a real card into a
+ * placeholder, and a summary that says "expires" over a date that has passed tells a diver
+ * their O₂ card is still good. The judgement behind the second — whether the card has run out —
+ * is `certificationExpiry`'s (domain/certifications.ts) and is tested there; what is tested
+ * here is the wording it decides.
+ */
+describe('certificationLabel', () => {
+  it('reads the agency and the course together, the way a diver says it', () => {
+    expect(certificationLabel({ agency: 'PADI', course: 'Rescue Diver' })).toBe('PADI Rescue Diver');
+  });
+
+  it('takes whichever half the card has', () => {
+    expect(certificationLabel({ agency: 'SSI', course: null })).toBe('SSI');
+    expect(certificationLabel({ agency: null, course: 'Open Water' })).toBe('Open Water');
+  });
+
+  /**
+   * Always a string, never null — `diveSiteLabel`'s contract, and the same reason: a row with
+   * no heading is a blank line, which is the defect itself. §6 makes every column nullable, so
+   * a card naming nothing can arrive from another client even though `certificationRefusal`
+   * will not let a diver author one.
+   */
+  it('falls back for a card that names nothing, blanks included', () => {
+    expect(certificationLabel({ agency: null, course: null })).toBe(UNTITLED_CERTIFICATION);
+    expect(certificationLabel({ agency: '   ', course: '' })).toBe(UNTITLED_CERTIFICATION);
+  });
+});
+
+describe('formatCertificationSummary', () => {
+  const card = {
+    cardNumber: '1234567',
+    issuedOn: '2018-07-14',
+    expiresOn: null as string | null,
+  };
+
+  it('lists the number and the issue date, middot-separated', () => {
+    expect(formatCertificationSummary(card, null)).toBe('#1234567 · issued 14 Jul 2018');
+  });
+
+  it('says a card is still good in the present tense', () => {
+    expect(formatCertificationSummary({ ...card, expiresOn: '2027-07-14' }, 'current')).toBe(
+      '#1234567 · issued 14 Jul 2018 · expires 14 Jul 2027',
+    );
+  });
+
+  /** The fact the diver would want to see, and nothing more: no colour (§0.1 spends hue on
+   * depth alone), no icon, no nudge. §3 gives currency and its refresher sentence to the Stats
+   * screen. */
+  it('says a card has run out in the past tense, and nothing else happens', () => {
+    expect(formatCertificationSummary({ ...card, expiresOn: '2024-07-14' }, 'expired')).toBe(
+      '#1234567 · issued 14 Jul 2018 · expires 14 Jul 2024'.replace('expires', 'expired'),
+    );
+  });
+
+  /** A date this build cannot judge is still the diver's, so it is shown as it stands rather
+   * than judged — `certificationExpiry` answering null is the "we do not know" case. */
+  it('keeps the present tense when the expiry could not be judged', () => {
+    expect(formatCertificationSummary({ ...card, expiresOn: 'sometime' }, null)).toBe(
+      '#1234567 · issued 14 Jul 2018 · expires sometime',
+    );
+  });
+
+  it('omits every part the card has nothing behind', () => {
+    expect(formatCertificationSummary({ cardNumber: null, issuedOn: null, expiresOn: '2027-07-14' }, 'current')).toBe(
+      'expires 14 Jul 2027',
+    );
+    expect(formatCertificationSummary({ cardNumber: '  ', issuedOn: '2018-07-14', expiresOn: null }, null)).toBe(
+      'issued 14 Jul 2018',
+    );
+  });
+
+  /**
+   * **Null rather than an em dash**, which is §3's own distinction rather than an
+   * inconsistency with the Stats screen: M3a gives a dash to a screen with a fixed inventory,
+   * and this is a list whose rows vary with what the diver recorded. An empty second line
+   * under a name reads as a value that failed to load — `settingsPresetSummary` one section up
+   * already omits its own for the same reason.
+   */
+  it('answers null when there is nothing to add beyond the card’s own name', () => {
+    expect(formatCertificationSummary({ cardNumber: null, issuedOn: null, expiresOn: null }, null)).toBeNull();
   });
 });

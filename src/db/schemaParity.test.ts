@@ -98,8 +98,15 @@ const localTable = (name: string) => {
  * catalogue" both require a local copy, and `pull_changes` has been returning one since M2b
  * with nowhere to put it. What was a table-shaped difference is now a column-shaped one — the
  * PostGIS point against the coordinate pair — which is the difference §6 already rules on.
+ *
+ * **`certifications` joined in M3b**, where it had been a whole-table Postgres-only exception
+ * since M2a reading "M3 builds the wallet screen. No local table until then." This is that
+ * milestone: §3 lists the wallet under Settings, `push_changes` has accepted these rows since
+ * M2a and `pull_changes` has returned them since M2b, and until now they had nowhere on the
+ * device to land. What was a table-shaped difference is now the ordinary two column-shaped
+ * ones every private synced table has — the server's `user_id` and the device's `dirty`.
  */
-const SYNCED_TABLES = ['dives', 'gear_presets', 'dive_sites', 'dive_centers'] as const;
+const SYNCED_TABLES = ['dives', 'gear_presets', 'certifications', 'dive_sites', 'dive_centers'] as const;
 
 type SyncedTable = (typeof SYNCED_TABLES)[number];
 
@@ -113,7 +120,6 @@ const LOCAL_ONLY_TABLES: Record<string, string> = DEVICE_ONLY_TABLES;
 
 const POSTGRES_ONLY_TABLES: Record<string, string> = {
   profiles: '§6: display_name + dives_before. A device has one diver, so nothing local mirrors it.',
-  certifications: '§6 specifies it; M3 builds the wallet screen. No local table until then.',
   site_edits:
     "§5's review queue — \"everyone else taps *suggest a correction*, which lands in a review " +
     'queue" — created by M2c, which also found that §6\'s table list never mentioned it. ' +
@@ -176,6 +182,11 @@ const POSTGRES_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
   gear_presets: {
     user_id: 'As dives.user_id — ownership is a server-side fact.',
   },
+  certifications: {
+    user_id:
+      'As dives.user_id — ownership is a server-side fact, and §5 cascades this one so a ' +
+      "departed diver's cards go with the account.",
+  },
   dive_sites: {
     location:
       '§6: "SQLite has no point type … Postgres composes them into a PostGIS point — the ' +
@@ -201,6 +212,7 @@ const POSTGRES_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
 const LOCAL_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
   dives: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
   gear_presets: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
+  certifications: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
   dive_sites: {
     latitude: '§6: the pair the device holds in place of the server\'s PostGIS point; it is on ' +
       'the wire either way, as `sync_site` renders it and `push_changes` reads it back.',

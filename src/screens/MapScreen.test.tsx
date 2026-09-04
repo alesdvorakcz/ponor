@@ -20,6 +20,7 @@ import { locationPermission, requestLocationPermission } from '../platform/locat
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthBandColor } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import MapScreen from './MapScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -200,7 +201,7 @@ it('states nothing about a logbook it has not read yet', async () => {
 it('reports a failed logbook read rather than an empty map', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('nope') }));
   const t = await show();
-  expect(textIn(t).join(' ')).toContain("Couldn't open your logbook");
+  expect(textIn(t).join(' ')).toContain(LOGBOOK_UNREADABLE);
   expect(hasMap(t)).toBe(false);
 });
 

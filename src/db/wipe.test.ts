@@ -11,9 +11,14 @@ import {
   type PulledCenter,
   type PulledSite,
 } from './catalogue';
+import {
+  createCertification,
+  softDeleteCertification,
+  wipeCertifications,
+} from './certifications';
 import { createDive, softDeleteDive, wipeDives } from './dives';
 import { createGearPreset, softDeleteGearPreset, wipeGearPresets } from './gearPresets';
-import { diveCenters, diveSites, dives, gearPresets, syncState } from './schema';
+import { certifications, diveCenters, diveSites, dives, gearPresets, syncState } from './schema';
 import { forgetLastPulledAt, recordPull } from './syncState';
 import { createTestDb, type TestDb } from './testDb';
 
@@ -35,7 +40,7 @@ import { createTestDb, type TestDb } from './testDb';
  * checked below is the statement, not the event it causes on a device.
  *
  * The instrument that looks like it would close the gap makes it worse: an `AFTER DELETE`
- * trigger counting rows would report all five of these healthy while they were broken,
+ * trigger counting rows would report all six of these healthy while they were broken,
  * because a trigger on the table is itself one of the conditions that disables the truncate
  * optimisation. Measured, not assumed — the last case in this file is that measurement, kept
  * as an executable record of why the obvious test is not here.
@@ -151,6 +156,17 @@ const SITES: Record<string, WipeSite> = {
     tombstones: (database) => tombstonesIn(database, gearPresets),
     wipe: (database) => wipeGearPresets(database),
   },
+  'db/certifications.ts wipeCertifications': {
+    table: certifications,
+    seeded: 2,
+    seed: async (database) => {
+      await createCertification(database, { agency: 'PADI', course: 'Rescue Diver' });
+      const gone = await createCertification(database, { agency: 'SSI' });
+      await softDeleteCertification(database, gone.id);
+    },
+    tombstones: (database) => tombstonesIn(database, certifications),
+    wipe: (database) => wipeCertifications(database),
+  },
   'db/catalogue.ts wipeDiveSites': {
     table: diveSites,
     seeded: 2,
@@ -198,11 +214,11 @@ function opcodesOf(statement: string): string[] {
 }
 
 describe('§7.4’s wipe emits a statement that visits every row (M2i)', () => {
-  it('covers every bare-delete site there is, so a sixth cannot be added unnoticed', () => {
+  it('covers every bare-delete site there is, so a seventh cannot be added unnoticed', () => {
     // The floor `dirty.test.ts` puts under its own census, for the same reason: a table below
     // that quietly stopped being listed would be a wipe nobody checked, and the failure is a
-    // screen drawing a logbook that has been erased.
-    expect(sites.length).toBe(5);
+    // screen drawing a logbook that has been erased. Six since M3b's wallet.
+    expect(sites.length).toBe(6);
   });
 
   it.each(sites)('%s', async (_name, site) => {

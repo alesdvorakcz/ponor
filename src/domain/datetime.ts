@@ -200,6 +200,31 @@ export function storedCalendarDate(value: unknown): unknown {
 }
 
 /**
+ * The write-boundary policy for a stored calendar date **that is allowed to be absent** —
+ * `certifications.issued_on` and `expires_on` (§6), applied by `db/certifications.ts`.
+ *
+ * **`storedTimeOfDay`'s rule, about a date instead of a time**, and a deliberate
+ * near-duplicate rather than an accident (§4.1 asks such a pair to name its siblings). The
+ * three of them divide by what the column may hold, which is a real difference and not a
+ * style: `storedCalendarDate` serves a NOT NULL column and therefore never answers null;
+ * this serves a nullable one and must, because an untouched `DateTimeField` hands back `''`
+ * and a blank means *no date*, not a date. Stored as-is, `''` would sort before every real
+ * date and would read on screen as a value that failed to load rather than as a card with no
+ * expiry — the identical defect an empty `timeIn` produced at the head of its day.
+ *
+ * Anything naming a real date is canonicalised however it was spelled, and anything else is
+ * stored unchanged: §1 does not let a write boundary reject, and a value the diver put there
+ * is not this function's to throw away.
+ */
+export function storedOptionalCalendarDate(value: string | null): string | null;
+export function storedOptionalCalendarDate(value: unknown): unknown;
+export function storedOptionalCalendarDate(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  return storedCalendarDate(value);
+}
+
+/**
  * The write-boundary policy for a stored `timeIn`, applied by `db/dives.ts`.
  *
  * Blank means *no time*, not a time: an untouched TextInput hands back `''`,

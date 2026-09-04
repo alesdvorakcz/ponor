@@ -7,6 +7,7 @@ import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
 import { DiveRow } from '../components/DiveRow';
 import { SearchCapsule } from '../components/SearchCapsule';
 import { useDives } from '../db/useDives';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
 import { backToDives } from '../navigation/leaveScreen';
@@ -73,7 +74,9 @@ export default function SearchScreen() {
   // and "nothing typed yet" must never read as "nothing found".
   const body = () => {
     if (error) {
-      return <Text style={styles.messageText}>Couldn&apos;t open your logbook. Try closing and reopening the app.</Text>;
+      // `LOGBOOK_UNREADABLE` (db/useDives.ts), not a literal: four screens say this about
+      // this hook's own `error`, and three spellings of it had already appeared.
+      return <Text style={styles.messageText}>{LOGBOOK_UNREADABLE}</Text>;
     }
     if (!asked) {
       return <Text style={styles.messageText}>Search your dives by site, centre, buddy or notes.</Text>;

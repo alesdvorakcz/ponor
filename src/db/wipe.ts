@@ -67,7 +67,7 @@ import { sql, type SQL } from 'drizzle-orm';
  *
  * ── Shared, for §4.1's reason ────────────────────────────────────────────────────────────
  *
- * Five wipes need this and five copies of the explanation is five chances for one of them to
+ * Six wipes need this and six copies of the explanation is six chances for one of them to
  * be shortened into a lie. It is `db/tombstone.ts`'s shape exactly: a condition owned in one
  * place and applied by each table's own repository, so `db/dives.ts` stays the only writer to
  * dives (§4.1) and `dirty.test.ts`'s sweep of who may write at all stays true as written.

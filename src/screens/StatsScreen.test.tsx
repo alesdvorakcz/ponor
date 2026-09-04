@@ -19,6 +19,7 @@ import { formatLogbookSummary } from '../format/display';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthScale } from '../theme/tokens';
 import { makeStyles, screenBottomInset } from '../theme/styles';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import StatsScreen, {
   COUNTRIES_UNKNOWN_NOTE,
   NOTHING_LOGGED_MESSAGE,
@@ -205,7 +206,7 @@ it.each([
 it('reports a failed logbook read rather than a screen of noughts', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('disk') }));
   const t = await show();
-  expect(textIn(t).join(' ').toLowerCase()).toContain('couldn’t open your logbook');
+  expect(textIn(t).join(' ')).toContain(LOGBOOK_UNREADABLE);
   // Not the empty-logbook sentence, and no figures either: a read that failed knows nothing
   // about how many dives there are, and "0 dives" over a broken read is the plausible lie.
   expect(textIn(t)).not.toContain(NOTHING_LOGGED_MESSAGE);

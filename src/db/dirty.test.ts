@@ -4,6 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import * as catalogueModule from './catalogue';
+import * as certificationsModule from './certifications';
+import {
+  adoptCertifications,
+  applyPulledCertifications,
+  clearCertificationDirtyFlags,
+  createCertification,
+  softDeleteCertification,
+  updateCertification,
+  wipeCertifications,
+} from './certifications';
 import {
   adoptDiveCenters,
   adoptDiveSites,
@@ -43,7 +53,7 @@ import {
   updateGearPreset,
   wipeGearPresets,
 } from './gearPresets';
-import { diveCenters, diveSites, dives, gearPresets } from './schema';
+import { certifications, diveCenters, diveSites, dives, gearPresets } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
 /**
@@ -152,6 +162,11 @@ const aPreset = async (database: TestDb): Promise<Subject> => {
 const aSite = async (database: TestDb): Promise<Subject> => {
   const site = await createDiveSite(database, { name: 'Blue Hole' });
   return { table: diveSites, id: site.id, updatedAt: site.updatedAt };
+};
+
+const aCard = async (database: TestDb): Promise<Subject> => {
+  const card = await createCertification(database, { agency: 'PADI', course: 'Rescue Diver' });
+  return { table: certifications, id: card.id, updatedAt: card.updatedAt };
 };
 
 const aCenter = async (database: TestDb): Promise<Subject> => {
@@ -352,6 +367,80 @@ const PRESETS: Record<keyof typeof presetsModule, WritePath> = {
   pendingGearPresets: { reads: 'The push set — reads the flag, never moves it.' },
 };
 
+/** `pulledDive` for a certification. */
+async function pulledCard(database: TestDb, id: string) {
+  const seed = await createCertification(database, { agency: 'SSI', course: 'Open Water' });
+  const { dirty: _flag, ...row } = seed;
+  return { ...row, id, updatedAt: '2099-01-01T00:00:00.000Z' };
+}
+
+const CERTIFICATIONS: Record<keyof typeof certificationsModule, WritePath> = {
+  createCertification: {
+    leaves: 'dirty',
+    when: async (database) => {
+      const card = await createCertification(database, { agency: 'PADI' });
+      return { table: certifications, id: card.id };
+    },
+  },
+  updateCertification: {
+    leaves: 'dirty',
+    given: aCard,
+    when: async (database, given) => {
+      const subject = required(given);
+      await updateCertification(database, subject.id, { cardNumber: '1234567' });
+      return subject;
+    },
+  },
+  softDeleteCertification: {
+    leaves: 'dirty',
+    given: aCard,
+    when: async (database, given) => {
+      const subject = required(given);
+      await softDeleteCertification(database, subject.id);
+      return subject;
+    },
+  },
+  clearCertificationDirtyFlags: {
+    leaves: 'clean',
+    given: aCard,
+    when: async (database, given) => {
+      const subject = required(given);
+      await clearCertificationDirtyFlags(database, [
+        { id: subject.id, updatedAt: subject.updatedAt ?? '' },
+      ]);
+      return subject;
+    },
+  },
+  adoptCertifications: {
+    leaves: 'dirty',
+    given: aCard,
+    when: async (database, given) => {
+      const subject = required(given);
+      await adoptCertifications(database);
+      return subject;
+    },
+  },
+  applyPulledCertifications: {
+    leaves: 'clean',
+    when: async (database) => {
+      await applyPulledCertifications(database, [await pulledCard(database, 'pulled-card')]);
+      return { table: certifications, id: 'pulled-card' };
+    },
+  },
+  wipeCertifications: {
+    erases: '\u00a77.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: certifications,
+    seed: aCard,
+    erase: (database) => wipeCertifications(database),
+  },
+  getCertification: { reads: 'A read.' },
+  countPendingCertifications: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
+  certificationRowsQuery: { reads: 'A query builder for useLiveQuery.' },
+  toCertifications: { reads: 'Rows to sorted domain certifications \u2014 a mapper.' },
+  listCertifications: { reads: 'A read.' },
+  pendingCertifications: { reads: 'The push set \u2014 reads the flag, never moves it.' },
+};
+
 /** A server row for a site, in the shape `pull_changes` renders (M2b's `sync_site`). */
 const pulledSite = (id: string, updatedAt: string) => ({
   id,
@@ -488,6 +577,7 @@ const CATALOGUE: Record<keyof typeof catalogueModule, WritePath> = {
 const OWNERS: Record<string, { module: Record<string, unknown>; paths: Record<string, WritePath> }> = {
   'db/dives.ts': { module: divesModule, paths: DIVES },
   'db/gearPresets.ts': { module: presetsModule, paths: PRESETS },
+  'db/certifications.ts': { module: certificationsModule, paths: CERTIFICATIONS },
   'db/catalogue.ts': { module: catalogueModule, paths: CATALOGUE },
 };
 
@@ -527,6 +617,8 @@ describe('every write path is classified, and the classification is exhaustive (
       'db/dives.ts': 8,
       // create · update · soft-delete · clear · adopt · apply-pulled
       'db/gearPresets.ts': 6,
+      // create · update · soft-delete · clear · adopt · apply-pulled (M3b)
+      'db/certifications.ts': 6,
       // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
       'db/catalogue.ts': 8,
     };
@@ -536,13 +628,13 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(22);
+    expect(writePaths.length).toBe(28);
 
     // §7.4's erases, counted the same way and for the same reason: one filed as a read would
     // never be run, and a sign-out that quietly left a table behind is a device holding one
     // person's logbook after they have gone.
-    // dives · presets · sites · centres
-    expect(erasePaths.length).toBe(4);
+    // dives · presets · cards · sites · centres
+    expect(erasePaths.length).toBe(5);
 
     // And a read is classified with a reason, not with an empty string.
     for (const { paths } of Object.values(OWNERS)) {
@@ -691,15 +783,16 @@ describe('the announcement a write makes (§7.5’s save trigger)', () => {
     stop();
   });
 
-  it('tells it again for a preset, a site and a centre — every table §7 pushes', async () => {
+  it('tells it again for a preset, a card, a site and a centre — every table §7 pushes', async () => {
     const heard: number[] = [];
     const stop = onLocalWrite(() => heard.push(1));
 
     await createGearPreset(db, { name: 'twin 12 steel' });
+    await createCertification(db, { agency: 'PADI' });
     await createDiveSite(db, { name: 'Blue Hole' });
     await createDiveCenter(db, { name: 'Dahab Divers' });
 
-    expect(heard.length).toBe(3);
+    expect(heard.length).toBe(4);
     stop();
   });
 
@@ -908,9 +1001,13 @@ describe('clearing a flag (§7.1, "the client clears its flags")', () => {
 
 describe('the owners are the only writers, and every write of theirs carries the stamp', () => {
   const SRC = path.join(__dirname, '..');
-  const OWNER_SOURCES = ['dives.ts', 'gearPresets.ts', 'catalogue.ts', 'dirty.ts'].map((file) =>
-    path.join(__dirname, file),
-  );
+  const OWNER_SOURCES = [
+    'dives.ts',
+    'gearPresets.ts',
+    'certifications.ts',
+    'catalogue.ts',
+    'dirty.ts',
+  ].map((file) => path.join(__dirname, file));
 
   /** Every source file of the app — tests excluded, since a test may write what it likes. */
   function sourceFiles(dir: string): string[] {
@@ -922,11 +1019,42 @@ describe('the owners are the only writers, and every write of theirs carries the
     });
   }
 
+  /**
+   * Every file that writes to the database, and what kind of writer it is.
+   *
+   * **The role is what ties this sweep to the matrix above** (M3b), and until then the two
+   * lists were independent. This test found `db/certifications.ts` — a new repository writing
+   * rows — and demanded one edit: adding its name here. Nothing then required it to be
+   * CLASSIFIED, so a synced table's whole repository could have arrived with every write path
+   * unexercised while both halves of this file stayed green. `synced` below is the tie: an
+   * owner named here and missing from `OWNERS` fails, and vice versa.
+   */
+  const WRITERS: Record<string, { readonly role: 'synced' | 'mechanism' | 'local'; readonly why: string }> = {
+    'db/dives.ts': { role: 'synced', why: '§4.1: every write to a dive.' },
+    'db/gearPresets.ts': { role: 'synced', why: '§4.1: every write to a preset.' },
+    'db/certifications.ts': { role: 'synced', why: "§4.1, M3b: every write to a diver's card." },
+    'db/catalogue.ts': { role: 'synced', why: '§4.1, M2d: every write to a site or a centre.' },
+    'db/dirty.ts': {
+      role: 'mechanism',
+      why: 'The shared mechanism the owners reach the flag through — reached from an owner ' +
+        'and from nowhere else, which the classification matrix above is what pins.',
+    },
+    'db/settings.ts': {
+      role: 'local',
+      why: "§6's local-only preferences. Not synced, so there is no flag to set.",
+    },
+    'db/syncState.ts': {
+      role: 'local',
+      why: "§6's local-only watermark (§7.3). Not synced, so there is no flag to set.",
+    },
+  };
+
   it('lets only the repositories write to the database at all (§4.1)', () => {
     // §4.1 gives every write to a dive to `db/dives.ts` and every write to a preset to
-    // `db/gearPresets.ts`, and M2d adds the catalogue's to `db/catalogue.ts`. That is what
-    // makes "every write sets the flag" checkable at all: a screen or a hook issuing its own
-    // UPDATE would be outside every rule above, and would fail nothing.
+    // `db/gearPresets.ts`; M2d adds the catalogue's to `db/catalogue.ts` and M3b the wallet's
+    // to `db/certifications.ts`. That is what makes "every write sets the flag" checkable at
+    // all: a screen or a hook issuing its own UPDATE would be outside every rule above, and
+    // would fail nothing.
     const files = sourceFiles(SRC);
     expect(files.length).toBeGreaterThan(50);
 
@@ -935,20 +1063,36 @@ describe('the owners are the only writers, and every write of theirs carries the
       .map((file) => path.relative(SRC, file))
       .sort();
 
-    expect(writers).toEqual(
-      [
-        'db/catalogue.ts',
-        // The shared mechanism the three owners reach the flag through — it is reached from
-        // an owner and from nowhere else, which the classification matrix above is what pins.
-        'db/dirty.ts',
-        'db/dives.ts',
-        'db/gearPresets.ts',
-        // The two local-only tables (§6). Neither is synced, so neither has a flag to set:
-        // `settings` is the diver's preferences and `sync_state` is §7.3's watermark.
-        'db/settings.ts',
-        'db/syncState.ts',
-      ].sort(),
-    );
+    expect(writers).toEqual(Object.keys(WRITERS).sort());
+    // Floored and reasoned, so neither an extractor that found nothing nor an entry added
+    // without cause can pass quietly.
+    expect(writers.length).toBeGreaterThan(5);
+    expect(Object.values(WRITERS).filter((entry) => entry.why.trim().length < 20)).toEqual([]);
+  });
+
+  it('classifies the write paths of every repository that owns a synced table', () => {
+    // The tie. `OWNERS` above is a hand-written list of modules whose exports are enumerated
+    // and exercised; this says which modules that list has to contain, read from the sweep
+    // that finds writers rather than from a second copy of the same names. A repository added
+    // to `WRITERS` as `synced` and left out of `OWNERS` is a table whose every write path is
+    // unclassified and unexercised — which is exactly the state `db/certifications.ts` was in
+    // for as long as it took to write this.
+    const owed = Object.entries(WRITERS)
+      .filter(([, entry]) => entry.role === 'synced')
+      .map(([file]) => file)
+      .sort();
+
+    expect(Object.keys(OWNERS).sort()).toEqual(owed);
+    // Floored, because two empty lists are equal.
+    expect(owed.length).toBeGreaterThan(3);
+
+    // **That an entry names the right MODULE is already held, one test up rather than here.**
+    // `%s classifies every one of its exports` compares `Object.keys(module)` against
+    // `Object.keys(paths)`, so an entry filed under the wrong name — `db/catalogue.ts` paired
+    // with `divesModule` — turns red there with two disjoint export lists. A second check for
+    // it here would be a guard whose failure is impossible, which this file has already found
+    // to be worse than none; a name-similarity heuristic was tried and rejected on the way,
+    // because `catalogue.ts` exports nothing called "catalogue".
   });
 
   it('stamps every UPDATE an owner issues, in one of the three spellings there are', () => {
@@ -989,20 +1133,28 @@ describe('the owners are the only writers, and every write of theirs carries the
     // NULL with **no Drizzle default**, so Drizzle's own insert type requires it. Every
     // `@ts-expect-error` below is an assertion that `npm run typecheck` still refuses the row
     // — delete the flag from `schema.ts`'s `dirtyFlag`, or give it a `.default()`, and these
-    // four lines stop erroring and the gate goes red.
+    // five lines stop erroring and the gate goes red.
     const stamps = { createdAt: '2026-08-16T00:00:00.000Z', updatedAt: '2026-08-16T00:00:00.000Z' };
 
     // @ts-expect-error — a dive insert with no flag
     const dive: typeof dives.$inferInsert = { id: 'a', date: '2026-08-16', ...stamps };
     // @ts-expect-error — a preset insert with no flag
     const preset: typeof gearPresets.$inferInsert = { id: 'b', name: 'alu 80', ...stamps };
+    // @ts-expect-error — a certification insert with no flag
+    const card: typeof certifications.$inferInsert = { id: 'e', ...stamps };
     // @ts-expect-error — a site insert with no flag
     const site: typeof diveSites.$inferInsert = { id: 'c', ...stamps };
     // @ts-expect-error — a centre insert with no flag
     const centre: typeof diveCenters.$inferInsert = { id: 'd', ...stamps };
 
-    // Used, so the four declarations are not dead code the linter would ask to delete.
-    expect([dive, preset, site, centre].map((row) => row.id)).toEqual(['a', 'b', 'c', 'd']);
+    // Used, so the five declarations are not dead code the linter would ask to delete.
+    expect([dive, preset, site, centre, card].map((row) => row.id)).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
   });
 });
 

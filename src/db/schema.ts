@@ -244,6 +244,48 @@ export const gearPresets = sqliteTable('gear_presets', {
 });
 
 /**
+ * The diver's certification wallet — one row per card (DESIGN.md §3, §6).
+ *
+ * **Column for column the Postgres table** (`supabase/migrations/20260902090100_schema.sql`),
+ * with the two differences every private synced table has: `user_id` is the server's alone
+ * (§7.4 — a device holds one diver's logbook) and `dirty` is the device's alone (§7.1).
+ * `src/db/schemaParity.test.ts` carries both as named exceptions and fails on any other.
+ * That table has existed since M2a and `push_changes`/`pull_changes` have carried these rows
+ * since M2b; this is the SQLite side they had nowhere to land in, so until M3b a diver could
+ * neither enter a card nor receive one.
+ *
+ * **Every column nullable**, which is §6's rule and not laxity: a diver who remembers only
+ * that they are an SSI Open Water diver must be able to say that and nothing else, and a card
+ * arriving from another device may legitimately carry any subset.
+ *
+ * **`agency` is free text, not a vocabulary** (M3b). §6 writes it `PADI·SSI·CMAS·…` and the
+ * ellipsis is the whole point — BSAC, NAUI, SDI/TDI, RAID, GUE, IANTD, FFESSM, AIDA,
+ * Molchanovs and a long tail besides. `domain/types.ts` owns "every closed vocabulary a form
+ * offers as a fixed list" (§4.1), and putting an open list there would make that file assert
+ * something untrue; §10's store-and-flag ruling would then make a diver's own correct answer
+ * wear a note saying this build does not know it, which that ruling's own last clause rejects
+ * for exactly the fields "the diver could have typed himself". So there is no `$type<>` here
+ * and no chip row on the editor.
+ *
+ * **`issuedOn` and `expiresOn` are calendar dates, not timestamps** — `text` on both sides for
+ * the reason §6 gives for `dives.date`, and read only through `domain/datetime.ts` (§4.1).
+ *
+ * Card photos join with v1.1's photos (§6), so there is no path column here yet.
+ */
+export const certifications = sqliteTable('certifications', {
+  id: text('id').primaryKey(),
+  agency: text('agency'),
+  course: text('course'),
+  cardNumber: text('card_number'),
+  issuedOn: text('issued_on'),
+  expiresOn: text('expires_on'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
+});
+
+/**
  * The device's copy of the community dive-site catalogue (DESIGN.md §5, §2.3).
  *
  * **§6 said the device kept no catalogue and §5 and §2.3 both require one** — "the compact

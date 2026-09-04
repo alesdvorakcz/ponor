@@ -1,13 +1,21 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { eq } from 'drizzle-orm';
+import { eq, getTableName } from 'drizzle-orm';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { createDiveCenter, createDiveSite, listDiveCenters, listDiveSites } from '../db/catalogue';
 import type { PushableTable } from '../db/dirty';
+import { createCertification, listCertifications } from '../db/certifications';
 import { createDive, listDives, softDeleteDive } from '../db/dives';
 import { createGearPreset, listGearPresets } from '../db/gearPresets';
-import { diveCenters, diveSites, dives, gearPresets, settings } from '../db/schema';
+import {
+  certifications,
+  diveCenters,
+  diveSites,
+  dives,
+  gearPresets,
+  settings,
+} from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import {
   divesBeforeQuery,
@@ -102,6 +110,7 @@ async function clocks(table: PushableTable): Promise<unknown[]> {
 async function aSyncedLogbook() {
   const dive = await createDive(db, { date: '2026-08-16', maxDepthM: 18 });
   const preset = await createGearPreset(db, { name: 'twin 12 steel' });
+  const card = await createCertification(db, { agency: 'PADI', course: 'Rescue Diver' });
   const site = await createDiveSite(db, { name: 'Blue Hole' });
   const centre = await createDiveCenter(db, { name: 'Emperor' });
   await pushPendingRows(db, client);
@@ -111,24 +120,34 @@ async function aSyncedLogbook() {
   await setOpenFormGroups(db, { conditions: true });
   await setDivesBefore(db, 247);
   await recordPull(db, '2026-09-02T08:59:00.000Z');
-  return { dive, preset, site, centre };
+  return { dive, preset, card, site, centre };
 }
 
+/** Every table §7.4's erase visits, read from `SYNCED_TABLES` rather than listed — so a table
+ * added to the protocol and left out of `adopt` or `wipe` fails here rather than being one
+ * more thing a signed-out phone quietly keeps. */
+const SYNCED = [dives, gearPresets, certifications, diveSites, diveCenters];
+
 describe('adopt — §7.4’s "every local row is marked dirty and pushed"', () => {
-  it('flags every row on the device, across all four tables', async () => {
+  it('flags every row on the device, across every synced table', async () => {
     await aSyncedLogbook();
     // Every row is put into the OPPOSITE state first, by hand, past every rule under test —
     // so "it ended up dirty" can only be the adoption and never the create that set it up.
-    for (const table of [dives, gearPresets, diveSites, diveCenters]) {
+    for (const table of SYNCED) {
       await db.update(table).set({ dirty: false } as Record<string, unknown>);
       expect(await flags(table)).toEqual([false]);
     }
 
     await wired(seam()).adopt();
 
-    for (const table of [dives, gearPresets, diveSites, diveCenters]) {
-      expect(await flags(table)).toEqual([true]);
+    for (const table of SYNCED) {
+      expect(`${getTableName(table)}: ${JSON.stringify(await flags(table))}`).toBe(
+        `${getTableName(table)}: [true]`,
+      );
     }
+    // Floored, so a `SYNCED` that lost its members could not make the loop above pass by
+    // having nothing to iterate.
+    expect(SYNCED.length).toBe(5);
   });
 
   /**
@@ -142,6 +161,7 @@ describe('adopt — §7.4’s "every local row is marked dirty and pushed"', () 
     const before = {
       dives: await clocks(dives),
       presets: await clocks(gearPresets),
+      cards: await clocks(certifications),
       sites: await clocks(diveSites),
       centres: await clocks(diveCenters),
     };
@@ -151,6 +171,7 @@ describe('adopt — §7.4’s "every local row is marked dirty and pushed"', () 
 
     expect(await clocks(dives)).toEqual(before.dives);
     expect(await clocks(gearPresets)).toEqual(before.presets);
+    expect(await clocks(certifications)).toEqual(before.cards);
     expect(await clocks(diveSites)).toEqual(before.sites);
     expect(await clocks(diveCenters)).toEqual(before.centres);
   });
@@ -240,15 +261,25 @@ describe('wipe — §7.4’s erase, and the rule that gates it', () => {
     expect((await listDives(db)).length).toBe(1);
   });
 
-  it('erases the four synced tables and the watermark', async () => {
+  it('erases every synced table and the watermark', async () => {
     await aSyncedLogbook();
 
     expect(await wired(seam()).wipe()).toEqual({ done: true });
 
     expect(await listDives(db)).toEqual([]);
     expect(await listGearPresets(db)).toEqual([]);
+    // §8 counts a card number as personal data on the server (M3b), so a signed-out phone
+    // holding one is exactly the state §7.4's erase exists to prevent.
+    expect(await listCertifications(db)).toEqual([]);
     expect(await listDiveSites(db)).toEqual([]);
     expect(await listDiveCenters(db)).toEqual([]);
+    // Read past every repository as well, so a wipe that emptied only the LIVE rows — leaving
+    // a tombstone behind for the next account to push — could not pass on the reads above.
+    for (const table of SYNCED) {
+      expect(`${getTableName(table)}: ${String((await db.select().from(table)).length)}`).toBe(
+        `${getTableName(table)}: 0`,
+      );
+    }
     // §7.4, and M2d recorded this as the one that is not optional: a watermark from the account
     // that left makes the next account's first pull start from a moment it has never seen, and
     // everything older is skipped on that device for ever.

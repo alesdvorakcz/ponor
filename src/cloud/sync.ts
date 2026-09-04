@@ -13,6 +13,12 @@ import {
   pendingDiveCenters,
   pendingDiveSites,
 } from '../db/catalogue';
+import {
+  applyPulledCertifications,
+  clearCertificationDirtyFlags,
+  countPendingCertifications,
+  pendingCertifications,
+} from '../db/certifications';
 import type { PushableTable, PushedRow } from '../db/dirty';
 import {
   applyPulledDives,
@@ -27,7 +33,7 @@ import {
   countPendingGearPresets,
   pendingGearPresets,
 } from '../db/gearPresets';
-import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import type { Db } from '../db/types';
 
@@ -93,8 +99,9 @@ export const PULL_RPC = 'pull_changes';
  * clear the flags afterwards, apply what came back, and count what is still owed.
  *
  * Every one of them is a function belonging to the table's own repository (§4.1); this file
- * holds the *list*, not the implementations, so a fifth synced table is one entry here and no
- * new writer anywhere.
+ * holds the *list*, not the implementations, so another synced table is one entry here and no
+ * new writer anywhere. M3b's `certifications` was the first to arrive after that was written,
+ * and it was one entry plus its repository, exactly as claimed.
  */
 interface SyncedTable {
   readonly table: PushableTable;
@@ -135,13 +142,19 @@ function synced<Pending extends object, Pulled extends object>(spec: {
 }
 
 /**
- * The four tables §7.1 pushes and §7.2 pulls: "dives, presets, and any sites or centers
- * created offline", plus the community catalogue coming the other way.
+ * The five tables §7.1 pushes and §7.2 pulls: "dives, presets, and any sites or centers
+ * created offline", §6's certification wallet, plus the community catalogue coming the other
+ * way.
  *
- * `certifications` and `profiles` exist on the server and have no SQLite counterpart yet, so
- * they are neither sent nor stored — `pull_changes` returns them and `readChangeSet` ignores
- * any table this list does not name. That is the deliberate direction: a server that grows a
- * table must not break a device that has not grown it.
+ * **`certifications` was the fifth and joined in M3b**, when the device got a table to put one
+ * in. `push_changes` has upserted it since M2a and `pull_changes` has returned it since M2b,
+ * so the gap was on this side alone: `readChangeSet` ignores any table this list does not
+ * name, so a diver's cards were quietly dropped on arrival and never went up.
+ *
+ * `profiles` is the one key both RPCs still return that nothing here stores — §6 keeps
+ * `dives_before` in the local `settings` table instead, and there is no other profile field a
+ * device reads. Ignoring it is the deliberate direction: a server that grows a table must not
+ * break a device that has not grown it.
  */
 export const SYNCED_TABLES: readonly SyncedTable[] = [
   synced({
@@ -157,6 +170,13 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearGearPresetDirtyFlags,
     apply: applyPulledGearPresets,
     countPending: countPendingGearPresets,
+  }),
+  synced({
+    table: certifications,
+    pending: pendingCertifications,
+    clear: clearCertificationDirtyFlags,
+    apply: applyPulledCertifications,
+    countPending: countPendingCertifications,
   }),
   synced({
     table: diveSites,
@@ -558,8 +578,10 @@ export async function syncNow(db: Db, client: SupabaseClient): Promise<SyncRepor
  * a device that has been at sea for a month and a build with no backend configured at all all
  * answer the same way here — with the rows.
  *
- * Summed across all four tables on purpose: a per-table check would let a diver's dives be
- * erased because their *presets* were the thing that had not gone up.
+ * Summed across every table in `SYNCED_TABLES` on purpose: a per-table check would let a
+ * diver's dives be erased because their *presets* were the thing that had not gone up. It is
+ * the list rather than a count for the same reason — a table added to the protocol and left
+ * out of this sum would be rows the wipe never noticed were still owed.
  */
 export async function countUnsyncedRows(db: Db): Promise<number> {
   let pending = 0;

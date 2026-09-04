@@ -8,6 +8,7 @@ import { DiveMap, type MapMark } from '../components/DiveMap';
 import { DiveRow } from '../components/DiveRow';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDives } from '../db/useDives';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
@@ -256,7 +257,9 @@ export default function MapScreen() {
     }
 
     if (error) {
-      return { summary: null, message: "Couldn't open your logbook. Try closing and reopening the app." };
+      // `LOGBOOK_UNREADABLE` (db/useDives.ts) — the one owner of what this hook's `error`
+      // says, shared with the dives list, search and the Stats tab.
+      return { summary: null, message: LOGBOOK_UNREADABLE };
     }
     if (!resolved) return { summary: null, message: null };
 

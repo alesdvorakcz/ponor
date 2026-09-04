@@ -1,3 +1,4 @@
+import type { ExpiryState } from '../domain/certifications';
 import { timeOut } from '../domain/derived';
 import { isCalendarDate } from '../domain/datetime';
 // **A type, and `import type` is what keeps that true.** `domain/logbookStats.ts` imports
@@ -11,6 +12,7 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // calls it), so only the shape of its answer may come back the other way.
 import type { WaterTempRange } from '../domain/mapSites';
 import {
+  type Certification,
   type ConditionLevel,
   type Configuration,
   type Dive,
@@ -928,6 +930,75 @@ export const UNNAMED_SITE = 'Unnamed site';
  */
 export function diveSiteLabel(dive: Pick<Dive, 'siteName' | 'centerName'>): string {
   return dive.siteName ?? dive.centerName ?? UNNAMED_SITE;
+}
+
+/**
+ * What a certification card is called when it names nothing at all.
+ *
+ * `UNNAMED_SITE`'s sibling one object over, and it exists for the same reason: a row with no
+ * heading is a blank line, which is worse than a placeholder. It is reachable even though
+ * `certificationRefusal` (domain/certifications.ts) will not let a diver *author* such a card
+ * — §6 makes every column nullable, so `pull_changes` can deliver one from another client, and
+ * everything that reads a wallet has to tolerate what the editor will not write.
+ */
+export const UNTITLED_CERTIFICATION = 'Certification';
+
+/**
+ * What a card is CALLED on screen: its agency and its course, whichever of them it has.
+ *
+ * "PADI Rescue Diver" is how a diver says it out loud, so it is one line rather than two
+ * fields; the agency leads because it is the shorter and more constant half, and because a
+ * column of wallet rows then lines up by agency without anything being tabulated.
+ *
+ * `diveSiteLabel`'s contract exactly — always a string, never null — and it is the same kind
+ * of rule: the single owner of "what do we call this row", so the wallet list and the editor
+ * cannot drift the way a dive row and its detail once did ("Unnamed site" in the list and
+ * nothing at all on the detail).
+ */
+export function certificationLabel(
+  certification: Pick<Certification, 'agency' | 'course'>,
+): string {
+  const parts = [certification.agency, certification.course].filter(
+    (part): part is string => part !== null && part.trim() !== '',
+  );
+  return parts.length === 0 ? UNTITLED_CERTIFICATION : parts.join(' ');
+}
+
+/**
+ * The second line of a wallet row: the card number and what its dates say, middot-separated
+ * (`METADATA_SEPARATOR`, §0.6's row metadata) — or `null` when the card has nothing to add
+ * beyond its own name.
+ *
+ * **Null rather than an em dash, and that is §3's own distinction rather than an
+ * inconsistency with the Stats screen.** M3a gives a dash to a screen with a *fixed
+ * inventory*, where a missing row would read as a screen that failed. This is a list whose
+ * rows vary with what a diver recorded — the dive detail's case — and `settingsPresetSummary`
+ * one section up already omits its line for a preset holding no cylinders, for the same
+ * reason: an empty second line under a name reads as a value that failed to load.
+ *
+ * **The expiry is a fact, never a nudge.** A card past its date reads `expired 3 Mar 2024`
+ * and nothing else happens: no colour (§0.1 spends hue on depth alone), no icon, no banner.
+ * §3 gives *currency* — days since your last dive, the refresher nudge — to the **Stats**
+ * screen, which is where a sentence telling a diver to go and do something belongs; a wallet
+ * is a record of what they hold. `certificationExpiry` (domain/certifications.ts) decides
+ * whether the card has run out, including that a card expiring today has not.
+ */
+export function formatCertificationSummary(
+  certification: Pick<Certification, 'cardNumber' | 'issuedOn' | 'expiresOn'>,
+  expiry: ExpiryState | null,
+): string | null {
+  const parts: string[] = [];
+  const number = certification.cardNumber?.trim() ?? '';
+  if (number !== '') parts.push(`#${number}`);
+  if (certification.issuedOn !== null) parts.push(`issued ${formatDiveDate(certification.issuedOn)}`);
+  if (certification.expiresOn !== null) {
+    // Present tense for a card that is still good, past tense for one that is not — and
+    // nothing at all when `certificationExpiry` could not tell, since a date this build cannot
+    // read is still the diver's and is shown as it stands rather than judged.
+    const verb = expiry === 'expired' ? 'expired' : 'expires';
+    parts.push(`${verb} ${formatDiveDate(certification.expiresOn)}`);
+  }
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /**

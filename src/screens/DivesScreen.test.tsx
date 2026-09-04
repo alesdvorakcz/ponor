@@ -34,6 +34,7 @@ import { completeDiveHref } from '../navigation/editDiveLink';
 import { depthBandColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import DivesScreen, { SYNC_FAILED_MESSAGE } from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
@@ -478,7 +479,7 @@ it('shows the dives and a settings notice, rather than blanking the logbook, whe
   });
   const text = textIn(await render(<DivesScreen />)).join(' ');
   expect(text).toContain('Blue Hole');
-  expect(text).not.toContain("Couldn't open your logbook");
+  expect(text).not.toContain(LOGBOOK_UNREADABLE);
   expect(text.toLowerCase()).toContain("couldn't read your settings");
 });
 
@@ -494,7 +495,7 @@ it('still blanks the logbook for a failed dives read even when the settings read
     settingsError: new Error('settings unreadable'),
   });
   const text = textIn(await render(<DivesScreen />)).join(' ');
-  expect(text.toLowerCase()).toContain("couldn't open your logbook");
+  expect(text).toContain(LOGBOOK_UNREADABLE);
   expect(text.toLowerCase()).not.toContain("couldn't read your settings");
 });
 
@@ -1208,7 +1209,7 @@ it('names the screen on a failed read, with no capsule beside it', async () => {
   const t = await render(<DivesScreen />);
 
   expect(textIn(t)).toContain('Dives');
-  expect(textIn(t).join(' ').toLowerCase()).toContain("couldn't open your logbook");
+  expect(textIn(t).join(' ')).toContain(LOGBOOK_UNREADABLE);
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
   expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').capsuleFloat)) : []).toHaveLength(0);
   expect(findRoot(t)).toBeTruthy();

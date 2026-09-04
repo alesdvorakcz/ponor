@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useDives, type DiveListState } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
 import { makeStyles } from '../theme/styles';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import SearchScreen from './SearchScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -193,7 +194,7 @@ it('reports a failed read rather than showing it as an empty result', async () =
   const t = await render(<SearchScreen />);
   await fireEvent.changeText(findField(t), 'Blue');
   const text = textIn(t).join(' ');
-  expect(text.toLowerCase()).toContain("couldn't open your logbook");
+  expect(text).toContain(LOGBOOK_UNREADABLE);
   expect(text.toLowerCase()).not.toContain('no dives match');
 });
 

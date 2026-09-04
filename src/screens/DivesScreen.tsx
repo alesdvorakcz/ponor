@@ -14,6 +14,7 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
@@ -477,9 +478,9 @@ export default function DivesScreen() {
       <View style={root}>
         {title}
         <View style={styles.centerFill}>
-          <Text style={styles.messageText}>
-            Couldn&apos;t open your logbook. Try closing and reopening the app.
-          </Text>
+          {/* One sentence, one owner (`LOGBOOK_UNREADABLE`, db/useDives.ts) — four screens
+              dispatch on this hook's `error` and each carried its own copy of it until M3b. */}
+          <Text style={styles.messageText}>{LOGBOOK_UNREADABLE}</Text>
         </View>
       </View>
     );

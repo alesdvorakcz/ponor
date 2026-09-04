@@ -8,16 +8,25 @@ import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
 import { db } from '../db/client';
 import { parseDiveCount, setDivesBefore, setUnitSystem } from '../db/settings';
+import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { certificationExpiry } from '../domain/certifications';
+import { todayCalendarDate } from '../domain/datetime';
 import { isDiveCount } from '../domain/diveNumber';
 import { PRESETS_UNREADABLE } from '../domain/presets';
-import { type GearPreset } from '../domain/types';
-import { formatCylinders, formatUnitSystem } from '../format/display';
+import { type Certification, type GearPreset } from '../domain/types';
+import {
+  certificationLabel,
+  formatCertificationSummary,
+  formatCylinders,
+  formatUnitSystem,
+} from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
+import { CERTIFICATIONS_UNREADABLE } from './CertificationScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
@@ -160,6 +169,61 @@ const LOCATION_ROW_TEXT: Record<LocationPermissionState, LocationRowText> = {
  * holding no cylinders is a row `createGearPreset` permits and M2 sync can deliver, and an
  * empty second line under the name would read as a value that failed to load.
  */
+/**
+ * One certification: what it is called (`certificationLabel`), and what its number and dates
+ * say (`formatCertificationSummary`) — both from `format/display.ts`, the module §4.1 makes
+ * the one owner of turning a stored value into diver-facing text.
+ *
+ * **`PresetRow`'s shape, deliberately and to the letter**: the whole row opens the editor, the
+ * row carries no delete (that sits at the end of the editor, behind a deliberate reach), and
+ * the name takes full `fg` where a setting's label is muted, because it is the diver's own
+ * data. §3 lists both under Settings and §0.6 gives them one grammar; a second kind of row for
+ * the second list would be exactly the third vocabulary §0.6 exists to prevent.
+ *
+ * **The expiry is a fact and not a nudge.** A card past its date reads `expired 3 Mar 2024` in
+ * the summary and nothing else changes — no colour (§0.1 spends hue on depth alone), no icon,
+ * no banner. §3 gives *currency* and its refresher sentence to the **Stats** screen, which is
+ * where a sentence telling a diver to go and do something belongs; a wallet is a record of
+ * what they hold. `today` is passed in rather than read here so this component stays a pure
+ * function of its props (`useUnitSystem`'s rule) and a test can put the clock where it likes.
+ *
+ * The summary is omitted rather than shown as a dash when there is nothing to say, exactly as
+ * a preset holding no cylinders omits its own: an empty second line under a name reads as a
+ * value that failed to load.
+ */
+function CertificationRow({
+  certification,
+  today,
+  styles,
+}: {
+  certification: Certification;
+  today: string;
+  styles: Styles;
+}) {
+  const summary = formatCertificationSummary(
+    certification,
+    certificationExpiry(certification.expiresOn, today),
+  );
+  return (
+    <Pressable
+      style={styles.formField}
+      // Absolute and interpolated, for `PresetRow`'s own recorded reason: expo-router's typed
+      // routes check an absolute path against the routes that exist on disk, where a relative
+      // one is resolved at runtime and checked against nothing at all.
+      onPress={() => router.push(`/certification/${certification.id}`)}
+      accessibilityRole="button"
+      // Says what pressing it does, not merely what it is called — `Edit preset X`'s shape,
+      // and the same verb because it is the same kind of act on the same kind of row.
+      accessibilityLabel={`Edit certification ${certificationLabel(certification)}`}
+    >
+      <View style={styles.formFieldRow}>
+        <Text style={styles.settingsCertificationName}>{certificationLabel(certification)}</Text>
+      </View>
+      {summary !== null && <Text style={styles.settingsCertificationSummary}>{summary}</Text>}
+    </Pressable>
+  );
+}
+
 function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitSystem; styles: Styles }) {
   const summary = formatCylinders(preset.tanks, units);
   return (
@@ -265,6 +329,26 @@ export default function SettingsScreen() {
   // `resolved` is read alongside the list for the reason its own docblock gives: `presets`
   // alone cannot say whether it has been read yet, and the line below states an answer.
   const { presets, error: presetsError, resolved: presetsResolved } = useGearPresets();
+  // §3's certification wallet (M3b), from its own hook for `useGearPresets`' stated reason: a
+  // failed read of one list must not be able to blank another, and separate hooks are the
+  // strongest form of that separation rather than a stated one.
+  const {
+    certifications,
+    error: certificationsError,
+    resolved: certificationsResolved,
+  } = useCertifications();
+  /**
+   * What day it is where the diver is, read once per render and handed down.
+   *
+   * `todayCalendarDate` (domain/datetime.ts) owns that question — §4.1 — and it is asked HERE
+   * rather than inside `CertificationRow` so every row of the wallet is judged against one
+   * day. Asked per row, a wallet rendered across local midnight could report two cards with
+   * the same expiry differently, which is the kind of thing nobody would ever reproduce.
+   *
+   * It is also what keeps `CertificationRow` a pure function of its props (`useUnitSystem`'s
+   * rule), so a test can put the clock wherever it needs it without mocking a module.
+   */
+  const today = todayCalendarDate();
 
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
@@ -591,6 +675,56 @@ export default function SettingsScreen() {
             <View style={styles.settingsCaption}>
               {locationText !== null && <Text style={styles.settingsCaptionText}>{locationText.note}</Text>}
               {locationError !== null && <Text style={styles.settingsCaptionText}>{locationError}</Text>}
+            </View>
+          )}
+        </View>
+
+        {/* §3's **certification wallet** (M3b), in the place §3 lists it: after location
+            access and before account & sync.
+
+            **A list, not a setting** — the second one on this screen, and drawn as the first
+            one is: a cluster-label heading (§0.6), a `formField` row per card, and the editor
+            one route deeper. What it has that the presets do not is a way *in*: §10 puts
+            preset creation in the dive form, "where the cylinders are already typed", and a
+            certification is captured from a plastic card with no dive attached to it.
+
+            **Only one sentence stands where the rows would be**, where the presets have two.
+            The empty case needs none: the *Add* row below is on screen whether or not the
+            wallet holds anything, so a diver who has never added a card is looking at a
+            control that says what to do rather than at a section with no visible way in —
+            which is the whole reason `NO_PRESETS` exists. The read-failure case still needs
+            saying, because "couldn't read them" and "you have none" are the distinction
+            `useCertifications`' `error` field exists for, and it is `CERTIFICATIONS_UNREADABLE`
+            rather than a literal here for `PRESETS_UNREADABLE`'s reason: the editor says the
+            same sentence about the same event one route deeper.
+
+            `certificationsResolved` still gates it, on M1f's rule — a screen with no answer
+            must not state one — and that works in this order only because a failed read counts
+            as an answer (`isResolved`, db/liveQuery.ts). */}
+        <View>
+          <Text style={styles.settingsSectionTitle}>Certifications</Text>
+          {certifications.map((certification) => (
+            <CertificationRow
+              key={certification.id}
+              certification={certification}
+              today={today}
+              styles={styles}
+            />
+          ))}
+          <Pressable
+            style={styles.formField}
+            onPress={() => router.push('/certification/new')}
+            accessibilityRole="button"
+            // Says what pressing it does, the shape every other pressable row here uses.
+            accessibilityLabel="Add a certification"
+          >
+            <View style={styles.formFieldRow}>
+              <Text style={styles.settingsAddCertificationLabel}>Add a certification</Text>
+            </View>
+          </Pressable>
+          {certificationsResolved && certificationsError !== undefined && (
+            <View style={styles.settingsCertificationEmpty}>
+              <Text style={styles.settingsCaptionText}>{CERTIFICATIONS_UNREADABLE}</Text>
             </View>
           )}
         </View>

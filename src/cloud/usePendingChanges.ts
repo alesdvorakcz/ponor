@@ -2,7 +2,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 
 import { db } from '../db/client';
 import { pendingRowsQuery, type PushableTable } from '../db/dirty';
-import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
 
 /**
  * **How many rows this device still owes the server, live.**
@@ -13,16 +13,18 @@ import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
  * the same question asked continuously, and both are built on `db/dirty.ts`'s one condition so
  * the gate and the indicator can never disagree about what "still owed" means.
  *
- * ── Four reads, written out ───────────────────────────────────────────────────────────────
+ * ── One read per table, written out ───────────────────────────────────────────────────────
  *
  * `useLiveQuery` subscribes to exactly one table — it reads `query.config.table` and re-runs
  * only when `addDatabaseChangeListener` names that table
- * (drizzle-orm/expo-sqlite/query.js) — so four synced tables is four hooks. They are spelled
+ * (drizzle-orm/expo-sqlite/query.js) — so five synced tables is five hooks. They are spelled
  * out rather than mapped over `SYNCED_TABLES` because a hook inside a loop is a hook whose
  * call order depends on a list, and React's rule is not negotiable for a list that "cannot"
- * change. What keeps this list honest instead is `usePendingChanges.test.ts`, which compares
- * `PENDING_TABLES` against `cloud/sync.ts`'s own list: a fifth synced table fails that test
- * rather than quietly being left out of the count.
+ * change. What keeps this list honest instead is `usePendingChanges.test.tsx`, which compares
+ * `PENDING_TABLES` against `cloud/sync.ts`'s own list: a table added to the protocol fails
+ * that test rather than quietly being left out of the count. **It has now done exactly that
+ * once** — M3b's `certifications` turned it red, which is the whole reason the tie is a test
+ * and not a comment.
  *
  * ── Why there is no `resolved` field, which is not an oversight ───────────────────────────
  *
@@ -46,23 +48,31 @@ import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
  */
 
 /**
- * The four tables §7 pushes, in `cloud/sync.ts`'s own order. Exported for the test that ties
- * this list to `SYNCED_TABLES` — see the docblock above for why the tie is a test rather than
- * a loop.
+ * Every table §7 pushes, in `cloud/sync.ts`'s own order. Exported for the test that ties this
+ * list to `SYNCED_TABLES` — see the docblock above for why the tie is a test rather than a
+ * loop.
  */
-export const PENDING_TABLES: readonly PushableTable[] = [dives, gearPresets, diveSites, diveCenters];
+export const PENDING_TABLES: readonly PushableTable[] = [
+  dives,
+  gearPresets,
+  certifications,
+  diveSites,
+  diveCenters,
+];
 
 /** How many rows across the whole device are waiting to go up. `0` is an ordinary answer and
  * is also what a device that has not read yet reports — see the docblock. */
 export function usePendingChanges(): number {
   const pendingDives = useLiveQuery(pendingRowsQuery(db, dives));
   const pendingPresets = useLiveQuery(pendingRowsQuery(db, gearPresets));
+  const pendingCards = useLiveQuery(pendingRowsQuery(db, certifications));
   const pendingSites = useLiveQuery(pendingRowsQuery(db, diveSites));
   const pendingCenters = useLiveQuery(pendingRowsQuery(db, diveCenters));
 
   return (
     pendingDives.data.length +
     pendingPresets.data.length +
+    pendingCards.data.length +
     pendingSites.data.length +
     pendingCenters.data.length
   );

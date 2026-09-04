@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { eq, getTableColumns } from 'drizzle-orm';
+import { eq, getTableColumns, getTableName, is } from 'drizzle-orm';
+import { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -10,17 +11,25 @@ import {
   listDiveSites,
   pendingDiveSites,
 } from '../db/catalogue';
+import {
+  createCertification,
+  listCertifications,
+  softDeleteCertification,
+} from '../db/certifications';
 import type { PushableTable } from '../db/dirty';
 import { createDive, getDive, listDives, pendingDives, softDeleteDive, updateDive } from '../db/dives';
 import { createGearPreset, listGearPresets } from '../db/gearPresets';
-import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import * as localSchema from '../db/schema';
+import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import { createTestDb, type TestDb } from '../db/testDb';
 import { groupDivesByPlace } from '../domain/mapSites';
 import {
   fakeSupabaseClient,
   FakeSyncServer,
+  SERVER_TABLES,
   wireColumnsOf,
+  type ServerTable,
   type WireRow,
 } from '../testing/fakeSyncServer';
 import {
@@ -30,6 +39,7 @@ import {
   PUSH_RPC,
   pullChanges,
   pushPendingRows,
+  SYNCED_TABLES,
   syncNow,
   toWireRow,
   wireTableName,
@@ -204,9 +214,10 @@ describe('the wire shape, against the server’s own column lists (§6, §7)', (
   });
 
   it('names each table the way the RPCs do', () => {
-    expect([dives, gearPresets, diveSites, diveCenters].map(wireTableName)).toEqual([
+    expect([dives, gearPresets, certifications, diveSites, diveCenters].map(wireTableName)).toEqual([
       'dives',
       'gear_presets',
+      'certifications',
       'dive_sites',
       'dive_centers',
     ]);
@@ -219,19 +230,26 @@ describe('push (§7.1)', () => {
     expect(server.calls).toEqual([]);
   });
 
-  it('sends every dirty row across the four tables in one call', async () => {
+  it('sends every dirty row across the tables it carries in one call', async () => {
     await createDive(db, { date: '2026-08-16' });
     await createGearPreset(db, { name: 'twin 12 steel' });
+    await createCertification(db, { agency: 'PADI', course: 'Rescue Diver' });
     await createDiveSite(db, { name: 'Blue Hole' });
 
-    expect(await pushPendingRows(db, client)).toBe(3);
+    expect(await pushPendingRows(db, client)).toBe(4);
 
     const pushes = server.calls.filter((call) => call.rpc === PUSH_RPC);
     expect(pushes.length).toBe(1);
     const changes = pushes[0]?.args.changes as Record<string, unknown[]>;
-    expect(Object.keys(changes).sort()).toEqual(['dive_sites', 'dives', 'gear_presets']);
+    expect(Object.keys(changes).sort()).toEqual([
+      'certifications',
+      'dive_sites',
+      'dives',
+      'gear_presets',
+    ]);
     expect(server.rows('dives').length).toBe(1);
     expect(server.rows('gear_presets').length).toBe(1);
+    expect(server.rows('certifications').length).toBe(1);
     expect(server.rows('dive_sites').length).toBe(1);
   });
 
@@ -453,23 +471,36 @@ describe('pull (§7.2, §7.3)', () => {
     expect((await storedRow(dives, 'd1')).deletedAt).not.toBeNull();
   });
 
-  /** `pull_changes` returns six tables and this device has four. A server that grows a table
-   * must not break a device that has not grown it. */
-  it('ignores the tables this device has no room for', async () => {
-    server.seed('certifications', wireRow('certifications', { id: 'c1', agency: 'SSI' }));
+  /**
+   * `pull_changes` returns six tables and this device has five. A server that grows a table
+   * must not break a device that has not grown it.
+   *
+   * **`certifications` was on this list until M3b and has left it**, which is the whole of that
+   * task: the row below used to be *ignored* and is now stored, so this case is `profiles`
+   * alone. `dives_before` is the only field of one a device reads and §6 keeps it in the local
+   * `settings` table, so there is nothing here for a profile row to land in.
+   */
+  it('ignores the one table this device still has no room for', async () => {
     server.seed('profiles', wireRow('profiles', { id: 'p1', dives_before: 247 }));
 
     await expect(pullChanges(db, client)).resolves.toBe(0);
+    // And the ignoring is specific rather than general: a certifications row in the SAME
+    // response is taken, so this case cannot pass because the pull did nothing at all.
+    server.seed('certifications', wireRow('certifications', { id: 'c1', agency: 'SSI' }));
+    await recordPull(db, '2020-01-01T00:00:00.000Z');
+    await expect(pullChanges(db, client)).resolves.toBe(1);
   });
 
-  it('takes the whole catalogue and the presets, not only the dives', async () => {
+  it('takes the whole catalogue, the presets and the wallet, not only the dives', async () => {
     server.seed('dives', wireRow('dives', { id: 'd1', date: '2026-08-16' }));
     server.seed('gear_presets', wireRow('gear_presets', { id: 'g1', name: 'alu 80', tanks: [] }));
+    server.seed('certifications', wireRow('certifications', { id: 'k1', course: 'Rescue Diver' }));
     server.seed('dive_sites', wireRow('dive_sites', { id: 's1', name: 'Blue Hole', status: 'active' }));
     server.seed('dive_centers', wireRow('dive_centers', { id: 'c1', name: 'Emperor', status: 'active' }));
 
-    expect(await pullChanges(db, client)).toBe(4);
+    expect(await pullChanges(db, client)).toBe(5);
     expect((await listGearPresets(db)).map((preset) => preset.name)).toEqual(['alu 80']);
+    expect((await listCertifications(db)).map((card) => card.course)).toEqual(['Rescue Diver']);
     expect((await listDiveSites(db)).map((site) => site.name)).toEqual(['Blue Hole']);
   });
 
@@ -631,15 +662,18 @@ describe('a whole cycle (§4.1, §7)', () => {
 });
 
 describe('what this device still owes (§7.4’s gate)', () => {
-  it('counts every table, so one owing table is not hidden by three empty ones', async () => {
+  it('counts every table, so one owing table is not hidden by the empty ones', async () => {
     expect(await countUnsyncedRows(db)).toBe(0);
 
     await createGearPreset(db, { name: 'alu 80' });
     expect(await countUnsyncedRows(db)).toBe(1);
 
+    await createCertification(db, { agency: 'PADI' });
+    expect(await countUnsyncedRows(db)).toBe(2);
+
     await createDive(db, { date: '2026-08-16' });
     await createDiveSite(db, { name: 'Blue Hole' });
-    expect(await countUnsyncedRows(db)).toBe(3);
+    expect(await countUnsyncedRows(db)).toBe(4);
 
     await pushPendingRows(db, client);
     expect(await countUnsyncedRows(db)).toBe(0);
@@ -699,27 +733,167 @@ describe('the module has no clock of its own', () => {
 
 describe('the tables the loop covers', () => {
   /**
-   * Floored against the schema rather than against a number typed here: a table added to
-   * `src/db/schema.ts` with a dirty flag and left out of `SYNCED_TABLES` is a table that is
-   * written on the device and never sent, which fails nothing at all.
+   * **Read out of `src/db/schema.ts` rather than listed here, and until M3b it was not.**
+   *
+   * This case's docblock said "floored against the schema rather than against a number typed
+   * here" and its first line was `const flagged = [dives, gearPresets, diveSites,
+   * diveCenters]` — the four tables `SYNCED_TABLES` already held, typed out. So it proved that
+   * those four carry a flag, which nothing disputes, and said **nothing at all** about the
+   * table it claimed to be guarding against: a fifth flagged table added to the schema and
+   * left out of the protocol would be absent from both sides of every assertion in it and
+   * would pass. That is this project's signature defect — a sweep that names the collection it
+   * claims to iterate and does not — and it is why the extraction below reads the module.
+   *
+   * A table written on the device and never sent fails nothing else: no error, no lint, no
+   * screen. The diver finds out on their second phone.
    */
-  it('covers every table in the schema that carries a flag', async () => {
-    const flagged = [dives, gearPresets, diveSites, diveCenters];
-    for (const table of flagged) {
-      expect(Object.keys(getTableColumns(table))).toContain('dirty');
-    }
+  it('covers every table in the schema that carries a flag, and nothing else', async () => {
+    // Every Drizzle table `schema.ts` declares, found by type, then narrowed to the ones
+    // carrying §7.1's flag — the same two-step `src/db/schemaParity.test.ts` uses, and
+    // deliberately not a list.
+    const flagged = (Object.values(localSchema) as unknown[])
+      .filter((value): value is PushableTable => is(value, SQLiteTable))
+      .filter((table) => 'dirty' in getTableColumns(table))
+      .map(getTableName)
+      .sort();
+
+    // Both directions and exact. A flagged table missing from the protocol never syncs; a
+    // protocol entry for a table with no flag could never produce a push set at all.
+    expect(SYNCED_TABLES.map((synced) => wireTableName(synced.table)).sort()).toEqual(flagged);
+    // Floored, because two empty lists are equal — and an extractor that matched nothing is
+    // exactly how the version this replaced managed to assert nothing while looking finished.
+    expect(flagged.length).toBe(5);
 
     await createDive(db, { date: '2026-08-16' });
     await createGearPreset(db, { name: 'alu 80' });
+    await createCertification(db, { agency: 'PADI' });
     await createDiveSite(db, { name: 'Blue Hole' });
     await createDiveCenter(db, { name: 'Emperor' });
 
-    expect(await countUnsyncedRows(db)).toBe(4);
+    expect(await countUnsyncedRows(db)).toBe(5);
     await pushPendingRows(db, client);
     expect(await countUnsyncedRows(db)).toBe(0);
-    for (const table of ['dives', 'gear_presets', 'dive_sites', 'dive_centers'] as const) {
-      expect(server.rows(table).length).toBe(1);
+    // The rows really reached the server, table by table — and the tables are the extracted
+    // list, so a table added to the schema and to `SYNCED_TABLES` but never seeded above would
+    // fail here rather than being quietly skipped.
+    expect(flagged.length).toBe(SERVER_TABLES.filter((table) => flagged.includes(table)).length);
+    for (const table of flagged) {
+      expect(`${table}: ${String(server.rows(table as ServerTable).length)}`).toBe(`${table}: 1`);
     }
+  });
+});
+
+/**
+ * **§6's certification wallet on the wire (M3b), column by column.**
+ *
+ * `SYNCED_TABLES` naming the table is what the block above checks, and it is not the same
+ * claim as the columns arriving: a push whose payload lost `card_number`, or a pull that
+ * landed `issued_on` in `expiresOn`, would satisfy every count in this file. Both directions
+ * are asserted over values that are all different from each other, so a swapped pair cannot
+ * pass.
+ */
+describe('a certification’s own columns (§6, M3b)', () => {
+  const card = {
+    agency: 'SSI',
+    course: 'Advanced Adventurer',
+    cardNumber: '1234567',
+    issuedOn: '2019-06-01',
+    expiresOn: '2029-06-01',
+  };
+
+  it('sends exactly the columns the server has, and no others', async () => {
+    const stored = await createCertification(db, card);
+    const sent = Object.keys(toWireRow(certifications, stored)).sort();
+
+    // The other source: the Postgres migration's own column list. `user_id` is the server's
+    // and the device has no such column (§7.4); `dirty` is the device's and the server has no
+    // such column (§7.1). Everything else must match.
+    const expected = wireColumnsOf('certifications')
+      .filter((column) => column !== 'user_id')
+      .sort();
+
+    expect(sent.length).toBeGreaterThan(8);
+    expect(sent).toEqual(expected);
+  });
+
+  it('carries every value up under its own snake_case name', async () => {
+    const stored = await createCertification(db, card);
+
+    await pushPendingRows(db, client);
+
+    expect(server.row('certifications', stored.id)).toMatchObject({
+      agency: 'SSI',
+      course: 'Advanced Adventurer',
+      card_number: '1234567',
+      issued_on: '2019-06-01',
+      expires_on: '2029-06-01',
+      deleted_at: null,
+    });
+    expect(await isDirty(certifications, stored.id)).toBe(false);
+  });
+
+  it('lands every value from a pull in the property it belongs to', async () => {
+    server.seed(
+      'certifications',
+      wireRow('certifications', {
+        id: 'k1',
+        agency: 'CMAS',
+        course: 'Two Star Diver',
+        card_number: '7654321',
+        issued_on: '2011-02-03',
+        expires_on: '2031-02-03',
+      }),
+    );
+
+    expect(await pullChanges(db, client)).toBe(1);
+
+    const [pulled] = await listCertifications(db);
+    expect(pulled).toMatchObject({
+      id: 'k1',
+      agency: 'CMAS',
+      course: 'Two Star Diver',
+      cardNumber: '7654321',
+      issuedOn: '2011-02-03',
+      expiresOn: '2031-02-03',
+      dirty: false,
+    });
+  });
+
+  /** §7 propagates a deletion as a row: a card deleted on this phone has to reach the other
+   * one, or a certification the diver threw away goes on standing in their wallet there. */
+  it('carries a tombstoned card up like any other row', async () => {
+    const stored = await createCertification(db, card);
+    await pushPendingRows(db, client);
+    await tick();
+    await softDeleteCertification(db, stored.id);
+
+    await pushPendingRows(db, client);
+
+    expect(server.row('certifications', stored.id)?.deleted_at).not.toBeNull();
+    expect(await listCertifications(db)).toEqual([]);
+  });
+
+  /** And a tombstone arriving the other way takes the card off this device's wallet while the
+   * fact of the deletion stays in the column (§6 hard-deletes nothing). */
+  it('removes a tombstoned card from the wallet while keeping the tombstone', async () => {
+    server.seed('certifications', wireRow('certifications', { id: 'k1', agency: 'PADI' }));
+    await pullChanges(db, client);
+    expect(await listCertifications(db)).toHaveLength(1);
+
+    server.tick();
+    server.seed(
+      'certifications',
+      wireRow('certifications', {
+        id: 'k1',
+        agency: 'PADI',
+        updated_at: server.now(),
+        deleted_at: server.now(),
+      }),
+    );
+    await pullChanges(db, client);
+
+    expect(await listCertifications(db)).toEqual([]);
+    expect((await storedRow(certifications, 'k1')).deletedAt).not.toBeNull();
   });
 });
 

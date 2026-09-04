@@ -3,6 +3,7 @@ import { ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useDives } from '../db/useDives';
+import { LOGBOOK_UNREADABLE } from '../domain/logbook';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { todayCalendarDate } from '../domain/datetime';
@@ -105,11 +106,13 @@ export const COUNTRIES_UNKNOWN_NOTE =
 export const REFRESHER_MESSAGE =
   'Over six months since your last dive. A refresher is worth booking before the next one.';
 
-/** What a failed logbook read says. The same sentence the Dives list, the search screen and the
- * Map tab each say for the same failure — and therefore a **fourth literal copy** of it, which
- * §4.1 would rather see given one owner. Recorded here rather than quietly added: the four are
- * one sentence and are now four edits away from disagreeing. */
-const LOGBOOK_UNREADABLE_MESSAGE = 'Couldn’t open your logbook. Try closing and reopening the app.';
+/* What a failed logbook read says is `LOGBOOK_UNREADABLE` (db/useDives.ts) now, and this is
+ * the note M3a left here being discharged. It read: "the same sentence the Dives list, the
+ * search screen and the Map tab each say for the same failure — and therefore a **fourth
+ * literal copy** of it, which §4.1 would rather see given one owner… the four are one sentence
+ * and are now four edits away from disagreeing." They had already disagreed: this copy spelled
+ * the apostrophe `’` and the other three `'`, so the four were not one sentence when the note
+ * was written. The owner is the hook whose `error` all four dispatch on. */
 
 /**
  * One counter: a label at the leading edge, its figure trailing, and §0.6's hairline on the
@@ -247,7 +250,7 @@ export default function StatsScreen() {
       <View style={root}>
         {title}
         <View style={styles.centerFill}>
-          <Text style={styles.messageText}>{LOGBOOK_UNREADABLE_MESSAGE}</Text>
+          <Text style={styles.messageText}>{LOGBOOK_UNREADABLE}</Text>
         </View>
       </View>
     );

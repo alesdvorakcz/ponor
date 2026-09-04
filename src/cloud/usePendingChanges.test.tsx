@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import { getTableName } from 'drizzle-orm';
 
 import { createDiveCenter, createDiveSite } from '../db/catalogue';
+import { createCertification } from '../db/certifications';
 import { createDive, softDeleteDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { createTestDb, type TestDb } from '../db/testDb';
@@ -77,9 +78,14 @@ describe('the count', () => {
 
   /**
    * **Every synced table is in it**, and each contributes a different number so that a term
-   * dropped from the sum cannot be hidden by another. §7.4's wipe counts all four for the same
+   * dropped from the sum cannot be hidden by another. §7.4's wipe counts them all for the same
    * reason `countUnsyncedRows` gives — a per-table answer would let a diver's dives be treated
    * as sent because their presets were the thing that had not gone up.
+   *
+   * **The distinct counts are what make a NEW term real rather than assumed** (M3b). The tie
+   * below proves `certifications` is in `PENDING_TABLES`; only this proves the hook actually
+   * adds its rows up, and adding the table without seeding it here would have left this test
+   * green about a term it had never once seen produce a number.
    */
   it('adds up every table §7 pushes, and each of them differently', async () => {
     await createDive(mockDb, { date: '2026-08-16' });
@@ -92,8 +98,11 @@ describe('the count', () => {
     await createDiveCenter(mockDb, { name: 'Nautilus' });
     await createDiveCenter(mockDb, { name: 'Poseidon' });
     await createDiveCenter(mockDb, { name: 'Triton' });
+    for (const course of ['Open Water', 'Advanced', 'Rescue', 'Nitrox', 'EFR']) {
+      await createCertification(mockDb, { agency: 'PADI', course });
+    }
 
-    expect(await count()).toBe(10);
+    expect(await count()).toBe(15);
   });
 
   /**
@@ -123,7 +132,7 @@ describe('the count', () => {
 
 describe('the tie to §7’s own list of synced tables', () => {
   /**
-   * **A fifth synced table must not be able to go missing from the indicator.**
+   * **A table added to §7's protocol must not be able to go missing from the indicator.**
    *
    * `cloud/sync.ts` owns the list (§4.1) and this module cannot loop over it — a hook inside a
    * loop is a hook whose call order depends on a list — so the tie is here instead: the two
@@ -137,11 +146,12 @@ describe('the tie to §7’s own list of synced tables', () => {
   });
 
   /** Floored, because two empty lists are equal. */
-  it('is four tables, not an empty agreement', () => {
-    expect(PENDING_TABLES.length).toBe(4);
+  it('is five tables, not an empty agreement', () => {
+    expect(PENDING_TABLES.length).toBe(5);
     expect(PENDING_TABLES.map(getTableName)).toEqual([
       'dives',
       'gear_presets',
+      'certifications',
       'dive_sites',
       'dive_centers',
     ]);

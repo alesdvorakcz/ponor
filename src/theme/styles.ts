@@ -558,6 +558,41 @@ function build(scheme: ColorScheme) {
   //
   // `flexShrink: 1` for the reason `formFieldLabel` records: §0.5's "Czech runs 20–30 %
   // longer", and a long label must wrap rather than truncate.
+  /**
+   * A row's second line on Settings — §0.6's row metadata, which is what both of this
+   * screen's lists put there: "Plex Mono 11.5 · time · duration · rating, middot-separated".
+   * Mono because it is almost entirely figures (§0.6: "Figures in mono, names in sans"),
+   * which is also why it is not `captionText` — that is a sentence in Archivo explaining what
+   * a row does, and this is data about the row.
+   *
+   * Leading, under the name, in the slot §0.6 gives a field's second line — not trailing in
+   * the value column, where a two-cylinder summary would wrap into a two-word-wide ribbon
+   * beside a name that had been squeezed to make room for it.
+   *
+   * **One definition, two callers** (M3b, when §3's certification wallet became the second
+   * list of the diver's own rows on this screen). It was `settingsPresetSummary`'s own object
+   * literal; a second copy for the wallet would have been §4.1's defining defect in the one
+   * place this file's own header warns about it.
+   */
+  const settingsRowMeta: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
+    lineHeight: 17,
+  };
+
+  /**
+   * A sentence standing where a section's rows would be — "you have none yet", or "they could
+   * not be read", which are different sentences and must not be confused (the `error` field on
+   * `useGearPresets`/`useCertifications` exists for exactly that).
+   *
+   * `captionBlock`'s treatment — a sentence under a heading, leading, no box — without the top
+   * padding it does not need here, since there is no row above it for it to clear.
+   */
+  const settingsSectionNote: ViewStyle = {
+    paddingHorizontal: CONTENT_INSET,
+  };
+
   const settingsRowInk: TextStyle = {
     ...rowLabel,
     color: theme.fg,
@@ -3065,6 +3100,23 @@ function build(scheme: ColorScheme) {
     presetNotice: noticeBanner,
     presetNoticeText: noticeBannerText,
     // ------------------------------------------------------------------------------------
+    // The certification editor (DESIGN.md §3, §6, M3b) — `CertificationScreen`
+    // ------------------------------------------------------------------------------------
+    // **Not one new shape**, exactly as the account screen and the preset editor before it:
+    // this screen is the form's own grammar — `formBack` out of it, `FormField` and
+    // `DateTimeField` rows, `FieldNote` for what it refuses, `action` in a fixed footer — and
+    // the four keys below are the same four definitions the preset editor takes, each under a
+    // name that says which screen it is placed on (`detailBack`/`formBack`'s precedent: the
+    // placement is per screen, the type is not).
+    certificationHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    certificationDelete: mutedControl,
+    certificationDeleteLabel: mutedControlLabel,
+    certificationNotice: noticeBanner,
+    certificationNoticeText: noticeBannerText,
+    // ------------------------------------------------------------------------------------
     // Settings (DESIGN.md §3: units, `dives_before`, and the cylinder-preset list)
     // ------------------------------------------------------------------------------------
     // The screen is a column of §0.6 rows, exactly as the form is — "a field is a row, label
@@ -3139,6 +3191,15 @@ function build(scheme: ColorScheme) {
     // One definition, two keys, on `detailBack`/`formBack`'s own precedent: the treatment is
     // shared and cannot drift, while each caller keeps a name that says what it is.
     settingsAccountLabel: settingsRowInk,
+    // A card's name (`certificationLabel`, format/display.ts), leading its row — the same ink
+    // and the same reason as a preset's name: it is the diver's own data and the thing they
+    // scan this list for.
+    settingsCertificationName: settingsRowInk,
+    // §3's wallet has to be addable from here, unlike the preset list — a preset is captured
+    // in the dive form (§10) and a certification has nowhere else to come from. It is a
+    // **destination** row, so it takes the same full ink `settingsAccountLabel` does and for
+    // that key's stated reason, not the muted label a setting wears.
+    settingsAddCertificationLabel: settingsRowInk,
     // The cylinders under that name (`formatCylinders`, format/display.ts) — §0.6's row
     // metadata, which is precisely what this is: "Plex Mono 11.5 · time · duration · rating,
     // middot-separated". Mono because it is almost entirely figures (§0.6: "Figures in mono,
@@ -3148,20 +3209,28 @@ function build(scheme: ColorScheme) {
     // Leading, under the name, in the slot §0.6 gives a field's second line — not trailing in
     // the value column, where a two-cylinder summary would wrap into a two-word-wide ribbon
     // beside a name that had been squeezed to make room for it.
-    settingsPresetSummary: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-      lineHeight: 17,
-    },
+    settingsPresetSummary: settingsRowMeta,
+    // A card's own second line — its number and what its dates say
+    // (`formatCertificationSummary`, format/display.ts). The SAME definition as the preset
+    // summary above, under a name that says which list it is on, which is this file's rule
+    // for a shared treatment (`detailBack`/`formBack`, `presetHeading`/`settingsHeading`).
+    // It is row metadata for the same reason: a number and two dates are figures, and §0.6
+    // sets figures in mono.
+    settingsCertificationSummary: settingsRowMeta,
     // The line that stands where the preset rows would be: either "you have none yet" or
     // "they could not be read", which are different sentences and must not be confused
     // (db/useGearPresets.ts's `error` exists for exactly that). `settingsCaption`'s own
     // treatment — a sentence under a heading, leading, no box — with the top padding it does
     // not need here, since there is no row above it for it to clear.
-    settingsPresetEmpty: {
-      paddingHorizontal: CONTENT_INSET,
-    },
+    settingsPresetEmpty: settingsSectionNote,
+    // The line that stands where a wallet's rows would be. One definition, two keys, as above.
+    // **There is only ONE sentence here where the presets have two**, and that is a decision
+    // rather than an omission: the preset section has no way in — a preset is captured in the
+    // dive form (§10) — so it must say where one comes from, while the wallet carries its own
+    // *Add* row, which says it better than a sentence could. What cannot be dropped is the
+    // read-failure line, because "couldn't read them" and "you have none" are the distinction
+    // `useCertifications`' `error` exists for.
+    settingsCertificationEmpty: settingsSectionNote,
     // Where the diver stands on §3's **location access** (M2m), trailing its row.
     //
     // `rowValueSans` — §0.6's "Figures in mono, names in sans", read the way `accountEmail`
