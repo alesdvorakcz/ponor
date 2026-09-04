@@ -1,7 +1,8 @@
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, eq, isNotNull, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { newId } from '../domain/ids';
+import { resolveMergeTargets, type MergeRow } from '../domain/merges';
 import { ACTIVE_CATALOGUE_STATUS, type DiveCenter, type DiveSite } from '../domain/types';
 import {
   applyPulledRows,
@@ -52,12 +53,19 @@ import { EVERY_ROW } from './wipe';
  * something to pick" — and offering a merged duplicate would re-create the duplicate an admin
  * just merged away. A dive that points at a site the catalogue no longer offers still reads
  * correctly, because §6 stores a `site_name` snapshot beside every `site_id` for exactly this.
+ *
+ * **`mergeTargets` is the one exception, and it is the other half of the same sentence** (M2r).
+ * The device is *told* about a merged row so that something can act on it; `pickable` hides
+ * exactly the rows that question is about, so that read deliberately does not apply it. It
+ * offers nothing to a diver — its answer is where a dive's `site_id` has to move to.
  */
 
-/** A catalogue table: pushable (id, clock, flag) plus the two columns a read filters on. */
+/** A catalogue table: pushable (id, clock, flag) plus the two columns a read filters on and the
+ * one §5's merge points with. */
 type CatalogueTable = PushableTable & {
   readonly status: SQLiteColumn;
   readonly deletedAt: SQLiteColumn;
+  readonly mergedInto: SQLiteColumn;
 };
 
 /**
@@ -188,6 +196,49 @@ export async function getDiveCenter(db: Db, id: string): Promise<DiveCenter | nu
     .where(and(eq(diveCenters.id, id), pickable(diveCenters)))
     .limit(1);
   return rows.at(0) ?? null;
+}
+
+/**
+ * **Where every merged row in this table sends a dive** — the read half of §5's merge, and the
+ * one read here that deliberately does *not* apply `pickable`.
+ *
+ * That is the point of it: `pickable` hides exactly the rows this question is about. A merged
+ * row is not something to offer a diver, it is something to *follow*, and until M2r nothing
+ * followed one (`domain/merges.ts` has the whole of what was silently broken).
+ *
+ * `resolveMergeTargets` owns the rule — which statuses are followed, how far a chain runs, and
+ * what a circular one answers. The `where` below is a **narrowing, not a rule**: a row with no
+ * `merged_into` cannot contribute an edge, so this is the same answer as reading the whole
+ * catalogue and a great deal less of it on a device holding thousands of sites. Every status
+ * that carries a pointer reaches the resolver, `hidden` included, because refusing that one
+ * here would move the decision into a `where` clause and out of the module that is tested for
+ * it.
+ *
+ * Tombstones are not filtered either, for the same reason `pendingRows` does not filter them:
+ * the fact that A was merged into B does not stop being true because somebody later deleted A,
+ * and the dives at A still belong with the dives at B.
+ */
+async function mergeTargets(db: Db, table: CatalogueTable): Promise<ReadonlyMap<string, string>> {
+  const rows = await db
+    .select({ id: table.id, status: table.status, mergedInto: table.mergedInto })
+    .from(table)
+    .where(isNotNull(table.mergedInto));
+  return resolveMergeTargets(rows as MergeRow[]);
+}
+
+export async function diveSiteMergeTargets(db: Db): Promise<ReadonlyMap<string, string>> {
+  return mergeTargets(db, diveSites);
+}
+
+/**
+ * The same question for centres, and it is not a courtesy: §5 merges "a site or center" in one
+ * breath, M2a put `merged_into` on `dive_centers` for exactly that reason ("a `status` that can
+ * read `merged` with nowhere to point is a state with no repair"), and a dive carries
+ * `center_id` beside `site_id`. A merged centre breaks `tripKeyOf` (domain/trips.ts) the same
+ * silent way a merged site breaks the Map — one trip becomes two, and nothing says so.
+ */
+export async function diveCenterMergeTargets(db: Db): Promise<ReadonlyMap<string, string>> {
+  return mergeTargets(db, diveCenters);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────

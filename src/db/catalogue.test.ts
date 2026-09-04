@@ -5,6 +5,8 @@ import {
   applyPulledDiveSites,
   createDiveCenter,
   createDiveSite,
+  diveCenterMergeTargets,
+  diveSiteMergeTargets,
   getDiveCenter,
   getDiveSite,
   listDiveCenters,
@@ -183,6 +185,84 @@ describe('what a read may offer (§5, and M2c drew the same line on the server)'
 
     expect((await listDiveCenters(db)).map((row) => row.id)).toEqual(['ok']);
     expect(await getDiveCenter(db, 'merged')).toBeNull();
+  });
+});
+
+describe('where a merge sends a dive (§5, M2r)', () => {
+  it('reads the survivor out of exactly the rows every other read hides', async () => {
+    // The read above proves a merged row is never OFFERED. This is the other half, and the two
+    // are the same row: `pickable` filters it out of everything a diver picks from, and this
+    // read is the one place that has to see it. A `mergeTargets` that applied `pickable` would
+    // answer the empty map for ever, silently, and nothing else in the app would notice.
+    await applyPulledDiveSites(db, [site({ status: 'merged', mergedInto: 'site-2' })]);
+
+    expect(await listDiveSites(db)).toEqual([]);
+    expect(Object.fromEntries(await diveSiteMergeTargets(db))).toEqual({ 'site-1': 'site-2' });
+  });
+
+  it('follows a chain of merges to its end, through rows only this read can see', async () => {
+    // The case one merge cannot show. Two admin merges a month apart leave `a` pointing at `b`
+    // and `b` at `c`; a device that reads one hop leaves the dive at `b`, which is a row
+    // nothing shows — the very defect being fixed, one step further along.
+    await applyPulledDiveSites(db, [
+      site({ id: 'a', status: 'merged', mergedInto: 'b' }),
+      site({ id: 'b', status: 'merged', mergedInto: 'c' }),
+      site({ id: 'c' }),
+    ]);
+
+    expect(Object.fromEntries(await diveSiteMergeTargets(db))).toEqual({ a: 'c', b: 'c' });
+  });
+
+  it('answers nothing for a circular merge, and answers at all', async () => {
+    // The data is the server's and the server is not this repository's. What matters here is
+    // that this call RETURNS — a walk with no cycle guard hangs, and a hung suite reads as a
+    // slow one (M2l). `domain/merges.test.ts` holds the shapes; this pins that a real table
+    // full of them cannot stop a pull.
+    await applyPulledDiveSites(db, [
+      site({ id: 'a', status: 'merged', mergedInto: 'b' }),
+      site({ id: 'b', status: 'merged', mergedInto: 'a' }),
+      site({ id: 'self', status: 'merged', mergedInto: 'self' }),
+    ]);
+
+    expect(Object.fromEntries(await diveSiteMergeTargets(db))).toEqual({});
+  });
+
+  it('does not follow a hidden row, and does not stop reading because of one', async () => {
+    await applyPulledDiveSites(db, [
+      site({ id: 'withdrawn', status: 'hidden', mergedInto: 'somewhere' }),
+      site({ id: 'folded', status: 'merged', mergedInto: 'survivor' }),
+    ]);
+
+    expect(Object.fromEntries(await diveSiteMergeTargets(db))).toEqual({ folded: 'survivor' });
+  });
+
+  it('still follows a merged row that was later tombstoned', async () => {
+    // The merge happened; a deletion afterwards does not un-say it, and the dives at the folded
+    // row still belong with the survivor's. Same reasoning as `pendingRows`' (db/dirty.ts).
+    await applyPulledDiveSites(db, [
+      site({ status: 'merged', mergedInto: 'site-2', deletedAt: '2026-08-17T00:00:00.000Z' }),
+    ]);
+
+    expect(Object.fromEntries(await diveSiteMergeTargets(db))).toEqual({ 'site-1': 'site-2' });
+  });
+
+  it('answers an empty map for a catalogue nobody has merged anything in', async () => {
+    await applyPulledDiveSites(db, [site()]);
+    expect(await diveSiteMergeTargets(db)).toEqual(new Map());
+    expect(await diveCenterMergeTargets(db)).toEqual(new Map());
+  });
+
+  it('asks the same question of centres, which §5 merges in the same breath', async () => {
+    // Not a courtesy: a dive carries `center_id` beside `site_id`, `tripKeyOf` groups trips by
+    // the centre, and a merged centre splits one trip into two with nothing to show for it.
+    await applyPulledDiveCenters(db, [
+      centre({ id: 'a', status: 'merged', mergedInto: 'b' }),
+      centre({ id: 'b', status: 'merged', mergedInto: 'c' }),
+    ]);
+
+    expect(Object.fromEntries(await diveCenterMergeTargets(db))).toEqual({ a: 'c', b: 'c' });
+    // And the two tables are asked separately: a merged centre says nothing about sites.
+    expect(await diveSiteMergeTargets(db)).toEqual(new Map());
   });
 });
 

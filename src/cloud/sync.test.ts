@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  applyPulledDiveSites,
   createDiveCenter,
   createDiveSite,
   listDiveSites,
@@ -15,6 +16,7 @@ import { createGearPreset, listGearPresets } from '../db/gearPresets';
 import { diveCenters, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import { createTestDb, type TestDb } from '../db/testDb';
+import { groupDivesByPlace } from '../domain/mapSites';
 import {
   fakeSupabaseClient,
   FakeSyncServer,
@@ -718,5 +720,252 @@ describe('the tables the loop covers', () => {
     for (const table of ['dives', 'gear_presets', 'dive_sites', 'dive_centers'] as const) {
       expect(server.rows(table).length).toBe(1);
     }
+  });
+});
+
+/**
+ * **§5's merge, reaching the dives that pointed at the folded row** (M2r).
+ *
+ * `pull_changes` has delivered `merged` rows since M2b — on purpose, because "which rows a
+ * diver is SHOWN is the client's question" — and until now nothing on the device acted on one.
+ * The dive kept pointing at a row every catalogue read filters out: its `site_name` snapshot
+ * still read correctly, so nothing looked broken, while the dive was not grouped with the
+ * survivor's dives on the Map (§3) and §2.1's defaults had nothing to prefill from. **The
+ * failure was silent and looked like data that had simply never been linked**, which is why
+ * every test here asserts on a row or on a grouping rather than on a call.
+ */
+describe('a merge arriving in a pull (§5, M2r)', () => {
+  /** A merged catalogue row as an admin in Studio leaves it, at the server's current clock. */
+  const folding = (from: string, into: string) =>
+    server.seed(
+      'dive_sites',
+      wireRow('dive_sites', {
+        id: from,
+        name: 'Blue Hole',
+        status: 'merged',
+        merged_into: into,
+        updated_at: server.now(),
+      }),
+    );
+
+  it('moves the dive onto the survivor and leaves the name the diver recorded', async () => {
+    const dive = await createDive(db, {
+      date: '2026-08-16',
+      siteId: 'folded',
+      siteName: 'Blue Hole',
+    });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    folding('folded', 'survivor');
+    server.seed('dive_sites', wireRow('dive_sites', { id: 'survivor', name: 'Blue Hole (Gozo)', updated_at: server.now() }));
+
+    await syncNow(db, client);
+
+    const after = await getDive(db, dive.id);
+    expect(after?.siteId).toBe('survivor');
+    // §6's snapshot is history and a merge is not a reason to rewrite what a diver typed, so
+    // the dive still reads "Blue Hole" everywhere `diveSiteLabel` reads it.
+    expect(after?.siteName).toBe('Blue Hole');
+  });
+
+  it('groups the two sites’ dives under one marker afterwards, which is the point of it', async () => {
+    // The §3 half, end to end and through the real grouping function. Before the repair these
+    // are two markers a few metres apart, one of them badged for a site nothing will show.
+    const atFolded = await createDive(db, {
+      date: '2026-08-16', siteId: 'folded', siteName: 'Blue Hole', latitude: 36.05, longitude: 14.19,
+    });
+    const atSurvivor = await createDive(db, {
+      date: '2026-08-17', siteId: 'survivor', siteName: 'Blue Hole (Gozo)', latitude: 36.05, longitude: 14.19,
+    });
+    await syncNow(db, client);
+    expect(groupDivesByPlace(await listDives(db))).toHaveLength(2);
+
+    server.tick(10_000);
+    folding('folded', 'survivor');
+    await syncNow(db, client);
+
+    const places = groupDivesByPlace(await listDives(db));
+    expect(places).toHaveLength(1);
+    expect(places[0]?.key).toBe('site:survivor');
+    expect(places[0]?.dives.map((row) => row.id).sort()).toEqual([atFolded.id, atSurvivor.id].sort());
+  });
+
+  it('wins over the server’s own copy of the dive delivered in the same pull', async () => {
+    // The ordering that decides whether this works at all. `applyChanges` writes dives BEFORE
+    // the catalogue (SYNCED_TABLES' order), so a repair run inside the change set — or before
+    // it — would be overwritten by the server's stale `site_id` on the one cycle where a dive
+    // and the merge that concerns it arrive together, silently.
+    //
+    // A server whose clock is **ahead of this machine's**, which is the only way to make its
+    // copy of a dive win at all: `createDive` stamps with the local clock, §7.2's comparison is
+    // a plain string comparison, and the fake's default instant is in the past.
+    server = new FakeSyncServer({ startAt: '2030-01-01T00:00:00.000Z' });
+    client = fakeSupabaseClient(server) as unknown as SupabaseClient;
+
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    folding('folded', 'survivor');
+    server.seed('dives', wireRow('dives', {
+      id: dive.id, date: '2026-08-16', site_id: 'folded', max_depth_m: 31, updated_at: server.now(),
+    }));
+
+    await syncNow(db, client);
+
+    const after = await getDive(db, dive.id);
+    // The server's edit landed…
+    expect(after?.maxDepthM).toBe(31);
+    // …and the repair landed on top of it, rather than under it.
+    expect(after?.siteId).toBe('survivor');
+    expect(await isDirty(dives, dive.id)).toBe(true);
+  });
+
+  it('pushes the rewrite, then settles — it does not find the same work every cycle', async () => {
+    // §7's other half. The rewrite deliberately makes the dive dirty (M2g's rule then protects
+    // it from the server's stale copy), so it must go up and the loop must stop. A repair that
+    // rewrote unconditionally would restamp `updated_at` on every cycle for ever.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    folding('folded', 'survivor');
+    await syncNow(db, client);
+    expect(await countUnsyncedRows(db)).toBe(1);
+
+    const second = await syncNow(db, client);
+    expect(second.pushed).toBe(1);
+    expect(server.row('dives', dive.id)?.site_id).toBe('survivor');
+    expect(await countUnsyncedRows(db)).toBe(0);
+
+    const third = await syncNow(db, client);
+    expect(third).toEqual({ pushed: 0, pulled: 0 });
+    expect((await getDive(db, dive.id))?.siteId).toBe('survivor');
+  });
+
+  it('follows a chain that arrived over two separate pulls', async () => {
+    // A merged into B this month, B merged into C the next. Each pull sees one hop; the dive
+    // has to end at C, and a device that stopped at B would be pointing at a row nothing shows
+    // — the original defect, one step along.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'a' });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    folding('a', 'b');
+    await syncNow(db, client);
+    expect((await getDive(db, dive.id))?.siteId).toBe('b');
+
+    server.tick(10_000);
+    folding('b', 'c');
+    await syncNow(db, client);
+    expect((await getDive(db, dive.id))?.siteId).toBe('c');
+  });
+
+  it('follows a whole chain that arrives in one pull', async () => {
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'a' });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    folding('a', 'b');
+    folding('b', 'c');
+    await syncNow(db, client);
+
+    expect((await getDive(db, dive.id))?.siteId).toBe('c');
+  });
+
+  it('moves nobody on a circular merge, and finishes the pull all the same (§1)', async () => {
+    // The data is a server's and this repository does not own it. An undefended walk HANGS
+    // rather than failing, so what this asserts is that the cycle completes at all: the dive
+    // keeps its pointer, the watermark moves, and the next cycle is ordinary.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'a' });
+    await syncNow(db, client);
+    const settled = await storedRow(dives, dive.id);
+
+    server.tick(10_000);
+    folding('a', 'b');
+    folding('b', 'a');
+    folding('itself', 'itself');
+    await syncNow(db, client);
+
+    expect((await getDive(db, dive.id))?.siteId).toBe('a');
+    // Untouched, not merely unmoved: no clock advanced and no flag was set over a decision the
+    // app declined to make.
+    expect(await storedRow(dives, dive.id)).toEqual(settled);
+    expect(await getLastPulledAt(db)).toMatch(/^2026-09-02T/);
+    await expect(syncNow(db, client)).resolves.toEqual({ pushed: 0, pulled: 0 });
+  });
+
+  it('leaves a dive alone when the catalogue row was hidden rather than merged', async () => {
+    // The third status, end to end. `hidden` names no survivor — there is nowhere to send the
+    // dive — so the pointer and the snapshot both stand and `pickable` keeps the row off every
+    // picker, which is the whole of what the diver sees.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'bad-entry', siteName: 'Blue Hole' });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    server.seed('dive_sites', wireRow('dive_sites', {
+      id: 'bad-entry', name: 'Blue Hole', status: 'hidden', merged_into: 'somewhere', updated_at: server.now(),
+    }));
+    await syncNow(db, client);
+
+    expect((await getDive(db, dive.id))?.siteId).toBe('bad-entry');
+    expect((await getDive(db, dive.id))?.siteName).toBe('Blue Hole');
+    expect(await listDiveSites(db)).toEqual([]);
+    expect(await countUnsyncedRows(db)).toBe(0);
+  });
+
+  it('follows a merged centre too, because §5 merges a site or a centre in one breath', async () => {
+    const dive = await createDive(db, {
+      date: '2026-08-16', centerId: 'folded-shop', centerName: 'Aquarius',
+    });
+    await syncNow(db, client);
+
+    server.tick(10_000);
+    server.seed('dive_centers', wireRow('dive_centers', {
+      id: 'folded-shop', name: 'Aquarius', status: 'merged', merged_into: 'shop', updated_at: server.now(),
+    }));
+    await syncNow(db, client);
+
+    const after = await getDive(db, dive.id);
+    expect(after?.centerId).toBe('shop');
+    expect(after?.centerName).toBe('Aquarius');
+  });
+
+  it('repairs on a later pull, not only on the one that carried the merge', async () => {
+    // The self-healing half, and the case is real: the app is killed, or the write fails,
+    // between the change set landing and the repair running. The merge is then in the
+    // catalogue and no dive has followed it, and a one-shot repair keyed on what arrived in
+    // this response would have had its one chance — silently, for ever. So the merged rows are
+    // written here the way an interrupted pull would have left them, and an ordinary later
+    // cycle that delivers nothing new is what has to finish the job.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    await applyPulledDiveSites(db, [
+      {
+        id: 'folded', name: 'Blue Hole', country: null, latitude: null, longitude: null,
+        salinity: null, waterBody: null, entry: null, maxDepthM: null, createdBy: null,
+        status: 'merged', mergedInto: 'survivor',
+        createdAt: '2026-09-02T09:00:00.000Z', updatedAt: '2026-09-02T09:00:00.000Z',
+        deletedAt: null,
+      },
+    ]);
+    expect((await getDive(db, dive.id))?.siteId).toBe('folded');
+
+    await syncNow(db, client);
+
+    expect((await getDive(db, dive.id))?.siteId).toBe('survivor');
+  });
+
+  it('costs a device that has never seen a merge nothing at all', async () => {
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'a', centerId: 'b' });
+    await syncNow(db, client);
+    const settled = await storedRow(dives, dive.id);
+
+    server.tick(10_000);
+    server.seed('dive_sites', wireRow('dive_sites', { id: 'a', name: 'Blue Hole', updated_at: server.now() }));
+    await syncNow(db, client);
+
+    expect(await storedRow(dives, dive.id)).toEqual(settled);
+    expect(await countUnsyncedRows(db)).toBe(0);
   });
 });

@@ -27,6 +27,7 @@ import {
   getDive,
   pendingDives,
   reorderDivesForDate,
+  repointDivesToSurvivors,
   softDeleteDive,
   updateDive,
   wipeDives,
@@ -255,6 +256,26 @@ const DIVES: Record<keyof typeof divesModule, WritePath> = {
     seed: aDive,
     erase: (database) => wipeDives(database),
   },
+  repointDivesToSurvivors: {
+    // §5's merge, reaching the dive that pointed at the folded row (M2r). It is a WRITE and it
+    // must flag: the rewrite exists nowhere but this phone until it goes up, and an unflagged
+    // one would be silently undone by the server's stale copy on the very next pull (§7.2's
+    // third rule, db/dirty.ts). It goes through `updateDive`, so what this exercises is that
+    // the repair really does take that path rather than issuing a write of its own.
+    leaves: 'dirty',
+    given: async (database) => {
+      const dive = await createDive(database, { date: '2026-08-16', siteId: 'folded' });
+      return { table: dives, id: dive.id, updatedAt: dive.updatedAt };
+    },
+    when: async (database, given) => {
+      const subject = required(given);
+      await repointDivesToSurvivors(database, {
+        sites: new Map([['folded', 'survivor']]),
+        centers: new Map(),
+      });
+      return subject;
+    },
+  },
   liveDives: { reads: 'The tombstone filter (db/tombstone.ts), not a write.' },
   countPendingDives: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
   toDives: { reads: 'Rows to sorted domain dives — a mapper over what a read returned.' },
@@ -456,6 +477,12 @@ const CATALOGUE: Record<keyof typeof catalogueModule, WritePath> = {
   pendingDiveCenters: { reads: 'The push set — reads the flag, never moves it.' },
   countPendingDiveSites: { reads: 'Counts the push set — reads the flag, never moves it.' },
   countPendingDiveCenters: { reads: 'Counts the push set — reads the flag, never moves it.' },
+  diveSiteMergeTargets: {
+    reads: 'Where §5\u2019s merges send a dive — a read of `status`/`merged_into`, and the one '
+      + 'read here that skips `pickable` on purpose. It writes nothing; `db/dives.ts`\u2019s '
+      + '`repointDivesToSurvivors` is the write that acts on its answer.',
+  },
+  diveCenterMergeTargets: { reads: 'The same read for centres, which §5 merges in the same breath.' },
 };
 
 const OWNERS: Record<string, { module: Record<string, unknown>; paths: Record<string, WritePath> }> = {
@@ -496,8 +523,8 @@ describe('every write path is classified, and the classification is exhaustive (
     // never be exercised, which is a green suite that has stopped checking the thing it is
     // named after. These are today's counts, and they go UP by a deliberate edit.
     const FLOORS: Record<string, number> = {
-      // create · update · reorder · soft-delete · clear · adopt · apply-pulled
-      'db/dives.ts': 7,
+      // create · update · reorder · soft-delete · clear · adopt · apply-pulled · repoint
+      'db/dives.ts': 8,
       // create · update · soft-delete · clear · adopt · apply-pulled
       'db/gearPresets.ts': 6,
       // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
@@ -509,7 +536,7 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(21);
+    expect(writePaths.length).toBe(22);
 
     // §7.4's erases, counted the same way and for the same reason: one filed as a read would
     // never be run, and a sign-out that quietly left a table behind is a device holding one

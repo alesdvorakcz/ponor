@@ -646,6 +646,59 @@ export async function applyPulledDives(db: Db, rows: readonly PulledDive[]): Pro
 }
 
 /**
+ * **Points every dive at the row a merge folded its site or centre into** (§5) — the write
+ * half of M2r, and `domain/merges.ts` carries the argument for why a merge moves the pointer
+ * at all rather than being resolved at every read.
+ *
+ * The maps are old id → surviving id, already followed to the end of their chains and already
+ * refusing circular ones, so this function decides nothing: it matches, patches and reports.
+ *
+ * Four things about it that are not obvious:
+ *
+ * · **`site_name` and `center_name` are never touched.** §6 keeps those snapshots so history
+ *   reads as it was recorded, and a merge is not a reason to rewrite what a diver typed. A
+ *   repointed dive therefore goes on showing the name it was logged with — `diveSiteLabel`
+ *   reads the snapshot — while grouping with the survivor's dives on the Map and prefilling
+ *   from the survivor's defaults (§2.1).
+ * · **It goes through `updateDive`**, which is what makes it §7-correct rather than
+ *   §7-dangerous: the dive gets `stampLocalWrite`'s clock *and* its flag together, so the
+ *   rewrite goes up on the next push instead of being overwritten by the server's copy on the
+ *   next pull. §4.1 also gets its way — this file already owns every write to a dive and this
+ *   is not a second path to one.
+ * · **Nothing is written for a dive that is already where it belongs.** `resolveMergeTargets`
+ *   never maps an id to itself, so every hit is a real change; a no-op write here would advance
+ *   `updated_at` on a row nothing changed, which §6 forbids and §7's last-write-wins punishes.
+ *   It is also what stops this from finding work on every cycle for ever.
+ * · **Tombstoned dives are skipped**, by taking the set from `listDives`. A deleted dive is on
+ *   no map and in no trip; repointing it would push a whole row to say nothing, and
+ *   `updateDive` is scoped to live dives in any case.
+ *
+ * Returns the ids it moved.
+ */
+export async function repointDivesToSurvivors(
+  db: Db,
+  targets: {
+    readonly sites: ReadonlyMap<string, string>;
+    readonly centers: ReadonlyMap<string, string>;
+  },
+): Promise<string[]> {
+  if (targets.sites.size === 0 && targets.centers.size === 0) return [];
+
+  const moved: string[] = [];
+  for (const dive of await listDives(db)) {
+    const patch: DivePatch = {};
+    const site = dive.siteId === null ? undefined : targets.sites.get(dive.siteId);
+    if (site !== undefined) patch.siteId = site;
+    const center = dive.centerId === null ? undefined : targets.centers.get(dive.centerId);
+    if (center !== undefined) patch.centerId = center;
+    if (Object.keys(patch).length === 0) continue;
+    await updateDive(db, dive.id, patch);
+    moved.push(dive.id);
+  }
+  return moved;
+}
+
+/**
  * §7.4's adoption: flags every dive on this phone for the next push and reports **how many of
  * them a diver would count** — live dives, tombstones excluded.
  *

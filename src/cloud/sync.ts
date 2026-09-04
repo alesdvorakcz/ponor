@@ -8,6 +8,8 @@ import {
   clearDiveSiteDirtyFlags,
   countPendingDiveCenters,
   countPendingDiveSites,
+  diveCenterMergeTargets,
+  diveSiteMergeTargets,
   pendingDiveCenters,
   pendingDiveSites,
 } from '../db/catalogue';
@@ -17,6 +19,7 @@ import {
   clearDiveDirtyFlags,
   countPendingDives,
   pendingDives,
+  repointDivesToSurvivors,
 } from '../db/dives';
 import {
   applyPulledGearPresets,
@@ -437,6 +440,46 @@ function pushedClock(table: PushableTable, row: Record<string, unknown>): string
 }
 
 /**
+ * **Makes a merge reach the dives that pointed at the folded row** (§5) — the step this file
+ * was missing, and the only thing a cycle does that §7 does not describe.
+ *
+ * `domain/merges.ts` decides where a merged row sends a dive, `db/catalogue.ts` reads the rows,
+ * `db/dives.ts` writes the dives; this composes the three, which is exactly this module's job
+ * (§4.1: it owns a *cycle*, and owns no row).
+ *
+ * ── Three properties, in the order they can go wrong ──────────────────────────────────────
+ *
+ * **It runs after the whole change set is applied, not inside it.** A pull can carry the merged
+ * site *and* a newer copy of a dive that points at it, and `applyChanges` writes the dives
+ * first (`SYNCED_TABLES`' order). Repointing before that would hand the server's copy the last
+ * word and undo the repair silently, on the one cycle where it mattered most.
+ *
+ * **The rewrite deliberately makes the dive dirty, and that cannot fight the pull that caused
+ * it.** §7.2's third rule (`applyPulledRows`, db/dirty.ts) refuses to write a pulled row over
+ * one this device still owes — so the repaired dive is safe from the server's stale copy until
+ * it has gone up, which is precisely the state M2g built that rule for. It cannot collide with
+ * a push either: `syncNow` pushes first, and even a hypothetical rewrite landing mid-push would
+ * keep its flag, because `clearDirtyFlags` clears only rows whose clock has not moved since.
+ *
+ * **It runs on every pull, not only the one that delivered the merge.** It is idempotent —
+ * `repointDivesToSurvivors` writes only where a dive actually moves — so it costs a device that
+ * has never seen a merge two indexed reads and nothing else, and it self-heals if the pull that
+ * carried the merge was interrupted before it got here. A one-shot repair keyed on what arrived
+ * would have exactly one chance to run and would fail silently for ever after.
+ *
+ * **It is not in `SyncReport`**, and that is a decision rather than an omission: the report says
+ * what the *protocol* moved — rows up, rows down — and a repointed dive is this device's own new
+ * write, which shows up where every other unsent write does, in §7.5's pending count.
+ */
+export async function followCatalogueMerges(db: Db): Promise<number> {
+  const [sites, centers] = await Promise.all([
+    diveSiteMergeTargets(db),
+    diveCenterMergeTargets(db),
+  ]);
+  return (await repointDivesToSurvivors(db, { sites, centers })).length;
+}
+
+/**
  * §7.2: "`pull_changes(last_pulled_at)` returns the user's changed rows plus the compact
  * community catalogue. The client upserts by comparing `updated_at`; tombstoned rows are
  * removed locally."
@@ -454,6 +497,15 @@ function pushedClock(table: PushableTable, row: Record<string, unknown>): string
  * where it was and the next pull asks for the same window again, which §7 makes free because
  * the upsert is idempotent. The other order trades a free repetition for a permanent hole.
  *
+ * **A merge is followed in the same place** (`followCatalogueMerges`), and it is put before the
+ * watermark for the paragraph above's reason rather than for one of its own: a failure there
+ * costs a repetition rather than a hole. **What actually makes that safe is not the ordering**
+ * — it is that the repair runs on every pull and is idempotent, so either order self-heals —
+ * **but that no arrangement of rows can make it fail at all.** `resolveMergeTargets` is total
+ * over any graph a server can send, cycles included, which is what stops a merge from being
+ * able to stall a device's watermark for ever. That, and not the ordering, is the guarantee
+ * worth defending, and §1 is why: a merge arriving mid-sync may not cost the diver their sync.
+ *
  * **A tombstone is a row, and it is written like any other row.** §6 hard-deletes nothing: a
  * pulled `deleted_at` lands in the column, and `liveRows`/`pickable` — the filter every read
  * of every soft-deleted table already applies — is what removes it from the diver's logbook.
@@ -465,6 +517,7 @@ export async function pullChanges(db: Db, client: SupabaseClient): Promise<numbe
   const envelope = await call(client, PULL_RPC, { last_pulled_at: lastPulledAt });
 
   const written = await applyChanges(db, readChangeSet(envelope.changes));
+  await followCatalogueMerges(db);
 
   const watermark = envelope.last_pulled_at;
   if (typeof watermark !== 'string') {

@@ -139,7 +139,12 @@ export function pointOf(source: { latitude: number | null; longitude: number | n
  *
  *  1. **`siteId`** — the catalogue's own identity (§6). Two dives pointing at one site are one
  *     place even if their `site_name` snapshots differ, which they will once an admin renames a
- *     site (§5) and old dives keep the name they were logged with.
+ *     site (§5) and old dives keep the name they were logged with. **A merge is the second way
+ *     that happens** (M2r): when an admin folds one site into another, `db/dives.ts` rewrites
+ *     the dives' `site_id` to the survivor and leaves every snapshot alone, so two markers
+ *     collapse into one whose `label` is the newest dive's own recorded spelling. Nothing here
+ *     knows about `merged_into`, and that is the point of doing it as a rewrite — see
+ *     `domain/merges.ts` for why the alternative would have had to reach into this function.
  *  2. **The folded `siteName`** — for a site typed by hand and never picked from the catalogue,
  *     which is every site in a logbook that has never synced. Folded through `foldForMatching`
  *     (domain/search.ts, §4.1's owner of "how text is read before it is compared"), so

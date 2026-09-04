@@ -155,6 +155,19 @@ export type CatalogueStatus = (typeof CATALOGUE_STATUS_VALUES)[number];
 export const ACTIVE_CATALOGUE_STATUS: CatalogueStatus = 'active';
 
 /**
+ * The one status that says **this row is another row** — §5's "an admin setting `status` to
+ * `merged` with `merged_into` pointing at the survivor".
+ *
+ * Beside `ACTIVE_CATALOGUE_STATUS` because it decides one thing that must not be decided
+ * twice: which of the three statuses `domain/merges.ts` follows. `hidden` is the third and it
+ * is deliberately **not** followed — a hidden row is a bad entry taken out of circulation, not
+ * a claim to be somewhere else, and §6 gives `merged_into` its meaning only alongside this
+ * word. A hidden row that arrives carrying a stray `merged_into` (the server is not this
+ * repository's) must therefore move nobody's dive.
+ */
+export const MERGED_CATALOGUE_STATUS: CatalogueStatus = 'merged';
+
+/**
  * How many cylinders each rig is, and **the one place that says so** (§4.1).
  *
  * A `Record` keyed by `Configuration` rather than a `switch` or a lookup written where it is

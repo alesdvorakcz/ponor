@@ -10,6 +10,7 @@ import {
   getDive,
   listDives,
   reorderDivesForDate,
+  repointDivesToSurvivors,
   softDeleteDive,
   toDives,
   updateDive,
@@ -999,5 +1000,162 @@ describe('softDeleteDive', () => {
     expect(after.get(first.id)).toBe(1);
     expect(after.get(last.id)).toBe(2);
     expect(after.has(middle.id)).toBe(false);
+  });
+});
+
+describe('repointDivesToSurvivors (§5, M2r)', () => {
+  /** The row as stored, past the tombstone filter every read applies. */
+  const stored = async (id: string) =>
+    (await db.select().from(dives).where(eq(dives.id, id))).at(0);
+
+  const survivors = (over: {
+    sites?: Record<string, string>;
+    centers?: Record<string, string>;
+  }) => ({
+    sites: new Map(Object.entries(over.sites ?? {})),
+    centers: new Map(Object.entries(over.centers ?? {})),
+  });
+
+  it('moves the pointer and leaves the snapshot exactly as the diver recorded it', async () => {
+    // §6 gives a dive two fields for one place with two jobs: `site_name` is history and
+    // `site_id` is identity. A merge is a statement about identity, so the name is untouched
+    // and the dive goes on reading as it was logged.
+    const dive = await createDive(db, {
+      date: '2026-08-16',
+      siteId: 'folded',
+      siteName: 'Blue Hole',
+    });
+
+    expect(await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }))).toEqual([
+      dive.id,
+    ]);
+
+    const after = await getDive(db, dive.id);
+    expect(after?.siteId).toBe('survivor');
+    expect(after?.siteName).toBe('Blue Hole');
+  });
+
+  it('leaves the dive dirty and its clock advanced, or the server would undo it on the next pull', async () => {
+    // The whole §7 argument in one assertion. `push_changes` restamps `updated_at`, so a
+    // rewrite that did not flag the row would be overwritten by the server's stale copy —
+    // and a flag without a clock is a row that wins a conflict it never enters (db/dirty.ts).
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    await db.update(dives).set({ dirty: false }).where(eq(dives.id, dive.id));
+    await tick();
+
+    await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }));
+
+    const row = await stored(dive.id);
+    expect(row?.dirty).toBe(true);
+    expect(String(row?.updatedAt) > dive.updatedAt).toBe(true);
+  });
+
+  it('writes nothing for a dive already pointing at the survivor', async () => {
+    // The fixpoint. Without it the repair finds work on every cycle for ever, restamping
+    // `updated_at` on a row nothing changed — §6's rule, and §7's conflict lost by the device
+    // that did nothing.
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'survivor' });
+    await db.update(dives).set({ dirty: false }).where(eq(dives.id, dive.id));
+
+    expect(await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }))).toEqual(
+      [],
+    );
+    const row = await stored(dive.id);
+    expect(row?.dirty).toBe(false);
+    expect(row?.updatedAt).toBe(dive.updatedAt);
+  });
+
+  it('touches nothing at all when nothing has been merged', async () => {
+    const dive = await createDive(db, { date: '2026-08-16', siteId: 'a', centerId: 'b' });
+    await db.update(dives).set({ dirty: false }).where(eq(dives.id, dive.id));
+
+    expect(await repointDivesToSurvivors(db, survivors({}))).toEqual([]);
+    expect((await stored(dive.id))?.dirty).toBe(false);
+  });
+
+  it('moves a centre as readily as a site, and both on one dive in one write', async () => {
+    // §5 merges "a site or center" in one breath, `tripKeyOf` groups by the centre, and a
+    // merged centre splits one trip in two with nothing to show for it.
+    const dive = await createDive(db, {
+      date: '2026-08-16',
+      siteId: 'old-site',
+      siteName: 'Blue Hole',
+      centerId: 'old-centre',
+      centerName: 'Aquarius',
+    });
+
+    expect(
+      await repointDivesToSurvivors(
+        db,
+        survivors({ sites: { 'old-site': 'new-site' }, centers: { 'old-centre': 'new-centre' } }),
+      ),
+    ).toEqual([dive.id]);
+
+    const after = await getDive(db, dive.id);
+    expect(after?.siteId).toBe('new-site');
+    expect(after?.centerId).toBe('new-centre');
+    expect(after?.siteName).toBe('Blue Hole');
+    expect(after?.centerName).toBe('Aquarius');
+  });
+
+  it('moves a centre on a dive whose site was not merged, and vice versa', async () => {
+    const site = await createDive(db, { date: '2026-08-16', siteId: 'folded', centerId: 'kept' });
+    const centre = await createDive(db, { date: '2026-08-17', siteId: 'kept', centerId: 'folded' });
+
+    await repointDivesToSurvivors(
+      db,
+      survivors({ sites: { folded: 'site-survivor' }, centers: { folded: 'centre-survivor' } }),
+    );
+
+    expect((await getDive(db, site.id))?.siteId).toBe('site-survivor');
+    expect((await getDive(db, site.id))?.centerId).toBe('kept');
+    expect((await getDive(db, centre.id))?.centerId).toBe('centre-survivor');
+    expect((await getDive(db, centre.id))?.siteId).toBe('kept');
+  });
+
+  it('moves every dive that pointed at the folded row, not merely the first', async () => {
+    const first = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    const second = await createDive(db, { date: '2026-08-17', siteId: 'folded' });
+    const elsewhere = await createDive(db, { date: '2026-08-18', siteId: 'somewhere-else' });
+
+    const moved = await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }));
+
+    expect(moved.sort()).toEqual([first.id, second.id].sort());
+    expect((await getDive(db, elsewhere.id))?.siteId).toBe('somewhere-else');
+  });
+
+  it('repoints a planned dive as readily as a logged one', async () => {
+    // A plan becomes a dive. Skipping it would leave the one dive in the logbook that is
+    // still going to be edited pointing at a row nothing shows.
+    const planned = await createDive(db, { date: '2026-09-30', status: 'planned', siteId: 'folded' });
+
+    await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }));
+
+    expect((await getDive(db, planned.id))?.siteId).toBe('survivor');
+  });
+
+  it('skips a tombstoned dive rather than pushing a whole row to say nothing', async () => {
+    const deleted = await createDive(db, { date: '2026-08-16', siteId: 'folded' });
+    await softDeleteDive(db, deleted.id);
+    const before = await stored(deleted.id);
+    await tick();
+
+    expect(await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }))).toEqual(
+      [],
+    );
+
+    const after = await stored(deleted.id);
+    expect(after?.siteId).toBe('folded');
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
+
+  it('leaves a dive with no site and no centre alone', async () => {
+    const dive = await createDive(db, { date: '2026-08-16' });
+    await db.update(dives).set({ dirty: false }).where(eq(dives.id, dive.id));
+
+    expect(await repointDivesToSurvivors(db, survivors({ sites: { folded: 'survivor' } }))).toEqual(
+      [],
+    );
+    expect((await stored(dive.id))?.dirty).toBe(false);
   });
 });
