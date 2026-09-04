@@ -40,6 +40,20 @@ const config: ExpoConfig = {
     //
     // It is a NATIVE config change, so it lands only at the next prebuild + dev-client build.
     'expo-secure-store',
+    // §2.3's "use my location — pressed right on the boat", which is the ONLY way a dive gets a
+    // GPS pin now that M1i took the two coordinate keypads off the form (§2.2). The string is
+    // what iOS shows in the permission sheet, and it is the app's own sentence rather than the
+    // library's default: a diver deciding whether to grant this is entitled to know it is for
+    // one tap on one dive, not a background trail. Foreground only — no `isAndroidBackgroundLocationEnabled`,
+    // no always-authorisation — because §1's "works at sea" is about the logbook working
+    // offline, not about the app watching where the boat goes.
+    [
+      'expo-location',
+      {
+        locationWhenInUsePermission:
+          'Ponor uses your location only when you tap “use my location”, to pin the dive site you are at.',
+      },
+    ],
     [
       'expo-splash-screen',
       {
