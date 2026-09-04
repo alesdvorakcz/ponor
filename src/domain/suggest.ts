@@ -1,6 +1,6 @@
 import { compareDiveOrder } from './diveNumber';
 import { foldForMatching } from './search';
-import { type Dive } from './types';
+import { type Dive, type DiveSite } from './types';
 
 /**
  * The fields autocomplete covers, as **values** — DESIGN.md §2.3 names exactly these four:
@@ -295,4 +295,108 @@ export function suggestFrom(
   });
 
   return matches.slice(0, Math.max(limit, 0)).map(([, tally]) => ({ value: tally.value, id: tally.id }));
+}
+
+/**
+ * **§2.3's fuzzy check, as the list of sites the diver is asked about** — *"before saving a
+ * new entry, a fuzzy check suggests near-matches: **Did you mean Shark Point?** One tap picks
+ * the existing site instead"* (M2p).
+ *
+ * Two sources answer that question and this is where they become one list, because they are
+ * one question and a screen that merged them itself would be a second place deciding what a
+ * duplicate is (§4.1).
+ *
+ * ── The device's own answer, and why it is exact rather than fuzzy ────────────────────────
+ *
+ * `onDevice` is the on-device copy of the community catalogue (§5: *"the compact site/center
+ * catalogue syncs to every device"*), and a row of it is a near-match here **only when its
+ * folded name equals the folded query**. That is deliberately the cheapest possible check and
+ * it is the one that works at sea:
+ *
+ * · It costs one `foldForMatching` per catalogue row — the fold this app already runs over
+ *   every dive on every keystroke of §3's search — and no network at all. §1 and §5 both make
+ *   a site created out of signal the ordinary case rather than the exceptional one, and this
+ *   is the only duplicate check such a diver gets.
+ * · It catches exactly what the fold is for: `kotelna` against `Kotelna`, and — since M2j —
+ *   `Divoka Sarka` against `Divoká Šárka`, which is the duplicate §5 names.
+ * · It **misses** `Sharks Point` against `Shark Point`, and that is the trade rather than an
+ *   oversight. Trigram similarity is `pg_trgm`'s, it lives on the server behind
+ *   `similar_sites`, and a JavaScript approximation of it would be a second implementation of
+ *   the rule that decides what a duplicate *is* — drifting from `public.name_match_floor()`
+ *   silently, in the direction nobody can observe. `domain/search.ts` records the same refusal
+ *   about `unaccent`'s rule table for the same reason.
+ *
+ * A substring match would be the tempting middle ground and is wrong: `Kotelna` would be
+ * offered as a near-match for `Kotelna II`, which is a different site with a longer name, and
+ * the offer would be at its most confident exactly where it was wrong.
+ *
+ * ── The server's answer ───────────────────────────────────────────────────────────────────
+ *
+ * `fromServer` is whatever `similar_sites` returned (`cloud/similarSites.ts`), already fuzzy,
+ * already folded on both sides, and already narrowed by the dive's pin where it has one. It is
+ * **empty whenever the check could not run**, which is a state this function neither knows nor
+ * needs to: a diver out of signal gets the device's answer and nothing else.
+ *
+ * ── Merging ───────────────────────────────────────────────────────────────────────────────
+ *
+ * The device goes first: a row it can see is a row it can prove exists, and an exact name
+ * match is a stronger claim than a trigram score. Then the server's, in its own order (score
+ * first — `similar_sites` sorts, and re-sorting here would be a second ranking of the same
+ * rows).
+ *
+ * **Distinct by id**, because the two sources overwhelmingly answer with the *same rows* — the
+ * device's copy came down from the server that is being asked. Two rows reading `Did you mean
+ * “Kotelna”?` would be one site asked about twice. A candidate with no usable id is dropped
+ * rather than kept: the whole point of the one tap is to pair the dive with §6's `site_id`,
+ * and a row that cannot supply one has nothing to offer.
+ *
+ * Capped at `SUGGESTION_LIMIT` for that constant's own reason — these rows sit in the slot the
+ * suggestion list owns (§0.6), so how many fit under a focused row is one layout judgement,
+ * not two.
+ *
+ * ── Its siblings, named because §4.1 asks a near-duplicate to name them ───────────────────
+ *
+ * `hasPairedId` above asks the *same shape* of question — "does this name already name a
+ * community row?" — of the diver's **own history**, and is what decides whether the offer to
+ * create appears at all. This asks it of the **catalogue**, and is what happens after the
+ * diver has pressed that offer. They must not be merged: a name the diver has dived with an
+ * id needs no question asked, and a name the catalogue holds needs one asked *and answered
+ * with a row to tap*.
+ *
+ * `suggestFrom` below matches on a **substring** and this on **equality**, over different
+ * populations, and that difference is the paragraph above.
+ *
+ * Runs over rows the database handed back, so a row it cannot read costs one candidate rather
+ * than the whole gesture — the rule `suggestFrom` and `hasPairedId` both follow.
+ */
+export function nearMatches(
+  name: string,
+  onDevice: readonly DiveSite[],
+  fromServer: readonly Suggestion[],
+  limit: number = SUGGESTION_LIMIT,
+): Suggestion[] {
+  const wanted = foldForMatching(name);
+  // An empty name names no site, and folding it would equal every empty stored name. The same
+  // guard `hasPairedId` carries, for the same reason.
+  if (wanted === '') return [];
+
+  const local: Suggestion[] = [];
+  for (const site of onDevice) {
+    if (site === null || site === undefined) continue;
+    const value = typeof site.name === 'string' ? site.name.trim() : '';
+    if (value === '' || foldForMatching(value) !== wanted) continue;
+    local.push({ value, id: typeof site.id === 'string' ? site.id : null });
+  }
+
+  const seen = new Set<string>();
+  const merged: Suggestion[] = [];
+  for (const candidate of [...local, ...fromServer]) {
+    const id = candidate.id;
+    if (id === null || id === '') continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    merged.push(candidate);
+  }
+
+  return merged.slice(0, Math.max(limit, 0));
 }

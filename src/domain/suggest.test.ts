@@ -1,6 +1,13 @@
 import { dive } from './diveFixture';
-import { hasPairedId, SUGGESTED_FIELDS, SUGGESTION_LIMIT, suggestFrom, type Suggestion } from './suggest';
-import { type Dive } from './types';
+import {
+  hasPairedId,
+  nearMatches,
+  SUGGESTED_FIELDS,
+  SUGGESTION_LIMIT,
+  suggestFrom,
+  type Suggestion,
+} from './suggest';
+import { type Dive, type DiveSite } from './types';
 
 /** Just the text, for the many assertions that are about ORDER rather than about ids. */
 const valuesOf = (suggestions: Suggestion[]): string[] => suggestions.map((s) => s.value);
@@ -421,4 +428,151 @@ it('refuses an id that is not a string, so the name still counts as uncatalogued
 it('counts an id stored as an empty string, on the same reading suggestFrom uses', () => {
   const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: '' })];
   expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(true);
+});
+
+// =========================================================================================
+// `nearMatches` — §2.3's fuzzy check, as the list the diver is asked about (M2p)
+// =========================================================================================
+
+/**
+ * A catalogue row, with only the two columns this function reads spelled out.
+ *
+ * A local fixture rather than a shared one: `MapScreen.test.tsx` has its own for the same
+ * table and they answer different questions (that one needs pins, this one needs names and
+ * ids). §4.1 asks `src/testing/` to hold shared *guards*, not shared object literals — a
+ * fixture that is wrong here is wrong in one test file and visible in it.
+ */
+let siteSeq = 0;
+const site = (name: string | null, over: Partial<DiveSite> = {}): DiveSite =>
+  ({
+    id: `site-${String(siteSeq++).padStart(4, '0')}`,
+    name,
+    country: null,
+    latitude: null,
+    longitude: null,
+    salinity: null,
+    waterBody: null,
+    entry: null,
+    maxDepthM: null,
+    createdBy: null,
+    status: 'active',
+    mergedInto: null,
+    createdAt: '2026-08-16T00:00:00.000Z',
+    updatedAt: '2026-08-16T00:00:00.000Z',
+    deletedAt: null,
+    dirty: false,
+    ...over,
+  }) as DiveSite;
+
+const found = (value: string, id: string): Suggestion => ({ value, id });
+
+// The device's whole half of the check, and the one that works at sea. §5's offline-dedupe
+// paragraph exists because a site created on a boat is ordinary; this is what such a diver
+// gets, with no network anywhere in it.
+it('finds the catalogue row a typed name already names, with nothing from any server', () => {
+  const catalogue = [site('Kotelna', { id: 'site-kotelna' }), site('Silfra')];
+  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'site-kotelna')]);
+});
+
+// The fold is `foldForMatching`'s, so every rule M2j settled applies here without being
+// restated: case, accents, and the two together. `zelezna` finding `Železná` is §10's own
+// sentence, and this is the duplicate §5 asks the check to catch.
+it('folds both sides, so case and accents are the same site', () => {
+  const catalogue = [site('Divoká Šárka', { id: 'site-sarka' })];
+  expect(nearMatches('divoka sarka', catalogue, [])).toEqual([found('Divoká Šárka', 'site-sarka')]);
+  expect(nearMatches('  KOTELNA  ', [site('Kotelna', { id: 'k' })], [])).toEqual([found('Kotelna', 'k')]);
+});
+
+// **The line the device deliberately does not cross.** Equality, not substring: `Kotelna II`
+// is a different site with a longer name, and a substring check would be most confident
+// exactly where it was wrong. `Sharks Point` against `Shark Point` is the other side of the
+// same decision — that is trigram work, it belongs to `similar_sites`, and a JavaScript
+// approximation of `pg_trgm` would be the second implementation §4.1 exists to prevent.
+it('will not call a longer name or a misspelling a match on its own', () => {
+  const catalogue = [site('Kotelna II', { id: 'k2' }), site('Shark Point', { id: 'sp' })];
+  expect(nearMatches('Kotelna', catalogue, [])).toEqual([]);
+  expect(nearMatches('Sharks Point', catalogue, [])).toEqual([]);
+});
+
+// ...and the server is what supplies exactly those, so the pair of tests is one decision.
+it('takes the fuzzy ones from the server, which is where fuzzy lives', () => {
+  expect(nearMatches('Sharks Point', [], [found('Shark Point', 'sp')])).toEqual([found('Shark Point', 'sp')]);
+});
+
+// The device first: a row it holds is a row it can prove exists, and an exact name match is a
+// stronger claim than a trigram score. Asserted on the ORDER, because the order is the claim.
+it('puts the device’s own answer above the server’s', () => {
+  const catalogue = [site('Kotelna', { id: 'k' })];
+  expect(nearMatches('Kotelna', catalogue, [found('Kotelna II', 'k2')])).toEqual([
+    found('Kotelna', 'k'),
+    found('Kotelna II', 'k2'),
+  ]);
+});
+
+// The server's own order is kept rather than re-sorted: `similar_sites` ranks by score and a
+// second ranking here would be a second answer to which near-match is nearest.
+it('keeps the server’s ranking as it arrived', () => {
+  const fromServer = [found('Shark Point', 'a'), found('Shark Bay', 'b'), found('Sharp Point', 'c')];
+  expect(nearMatches('Sharks Point', [], fromServer)).toEqual(fromServer);
+});
+
+// **The common case for a diver who is online**, and the one that would put the same site on
+// screen twice: the device's copy of the catalogue came down from the very server being asked,
+// so both sources answer with the same row. One question per site.
+it('asks about one site once, however many sources found it', () => {
+  const catalogue = [site('Kotelna', { id: 'site-kotelna' })];
+  const fromServer = [found('Kotelna', 'site-kotelna'), found('Kotelna II', 'site-kotelna-2')];
+  expect(nearMatches('Kotelna', catalogue, fromServer)).toEqual([
+    found('Kotelna', 'site-kotelna'),
+    found('Kotelna II', 'site-kotelna-2'),
+  ]);
+});
+
+// Two catalogue rows spelled alike ARE two duplicates — exactly what this feature exists to
+// stop being made — so they are two questions, told apart by the id the tap will pair.
+it('asks about two rows spelled alike separately, because they are two rows', () => {
+  const catalogue = [site('Kotelna', { id: 'one' }), site('kotelna', { id: 'two' })];
+  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'one'), found('kotelna', 'two')]);
+});
+
+// The whole point of the one tap is §6's pair, so a candidate that cannot supply an id has
+// nothing to offer — picking it would leave the dive holding a name and no site.
+it('drops a candidate with no usable id, from either source', () => {
+  const catalogue = [site('Kotelna', { id: '' as unknown as string })];
+  expect(nearMatches('Kotelna', catalogue, [])).toEqual([]);
+  expect(nearMatches('Kotelna', [], [{ value: 'Kotelna', id: null }])).toEqual([]);
+});
+
+// An empty name names no site, and a fold of it would equal every empty stored name — the
+// same guard `hasPairedId` carries one function up, for the same reason.
+it('answers nothing for an empty or whitespace-only name', () => {
+  const catalogue = [site('Kotelna', { id: 'k' }), site('   ', { id: 'blank' })];
+  expect(nearMatches('', catalogue, [found('Kotelna', 'k')])).toEqual([]);
+  expect(nearMatches('   ', catalogue, [found('Kotelna', 'k')])).toEqual([]);
+});
+
+// A catalogue row with no name is not a site anybody can be asked about, and `String(null)` is
+// `"null"` — the trap `domain/search.ts` documents for these same columns.
+it('skips a catalogue row with no name at all', () => {
+  expect(nearMatches('null', [site(null), site('  ')], [])).toEqual([]);
+});
+
+// These rows come out of the database during a gesture, so a hole or a column holding
+// something that is not text costs one candidate rather than the whole check — the rule
+// `suggestFrom` and `hasPairedId` both follow.
+it('survives a hole in the catalogue and a name that is not text', () => {
+  const catalogue = [
+    null,
+    site(42 as unknown as string),
+    site('Kotelna', { id: 'k' }),
+  ] as unknown as DiveSite[];
+  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'k')]);
+});
+
+// The rows sit in the slot the suggestion list owns (§0.6), so how many fit under a focused
+// row is one layout judgement rather than two — `SUGGESTION_LIMIT`, not a number of its own.
+it('caps the question at the same number of rows a suggestion list gets', () => {
+  const fromServer = Array.from({ length: SUGGESTION_LIMIT + 3 }, (_, i) => found(`Shark ${i}`, `id-${i}`));
+  expect(nearMatches('Sharks', [], fromServer)).toHaveLength(SUGGESTION_LIMIT);
+  expect(nearMatches('Sharks', [], fromServer, 2)).toEqual(fromServer.slice(0, 2));
 });

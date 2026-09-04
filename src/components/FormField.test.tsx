@@ -5,7 +5,7 @@ import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { FormField } from './FormField';
+import { FormField, type FieldMatch } from './FormField';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
 // DiveDetailScreen.test.tsx): `render` is async and its `root` is a test-renderer
@@ -796,6 +796,152 @@ it('draws nothing outside its own treatment with an offer showing either (§0.4/
 });
 
 // ---------------------------------------------------------------------------------------
+// §2.3's fuzzy check, once it has answered (M2p)
+// ---------------------------------------------------------------------------------------
+
+const DID_YOU_MEAN_SHARK = 'Did you mean “Shark Point”?';
+const ADD_ANYWAY = `${ADD_SITE} anyway`;
+
+/** One near-match, in the shape the caller hands over: the sentence the row reads, and the
+ * pair picking it delivers. Written out here rather than derived from the suggestion, because
+ * the wording is the caller's and this file is its independent witness. */
+const MATCHES: FieldMatch[] = [
+  { question: DID_YOU_MEAN_SHARK, suggestion: { value: 'Shark Point', id: 'site-shark' } },
+  { question: 'Did you mean “Shark Bay”?', suggestion: { value: 'Shark Bay', id: 'site-bay' } },
+];
+
+const asked = (onPress: () => void, matches: FieldMatch[] = MATCHES) => ({
+  label: ADD_ANYWAY,
+  onPress,
+  busy: false,
+  matches,
+});
+
+// §2.3's own words, one row per near-match, under the same `focused` gate everything in this
+// slot is under — and driven through real focus/blur for the reason the list is: a question
+// wired to a condition it could never satisfy fails here rather than passing.
+it('asks §2.3’s question only while its own row holds focus', async () => {
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  expect(textIn(t)).not.toContain(DID_YOU_MEAN_SHARK);
+
+  const input = await focusInput(t);
+  expect(textIn(t)).toContain(DID_YOU_MEAN_SHARK);
+
+  await fireEvent(input, 'blur');
+  expect(textIn(t)).not.toContain(DID_YOU_MEAN_SHARK);
+});
+
+// **The order is the whole claim**: the question the diver has just been asked, and under it
+// the way through. Read off the drawn order rather than off a prop.
+it('draws every question above the act, in the order it was handed them', async () => {
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  expect(textIn(t)).toEqual(['Site', DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
+});
+
+/**
+ * **A pending question takes the slot to itself.** The diver has committed to a name and been
+ * interrupted; their own history is a third answer to something they already answered, and —
+ * the concrete failure — the same site can legitimately appear in both lists, once as
+ * `Blue Hole` and once as *Did you mean “Blue Hole”?*.
+ *
+ * Asserted with a list that WOULD have drawn, so this is a claim about suppression rather
+ * than about an empty array.
+ */
+it('puts the diver’s own history away while a question is standing', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  expect(textIn(t)).toEqual(['Site', DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
+
+  // ...and it is back the moment the question is not being asked, which is what makes the
+  // line above about the question rather than about this component having stopped drawing
+  // lists at all.
+  const answeredAlready = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={asked(() => {}, [])} />,
+  );
+  await focusInput(answeredAlready);
+  expect(textIn(answeredAlready)).toEqual(['Site', 'Blue Hole', 'Silfra', ADD_ANYWAY]);
+});
+
+/**
+ * §2.3: *"One tap picks the existing site instead."* That is precisely what picking a
+ * suggestion already does, so it goes down the same path — `onPickSuggestion`, with the whole
+ * pair — and not through `onChange`, which clears §6's id one layer up, nor through the
+ * addition's own press, which would create the duplicate the question exists to prevent.
+ */
+it('answers the question through the picking path, and neither of the other two', async () => {
+  const onPick = jest.fn();
+  const onChange = jest.fn();
+  const onPress = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={onChange} scheme="light" onPickSuggestion={onPick} addition={asked(onPress)} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, DID_YOU_MEAN_SHARK);
+  if (!row) throw new Error('no question found');
+  await fireEvent.press(row);
+  expect(onPick).toHaveBeenCalledWith({ value: 'Shark Point', id: 'site-shark' });
+  expect(onChange).not.toHaveBeenCalled();
+  expect(onPress).not.toHaveBeenCalled();
+});
+
+// The whole question is what a screen reader hears, never a suggestion's `Fill … with …`: the
+// diver pressed a control, and a row announced as an ordinary fill would never tell them that
+// anything had answered.
+it('announces the question, never a fill', async () => {
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  const announced = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  expect(announced).toEqual([DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
+});
+
+// §0.5: "Tap targets never below 48 dp", and §0.6 leaves ink as the only lever — already spent
+// on "this is an act, not another name to pick". A question IS a name to pick, so it wears the
+// suggestion's own muted treatment; two full-ink rows would spend the lever twice and say
+// nothing with it.
+it('draws a question as a name to pick, not as a second act', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  expect(stylesOn(findSuggestion(t, DID_YOU_MEAN_SHARK))).toContain(styles.formSuggestion);
+  const drawn = textNodesOf(t).find((n) => n.children.includes(DID_YOU_MEAN_SHARK));
+  expect(stylesOn(drawn)).toContain(styles.formSuggestionText);
+  expect(stylesOn(drawn)).not.toContain(styles.formSuggestionAdd);
+});
+
+// In flight the act still shuts, exactly as it does without a question — a second press while
+// the write is out would publish the same site twice under two ids.
+it('still shuts the act while it is in flight, with a question standing', async () => {
+  const onPress = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={{ ...asked(onPress), busy: true }} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, ADD_ANYWAY);
+  expect(row?.props.accessibilityState).toEqual({ disabled: true, busy: true });
+  await fireEvent.press(row!);
+  expect(onPress).not.toHaveBeenCalled();
+});
+
+it('draws nothing outside its own treatment with a question showing (§0.4/§0.1)', async () => {
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+});
+
+// ---------------------------------------------------------------------------------------
 // The three credential props (M2e — the account screen's two rows)
 // ---------------------------------------------------------------------------------------
 
@@ -850,4 +996,39 @@ it('leaves every field written before these props existed rendering identically'
     />,
   );
   expect(JSON.stringify(after.toJSON())).toBe(JSON.stringify(before.toJSON()));
+});
+
+/**
+ * **While the act is in flight the whole slot is inert, not just the act.** The diver has
+ * answered the question by pressing *…anyway*; the write can take seconds (§2.3's country
+ * lookup waits on the network), and a question left live through that window is a tap that
+ * pairs the dive with the existing site and is then overwritten by the row the write is about
+ * to create — the answer taken and thrown away, with nothing on screen to say so.
+ *
+ * Both `disabled` and `accessibilityState`, for the act's own reason one test up: the first
+ * stops the press, the second stops a screen reader announcing an available control that
+ * ignores taps.
+ */
+it('shuts the questions too while the act is writing', async () => {
+  const onPick = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={onPick} addition={{ ...asked(() => {}), busy: true }} />,
+  );
+  await focusInput(t);
+  const row = findSuggestion(t, DID_YOU_MEAN_SHARK);
+  expect(row?.props.accessibilityState).toEqual({ disabled: true, busy: true });
+  await fireEvent.press(row!);
+  expect(onPick).not.toHaveBeenCalled();
+});
+
+// ...and they are live again the moment it is not, which is what makes the line above about
+// the write rather than about the questions never being pressable.
+it('leaves the questions live whenever the act is not writing', async () => {
+  const onPick = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={onPick} addition={asked(() => {})} />,
+  );
+  await focusInput(t);
+  await fireEvent.press(findSuggestion(t, DID_YOU_MEAN_SHARK)!);
+  expect(onPick).toHaveBeenCalledTimes(1);
 });

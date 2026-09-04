@@ -16,12 +16,14 @@ import { FieldNote } from '../components/FieldNote';
 import { CarriedMark } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
 import { EntryIcon } from '../components/EntryIcon';
-import { FormField, type FieldAddition } from '../components/FormField';
+import { FormField, type FieldAddition, type FieldMatch } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
+import { similarSites } from '../cloud/similarSites';
+import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite } from '../db/catalogue';
+import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -54,7 +56,15 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
-import { asSuggestedField, hasPairedId, pairedIdField, suggestFrom, type SuggestedField } from '../domain/suggest';
+import {
+  asSuggestedField,
+  hasPairedId,
+  nearMatches,
+  pairedIdField,
+  suggestFrom,
+  type SuggestedField,
+  type Suggestion,
+} from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
@@ -857,12 +867,49 @@ interface CatalogueAddition {
    * stamps `auth.uid()` and ignores whatever a client sent (§5, §6, §7).
    */
   readonly create: (name: string, values: DiveFormInput) => Promise<string>;
+  /**
+   * **§2.3's fuzzy check, run between the diver asking and the row existing** — *"before
+   * saving a new entry, a fuzzy check suggests near-matches: **Did you mean Shark Point?**"*
+   * (M2p) — or **absent**, which is the whole answer for one of these two tables.
+   *
+   * **A dive centre gets no check at all, and the absence is where that is said.** §5 asks for
+   * the fuzzy check about a *site*: there is no `similar_centers` RPC and DESIGN.md §5 already
+   * records that gap as deliberate rather than unfinished ("a centre twin would be inventing a
+   * requirement rather than filling a hole"). Writing a `similar` here that always answered
+   * `[]` would put that decision in a function body where it reads as an unimplemented one;
+   * leaving the key off makes it a fact about the shape, and the row above skips the whole
+   * phase rather than pausing on a question nobody is going to ask. What a diver adding a
+   * centre gets is therefore exactly what M2o shipped: the press creates the row.
+   *
+   * Takes the same `(name, values)` pair `create` does, and for the same reason — the check
+   * has to be about the row that would be created, pin and all, or it is a check on something
+   * else.
+   */
+  readonly similar?: (name: string, values: DiveFormInput) => Promise<Suggestion[]>;
 }
 
 const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
   siteId: {
     offer: (name) => `Add “${name}” as a new site`,
     busy: 'Adding the site…',
+    // Both sources, asked together (§5's "offline dedupe" and §2.3's fuzzy check are the same
+    // question asked of two catalogues). `nearMatches` (domain/suggest.ts) owns what counts as
+    // one and in what order; this owns only that both are asked and that the row's own pin
+    // goes with the question — a name check across the whole world and a name check within the
+    // function's own radius are different questions.
+    //
+    // `Promise.all`, so a device that is online pays one round trip rather than a round trip
+    // after a database read; and `listDiveSites` reads the same `pickable` rows autocomplete
+    // would offer, so a duplicate an admin has already merged away is never offered back as
+    // the survivor's rival.
+    similar: async (name, values) => {
+      const facts = siteFactsFrom(name, values);
+      const [onDevice, fromServer] = await Promise.all([
+        listDiveSites(db),
+        similarSites(cloud, name, facts.latitude, facts.longitude),
+      ]);
+      return nearMatches(name, onDevice, fromServer);
+    },
     create: async (name, values) => {
       const facts = siteFactsFrom(name, values);
       // Country is inferred from the row's own pin (§2.3), so this is awaited before the
@@ -902,6 +949,50 @@ const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
 const CATALOGUE_ADD_FAILED = 'Could not add that just now — the dive keeps the name.';
 
 /**
+ * §2.3's own sentence, with the catalogue's own spelling in it: *"a fuzzy check suggests
+ * near-matches: **Did you mean Shark Point?**"*
+ *
+ * DESIGN.md's wording rather than one of mine, and it is kept for the case where it reads
+ * oddly as well as the case where it reads well. A near-match found by the *device* is an
+ * exact folded match (`nearMatches`, domain/suggest.ts), so a diver who typed `Kotelna` into a
+ * logbook whose catalogue already holds `Kotelna` is asked *Did you mean “Kotelna”?* about a
+ * name identical to the one on screen. That is still the right question — the name they typed
+ * already names a community row and one tap points the dive at it instead of publishing a
+ * second — but it is a sentence written for the near case answering the exact one. Reported
+ * for §2.3 rather than quietly rewritten here.
+ *
+ * One sentence, not one per table: only sites are ever checked (see `CatalogueAddition.similar`).
+ */
+const DID_YOU_MEAN = (name: string) => `Did you mean “${name}”?`;
+
+/**
+ * The same offer after the check has asked its question — §2.3's *"one tap picks the existing
+ * site instead"* needs its other half, which is **"no, add mine"**.
+ *
+ * §5 lets any signed-in diver add a site, two real sites can have similar names, and the diver
+ * is standing at one of them: a near-match is a suggestion and never a refusal, so the act
+ * must stay pressable throughout. What changes is only the wording, because the press that
+ * produced the question and the press that commits must not look identical — a diver who
+ * pressed *Add “Sharks Point” as a new site*, got a question, and saw the same row unchanged
+ * would have no way to know that pressing it again does something different.
+ *
+ * **Derived from the offer rather than written a second time per table** (§4.1: derive, or tie
+ * at compile time). Two hand-written pairs would agree today and drift the day either noun
+ * changes, and there is no reading of "no, add mine" that needs different words for a site and
+ * a centre — which is also why this survives if `similar_centers` ever arrives (§5).
+ */
+const addAnyway = (offer: string) => `${offer} anyway`;
+
+/**
+ * What the row says while the check is out — and it says *checking*, not *adding*, because at
+ * that moment nothing is being added and the answer may well be that nothing will be.
+ *
+ * One sentence rather than one per table, on `CATALOGUE_ADD_FAILED`'s own reasoning: the row it
+ * appears under says which field is being checked, and only sites are checked at all.
+ */
+const LOOKING_FOR_A_MATCH = 'Looking for a match…';
+
+/**
  * One live offer to publish what a field's text names: what the row reads, what it reads while
  * writing, and the write itself.
  *
@@ -914,7 +1005,22 @@ const CATALOGUE_ADD_FAILED = 'Could not add that just now — the dive keeps the
  */
 interface CatalogueOffer {
   readonly label: string;
+  /** The same offer once the check has put a question on screen — `addAnyway`'s wording. */
+  readonly insistLabel: string;
   readonly busyLabel: string;
+  /**
+   * §2.3's fuzzy check, or **absent for a field that has none** (a dive centre — see
+   * `CatalogueAddition.similar`). Answers the near-matches to put to the diver, and `[]` for
+   * *"nothing like it"* and *"could not ask"* alike.
+   *
+   * **It never throws, and that is what keeps §1 whole.** `similarSites` (cloud/similarSites.ts)
+   * already guarantees it for the network half — a device at sea has no server to ask and the
+   * site is created anyway — and the `catch` in the implementation covers the other two things
+   * that can fail here: reading the device's own catalogue, and parsing the form. A check that
+   * threw would reach `runAddition` as an unhandled rejection and leave the diver holding a
+   * control that has gone quiet for good, which is the exact opposite of what the check is for.
+   */
+  readonly check?: () => Promise<Suggestion[]>;
   readonly add: () => Promise<string | null>;
 }
 
@@ -1008,33 +1114,106 @@ function ControlledTextField({
   // render prop is a plain function call where a hook would be illegal, and the screen has no
   // business knowing which of its rows is currently writing — `PresetCapture` keeps its own
   // `saving` and its own note for the same reason.
-  const [adding, setAdding] = useState(false);
+  /**
+   * What the row is doing, as one value rather than two booleans.
+   *
+   * The gesture has two waits in it now (M2p) — §2.3's fuzzy check, then the write — and they
+   * say different things: *Looking for a match…* and *Adding the site…*. Two flags would allow
+   * a fourth state that means nothing (checking **and** adding), and the row would have to
+   * decide which sentence wins. There is one thing happening at a time, so there is one value.
+   */
+  const [phase, setPhase] = useState<'idle' | 'checking' | 'adding'>('idle');
   const [note, setNote] = useState<string | null>(null);
 
   /**
-   * The press.
+   * §2.3's near-matches, once the check has found some — held here, beside the row they are
+   * drawn under, exactly as `note` is and for the same reason: the screen has no business
+   * knowing which of its rows is currently asking a question.
+   *
+   * **Their presence is also the memory of "the diver has already been asked"**, which is what
+   * makes the second press mean *"no, add mine"* (§5) rather than another check. A separate
+   * `asked` flag would be a second answer to one question, able to disagree with the list on
+   * screen.
+   */
+  const [matches, setMatches] = useState<readonly Suggestion[]>([]);
+
+  /**
+   * Everything the offer has said about the name that was in the box. Both the refusal and the
+   * question describe **one particular spelling**, so both are dropped by every gesture that
+   * changes it — the rule `PresetCapture` follows for its own note, applied to the pair rather
+   * than to the sentence alone. A question about `Sharks Point` left standing over a field now
+   * reading `Sharks Point II` would be the app answering a question nobody asked.
+   *
+   * **Three callers, and only one of them can be caught dropping the question.** A keystroke
+   * can: the offer is still on screen afterwards under a new name, so a stale question would be
+   * visible. The other two — picking a name, and clearing the field — end with the offer *gone*
+   * (an answered question holds §6's id; an emptied field names nothing), so the question half
+   * is unobservable there and only the note half can fail. That is what the two tests for those
+   * paths assert, and it is why they assert the sentence rather than the question. The call
+   * stays whole on all three because the pair is one fact about one spelling, not because
+   * anything can catch two thirds of it.
+   */
+  const forgetOffer = () => {
+    setNote(null);
+    setMatches([]);
+  };
+
+  /**
+   * The press, which is now two acts in a fixed order: ask, then add.
+   *
+   * **The check runs once per name, and the second press is the diver's answer to it.** §5
+   * makes a near-match a suggestion and never a refusal — two real sites can have similar
+   * names and the diver is standing at one of them — so the way out is always the same control
+   * they already pressed, re-worded (`addAnyway`). Re-running the check on that press would
+   * put the same question back on screen and leave them no way through at all, which is the
+   * dead control §0.6 objects to, built out of a live one.
+   *
+   * **A found question leaves the note alone and the matches standing.** A failed *add* does
+   * too: the diver has already said "add anyway", and re-asking them on the retry would make a
+   * transient write failure cost them the answer they gave.
    *
    * **No ref latch, unlike the dive's own save, and that is a decision rather than an
    * oversight** — the same one `ControlledPositionField` records: nothing here is async before
-   * the flag, `setAdding(true)` runs inside the press handler itself, React flushes a discrete
+   * the flag, `setPhase` runs inside the press handler itself, React flushes a discrete
    * event's updates before delivering the next event, so a second tap always meets a shut
    * control. `onValid` needs its ref because `handleSubmit` runs an async resolver ahead of it.
    * A latch here would be a guard nothing could ever catch failing, and §10 declines those.
    */
   const runAddition = async (offer: CatalogueOffer) => {
-    setAdding(true);
     // Cleared at the START of the attempt, never on a timer or a dismiss tap, so the sentence
     // reads as "still true" for exactly as long as it still is — the rule `saveError` and
     // `ControlledPositionField`'s own note both follow.
     setNote(null);
     try {
+      if (offer.check !== undefined && matches.length === 0) {
+        setPhase('checking');
+        const found = await offer.check();
+        if (found.length > 0) {
+          setMatches(found);
+          return;
+        }
+      }
+      setPhase('adding');
       setNote(await offer.add());
     } finally {
-      // Released on both paths: a failure that left this shut would strand the diver on a
-      // control they cannot press again, which is the dead control the sentence above exists
-      // to prevent, reached from the other side.
-      setAdding(false);
+      // Released on every path — the question, the failure and the row that now exists alike.
+      // One that left this shut would strand the diver on a control they cannot press again,
+      // which is the dead control the sentence above exists to prevent, from the other side.
+      setPhase('idle');
     }
+  };
+
+  /**
+   * What the one row reads, in the order the states can be in.
+   *
+   * Written as a function rather than a nested ternary in the JSX because it is four sentences
+   * and the reason for each is different: two of them are what the row is *doing*, one is the
+   * act, and the last is the act after the diver has been asked a question about it.
+   */
+  const additionLabel = (offer: CatalogueOffer): string => {
+    if (phase === 'checking') return LOOKING_FOR_A_MATCH;
+    if (phase === 'adding') return offer.busyLabel;
+    return matches.length > 0 ? offer.insistLabel : offer.label;
   };
 
   return (
@@ -1058,7 +1237,19 @@ function ControlledTextField({
         const addition: FieldAddition | undefined =
           offer === undefined
             ? undefined
-            : { label: adding ? offer.busyLabel : offer.label, busy: adding, onPress: () => void runAddition(offer) };
+            : {
+                label: additionLabel(offer),
+                busy: phase !== 'idle',
+                onPress: () => void runAddition(offer),
+                // §2.3's near-matches, given their sentence here rather than in the check: what
+                // a diver is *asked* is a wording, and `similar_sites` returns rows. The
+                // suggestion travels whole, so the tap that answers the question goes through
+                // `onPickSuggestion` — the one path that sets §6's pair.
+                matches: matches.map((suggestion): FieldMatch => ({
+                  question: DID_YOU_MEAN(suggestion.value),
+                  suggestion,
+                })),
+              };
         return (
           <>
             <FormField
@@ -1078,10 +1269,12 @@ function ControlledTextField({
               onChange={(newText) => {
                 carryOver?.onDrop(name);
                 if (suggested !== null) onPairedId?.(suggested, null);
-                // A refusal described the name that was in the box, and a sentence about a
-                // name the diver has already changed is a stale complaint — `PresetCapture`
-                // clears its own note on the same keystroke and for the same reason.
-                setNote(null);
+                // A refusal — and, since M2p, a question — described the name that was in the
+                // box, and either one about a name the diver has already changed is a stale
+                // sentence: `PresetCapture` clears its own note on the same keystroke and for
+                // the same reason. It also puts the offer back to `Add …` from `… anyway`,
+                // which is right: the next press is about a new name and has not been checked.
+                forgetOffer();
                 field.onChange(newText);
               }}
               onBlur={field.onBlur}
@@ -1105,6 +1298,9 @@ function ControlledTextField({
               onClear={(emptied) => {
                 carryOver?.onClear(name);
                 if (suggested !== null) onPairedId?.(suggested, null);
+                // An emptied field names nothing, so a standing question about what it used to
+                // name goes with it — the same rule the keystroke above follows.
+                forgetOffer();
                 field.onChange(emptied);
               }}
               suggestions={suggestions}
@@ -1112,12 +1308,19 @@ function ControlledTextField({
               // the same suggestion — which `suggestFrom` already guarantees came from one
               // dive. Deliberately not routed through `onChange` above, which would clear the
               // id in the same breath as setting it.
+              // ...and, since M2p, the one gesture that ANSWERS §2.3's fuzzy check: *"one tap
+              // picks the existing site instead"* is this exact path, which is why the check
+              // hands its near-matches back as `Suggestion`s rather than growing a second way
+              // to set a pair. The question goes when it has been answered — the field now
+              // holds the catalogue's own spelling and the id that goes with it, so there is
+              // nothing left to ask and nothing left to add.
               onPickSuggestion={
                 suggested === null
                   ? undefined
                   : (suggestion) => {
                       carryOver?.onDrop(name);
                       onPairedId?.(suggested, suggestion.id);
+                      forgetOffer();
                       field.onChange(suggestion.value);
                     }
               }
@@ -2725,15 +2928,25 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    *    same name with an id (`hasPairedId`). Either way a second row would be a duplicate of
    *    something this logbook can already see.
    *
-   * **What is deliberately NOT a reason, and what the next task inherits.** The device's own
-   * copy of the community catalogue is not consulted, so a diver typing the name of a site
-   * they have never dived — one that arrived in a pull — is offered a second row for it. That
-   * is knowing, and it is the brief's: §2.3's fuzzy *"Did you mean Shark Point?"* and §5's
-   * server-side recheck on push are the next task, and they own the whole class of "the
-   * catalogue already has something like this". Half-answering it here would produce the worse
-   * shape — an offer that vanishes with nothing on screen to say why, on a screen that also
-   * cannot yet offer the row it found instead, so the diver would be left with no gesture at
-   * all and no explanation.
+   * **What is deliberately NOT a reason, and this is where M2p landed.** The community
+   * catalogue — the device's copy of it, and the server's — is *not* one of the four gates.
+   * A diver typing the name of a site they have never dived is still offered the row, and what
+   * happens instead is that pressing it asks §2.3's fuzzy check first (`check` below).
+   *
+   * That is the shape rather than a stage on the way to suppressing the offer, and the reason
+   * is what M2o found when it declined to half-build this: an offer that simply *vanished* on
+   * a catalogue hit would take the diver's only gesture away and put nothing on screen to say
+   * why. §2.3's own answer is a question with a row to tap — *"Did you mean Shark Point?"*,
+   * one tap picks the existing site — and a question can only be asked by something that is
+   * still there to ask it. §5 agrees from the other side: two real sites can have similar
+   * names and the diver is standing at one of them, so this must end in a suggestion and never
+   * in a refusal.
+   *
+   * **What is still not built** is §5's other half — *"when a site created offline is pushed,
+   * the server reruns the fuzzy check and flags likely duplicates for a one-tap merge by the
+   * creator"*. `push_changes` makes no similarity call, and §6 gives `dive_sites` nowhere to
+   * put such a flag: `status` and `merged_into` describe a merge that has already happened,
+   * not a suspicion about one.
    *
    * A plain function rather than a `useCallback`, unlike `dropCarried` and `setPairedId`
    * above: nothing depends on its identity, and every value it closes over — `history`, the two
@@ -2752,9 +2965,34 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     if (toInputString(idField === 'siteId' ? heldSiteId : heldCenterId).trim() !== '') return undefined;
     if (hasPairedId(history, field, name)) return undefined;
     const kind = CATALOGUE_ADDITIONS[idField];
+    const label = kind.offer(name);
+    const similar = kind.similar;
     return {
-      label: kind.offer(name),
+      label,
+      insistLabel: addAnyway(label),
       busyLabel: kind.busy,
+      // Only built when the table has a check at all (§5: there is no `similar_centers`), so a
+      // centre's press goes straight to the write and never pauses on a question that cannot
+      // be asked. `undefined` rather than a function answering `[]`, so the row can tell the
+      // two apart.
+      check:
+        similar === undefined
+          ? undefined
+          : async () => {
+              try {
+                // The same `getValues()` the write below uses, for the same reason: the check
+                // has to be about the row that would be created, pin included.
+                return await similar(name, getValues());
+              } catch {
+                // §1, in the direction this whole feature has to hold in: the check is a
+                // by-product of the by-product. `similarSites` already answers `[]` for every
+                // way of failing to reach a server; this covers the two that are local — the
+                // device's own catalogue read, and parsing the form — and turns them into the
+                // same answer, which is the answer a diver at sea gets anyway. Anything that
+                // escaped here would strand the row mid-gesture with nothing on screen.
+                return [];
+              }
+            },
       add: async () => {
         try {
           // `getValues()` rather than a watched copy: the row is made from the dive as it

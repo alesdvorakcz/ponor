@@ -216,6 +216,47 @@ export interface FieldAddition {
   label: string;
   onPress: () => void;
   busy: boolean;
+  /**
+   * DESIGN.md §2.3's fuzzy check, once it has run and found something: *"a fuzzy check
+   * suggests near-matches: **Did you mean Shark Point?** One tap picks the existing site
+   * instead."* (M2p).
+   *
+   * **They hang off the addition rather than standing beside it**, because they only exist
+   * because of it: a field with nothing to add can have nothing to be a duplicate of, and the
+   * two disappear together the instant the dive holds a paired id. A separate prop would let
+   * a caller draw one without the other, which is a screen asking a question with no way to
+   * answer it either way.
+   *
+   * Drawn **above** the addition and below the diver's own history, which is the order of
+   * increasing commitment: names you have used, then a name the catalogue already has, then
+   * making a new one. The caller re-words its `label` for that last row when this list is
+   * non-empty — §2.3's "no, add mine" has to look different from the press that produced the
+   * question.
+   */
+  matches?: readonly FieldMatch[];
+}
+
+/**
+ * One near-match the diver is being asked about: the whole sentence the row reads, and the
+ * suggestion picking it delivers.
+ *
+ * **The suggestion goes back through `onPickSuggestion`, not through a second callback.**
+ * §2.3's *"one tap picks the existing site instead"* is precisely what picking a suggestion
+ * already does — it writes the catalogue's own spelling into the field and sets §6's paired
+ * id — so a second path would be a second answer to the question §10 spent this milestone
+ * settling: a dive must never carry one site's id under another's name.
+ *
+ * The row announces its own `question` rather than a suggestion's `Fill … with …`, on the
+ * addition's own reasoning one field up: the diver pressed a control and this is the answer
+ * they were given, and a screen reader hearing "Fill Site with Shark Point" would hear the
+ * ordinary list and never learn that anything had interrupted them.
+ */
+export interface FieldMatch {
+  /** §2.3's own words, with the existing site's spelling in them. The caller's, since only it
+   * knows what kind of record is being matched. */
+  readonly question: string;
+  /** What the tap fills the field with — the same pair every other pick carries. */
+  readonly suggestion: Suggestion;
 }
 
 /*
@@ -275,18 +316,36 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // full width beneath it, in the slot §0.6 gives a field's second line.
   const stacked = multiline === true;
 
-  // §0.6 gives the list to the FOCUSED row, and the same `focused` state the fill already
-  // reads is what says which row that is — so a form with four autocompleting fields shows
-  // one list, under the field the diver is actually in, rather than four stacked lists. An
-  // empty array draws nothing at all rather than an empty container: a field holding its
-  // carried value matches nothing but itself, which is most of a logging session.
-  const offered = focused && suggestions !== undefined ? suggestions : [];
-
   // §2.3's create offer, under the same `focused` gate the list is under and in the same
   // container — one slot, one rule about where a field's second line goes. It is drawn whether
   // or not there are suggestions above it, because the common case for a brand-new site is
   // that the diver's history matched nothing at all and the list is empty.
   const offeredAddition = focused ? addition : undefined;
+
+  // §2.3's fuzzy check, once it has answered (M2p). Read off the addition **as drawn**, so
+  // the questions and the act they belong to cannot disagree about whether this row is the
+  // focused one.
+  //
+  // **No test can tell this from `addition?.matches`, and that is worth saying rather than
+  // claiming otherwise.** The container below is itself gated on `offeredAddition`, so an
+  // unfocused row draws none of this either way; the mutation that swaps the two stays green
+  // and always will. It is written this way because there is then only one expression of the
+  // focus rule, not because a second one is being enforced here.
+  const matched = offeredAddition?.matches ?? [];
+
+  // §0.6 gives the list to the FOCUSED row, and the same `focused` state the fill already
+  // reads is what says which row that is — so a form with four autocompleting fields shows
+  // one list, under the field the diver is actually in, rather than four stacked lists. An
+  // empty array draws nothing at all rather than an empty container: a field holding its
+  // carried value matches nothing but itself, which is most of a logging session.
+  //
+  // **A pending question takes the slot to itself**, and that is a rule about the slot rather
+  // than about either list, which is why it is here. The diver has committed to a name, been
+  // interrupted, and asked one question; putting their own history back underneath it offers
+  // a third answer to something they already answered, and — the concrete failure — the same
+  // site can legitimately appear in both, once as `Shark Point` and once as *Did you mean
+  // “Shark Point”?*. One question at a time, with the way out drawn under it.
+  const offered = focused && suggestions !== undefined && matched.length === 0 ? suggestions : [];
 
   const input = (
     <TextInput
@@ -414,6 +473,39 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               accessibilityLabel={`Fill ${label} with ${suggestion.value}`}
             >
               <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
+            </Pressable>
+          ))}
+          {/* §2.3's fuzzy check, between the names and the act (M2p). Muted, in the
+              suggestion's own box and the suggestion's own treatment, because that is exactly
+              what one is: picking it fills the field with a name and pairs §6's id. §0.6
+              leaves ink as the only lever and it is already spent below on "this is an act,
+              not another name to pick" — two full-ink rows would spend it twice and say
+              nothing. What carries the interruption is the sentence.
+
+              **The whole question is the announcement**, unlike a suggestion's `Fill … with
+              …`: the diver pressed a control, and a screen reader that read this row as an
+              ordinary fill would never say that anything had answered them. */}
+          {offeredAddition !== undefined && matched.map((match) => (
+            <Pressable
+              // The id, which every candidate has by construction (`nearMatches` drops one
+              // that does not) and which is what makes two catalogue rows spelled alike two
+              // rows here rather than one.
+              key={match.suggestion.id ?? match.question}
+              style={styles.formSuggestion}
+              onPress={() => onPickSuggestion?.(match.suggestion)}
+              accessibilityRole="button"
+              accessibilityLabel={match.question}
+              // **While the act is in flight the whole slot is inert, not just the act.** The
+              // diver has answered the question by pressing *…anyway*, and the write can take
+              // seconds (§2.3's country lookup waits on the network). A question left live
+              // through that window is a tap that pairs the dive with the existing site and is
+              // then silently overwritten by the row the write is about to create — the answer
+              // taken and thrown away, with nothing on screen to say so. The row beneath is
+              // already saying what is happening, which is what keeps this from reading dead.
+              disabled={offeredAddition.busy}
+              accessibilityState={{ disabled: offeredAddition.busy, busy: offeredAddition.busy }}
+            >
+              <Text style={styles.formSuggestionText}>{match.question}</Text>
             </Pressable>
           ))}
           {/* Last in the list, always: the offers are what the diver most likely meant, and

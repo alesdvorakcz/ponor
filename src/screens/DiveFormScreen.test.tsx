@@ -13,8 +13,9 @@ import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-lib
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { similarSites } from '../cloud/similarSites';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite } from '../db/catalogue';
+import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
@@ -50,6 +51,7 @@ import {
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   type Dive,
+  type DiveSite,
   type GearPreset,
   type Tank,
 } from '../domain/types';
@@ -130,7 +132,18 @@ jest.mock('../cloud/useAuthSession', () => ({
 // The two catalogue writes. Mocked rather than left real for the reason `createDive` is: they
 // reach `db`, and what these tests assert about them is exactly what they were HANDED — a
 // screen that seeded the wrong facts into a community record would look identical on screen.
-jest.mock('../db/catalogue', () => ({ createDiveSite: jest.fn(), createDiveCenter: jest.fn() }));
+jest.mock('../db/catalogue', () => ({
+  createDiveSite: jest.fn(),
+  createDiveCenter: jest.fn(),
+  listDiveSites: jest.fn(),
+}));
+// M2p: §2.3's fuzzy check asks the server as well as the device, and this is the server half —
+// mocked at the same level `countryFor` is and for the same reason (a network round trip on a
+// machine with no credentials and no project to have them for). What the call itself does, and
+// that it answers nothing rather than throwing when it cannot be made, is
+// `cloud/similarSites.test.ts`'s; `nearMatches` (domain/suggest.ts) is left REAL below, because
+// what counts as a near-match is exactly what these tests are about.
+jest.mock('../cloud/similarSites', () => ({ similarSites: jest.fn() }));
 // §2.3's inferred country, mocked at the same level `currentPosition` is and for the same
 // reason: it is a call to the device (a network round trip through the platform's geocoder).
 // What a point's country IS, and that a missing pin yields none, is `platform/geocode.test.ts`'s
@@ -157,6 +170,8 @@ const mockUseAuthSession = useAuthSession as jest.Mock;
 const mockCreateSite = createDiveSite as jest.Mock;
 const mockCreateCentre = createDiveCenter as jest.Mock;
 const mockCountry = countryFor as jest.Mock;
+const mockCatalogue = listDiveSites as jest.Mock;
+const mockSimilar = similarSites as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -283,6 +298,12 @@ beforeEach(() => {
   mockCountry.mockResolvedValue('HR');
   mockCreateSite.mockResolvedValue({ id: 'new-site' });
   mockCreateCentre.mockResolvedValue({ id: 'new-centre' });
+  // **The default is a catalogue that holds nothing and a server that found nothing**, which
+  // is the world every test written before M2p was describing: pressing the offer creates the
+  // row. A test whose subject IS the check says so out loud, exactly as `signedIn()` does for
+  // the account.
+  mockCatalogue.mockResolvedValue([]);
+  mockSimilar.mockResolvedValue([]);
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -6807,5 +6828,397 @@ it('drops the failure sentence on the next keystroke', async () => {
   await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
 
   await typeInto(t, 'Site', 'Kotelna II');
+  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
+});
+
+// =========================================================================================
+// M2p — §2.3's "Did you mean Shark Point?", between the press and the row
+// =========================================================================================
+//
+// The RPC call is `cloud/similarSites.test.ts`'s and what counts as a near-match is
+// `domain/suggest.test.ts`'s. What is this screen's, and is tested here, is the sequence: that
+// the check happens BEFORE anything is created, that a question can always be walked past,
+// that one tap pairs the dive with the existing site instead, and that none of it can reach
+// the dive.
+
+/**
+ * **The sentences the check puts on screen, written out here rather than read off the
+ * screen's own constants** — the same independent witness `CATALOGUE_SENTENCES` above is, for
+ * the same reason.
+ *
+ * `anyway` is spelled out in full rather than built from `CATALOGUE_SENTENCES.site.offer`,
+ * even though the screen derives it: a witness that applied the screen's own derivation would
+ * agree with a screen that derived it wrongly.
+ */
+const CHECK_SENTENCES = {
+  question: (name: string) => `Did you mean “${name}”?`,
+  anyway: (name: string) => `Add “${name}” as a new site anyway`,
+  looking: 'Looking for a match…',
+};
+
+/** A catalogue row as the device holds it. Only the two columns the check reads carry a
+ * meaningful value; the rest are the nulls `dive_sites` allows (§6), spelled out so this is a
+ * real `DiveSite` rather than something cast into the shape of one. */
+const catalogued = (name: string, id: string): DiveSite => ({
+  id,
+  name,
+  country: null,
+  latitude: null,
+  longitude: null,
+  salinity: null,
+  waterBody: null,
+  entry: null,
+  maxDepthM: null,
+  createdBy: null,
+  status: 'active',
+  mergedInto: null,
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z',
+  deletedAt: null,
+  dirty: false,
+});
+
+/** Every question currently on screen, read off the label each row announces — so this sees
+ * what a screen reader would, and can never mistake a question for one of §2.3's ordinary
+ * `Fill … with …` suggestions or for the *Add …* act beneath it. */
+function questionsIn(t: RenderResult): string[] {
+  return buttonsOf(t)
+    .map((n) => String(n.props?.accessibilityLabel ?? ''))
+    .filter((announced) => announced.startsWith('Did you mean'));
+}
+
+async function pressQuestion(t: RenderResult, label: string) {
+  const row = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === label);
+  if (!row) throw new Error(`no question reading ${label}`);
+  await fireEvent.press(row);
+}
+
+/** The press, plus the settle every one of these needs: the check is a promise and the row
+ * re-renders when it answers. */
+async function askToAdd(t: RenderResult, label: string) {
+  await pressAddOffer(t, label);
+  await act(async () => {});
+}
+
+// --- The check runs, and it runs first ---
+
+// §5 asks the fuzzy check about a name and a place. Both sources are asked — the device's own
+// catalogue (which needs no network at all) and the server — and the server is handed the pin
+// the row would be created with, because a name check across the whole world and a name check
+// near this boat are different questions.
+it('asks both catalogues before it creates anything, and hands over the row’s own pin', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressGps(t);
+  await nameInto(t, 'Site', 'Kotelna');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  expect(mockCatalogue).toHaveBeenCalled();
+  expect(mockSimilar.mock.calls[0].slice(1)).toEqual(['Kotelna', FOUND_HERE.latitude, FOUND_HERE.longitude]);
+});
+
+// **The order is the whole feature.** A check that ran after the write would be a duplicate
+// detector reporting on a duplicate it had just helped make.
+it('creates nothing at all while a near-match is on the table', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+
+  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
+  expect(mockCreateSite).not.toHaveBeenCalled();
+});
+
+// The question quotes the CATALOGUE's spelling, not the diver's — that is the whole content of
+// it. A screen that echoed the typed text back would ask "did you mean the thing you typed?"
+// and be right by accident on the one case where the two agree.
+it('quotes the existing site’s own spelling, never the diver’s', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Divoká Šárka', id: 'site-sarka' }]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Divoka Sarka');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Divoka Sarka'));
+
+  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Divoká Šárka')]);
+});
+
+// **The device's own half, with the server contributing nothing** — §5's offline dedupe, and
+// the only duplicate check a diver on a boat gets. `nearMatches` is real here, so this is the
+// exact-folded rule doing the work rather than a stub agreeing with the test.
+it('catches a catalogue row the device already holds, with no server answering', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCatalogue.mockResolvedValue([catalogued('Kotelna', 'site-kotelna')]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'kotelna');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('kotelna'));
+
+  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Kotelna')]);
+  expect(mockCreateSite).not.toHaveBeenCalled();
+});
+
+// --- §2.3's "one tap picks the existing site instead" ---
+
+// The point of the whole feature, asserted on the SAVE, because §6's pair is what this is
+// about and nothing on screen would ever show the id. The name that lands is the catalogue's
+// spelling and the id is the row's — so a screen that took the name from one place and the id
+// from another fails here on provenance, which is the mismatch §10 spent this milestone on.
+it('pairs the dive with the existing site, and publishes nothing', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  await pressQuestion(t, CHECK_SENTENCES.question('Shark Point'));
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Shark Point');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Shark Point');
+  expect(writtenInput().siteId).toBe('site-shark');
+  expect(mockCreateSite).not.toHaveBeenCalled();
+});
+
+// Answering the question ends the gesture: the dive now holds a paired id, so there is nothing
+// left to add and nothing left to ask. Success is silent here for M2o's own reason — accepting
+// costs nothing (§0.6), and a receipt is a sentence to read past on the way to saving a dive.
+it('goes quiet once the question has been answered', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  await pressQuestion(t, CHECK_SENTENCES.question('Shark Point'));
+
+  expect(questionsIn(t)).toEqual([]);
+  expect(addOffersIn(t)).toEqual([]);
+  expect(fieldNotesIn(t)).toEqual([]);
+});
+
+// --- "No, add mine" ---
+
+// **§5 lets any signed-in diver add a site, two real sites can have similar names, and the
+// diver is standing at one of them.** So a near-match is a suggestion and never a refusal: the
+// way through is the control they already pressed, re-worded so the second press does not look
+// identical to the first — and the second press must NOT ask again, or there is no way through
+// at all.
+it('always allows “no, add mine”, and does not ask twice', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+
+  expect(addOffersIn(t)).toEqual([CHECK_SENTENCES.anyway('Sharks Point')]);
+  await askToAdd(t, CHECK_SENTENCES.anyway('Sharks Point'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(siteCreated().name).toBe('Sharks Point');
+  expect(mockSimilar).toHaveBeenCalledTimes(1);
+});
+
+// The question described one spelling, so a keystroke takes it away along with the "anyway" —
+// the next press is about a different name and has not been checked. The same rule the failure
+// sentence follows, applied to the pair.
+it('drops the question, and the “anyway”, on the next keystroke', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+
+  await typeInto(t, 'Site', 'Sharks Points');
+  expect(questionsIn(t)).toEqual([]);
+  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Sharks Points')]);
+
+  // ...and the check therefore runs again for the new name, rather than the row being created
+  // on the strength of an answer about a different one.
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Points'));
+  expect(mockSimilar).toHaveBeenCalledTimes(2);
+  expect(mockCreateSite).not.toHaveBeenCalled();
+});
+
+// --- What a diver with no server gets ---
+
+/**
+ * **The boat.** §1 and §5 both make a site created out of signal ordinary rather than
+ * exceptional, so the check failing costs the check and nothing else: the site is created, and
+ * — the half that is a decision rather than a mechanism — **the diver is told nothing**. There
+ * is nothing they could do with the sentence, and it would appear on every site added out of
+ * signal for ever, under this app's most-used gesture.
+ *
+ * `similarSites` answering `[]` is exactly what a device with no signal produces
+ * (`cloud/similarSites.test.ts` is where that is proved); what this asserts is what the SCREEN
+ * then does with it.
+ */
+it('creates the site anyway when nothing can be checked, and says nothing about it', async () => {
+  signedIn();
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(siteCreated().name).toBe('Kotelna');
+  expect(questionsIn(t)).toEqual([]);
+  expect(fieldNotesIn(t)).toEqual([]);
+  const said = textIn(t).join(' ').toLowerCase();
+  for (const word of ['offline', 'duplicate', 'could not check', 'no connection']) {
+    expect(said).not.toContain(word);
+  }
+});
+
+/**
+ * ...and the same when the check *throws* rather than answering. The reachable case is the
+ * device's own catalogue read failing — `similarSites` has promised never to throw, and its
+ * own file proves it — so that is the one driven here. A rejection escaping would reach the
+ * press handler as an unhandled rejection and leave the row shut for good.
+ */
+it('creates the site anyway when the check itself fails', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockCatalogue.mockRejectedValue(new Error('the database is gone'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(fieldNotesIn(t)).toEqual([]);
+});
+
+// --- A dive centre gets no check at all ---
+
+/**
+ * **§5 asks for the fuzzy check about a *site*.** There is no `similar_centers` RPC and
+ * DESIGN.md §5 records that as deliberate rather than unfinished — "a centre twin would be
+ * inventing a requirement rather than filling a hole" — so a diver adding a centre gets
+ * exactly what M2o shipped: the press creates the row.
+ *
+ * Asserted with a server that WOULD have answered, so this is a claim about the centre never
+ * asking rather than about the stub happening to be empty.
+ */
+it('never checks a dive centre, and never pauses one on a question', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Emperor Divers', id: 'centre-emperor' }]);
+  mockCatalogue.mockResolvedValue([catalogued('Emperor', 'centre-emperor')]);
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Centre', 'Emperor');
+  await askToAdd(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
+
+  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
+  expect(mockSimilar).not.toHaveBeenCalled();
+  expect(mockCatalogue).not.toHaveBeenCalled();
+  expect(questionsIn(t)).toEqual([]);
+});
+
+// --- What the row says while it is out ---
+
+// It says *checking*, not *adding*, because at that moment nothing is being added and the
+// answer may well be that nothing will be. And it is shut, for the same reason the write is:
+// two presses would run two checks and end in two rows.
+it('says it is looking while the check is out, and refuses a second press', async () => {
+  signedIn();
+  stubReturningDiver();
+  let answer: (found: { value: string; id: string }[]) => void = () => {};
+  mockSimilar.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+
+  expect(textIn(t)).toContain(CHECK_SENTENCES.looking);
+  expect(textIn(t)).not.toContain(CATALOGUE_SENTENCES.site.busy);
+  const busyRow = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === CHECK_SENTENCES.looking);
+  expect(busyRow?.props?.accessibilityState).toEqual({ disabled: true, busy: true });
+  await fireEvent.press(busyRow!);
+  expect(mockSimilar).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    answer([{ value: 'Shark Point', id: 'site-shark' }]);
+  });
+  expect(textIn(t)).not.toContain(CHECK_SENTENCES.looking);
+  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
+});
+
+// --- §1: none of this may reach the dive ---
+
+// **"Never block a save."** The check is between two states of the CATALOGUE and the dive
+// underneath is unaffected by all of it: a diver who leaves the question standing and saves
+// gets their dive, with §6's name snapshot and no id — which is exactly what that snapshot is
+// stored for.
+it('lets the dive save with the question still standing, name snapshot and all', async () => {
+  signedIn();
+  stubReturningDiver();
+  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Sharks Point');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Sharks Point');
+  expect(writtenInput()).not.toHaveProperty('siteId');
+});
+
+// §5 gives the whole gesture to a signed-in diver, so a guest never reaches the check either —
+// asserted because the check is a network call, and one made on behalf of somebody with no
+// account would be this app reaching out for a diver who never asked it to (§1).
+it('never asks anything on behalf of a guest', async () => {
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await nameInto(t, 'Site', 'Kotelna');
+  expect(addOffersIn(t)).toEqual([]);
+  expect(mockSimilar).not.toHaveBeenCalled();
+  expect(mockCatalogue).not.toHaveBeenCalled();
+});
+
+// --- Everything the offer said goes with the name it was about ---
+
+// The keystroke case is above; these are the other two gestures that change what the field
+// holds, and the sentence they have to drop is the failure rather than the question — a
+// question cannot survive either gesture visibly (both end with the offer gone), but the note
+// under the row is drawn whatever the offer is doing. Same rule, told by the half that shows.
+it('drops the failure sentence when the diver clears the name it was about', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-16', siteName: 'Kotelna' })] });
+  mockCreateSite.mockRejectedValue(new Error('no'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
+
+  await pressClear(t, 'Site');
+  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
+});
+
+// ...and when they pick a different name out of their own history instead, which is the other
+// way the box stops holding what the sentence was about.
+it('drops the failure sentence when the diver picks another name instead', async () => {
+  signedIn();
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-16', siteName: 'Kotelna' }),
+      dive({ date: '2026-08-10', siteName: 'Kotelna II' }),
+    ],
+  });
+  mockCreateSite.mockRejectedValue(new Error('no'));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
+
+  await pickSuggestion(t, 'Site', 'Kotelna II');
   expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
 });
