@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
 
 import { onLocalWrite } from '../db/dirty';
+import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { syncEngine, type SyncEngine } from './syncEngine';
 import { useAuthSession } from './useAuthSession';
 
@@ -50,22 +50,16 @@ export function useSyncTriggers(engine: SyncEngine): void {
   // cycle's own writes take no stamp — none of sync's own.
   useEffect(() => onLocalWrite(() => engine.requestAfterSave()), [engine]);
 
-  // §7.5: "app foreground". **The transition, not the event.** iOS fires `change` for
+  // §7.5: "app foreground". **The transition, not the event** — iOS fires `change` for
   // `inactive` and `background` too, and returns through `inactive` on the way back, so a
-  // handler that ran on every event would sync several times for one unlock — and a handler
-  // that ran on every `active` would sync for a notification shade pulled down and let go.
-  // `previous` is a plain closure variable rather than a ref because the effect runs once and
-  // nothing renders from it.
-  useEffect(() => {
-    let previous: AppStateStatus = AppState.currentState;
-    const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
-      const wasActive = previous === 'active';
-      previous = next;
-      if (next !== 'active' || wasActive) return;
-      void engine.request();
-    });
-    return () => subscription.remove();
-  }, [engine]);
+  // handler that ran on every event would sync several times for one unlock.
+  //
+  // That rule was this file's own until §3's Settings location row wanted the same moment for
+  // its own reason (M2m): the diver leaves for the system Settings app, changes the
+  // permission, and comes back to a row that is stale unless something re-reads. So it moved
+  // to `hooks/useForegroundReturn.ts` and this is now a caller of it — §4.1, and the same
+  // subtlety would have been rewritten from memory on the second screen.
+  useForegroundReturn(() => void engine.request());
 
   // The session, arriving or leaving. Signing out drops the save window and the retry ladder:
   // there is nothing left to send, the erase has already pushed what there was (§7.4), and a

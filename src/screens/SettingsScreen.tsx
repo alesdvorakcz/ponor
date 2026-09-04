@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,6 +16,8 @@ import { PRESETS_UNREADABLE } from '../domain/presets';
 import { type GearPreset } from '../domain/types';
 import { formatCylinders, formatUnitSystem } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
+import { useForegroundReturn } from '../hooks/useForegroundReturn';
+import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
@@ -43,6 +46,99 @@ const SAVE_FAILED = "Couldn't save that. Try again.";
  * line below has no twin and stays here.
  */
 const NO_PRESETS = 'Save one from a dive’s Gas & cylinders group and it will show up here.';
+
+/** §3's own name for this row, and the leading half of what a screen reader announces about
+ * it. The words are the design's ("**location access**"), not a paraphrase of them. */
+const LOCATION_LABEL = 'Location access';
+
+/**
+ * The value slot before the permission has been read.
+ *
+ * **A screen with no answer must not state one** — M1f's rule, which the `dives_before` row
+ * above keeps for the same reason and which this row can break more quietly: `denied` and
+ * "not read yet" are both "not `granted`", and a row that defaulted to either would tell a
+ * diver where they stand before anyone had looked. Present tense and no full stop, the same
+ * shape the form's *Locating…* takes for the same kind of moment.
+ */
+const LOCATION_UNREAD = 'Checking…';
+
+/**
+ * What the row says when the system Settings app could not be opened at all.
+ *
+ * §1: **nothing here may fail silently and leave the diver stuck.** A row that reports a
+ * permission and then does nothing when pressed is the dead-control shape §0.6 has already
+ * recorded three times over — and there is one platform where this is not hypothetical, since
+ * a browser has no per-app settings page for a page to open (`Linking.openSettings()` rejects
+ * on web; §9 keeps the browser a testing target, which is a reason for it to say so rather
+ * than a reason to crash in it).
+ */
+const SETTINGS_UNREACHABLE = 'Couldn’t open Settings from here — open it yourself and find Ponor.';
+
+/** One state's two lines: what the row's value column says, and the sentence under it. */
+interface LocationRowText {
+  /** The trailing value — where the diver stands, in as few words as that takes. */
+  readonly status: string;
+  /** Why that matters and what can be done about it, in the caption slot under the row. */
+  readonly note: string;
+}
+
+/**
+ * **What each of the five permission states says to a diver, and why five and not two.**
+ *
+ * §3 gives this row one job — "the row states the current status and takes them to the system
+ * Settings app" — and `platform/locationPermission.ts` is the owner of what the status can be
+ * (§4.1). This screen reads that vocabulary and does not re-derive it: a `Record` over
+ * `LocationPermissionState` rather than a chain of comparisons, so a sixth state added there
+ * cannot arrive here without a sentence (§4.1's "derive, or tie at compile time"), exactly as
+ * `POSITION_REFUSAL_NOTES` ties the dive form to `POSITION_REFUSALS`.
+ *
+ * **Collapsing them into on/off is the defect the five states exist to prevent**, and each
+ * pair below is a different thing to do next:
+ *
+ * - `undetermined` is not `denied`. Nobody has refused anything, so the honest line is that
+ *   Ponor will ask — and iOS does not even list Location under an app it has never been asked
+ *   for, so telling this diver to go and change a setting would send them to a page with no
+ *   such row on it.
+ * - `denied` is where the row earns its place. iOS spends its permission sheet **once ever**,
+ *   so no tap inside the app can ever ask again, and the device's Settings is the only place
+ *   the answer can change.
+ * - `servicesOff` is not about this app at all. It outranks even a granted permission (that
+ *   module's own ordering rule), and the switch that fixes it is the device's rather than
+ *   Ponor's, so a line about allowing Ponor would be pointing at the wrong control.
+ * - `unknown` is not a refusal. The query itself failed; asserting "you said no" would accuse
+ *   the diver of something they may never have done.
+ *
+ * **A near-duplicate that is not one** (§4.1's "a deliberate near-duplicate names its
+ * siblings"): `DiveFormScreen`'s `POSITION_REFUSAL_NOTES` also has sentences about denials
+ * and about Location Services. They answer a different question — *why the tap you just made
+ * produced no pin*, over `PositionRefusal`, which also covers a timeout and a fix too rough
+ * to keep — and they end by inviting the next tap, because that row goes on asking. These
+ * describe a standing state on a screen with nothing to retry, and the row itself is the way
+ * to change it. Sharing them would mean one sentence trying to do both, and neither
+ * vocabulary contains the other.
+ */
+const LOCATION_ROW_TEXT: Record<LocationPermissionState, LocationRowText> = {
+  granted: {
+    status: 'Allowed',
+    note: 'Ponor can pin a dive where you are. Open Settings to change that.',
+  },
+  denied: {
+    status: 'Not allowed',
+    note: 'Ponor may not use your location. iOS asks once and never again, so Settings is the only place this can change.',
+  },
+  undetermined: {
+    status: 'Not asked yet',
+    note: 'Nobody has been asked yet — Ponor asks the first time you use it on a dive.',
+  },
+  servicesOff: {
+    status: 'Location Services off',
+    note: 'Location Services are off for the whole device, so nothing on it can be located. That switch is the device’s, not Ponor’s.',
+  },
+  unknown: {
+    status: 'Unknown',
+    note: 'Ponor couldn’t check where this stands. Settings will show it.',
+  },
+};
 
 /**
  * One preset: its name, and what its cylinders are (`formatCylinders`, format/display.ts —
@@ -95,10 +191,13 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * tree for the reason `DivesScreen.tsx` records: a test colocated with a route would be
  * bundled into the app.
  *
- * **Two settings, one list, one destination, and §3 lists more on purpose.** The certification
- * wallet, data export and delete-account all belong to M3. §3's **account & sync** arrived in
- * M2e as the last item below — a row that opens `/account` and writes nothing itself, which is
- * this screen's second navigation row and the only route into the account screen at all.
+ * **Two settings, one list, one report and one destination, and §3 lists more on purpose.**
+ * The certification wallet, data export and delete-account all belong to M3. §3's **account &
+ * sync** arrived in M2e as the last item below — a row that opens `/account` and writes
+ * nothing itself, which is this screen's second navigation row and the only route into the
+ * account screen at all. §3's **location access** arrived in M2m, between the two: it writes
+ * nothing either, and what it opens is not a screen of ours but the device's own Settings app,
+ * which §3 makes the only place its answer can change.
  *
  * §3 listed a **"Fields I use"** screen here until M1i dropped it: §2.2's collapse rule
  * already hides a group nobody fills, and a carried field that keeps one open can be
@@ -118,12 +217,17 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * name may be, what its cylinders convert to, whether it may be emptied — lives on that
  * screen and in `db/gearPresets.ts`, not here.
  *
- * **Both write through `db/settings.ts` and never touch the `settings` row directly.** That
- * module owns the two keys, the coercion and the upsert, and it owns them precisely so the
- * read and the write cannot disagree: `readUnitSystem` only ever sees strings `setUnitSystem`
- * wrote, and `readDivesBefore`'s "anything that is not decimal digits is corruption"
- * reasoning only holds while `setDivesBefore` is the one writer. A screen writing `units`
- * itself would be the second writer that reasoning assumes does not exist.
+ * The fourth is §3's **location access**, which is neither a setting nor a list: it is the one
+ * row on this screen that only *reports*. The value belongs to the operating system, this
+ * screen cannot write it and must not even ask for it — see `LOCATION_ROW_TEXT` above for the
+ * five answers it can report and for why the row exists at all.
+ *
+ * **Both settings write through `db/settings.ts` and never touch the `settings` row
+ * directly.** That module owns the two keys, the coercion and the upsert, and it owns them
+ * precisely so the read and the write cannot disagree: `readUnitSystem` only ever sees
+ * strings `setUnitSystem` wrote, and `readDivesBefore`'s "anything that is not decimal digits
+ * is corruption" reasoning only holds while `setDivesBefore` is the one writer. A screen
+ * writing `units` itself would be the second writer that reasoning assumes does not exist.
  *
  * **The rows are the form's rows** (§0.6: "a field is a row, label leading, value
  * trailing"), through the same two components the dive form uses — `OptionChips` and
@@ -164,7 +268,6 @@ export default function SettingsScreen() {
 
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
-
   // The `dives_before` field's own text, which is NOT the stored value: a diver mid-edit has
   // typed something that may not be a count yet ("", "2" on the way to "24"), and the field
   // has to show that rather than snapping to whatever is currently in the database.
@@ -288,6 +391,64 @@ export default function SettingsScreen() {
     setCountText(storedCountText());
   };
 
+  // §3's location access. `null` is "not read yet" and is a third thing beside the five
+  // states, never one of them — see `LOCATION_UNREAD`.
+  const [permission, setPermission] = useState<LocationPermissionState | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  /**
+   * **Reading the permission, which must never ask for it.** §3: "Reading the status must not
+   * request it: those are two operations and a settings row that prompts merely by being
+   * looked at is a worse offence than the dead tap it fixes." `platform/locationPermission.ts`
+   * is built to that — `locationPermission()` never raises a sheet and
+   * `requestLocationPermission()` is the half this screen must not touch at all, because iOS
+   * spends its one sheet on whoever asks first and a diver merely opening Settings would spend
+   * it on a row they were reading.
+   *
+   * No `catch`. That module answers `unknown` on every failure of its own (its whole reason
+   * for having a fifth state), so a rejection here is not a case this screen can be in — and
+   * §10 declines a guard nothing could ever catch failing rather than banking it.
+   */
+  const readPermission = useCallback(() => {
+    void locationPermission().then(setPermission);
+  }, []);
+  useEffect(() => {
+    readPermission();
+  }, [readPermission]);
+  /**
+   * **And re-reading it when the diver comes back, which is the whole point of the row.**
+   *
+   * They press it, change the switch in the system Settings app, and return — to a row still
+   * showing the old answer unless something looks again. Nothing else can tell us: the change
+   * happens in another app, so there is no event in this one, and the permission module caches
+   * nothing precisely so that a fresh read is the truth.
+   *
+   * `hooks/useForegroundReturn.ts` is §7.5's own foreground trigger, moved out of
+   * `cloud/syncTriggers.tsx` when this became its second caller (M2m) rather than rewritten
+   * here — the "a return is a transition, not an event" rule is subtle enough that two copies
+   * would have drifted, which is §4.1's defining defect.
+   */
+  useForegroundReturn(readPermission);
+
+  /**
+   * The one thing the row does, and the only place the answer can change (§3).
+   *
+   * `expo-linking`'s `openSettings` rather than `react-native`'s: on a device it *is* the same
+   * call — expo delegates straight to `Linking.openSettings()` — and where the platform has no
+   * such thing it rejects, where react-native-web simply does not define the function and the
+   * press would die as a `TypeError` inside the handler. A promise this screen can answer, in
+   * place of a crash it cannot.
+   */
+  const openDeviceSettings = () => {
+    // Cleared at the start of the attempt, exactly as the form's own refusal note is, so the
+    // sentence stands for as long as it is still true and no longer.
+    setLocationError(null);
+    void Linking.openSettings().catch(() => setLocationError(SETTINGS_UNREACHABLE));
+  };
+  // `null` until the read answers, which is what keeps the row from stating an answer it does
+  // not have.
+  const locationText = permission === null ? null : LOCATION_ROW_TEXT[permission];
+
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's own ScrollView.
@@ -388,6 +549,48 @@ export default function SettingsScreen() {
               <Text style={styles.settingsCaptionText}>
                 {presetsError === undefined ? NO_PRESETS : PRESETS_UNREADABLE}
               </Text>
+            </View>
+          )}
+        </View>
+
+        {/* §3's **location access**, in the place §3 lists it: after the presets and before
+            account & sync.
+
+            **A row, not a new idiom** (§0.6) — the label leading and muted like *Units*' own,
+            the value trailing, the hairline on the top edge that `formField` draws, and the
+            48 dp floor `formFieldRow` carries (§0.5). It is a setting about the app that
+            happens to be set somewhere else, so it takes the setting's muted label rather than
+            the full ink *Account & sync* wears: that row is a destination with no value, and
+            this one holds one. **No chevron either way** — §0.6 spends that mark on in-place
+            disclosure alone, "never on navigation".
+
+            It announces `label: value` rather than "Open Settings", which is the other shape
+            this screen's pressable rows use. The difference is what a diver needs from it:
+            the account row has nothing to say but where it goes, and this row's whole reason
+            to exist is the answer it carries. The caption below says what a press does, in
+            the diver's own words rather than in a control's. */}
+        <View>
+          <Pressable
+            style={styles.formField}
+            onPress={openDeviceSettings}
+            accessibilityRole="button"
+            accessibilityLabel={`${LOCATION_LABEL}: ${locationText?.status ?? LOCATION_UNREAD}`}
+          >
+            <View style={styles.formFieldRow}>
+              <Text style={styles.formFieldLabel}>{LOCATION_LABEL}</Text>
+              <Text
+                style={
+                  locationText === null ? styles.settingsLocationStatusUnread : styles.settingsLocationStatus
+                }
+              >
+                {locationText?.status ?? LOCATION_UNREAD}
+              </Text>
+            </View>
+          </Pressable>
+          {(locationText !== null || locationError !== null) && (
+            <View style={styles.settingsCaption}>
+              {locationText !== null && <Text style={styles.settingsCaptionText}>{locationText.note}</Text>}
+              {locationError !== null && <Text style={styles.settingsCaptionText}>{locationError}</Text>}
             </View>
           )}
         </View>

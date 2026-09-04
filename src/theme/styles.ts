@@ -2856,6 +2856,24 @@ function build(scheme: ColorScheme) {
     settingsPresetEmpty: {
       paddingHorizontal: CONTENT_INSET,
     },
+    // Where the diver stands on §3's **location access** (M2m), trailing its row.
+    //
+    // `rowValueSans` — §0.6's "Figures in mono, names in sans", read the way `accountEmail`
+    // below reads it: "Allowed" is a word, not a data figure. It is a value the row REPORTS,
+    // which is why it takes the value column's full ink rather than the muted label ink: the
+    // row's own label is the muted half, exactly as on `Dives before Ponor`.
+    settingsLocationStatus: rowValueSans,
+    // The same slot before the permission has been read — "Checking…", muted.
+    //
+    // **A placeholder and an answer must not look alike** (M1f's rule, which this screen
+    // already keeps for `dives_before`: a screen with no answer must not state one). Muted is
+    // the lever §0.6 leaves for it, and it is the pairing `formFieldPickerText` /
+    // `formFieldPickerTextUnset` already draws one screen over for a value that is read rather
+    // than typed.
+    settingsLocationStatusUnread: {
+      ...rowValueSans,
+      color: theme.fgMuted,
+    },
     // ------------------------------------------------------------------------------------
     // The account screen (DESIGN.md §5's auth bullet and §7.4, M2e) — `AccountScreen`
     // ------------------------------------------------------------------------------------

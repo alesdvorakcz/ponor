@@ -10,8 +10,10 @@
 // a zero-inset render cannot tell a screen that asks the device from one that never does.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
+import { AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '../db/client';
@@ -22,6 +24,12 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
+import {
+  LOCATION_PERMISSION_STATES,
+  locationPermission,
+  requestLocationPermission,
+  type LocationPermissionState,
+} from '../platform/locationPermission';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset } from '../theme/styles';
 import SettingsScreen from './SettingsScreen';
@@ -56,6 +64,20 @@ jest.mock('../db/settings', () => ({
   setUnitSystem: jest.fn(),
   setDivesBefore: jest.fn(),
 }));
+// §3's location access (M2m). **Both halves are faked, and the requesting one is faked so
+// that it can be witnessed NOT being called** — §3's rule is that reading the status must not
+// request it, and a module left real would answer from whatever the test machine happens to
+// have. `jest.requireActual` keeps `LOCATION_PERMISSION_STATES` real: it is the vocabulary
+// this screen must cover, and a stubbed list would let the sweep below pass over a list of
+// the states the test happens to know about.
+jest.mock('../platform/locationPermission', () => ({
+  ...jest.requireActual('../platform/locationPermission'),
+  locationPermission: jest.fn(),
+  requestLocationPermission: jest.fn(),
+}));
+// The way out to the device's own Settings app. Faked because there is no Settings app here,
+// and because "it was asked for" is the whole of what this screen can promise about it.
+jest.mock('expo-linking', () => ({ ...jest.requireActual('expo-linking'), openSettings: jest.fn() }));
 
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
@@ -63,6 +85,9 @@ const mockUseGearPresets = useGearPresets as jest.Mock;
 const mockSetUnitSystem = setUnitSystem as jest.Mock;
 const mockSetDivesBefore = setDivesBefore as jest.Mock;
 const mockPush = router.push as jest.Mock;
+const mockLocationPermission = locationPermission as jest.Mock;
+const mockRequestLocationPermission = requestLocationPermission as jest.Mock;
+const mockOpenSettings = Linking.openSettings as jest.Mock;
 
 let presetSeq = 0;
 /** A `GearPreset` with only the fields a case cares about. Ids come from a counter for the
@@ -98,6 +123,7 @@ function stubSettings({
   presetsError,
   presetsResolved = true,
   divesBeforeResolved = true,
+  permission = 'granted',
 }: {
   units?: string;
   divesBefore?: number | null;
@@ -105,7 +131,13 @@ function stubSettings({
   presetsError?: Error;
   presetsResolved?: boolean;
   divesBeforeResolved?: boolean;
+  permission?: LocationPermissionState;
 } = {}) {
+  // A fresh promise per call, never one resolved object handed back for ever: this screen
+  // reads the permission again every time the app returns to the foreground, and a stub that
+  // could only answer once would model a module that caches — which is precisely what
+  // `platform/locationPermission.ts` refuses to be.
+  mockLocationPermission.mockImplementation(() => Promise.resolve(permission));
   mockUseUnitSystem.mockImplementation(() => units);
   // Both `*Resolved` flags default to TRUE — the read has answered — because that is what every
   // test in this file is about. Spelled out rather than left `undefined` so this stub keeps
@@ -122,9 +154,37 @@ function stubSettings({
   }));
 }
 
+/**
+ * Every `AppState` `change` handler this screen registered while it was mounted.
+ *
+ * Spied rather than driven through the real `AppState`, for the reason `syncTriggers.test.tsx`
+ * records: under Jest the native module behind it is a stub and nothing would ever deliver an
+ * event. Whether a given event *counts* as a return to the foreground is
+ * `hooks/useForegroundReturn.ts`'s rule and is tested there; what is delivered below is a
+ * return, and what is asserted here is what this screen does with one.
+ */
+let appStateHandlers: ((state: AppStateStatus) => void)[];
+
+/** Sends the app away and brings it back, which is what a diver does when they leave for the
+ * system Settings app, change the permission and return. */
+async function returnToForeground() {
+  await act(async () => {
+    for (const handler of appStateHandlers) handler('background');
+  });
+  await act(async () => {
+    for (const handler of appStateHandlers) handler('active');
+  });
+}
+
 beforeEach(() => {
   mockSetUnitSystem.mockImplementation(() => Promise.resolve());
   mockSetDivesBefore.mockImplementation(() => Promise.resolve());
+  mockOpenSettings.mockImplementation(() => Promise.resolve());
+  appStateHandlers = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((event, handler) => {
+    if (event === 'change') appStateHandlers.push(handler as (state: AppStateStatus) => void);
+    return { remove: () => {} } as ReturnType<typeof AppState.addEventListener>;
+  });
 });
 
 afterEach(() => {
@@ -134,6 +194,12 @@ afterEach(() => {
   mockSetUnitSystem.mockReset();
   mockSetDivesBefore.mockReset();
   mockPush.mockReset();
+  mockLocationPermission.mockReset();
+  mockRequestLocationPermission.mockReset();
+  mockOpenSettings.mockReset();
+  // Spies only — `jest.spyOn`'s `AppState` stub above. The module mocks are not spies and are
+  // reset by name, as this file has always done.
+  jest.restoreAllMocks();
 });
 
 function textIn(t: RenderResult): string[] {
@@ -498,14 +564,20 @@ it('opens the editor for the preset whose row was tapped', async () => {
 // dive list. That is what keeps the list a list. Asserted as "one control per row, and it is
 // the row" — a delete added beside a name would be a second button inside it.
 //
-// The account row (§3, M2e) is listed with it and is the reason this is an exhaustive list
-// rather than a filter: it is the whole inventory of what this screen can be pressed on, so a
-// control added anywhere on it — a delete on a preset row included — lands here.
+// The account row (§3, M2e) and the location row (§3, M2m) are listed with it and are the
+// reason this is an exhaustive list rather than a filter: it is the whole inventory of what
+// this screen can be pressed on, so a control added anywhere on it — a delete on a preset row
+// included — lands here.
 it('carries no delete of its own, so the list stays a list', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
-  const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
-  expect(labels).toEqual(['Edit preset twin 12 steel', 'Open account & sync']);
+  // Waited for, because one of the three announces a permission this screen has to read before
+  // it can say anything about it — and an inventory taken before that read answers would be an
+  // inventory of a screen mid-load.
+  await waitFor(() => {
+    const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
+    expect(labels).toEqual(['Edit preset twin 12 steel', 'Location access: Allowed', 'Open account & sync']);
+  });
 });
 
 // A diver who has never saved one must not find an unexplained empty section — the preset is
@@ -567,18 +639,23 @@ it('drops the empty line once there is a preset to show', async () => {
 // Scope and grammar
 // ---------------------------------------------------------------------------------------
 
-// §3 lists far more under Settings — the certification wallet, account and sync, export,
-// delete account — and every one of them belongs to a later milestone. This is a scope
-// assertion, and it can fail: a stray control added here would show up as a third labelled
-// field. Cylinder presets are the one §3 entry that has arrived, and they are a LIST rather
-// than a setting, so they carry a section heading instead of a field label. "Fields I use"
-// was on this list until M1i dropped it from v1 (§2.2, §9) — it is not a later milestone,
-// it is not coming, and this test should not start expecting it.
-it('carries M1’s two settings and no more', async () => {
+// §3 lists more under Settings — the certification wallet, export, delete account — and every
+// one of them belongs to M3. This is a scope assertion, and it can fail: a stray control added
+// here would show up as a fourth labelled field.
+//
+// **The list grows by §3's entries arriving, one deliberate edit at a time, and never by being
+// loosened.** §3's location access is the third and arrived in M2m — a row whose label is a
+// setting's label because it reports a value, even though the value belongs to the operating
+// system and this screen cannot write it. Cylinder presets are a §3 entry too and are NOT here,
+// because they are a LIST rather than a setting and carry a section heading instead of a field
+// label; account & sync likewise, as a destination in full ink. "Fields I use" was on this list
+// until M1i dropped it from v1 (§2.2, §9) — it is not a later milestone, it is not coming, and
+// this test should not start expecting it.
+it('carries §3’s three labelled settings and no more', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const labels = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFieldLabel)) : [];
-  expect(labels.flatMap((n) => n.children)).toEqual(['Units', 'Dives before Ponor']);
+  expect(labels.flatMap((n) => n.children)).toEqual(['Units', 'Dives before Ponor', 'Location access']);
   expect(textIn(t)).toContain('Cylinder presets');
 });
 
@@ -586,14 +663,14 @@ it('carries M1’s two settings and no more', async () => {
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Four rows with one preset: Units, Dives before Ponor, the preset's own, and §3's account &
-// sync — every one of them the same `formField` row, so a preset and a destination are rows of
-// this screen rather than new kinds of object drawn beside them.
+// Five rows with one preset: Units, Dives before Ponor, the preset's own, §3's location access
+// and §3's account & sync — every one of them the same `formField` row, so a preset, a report
+// and a destination are rows of this screen rather than new kinds of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
   stubSettings({ presets: [preset({ name: 'twin 12 steel' })] });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(4);
+  expect(rows).toHaveLength(5);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks
@@ -735,4 +812,233 @@ it('reads as a destination rather than as a setting with no value', async () => 
 
   expect(labelStyleOf('Account & sync')).toBe(styles.settingsAccountLabel);
   expect(labelStyleOf('Account & sync')).not.toBe(labelStyleOf('Units'));
+});
+
+// ---------------------------------------------------------------------------------------
+// Location access (DESIGN.md §3, M2m)
+// ---------------------------------------------------------------------------------------
+
+/** What the row announces, read off the label rather than off the value node — the same
+ * `label: value` shape the form's own read-back rows announce, so this asserts the sentence a
+ * screen reader hears and not merely a string that happens to be on screen somewhere. */
+function locationStatus(t: RenderResult): string {
+  const [node] = t.root
+    ? t.root.queryAll((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Location access: '))
+    : [];
+  if (!node) throw new Error('SettingsScreen rendered no location row');
+  return String(node.props.accessibilityLabel).slice('Location access: '.length);
+}
+
+function findLocationRow(t: RenderResult) {
+  const [node] = t.root
+    ? t.root.queryAll((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Location access: '))
+    : [];
+  if (!node) throw new Error('SettingsScreen rendered no location row');
+  return node;
+}
+
+/**
+ * **The five states, and the five different things they say.**
+ *
+ * §3's row exists because iOS asks once ever, and `platform/locationPermission.ts` answers in
+ * five states because each one sends the diver somewhere different. **A row that collapsed
+ * them into on/off is the defect that module's vocabulary exists to prevent**, so the words
+ * are written out here rather than read back from the screen's own table: an assertion built
+ * from `LOCATION_ROW_TEXT` would be satisfied by two states sharing one sentence, which is
+ * exactly the failure worth catching. Distinct literals cannot be.
+ */
+const LOCATION_LINES: [LocationPermissionState, string, string][] = [
+  ['granted', 'Allowed', 'Ponor can pin a dive where you are. Open Settings to change that.'],
+  [
+    'denied',
+    'Not allowed',
+    'Ponor may not use your location. iOS asks once and never again, so Settings is the only place this can change.',
+  ],
+  [
+    'undetermined',
+    'Not asked yet',
+    'Nobody has been asked yet — Ponor asks the first time you use it on a dive.',
+  ],
+  [
+    'servicesOff',
+    'Location Services off',
+    'Location Services are off for the whole device, so nothing on it can be located. That switch is the device’s, not Ponor’s.',
+  ],
+  ['unknown', 'Unknown', 'Ponor couldn’t check where this stands. Settings will show it.'],
+];
+
+// The completeness half, borrowed from `locationPermission.test.ts`'s own last case: a sixth
+// state added to that module is a compile error inside the screen (its table is a `Record`
+// over the union) and would be a silent gap here, since a sweep can only sweep what it lists.
+it('covers every permission state the module declares, not the ones this file remembers', () => {
+  expect(LOCATION_LINES.map(([state]) => state).sort()).toEqual([...LOCATION_PERMISSION_STATES].sort());
+});
+
+it.each(LOCATION_LINES)('reports a %s permission as “%s”, and says what that means', async (permission, status, note) => {
+  stubSettings({ permission });
+  const t = await render(<SettingsScreen />);
+
+  await waitFor(() => expect(locationStatus(t)).toBe(status));
+  expect(textIn(t)).toContain(note);
+});
+
+/**
+ * **§3's own rule: "Reading the status must not request it."**
+ *
+ * iOS spends its one permission sheet on whoever asks first, so a Settings row that "checked"
+ * by requesting would raise a system sheet on a screen the diver merely opened — and burn the
+ * prompt §2.3's *use my location* is waiting to spend. `platform/locationPermission.ts` is
+ * split into a read and an ask for exactly this, and the ask is the half this screen must not
+ * touch at all.
+ *
+ * Every gesture the row has is made below, so this is a claim about the screen rather than
+ * about one render: opening it, pressing the row, and coming back from Settings.
+ */
+it('never asks for the permission it is only reporting', async () => {
+  stubSettings({ permission: 'undetermined' });
+  const t = await render(<SettingsScreen />);
+  await waitFor(() => expect(locationStatus(t)).toBe('Not asked yet'));
+
+  await fireEvent.press(findLocationRow(t));
+  await returnToForeground();
+
+  expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+  // ...and the reading half really was used, so this is not a screen that asked nothing at all.
+  expect(mockLocationPermission).toHaveBeenCalled();
+});
+
+/**
+ * **The whole point of the row, and the thing a single render cannot show.**
+ *
+ * The diver presses it, changes the switch in the system Settings app, and comes back. Nothing
+ * in this app observes that change — it happened in another one — so a row that read the
+ * permission on mount and never again would sit reporting the old answer for as long as the
+ * screen lived, which is the same dead-control shape §0.6 has recorded three times.
+ *
+ * **The middle assertion is what makes this falsifiable.** A test that changed the stub and
+ * then asserted the new value would pass against a screen that re-read on every render, on a
+ * timer, or by accident; asserting that the row does NOT move until the app comes back pins
+ * the re-read to the return. Delete `useForegroundReturn` from the screen and the last
+ * assertion fails; delete the mount read and the first one does.
+ */
+it('re-reads the permission when the diver comes back from Settings', async () => {
+  stubSettings({ permission: 'denied' });
+  const t = await render(<SettingsScreen />);
+  await waitFor(() => expect(locationStatus(t)).toBe('Not allowed'));
+
+  // The diver allows it in the device's Settings. Nothing has told this screen yet.
+  stubSettings({ permission: 'granted' });
+  expect(locationStatus(t)).toBe('Not allowed');
+
+  await returnToForeground();
+
+  expect(locationStatus(t)).toBe('Allowed');
+  expect(textIn(t)).toContain('Ponor can pin a dive where you are. Open Settings to change that.');
+  // Twice: once on arrival, once on the return. Whether a given `AppState` event counts as a
+  // return is `hooks/useForegroundReturn.ts`'s rule and is tested there rather than restated
+  // here.
+  expect(mockLocationPermission).toHaveBeenCalledTimes(2);
+});
+
+/**
+ * M1f's rule, on the one row where breaking it is quietest: **a screen with no answer must not
+ * state one.** "Not read yet" and "denied" are both "not granted", so a row that defaulted to
+ * either would tell a diver where they stand before anyone had looked — and this row's entire
+ * job is where they stand.
+ */
+it('says nothing about the permission until the read answers', async () => {
+  stubSettings();
+  // A read that has not come back — the state every render before the first answer is in.
+  mockLocationPermission.mockImplementation(() => new Promise<never>(() => {}));
+  const t = await render(<SettingsScreen />);
+
+  expect(locationStatus(t)).toBe('Checking…');
+  for (const [, , note] of LOCATION_LINES) expect(textIn(t).join(' ')).not.toContain(note);
+});
+
+// §3: the row "takes them to the system Settings app", which is the only place the answer can
+// change. Asserted on the call rather than on anything visible, because leaving the app is the
+// one thing this screen does that leaves no mark on it.
+it('opens the device’s own Settings when the row is pressed', async () => {
+  stubSettings({ permission: 'denied' });
+  const t = await render(<SettingsScreen />);
+  await waitFor(() => expect(locationStatus(t)).toBe('Not allowed'));
+
+  await fireEvent.press(findLocationRow(t));
+
+  expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+});
+
+/**
+ * §1, in the direction this row can actually fail: **nothing here may leave a diver pressing a
+ * control that does nothing.** `openSettings` rejects where the platform has no such page — a
+ * browser has none at all (§9's testing target) — and a press that silently swallowed that is
+ * the dead control the row was built to fix, reappearing inside the fix.
+ */
+it('says so when Settings could not be opened, rather than doing nothing', async () => {
+  stubSettings({ permission: 'denied' });
+  mockOpenSettings.mockImplementation(() => Promise.reject(new Error('no settings app')));
+  const t = await render(<SettingsScreen />);
+  await waitFor(() => expect(locationStatus(t)).toBe('Not allowed'));
+
+  await fireEvent.press(findLocationRow(t));
+
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Couldn’t open Settings from here'));
+  // The status is untouched: the permission has not changed, only the way out of the app
+  // failed, and a row that also blanked what it knew would be reporting the wrong failure.
+  expect(locationStatus(t)).toBe('Not allowed');
+});
+
+// The other half of that sentence's life: it stands for exactly as long as it is still true.
+// Cleared at the START of the next attempt, the same rule the form's own refusal note follows
+// — never on a timer and never by a dismiss control, neither of which this row has.
+it('drops that complaint when the next press works', async () => {
+  stubSettings({ permission: 'denied' });
+  mockOpenSettings.mockImplementation(() => Promise.reject(new Error('no settings app')));
+  const t = await render(<SettingsScreen />);
+  await waitFor(() => expect(locationStatus(t)).toBe('Not allowed'));
+  await fireEvent.press(findLocationRow(t));
+  await waitFor(() => expect(textIn(t).join(' ')).toContain('Couldn’t open Settings from here'));
+
+  mockOpenSettings.mockImplementation(() => Promise.resolve());
+  await fireEvent.press(findLocationRow(t));
+
+  await waitFor(() => expect(textIn(t).join(' ')).not.toContain('Couldn’t open Settings from here'));
+});
+
+/**
+ * **It is a setting that reports, and the ink is what says so** (§0.6's "ink versus muted ink
+ * is the only lever"). The label is muted like *Units*' own, because this row holds a value;
+ * the value is the value column's full ink, like the account screen's address. Contrasted with
+ * the two rows either side of it, since the assertion that matters is the difference: a label
+ * in `settingsAccountLabel` would read as a destination that had lost its value, and a value
+ * left in the muted placeholder ink would read as a row still loading.
+ */
+it('reads as a setting with a value rather than as a destination', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+  const styles = makeStyles('light');
+  await waitFor(() => expect(locationStatus(t)).toBe('Allowed'));
+
+  const styleOf = (label: string) => {
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(label)) : [];
+    if (!text) throw new Error(`SettingsScreen rendered no ${label} text`);
+    return text.props.style;
+  };
+
+  expect(styleOf('Location access')).toBe(styles.formFieldLabel);
+  expect(styleOf('Allowed')).toBe(styles.settingsLocationStatus);
+  expect(styles.settingsLocationStatus).not.toBe(styles.settingsLocationStatusUnread);
+});
+
+// And the placeholder wears the other one, which is what keeps "not read yet" from looking
+// like an answer at a glance rather than only to a reader of the word.
+it('draws the unread placeholder in the muted ink an answer never takes', async () => {
+  stubSettings();
+  mockLocationPermission.mockImplementation(() => new Promise<never>(() => {}));
+  const t = await render(<SettingsScreen />);
+
+  const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes('Checking…')) : [];
+  if (!text) throw new Error('SettingsScreen rendered no unread placeholder');
+  expect(text.props.style).toBe(makeStyles('light').settingsLocationStatusUnread);
 });
