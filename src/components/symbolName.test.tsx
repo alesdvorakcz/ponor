@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS } from '../navigation/tabs';
+import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { EXPLORE_GLYPH, MY_DIVES_GLYPH } from '../screens/MapScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
@@ -69,14 +69,16 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. **Thirteen symbols in six places**: the search capsule's magnifier, the
+// it can only be listed. **Fourteen symbols in six places**: the search capsule's magnifier, the
 // two `entry` chips, the five capsule glyphs `DivesScreen`, `SearchScreen` and `MapScreen` hand
-// to `ActionCapsule`, `navigation/tabs.ts`' three, and M1h's carried treatment — the return mark
+// to `ActionCapsule`, `navigation/tabs.ts`' four, and M1h's carried treatment — the return mark
 // and the clear control's ring.
 //
 // It was ten in six until M2n, and the three that joined are §3's Map tab: its own tab glyph, and
 // BOTH states of the layer toggle in the capsule — one control that renders a different symbol
 // depending on which layer is showing, so a check of one state proves nothing about the other.
+// The fourteenth is M3a's Stats tab, and the tab block below is now tied to `TAB_ROUTES` so the
+// fifteenth cannot arrive without one.
 //
 // It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
 // condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
@@ -85,9 +87,10 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // had to keep while deleting around it.
 //
 // If you add a symbol, add it here. One block below makes that failure loud rather than trusting
-// this sentence — the tab-route block iterates `TAB_ROUTES` itself. (The weather table did the
-// same job through a total `Record<Weather, …>`, and went with the skies.) The rest cannot be
-// derived and are listed by hand.
+// this sentence — the tab-route block asserts its own table against `TAB_ROUTES`, which is what
+// that sentence used to CLAIM it did and did not (M3a; see the note there). (The weather table
+// did the same job through a total `Record<Weather, …>`, and went with the skies.) The rest
+// cannot be derived and are listed by hand.
 it('gives the search capsule’s magnifier a web name, not just an iOS and an Android one', async () => {
   await render(<SearchCapsule scheme="dark" value="" onChangeText={() => {}} />);
   const name = nameProp();
@@ -198,14 +201,33 @@ it.each([
 // map over: a resolution that dropped a route, or resolved it with the wrong glyph, is caught
 // here, where re-deriving the answer from the source would only have proved the converters
 // still work.
-it.each([
+const TAB_MATERIAL_NAMES = [
   ['index', 'waves'],
   // M2n. `map` is the same word in both vocabularies, which is exactly why it is pinned rather
   // than skipped: an iOS name that happens to be a legal Material name is the case where a
   // missing conversion looks right on the only platform anyone runs.
   ['map', 'map'],
+  // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most (`chart.bar`
+  // against `bar_chart`), which is the ordinary case this file exists for.
+  ['stats', 'bar_chart'],
   ['settings', 'settings'],
-] as const)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
+] as const;
+
+// **The half of "if you add a symbol, add it here" that was a sentence rather than a check**
+// (found in M3a, while adding the fourth tab). The header above claims this block "iterates
+// `TAB_ROUTES` itself"; it did not — the table below is written by hand, and `.find` on it
+// simply would not look at a tab nobody had listed. A fifth tab could therefore ship with no
+// Material name and no Android or browser glyph, exactly the defect this file exists to
+// prevent, and every test in it would stay green.
+//
+// So the table is tied to the bar instead: same routes, same order. A tab added to
+// `navigation/tabs.ts` is red here until somebody writes down what it draws on the two
+// platforms the simulator cannot show them.
+it('pins a Material name for every tab in the bar, and for no tab that is not', () => {
+  expect(TAB_MATERIAL_NAMES.map(([name]) => name)).toEqual(TAB_ROUTES.map((route) => route.name));
+});
+
+it.each(TAB_MATERIAL_NAMES)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
   const native = NATIVE_TAB_ITEMS.find((tab) => tab.name === name);
   const js = JS_TAB_ITEMS.find((tab) => tab.name === name);
   // The routes existing is part of the assertion: `.find` on a name nobody ships returns

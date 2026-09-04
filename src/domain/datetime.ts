@@ -138,6 +138,46 @@ export function timeOfDayToMinutes(value: unknown): number | null {
   return canonicalTimeOfDay(value)?.minutes ?? null;
 }
 
+/** Milliseconds in one day, used only to turn a difference of two UTC midnights into days. */
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * **How many whole days apart two calendar dates are**, counted from `from` to `to` — positive
+ * when `to` is the later of the two, `0` when they are the same day, negative when `to` is
+ * earlier. `null` when either value names no real date, which is the caller's cue to say
+ * nothing rather than to show a number it made up.
+ *
+ * §3's *currency* is what wanted it (M3a: *"days since your last dive"*), and it belongs here
+ * rather than beside that figure because §4.1 gives this module **every** reading of a
+ * `YYYY-MM-DD` string. Counting days is a reading of two of them.
+ *
+ * **Both dates go through `calendarDateToUtcMs`, and that is the whole of the correctness.** A
+ * calendar date is not an instant, so the difference between two of them has to be measured
+ * from somewhere; UTC midnight is a fixed frame, where the device's own zone is not — and a
+ * diver changes zone on every trip (§7). It is also what makes a DST transition invisible: a
+ * local day is 23 or 25 hours twice a year, and 25 hours over `MS_PER_DAY` floors to one day
+ * only by luck. The subtraction here is exact whole days by construction, which is why it needs
+ * no rounding at all.
+ *
+ * An impossible date that `Date.parse` would silently roll forward — `'2026-02-30'` — is
+ * refused rather than counted two days late, because `canonicalCalendarDate` refuses it
+ * (`normaliseCalendarDate`'s own rule). That is the same refuse-rather-than-guess stance
+ * `surfaceIntervalMin` (domain/derived.ts) and `carryOverDate` (domain/carryOver.ts) already
+ * take about a date they cannot read.
+ *
+ * **`carryOverDate` does this same subtraction inline and predates this function** (§2.1's
+ * today-or-yesterday window, which compares `todayMs - previousMs` against its own `DAY_MS`).
+ * It is not converted here only because that file was owned by another task in the milestone
+ * that added this; it is the same rule and should read this instead — recorded rather than
+ * left for someone to rediscover as two copies (§4.1).
+ */
+export function daysBetweenCalendarDates(from: unknown, to: unknown): number | null {
+  const fromMs = calendarDateToUtcMs(from);
+  const toMs = calendarDateToUtcMs(to);
+  if (fromMs === null || toMs === null) return null;
+  return (toMs - fromMs) / MS_PER_DAY;
+}
+
 /**
  * The write-boundary policy for a stored `date`, applied by `db/dives.ts`.
  * Canonicalises a real date however it was spelled, and otherwise returns the

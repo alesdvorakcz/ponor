@@ -102,13 +102,14 @@ it('names no ground for the native bar, so iOS keeps drawing its own material', 
 // (expo-router matches it against `src/app/(tabs)/`), never a label; `title` is the word a
 // diver reads. Pinned because a swap here would silently reorder the bar on both platforms.
 //
-// **Map joined them in M2n and it went in the MIDDLE**, which is the part worth pinning: §3's
-// order is Dives, Map, Stats, Settings, so a new tab appended to the end would put Settings
-// second on both platforms and read as correct in every other test in this file. M3's Stats tab
-// goes in the gap this now leaves, not after Settings either.
+// **Map joined them in M2n and Stats in M3a, and both went in the MIDDLE**, which is the part
+// worth pinning: §3's order is Dives, Map, Stats, Settings, so a tab appended to the end would
+// put Settings third on both platforms and read as correct in every other test in this file.
+// The bar is now the four §3 asks for, so the next thing added here is a decision rather than a
+// milestone landing.
 it('lists the tabs once, in §3\'s order, keyed by route file name', () => {
-  expect(TAB_ROUTES.map((route) => route.name)).toEqual(['index', 'map', 'settings']);
-  expect(TAB_ROUTES.map((route) => route.title)).toEqual(['Dives', 'Map', 'Settings']);
+  expect(TAB_ROUTES.map((route) => route.name)).toEqual(['index', 'map', 'stats', 'settings']);
+  expect(TAB_ROUTES.map((route) => route.title)).toEqual(['Dives', 'Map', 'Stats', 'Settings']);
 });
 
 // --- What each layout is handed, and why the glyph is resolved here rather than there ---

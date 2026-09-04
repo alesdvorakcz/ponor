@@ -17,8 +17,9 @@ import { resolveScheme } from '../../theme/resolve';
  * used here were read off the installed build rather than the docs.
  *
  * Everything rendered below is `navigation/tabs.ts`'s data; there is deliberately nothing
- * per-tab here to keep in step with that list. Adding M2's Map or M3's Stats is an entry
- * there plus a route file beside `index.tsx` — no edit to this file at all.
+ * per-tab here to keep in step with that list. Both tabs §3 was still owed arrived that way —
+ * Map in M2n and Stats in M3a — as one entry there plus a route file beside `index.tsx`, with
+ * no edit to this file at all.
  *
  * **That now includes the glyph, and the reason is that this file cannot be tested.**
  * expo-router sweeps `src/app/` as the route tree, so a test file here would ship to a

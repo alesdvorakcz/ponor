@@ -1,6 +1,7 @@
 import {
   calendarDateToLocalDate,
   calendarDateToUtcMs,
+  daysBetweenCalendarDates,
   isCalendarDate,
   isTimeOfDay,
   localDateToCalendarDate,
@@ -282,5 +283,71 @@ describe('todayCalendarDate', () => {
     expect(todayCalendarDate(new Date(NaN))).toBe(realToday);
     expect(todayCalendarDate(undefined as unknown as Date)).toBe(realToday);
     expect(todayCalendarDate('2026-08-31' as unknown as Date)).toBe(realToday);
+  });
+});
+
+/**
+ * `daysBetweenCalendarDates` — the arithmetic §3's *currency* is counted in (M3a). What these
+ * tests are about is the two ways a day count goes wrong without looking wrong: a local-clock
+ * frame that loses or gains a day at a DST boundary or across a time zone, and a date the
+ * parser should refuse being silently rolled forward instead.
+ */
+describe('daysBetweenCalendarDates', () => {
+  it('counts whole days forward, and calls the same day nought', () => {
+    expect(daysBetweenCalendarDates('2026-08-31', '2026-08-31')).toBe(0);
+    expect(daysBetweenCalendarDates('2026-08-30', '2026-08-31')).toBe(1);
+    expect(daysBetweenCalendarDates('2026-08-01', '2026-08-31')).toBe(30);
+  });
+
+  // Signed, and the sign is load-bearing: §3's currency uses it to tell a dive that has already
+  // happened from one dated ahead of today, which is the difference between "you dived
+  // yesterday" and "you have a dive booked" (§2.4).
+  it('counts backwards as a negative rather than as a magnitude', () => {
+    expect(daysBetweenCalendarDates('2026-08-31', '2026-08-30')).toBe(-1);
+    expect(daysBetweenCalendarDates('2026-09-30', '2026-08-31')).toBe(-30);
+  });
+
+  // Month and year ends, where an implementation counting components rather than instants goes
+  // wrong: February in a leap year, and the turn of a year.
+  it('crosses month, year and leap-day boundaries', () => {
+    expect(daysBetweenCalendarDates('2024-02-28', '2024-03-01')).toBe(2);
+    expect(daysBetweenCalendarDates('2023-02-28', '2023-03-01')).toBe(1);
+    expect(daysBetweenCalendarDates('2025-12-31', '2026-01-01')).toBe(1);
+    expect(daysBetweenCalendarDates('2025-01-01', '2026-01-01')).toBe(365);
+  });
+
+  // **The DST case, and the reason this reads `calendarDateToUtcMs` rather than a local `Date`.**
+  // Europe/Prague springs forward on 29 March 2026 and back on 25 October 2026, so those local
+  // days are 23 and 25 hours long; measured on a local clock, one of these divisions floors to
+  // 0 days and the other to 1 with an hour left over. On UTC midnights both are exactly one.
+  // The suite runs in the repo's fixed zone, and the sibling `*.utc-plus-14` / `*.utc-minus-11`
+  // suites are what prove the frame holds at the extremes.
+  it('counts a day as a day across a daylight-saving change', () => {
+    expect(daysBetweenCalendarDates('2026-03-29', '2026-03-30')).toBe(1);
+    expect(daysBetweenCalendarDates('2026-10-25', '2026-10-26')).toBe(1);
+    expect(daysBetweenCalendarDates('2026-03-28', '2026-03-30')).toBe(2);
+  });
+
+  // A date this module refuses to read is refused here too, rather than counted from wherever
+  // `Date.parse` would have rolled it. '2026-02-30' is the one that matters: it parses happily
+  // as 2 March, so an implementation that skipped `calendarDateToUtcMs` would report a gap two
+  // days short and nothing would look wrong.
+  it.each([
+    ['an impossible day', '2026-02-30'],
+    ['a month past twelve', '2026-13-01'],
+    ['free text', 'yesterday'],
+    ['an empty string', ''],
+    ['null', null],
+    ['undefined', undefined],
+    ['a number', 20260831],
+  ])('refuses to count from %s', (_label, bad) => {
+    expect(daysBetweenCalendarDates(bad, '2026-08-31')).toBeNull();
+    expect(daysBetweenCalendarDates('2026-08-31', bad)).toBeNull();
+  });
+
+  // Canonical form is the parser's job, not the caller's — the same guarantee
+  // `compareDiveOrder` leans on so that '2026-8-17' does not sort after '2026-08-18'.
+  it('reads a date however it was spelled', () => {
+    expect(daysBetweenCalendarDates('2026-8-30', '2026-08-31')).toBe(1);
   });
 });

@@ -5,7 +5,7 @@ import { isCalendarDate } from '../domain/datetime';
 // so a value import back the other way would be a real runtime cycle. This specifier is erased
 // at compile time, which is exactly what the two modules' split requires: the figures are
 // computed there and worded here, and only the shape of the answer crosses.
-import type { LogbookStats } from '../domain/logbookStats';
+import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // A type, on the same terms and for the same reason as `LogbookStats` above: `domain/
 // mapSites.ts` imports `diveSiteLabel` from this module (a map place is called what a dive row
 // calls it), so only the shape of its answer may come back the other way.
@@ -400,6 +400,57 @@ export function formatRmv(litresPerMin: number | null): string | null {
   return `${litresPerMin.toFixed(1)} l/min`;
 }
 
+/**
+ * **§3's *"RMV trend"* said as a direction** — `"down from 16.1 l/min"`, `"up from 13.9 l/min"`,
+ * or `"steady"` — and `null` when there is no earlier window to compare against, in which case
+ * the caller draws no trend at all rather than a sentence about one dive.
+ *
+ * §3 asks for *counters first, charts later*, so the whole trend is a word and the figure it
+ * moved from. Both are worth stating: "down" alone is a claim a diver cannot check, and the
+ * previous mean is the number that makes it one they can.
+ *
+ * **"steady" is decided on the FORMATTED figures, not on the raw ones**, and that is the only
+ * interesting line here. `rmvTrend` (domain/logbookStats.ts) returns two exact means, and two
+ * means over real dives are essentially never equal — so a raw comparison would print "up from
+ * 14.8 l/min" beside a current figure also reading `14.8 l/min`, which is a line arguing with
+ * itself. Comparing what `formatRmv` will actually draw makes the rule exactly "the trend says
+ * a direction only when the app can show the difference", and it cannot contradict the row
+ * above it however that formatter's precision changes.
+ *
+ * **The words are neutral on purpose.** A lower RMV is the one every diver is working toward,
+ * and this deliberately does not say "better": §1's never-shame-the-form stance is about not
+ * grading a diver's data, and a dive that was cold, over-weighted or spent towing a student is
+ * a bigger RMV for a good reason. The figure moved; that is all the app knows.
+ */
+export function formatRmvTrend(trend: RmvTrend): string | null {
+  if (trend.previous === null) return null;
+  const before = formatRmv(trend.previous);
+  const now = formatRmv(trend.recent);
+  if (before === null || now === null) return null;
+  if (before === now) return 'steady';
+  return `${trend.recent < trend.previous ? 'down' : 'up'} from ${before}`;
+}
+
+/**
+ * **What "recent" means, in the diver's own dives** — `"Averaged over the last 5 dives with gas
+ * recorded."`
+ *
+ * The window is a judgement (`RMV_WINDOW`, domain/logbookStats.ts) and an RMV figure with an
+ * unstated window is unreadable: five dives and fifty answer different questions, and a diver
+ * comparing this month's figure with last month's needs to know which. It states the count
+ * actually used rather than the constant, because a diver with three gas-recorded dives has a
+ * mean over three — `formatDiveCount` owns the plural, so "the last 1 dive" and "the last 5
+ * dives" are both grammatical without this sentence knowing which it is getting.
+ *
+ * **"with gas recorded" is the load-bearing half.** RMV needs an average depth, a duration and
+ * a cylinder size together (`rmv`, domain/derived.ts) and §1 asks for none of them, so the
+ * dives behind this figure are a subset of the last five dives and usually a small one. Without
+ * those three words the sentence would be false for almost every logbook.
+ */
+export function formatRmvWindow(count: number): string {
+  return `Averaged over the last ${formatDiveCount(count)} with gas recorded.`;
+}
+
 /** A gas fraction, e.g. "32 %" — O₂ or He content, unrounded. */
 export function formatPercent(pct: number | null): string | null {
   if (!isFiniteNumber(pct)) return null;
@@ -755,6 +806,34 @@ function hoursAndMinutes(minutes: number): string {
 export function formatTimeUnderwater(minutes: number | null): string | null {
   if (!isFiniteNumber(minutes) || minutes < 0) return null;
   return hoursAndMinutes(minutes);
+}
+
+/**
+ * **§3's *currency*, as the diver reads it** — `"Today"`, `"Yesterday"`, or `"12 days ago"`.
+ *
+ * Days rather than months or years, all the way up, because that is the unit §3 names (*"days
+ * since your last dive"*) and the unit the nudge is keyed on (`REFRESHER_AFTER_DAYS`,
+ * domain/logbookStats.ts). "8 months ago" would be friendlier and would also be a second
+ * arithmetic to keep in step with the one that decides whether the nudge fires — the shape §4.1
+ * exists to stop — so the figure and the threshold stay in one unit and the nudge says the rest.
+ *
+ * **Today and yesterday get words, and nothing further does.** A diver reads "0 days ago" as a
+ * bug and "1 days ago" as one too; every larger number reads perfectly well as itself, so the
+ * special cases stop exactly where the plural stops being a problem. They are capitalised
+ * because this is a row's whole value, in the trailing slot a categorical label like "Shore"
+ * occupies (§0.6), not a fragment of a sentence.
+ *
+ * A negative span is refused rather than printed. `currency` cannot produce one — it ignores a
+ * dive dated ahead of today outright — and this guards it anyway for the reason every formatter
+ * in this module guards: what it is handed comes from stored values, and "in 3 days ago" is
+ * worse than no line.
+ */
+export function formatDaysSince(days: number | null): string | null {
+  if (!isFiniteNumber(days) || days < 0) return null;
+  const whole = Math.round(days);
+  if (whole === 0) return 'Today';
+  if (whole === 1) return 'Yesterday';
+  return `${whole} days ago`;
 }
 
 /**

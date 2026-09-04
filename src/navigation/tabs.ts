@@ -20,10 +20,10 @@ export interface TabRoute {
 /**
  * **The tab bar, as data** (DESIGN.md §3: "Four tabs plus a full-screen dive form").
  *
- * Two of the four exist today. Map is M2 and Stats is M3, and the shape of this file is the
- * whole point: adding either is adding an entry here and a route file beside `index.tsx` —
- * `(tabs)/_layout.tsx` maps over this list and has no per-tab knowledge of its own to
- * update. The order is the order they appear in the bar, and §3's own order puts Dives
+ * All four exist as of M3a, and the shape of this file is what made the last two cost an entry
+ * each: `(tabs)/_layout.tsx` maps over this list and has no per-tab knowledge of its own to
+ * update, so Map (M2n) and Stats (M3a) each arrived as one line here plus a route file beside
+ * `index.tsx`. The order is the order they appear in the bar, and §3's own order puts Dives
  * first, which is also the group's `index` route and therefore the app's front door.
  *
  * `name` is a route file name and not a label: expo-router matches `<NativeTabs.Trigger name>`
@@ -42,6 +42,18 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // two libraries and not a rule: `symbolName.test.tsx` pins the Material half like every other
   // glyph, because "they happen to agree today" is exactly the shape that stops being true.
   { name: 'map', title: 'Map', symbol: { ios: 'map', android: 'map' } },
+  // §3's third tab (M3a), in the gap the entry above left for it rather than on the end — §3's
+  // order is Dives, Map, Stats, Settings, and a tab appended after Settings would read as
+  // correct in every other test in this file.
+  //
+  // **A bar chart over a numeric glyph, though the screen draws no chart** (§3: "charts later,
+  // counters first"). The alternatives were a `#` or a `123`, which are honest about the
+  // content and say nothing about the subject: a hash reads as a tag and a `123` as a form
+  // field. A bar chart is what a diver's eye already looks for when it wants totals — the
+  // vocabulary this tab is competing with is every other dive app's — and a tab glyph is a
+  // signpost rather than a promise about what is behind it, with the word "Stats" beside it
+  // saying the rest. It is also still right the day §9's charts arrive.
+  { name: 'stats', title: 'Stats', symbol: { ios: 'chart.bar', android: 'bar_chart' } },
   { name: 'settings', title: 'Settings', symbol: { ios: 'gearshape', android: 'settings' } },
 ];
 

@@ -1,5 +1,5 @@
 import { diveSiteLabel } from '../format/display';
-import { foldForMatching } from './search';
+import { siteIdentityOf } from './siteIdentity';
 import { type Dive, type DiveSite } from './types';
 
 /**
@@ -135,7 +135,11 @@ export function pointOf(source: { latitude: number | null; longitude: number | n
  * place you dived; grouping by it would put four dives at four different sites under one shop's
  * marker, at whichever of their coordinates happened to come first. Do not unify these.
  *
- * The three tiers, in order:
+ * The three tiers, in order — **and the first two are no longer this module's own** (M3a).
+ * They are `siteIdentityOf` (domain/siteIdentity.ts), because §3's Stats tab counts *"sites
+ * visited"* and asks the identical question; a marker count and a site count that disagree by
+ * one hand-typed spelling is exactly what §4.1 exists to stop, so the rule moved to a module
+ * named for it and this function adds only the tier the MAP needs:
  *
  *  1. **`siteId`** — the catalogue's own identity (§6). Two dives pointing at one site are one
  *     place even if their `site_name` snapshots differ, which they will once an admin renames a
@@ -150,10 +154,13 @@ export function pointOf(source: { latitude: number | null; longitude: number | n
  *     (domain/search.ts, §4.1's owner of "how text is read before it is compared"), so
  *     `Blue hole` and `Blue Hole` are one marker rather than two on the same rock. The fold is
  *     for MATCHING only; the label comes back from `diveSiteLabel` in the diver's own spelling.
- *  3. **The dive's own id** — a pinned dive with no site at all. It stands alone, badged `1`,
- *     and labelled by `diveSiteLabel`, which gives its centre's name or `Unnamed site`. That is
- *     the honest answer: the app knows where the diver was and does not know what it is called,
- *     and merging such dives together would be inventing a place out of a shared absence.
+ *  3. **The dive's own id** — a pinned dive with no site at all. **This tier is the map's and
+ *     stays here**, which is the whole reason the extraction is a delegation rather than a
+ *     move: a pinned dive the diver never named still has somewhere to draw a marker, so it
+ *     stands alone, badged `1`, and labelled by `diveSiteLabel`, which gives its centre's name
+ *     or `Unnamed site`. Stats must NOT count it — a place with no name is not a site visited,
+ *     and several of them are not one site either — so `siteIdentityOf` answers `null` there
+ *     and each caller decides what that means.
  *
  * **Planned dives never reach the map** (§2.4: *"excluded from stats and dive numbering"*). A
  * plan is somewhere you intend to go; a map of where you have dived that counted them would put
@@ -206,14 +213,12 @@ function firstPoint(dives: readonly Dive[]): MapPoint | null {
 }
 
 /**
- * The three-tier key `groupDivesByPlace` documents. Prefixed per tier so a site whose id is
- * `blue hole` cannot collide with a site *named* "Blue Hole".
+ * The three-tier key `groupDivesByPlace` documents: `siteIdentityOf`'s two, plus the map's own
+ * fallback for a pinned dive that names no place at all. Prefixed per tier — including this
+ * one, so a dive standing alone cannot collide with a site whose id or name is that string.
  */
 function placeKeyOf(dive: Dive): string {
-  if (dive.siteId !== null && dive.siteId !== '') return `site:${dive.siteId}`;
-  const folded = dive.siteName === null ? '' : foldForMatching(dive.siteName);
-  if (folded !== '') return `name:${folded}`;
-  return `dive:${dive.id}`;
+  return siteIdentityOf(dive) ?? `dive:${dive.id}`;
 }
 
 /**

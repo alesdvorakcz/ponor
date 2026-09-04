@@ -1,5 +1,13 @@
 import { dive } from './diveFixture';
-import { logbookStats } from './logbookStats';
+import {
+  countriesVisited,
+  currency,
+  logbookStats,
+  rmvTrend,
+  sitesVisited,
+  type SiteCountry,
+} from './logbookStats';
+import { type Dive, type Tank } from './types';
 
 /**
  * §3's three Stats figures, computed once for both callers — the summary line under the Dives
@@ -151,5 +159,309 @@ describe('logbookStats', () => {
     expect(logbookStats(null as unknown as [])).toEqual({ dives: 0, minutes: null, deepestM: null });
     const holed = [dive({ durationMin: 20 }), null, undefined] as unknown as ReturnType<typeof dive>[];
     expect(logbookStats(holed)).toEqual({ dives: 1, minutes: 20, deepestM: null });
+  });
+});
+
+/**
+ * A cylinder that produces an exact RMV, so a test can name the figure it expects instead of
+ * asserting its own arithmetic back at itself.
+ *
+ * `rmv` (domain/derived.ts) is `litres / ata / minutes`, where litres is `usedBar × sizeL ×
+ * cylinders`. With a 10 l single, an average depth of 10 m (2 ata) and a 50-minute dive, a used
+ * pressure of `10 × R` bar gives exactly `R` l/min — so `gasDive(12)` really is a 12 l/min dive
+ * and the means below are readable rather than derived.
+ */
+const gasDive = (litresPerMin: number, over: Partial<Dive> = {}): Dive => {
+  const tank: Tank = {
+    material: null,
+    configuration: 'single',
+    sizeL: 10,
+    workingBar: null,
+    o2Pct: null,
+    hePct: null,
+    startBar: 200,
+    endBar: 200 - litresPerMin * 10,
+  };
+  return dive({ avgDepthM: 10, durationMin: 50, tanks: [tank], ...over });
+};
+
+/** The two catalogue columns a country count reads (§6), and nothing else. */
+const site = (id: string, country: string | null): SiteCountry => ({ id, country });
+
+/**
+ * §3's *"sites visited"*. Identity itself is `siteIdentityOf`'s and is pinned in
+ * `siteIdentity.test.ts`; what is asserted here is that this figure reads it, applies the same
+ * population rule as every other figure in this module, and counts a set rather than a list.
+ */
+describe('sitesVisited', () => {
+  it('counts each place once however many dives are at it', () => {
+    expect(
+      sitesVisited([
+        dive({ siteName: 'Kotelna' }),
+        dive({ siteName: 'Kotelna' }),
+        dive({ siteName: 'Divoká Šárka' }),
+      ]),
+    ).toBe(2);
+  });
+
+  // The fold (§2.3) reaches this figure because it reads `siteIdentityOf` rather than the raw
+  // snapshot. Without it a diver who typed `kotelna` once has been to one more place.
+  it('reads two spellings of one name as one site', () => {
+    expect(sitesVisited([dive({ siteName: 'Kotelna' }), dive({ siteName: 'kotelna' })])).toBe(1);
+  });
+
+  // **The rule most likely to ship missing**, and it is the one figure on this screen that is a
+  // claim about the diver's life rather than about their arithmetic: a site you are going to
+  // dive next week is not a site visited. Seeded with a plan at a place no logged dive names,
+  // so the exclusion is what the number depends on.
+  it('leaves planned dives out', () => {
+    expect(
+      sitesVisited([
+        dive({ status: 'logged', siteName: 'Kotelna' }),
+        dive({ status: 'planned', siteName: 'Blue Hole' }),
+      ]),
+    ).toBe(1);
+  });
+
+  // A dive that names no place is nowhere, and — the half a sentinel key would get wrong —
+  // several of them are not one place either.
+  it('counts no site for dives that name none', () => {
+    expect(sitesVisited([dive(), dive(), dive()])).toBe(0);
+    expect(sitesVisited([dive({ siteName: 'Kotelna' }), dive(), dive()])).toBe(1);
+  });
+
+  it('has nothing to count in an empty logbook, and survives a corrupt read', () => {
+    expect(sitesVisited([])).toBe(0);
+    expect(sitesVisited(null as unknown as [])).toBe(0);
+    expect(sitesVisited([dive({ siteName: 'Kotelna' }), null, undefined] as unknown as Dive[])).toBe(1);
+  });
+});
+
+/**
+ * §3's *"countries visited"* — the figure whose honest answer is usually **none known**, and
+ * whose whole risk is inventing one. Every test below is about the app declining to guess.
+ */
+describe('countriesVisited', () => {
+  const sites = [site('site-hr', 'HR'), site('site-eg', 'EG'), site('site-hr2', 'HR')];
+
+  it('counts each country once however many of its sites were dived', () => {
+    expect(
+      countriesVisited(
+        [dive({ siteId: 'site-hr' }), dive({ siteId: 'site-hr2' }), dive({ siteId: 'site-eg' })],
+        sites,
+      ),
+    ).toBe(2);
+  });
+
+  // §2.3 stores ISO 3166-1 alpha-2, and a code is a code: `hr` and `HR` name one country. This
+  // deliberately does NOT go through `foldForMatching`, which is the fold for names a diver
+  // typed — see `countriesVisited`'s own docblock.
+  it('reads one country code spelled two ways as one country', () => {
+    expect(
+      countriesVisited([dive({ siteId: 'a' }), dive({ siteId: 'b' })], [site('a', 'hr'), site('b', ' HR ')]),
+    ).toBe(1);
+  });
+
+  // **The state this figure will be in for most divers** (§2.3: the country is derived from the
+  // site's own pin and from nothing else, so a site created out of signal has `null` by design).
+  // A site with no country is not a country; the screen turns the nought into a dash and says
+  // where countries come from.
+  it('learns no country from a site that does not know its own', () => {
+    expect(countriesVisited([dive({ siteId: 'a' }), dive({ siteId: 'b' })], [site('a', null), site('b', '')])).toBe(0);
+  });
+
+  // A dive with only a name — every dive in a logbook that has never synced — reaches no
+  // catalogue row, so it contributes nothing. Nothing here reads a site NAME or the dive's own
+  // pin: a name is not a place on the earth, and `platform/geocode.ts` owns turning a pin into
+  // a country (§4.1).
+  it('infers nothing from a dive that names no catalogue site', () => {
+    expect(countriesVisited([dive({ siteName: 'Kotelna' }), dive({ latitude: 43.5, longitude: 16.4 })], sites)).toBe(0);
+  });
+
+  // A dive pointing at a site this device has not pulled yet is not an error and not a country:
+  // the app simply does not know that site.
+  it('counts nothing for a site the device does not hold', () => {
+    expect(countriesVisited([dive({ siteId: 'site-unknown' })], sites)).toBe(0);
+  });
+
+  // §2.4 again, and here it would be the app claiming the diver has been to a country they have
+  // only booked a trip to.
+  it('leaves planned dives out', () => {
+    expect(
+      countriesVisited(
+        [dive({ status: 'logged', siteId: 'site-hr' }), dive({ status: 'planned', siteId: 'site-eg' })],
+        sites,
+      ),
+    ).toBe(1);
+  });
+
+  it('survives an empty or corrupt read of either side', () => {
+    expect(countriesVisited([], sites)).toBe(0);
+    expect(countriesVisited([dive({ siteId: 'site-hr' })], [])).toBe(0);
+    expect(countriesVisited(null as unknown as [], sites)).toBe(0);
+    expect(countriesVisited([dive({ siteId: 'site-hr' })], null as unknown as [])).toBe(0);
+    expect(
+      countriesVisited(
+        [dive({ siteId: 'site-hr' }), null] as unknown as Dive[],
+        [site('site-hr', 'HR'), null] as unknown as SiteCountry[],
+      ),
+    ).toBe(1);
+  });
+});
+
+/**
+ * §3's *"RMV trend"*, read as §3's own *"counters first"*: a recent mean and the mean before it.
+ * The three ways this goes wrong quietly are a plan in the population, a dive with no gas
+ * counted as a zero, and — the one no other figure in this module can have — the answer
+ * depending on the order the caller happened to hand the dives in.
+ */
+describe('rmvTrend', () => {
+  /** Ten dives, oldest first, breathing 20 l/min for five dives and then 10. */
+  const improving = [20, 20, 20, 20, 20, 10, 10, 10, 10, 10].map((value, index) =>
+    gasDive(value, { date: `2026-08-${String(index + 1).padStart(2, '0')}` }),
+  );
+
+  it('averages the recent window and the window before it', () => {
+    expect(rmvTrend(improving)).toEqual({ recent: 10, recentCount: 5, previous: 20 });
+  });
+
+  // **The guard the rest of this block rests on.** Every other figure in this module is
+  // order-independent and says so; a trend cannot be, so it sorts by `compareDiveOrder` itself
+  // rather than trusting the array. `useDives` hands back newest-first today and `MapScreen`
+  // hands one site's dives, so a function reading the ends of the array would report the trend
+  // backwards on one caller and correctly on the other.
+  it('gives the same answer whatever order the dives arrive in', () => {
+    const answer = rmvTrend(improving);
+    expect(rmvTrend([...improving].reverse())).toEqual(answer);
+    expect(rmvTrend([improving[3]!, improving[9]!, improving[0]!, ...improving.slice(4, 9), improving[1]!, improving[2]!])).toEqual(
+      answer,
+    );
+  });
+
+  // The window is five, and a longer history does not widen it — otherwise "recent" would drift
+  // toward "ever" as a logbook grows, and the caption under the figure would be false.
+  it('never averages more than the window, however long the logbook', () => {
+    const many = Array.from({ length: 30 }, (_, index) =>
+      gasDive(index < 25 ? 20 : 10, { date: `2026-08-${String(index + 1).padStart(2, '0')}` }),
+    );
+    expect(rmvTrend(many)).toEqual({ recent: 10, recentCount: 5, previous: 20 });
+  });
+
+  // **A dive with no gas recorded is skipped, never counted as zero** — RMV needs an average
+  // depth, a duration and a cylinder size together and §1 asks for none of them, so most dives
+  // have none. A zero in the mean would report a breathing rate no diver has ever had, in the
+  // unsafe direction for gas planning.
+  it('skips dives with no RMV rather than averaging a zero into the figure', () => {
+    const dives = [
+      gasDive(10, { date: '2026-08-01' }),
+      dive({ date: '2026-08-02' }),
+      dive({ date: '2026-08-03', durationMin: 40, maxDepthM: 18 }),
+    ];
+    expect(rmvTrend(dives)).toEqual({ recent: 10, recentCount: 1, previous: null });
+  });
+
+  // No earlier window means no trend — a direction stated from one figure is a direction made
+  // up. The caller draws the recent figure and nothing beside it.
+  it('reports no previous window when nothing precedes the recent one', () => {
+    expect(rmvTrend([gasDive(14, { date: '2026-08-01' })])).toEqual({
+      recent: 14,
+      recentCount: 1,
+      previous: null,
+    });
+  });
+
+  // §2.4, on the figure where a plan can carry a full cylinder spec: a dive set up on the boat
+  // has a starting pressure and no ending one, but nothing stops it carrying both.
+  it('leaves planned dives out', () => {
+    expect(
+      rmvTrend([
+        gasDive(10, { date: '2026-08-01', status: 'logged' }),
+        gasDive(20, { date: '2026-08-02', status: 'planned' }),
+      ]),
+    ).toEqual({ recent: 10, recentCount: 1, previous: null });
+  });
+
+  it('has nothing to say about a logbook with no gas in it, and survives a corrupt read', () => {
+    expect(rmvTrend([])).toBeNull();
+    expect(rmvTrend([dive(), dive({ durationMin: 40 })])).toBeNull();
+    expect(rmvTrend(null as unknown as [])).toBeNull();
+    expect(rmvTrend([gasDive(12), null, undefined] as unknown as Dive[])).toEqual({
+      recent: 12,
+      recentCount: 1,
+      previous: null,
+    });
+  });
+});
+
+/**
+ * §3's *currency* — *"days since your last dive, refresher nudge after 6 months"*. The failure
+ * this block exists for is the one the brief names: a plan for next week's trip answering "when
+ * did you last dive", which is the difference between "you dived yesterday" and "you have a
+ * dive booked".
+ */
+describe('currency', () => {
+  const today = '2026-09-04';
+
+  it('counts the days since the most recent logged dive', () => {
+    const since = currency([dive({ date: '2026-08-25' }), dive({ date: '2026-08-31' })], today);
+    expect(since).toEqual({ lastDate: '2026-08-31', days: 4, refresher: false });
+  });
+
+  it('calls a dive logged today nought days ago', () => {
+    expect(currency([dive({ date: today })], today)?.days).toBe(0);
+  });
+
+  // **§2.4, and the figure it matters most on.** A plan dated today over a logged dive from
+  // last winter would tell a diver they are current when they have not been wet in months —
+  // which is exactly the reading a refresher nudge exists to prevent.
+  it('answers from the last dive that happened, not from the next one booked', () => {
+    const since = currency(
+      [dive({ status: 'planned', date: today }), dive({ status: 'logged', date: '2026-01-15' })],
+      today,
+    );
+    expect(since?.lastDate).toBe('2026-01-15');
+    expect(since?.days).toBe(232);
+  });
+
+  // §10's own ruling for carry-over, applied to the question it was written about: a dive that
+  // has not happened yet is not recent. A logged dive dated ahead of today is a typo or a plan
+  // filed under the wrong status, and either way it cannot say how long since the diver was in
+  // the water — so it is passed over rather than producing a negative count.
+  it('ignores a logged dive dated ahead of today', () => {
+    const since = currency([dive({ date: '2026-09-20' }), dive({ date: '2026-08-31' })], today);
+    expect(since).toEqual({ lastDate: '2026-08-31', days: 4, refresher: false });
+  });
+
+  // The boundary, both sides of it, because "after 6 months" is a threshold and an off-by-one
+  // here is a nudge that fires a day early for ever or never fires at all.
+  it.each([
+    [179, false],
+    [180, true],
+    [400, true],
+  ])('sets the refresher nudge at %i days to %s', (days, expected) => {
+    // 4 September 2026 minus `days`, computed rather than typed so the two never disagree.
+    const last = new Date(Date.UTC(2026, 8, 4) - days * 86_400_000).toISOString().slice(0, 10);
+    expect(currency([dive({ date: last })], today)).toEqual({ lastDate: last, days, refresher: true === expected });
+  });
+
+  // A logbook of plans has been used and still has no currency to report — the same near-empty
+  // state `logbookStats` reports as `0 dives`, said in this figure's own terms.
+  it('has no answer for a logbook holding nothing that has happened', () => {
+    expect(currency([], today)).toBeNull();
+    expect(currency([dive({ status: 'planned', date: today })], today)).toBeNull();
+    expect(currency([dive({ date: '2026-09-20' })], today)).toBeNull();
+  });
+
+  // A date this build cannot read is skipped rather than guessed at — `'2026-02-30'` is the one
+  // that matters, since `Date.parse` accepts it two days late.
+  it('passes over a date it cannot read rather than counting from it', () => {
+    expect(currency([dive({ date: '2026-02-30' }), dive({ date: '2026-08-31' })], today)?.lastDate).toBe('2026-08-31');
+    expect(currency([dive({ date: 'someday' })], today)).toBeNull();
+    expect(currency([dive({ date: '2026-08-31' })], 'not a date')).toBeNull();
+  });
+
+  it('survives a corrupt read', () => {
+    expect(currency(null as unknown as [], today)).toBeNull();
+    expect(currency([dive({ date: '2026-08-31' }), null, undefined] as unknown as Dive[], today)?.days).toBe(4);
   });
 });

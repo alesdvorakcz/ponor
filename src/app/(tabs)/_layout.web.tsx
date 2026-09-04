@@ -24,7 +24,7 @@ import { resolveScheme } from '../../theme/resolve';
  * `_layout.tsx` remains the one every device loads.
  *
  * Everything below is `navigation/tabs.ts`'s data, exactly as `_layout.tsx`'s is: the same
- * routes in the same order, so adding M2's Map or M3's Stats is still one entry there plus a
+ * routes in the same order, so M2n's Map and M3a's Stats were each one entry there plus a
  * route file — never an edit to either layout. The two differ only in the navigator they hand
  * it to and the shape that navigator wants its icons in.
  *

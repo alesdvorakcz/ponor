@@ -1525,6 +1525,80 @@ function build(scheme: ColorScheme) {
     // screen.
     mapSheetList: {},
     // ------------------------------------------------------------------------------------
+    // The Stats tab (StatsScreen.tsx — DESIGN.md §3's Stats bullet, M3a)
+    // ------------------------------------------------------------------------------------
+    //
+    // **Almost nothing is here, and that is the finding rather than an omission.** §3 asks for
+    // *"counters first"*, and a counter is a label and a figure — which is §0.6's row, already
+    // written twice over: the dive detail's `detailRow` and the form's `formField`. This screen
+    // is a column of those under cluster labels, so it reads the existing definitions
+    // (`formField`, `formFieldRow`, `formFieldLabel`) exactly as Settings does, for the reason
+    // Settings records: "only the keys below are its own, and each is a thing the others have
+    // no equivalent of." §0.6's instruction for this screen was "do not invent a card", and a
+    // fourth vocabulary for a label beside a number would have been one.
+    //
+    // **No colour anywhere on it, including the deepest-dive figure** (§0.1, and §10 has now
+    // ruled it twice — M1l's summary line and M2n's map pins). Every figure on this screen is
+    // an aggregate over a set of dives, and no single depth band is true of a set; the deepest
+    // dive is a real depth, but the row it sits in is a row *about the logbook*, beside `Dives`
+    // and `Underwater`, and colouring one row of a column of totals would make hue mean "this
+    // one happens to be a depth". The palette lives where it always does — on the dive rows,
+    // one screen over.
+    statsScroll: rowScroll,
+    // **`rowScrollContent`'s gap without its `paddingTop`, and that is not a tidy-up.** This
+    // screen has branches that draw no scroll at all — a failed read, and a read that has not
+    // answered — so the title cannot take its top clearance from a container only one branch
+    // renders, or it would sit 4 pt higher on the other two. `statsHeading` below carries
+    // `SCREEN_HEADING_TOP` itself, exactly as `divesTitle` and `mapTitle` do for the same
+    // reason, and this must therefore not add it a second time. The `gap` is the shared half
+    // and is the same 20 the form and Settings space their groups by.
+    //
+    // `paddingBottom` is composed at the call site from `screenBottomInset(insets.bottom)`, the
+    // same near-duplicate `settingsContent` names above: this ScrollView is its root's only
+    // child, so it runs to the bottom of the display and its last row scrolls under the tab
+    // bar's Liquid Glass without it.
+    statsContent: { gap: 20 },
+    // The large title. `settingsHeading`'s twin apart from that top padding, and deliberately
+    // its own key rather than a shared one: what makes them alike is that neither screen floats
+    // a capsule beside its title, so neither needs a trailing cap — a fact about what each
+    // screen contains, not one rule two screens obey (`divesTitle` and `mapTitle` differ from
+    // both, and from each other, for exactly that reason). `screenHeading` is the shared half,
+    // and with `SCREEN_HEADING_TOP` it is what puts "Stats" on the same line as "Dives", "Map"
+    // and "Settings".
+    statsHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: SCREEN_HEADING_TOP,
+    },
+    // A group of counters — §0.6's cluster label, the same treatment *Conditions* and *Gas &
+    // cylinders* wear on the form and the detail and *Cylinder presets* wears on Settings.
+    // Identical to `settingsSectionTitle`, and its own key for the reason that one is: the
+    // padding belongs to a block heading, and a shared key would assert that restyling one
+    // screen's groups must move the other's.
+    statsSectionTitle: {
+      ...clusterLabel,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 8,
+    },
+    // A counter's figure, in the row's trailing slot — `rowValueMono`, i.e. §0.6's "figures in
+    // mono... with tabular figures", which is what makes a column of totals line up on the
+    // decimal point. Every value on this screen is a figure, so unlike the detail and the form
+    // there is no sans-faced sibling to choose between at the call site: there is nothing here
+    // a diver typed.
+    //
+    // `flexShrink: 1` so a long value ("96 h 12 min", or Czech's own longer spelling of "down
+    // from 16.1 l/min") gives way rather than pushing its label off the row — §0.5.
+    statsValue: {
+      ...rowValueMono,
+      flexShrink: 1,
+    },
+    // A figure with nothing behind it, and the caption that explains one when the reason is
+    // structural rather than a diver's omission. `captionBlock`/`captionText` at the top of
+    // this function — the same sentence-under-a-row treatment Settings and the account screen
+    // already share, rather than a fourth definition of muted Archivo.
+    statsCaption: captionBlock,
+    statsCaptionText: captionText,
+    // ------------------------------------------------------------------------------------
     // The search screen (SearchScreen.tsx — DESIGN.md §3, measured off iOS 26 Messages)
     // ------------------------------------------------------------------------------------
     // The dock the field sits in, at the BOTTOM of the screen, where the keyboard rises. It

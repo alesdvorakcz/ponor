@@ -38,6 +38,9 @@ import {
   formatPressure,
   formatRating,
   formatRmv,
+  formatRmvTrend,
+  formatRmvWindow,
+  formatDaysSince,
   formatEquipment,
   formatEquipmentToken,
   formatSalinity,
@@ -480,6 +483,94 @@ describe('formatRmv', () => {
   });
   it('returns null rather than rendering NaN', () => {
     expect(formatRmv(Number.NaN)).toBeNull();
+  });
+});
+
+/**
+ * §3's *"RMV trend"* said as a direction. The trap this block exists for is a line that argues
+ * with itself: two exact means are essentially never equal, so a raw comparison prints "up
+ * from 14.8 l/min" beside a current figure that also reads `14.8 l/min`.
+ */
+describe('formatRmvTrend', () => {
+  it('names the direction and the figure it moved from', () => {
+    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: 16.1 })).toBe('down from 16.1 l/min');
+    expect(formatRmvTrend({ recent: 16.1, recentCount: 5, previous: 14.8 })).toBe('up from 14.8 l/min');
+  });
+
+  // **Decided on the formatted figures, not the raw ones.** These two means differ by four
+  // hundredths of a litre and both draw as `14.8 l/min`, so the only line that does not
+  // contradict the row above it is "steady". Asserted from both sides, because a comparison
+  // written the other way round would call one of them a direction.
+  it('calls a difference the app cannot show steady', () => {
+    expect(formatRmvTrend({ recent: 14.82, recentCount: 5, previous: 14.78 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.78, recentCount: 5, previous: 14.82 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: 14.8 })).toBe('steady');
+  });
+
+  // ...and a difference it CAN show is never called steady, or the rule above would have
+  // swallowed the whole feature.
+  it('still names a direction the app can draw', () => {
+    expect(formatRmvTrend({ recent: 14.74, recentCount: 5, previous: 14.91 })).toBe('down from 14.9 l/min');
+  });
+
+  // No earlier window, no direction — the caller draws the recent figure alone rather than a
+  // trend stated from one dive.
+  it('says nothing at all when there is no earlier window', () => {
+    expect(formatRmvTrend({ recent: 14.8, recentCount: 1, previous: null })).toBeNull();
+  });
+
+  it('returns null rather than rendering NaN', () => {
+    expect(formatRmvTrend({ recent: Number.NaN, recentCount: 5, previous: 16.1 })).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, recentCount: 5, previous: Number.NaN })).toBeNull();
+  });
+});
+
+/**
+ * What "recent" covers, in the diver's own dives. An RMV figure with an unstated window is
+ * unreadable, and the sentence has to hold for the small numbers too — a diver with three
+ * gas-recorded dives has a mean over three.
+ */
+describe('formatRmvWindow', () => {
+  it('states the window actually averaged, in the plural that fits it', () => {
+    expect(formatRmvWindow(5)).toBe('Averaged over the last 5 dives with gas recorded.');
+    expect(formatRmvWindow(1)).toBe('Averaged over the last 1 dive with gas recorded.');
+  });
+
+  // The plural is `formatDiveCount`'s, not a comparison written again here: English needs one
+  // and Czech needs three (§0.5, i18next in M3), and a second copy is a second place to fix.
+  it('reads its plural from the one owner of it', () => {
+    for (const count of [1, 2, 5]) {
+      expect(formatRmvWindow(count)).toContain(formatDiveCount(count));
+    }
+  });
+
+  // "with gas recorded" is load-bearing: RMV needs an average depth, a duration and a cylinder
+  // size together, so the dives behind the figure are a subset of the last five and usually a
+  // small one. Without those words the sentence is false for almost every logbook.
+  it('says which dives it means', () => {
+    expect(formatRmvWindow(5)).toContain('with gas recorded');
+  });
+});
+
+/**
+ * §3's currency, as the diver reads it. The two special cases exist because "0 days ago" reads
+ * as a bug and "1 days ago" as one too; everything past them reads perfectly well as itself.
+ */
+describe('formatDaysSince', () => {
+  it('gives today and yesterday words, and everything else a count', () => {
+    expect(formatDaysSince(0)).toBe('Today');
+    expect(formatDaysSince(1)).toBe('Yesterday');
+    expect(formatDaysSince(2)).toBe('2 days ago');
+    expect(formatDaysSince(412)).toBe('412 days ago');
+  });
+
+  // A negative span is refused rather than drawn: `currency` cannot produce one — it passes over
+  // a dive dated ahead of today — and "in 3 days ago" is worse than no line at all.
+  it('refuses a span that has not happened, and anything unreadable', () => {
+    expect(formatDaysSince(-1)).toBeNull();
+    expect(formatDaysSince(null)).toBeNull();
+    expect(formatDaysSince(Number.NaN)).toBeNull();
+    expect(formatDaysSince(Number.POSITIVE_INFINITY)).toBeNull();
   });
 });
 
