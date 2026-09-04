@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Controller,
   useForm,
@@ -23,7 +23,7 @@ import { RatingDot, filledDotCount } from '../components/RatingDots';
 import { similarSites } from '../cloud/similarSites';
 import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
+import { createDiveCenter, createDiveSite, getDiveSite, listDiveSites } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -56,6 +56,7 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
+import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asSuggestedField,
   hasPairedId,
@@ -435,6 +436,33 @@ interface SeedState {
    * can stop being dirty, where having been typed is a fact that does not expire.
    */
   typed: ReadonlySet<string>;
+  /**
+   * **Every field the dive's paired SITE is currently answering for, rather than carry-over**
+   * — §2.1's site defaults (`domain/siteDefaults.ts`), and the third thing that **survives a
+   * reseed**.
+   *
+   * It exists for one job: a row the site filled must not wear §0.6's return mark, and
+   * `paths` is re-derived from the carry-over values on every reseed. Without this set the
+   * mark would come back the moment `useDives()` or `useUnitSystem()` resolved — a value the
+   * catalogue supplied, wearing a mark that says it came from the diver's last dive, under a
+   * caption naming a dive it has never been near. Subtracted from the marks in `seedStateFor`
+   * exactly as `typed` is, and for the same reason: the seed decides the values and the marks,
+   * and neither the diver nor the site is the seed's to re-decide.
+   *
+   * **It is not a member of `typed` and must never become one**, which is the distinction the
+   * whole rule turns on. `typed` is permanent — having been typed is a fact that does not
+   * expire — and this is *revisable*: switching sites recomputes it wholesale, and unpairing
+   * empties it. A site fill recorded as "typed" would make the second site pick refuse to
+   * overwrite the first site's answer, which is §2.1's rule failing at exactly the moment it
+   * is named for. The two can never overlap either, by construction rather than by policing:
+   * `siteDefaultFills` skips every typed field, so a field the site answers for is one the
+   * diver has not touched, and `noteTouched` takes a field back out of here the moment they do.
+   *
+   * Empty in edit mode, and by decree rather than consequence — see `applySiteDefaults`, which
+   * is where §2.1's *prefill* is kept away from a dive that already holds the diver's own
+   * record of the water it was dived in.
+   */
+  fromSite: ReadonlySet<string>;
 }
 
 /**
@@ -456,10 +484,11 @@ interface SeedState {
  * sees the flipped control and still has to save — which is precisely why it is a starting
  * value here rather than a rule inside `onValid` about where the diver came from.
  *
- * `typed` and `cleared` are carried in and back out untouched, and `typed` is subtracted from
- * the marks on the way: see `SeedState.typed` for the race that closes, and `SeedState.cleared`
- * for why the third state has to outlive a reseed too. A reseed re-derives everything the SEED
- * decides and nothing the DIVER decided.
+ * `typed`, `cleared` and `fromSite` are carried in and back out untouched, and two of the three
+ * are subtracted from the marks on the way: see `SeedState.typed` for the race that closes,
+ * `SeedState.cleared` for why the third state has to outlive a reseed too, and
+ * `SeedState.fromSite` for the row the catalogue is answering for. A reseed re-derives
+ * everything the SEED decides and nothing the DIVER or the SITE decided.
  */
 function seedStateFor(
   mode: 'create' | 'edit',
@@ -468,6 +497,7 @@ function seedStateFor(
   openAs?: DiveStatus,
   typed: ReadonlySet<string> = new Set<string>(),
   cleared: ReadonlySet<string> = new Set<string>(),
+  fromSite: ReadonlySet<string> = new Set<string>(),
 ): SeedState {
   const sourceId = seed?.id ?? null;
   // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
@@ -502,12 +532,17 @@ function seedStateFor(
       // remedy for one is to remove it rather than to defend it.)
       cleared,
       typed,
+      fromSite,
     };
   }
   const values = seedValues(initialFormValues(seed));
   const marked = seed === null ? new Set<string>() : computeCarriedPaths(values);
   for (const field of typed) marked.delete(field);
-  return { sourceId, units, values, paths: marked, cleared, typed };
+  // The site's three columns outrank carry-over's (§2.1), so a row the site is answering for
+  // is not a row that came from the diver's last dive — whatever the seed values still say
+  // about it. Second, and after `typed`, because the two can never name the same field.
+  for (const field of fromSite) marked.delete(field);
+  return { sourceId, units, values, paths: marked, cleared, typed, fromSite };
 }
 
 /**
@@ -933,6 +968,30 @@ const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
     },
   },
 };
+
+/**
+ * **The catalogue row a dive is paired to, or `null` for every way of not having one** — the
+ * read behind §2.1's site defaults (`applySiteDefaults`).
+ *
+ * `getDiveSite` (db/catalogue.ts) owns the read and applies `pickable`, so a row that is
+ * tombstoned, merged away or hidden answers `null` exactly as one that has never been pulled
+ * does. That is the right collapse rather than a loss of detail: all four mean *the catalogue
+ * has nothing to tell this dive*, and §6's `site_name` snapshot is why the dive goes on reading
+ * correctly regardless.
+ *
+ * **The catch is §1 arriving through a by-product**, and it is the same shape
+ * `catalogueOffer`'s own check uses: the dive is the thing being logged, a prefill is a
+ * convenience, and a database that could not answer must produce the answer a diver at sea
+ * gets anyway rather than an error with nowhere to be shown. Nothing here reaches the save
+ * path.
+ */
+async function pairedSite(id: string): Promise<SiteDefaults | null> {
+  try {
+    return await getDiveSite(db, id);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What the row says when the write did not happen.
@@ -2617,8 +2676,28 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // to the last, and "Too many re-renders." on mount.
   const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, units, initialStatus));
   if (carried.sourceId !== sourceId || carried.units !== units) {
-    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed, carried.cleared));
+    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed, carried.cleared, carried.fromSite));
   }
+
+  /**
+   * The state above as the *last committed render* left it, for the one gesture that has to
+   * read it **after an `await`** — §2.1's site defaults (`applySiteDefaults` below), whose
+   * catalogue read sits between the diver's tap and the values it writes.
+   *
+   * The same "latest ref" `useForegroundReturn` (hooks/useForegroundReturn.ts) documents, and
+   * here it is a correctness guard rather than a subscription convenience: what it protects is
+   * `typed`, so a chip the diver pressed while the read was out is still theirs when the answer
+   * lands. A closure over `carried` would hold the set as it was when they tapped the site row,
+   * which is precisely the moment before the gesture that has to win.
+   *
+   * Written in an effect rather than in the render body, so nothing here can be read as a
+   * render that depends on it: this is only ever read from an event handler, and every await it
+   * sits behind resolves after a commit.
+   */
+  const carriedRef = useRef(carried);
+  useEffect(() => {
+    carriedRef.current = carried;
+  });
 
   // §2.3's "your own history", out of the one read every screen uses — never a second query
   // (useDives.ts's own docblock, and this screen's for `dives` above).
@@ -2815,7 +2894,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // The early return moved rather than disappeared, and it now has to account for that third
   // fact too: only when a field is recorded, unmarked AND already on the right side of
   // `cleared` is there nothing left to change, so a second keystroke returns the same
-  // reference and re-renders nothing.
+  // reference and re-renders nothing. **It needs no fourth condition for `fromSite`**, and
+  // that is an invariant rather than an oversight: a typed field is never one the site is
+  // answering for (`siteDefaultFills` skips them), so the two sets cannot both hold `name`,
+  // and the delete below is what keeps it that way from the other side.
   const noteTouched = useCallback((name: FieldPath<DiveFormInput>, emptied: boolean) => {
     setCarried((prev) => {
       if (prev.typed.has(name) && !prev.paths.has(name) && prev.cleared.has(name) === emptied) return prev;
@@ -2826,7 +2908,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       const cleared = new Set(prev.cleared);
       if (emptied) cleared.add(name);
       else cleared.delete(name);
-      return { ...prev, paths, cleared, typed };
+      // §2.1 puts the diver above the site as well as above carry-over: a value they typed
+      // over the catalogue's is theirs, so the next site they pick must not overwrite it.
+      const fromSite = new Set(prev.fromSite);
+      fromSite.delete(name);
+      return { ...prev, paths, cleared, typed, fromSite };
     });
   }, []);
 
@@ -2898,6 +2984,122 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   const heldSiteId = useWatch({ control, name: 'siteId' });
   const heldCenterId = useWatch({ control, name: 'centerId' });
 
+  /**
+   * **DESIGN.md §2.1's site defaults, applied to the three rows §2.2 calls properties of the
+   * place** — *"picking a site prefills entry, salinity, and water body from the site's own
+   * defaults — and those win over carry-over when you switch sites"*, which M2r found had only
+   * ever been built in the direction that fills the catalogue.
+   *
+   * `siteDefaultFills` (domain/siteDefaults.ts) owns the precedence and the whole of what a
+   * `null` column means; this owns the three things that are the screen's — **when** it runs,
+   * **which** site row it asks about, and what happens to §0.6's marks.
+   *
+   * ── When ─────────────────────────────────────────────────────────────────────────────────
+   *
+   * **On a diver's own gesture, never on a seeded id.** Carry-over brings a `siteId` across
+   * with the name (`CARRIED_FIELDS`), and a rule that fired on the *presence* of an id would
+   * re-decide those three rows on every new dive at a site the diver has dived before — the
+   * site's generic answer overwriting the answer their own last dive at that very site gave,
+   * which is worse evidence, not better. §2.1's sentence says *picking*, and this is wired to
+   * the two gestures that pair a dive to a site rather than to the field's value.
+   *
+   * **Create mode only.** Edit mode shows a dive's OWN stored data (`seedStateFor`), and those
+   * three columns are then the diver's record of the water they were actually in. Filling them
+   * from a catalogue row because the diver came back to correct a site name would be the
+   * overwrite-what-someone-entered failure this rule's first tier exists to prevent, arriving
+   * through the one mode with no carry-over to outrank in the first place.
+   *
+   * ── Which row ────────────────────────────────────────────────────────────────────────────
+   *
+   * `getDiveSite` (db/catalogue.ts), which applies `pickable` — live and `active`. So every
+   * way of not having an answer collapses into one: never pulled, tombstoned, merged away or
+   * hidden, all `null`, all meaning *the catalogue does not know*, and all leaving carry-over
+   * to answer. **Following a merge is deliberately not done here**: M2r owns where a merged row
+   * sends a dive, it does it on the pull that delivers the merge, and a second implementation
+   * on this screen is the defect that report's own §8 warns whoever builds the merge screen
+   * about. A pick can barely produce one anyway — `nearMatches` reads `pickable` rows and
+   * `suggestFrom` reads dives the repair has already repointed.
+   *
+   * §1, *never block a save*: the read is a by-product, so a rejection is the same answer as a
+   * row that says nothing rather than something the diver has to deal with — the shape
+   * `catalogueOffer`'s own check already uses two functions down, for the same reason.
+   *
+   * ── The marks ────────────────────────────────────────────────────────────────────────────
+   *
+   * §0.6's return mark says *this came from your last dive*, and it is dropped exactly where
+   * that stops being true: on a row whose value the site replaced (`SiteDefaultFill.fromSite`),
+   * and never on one where the site merely agrees with carry-over. That second half is what
+   * makes adding a site (§2.3, M2o) leave this form exactly as it found it — the row was seeded
+   * *from this dive* by `siteFactsFrom`, so reading it back can only say what carry-over
+   * already said, and a rule keyed on "the site supplied a value" rather than on "the site
+   * replaced one" would silently strip three marks for no change in value at all.
+   *
+   * **A site default gets no mark of its own, and that is the decision** rather than a gap; the
+   * report for this task carries the argument. The short of it: the mark's legend names a dive
+   * (`carriedFromLabel`) and one mark over two sources would stop that legend answering the
+   * question it exists for, a second symbol is new vocabulary for one case, and this app
+   * already fills several rows from a stored record on one tap and marks none of them —
+   * `applyPreset`, below.
+   *
+   * ── The two races, which are one guard each ───────────────────────────────────────────────
+   *
+   * The read is asynchronous, so two things can happen between the tap and the answer. The
+   * diver can pick a *second* site, and the first read's answer must not land on top of the
+   * second's — hence the id check, which is against the form's own `siteId` rather than against
+   * a token, because that field is the whole of what "which site is this dive at" means. And
+   * the diver can touch one of the three rows, which is why `typed` is read from
+   * `carriedRef` **after** the await: a chip pressed while the read was out is the diver's, and
+   * a value someone entered by hand is the one thing this rule may never overwrite.
+   */
+  const applySiteDefaults = useCallback(
+    async (id: string | null) => {
+      if (mode !== 'create') return;
+      // Unpairing is the same rule with nothing in tier 2, so it needs no branch of its own —
+      // but it reaches here on every keystroke in the site name field, and there is nothing to
+      // recompute once the site has stopped answering for anything. A narrowing, not a rule:
+      // removing it writes the same values.
+      if (id === null && carriedRef.current.fromSite.size === 0) return;
+      const site = id === null ? null : await pairedSite(id);
+      // The diver moved on while the read was out — picked another site, or typed over the
+      // name, which is `siteId` back to null. Either way this answer is about a site the dive
+      // is no longer at.
+      if (toInputString(getValues('siteId')).trim() !== (id ?? '')) return;
+      const { typed, values } = carriedRef.current;
+      const fills = siteDefaultFills(site, values, typed);
+      // `shouldDirty`, the same declaration `setPairedId` and `applyPreset` make: this write is
+      // the gesture's, not the seed's, so `resetOptions.keepDirtyValues` must keep it when
+      // `useDives()` or `useUnitSystem()` resolves underneath it.
+      //
+      // **It is belt and braces on this path and the mutation that drops it stays green**,
+      // recorded so nobody reads it as load-bearing and then relies on it being so elsewhere:
+      // react-hook-form's `keepDirtyValues` preserves the union of the fields it was TOLD are
+      // dirty and the fields whose value simply differs from the current defaults — and a fill
+      // only ever writes something that differs. The option is the documented way to say it and
+      // the undocumented union is not, which is why it stays.
+      for (const fill of fills) setValue(fill.field, fill.value, { shouldDirty: true });
+      setCarried((prev) => {
+        const paths = new Set(prev.paths);
+        const fromSite = new Set(prev.fromSite);
+        for (const fill of fills) {
+          if (fill.fromSite) {
+            fromSite.add(fill.field);
+            paths.delete(fill.field);
+          } else {
+            // Carry-over is answering again, so §0.6's mark is right again — and it is
+            // recomputed from the value rather than restored from a memory of having been
+            // there, which is the same expression `seedStateFor` uses and therefore cannot
+            // disagree with it about what counts as a carried value.
+            fromSite.delete(fill.field);
+            if (hasCarriedValue(fill.value)) paths.add(fill.field);
+            else paths.delete(fill.field);
+          }
+        }
+        return { ...prev, paths, fromSite };
+      });
+    },
+    [mode, getValues, setValue],
+  );
+
   const setPairedId = useCallback(
     (field: SuggestedField, id: string | null) => {
       const idField = pairedIdField(field);
@@ -2906,8 +3108,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       if (idField === null) return;
       setValue(idField, id, { shouldDirty: true });
       dropCarried(idField);
+      // **Only the site half**, and the asymmetry is `centerFactsFrom`'s own, read backwards:
+      // a dive knows a great deal about the site it happened at and nothing about the shop on
+      // shore, so §2.3 gives a new centre its name alone and a centre has nothing to give back.
+      if (idField === 'siteId') void applySiteDefaults(id);
     },
-    [setValue, dropCarried],
+    [setValue, dropCarried, applySiteDefaults],
   );
 
   /**

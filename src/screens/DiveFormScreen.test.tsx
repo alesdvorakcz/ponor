@@ -15,7 +15,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { similarSites } from '../cloud/similarSites';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
+import { createDiveCenter, createDiveSite, getDiveSite, listDiveSites } from '../db/catalogue';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
@@ -132,9 +132,14 @@ jest.mock('../cloud/useAuthSession', () => ({
 // The two catalogue writes. Mocked rather than left real for the reason `createDive` is: they
 // reach `db`, and what these tests assert about them is exactly what they were HANDED — a
 // screen that seeded the wrong facts into a community record would look identical on screen.
+// M2s adds the READ this list never had: §2.1's site defaults ask `getDiveSite` what the
+// paired row says about its own water. Mocked with the two writes rather than left real for
+// the identical reason — it reaches `db` — and what a `pickable` read actually returns for a
+// merged, hidden or tombstoned row is `db/catalogue.test.ts`'s, not this file's.
 jest.mock('../db/catalogue', () => ({
   createDiveSite: jest.fn(),
   createDiveCenter: jest.fn(),
+  getDiveSite: jest.fn(),
   listDiveSites: jest.fn(),
 }));
 // M2p: §2.3's fuzzy check asks the server as well as the device, and this is the server half —
@@ -171,6 +176,7 @@ const mockCreateSite = createDiveSite as jest.Mock;
 const mockCreateCentre = createDiveCenter as jest.Mock;
 const mockCountry = countryFor as jest.Mock;
 const mockCatalogue = listDiveSites as jest.Mock;
+const mockGetSite = getDiveSite as jest.Mock;
 const mockSimilar = similarSites as jest.Mock;
 
 /**
@@ -304,6 +310,12 @@ beforeEach(() => {
   // the account.
   mockCatalogue.mockResolvedValue([]);
   mockSimilar.mockResolvedValue([]);
+  // **A catalogue that has never heard of the site being paired**, which is the world every
+  // test written before M2s was describing and — until a pull brings sites down — the world
+  // most devices are actually in: the row is not there, so §2.1's site defaults leave
+  // carry-over standing and nothing on the form moves. A test whose subject IS a site's own
+  // defaults says so out loud, exactly as `signedIn()` does for the account.
+  mockGetSite.mockResolvedValue(null);
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -7221,4 +7233,497 @@ it('drops the failure sentence when the diver picks another name instead', async
 
   await pickSuggestion(t, 'Site', 'Kotelna II');
   expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
+});
+
+// =========================================================================================
+// M2s — §2.1's site defaults, the half that reads
+// =========================================================================================
+//
+// *"Picking a site prefills entry, salinity, and water body from the site's own defaults — and
+// those win over carry-over when you switch sites."* M2o built the half that WRITES those three
+// onto a site the form creates; M2r found that nothing read them back, so the rule worked in
+// the direction that fills the catalogue and not in the direction a diver would notice.
+//
+// The precedence itself is `domain/siteDefaults.test.ts`'s, and what a `pickable` read returns
+// for a merged or hidden row is `db/catalogue.test.ts`'s. What is this screen's, and is tested
+// here, is the wiring: WHEN it runs, which row it asks about, what it does to §0.6's marks, and
+// that nothing in it can reach the dive (§1).
+
+/** A catalogue row that says something about its own water — `catalogued` above plus the three
+ * columns §2.2 calls properties of the place. */
+const siteSaying = (name: string, id: string, says: Partial<DiveSite>): DiveSite => ({
+  ...catalogued(name, id),
+  ...says,
+});
+
+/** What the catalogue answers, by id — `getDiveSite`'s own `(db, id)` shape, so a test that
+ * needs two sites can tell which one was asked for rather than trusting call order. */
+function stubCatalogueRows(rows: Record<string, DiveSite>) {
+  mockGetSite.mockImplementation((_db: unknown, id: string) => Promise.resolve(rows[id] ?? null));
+}
+
+/** Picks a site out of the diver's own history, and lets the catalogue read that follows
+ * answer — the fill is a promise, so the three rows it writes land a tick after the tap. */
+async function pickSite(t: RenderResult, value: string) {
+  await pickSuggestion(t, 'Site', value);
+  await act(async () => {});
+}
+
+/**
+ * **Which chip a row is showing as chosen**, by value rather than by position — so a failure
+ * reads `expected 'salt', received 'fresh'` instead of naming an index nobody can picture.
+ * Position is still how a chip is found (`findChip`), which is the order the vocabulary
+ * declares and the order the chip sweep above already relies on.
+ */
+function chosenChip(t: RenderResult, label: string, values: readonly string[]): string | undefined {
+  return values.find((_value, index) => findChip(t, label, index)?.props?.accessibilityState?.selected === true);
+}
+
+/** The three rows at once, which is what every assertion here is really about: a rule that
+ * moved one row and not the others would pass a single-field check. */
+function waterRows(t: RenderResult) {
+  return {
+    entry: chosenChip(t, 'Entry', ENTRY_VALUES),
+    salinity: chosenChip(t, 'Salinity', SALINITY_VALUES),
+    waterBody: chosenChip(t, 'Water body', WATER_BODY_VALUES),
+  };
+}
+
+/**
+ * A logbook whose most recent dive answers all three water rows, at a *different* site from the
+ * one every test below then picks.
+ *
+ * The carried answers are deliberately the ones no site fixture here repeats, so a row still
+ * reading `shore`/`fresh`/`lake` is a row carry-over is still answering for and a row reading
+ * anything else is one the catalogue reached.
+ */
+const carriedFromAQuarry = () => [
+  dive({
+    date: '2026-08-20',
+    siteName: 'Silfra', siteId: 'site-silfra',
+    entry: 'shore', salinity: 'fresh', waterBody: 'lake',
+  }),
+  dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+];
+
+// --- The rule itself ---
+
+/**
+ * **The three tiers, told apart by nine distinct values.**
+ *
+ * `entry` is the diver's, `salinity` is the site's and `waterBody` is carry-over's, and every
+ * one of the three holds a value no other tier offers for it — which is what makes this a test
+ * of the ORDERING rather than of the fill. A case where two tiers happen to agree looks
+ * identical on screen and proves neither: a rule that let the site win over the diver would
+ * still read `boat` here, and one that let carry-over win over the site would still read
+ * `fresh`.
+ */
+it('puts the diver above the site, the site above carry-over, and carry-over above nothing', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  // The diver answers this one themselves, BEFORE picking — which is the order that matters:
+  // the site arrives afterwards and still may not overwrite it.
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('other'));
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(waterRows(t)).toEqual({ entry: 'other', salinity: 'salt', waterBody: 'lake' });
+  // ...and it is the dive that gets saved, not only the form that looks right.
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ entry: 'other', salinity: 'salt', waterBody: 'lake', siteId: 'site-blue' });
+});
+
+// **"A site that says nothing must not say something."** A `null` column means the catalogue
+// does not know, not that the answer is empty — so the row keeps what carry-over gave it rather
+// than being blanked by a site that has an opinion about one column and none about the other
+// two. The site here knows exactly one thing, which is the ordinary state of `dive_sites`.
+it('leaves carry-over standing in the rows a site says nothing about', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
+});
+
+/**
+ * **Switching sites re-applies, and what it falls back to is carry-over — never the site the
+ * diver has left.**
+ *
+ * This is the property the whole shape exists for and the one place it can fail: the screen
+ * accumulates state across gestures where `siteDefaultFills` cannot. The second site is silent
+ * about `entry`, and a rule that merely layered each site's answer over the last would leave
+ * `boat` standing in a row belonging to a site this dive is no longer at — which would also
+ * hand a site created next (§2.3's `siteFactsFrom`) a *neighbouring* row's defaults to publish
+ * under the diver's name.
+ */
+it('falls back to carry-over, not to the site the diver has left', async () => {
+  stubDives({
+    dives: [
+      ...carriedFromAQuarry(),
+      dive({ date: '2026-08-05', siteName: 'Kotelna', siteId: 'site-kotelna' }),
+    ],
+  });
+  stubCatalogueRows({
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }),
+    'site-kotelna': siteSaying('Kotelna', 'site-kotelna', { salinity: 'fresh', waterBody: 'quarry' }),
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+
+  await typeInto(t, 'Site', 'kot');
+  await pickSite(t, 'Kotelna');
+  // `entry` is back to the diver's last dive's answer rather than still reading Blue Hole's.
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
+});
+
+// The same rule with tier 2 emptied: a name the diver typed over no longer refers to any
+// catalogue row (`setPairedId(field, null)`), so there is no site answering for these rows and
+// carry-over gets the question back. Without this the form would go on showing a site's answers
+// for a dive that is no longer at it — and would publish them onto whatever site the diver adds
+// next.
+it('hands the rows back to carry-over when the diver types the site name away', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+
+  await typeInto(t, 'Site', 'Blue Hol');
+  await act(async () => {});
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+});
+
+// §0.6's third state is a diver's gesture, and `SeedState.typed` records it as one — so a water
+// body somebody deliberately threw away stays thrown away, and the row goes on saying so. The
+// site here answers for that very column, which is what makes the assertion about the rule
+// rather than about a site with nothing to offer.
+it('does not put a value back into a row the diver cleared', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { waterBody: 'ocean' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressClear(t, 'Water body');
+  expect(clearedRowLabels(t)).toEqual(['Water body']);
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBeUndefined();
+  expect(clearedRowLabels(t)).toEqual(['Water body']);
+});
+
+// --- What §0.6's return mark says, and where it stops being true ---
+
+/**
+ * **The mark means "this came from your last dive", and it comes off exactly where the site
+ * replaced that value — not merely where the site had an opinion.**
+ *
+ * Both halves in one render, because the rule is a distinction: a screen that dropped every
+ * mark on a pick satisfies the first, one that dropped none satisfies the second, and only a
+ * screen that tells the two rows apart satisfies both. `Salinity` is replaced (`salt` over a
+ * carried `fresh`) and `Entry` is agreed with (`shore` over a carried `shore`), so the site
+ * answered for both and only one of them stops being the diver's last dive's value.
+ */
+it('takes the carried mark off a row the site replaced, and leaves it on one the site merely agrees with', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'shore', salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  expect(findClearCarried(t, 'Entry')).toBeDefined();
+  expect(findClearCarried(t, 'Salinity')).toBeDefined();
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+  expect(findClearCarried(t, 'Entry')).toBeDefined();
+  // The row the site never mentioned is untouched in both respects.
+  expect(findClearCarried(t, 'Water body')).toBeDefined();
+});
+
+// ...and the mark comes BACK when carry-over gets the row back, because at that point it is
+// telling the truth again. Asserted because the marks are recomputed from the value rather than
+// remembered, and a rule that only ever removed them would leave the diver's own last dive's
+// answer sitting in a row with nothing to say where it came from.
+it('gives the carried mark back to a row the site stops answering for', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+
+  await typeInto(t, 'Site', 'Blue Hol');
+  await act(async () => {});
+  expect(findClearCarried(t, 'Salinity')).toBeDefined();
+});
+
+/**
+ * **Adding a site leaves this form exactly as it found it** — M2o's gesture, which pairs the
+ * dive to a row `siteFactsFrom` seeded FROM this very dive.
+ *
+ * So the read that follows can only ever agree with carry-over, nothing is replaced, and the
+ * three marks stay. It is the case a rule keyed on *"the site supplied a value"* rather than on
+ * *"the site replaced one"* would get wrong in the quietest possible way: three marks stripped
+ * off three rows whose values did not move a millimetre.
+ */
+it('leaves the marks alone when the diver publishes the site this dive is at', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-20', entry: 'shore', salinity: 'fresh', waterBody: 'lake' })] });
+  mockCreateSite.mockResolvedValue({ id: 'new-site' });
+  stubCatalogueRows({
+    'new-site': siteSaying('Kotelna', 'new-site', { entry: 'shore', salinity: 'fresh', waterBody: 'lake' }),
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await nameInto(t, 'Site', 'Kotelna');
+  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await act(async () => {});
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  expect(findClearCarried(t, 'Entry')).toBeDefined();
+  expect(findClearCarried(t, 'Salinity')).toBeDefined();
+  expect(findClearCarried(t, 'Water body')).toBeDefined();
+});
+
+// --- When it runs, and when it must not ---
+
+/**
+ * **Edit mode is a record, not a prefill.**
+ *
+ * §2.1 is carry-over's section and its site defaults are one of carry-over's tiers; edit mode
+ * has no carry-over at all (`seedStateFor` marks nothing there, for the same reason). Those
+ * three columns on a stored dive are the diver's own account of the water they were in, so a
+ * site's generic answer replacing them because somebody came back to fix a site name is the
+ * overwrite-what-someone-entered failure the first tier exists to prevent — arriving through
+ * the one mode with nothing to outrank.
+ */
+it('never prefills a dive it is editing, whatever site the diver moves it to', async () => {
+  const target = dive({
+    id: 'target', date: '2026-08-16',
+    siteName: 'Silfra', siteId: 'site-silfra',
+    entry: 'shore', salinity: 'fresh', waterBody: 'lake',
+  });
+  stubDives({ dives: [target, dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' })] });
+  stubCatalogueRows({
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt', waterBody: 'ocean' }),
+  });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  // The patch names the site and nothing else about the water — §6's `undefined` = don't touch.
+  expect(writtenPatch()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue' });
+  expect(writtenPatch()).not.toHaveProperty('entry');
+  expect(writtenPatch()).not.toHaveProperty('salinity');
+  expect(writtenPatch()).not.toHaveProperty('waterBody');
+});
+
+// **A centre has nothing to give back**, which is `centerFactsFrom`'s own asymmetry read
+// backwards: §2.3 gives a new centre its name alone, because a dive knows a great deal about
+// the site it happened at and nothing about the shop on shore. So pairing one asks the
+// catalogue nothing at all — the read that would answer is never even made.
+it('asks the catalogue nothing when the dive is paired to a centre', async () => {
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', centerName: 'Dive.is', centerId: 'centre-dive-is', salinity: 'fresh' }),
+      dive({ date: '2026-08-10', centerName: 'Aqua Divers', centerId: 'centre-aqua' }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  await focusField(t, 'Centre');
+  await typeInto(t, 'Centre', 'aq');
+  await pickSuggestion(t, 'Centre', 'Aqua Divers');
+  await act(async () => {});
+
+  expect(mockGetSite).not.toHaveBeenCalled();
+});
+
+// --- §1: none of this may reach the dive ---
+
+/**
+ * **The row this device has never seen**, which is most rows on most devices: `dive_sites`
+ * arrives by pull, and a paired id can name one that has not come down — or one `pickable`
+ * refuses, which is a tombstone, a merge (M2r) or a hidden entry. All four answer `null` and
+ * all four mean the same thing, so carry-over goes on answering and the dive saves with §6's
+ * name snapshot and the id it was given.
+ */
+it('changes nothing when the catalogue has never heard of the site', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({});
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue' });
+});
+
+// The same answer from the other direction: a read that REJECTS is a prefill that did not
+// happen, not a dive in trouble. §1 in the direction this whole feature has to hold in — the
+// dive is the thing being logged and the fill is a convenience, so a database that could not
+// answer must produce what a diver whose catalogue is empty already gets.
+it('saves the dive when the catalogue read fails outright', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  mockGetSite.mockRejectedValue(new Error('no'));
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  expect(fieldNotesIn(t)).toEqual([]);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue' });
+});
+
+// --- The two races the read opens, one guard each ---
+
+/**
+ * **A chip pressed while the read was out is the diver's**, and the fill that lands afterwards
+ * may not overwrite it.
+ *
+ * The read is held open on purpose — `deferred` below is the site's answer, released only after
+ * the diver has answered for themselves — because that is the one arrangement in which the
+ * gesture and the fill are genuinely simultaneous. A rule that read `typed` at the moment of the
+ * tap rather than at the moment of the write passes every other test in this file and destroys
+ * a value somebody entered by hand here, which is the worst outcome available to this feature.
+ */
+it('keeps a chip the diver pressed while the site was being read', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  let answer: (site: DiveSite | null) => void = () => {};
+  mockGetSite.mockReturnValue(new Promise<DiveSite | null>((resolve) => { answer = resolve; }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSuggestion(t, 'Site', 'Blue Hole');
+  // Still in flight: nothing has moved, and the diver answers one row themselves.
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+
+  await act(async () => {
+    answer(siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'fresh' }));
+  });
+
+  // The site's `entry` landed; its `salinity` did not, because that row is the diver's now.
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+});
+
+/**
+ * **The site the diver ended on, not the one they passed through.**
+ *
+ * The first read is made to answer LAST, which is the only ordering that can fail: a fill that
+ * simply applied whatever came back would leave the dive showing the defaults of a site it is
+ * no longer paired to, with the correct `site_id` sitting underneath — §6's pair disagreeing
+ * with itself, and nothing on screen to say so.
+ */
+it('applies the site the diver ended on, not the one they passed through', async () => {
+  stubDives({
+    dives: [
+      ...carriedFromAQuarry(),
+      dive({ date: '2026-08-05', siteName: 'Kotelna', siteId: 'site-kotelna' }),
+    ],
+  });
+  let answerBlue: (site: DiveSite | null) => void = () => {};
+  mockGetSite.mockImplementation((_db: unknown, id: string) =>
+    id === 'site-blue'
+      ? new Promise<DiveSite | null>((resolve) => { answerBlue = resolve; })
+      : Promise.resolve(siteSaying('Kotelna', 'site-kotelna', { salinity: 'fresh', waterBody: 'quarry' })),
+  );
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSuggestion(t, 'Site', 'Blue Hole');
+  await typeInto(t, 'Site', 'kot');
+  await pickSite(t, 'Kotelna');
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
+
+  await act(async () => {
+    answerBlue(siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt', waterBody: 'ocean' }));
+  });
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
+});
+
+/**
+ * **A reseed re-derives what the SEED decides, and the site is not the seed.**
+ *
+ * `useDives()` and `useUnitSystem()` both resolve after this screen's first render, so a diver
+ * who picks a site and then has carry-over — or their own unit preference — land underneath it
+ * gets `paths` recomputed from the carry-over values. `SeedState.fromSite` is what survives
+ * that: without it the marks come straight back onto rows the catalogue is answering for, so
+ * the form would offer to clear a site's answer under a caption naming a dive it has never been
+ * near. The values are safe either way (`keepDirtyValues`), which is exactly what makes this
+ * failure invisible except to a test that looks at the mark.
+ */
+it('keeps a site-filled row unmarked when the form reseeds under it', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+
+  // The unit preference arriving late, which is the reseed this screen actually has (the
+  // `units` half of the gate — `sourceId` is the other, and either one re-derives the marks).
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('salt');
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+  // The rows the site never answered for kept theirs, so this is a distinction rather than a
+  // reseed that happens to drop every mark.
+  expect(findClearCarried(t, 'Entry')).toBeDefined();
+  expect(findClearCarried(t, 'Water body')).toBeDefined();
 });
