@@ -119,6 +119,14 @@ const POSTGRES_ONLY_TABLES: Record<string, string> = {
     'queue" — created by M2c, which also found that §6\'s table list never mentioned it. ' +
     'Written by `suggest_site_edit`, read by an admin in Studio, and never synced: a ' +
     'suggestion is made online about a row the device already has. See UNSYNCED_TABLES.',
+  site_duplicate_suspicions:
+    "§5's \"flags likely duplicates for a one-tap merge by the creator\", created by M2q — " +
+    'the place a SUSPICION lives, which §6 gave `dive_sites` no room for: `status` and ' +
+    '`merged_into` describe a merge that has happened, and a suspicion says only that ' +
+    'somebody should look. A pair per row rather than a column, because one site may be ' +
+    'suspected of several and because the row IS the three states (absent · open · ' +
+    'resolved). Server-only: a merge writes community columns no client may push, so a ' +
+    'device copy could only display it. See UNSYNCED_TABLES.',
 };
 
 /**

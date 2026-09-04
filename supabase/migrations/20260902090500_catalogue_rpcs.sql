@@ -479,11 +479,21 @@ $$;
 -- `create or replace function` cannot add an argument later (it refuses a changed signature),
 -- so a version without it would have to be dropped and recreated in a migration of its own.
 --
--- Note what (b) means and does not mean. `push_changes` does not call this — §5's "the server
--- reruns the fuzzy check" is satisfied by a server function the CLIENT calls after a
--- successful push, not by push doing it. Doing it inside push would need somewhere to write
--- the flag, and there is no such column; adding one would put §7's push in the business of
--- writing an admin-owned field, which is the one thing file 4 deliberately refuses.
+-- **(b) is `push_changes`, and this paragraph used to say it was not** (M2q). It read: "push
+-- does not call this — the client calls it after a successful push. Doing it inside push would
+-- need somewhere to write the flag, and there is no such column; adding one would put §7's push
+-- in the business of writing an admin-owned field." The first half of that was true and is now
+-- false: file 7 is the somewhere. The second half was never quite the objection it looked like
+-- — a suspicion is not `status`/`merged_into`, it is a row in a table of its own, and writing
+-- one moves no `dive_sites` column and no `dive_sites.updated_at`.
+--
+-- What decided it is which side can tell that a site has ARRIVED. §5's sentence is about a site
+-- created offline *being pushed*, and only the server knows whether a pushed row is new to the
+-- catalogue: a client cannot tell its first push from a retry whose response was lost, nor from
+-- a second device pushing the same row. A client-driven recheck also fails invisibly — no flag
+-- is ever written and nothing errors — which is the failure mode this repository has spent the
+-- milestone learning to refuse. So push calls this, with `p_exclude_id`, inside an `exception`
+-- block that cannot let a suspicion cost a diver their sync. See file 4.
 --
 -- PROXIMITY IS A SEPARATOR, NOT A RANKING. Two sites called "Blue Hole" three thousand
 -- kilometres apart are not duplicates, they are two blue holes. So when BOTH the proposed site

@@ -5,6 +5,7 @@ import {
   readMigrationFile,
   readMigrations,
   splitTopLevel,
+  statementsOf,
   withoutLiterals,
   type ParsedFunction,
 } from '../testing/migrationSql';
@@ -186,14 +187,6 @@ const PROVIDED_BY: Record<string, string> = {
   st_distance: 'postgis',
   geography: 'postgis',
 };
-
-/** Statements of a plpgsql body, split outside literals. */
-function statementsOf(body: string): string[] {
-  return withoutLiterals(body)
-    .split(';')
-    .map((statement) => statement.replace(/\s+/g, ' ').trim())
-    .filter((statement) => statement !== '');
-}
 
 // ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -512,8 +505,18 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // dropping and recreating the function in a migration of its own.
     expect(similar.args).toContain('p_exclude_id uuid default null');
     expect(similar.body).toContain('p_exclude_id is null or s.id <> p_exclude_id');
-    // And `push_changes` is not the caller: §7's push stays a protocol and writes no flag.
-    expect(readMigrationFile(SYNC_FILE)).not.toContain('similar_sites');
+
+    // **And `push_changes` IS the second caller** (M2q). This assertion read
+    // `expect(readMigrationFile(SYNC_FILE)).not.toContain('similar_sites')` until file 7 gave
+    // a suspicion somewhere to live: with nowhere to write the answer, M2c's reading was that
+    // the client would call this after a successful push. §5's sentence is "when a site
+    // created offline is **pushed**, the server reruns the fuzzy check", and only the server
+    // can tell an arrival from a retry — so the call is in push, and the argument this test
+    // exists for is what makes that safe. Asserted from this end as well as from file 4's,
+    // because the two halves are in different files and only one of them is about to change.
+    const pushFile = readMigrationFile(SYNC_FILE);
+    expect(pushFile).toContain('public.similar_sites(');
+    expect(pushFile).toContain('p_exclude_id => arrived.id');
   });
 
   it('caps what one call can ask for, in both directions (§5)', () => {

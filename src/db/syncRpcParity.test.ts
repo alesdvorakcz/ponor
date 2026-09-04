@@ -10,6 +10,8 @@ import {
   readMigrationFile,
   readMigrations,
   splitTopLevel,
+  statementsOf,
+  SYNC_SIDE_EFFECT_TABLES,
   UNSYNCED_TABLES,
   type ParsedFunction,
   type ParsedRead,
@@ -114,6 +116,33 @@ function upsertFor(table: string): ParsedUpsert {
   const found = upserts.find((candidate) => candidate.table === table);
   if (!found) throw new Error(`push_changes has no upsert on ${table}`);
   return found;
+}
+
+/**
+ * The one `begin … exception … end` block in `push_changes` (M2q), read as two regions: what it
+ * guards, and what it does when that fails.
+ *
+ * Located by finding the handler and walking BACK to the nearest `begin`, rather than by
+ * looking where this file expects the block to be. That is what makes "the block covers the
+ * recheck and nothing else" falsifiable: widen it to the function's own `begin` and this
+ * returns the whole body, upserts included, which is precisely the mutation the assertion is
+ * about. Both throw rather than returning `''`, because an empty region would make every
+ * `not.toContain` below pass for the wrong reason.
+ */
+function guardedBlock(): string {
+  const handler = push.body.search(/\bexception\s+when\b/);
+  if (handler === -1) throw new Error('push_changes has no exception block to read');
+  const opened = push.body.lastIndexOf('begin', handler);
+  if (opened === -1) throw new Error('an exception handler with no begin before it');
+  return push.body.slice(opened, handler);
+}
+
+function exceptionHandler(): string {
+  const handler = push.body.search(/\bexception\s+when\b/);
+  if (handler === -1) throw new Error('push_changes has no exception block to read');
+  const closed = push.body.indexOf('end;', handler);
+  if (closed === -1) throw new Error('an exception handler with no end after it');
+  return push.body.slice(handler, closed);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────
@@ -326,7 +355,21 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
     expect(SCHEMA_TABLES.length).toBe(allTables.length - Object.keys(UNSYNCED_TABLES).length);
     expect(SCHEMA_TABLES.length).toBeGreaterThan(5);
 
-    for (const table of Object.keys(UNSYNCED_TABLES)) {
+    // **The second half is narrowed by one list and not by a tolerance** (M2q). §5 puts the
+    // duplicate recheck at the moment a site is pushed, so `push_changes` writes a table that
+    // takes no part in the protocol — "unsynced" and "unmentioned" were one idea and are two
+    // now. A table may be named here only if it is on BOTH lists, and what it may then do is
+    // asserted in full further down: written, never read back, never in the response.
+    expect(Object.keys(SYNC_SIDE_EFFECT_TABLES).filter((name) => !(name in UNSYNCED_TABLES))).toEqual([]);
+    expect(
+      Object.values(SYNC_SIDE_EFFECT_TABLES).filter((reason) => reason.trim().length < 20),
+    ).toEqual([]);
+
+    const unmentioned = Object.keys(UNSYNCED_TABLES).filter(
+      (table) => !(table in SYNC_SIDE_EFFECT_TABLES),
+    );
+    expect(unmentioned.length).toBeGreaterThan(0);
+    for (const table of unmentioned) {
       expect(rpc.statements.join(' ')).not.toContain(table);
     }
   });
@@ -390,7 +433,19 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
       match[1] === undefined ? [] : [match[1]],
     );
     expect([...new Set(payloadReads)].sort()).toEqual(SCHEMA_TABLES);
-    expect(payloadReads.length).toBe(SCHEMA_TABLES.length * 2);
+
+    // Twice each: the unknown-key check, and the CTE that reads the rows. **`dive_sites` is
+    // read a third time and that is M2q's arrival query** — the one that asks which of these
+    // sites the catalogue does not already hold, before the upsert makes the answer "none".
+    // Counted per table rather than as one total, so that a third read of some OTHER table
+    // cannot hide inside a sum that happens to still add up.
+    const readCounts = new Map<string, number>();
+    for (const table of payloadReads) readCounts.set(table, (readCounts.get(table) ?? 0) + 1);
+    expect(
+      [...readCounts.entries()]
+        .filter(([, count]) => count !== 2)
+        .map(([table, count]) => `${table}: ${count}`),
+    ).toEqual(['dive_sites: 3']);
 
     // The allow-list push refuses an unknown table against, and the per-table key checks.
     const allowList = /keys\.key not in \(([^)]*)\)/.exec(push.body)?.[1];
@@ -669,15 +724,259 @@ describe('the guarantees that fail without an error (DESIGN.md §6, §7)', () =>
     expect(syncSite.attributes).not.toMatch(/\bstrict\b/);
   });
 
-  it('pushes in one transaction, with nothing that could swallow a failure (§7)', () => {
+  it('pushes in one transaction, with nothing that could swallow a row (§7)', () => {
     // §7 has no repair for a partial push — the client clears its dirty flags on the strength
     // of the response. A function body runs inside its caller's transaction, so this is free
-    // PROVIDED nothing opens a subtransaction: `begin ... exception when others then ...`
-    // rolls back its own block, carries on, and returns a success the client would believe.
-    expect(push.body).not.toMatch(/\bexception\s+when\b/);
+    // PROVIDED no subtransaction can swallow the failure of a row the client is about to be
+    // told was stored: `begin ... exception when others then ...` rolls back its own block,
+    // carries on, and returns a success the client would believe.
+    //
+    // **This used to ban the `exception` keyword outright and now bans it around a row** (M2q).
+    // §5's duplicate recheck is the one thing in here whose failure must NOT reach the caller
+    // — it writes a flag the response never mentions, and letting it escape would cost a diver
+    // their whole sync for a suspicion. So the block exists, once, and the assertions are that
+    // it covers that statement and nothing else. A ban that could not be met would have been
+    // met by deleting the guarantee instead, which is the worse of the two failures.
     expect(push.body).not.toMatch(/\b(commit|rollback|savepoint)\b/);
+    expect([...push.body.matchAll(/\bexception\s+when\b/g)].length).toBe(1);
+
+    const guarded = guardedBlock();
+    expect(guarded).toContain('site_duplicate_suspicions');
+    // One write inside the block, and it is not to any table §7 carries. Reading `dive_sites`
+    // in there is the recheck's own business; writing one would be a row the response has
+    // already promised. (`toEqual` on the write list rather than a `toContain`, so a second
+    // insert smuggled in beside the first fails here.)
+    expect(
+      [...guarded.matchAll(/\b(?:insert into|update) (public\.[a-z_]+)/g)].map((match) => match[1]),
+    ).toEqual(['public.site_duplicate_suspicions']);
+    expect(guarded).not.toMatch(/\bdelete\b/);
+
     // `raise exception` is the opposite of that and must still be there.
     expect([...push.body.matchAll(/raise exception/g)].length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("§5's second look at a site created offline (M2q)", () => {
+  /**
+   * §5: "When a site created offline is pushed, the server reruns the fuzzy check and flags
+   * likely duplicates for a one-tap merge by the creator — admin merge is the backstop."
+   *
+   * Every assertion here fails in silence on the one server nobody in this repository can
+   * reach. A recheck keyed on the wrong moment writes nothing and raises nothing; a conflict
+   * clause that updates instead of doing nothing un-dismisses a suspicion the diver has
+   * already answered, and does it on rows nobody is watching; a second copy of the similarity
+   * rule gives a different answer from `search_sites` in the one direction — a duplicate not
+   * flagged — that produces no error and no wrong row.
+   */
+  const SUSPICIONS = 'site_duplicate_suspicions';
+  const statements = statementsOf(push.body);
+  const naming = statements.filter((statement) => statement.includes(SUSPICIONS));
+
+  /**
+   * File 7's `create table`, read through the same parser everything else here is read
+   * through rather than as raw file text — so an assertion about what the table says cannot be
+   * satisfied by a sentence in a comment about what it says.
+   */
+  const createTable = (): string => {
+    const found = schema.statements.find((statement) =>
+      statement.startsWith(`create table if not exists public.${SUSPICIONS} (`),
+    );
+    if (found === undefined) throw new Error(`No create table for ${SUSPICIONS}`);
+    return found;
+  };
+
+  it('records a suspicion in the one place there is to record one (§5)', () => {
+    // The whole of what M2p found missing: the check existed and had nowhere to put its
+    // answer. `site_duplicate_suspicions` is that place, and the columns are read from the
+    // schema rather than restated — a name that is not a column of it inserts nothing and
+    // raises on the server, which is the worst place to find out.
+    expect(naming.length).toBe(1);
+    const columns = /insert into public\.site_duplicate_suspicions \(([^)]*)\)/.exec(push.body)?.[1];
+    expect(columns).toBeDefined();
+    const inserted = splitTopLevel(columns ?? '');
+    expect(inserted.length).toBeGreaterThan(3);
+    expect(inserted.filter((column) => !schemaColumns(SUSPICIONS).includes(column))).toEqual([]);
+
+    // And the ONE column it leaves alone is `status`, whose default is the whole vocabulary's
+    // single owner. A push that wrote `'open'` here would be the word in two places, and the
+    // second place would be the one that later wrote `'suspected'`.
+    expect(schemaColumns(SUSPICIONS).filter((column) => !inserted.includes(column))).toEqual([
+      'status',
+    ]);
+    expect(naming[0]).not.toContain('status');
+  });
+
+  it('runs when a site ARRIVES, and asks before the upsert makes that unanswerable', () => {
+    // The trigger §5 names is a site created offline being *pushed*, not a dive edited near
+    // one and not an edit to the site itself. The only moment "is this new to the catalogue"
+    // can be answered is before the insert answers "no" for everything — so the order of these
+    // two statements is the feature, and getting it wrong is a recheck that runs on nothing,
+    // for ever, with a green suite and no error anywhere.
+    const arriving = statements.findIndex((statement) => /into v_arriving\b/.test(statement));
+    const inserted = statements.findIndex((statement) =>
+      /insert into public\.dive_sites\b/.test(statement),
+    );
+    const recheck = statements.findIndex((statement) => statement.includes(SUSPICIONS));
+    expect(arriving).toBeGreaterThan(-1);
+    expect(inserted).toBeGreaterThan(-1);
+    expect(arriving).toBeLessThan(inserted);
+    expect(recheck).toBeGreaterThan(inserted);
+
+    // What "arriving" means, in the SQL: a pushed id this server does not already hold. Not
+    // "dirty", which is the device's own bookkeeping and would re-flag a retried push; not
+    // every pushed row, which would re-flag a site every time its creator corrected its pin.
+    expect(statements[arriving]).toContain('not exists');
+    expect(statements[arriving]).toContain('from public.dive_sites as held');
+    // The subquery's alias, which is not decoration: Postgres refuses a FROM subquery without
+    // one. It is asserted here because it is the one thing in this statement the scratchpad
+    // grammar check CANNOT see — libpg_query parses `from ( … ) where` happily and the refusal
+    // comes at parse analysis, on the server (mutation-found, M2q).
+    expect(statements[arriving]).toContain(') as pushed');
+    expect(push.body).toContain("v_changes->'dive_sites'");
+    expect(naming[0]).toContain('= any (v_arriving)');
+
+    // A tombstoned arrival is not flagged — it is a site created and deleted before it ever
+    // synced — and a name that folds to nothing is not asked about at all, because
+    // `similar_sites` RAISES on one and would take every other arriving site's flags with it.
+    expect(push.body).toContain('s.deleted_at is null');
+    expect(push.body).toContain("nullif(public.name_fold(s.name), '') is not null");
+  });
+
+  it('asks similar_sites what a duplicate is, and answers nothing itself (§4.1)', () => {
+    // §5 asks for this check twice in a site's life and file 6 makes it one function, so that
+    // autocomplete cannot offer a site the dedupe check would refuse to warn about. A
+    // `similarity(…) >= 0.3` written here would be that rule's second implementation, free to
+    // drift in the direction nobody can observe — and `p_exclude_id` is why that function has
+    // taken the argument since its first version: by the time this runs the site is in the
+    // catalogue and is its own best match.
+    expect(naming[0]).toContain('public.similar_sites(');
+    expect(push.body).toContain('p_exclude_id => arrived.id');
+    expect(push.body).toContain('p_name => arrived.name');
+    // Filtered rather than asserted one `not.toContain` at a time, so the failure names which
+    // rule was re-implemented — and so the haystack is the body rather than a message with the
+    // needle already in it, which is a `not.toContain` that can never fail (found by this test
+    // failing on its own first draft).
+    expect(
+      ['similarity(', 'name_match_floor', 'gin_trgm', 'unaccent', 'operator('].filter((rule) =>
+        push.body.includes(rule),
+      ),
+    ).toEqual([]);
+    // The fold it does call is the owner (file 6), used as the "would this raise" test and not
+    // as a matcher, so there is still exactly one definition of how a name is read.
+    expect([...push.body.matchAll(/public\.name_fold\(/g)].length).toBe(1);
+
+    // Neither the radius nor the cap is restated here. Both are numbers file 6 owns and clamps
+    // (M2p made the same call from the client end); a copy in this file is a second place for
+    // them to drift from, and the argument list is the only place either would appear.
+    expect(push.body).not.toContain('p_radius_m');
+    expect(push.body).not.toContain('p_limit');
+
+    // The pin travels with the question, so §5's "two Blue Holes 3 000 km apart are two blue
+    // holes" separator has something to work with — and longitude/latitude go to the arguments
+    // that carry those names, which is the one place this file's classic silent bug could hide
+    // a second time.
+    expect(push.body).toMatch(/p_latitude => extensions\.st_y\(/);
+    expect(push.body).toMatch(/p_longitude => extensions\.st_x\(/);
+  });
+
+  it('never turns a dismissal back into a suspicion (§5, §10)', () => {
+    // **The M1i defect, one feature along.** Three states — never suspected, suspected, looked
+    // at and dismissed — and the third only survives if a rerun leaves an existing row alone.
+    // `do update set status = 'open'` here is a memory that cannot hold a "no", which is
+    // exactly what M1h's set-of-open-groups was and what §10 records the cost of.
+    expect(naming[0]).toContain('on conflict (site_id, candidate_id) do nothing');
+    expect(naming[0]).not.toContain('do update');
+
+    // The pair is the conflict target because the pair is the primary key — read from the
+    // schema, so a table re-keyed on a surrogate id (which would let the same pair exist
+    // twice, dismissed and open at once, and would make `do nothing` infer nothing) fails
+    // here rather than at 3 a.m. on the server.
+    expect(createTable()).toContain('primary key (site_id, candidate_id)');
+  });
+
+  it('cannot cost a diver their sync, and says so where the owner can see it (§1, §7)', () => {
+    // §7's push is how a device empties its dirty flags and §1 puts that above everything in
+    // this file. A suspicion is the least important thing here: the site is stored either way,
+    // §2.3's "a near-match is a suggestion and never a refusal" is the same rule one layer up,
+    // and §5 names the backstop for a flag that never got written ("admin merge").
+    const handler = exceptionHandler();
+    expect(handler).toContain('raise warning');
+    expect(handler).not.toContain('raise exception');
+    expect(handler).not.toContain('return');
+    // A WARNING reaches the project's log and never the client — the right audience for "the
+    // flag you cannot see was not written". Silence here would be the same defect the M2p
+    // report's blanket `try` was: a check that cannot be observed to have stopped working.
+  });
+
+  it('takes no part in §7\'s protocol, though §7\'s own RPC writes it', () => {
+    // The narrowed half of the unsynced-table guard, stated in full. This table is written by
+    // `push_changes` and is not part of the conversation: it is not in the allow-list of
+    // tables a payload may name, it is never read back, it is not a key of the response, and
+    // `pull_changes` does not know it exists. A device that received these rows could do
+    // nothing with them — a merge writes community columns no client may push.
+    expect(Object.keys(SYNC_SIDE_EFFECT_TABLES)).toEqual([SUSPICIONS]);
+    expect(SCHEMA_TABLES).not.toContain(SUSPICIONS);
+    expect(pull.body).not.toContain(SUSPICIONS);
+    expect(push.body).not.toContain(`v_changes->'${SUSPICIONS}'`);
+    expect(push.body).not.toContain(`jsonb_build_object('${SUSPICIONS}'`);
+    expect(push.body).not.toContain(`sync_reject_unknown_keys('${SUSPICIONS}'`);
+    expect(naming[0]).not.toContain(`from public.${SUSPICIONS}`);
+    expect(parseReads(push.body).map((read) => read.source)).not.toContain(SUSPICIONS);
+
+    // And it leaves `dive_sites` alone. A server-side write that advanced `updated_at` on the
+    // row the client has just pushed is a change that client pulls straight back on the next
+    // cycle (§7.2), on every site anybody ever creates — so the recheck reads that table and
+    // writes only its own.
+    expect(naming[0]).toMatch(/from public\.dive_sites as s\b/);
+    expect(naming[0]).not.toMatch(/\bupdate public\.dive_sites\b/);
+    expect([...push.body.matchAll(/\bupdate public\./g)]).toEqual([]);
+  });
+
+  it('is written into a table the schema really has, with the shape §5 needs (§6)', () => {
+    // Everything above is about `push_changes`, and none of it would notice the table being
+    // dropped, re-keyed, or given a `deleted_at` that put it back into §7's protocol.
+    const table = createTable();
+    expect(schemaColumns(SUSPICIONS).sort()).toEqual([
+      'candidate_id',
+      'created_at',
+      'site_id',
+      'status',
+      'updated_at',
+    ]);
+    // Both halves of the pair point at a real site, and neither may take one with it: §5's
+    // "rows are never hard-deleted", enforced here by an FK with no `on delete` action —
+    // `site_edits.site_id` makes the same choice one table over.
+    expect([...table.matchAll(/references public\.dive_sites \(id\)/g)].length).toBe(2);
+    expect(table).not.toContain('on delete');
+    // The three states live in `status`, which has a default and no CHECK (§10), so a build
+    // that does not know a value stores it rather than refusing it.
+    expect(table).toContain("status text not null default 'open'");
+
+    // RLS, and the same three moves file 3 makes on every table.
+    expect(schema.statements).toContain(`alter table public.${SUSPICIONS} enable row level security`);
+    expect(schema.statements).toContain(
+      `revoke all on table public.${SUSPICIONS} from anon, authenticated`,
+    );
+    expect(schema.statements.filter((statement) => /^grant\b/i.test(statement) && statement.includes(SUSPICIONS))).toEqual([
+      `grant select, insert on table public.${SUSPICIONS} to authenticated`,
+    ]);
+
+    // Read by the creator of the site that arrived, and by nobody else: §5 gives the one-tap
+    // merge to "the creator", and the creator of the CANDIDATE is not told that somebody
+    // else's row may be a copy of theirs — `site_edits` keeps a suggestion away from a site's
+    // creator on the same reasoning (§9 defers moderation surfaces as a class). A policy
+    // loosened to `using (true)` would show every diver every suspicion and fail nothing else.
+    const policies = schema.statements.filter(
+      (statement) => /^create policy\b/i.test(statement) && statement.includes(SUSPICIONS),
+    );
+    expect(policies.length).toBe(2);
+    expect(policies.filter((statement) => /\busing \(true\)/.test(statement))).toEqual([]);
+    expect(
+      policies.filter((statement) => !statement.includes('s.created_by = (select auth.uid())')),
+    ).toEqual([]);
+    // No UPDATE and no DELETE for a client: resolving a suspicion means writing community
+    // columns file 4 refuses on push, so both halves belong to the merge task's own RPC.
+    expect(policies.filter((statement) => /\bfor (update|delete)\b/i.test(statement))).toEqual([]);
   });
 });
 

@@ -49,6 +49,38 @@ export const UNSYNCED_TABLES: Record<string, string> = {
     'pulled, and has no SQLite counterpart. That is also why it carries no `deleted_at`: §6 ' +
     'gives the tombstone column to synced tables, and here `status` already says whether a ' +
     'suggestion is open, applied or rejected.',
+  site_duplicate_suspicions:
+    "§5's duplicate flag (M2q): \"the server reruns the fuzzy check and flags likely " +
+    'duplicates for a one-tap merge by the creator". Written by `push_changes` as a side ' +
+    'effect of a site arriving, read by that site\'s creator and by an admin in Studio, and ' +
+    'never travelling: resolving one means writing `status`/`merged_into` on a community ' +
+    'row, which no client may push, so a device holding a copy could only display it. No ' +
+    '`deleted_at`, for `site_edits`\' reason — the tombstone column is §7\'s, and `status` ' +
+    'already carries open · dismissed · merged.',
+};
+
+/**
+ * The subset of `UNSYNCED_TABLES` that §7's own RPCs nevertheless **write**, with the reason.
+ *
+ * It exists because "unsynced" and "unmentioned" were one idea until M2q and are two now. The
+ * check `syncRpcParity` runs over the first list is that the sync file does not so much as name
+ * such a table — which is the right rule for `site_edits`, where a read added to `pull_changes`
+ * would sync a queue nobody may read. `site_duplicate_suspicions` is named there on purpose:
+ * §5 puts the recheck at the moment a site is pushed, and only the server can tell an arrival
+ * from a retry. So the guard is narrowed rather than dropped — a table here may be written, and
+ * must still take no part in the protocol: not in push's table allow-list, not a payload key,
+ * not read back into a response, not handed to `sync_reject_unknown_keys`.
+ *
+ * Keep it that way. A table that appears on this list *and* in the protocol is a table the
+ * client would be told about, and the reason each of these is unsynced is that it must not be.
+ */
+export const SYNC_SIDE_EFFECT_TABLES: Record<string, string> = {
+  site_duplicate_suspicions:
+    '§5: "when a site created offline is pushed, the server reruns the fuzzy check and flags ' +
+    'likely duplicates" (M2q). `push_changes` inserts into it for the sites this server has ' +
+    'not seen before, inside the one `exception` block in that file, and never reads it back ' +
+    'or mentions it in the response — so the flag is written where §5 asks for it and the ' +
+    'protocol §7 describes is unchanged.',
 };
 
 /**
@@ -671,6 +703,22 @@ export function payloadKeys(text: string): string[] {
  */
 export function withoutLiterals(text: string): string {
   return text.replace(/'(?:[^']|'')*'/g, "''");
+}
+
+/**
+ * The statements of a plpgsql body, split on `;` outside literals and whitespace-collapsed.
+ *
+ * Shared by both RPC parity checks (M2q moved it here from `catalogueRpcParity.test.ts`, when
+ * `syncRpcParity` came to need the same split to say **where** in `push_changes` something
+ * happens — which statement writes, and which of two runs first). Two copies would be two
+ * answers to "what are the statements of this body", and a copy that quietly returned fewer
+ * would leave an ordering assertion passing over statements it never saw.
+ */
+export function statementsOf(body: string): string[] {
+  return withoutLiterals(body)
+    .split(';')
+    .map((statement) => statement.replace(/\s+/g, ' ').trim())
+    .filter((statement) => statement !== '');
 }
 
 export interface ParsedRead {

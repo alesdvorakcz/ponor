@@ -46,10 +46,20 @@
 -- ONE TRANSACTION, BY CONSTRUCTION. §7 says the push is one transactional call and has no
 -- repair for a partial one — the client would clear flags for rows the server never took.
 -- A Postgres function body runs inside its caller's transaction, and PostgREST wraps one
--- request in one transaction, so this is free PROVIDED nothing in here opens a
--- subtransaction that can swallow a failure. That is why `push_changes` contains no
--- `exception` block: an `exception when others then` would roll back its own block, carry
--- on, and return a success the client would believe.
+-- request in one transaction, so this is free PROVIDED no subtransaction can swallow the
+-- failure of a row the client is about to be told was stored. An `exception when others
+-- then` around an upsert would roll back its own block, carry on, and return a success the
+-- client would believe — so no upsert in this file is inside one.
+--
+-- **There is exactly one `exception` block and it is around §5's duplicate recheck** (M2q),
+-- which is the mirror of that rule rather than a hole in it: the recheck writes into
+-- `public.site_duplicate_suspicions`, a table the response never mentions and the client
+-- never sees, so swallowing its failure loses a flag and nothing else — while letting it
+-- escape would take the diver's whole logbook down for a *suspicion*. §5 names the backstop
+-- for a missing flag ("admin merge") and §1 and §7 both put a sync failure above a
+-- convenience. The block is confined to that one statement and its handler re-raises
+-- nothing; a `raise warning` puts it in the server log, where the owner can see it and the
+-- client cannot.
 --
 -- SECURITY INVOKER, DELIBERATELY. §7 says "RLS validates ownership", so these run as the
 -- caller and every policy in file 3 applies to every statement below. `security definer`
@@ -228,6 +238,31 @@ $$;
 -- db/gearPresets.ts already owns it; a second opinion here would be §4.1's defect.
 -- It also returns no watermark: a client that stored one from a push would skip everything
 -- ELSE that changed in the same window. Watermarks come from pull_changes alone (§7.3).
+--
+-- AND WHAT IT NOW DOES, WHICH IS §5's SECOND LOOK AT A SITE CREATED OFFLINE (M2q). "When a
+-- site created offline is pushed, the server reruns the fuzzy check and flags likely
+-- duplicates for a one-tap merge by the creator." Three things about it are rules rather than
+-- implementation, and each is asserted in src/db/syncRpcParity.test.ts:
+--
+--   · IT RUNS ON ARRIVAL, NOT ON EVERY PUSH. `v_arriving` is collected BEFORE the dive_sites
+--     upsert and holds the payload ids this server does not already have — the only moment
+--     "arrives" is answerable, and a fact only the server has: a client cannot tell a first
+--     push from a retry, or from a second device pushing the same site. Move that select
+--     below the upsert and it answers the empty set for ever, silently.
+--   · IT ASKS `public.similar_sites` AND DECIDES NOTHING ITSELF. What counts as a duplicate
+--     is one rule with one owner (file 6, `name_match_floor` and the fold underneath it);
+--     a `similarity(...) >= 0.3` written here would be the second implementation §4.1 is
+--     about, drifting in the one direction nobody can observe. `p_exclude_id` is why that
+--     function took the argument from its first version: the site is in the catalogue by the
+--     time this runs, and would come back as its own best duplicate.
+--   · IT CANNOT BLOCK THE PUSH. Not by care — by the `exception` block described above, plus
+--     `on conflict … do nothing`, which is what keeps a dismissed suspicion dismissed when
+--     a pair is ever proposed twice.
+--
+-- It writes into `public.site_duplicate_suspicions` (file 7) and touches no `dive_sites` row,
+-- which is deliberate: a server-side write that advanced `updated_at` on the row the client
+-- has just pushed is a change that client pulls straight back (§7.2), on every site anyone
+-- ever creates.
 create or replace function public.push_changes(changes jsonb)
   returns jsonb
   language plpgsql
@@ -242,6 +277,10 @@ declare
   v_out jsonb := '{}'::jsonb;
   v_rows jsonb;
   v_unknown text;
+  -- The sites this push is the ARRIVAL of, filled in below and read after the upsert. Not a
+  -- convenience: after the insert every pushed site exists, so this question has exactly one
+  -- moment in which it can be asked.
+  v_arriving uuid[] := '{}'::uuid[];
 begin
   if v_uid is null then
     raise exception 'push_changes: no authenticated user' using errcode = '28000';
@@ -391,6 +430,26 @@ begin
   -- the ST_X/ST_Y that take it apart again in pull_changes.
   perform public.sync_reject_unknown_keys('dive_sites', v_changes->'dive_sites', array['latitude', 'longitude']);
 
+  -- WHICH OF THESE SITES IS ARRIVING, ASKED BEFORE THE UPSERT MAKES THE ANSWER "NONE" (M2q).
+  -- §5's recheck is about a site created offline and *pushed*, so the trigger is the row
+  -- reaching this server for the first time — not an edit to it, and not a dive pushed beside
+  -- it. A payload id the catalogue does not hold yet is exactly that, and it is a fact only
+  -- the server can establish: a client cannot tell its first push from a retry whose response
+  -- was lost, nor from a second device of the same diver pushing the same row.
+  --
+  -- Reading `public.dive_sites` here is under file 3's SELECT policy, which lets a signed-in
+  -- reader see the whole catalogue — so a site somebody ELSE created is correctly not
+  -- arriving. Duplicate ids inside one payload collapse below, because the recheck reads the
+  -- table rather than the payload.
+  select coalesce(array_agg(distinct pushed.id), '{}'::uuid[])
+    into v_arriving
+    from (
+      select (value->>'id')::uuid as id
+        from jsonb_array_elements(coalesce(v_changes->'dive_sites', '[]'::jsonb))
+    ) as pushed
+   where pushed.id is not null
+     and not exists (select 1 from public.dive_sites as held where held.id = pushed.id);
+
   with incoming as (
     select value as payload from jsonb_array_elements(coalesce(v_changes->'dive_sites', '[]'::jsonb))
   ),
@@ -422,7 +481,74 @@ begin
   select coalesce(jsonb_agg(public.sync_site(to_jsonb(u), u.location)), '[]'::jsonb) into v_rows from upserted as u;
   v_out := v_out || jsonb_build_object('dive_sites', v_rows);
 
+  -- ── §5's second look at a site created offline (M2q) ───────────────────────────────────
+  -- "When a site created offline is pushed, the server reruns the fuzzy check and flags
+  -- likely duplicates for a one-tap merge by the creator — admin merge is the backstop."
+  --
+  -- IT NEVER REFUSES A ROW. The site is already inserted above and is not read again by
+  -- anything here; a suspicion is written *beside* it. §2.3 makes the same point one layer up
+  -- — "a near-match is a suggestion and never a refusal", because two real sites can carry
+  -- similar names and the diver is standing at one of them — and §7's push is how a device
+  -- empties its dirty flags, which §1 puts above every convenience in this file.
+  --
+  -- IT CAN ASK A QUESTION THE DIVER HAS ALREADY ANSWERED, and that is the accepted cost of
+  -- the server being the one to ask. §2.3's pre-save check may have offered the same near-match
+  -- and had "add it anyway" pressed; this rerun cannot know that, because the only evidence is
+  -- a gesture on a phone. The alternative is a flag the client suppresses — a client claim
+  -- about a server rule, and a rule that would then be enforced by whichever build the diver
+  -- happens to be running. So the suspicion is recorded, and the diver dismisses it once: the
+  -- third state exists exactly so that answering it a second time is final.
+  --
+  -- THE `exception` BLOCK IS THE MECHANISM FOR THAT, not a tidy-up. Everything inside it is
+  -- optional; nothing inside it is reported to the client. Widen it by one statement and it
+  -- starts swallowing a failure the client would be told was a success — the header block
+  -- says which side of that line each thing is on, and syncRpcParity asserts it.
+  --
+  -- The empty-name guard is not decoration either: `similar_sites` RAISES on a name that folds
+  -- to nothing, and one nameless site in a push would otherwise take the whole statement — and
+  -- therefore every other arriving site's flags — into the handler with it.
+  if array_length(v_arriving, 1) is not null then
+    begin
+      with arrived as materialized (
+        select s.id, s.name, s.location
+          from public.dive_sites as s
+         where s.id = any (v_arriving)
+           and s.deleted_at is null
+           and nullif(public.name_fold(s.name), '') is not null
+      )
+      insert into public.site_duplicate_suspicions (site_id, candidate_id, created_at, updated_at)
+      select arrived.id, (candidate.value->>'id')::uuid, v_now, v_now
+        from arrived
+        cross join lateral jsonb_array_elements(
+          public.similar_sites(
+            p_name => arrived.name,
+            p_latitude => extensions.st_y(arrived.location::extensions.geometry),
+            p_longitude => extensions.st_x(arrived.location::extensions.geometry),
+            p_exclude_id => arrived.id
+          )
+        ) as candidate(value)
+       where candidate.value->>'id' is not null
+      -- **The line that makes a dismissal permanent.** A pair already in that table has been
+      -- answered — by the diver, or by an admin in Studio — and `do nothing` is what keeps
+      -- "looked at and dismissed" from decaying back into "suspected" on the next rerun. It is
+      -- defence in depth today, since a site arrives once; it is the whole guarantee the day
+      -- anything else reruns this (a rename is the obvious one). `do update set status =
+      -- 'open'` here is the M1h/M1i defect rebuilt: a memory that cannot hold a "no".
+      on conflict (site_id, candidate_id) do nothing;
+    exception
+      when others then
+        -- Swallowed on purpose, and said out loud where the owner can read it: a Postgres
+        -- WARNING reaches the project's logs and never reaches the client, which is the right
+        -- audience for "the flag you cannot see was not written". `raise exception` here would
+        -- undo the whole point of the block.
+        raise warning 'push_changes: duplicate recheck skipped (%)', sqlerrm;
+    end;
+  end if;
+
   -- ── dive_centers ───────────────────────────────────────────────────────────────────────
+  -- No recheck twin, and that is §5 rather than an omission: there is no `similar_centers`,
+  -- because §5 asks for the fuzzy duplicate check about a *site*. File 6 records the same
+  -- decision at the other end.
   perform public.sync_reject_unknown_keys('dive_centers', v_changes->'dive_centers', array['latitude', 'longitude']);
 
   with incoming as (
