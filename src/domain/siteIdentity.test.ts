@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { siteIdentityOf } from './siteIdentity';
+import { catalogueSiteIdentity, siteIdentityOf } from './siteIdentity';
 
 /**
  * **Which dives are at one site** — the rule §3's map groups markers by and §3's Stats tab
@@ -86,5 +86,36 @@ describe('siteIdentityOf', () => {
     expect(siteIdentityOf(null)).toBeNull();
     expect(siteIdentityOf(undefined)).toBeNull();
     expect(siteIdentityOf({ siteId: 7, siteName: 12 } as unknown as ReturnType<typeof dive>)).toBeNull();
+  });
+});
+
+/**
+ * **The same identity asked of the catalogue ROW** (M3e) — the half the Map needs to know that a
+ * dot it is about to draw is already under one of the diver's own marks.
+ */
+describe('catalogueSiteIdentity', () => {
+  // The tie that matters: a paired dive and the row it points at must land on ONE key, or the
+  // map draws both of them at one coordinate. Written as an equality against `siteIdentityOf`
+  // rather than against the literal `site:s1`, because what has to hold is that the two agree —
+  // a test naming the prefix twice would stay green through a change that moved it.
+  it('agrees with the identity of a dive paired to that row', () => {
+    expect(catalogueSiteIdentity('s1')).toBe(siteIdentityOf(dive({ siteId: 's1' })));
+  });
+
+  // ...and it is the ID tier alone. A row's NAME never reaches this, so a catalogue `Kotelna`
+  // and a hand-typed `Kotelna` stay two keys — see this function's own docblock for why the
+  // cheaper-looking fold would take places off a map.
+  it('never answers a name’s identity', () => {
+    expect(catalogueSiteIdentity('s1')).not.toBe(siteIdentityOf(dive({ siteName: 'Kotelna' })));
+    expect(catalogueSiteIdentity('kotelna')).not.toBe(siteIdentityOf(dive({ siteName: 'Kotelna' })));
+  });
+
+  // A row a bad read handed back without an id names nothing, exactly as a dive with no place
+  // does — and `null` is what stops it matching every other nameless thing.
+  it('answers nothing for an id that names nothing', () => {
+    expect(catalogueSiteIdentity('')).toBeNull();
+    expect(catalogueSiteIdentity(null)).toBeNull();
+    expect(catalogueSiteIdentity(undefined)).toBeNull();
+    expect(catalogueSiteIdentity(7 as unknown as string)).toBeNull();
   });
 });

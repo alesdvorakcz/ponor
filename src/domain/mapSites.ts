@@ -1,5 +1,5 @@
 import { diveSiteLabel } from '../format/display';
-import { siteIdentityOf } from './siteIdentity';
+import { catalogueSiteIdentity, siteIdentityOf } from './siteIdentity';
 import { type Dive } from './types';
 
 /**
@@ -27,8 +27,14 @@ import { type Dive } from './types';
  *    §3 asks for has an empty-handed branch that is a real sentence rather than a blank map.
  *
  * §5 already settled which wins where both exist: *"a dive can carry its own optional GPS
- * point, and the personal map prefers it"*. So the personal layer never consults a site's
- * surveyed pin, and the community layer never consults a dive.
+ * point, and the personal map prefers it"*. So a place mark never consults a site's surveyed pin,
+ * and a catalogue mark never consults a dive.
+ *
+ * **Since M3e the two are drawn together**, because §3's layers became a filter rather than a
+ * mode — which makes "where both exist" a thing a diver can now see rather than a rule about
+ * which of two screens is showing. `sitesWithoutYourMark` below is the whole of what that
+ * changed here: it is the only function in this module that takes both populations at once, and
+ * it decides nothing about position, only about whether a row still needs a mark.
  */
 
 /** A point on the earth, in the two numbers §6 stores. Named rather than reusing
@@ -228,8 +234,8 @@ function placeKeyOf(dive: Dive): string {
  * A different question from the personal layer's, and deliberately a different function rather
  * than one that takes both: a catalogue row has a surveyed position and no dives of yours, a
  * personal place has your dives and one of their positions. §5 settles which wins where both
- * exist — the dive's own point — and the layers never mix on screen because the toggle shows one
- * at a time.
+ * exist — the dive's own point — and since M3e made §3's layers a filter, `sitesWithoutYourMark`
+ * below settles which of the two gets a mark when they are the same place.
  *
  * **Generic over the row rather than duplicated per table** (M3c), and that is §4.1 read
  * strictly rather than loosely: `dive_sites` and `dive_centers` are the *same* table under two
@@ -254,6 +260,56 @@ export function withPoints<T extends { latitude: number | null; longitude: numbe
     if (point !== null) placed.push({ row, point });
   }
   return placed;
+}
+
+/**
+ * **The catalogue sites that do not already have a mark of the diver's own standing on them**
+ * (M3e) — the rule that stops one place being drawn twice now that §3's layers are a filter and
+ * the diver's dives and the community catalogue are on the map together.
+ *
+ * ── Why this is needed at all, which is sharper than "they might overlap" ──────────────────
+ *
+ * A dive at a catalogue site and that site are not *near* each other in the case that matters:
+ * they are the **same coordinate**. §2.3's *Add "Kotelna" as a new site* passes the dive's own
+ * pin straight into the new row (`siteFactsFrom`, domain/diveFormSchema.ts) and pairs the dive to
+ * it by id, so every site this app has ever created sits exactly under the dive that created it.
+ * Two marks in one pixel is not an overlap a diver can read as two things; it is one mark hiding
+ * another, and which one wins is whichever the platform happens to draw last.
+ *
+ * ── The rule, and what it deliberately does not do ────────────────────────────────────────
+ *
+ * **A catalogue row whose identity is already a place on this map is not drawn again**, because
+ * the diver's own mark is standing on it and says strictly more: `2 dives here` against `a
+ * catalogue row is here`. Nothing is hidden — the place is on the map, wearing the better of the
+ * two marks, and `MapScreen`'s sheet for it carries the catalogue's own facts line so the row's
+ * information is not lost with its dot.
+ *
+ * **By identity, never by distance.** That is the same rule §3 already groups markers by — M2n
+ * rejected geometric clustering because "two dives 40 m apart at the same site are one place
+ * whatever the zoom, and geometric clustering would merge or split them as the diver pinched" —
+ * and a proximity threshold here would have the same fault plus a worse one: it would suppress a
+ * catalogue row for being *near* one of the diver's dives, which is a claim nothing in the data
+ * supports.
+ *
+ * **Sites only. A centre is never absorbed**, and that is this module's oldest rule rather than
+ * an omission: `groupDivesByPlace` never falls back to the centre because "a dive centre is a
+ * shop, not a place you dived". A shop that happens to sit near a dive of yours is a different
+ * thing at a different address, so it keeps its own mark — and its mark now carries a glyph
+ * (`components/DiveMap.tsx`) precisely so a diver can tell the two apart where they land close
+ * together.
+ *
+ * Generic over the row for `withPoints`' reason and no more: it takes what that function returns
+ * and hands back the same shape, so the two compose without the caller unpacking either.
+ */
+export function sitesWithoutYourMark<T extends { id: string }>(
+  placed: readonly { row: T; point: MapPoint }[],
+  places: readonly MapSite[],
+): { row: T; point: MapPoint }[] {
+  const drawn = new Set(places.map((place) => place.key));
+  return placed.filter(({ row }) => {
+    const identity = catalogueSiteIdentity(row.id);
+    return identity === null || !drawn.has(identity);
+  });
 }
 
 /**

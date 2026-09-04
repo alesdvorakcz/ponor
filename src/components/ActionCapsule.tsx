@@ -21,6 +21,29 @@ export interface CapsuleAction {
    * is required, not optional.
    */
   label: string;
+  /**
+   * **Whether this glyph is a switch, and whether it is on** (M3e).
+   *
+   * Absent — the ordinary case, and every glyph in the Dives and search capsules — means *this
+   * is a plain trigger*: it acts and reports nothing, and the tree it renders is identical to
+   * the one it rendered before this key existed (measured, not assumed — see the
+   * `accessibilityState` below for what that cost in a branch that could not fail). Present means the glyph is one of a set the
+   * diver is choosing among, and it is drawn in §0.6's one treatment for a chosen thing
+   * (`capsuleGlyphInkSelected`, theme/styles.ts) and announced with `accessibilityState`.
+   *
+   * **Optional rather than required, and that is the widening being kept as narrow as it can
+   * be.** `MapScreen`'s note used to record this component's contract as "plain triggers with
+   * fixed labels — neither reports a state", which was true while §3's layers were a mode: a
+   * control that takes you somewhere needs no state, because the summary line says where you
+   * are. A filter has no such elsewhere — three switches are on or off at once and no sentence
+   * can carry three states — so the control has to hold them. The alternative was a second
+   * capsule idiom for one screen, which is what §0.6 exists to stop.
+   *
+   * `boolean | undefined` rather than a `variant` on the capsule, because the two kinds mix in
+   * one row on principle: the Map's capsule is three switches today and gains an ordinary
+   * trigger the day it grows one.
+   */
+  selected?: boolean;
   onPress: () => void;
 }
 
@@ -65,7 +88,13 @@ const GLYPH_SIZE = 19;
  * rather than each on its own, exactly as that component's own suite does.
  *
  * **Monochrome, all of it.** §0.1 spends every hue on depth and §10 forbids an accent on the
- * `+` by name; both glyphs are `fg`, and the capsule's own ground is `surface`.
+ * `+` by name; an unswitched glyph is `fg`, a switched-on one is `actionFg` on `action`, and the
+ * capsule's own ground is `surface`. There is no third ink anywhere in here.
+ *
+ * **A glyph may be a switch as well as a trigger** (M3e, `CapsuleAction.selected`) — the Map
+ * tab's three layer filters are switches and everything else in the app is a trigger. The
+ * component does not know which screen it is on: it draws whichever each action says it is, so
+ * the two mix in one row.
  */
 export function ActionCapsule({ scheme, actions }: ActionCapsuleProps) {
   const styles = makeStyles(scheme);
@@ -81,11 +110,28 @@ export function ActionCapsule({ scheme, actions }: ActionCapsuleProps) {
         onPress={action.onPress}
         accessibilityRole="button"
         accessibilityLabel={action.label}
+        // **A trigger reports no selectedness, and it needs no branch to do it.** A
+        // `action.selected === undefined ? undefined : {…}` conditional was written here first
+        // and measured: `Pressable` builds `{busy, checked, disabled, expanded, selected}` from
+        // whatever it is handed, so the two spellings reach the host node byte for byte the same
+        // and nothing could ever have caught the difference. §10 declines a guard nothing could
+        // catch failing, so this is one line rather than two — and an absent `selected` is what
+        // makes a trigger a trigger to a screen reader, not a switch that is off.
+        accessibilityState={{ selected: action.selected }}
       >
-        {/* Through `symbolName`, which supplies the `web` key the browser's SymbolView reads
-            — see that module for why `web` is derived from `android` and why nothing about
-            the iOS render changes. */}
-        <SymbolView name={symbolName(action.symbol)} size={GLYPH_SIZE} tintColor={theme.fg} />
+        {/* The pill that carries §0.6's chosen-thing ink. Always rendered, so a switch and a
+            trigger have the same tree and the same 48 dp box, and only the fill differs. */}
+        <View style={[styles.capsuleGlyphInk, action.selected === true && styles.capsuleGlyphInkSelected]}>
+          {/* Through `symbolName`, which supplies the `web` key the browser's SymbolView reads
+              — see that module for why `web` is derived from `android` and why nothing about
+              the iOS render changes. Inverted ink inside an inverted pill, exactly as a
+              selected option chip's label is (`selectedInk`, theme/styles.ts). */}
+          <SymbolView
+            name={symbolName(action.symbol)}
+            size={GLYPH_SIZE}
+            tintColor={action.selected === true ? theme.actionFg : theme.fg}
+          />
+        </View>
       </Pressable>
     </Fragment>
   ));

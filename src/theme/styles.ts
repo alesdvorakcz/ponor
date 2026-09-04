@@ -522,8 +522,8 @@ function build(scheme: ColorScheme) {
     CONTENT_INSET + actionCapsuleWidth(DIVES_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
 
   // **The same clearance for the Map tab's header, and it is a different number because that
-  // capsule holds a different number of glyphs** — one, the layer toggle §3 asks for ("toggle
-  // to explore all community sites"), against the Dives screen's magnifier and `+`.
+  // capsule holds a different number of glyphs** — §3's layer control, against the Dives
+  // screen's magnifier and `+`.
   //
   // Two constants rather than one, and derived rather than typed, for exactly the reason
   // `actionCapsuleWidth` exists: the inset is a consequence of what is in the capsule, so the
@@ -532,15 +532,17 @@ function build(scheme: ColorScheme) {
   // would silently under-reserve the day either capsule changes. `MapScreen.test.tsx` counts the
   // glyphs this screen actually renders against the count assumed here, exactly as
   // `DivesScreen.test.tsx` does for its own — the half a scheme-only sheet cannot see.
-  // **Two since M3c**, when §3's toggle gained a third layer — dive centres — and the capsule
-  // went from one glyph to two: the two layers the diver is NOT on, so a press lands anywhere in
-  // one tap rather than cycling. The reserve moved with it because it is derived, which is the
-  // whole point of `actionCapsuleWidth`; the number below is the only edit that change needed.
+  // **Three since M3e**, and the count is now a fact rather than a choice: §3's layers became a
+  // filter, so the capsule holds one switch per kind — all three at once, every one of them
+  // reporting its own state — where M3c's toggle held "the two layers you are not on" and M2n's
+  // held one destination. It went 1 → 2 → 3 across three milestones and the reserve moved with
+  // it every time without anyone measuring anything, which is the whole point of
+  // `actionCapsuleWidth`; the number below is the only edit each change needed.
   //
-  // It now equals `DIVES_HEADER_TRAILING_INSET` — a coincidence of two capsules holding two
-  // glyphs each, not a shared constant, and the two stay separate for the reason they were
-  // separate: the day either capsule gains or loses a glyph, exactly one of these must move.
-  const MAP_CAPSULE_GLYPHS = 2;
+  // It is wider than `DIVES_HEADER_TRAILING_INSET` again, having briefly equalled it while both
+  // capsules held two. The two were always separate constants for exactly this: the day either
+  // capsule gains or loses a glyph, only one of these may move.
+  const MAP_CAPSULE_GLYPHS = 3;
   const MAP_HEADER_TRAILING_INSET =
     CONTENT_INSET + actionCapsuleWidth(MAP_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
 
@@ -808,6 +810,26 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // **What a glyph that reports a state is drawn in** (M3e). The Map tab's capsule stopped
+    // being a row of triggers when §3's layers became a filter: each glyph is now a switch, and
+    // §0.1 leaves exactly one lever for "this one is chosen" — `selectedFill`'s inverted ink,
+    // the same pair the form's option chips, the Logged/Planned control and **the map's own
+    // selected mark** already use. That last one is why it is inversion here rather than a
+    // muted/full ink pair: the capsule is this map's legend, and a switched-on glyph and a
+    // selected mark being drawn the same way is the point rather than a coincidence.
+    //
+    // It is a pill inside the 48 dp box rather than the box itself, which is the note above
+    // answered rather than contradicted: a square fill would meet the capsule's rounded ends
+    // with corners, and the 4 dp it is inset by is `ACTION_CAPSULE_PADDING` — the same air the
+    // capsule already keeps at its own ends. The box stays 48 and stays the tap target.
+    capsuleGlyphInk: {
+      width: CAPSULE_GLYPH - ACTION_CAPSULE_PADDING * 2,
+      height: CAPSULE_GLYPH - ACTION_CAPSULE_PADDING * 2,
+      borderRadius: (CAPSULE_GLYPH - ACTION_CAPSULE_PADDING * 2) / 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    capsuleGlyphInkSelected: selectedFill,
     // The hairline between two glyphs in one capsule. Without it the capsule reads as one
     // control with two decorations rather than as two buttons — a real risk now that the
     // `+` has given up the 60 dp circle that used to say "this is the button" on its own
@@ -1496,14 +1518,18 @@ function build(scheme: ColorScheme) {
     },
     // **A community site or centre: a dot, because there is no count to show.** §3 badges "your
     // dives" per site, and a catalogue row the diver has never dived has none — a badge reading
-    // `0` would be a number about the wrong thing. Same two-state ink as the badge above, so the
-    // toggle changes what a mark IS without changing the vocabulary it is drawn in.
+    // `0` would be a number about the wrong thing. Same two-state ink as the badge above, so a
+    // filter changes what a mark IS without changing the vocabulary it is drawn in.
     //
     // **26 across, which is the badge's own diameter, and it is a tap target rather than a
     // styling choice** (M3c): a map annotation is hit-tested over the mark it draws, so at 14 it
-    // was not pressable at all. The two marks now share a size and differ only in whether a
-    // figure is inside, which is also the honest reading of what they mean — one catalogue row
-    // there, against N of your dives there.
+    // was not pressable at all. All three marks share a size and a shape and differ only in what
+    // is inside — a count, a `storefront` glyph, or nothing — which is the whole vocabulary M3e
+    // had left after §0.1 spent the hue and M3c spent plain shape (`components/DiveMap.tsx`).
+    //
+    // **It centres its children**, which is what makes it a container rather than a disc: the
+    // centre's glyph sits in the middle of it exactly as the badge's numeral sits in the middle
+    // of `mapMarkBadge`, so the two marks' interiors land on one optical centre.
     mapMarkDot: {
       width: 26,
       height: 26,
@@ -1511,6 +1537,8 @@ function build(scheme: ColorScheme) {
       borderWidth: 1,
       borderColor: theme.fg,
       backgroundColor: theme.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     mapMarkDotSelected: {
       borderColor: theme.action,
@@ -1584,8 +1612,21 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: CONTENT_INSET,
       paddingBottom: 12,
     },
-    // **The way into the centres directory**, on the centres layer only (M3c) — the row it sits
-    // in, in the app's one column, directly under the summary line the layer draws.
+    // **What the Map tab says when a filter the diver switched on could not be read, and there
+    // is still a map to draw** (M3e). `noticeBanner`'s shape, the same card the reorder, the
+    // settings read and the sync failure already use, rather than an eleventh copy of ten
+    // properties — this is the same kind of object: a sentence about something that failed,
+    // sitting above content that did not.
+    //
+    // It exists because the filter created a state modes never had. A mode drew one population,
+    // so a failed read meant an empty screen and the sentence could simply *be* the screen
+    // (`centerFill`/`messageText`, still what happens when nothing at all can be drawn). With
+    // three filters at once the catalogue can fail while the diver's own dives are on the map,
+    // and a screen that reported nothing would quietly show fewer marks than were asked for.
+    mapNotice: noticeBanner,
+    mapNoticeText: noticeBannerText,
+    // **The way into the centres directory**, drawn while centres are switched on (M3c) — the
+    // row it sits in, in the app's one column, directly under the summary line.
     mapCentersRow: {
       flexDirection: 'row',
       paddingHorizontal: CONTENT_INSET,

@@ -536,6 +536,34 @@ export const METADATA_SEPARATOR = ' · ';
 export const NON_BREAKING_SPACE = '\u00A0';
 
 /**
+ * **The same middot list, for a line that folds and must not open a line with the middot** (M3e)
+ * \u2014 `METADATA_SEPARATOR`'s deliberate near-duplicate, and \u00A74.1 requires it to say which question
+ * it answers differently.
+ *
+ * That one is for a line with no measure: a dive row's metadata, a cylinder spec, a centre's
+ * second line. Both of its spaces may break, which is exactly right where nothing is going to.
+ * This one is for a line that has a measure and therefore wraps, and it differs by one character:
+ * **the space before the middot is non-breaking**, so the middot can only ever end a line, never
+ * begin one.
+ *
+ * It was measured rather than reasoned about. `formatMapSummary` first used the ordinary
+ * separator with M1m's non-breaking spaces inside each clause, which is what the Dives header
+ * does \u2014 and the simulator folded it as `8 of 11 dives \u00B7 4 of 6 sites` above `\u00B7 4 of 5 centres`,
+ * a second line opening with a middot, which reads as a bullet in a list rather than as the tail
+ * of a sentence. M1m's rule stops a *figure* being torn in half; it does not decide which side of
+ * the fold the middot lands on, because the space in front of it is still a break opportunity and
+ * the platform takes the last one that fits.
+ *
+ * **`formatLogbookSummary` deliberately still uses the other one.** M1m chose its separator
+ * knowing the line wraps, and its own test states the reason in as many words: the separator is
+ * "the whole of what may break", and a fully non-breaking one would leave the header no fold at
+ * all. Half of that survives here \u2014 the space after the middot still breaks \u2014 but it is a change
+ * to a settled decision on a screen this task is not about, so the Dives header is left alone and
+ * the report for M3e says what was seen.
+ */
+export const WRAPPING_SEPARATOR = `${NON_BREAKING_SPACE}· `;
+
+/**
  * The third fraction, which is never stored and never typed — `derived.ts`'s `nitrogenPct`
  * computes it as 100 − O₂ − He (§10). It joins the two above because it is the same kind of
  * string for the same reason: a label for a gas fraction, spelled once so two screens cannot
@@ -1043,59 +1071,150 @@ export function formatDiveCount(count: number): string {
 }
 
 /**
- * How many places, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling above, and
- * private because both callers are the two Map tab lines directly below it. English needs one
- * comparison and Czech needs three forms (§0.5, i18next in M3), which is the whole reason a
- * plural lives in this module rather than in a template literal on a screen.
+ * How many catalogue sites, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling
+ * above, and private because its one caller is the Map tab's summary line directly below.
+ * English needs one comparison and Czech needs three forms (§0.5, i18next in M3), which is the
+ * whole reason a plural lives in this module rather than in a template literal on a screen.
  */
 function formatSiteCount(count: number): string {
   return `${count} ${count === 1 ? 'site' : 'sites'}`;
 }
 
 /**
- * **The line under the Map tab's title while it is showing the diver's own dives** — `"Your
- * dives · 3 sites · 7 of 24 dives on the map"`.
+ * **How much of one kind of thing is on the map**, as a phrase: `"7 of 24 dives"`, or `"24
+ * dives"` when every one of them is drawn.
  *
- * It has two jobs and the second is the one that makes it a rule rather than a nicety.
+ * One rule, asked three times by `formatMapSummary` below. It was written out twice before M3e
+ * — `formatMyDivesSummary` and `formatCentersSummary` each carried their own copy of the same
+ * comparison, and a third copy was exactly what a third population would have added.
  *
- * **It says which layer is showing**, because §3's toggle is a single glyph in the top-right
- * capsule and a glyph cannot report a state. §0.1 leaves no hue to say it with and §0.6 has
- * already refused a second size or weight for one control, so the layer is named in words, in
- * the line the screen was going to draw anyway.
+ * **The "of" half appears only when the two differ**, because `24 of 24 dives` is a comparison
+ * with nothing to say. `known` is what the device holds; `onMap` is what could be drawn.
+ */
+function formatCoverage(onMap: number, known: number, count: (value: number) => string): string {
+  return onMap < known ? `${onMap} of ${count(known)}` : count(onMap);
+}
+
+/**
+ * **The line under the Map tab's title: what is on this map, one clause per kind the diver has
+ * switched on** — `"7 of 24 dives · 12 of 30 sites · 1 of 5 centres"`, or `null` when nothing is
+ * switched on at all.
  *
- * **And it says how much of the logbook is actually on the map**, which is the honest half.
- * §10 records that no dive logged before M2l can carry a GPS point, so the ordinary state of
- * this screen for a while is a handful of pins over a logbook of dozens — and a map that
- * silently drew four sites from twenty-four dives would look like a map of everything.
+ * ── Why this is one function and its three predecessors were three (M3e) ───────────────────
  *
- * **"on the map", not "pinned", and the words are not interchangeable.** The figure counts every
+ * §3's layers were a mode until M3e, so the line described one population and named it:
+ * `Your dives · 3 sites · 7 of 24 dives on the map`, `Community · 12 sites`, `Dive centres · 1 of
+ * 12 on the map`. M3c measured what happens when a mode's line meets a mixed population — the
+ * header read `Community · 3 sites` over one site and two centres, which is a sentence with no
+ * way to read it off the map — and the brief for this task made that failure the problem to
+ * solve rather than an argument against solving it.
+ *
+ * **The fix is that every clause names its own noun**, so there is no leading label left for the
+ * line to get wrong: `dives`, `sites` and `centres` are three words a diver already has, in
+ * `MAP_MARK_KINDS`' own order, and a clause is present exactly when its marks are.
+ *
+ * **A kind with no answer yet contributes nothing** — `null` rather than a zero — because a read
+ * that has not landed and a catalogue that is empty are the same `[]` (§10: a screen with no
+ * answer must not state one). A kind that HAS landed and holds nothing contributes `0 sites`,
+ * which is the honest report of a filter the diver switched on and that has nothing behind it;
+ * `MapScreen` draws the sentence explaining *why* only when the map is otherwise empty, since a
+ * paragraph about an empty catalogue over a map full of the diver's own dives is a reproach for
+ * something they did not do.
+ *
+ * ── The three figures, and the one word that changed ──────────────────────────────────────
+ *
+ * **The dives clause dropped the place count and kept the coverage one.** `3 sites` was the
+ * number of the diver's own markers, and with the community's sites on the same map that word
+ * now belongs to the catalogue — a line saying `3 sites · 12 sites` is two different meanings for
+ * one noun in one sentence. The markers are visible and countable; how much of the logbook is
+ * missing from them is not, which is why that is the figure worth the space.
+ *
+ * **"dives", not "pinned dives", and the words are not interchangeable.** The figure counts every
  * dive at a place the map could position, including dives at that place carrying no coordinates
  * of their own — which is exactly what the badges add up to (`groupDivesByPlace`, domain/
  * mapSites.ts: a site's badge counts your dives there, not your fixes there). Calling them
  * "pinned" would make this line disagree with the numbers drawn beside it.
  *
- * `formatDiveCount` owns both plurals; nothing here counts anything.
+ * **A centre almost never has a position, by design** (§2.3: *"a centre inherits its name alone —
+ * the form's pin is where the diver entered the water, so writing it to a centre files a dive
+ * site as the shop's address"*), so `1 of 5 centres` is that clause's ordinary shape rather than
+ * its exceptional one. Sites are the same story less severely: §5 asks a new site for a name and
+ * `siteFactsFrom` passes a pin only when the dive carried one.
+ *
+ * **The sites figure counts marks, so a site the diver has dived is not in it** — it is on the
+ * map wearing their own badge instead (`sitesWithoutYourMark`, domain/mapSites.ts). The clause
+ * therefore reads "site marks drawn, out of sites known", and the places absorbed that way are
+ * counted by the dives clause beside it.
+ *
+ * `formatDiveCount`, `formatSiteCount` and `formatCenterCount` own the three plurals; nothing
+ * here counts anything.
  */
-export function formatMyDivesSummary(places: number, onMap: number, logged: number): string {
-  const coverage = onMap < logged ? `${onMap} of ${formatDiveCount(logged)} on the map` : `${formatDiveCount(onMap)} on the map`;
-  return ['Your dives', formatSiteCount(places), coverage].join(METADATA_SEPARATOR);
+export function formatMapSummary(
+  dives: MapPopulation | null,
+  sites: MapPopulation | null,
+  centres: MapPopulation | null,
+): string | null {
+  const parts: string[] = [];
+  if (dives !== null) parts.push(formatCoverage(dives.onMap, dives.known, formatDiveCount));
+  if (sites !== null) parts.push(formatCoverage(sites.onMap, sites.known, formatSiteCount));
+  if (centres !== null) parts.push(formatCoverage(centres.onMap, centres.known, formatCenterCount));
+  if (parts.length === 0) return null;
+  // **Where this line is allowed to fold, and the simulator settled both halves of it.** §0.6
+  // caps this column at the floating capsule, the capsule holds three glyphs, and three clauses
+  // are two lines — so the fold is ordinary rather than theoretical.
+  //
+  // A clause's own spaces are `NON_BREAKING_SPACE`, which is M1m's rule for the Dives header and
+  // stops `4 of 6 sites` being torn in half. That alone was not enough, and the pixels are what
+  // said so: with it in place the line still folded as `8 of 11 dives · 4 of 6 sites` above `· 4
+  // of 5 centres`, because the space in FRONT of a middot is a break opportunity too and the
+  // platform takes the last one that fits. `WRAPPING_SEPARATOR` is the other half — see it for
+  // why it is a second constant rather than an edit to the first.
+  return parts.map((clause) => clause.replace(/ /gu, NON_BREAKING_SPACE)).join(WRAPPING_SEPARATOR);
 }
 
 /**
- * The same line while the toggle is showing §3's *"all community sites"* — `"Community · 12
- * sites"`.
+ * How much of one kind of thing the map is showing. `known` is what the device holds of it;
+ * `onMap` is how many of those got a mark.
  *
- * Shorter than its sibling above because there is less that is true: the catalogue's sites are
- * not the diver's, so there is no coverage figure to give and nothing to say about how much of
- * anything is on the map. It names the layer, which is the job the toggle cannot do, and counts
- * what is drawn.
- *
- * A separate function rather than one taking a layer, so neither line can grow a branch that
- * silently reports the wrong layer's figure — the shapes of the two answers are genuinely
- * different, and a shared signature would have to carry two arguments one of them ignores.
+ * One shape for all three kinds, and three separate **parameters** on `formatMapSummary` rather
+ * than a list of `{ kind, population }`: a caller cannot hand the sites figure to the centres
+ * clause when each clause has its own named argument, and a mixed-up figure is the exact defect
+ * a line describing three populations at once could otherwise ship green.
  */
-export function formatCommunitySummary(places: number): string {
-  return ['Community', formatSiteCount(places)].join(METADATA_SEPARATOR);
+export interface MapPopulation {
+  readonly onMap: number;
+  readonly known: number;
+}
+
+/**
+ * **What a screen reader announces for one mark on the map** — `"Blue Hole, 2 dives"`, `"Vis,
+ * dive site"`, `"Ponorka, dive centre"`.
+ *
+ * Three functions rather than one taking a kind, on `formatMapSummary`'s reasoning one object
+ * over: they are three different sentences about three different nouns, and the dive one is the
+ * only one with a figure in it.
+ *
+ * **It names the KIND, and since M3e it has to** (`components/DiveMap.tsx`). Three kinds are on
+ * one map at once and what tells them apart by eye is a numeral, a `storefront` glyph or an empty
+ * disc — none of which a screen reader can see. Before the filter each layer drew one kind and
+ * the summary line above said which, so a bare name was the whole truth; now a bare `Ponorka`
+ * would be a mark whose kind is unknowable and whose press does something (`/center/…`) that the
+ * two marks beside it do not.
+ *
+ * A comma rather than `METADATA_SEPARATOR`, because this is a sentence to be *spoken* and not a
+ * line of figures to be read — `ReorderControls`' `rowLabel` makes the same split with its
+ * parentheses (§4.1's near-duplicates: those three all display, these three speak).
+ */
+export function formatDiveMarkLabel(place: string, dives: number): string {
+  return `${place}, ${formatDiveCount(dives)}`;
+}
+
+export function formatSiteMarkLabel(name: string): string {
+  return `${name}, dive site`;
+}
+
+export function formatCenterMarkLabel(name: string): string {
+  return `${name}, dive centre`;
 }
 
 /**
@@ -1106,28 +1225,6 @@ export function formatCommunitySummary(places: number): string {
  */
 export function formatCenterCount(count: number): string {
   return `${count} ${count === 1 ? 'centre' : 'centres'}`;
-}
-
-/**
- * **The line under the Map tab's title while it is showing dive centres** — `"Dive centres · 1
- * of 12 on the map"`.
- *
- * It has `formatMyDivesSummary`'s shape rather than `formatCommunitySummary`'s, and the coverage
- * half is the whole reason: **a centre almost never has a position, by design.** §2.3 gives the
- * rule in one sentence — *"a centre inherits its name alone — the form's pin is where the diver
- * entered the water, so writing it to a centre files a dive site as the shop's address"* — so
- * every centre this app has ever created has a name and nothing else, and the only centres that
- * can be drawn are ones a pull brought down with a `location` on them. A map that silently drew
- * one mark for a catalogue of twelve would look like a map of every centre there is.
- *
- * `known` is what the device holds; `onMap` is what could be drawn. They are equal only when
- * every centre has a pin, which is the case this line stops claiming falsely rather than the
- * case it was written for.
- */
-export function formatCentersSummary(onMap: number, known: number): string {
-  const coverage =
-    onMap < known ? `${onMap} of ${formatCenterCount(known)} on the map` : `${formatCenterCount(onMap)} on the map`;
-  return ['Dive centres', coverage].join(METADATA_SEPARATOR);
 }
 
 /**

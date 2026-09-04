@@ -16,8 +16,7 @@ import {
   formatWaves,
   formatCenterCount,
   formatCenterRow,
-  formatCentersSummary,
-  formatCommunitySummary,
+  formatCenterMarkLabel,
   UNNAMED_CENTER,
   formatCoordinates,
   formatConfiguration,
@@ -29,7 +28,9 @@ import {
   formatDepthBandRange,
   formatDepthParts,
   formatDiveCount,
-  formatMyDivesSummary,
+  formatDiveMarkLabel,
+  formatMapSummary,
+  formatSiteMarkLabel,
   formatPendingChanges,
   formatSiteFacts,
   formatSiteSummary,
@@ -59,6 +60,7 @@ import {
   formatWeightsFeel,
   formatLogbookSummary,
   METADATA_SEPARATOR,
+  WRAPPING_SEPARATOR,
   NON_BREAKING_SPACE,
   formatSurfaceInterval,
   formatTemperature,
@@ -1185,57 +1187,155 @@ describe('formatSiteSummary', () => {
   });
 });
 
-// The line under the Map tab's title. It says which layer is showing — the toggle is one glyph
-// and cannot report a state, and §0.1 leaves no hue to say it with — and how much of the logbook
-// is actually on the map, which is the honest half: no dive logged before M2l can carry a fix.
-describe('the map layer lines', () => {
-  it('names the layer and states the coverage', () => {
-    expect(formatMyDivesSummary(3, 7, 24)).toBe('Your dives · 3 sites · 7 of 24 dives on the map');
+/**
+ * **The line under the Map tab's title, which since M3e describes a mixed population** — the
+ * thing M3c measured a mode's version could not do (`Community · 3 sites` over one site and two
+ * centres). One clause per switched-on kind, each naming its own noun, in `MAP_MARK_KINDS`'
+ * order.
+ */
+describe('formatMapSummary', () => {
+  // **The spaces inside a clause are U+00A0** — `formatLogbookSummary`'s rule, and this is the
+  // second line in the app that wraps, so it needs the same one. Every assertion below except
+  // `breaks only between clauses` is a claim about WORDS, so it reads the line back with its
+  // spaces normalised, for that suite's own reason: an invisible character pasted into a dozen
+  // expectations makes every one of them unreadable for a reason none of them is about.
+  const words = (line: string | null) => (line === null ? null : line.replaceAll(NON_BREAKING_SPACE, ' '));
+  const ALL = () =>
+    words(formatMapSummary({ onMap: 7, known: 24 }, { onMap: 12, known: 30 }, { onMap: 1, known: 5 }));
+
+  it('gives every switched-on kind its own clause, in its own noun', () => {
+    expect(ALL()).toBe('7 of 24 dives · 12 of 30 sites · 1 of 5 centres');
   });
 
-  // "7 of 7 dives on the map" is a sentence nobody writes, and "1 of 1 dives" is worse.
-  it('drops the "of" once every dive is on the map', () => {
-    expect(formatMyDivesSummary(2, 24, 24)).toBe('Your dives · 2 sites · 24 dives on the map');
-    expect(formatMyDivesSummary(1, 1, 1)).toBe('Your dives · 1 site · 1 dive on the map');
+  // A kind that is switched off is absent from the line entirely — not `0`, which would be a
+  // report about something the diver did not ask to see.
+  it('names only the kinds it was given', () => {
+    expect(words(formatMapSummary({ onMap: 7, known: 24 }, null, null))).toBe('7 of 24 dives');
+    expect(words(formatMapSummary(null, { onMap: 12, known: 30 }, null))).toBe('12 of 30 sites');
+    expect(words(formatMapSummary(null, null, { onMap: 1, known: 5 }))).toBe('1 of 5 centres');
   });
 
-  // **"on the map", not "pinned"**, and the words are not interchangeable: the figure counts
+  // §1 and §0.6: nothing switched on is a state, and the line has nothing to say about it. Null
+  // rather than `''`, so the screen draws no line at all rather than an empty one — the contract
+  // `formatSiteFacts` and `formatCenterRow` already keep.
+  it('says nothing at all when nothing is switched on', () => {
+    expect(words(formatMapSummary(null, null, null))).toBeNull();
+  });
+
+  // "7 of 7 dives" is a sentence nobody writes, and "1 of 1 dives" is worse.
+  it('drops the "of" for a kind that is entirely on the map', () => {
+    expect(words(formatMapSummary({ onMap: 24, known: 24 }, { onMap: 12, known: 12 }, { onMap: 1, known: 1 }))).toBe(
+      '24 dives · 12 sites · 1 centre',
+    );
+  });
+
+  // A kind the diver switched on that has nothing behind it says so, in the line the screen was
+  // drawing anyway — `MapScreen` explains WHY only when there is nothing else to look at.
+  it('reports a switched-on kind with nothing behind it as a nought', () => {
+    expect(words(formatMapSummary(null, { onMap: 0, known: 0 }, { onMap: 0, known: 4 }))).toBe('0 sites · 0 of 4 centres');
+  });
+
+  /**
+   * **Each clause is fed by its own parameter, so a figure cannot land in the wrong one.** The
+   * defect this guards is the whole reason the signature is three named arguments rather than a
+   * list: a line describing three populations at once could report the sites figure as centres
+   * and be perfectly grammatical. Every figure below is distinct, so a swap moves a number.
+   */
+  it('keeps each kind’s figures in its own clause', () => {
+    expect(words(formatMapSummary({ onMap: 1, known: 2 }, { onMap: 3, known: 4 }, { onMap: 5, known: 6 }))).toBe(
+      '1 of 2 dives · 3 of 4 sites · 5 of 6 centres',
+    );
+  });
+
+  // **"dives", not "pinned dives"**, and the words are not interchangeable: the figure counts
   // every dive at a place the map could position, including dives there carrying no fix of their
   // own — which is exactly what the badges add up to.
   it('counts dives at a placed site, not fixes', () => {
-    expect(formatMyDivesSummary(1, 4, 9)).toContain('4 of 9 dives on the map');
+    expect(words(formatMapSummary({ onMap: 4, known: 9 }, null, null))).toBe('4 of 9 dives');
+    expect(ALL()).not.toContain('pinned');
   });
 
-  it('pluralises a single site', () => {
-    expect(formatMyDivesSummary(1, 2, 2)).toContain('1 site ·');
-    expect(formatCommunitySummary(1)).toBe('Community · 1 site');
-    expect(formatCommunitySummary(12)).toBe('Community · 12 sites');
+  // The three plurals are the three modules' own, and each is exercised at one — English needs
+  // one comparison and Czech will need three forms (§0.5, i18next), so a plural typed into a
+  // clause here would be a second place to fix.
+  it('pluralises each noun on its own count', () => {
+    expect(words(formatMapSummary({ onMap: 1, known: 1 }, { onMap: 1, known: 1 }, { onMap: 1, known: 1 }))).toBe(
+      '1 dive · 1 site · 1 centre',
+    );
   });
 
-  // The two lines are different shapes on purpose — a community site is not the diver's, so
-  // there is no coverage figure to give and nothing that could be reported for the wrong layer.
-  it('says nothing about coverage on the community layer', () => {
-    expect(formatCommunitySummary(12)).not.toContain('on the map');
-    expect(formatCommunitySummary(12)).not.toContain('Your dives');
+  /**
+   * **And it folds where the Dives header folds**, which is the half the simulator had to settle:
+   * left to the platform this line broke at the space BEFORE a middot and opened its second line
+   * with one, reading as a bullet rather than as the tail of a sentence.
+   *
+   * Asserted as the SET OF BREAK OPPORTUNITIES rather than as the finished string, exactly as
+   * `formatLogbookSummary`'s own test is and for the same reason: split on ordinary spaces and
+   * what comes back must be the clauses and the middots, whole. Pasting the expected line with
+   * invisible U+00A0s in it would assert the same thing in a form no reader could check.
+   */
+  it('breaks only after a middot, never inside a clause and never before one', () => {
+    const line = formatMapSummary({ onMap: 7, known: 24 }, { onMap: 12, known: 30 }, null);
+    expect(line?.split(' ')).toEqual([
+      `7${NON_BREAKING_SPACE}of${NON_BREAKING_SPACE}24${NON_BREAKING_SPACE}dives${NON_BREAKING_SPACE}·`,
+      `12${NON_BREAKING_SPACE}of${NON_BREAKING_SPACE}30${NON_BREAKING_SPACE}sites`,
+    ]);
+    // The middot travels with the clause in front of it, which is the whole difference from
+    // `METADATA_SEPARATOR` — and that constant is deliberately left as it is, so the two must
+    // not be the same string.
+    expect(WRAPPING_SEPARATOR).not.toBe(METADATA_SEPARATOR);
+    expect(METADATA_SEPARATOR).not.toContain(NON_BREAKING_SPACE);
+    // ...and it still has somewhere to fold, or the cap §0.6 put on this column would simply put
+    // the line back under the glass.
+    expect(line).toContain(' ');
+  });
+
+  /**
+   * **The layer labels are gone, and their absence is the decision.** `Your dives`, `Community`
+   * and `Dive centres` each named the one population a mode was showing; with three of them on
+   * one map there is no single label the line could carry, and each clause's own noun does the
+   * naming instead. The place count went with them: `3 sites` meant the diver's own markers, and
+   * that word now belongs to the catalogue's clause beside it.
+   */
+  it('names no layer, and counts no places of the diver’s own', () => {
+    expect(ALL()).not.toContain('Your dives');
+    expect(ALL()).not.toContain('Community');
+    expect(ALL()).not.toContain('Dive centres');
+    expect(ALL()).not.toContain('on the map');
   });
 });
 
-/**
- * The Map's centres layer (M3c). It takes `formatMyDivesSummary`'s coverage shape rather than
- * `formatCommunitySummary`'s flat count, and the reason is a fact about the data: §2.3 gives a new
- * centre its name alone, so a catalogue of twelve with one position is the ordinary state and a
- * line reading "1 centre" would make the map look complete.
- */
-describe('formatCentersSummary', () => {
-  it('names the layer and says how much of it is on the map', () => {
-    expect(formatCentersSummary(1, 12)).toBe('Dive centres · 1 of 12 centres on the map');
+/** What a screen reader hears for one mark, which since M3e has to include the KIND: three kinds
+ * are on one map at once and a numeral, a `storefront` and an empty disc are all invisible to it
+ * (`components/DiveMap.tsx`). */
+describe('the map marks’ spoken names', () => {
+  it('names the place and how many of your dives are there', () => {
+    expect(formatDiveMarkLabel('Blue Hole', 2)).toBe('Blue Hole, 2 dives');
+    expect(formatDiveMarkLabel('Blue Hole', 1)).toBe('Blue Hole, 1 dive');
   });
 
-  it('drops the coverage when every centre is drawn', () => {
-    expect(formatCentersSummary(3, 3)).toBe('Dive centres · 3 centres on the map');
-    expect(formatCentersSummary(1, 1)).toBe('Dive centres · 1 centre on the map');
+  it('names a catalogue row’s kind, in that noun’s own words', () => {
+    expect(formatSiteMarkLabel('Vis')).toBe('Vis, dive site');
+    expect(formatCenterMarkLabel('Ponorka')).toBe('Ponorka, dive centre');
   });
 
+  // The two nouns differ, and that is the whole point of two functions: a shop announced as a
+  // dive site is precisely the confusion §3 says a map may not create.
+  it('never calls a centre a site', () => {
+    expect(formatCenterMarkLabel('Ponorka')).not.toContain('dive site');
+    expect(formatSiteMarkLabel('Vis')).not.toContain('dive centre');
+  });
+
+  // Spoken, not displayed: a comma rather than the metadata separator every figure line uses.
+  it('reads as a sentence rather than as a line of figures', () => {
+    for (const label of [formatDiveMarkLabel('Blue Hole', 2), formatSiteMarkLabel('Vis'), formatCenterMarkLabel('Ponorka')]) {
+      expect(label).not.toContain(METADATA_SEPARATOR);
+      expect(label).toContain(', ');
+    }
+  });
+});
+
+describe('formatCenterCount', () => {
   it('pluralises a single centre', () => {
     expect(formatCenterCount(1)).toBe('1 centre');
     expect(formatCenterCount(0)).toBe('0 centres');

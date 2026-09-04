@@ -70,7 +70,37 @@ export type DiveSiteIdentity = Pick<Dive, 'siteId' | 'siteName'>;
  */
 export function siteIdentityOf(dive: DiveSiteIdentity | null | undefined): string | null {
   if (!dive) return null;
-  if (typeof dive.siteId === 'string' && dive.siteId !== '') return `site:${dive.siteId}`;
+  const paired = catalogueSiteIdentity(dive.siteId);
+  if (paired !== null) return paired;
   const folded = typeof dive.siteName === 'string' ? foldForMatching(dive.siteName) : '';
   return folded === '' ? null : `name:${folded}`;
+}
+
+/**
+ * **The same identity, asked of a catalogue ROW rather than of a dive** — `site:<id>`, or `null`
+ * for an id that names nothing.
+ *
+ * It exists because M3e put the diver's own dives and the community catalogue on the map *at the
+ * same time*, and a site a diver has dived is then drawn twice at one coordinate — exactly once
+ * where the app created that site from that dive (`siteFactsFrom`, domain/diveFormSchema.ts,
+ * copies the dive's own pin into the new row and the dive is paired to it by id, so the two marks
+ * are not near each other, they are the same pixel). `sitesWithoutYourMark` (domain/mapSites.ts)
+ * settles that by identity, and this is the half of the comparison the catalogue side needs.
+ *
+ * **Tier 1 only, and that is the decision rather than an unfinished version of it.** A dive that
+ * names its site by hand has a `name:<folded>` identity, and folding a catalogue row's name into
+ * the same shape would let one *name* take a site off the map: a diver with a `Blue Hole` in
+ * Croatia would silently lose Egypt's and Malta's rows, which are different rocks on different
+ * continents. `isDiveWithCenter` (domain/centerDives.ts) accepts precisely that fold for a
+ * *page's* list of dives, where the cost is a dive listed under two shops the diver never told
+ * apart; here the cost would be a place missing from a map, which is the one thing a map may not
+ * do. So an unpaired dive and its catalogue row draw two marks a few metres apart, which is
+ * honest — the app genuinely does not know they are one place — and is the same trade-off this
+ * module's own docblock already accepts for `sites visited`.
+ *
+ * Exported so the prefix is written once. It was inline in the tier above until this second
+ * reader arrived, and a second `site:${id}` typed anywhere is the drift §4.1 is about.
+ */
+export function catalogueSiteIdentity(id: string | null | undefined): string | null {
+  return typeof id === 'string' && id !== '' ? `site:${id}` : null;
 }

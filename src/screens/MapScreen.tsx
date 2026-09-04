@@ -4,9 +4,15 @@ import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
-import { DiveMap, type MapMark } from '../components/DiveMap';
+import {
+  DiveMap,
+  MAP_KIND_GLYPH,
+  MAP_MARK_KINDS,
+  type MapMark,
+  type MapMarkKind,
+  type MapMarkRef,
+} from '../components/DiveMap';
 import { DiveRow } from '../components/DiveRow';
-import { type PlatformSymbol } from '../components/symbolName';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDives } from '../db/useDives';
 import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
@@ -17,17 +23,21 @@ import { logbookStats } from '../domain/logbookStats';
 import {
   groupDivesByPlace,
   regionFor,
+  sitesWithoutYourMark,
   waterTempRange,
   withPoints,
+  type MapPoint,
   type MapSite,
 } from '../domain/mapSites';
+import { catalogueSiteIdentity } from '../domain/siteIdentity';
 import { type DiveCenter, type DiveSite } from '../domain/types';
 import {
   formatCenterCount,
-  formatCentersSummary,
-  formatCommunitySummary,
-  formatMyDivesSummary,
+  formatCenterMarkLabel,
+  formatDiveMarkLabel,
+  formatMapSummary,
   formatSiteFacts,
+  formatSiteMarkLabel,
   formatSiteSummary,
   UNNAMED_CENTER,
   UNNAMED_SITE,
@@ -38,67 +48,48 @@ import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
 
 /**
- * **The three layers §3's toggle switches between**, as a list with the type derived from it
- * rather than written twice (§4.1's "derive, or tie at compile time").
+ * ── §3's layers are a FILTER, not a mode (owner's call, M3e, reversing M3c) ────────────────
  *
- * One at a time, never both. A filter that could show the diver's dives and the community's
- * sites together would put two mark vocabularies on one map — a badge that counts your dives
- * beside a dot that counts nothing — and a diver would have to learn which was which. §3 says
- * *"toggle to explore"*, and exploring is a mode.
+ * §3 now says it in as many words: *"Any combination shows at once — dives alone, or dives with
+ * the sites and centres around them — because the question a diver actually has on a map is what
+ * is near here, and a mode can only ever answer one third of it at a time."*
  *
- * ── Why centres are a THIRD MODE and not a second mark on the community layer (M3c) ───────
+ * **What the control switches is exactly what `components/DiveMap.tsx` can draw**, and this file
+ * takes that list (`MAP_MARK_KINDS`) rather than keeping a second one (§4.1's "derive, or tie at
+ * compile time") — a `MAP_LAYERS` of its own lived here until M3e and was the same three strings
+ * twice. A fourth kind of mark now appears in the filter on its own and cannot appear in one and
+ * not the other.
  *
- * The question was open and both answers were built and looked at; the report for this task has
- * what the simulator showed. Four things decided it, and the first is that **the rule was
- * already written here**: the paragraph above rejects two mark vocabularies on one map, and a
- * dive centre is a third vocabulary arriving at the same door. A shop is not a place you get
- * into the water, so one layer drawing both would be telling a diver that a dive centre is a
- * dive site.
+ * **M3c's measurements are not overturned by the reversal; they are the constraint on it**, and
+ * they are kept where they bind rather than summarised here: `DiveMap.tsx` carries what a mark
+ * may look like now that plain shape has been tried and failed, and `format/display.ts` carries
+ * the summary line that a mode's version could not write. What this file keeps of M3c is the one
+ * sentence that survived intact — a shop is not a place you get into the water — and it is now
+ * carried by the mark's own glyph rather than by never drawing the two together.
  *
- * **§0.1 has already spent the only lever that could tell them apart.** M2n settled that the
- * marks are monochrome — the depth palette is tuned as ink and a band used as a fill loses the
- * count inside it — so a second kind of mark on one layer could differ only in *shape*, at
- * 14–26 pt, over Apple's cartography. §0.6 has twice ruled that a symbol needing a legend has
- * already failed.
- *
- * **And a mode needs no new mark at all**, which is the argument that turns a preference into a
- * decision: because the layers never draw together, a centre is the same dot a community site
- * is. The dot means "a catalogue row is here" and the summary line says which catalogue —
- * exactly as the badge means "your dives here" only while the personal layer is showing.
- *
- * The cost is real and named rather than discovered later: **the centres layer is empty on every
- * device today and will stay empty for every centre this app creates**, because §2.3 gives a new
- * centre its name alone. Its empty state therefore says something different from the community
- * layer's and offers the directory, where a centre with no position is still a row.
+ * **What the reversal cost, stated because M3c's argument for modes was that they cost nothing:**
+ * a centre's mark needs a symbol inside it, a site a diver has dived would be drawn twice at one
+ * coordinate if nothing stopped it (`sitesWithoutYourMark`, domain/mapSites.ts), and a tap now
+ * means two different things depending on which mark it lands on. All three were the reasons not
+ * to mix; all three are paid here rather than avoided.
  */
-export const MAP_LAYERS = ['mine', 'community', 'centers'] as const;
-export type MapLayer = (typeof MAP_LAYERS)[number];
 
-/** The capsule's glyphs — one per layer, and the capsule shows the two the diver is **not** on.
- * Each names **what pressing it does** rather than what is currently showing, which is what lets
- * a plain `CapsuleAction` — a trigger with a fixed label, by construction — serve as a toggle:
- * the control says where it takes you, and the summary line under the title says where you are.
+/**
+ * **What each switch says it will do, in both of its states** (§0.6).
  *
- * **Two destinations rather than a three-way cycle** (M3c). A cycle keeps the capsule at one
- * glyph and keeps every label honest, and it was the cheaper change; it also makes a diver press
- * twice to reach a layer and learn an order nothing on screen states. Two glyphs is one press to
- * anywhere, and §0.6's capsule is a row of equal monochrome glyphs already — which is what the
- * Dives screen's own has always been.
+ * A `CapsuleAction`'s label has always named *what pressing it does* rather than what is showing,
+ * and that does not change — what changes is that pressing it now does one of two things, so the
+ * label has two spellings and the one on offer is the one the press will carry out. The *state*
+ * is reported twice over, in the two channels §0.1 leaves: the glyph is drawn in inverted ink
+ * while it is on (`capsuleGlyphInk`, theme/styles.ts) and `accessibilityState.selected` says so
+ * to a screen reader.
  *
- * Exported so `symbolName.test.tsx` can check the Android half against a real Material name —
- * see `DivesScreen`'s two for why no suite that renders this screen can. */
-export const EXPLORE_GLYPH = { ios: 'globe', android: 'public' } as const;
-export const MY_DIVES_GLYPH = { ios: 'mappin.and.ellipse', android: 'pin_drop' } as const;
-export const CENTERS_GLYPH = { ios: 'storefront', android: 'storefront' } as const;
-
-/** What the capsule offers on each layer: the other two, in `MAP_LAYERS`' own order, so a
- * glyph's position tells the diver the same thing wherever they are. Derived from the layer
- * list rather than written out three times — a fourth layer would be one entry here and would
- * appear in all three capsules on its own. */
-const LAYER_DESTINATION: Record<MapLayer, { symbol: PlatformSymbol; label: string }> = {
-  mine: { symbol: MY_DIVES_GLYPH, label: 'Show my dives' },
-  community: { symbol: EXPLORE_GLYPH, label: 'Explore community sites' },
-  centers: { symbol: CENTERS_GLYPH, label: 'Explore dive centres' },
+ * Keyed by the kind, so a fourth kind is one entry here and a missing one does not compile.
+ */
+const KIND_SWITCH: Record<MapMarkKind, { show: string; hide: string }> = {
+  mine: { show: 'Show your dives', hide: 'Hide your dives' },
+  community: { show: 'Show community sites', hide: 'Hide community sites' },
+  centers: { show: 'Show dive centres', hide: 'Hide dive centres' },
 };
 
 /**
@@ -127,32 +118,29 @@ function centreLabel(centre: Pick<DiveCenter, 'name'>): string {
 }
 
 /**
- * A community layer's marks: one per catalogue row that has a position, named by its own
- * table's label rule and carrying no count.
+ * A catalogue kind's marks: one per row that has a position, named by its own table's label rule
+ * and carrying no count.
  *
  * **Generic over the row, on `withPoints`' own reasoning** (domain/mapSites.ts): `dive_sites` and
- * `dive_centers` are the same shape under two names, and "a catalogue row at a point, with a
- * name and no badge" is one mark rather than two that happen to look alike. What differs between
- * the two layers is the label rule and nothing else, so that is the argument.
+ * `dive_centers` are the same shape under two names, and "a catalogue row at a point, with a name
+ * and no badge" is one mark rather than two that happen to look alike. What differs between the
+ * two is the label rule and the kind, so those are the arguments — and the kind is what decides
+ * both the glyph inside the mark and what a tap on it does, so it travels with the mark rather
+ * than being re-derived where those questions are asked.
  */
 function catalogueMarks<T extends { id: string }>(
-  placed: readonly { row: T; point: MapMark['point'] }[],
+  placed: readonly { row: T; point: MapPoint }[],
+  kind: 'community' | 'centers',
   label: (row: T) => string,
 ): MapMark[] {
-  return placed.map(({ row, point }) => ({
-    key: row.id,
-    label: label(row),
-    point,
-    // No count: a catalogue row the diver has never dived is not a count of anything, and `0`
-    // would be a number about the wrong thing (`DiveMap.tsx`).
-    badge: null,
-  }));
+  return placed.map(({ row, point }) => ({ kind, key: row.id, label: label(row), point }));
 }
 
 /**
- * **The Map tab** (DESIGN.md §3): *"clustered pins of your dives (badge = count per site);
- * tapping a site shows your dives there with a depth/temp summary; toggle to explore all
- * community sites."*
+ * **The Map tab** (DESIGN.md §3): *"your dives grouped by site identity, not by geometry (badge =
+ * count per site); tapping a site shows your dives there with a depth/temp summary; a toggle
+ * between your dives, community sites and community centres"* — **a filter since M3e, so any
+ * combination of the three is on the map at once.**
  *
  * Lives outside `src/app/` like every other screen, because expo-router sweeps that tree as
  * routes and a test file in it would ship to a diver's phone; `src/app/(tabs)/map.tsx` is the
@@ -162,32 +150,23 @@ function catalogueMarks<T extends { id: string }>(
  *
  * A pin needs coordinates, and there are two sources. A dive's own `latitude`/`longitude` has
  * been settable since M2l's *use my location* and is **null on every dive logged before it**
- * (§10: "no dive logged in M1 can carry a GPS point"). `dive_sites.location` reaches the device
- * only through a pull and is empty today, because nothing creates a site yet. So the state this
- * screen was built for — and the one it will be in for a while — is a handful of the diver's own
- * pins and an empty community layer, and both of those get a real screen rather than a blank
- * map:
- *
- *  · **No dives at all**, and **dives with no pin anywhere**, are different sentences. The
- *    second is the common one for every logbook older than M2l, and it is the one that has to
- *    say how a dive gets a pin — otherwise the screen is a reproach with no way to act on it.
- *  · **The community layer with nothing behind it** says so, and what it says depends on being
- *    signed in: the catalogue arrives by pull (§5, §7), so a guest is not waiting for a sync,
- *    they are waiting for an account. Telling them "your next sync will bring them" would be
- *    telling them to wait for something that will never happen.
- *
- * §1 binds all of it: no dives, no permission, no network and no account each open a tab that
- * says something true.
+ * (§10: "no dive logged in M1 can carry a GPS point"). `dive_sites.location` and
+ * `dive_centers.location` reach the device only through a pull, and §2.3 gives a new centre its
+ * name alone — so the state this screen was built for, and the one it will be in for a while, is
+ * a handful of the diver's own pins over an empty catalogue. **Every one of the three filters
+ * therefore has an empty case, and §1 binds all of them**: no dives, no catalogue, no permission,
+ * no network and no account each open a tab that says something true.
  *
  * ── What this screen owns, and what it hands over ─────────────────────────────────────────
  *
- * It owns the layer, the selection and the four states each layer can be in. Everything else
- * belongs to somebody: `domain/mapSites.ts` groups the dives, positions each mark and computes
- * the region; `domain/logbookStats.ts` counts and finds the deepest, exactly as it does for the
- * Dives header, so "how many dives" cannot mean two things; `format/display.ts` writes every
- * sentence with a figure in it; `components/DiveMap.tsx` draws the surface, and is the only
- * file in the app that imports `react-native-maps`. There is no `db.select()` here and no
- * second reading of anything.
+ * It owns the filter, the selection, and which sentence each state deserves. Everything else
+ * belongs to somebody: `domain/mapSites.ts` groups the dives, positions each mark, decides which
+ * catalogue rows still need one and computes the region; `domain/logbookStats.ts` counts and
+ * finds the deepest, exactly as it does for the Dives header, so "how many dives" cannot mean two
+ * things; `format/display.ts` writes every sentence with a figure in it and every mark's spoken
+ * name; `components/DiveMap.tsx` draws the surface and owns the mark vocabulary, and is the only
+ * file in the app that imports `react-native-maps`. There is no `db.select()` here and no second
+ * reading of anything.
  *
  * ── The colour question, answered where it belongs ────────────────────────────────────────
  *
@@ -204,13 +183,23 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const { dives, numbers, resolved, error } = useDives();
   const catalogue = useDiveSites();
-  // The centres half of the catalogue, read for the first time by anything on screen (M3c) —
-  // its own hook rather than a field on `useDiveSites()`, so a failed centres read cannot take
-  // the community sites off the map (db/useDiveCenters.ts).
+  // The centres half of the catalogue (M3c) — its own hook rather than a field on
+  // `useDiveSites()`, so a failed centres read cannot take the community sites off the map
+  // (db/useDiveCenters.ts). Now that both are drawn at once, that split is what lets one of them
+  // fail while the other keeps its marks.
   const centres = useDiveCenters();
   const { session } = useAuthSession();
-  const [layer, setLayer] = useState<MapLayer>('mine');
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  /**
+   * **What is switched on. Opens on the diver's own dives and nothing else** — which is exactly
+   * what the tab did before it was a filter, so a diver who never touches the control sees no
+   * change and a fresh device still meets one sentence rather than three.
+   *
+   * It is not remembered between visits. Persisting it means a stored shape and a default for a
+   * nonsense row, which is `db/settings.ts`' territory (§4.1) and a decision of its own; the map
+   * opening on the diver's own logbook is a defensible answer rather than a placeholder for one.
+   */
+  const [shown, setShown] = useState<ReadonlySet<MapMarkKind>>(() => new Set<MapMarkKind>(['mine']));
+  const [selected, setSelected] = useState<MapMarkRef | null>(null);
   const [locatable, setLocatable] = useState(false);
 
   /**
@@ -242,35 +231,68 @@ export default function MapScreen() {
   // §4.1's owner of "coming back to the app" (M2m); this is its third caller.
   useForegroundReturn(readPermission);
 
-  /** Switching layers clears the selection, because a key from one layer names nothing in the
-   * other — a site id and a place key are different vocabularies — and a sheet that survived
-   * the switch would be describing a mark that is no longer drawn. */
-  const showLayer = (next: MapLayer) => {
-    setLayer(next);
-    setSelectedKey(null);
+  /**
+   * **Switching anything clears the selection, including the two kinds the open sheet is not
+   * about** — and the bluntness is deliberate rather than unexamined.
+   *
+   * A sheet describes a mark, so it has to close when that mark stops being drawn. The narrow
+   * version of that rule — clear only when the sheet's own kind is switched off — is **wrong in a
+   * way M2n already measured once**: the sheet would close on the way out and *reopen* on the way
+   * back, on a mark the diver never pressed. And the coupling is not only within a kind, because
+   * switching *dives* on takes a community site off the map (`sitesWithoutYourMark`), so a site's
+   * open sheet has to close on a press about something else.
+   *
+   * The cost is one sentence long and is the honest half: a diver reading Blue Hole's dives who
+   * switches centres on loses the sheet and taps the mark again. A selection that survived would
+   * have to prove, for every combination, that it was still drawn — and "it is still drawn" is
+   * exactly what could not be proved cheaply enough to be worth the risk of re-opening one.
+   */
+  const toggleKind = (kind: MapMarkKind) => {
+    setShown((current) => {
+      const next = new Set(current);
+      if (!next.delete(kind)) next.add(kind);
+      return next;
+    });
+    setSelected(null);
   };
 
-  const places: MapSite[] = groupDivesByPlace(dives);
-  const communitySites = withPoints(catalogue.sites);
-  const placedCentres = withPoints(centres.centers);
+  /**
+   * **The three populations, each of them empty when its filter is off**, so everything below —
+   * the marks, the region, the summary's figures and the selection lookup — is computed from what
+   * is actually on the map rather than from what the device happens to hold.
+   */
+  const places: MapSite[] = shown.has('mine') ? groupDivesByPlace(dives) : [];
+  // **The catalogue sites that are not already standing under one of the diver's own marks.**
+  // A dive and the site it was logged at are not near each other, they are the same coordinate:
+  // §2.3's *Add "…" as a new site* copies the dive's own pin into the new row and pairs the dive
+  // to it by id. `sitesWithoutYourMark` (domain/mapSites.ts) settles it by that identity rather
+  // than by distance, and the place's sheet below carries the row's facts so nothing is lost
+  // with the dot.
+  const communitySites = shown.has('community')
+    ? sitesWithoutYourMark(withPoints(catalogue.sites), places)
+    : [];
+  const placedCentres = shown.has('centers') ? withPoints(centres.centers) : [];
 
-  const marks: MapMark[] =
-    layer === 'mine'
-      ? places.map((place) => ({
-          key: place.key,
-          label: place.label,
-          point: place.point,
-          // §3's "badge = count per site". Always drawn, including `1` — see `mapMarkBadge`
-          // (theme/styles.ts) for why a bare mark for a single dive would be a legend.
-          badge: String(place.dives.length),
-        }))
-      : // `UNNAMED_SITE`/`UNNAMED_CENTER` rather than a literal, so a catalogue row with no name
-        // is called on this map exactly what the rest of the app calls one (§4.1). §5 asks a new
-        // row only for a name, so this is an edge rather than the norm — but a mark with no
-        // label at all is a mark a screen reader cannot announce.
-        layer === 'community'
-        ? catalogueMarks(communitySites, siteLabel)
-        : catalogueMarks(placedCentres, centreLabel);
+  const marks: MapMark[] = [
+    ...places.map((place): MapMark => ({
+      kind: 'mine',
+      key: place.key,
+      // The mark's spoken name says the kind as well as the place, because three kinds are on
+      // one map and the numeral that tells this one apart is invisible to a screen reader
+      // (`format/display.ts`).
+      label: formatDiveMarkLabel(place.label, place.dives.length),
+      point: place.point,
+      // §3's "badge = count per site". Always drawn, including `1` — see `mapMarkBadge`
+      // (theme/styles.ts) for why a bare mark for a single dive would be a legend.
+      badge: String(place.dives.length),
+    })),
+    // `UNNAMED_SITE`/`UNNAMED_CENTER` rather than a literal, so a catalogue row with no name is
+    // called on this map exactly what the rest of the app calls one (§4.1). §5 asks a new row
+    // only for a name, so this is an edge rather than the norm — but a mark with no label at all
+    // is a mark a screen reader cannot announce.
+    ...catalogueMarks(communitySites, 'community', (row) => formatSiteMarkLabel(siteLabel(row))),
+    ...catalogueMarks(placedCentres, 'centers', (row) => formatCenterMarkLabel(centreLabel(row))),
+  ];
 
   const region = regionFor(marks.map((mark) => mark.point));
 
@@ -284,147 +306,213 @@ export default function MapScreen() {
   const title = <Text style={styles.mapTitle}>Map</Text>;
 
   /**
-   * **The layer toggle, and it is drawn on every branch too — including the failing ones.**
+   * **The filter, and it is drawn on every branch — including the failing ones.**
    *
    * That is a deliberate difference from the Dives screen, which drops its capsule when the
    * logbook has not been read: there the glyphs act on the data (search it, add to it), so a
    * capsule over an unread list offers actions on nothing. This one acts on the SCREEN. A diver
-   * whose logbook read failed can still go and look at the community layer, and taking the
+   * whose logbook read failed can still switch the community on and look at that, and taking the
    * control away would strand them on the broken half with no way across.
    *
-   * Every `CapsuleAction`'s label says what pressing it does. `ActionCapsule`'s own contract is
-   * that its actions are "plain triggers with fixed labels — neither reports a state", and this
-   * keeps to it rather than widening it: the state is reported by the summary line.
-   *
-   * **The two layers the diver is not on**, in `MAP_LAYERS`' own order, derived rather than
-   * written out per layer — so a glyph keeps its position wherever the diver is, and a fourth
-   * layer would appear in all three capsules from one entry in `LAYER_DESTINATION`.
+   * **All three glyphs, always, in `MAP_MARK_KINDS`' own order**, so a glyph never moves and a
+   * diver aims at the same place every time — which is what a row of switches has to do and what
+   * M3c's "the two you are not on" could not: that capsule's contents changed with its state.
    */
-  const capsuleActions: readonly CapsuleAction[] = MAP_LAYERS.filter((other) => other !== layer).map((other) => ({
-    key: other,
-    symbol: LAYER_DESTINATION[other].symbol,
-    label: LAYER_DESTINATION[other].label,
-    onPress: () => showLayer(other),
+  const capsuleActions: readonly CapsuleAction[] = MAP_MARK_KINDS.map((kind) => ({
+    key: kind,
+    symbol: MAP_KIND_GLYPH[kind],
+    label: shown.has(kind) ? KIND_SWITCH[kind].hide : KIND_SWITCH[kind].show,
+    selected: shown.has(kind),
+    onPress: () => toggleKind(kind),
   }));
 
   /**
-   * **What the screen has to say beneath its title: a summary line, or a message, or neither.**
+   * **How much of each switched-on kind is on the map, or nothing at all for a kind that has no
+   * answer yet** (§10: a screen with no answer must not state one — an unread table and an empty
+   * one are the same `[]`).
    *
-   * The two are exclusive by construction rather than by two conditions that happen to agree —
-   * a layer either has an answer worth summarising or it has something to explain. Modelled on
-   * `DivesScreen`'s four branches and keeping their one hard rule: a read that has not answered
-   * yet states nothing at all (§10 — "a screen with no answer must not state one"), because an
-   * unread logbook and an empty one are the same `[]`.
+   * A **failed** read is deliberately also `null` here rather than `0`: it is reported by the
+   * notice below instead, because `0 sites` over a failure is a figure the screen does not have.
+   *
+   * The dives figure counts LOGGED dives at drawn places against the whole logbook, which is what
+   * the badges add up to; §2.4's plans are excluded by `logbookStats` and by `groupDivesByPlace`
+   * alike, so the two cannot disagree.
    */
-  const body = (): { summary: string | null; message: string | null } => {
-    if (layer === 'centers') {
-      // `CATALOGUE_UNREADABLE` (domain/logbook.ts) — one sentence, three screens, since M3c made
-      // this its second and third reader. It was a literal here while the Map was the only one.
-      if (centres.error) return { summary: null, message: CATALOGUE_UNREADABLE };
-      if (!centres.resolved) return { summary: null, message: null };
-      if (centres.centers.length === 0) {
-        // **The same guest/member split the community layer draws**, and for the same reason: a
-        // centre reaches this table through a pull or through §2.3's *add a centre*, and §5 puts
-        // an account behind both.
-        return {
-          summary: null,
-          message:
-            session === null
-              ? 'No dive centres here yet. They arrive with an account, on your first sync.'
-              : 'No dive centres here yet. Centres appear as divers add them and your next sync brings them down.',
-        };
-      }
-      if (marks.length === 0) {
-        // **The layer's ordinary state, and a different sentence from the one above it** — the
-        // device holds centres and none of them can be drawn. §2.3 is why: *"a centre inherits
-        // its name alone — the form's pin is where the diver entered the water, so writing it to
-        // a centre files a dive site as the shop's address"*. So a centre only ever gets a
-        // position from a catalogue that surveyed it, and the honest answer here is to send the
-        // diver to the list, where a centre with no position is still a row. The gesture is
-        // named, exactly as the pinless-dives sentence names *"Use my location"*.
-        return {
-          summary: null,
-          message: `None of your ${formatCenterCount(centres.centers.length)} has a position yet. Tap “All centres” to browse them.`,
-        };
-      }
-      // Both figures, because they are almost never the same one — see `formatCentersSummary`.
-      return { summary: formatCentersSummary(marks.length, centres.centers.length), message: null };
-    }
+  const divesOnMap = places.reduce((count, place) => count + place.dives.length, 0);
+  const logged = logbookStats(dives).dives;
+  const summary = formatMapSummary(
+    shown.has('mine') && resolved && error === undefined ? { onMap: divesOnMap, known: logged } : null,
+    shown.has('community') && catalogue.resolved && catalogue.error === undefined
+      ? { onMap: communitySites.length, known: catalogue.sites.length }
+      : null,
+    shown.has('centers') && centres.resolved && centres.error === undefined
+      ? { onMap: placedCentres.length, known: centres.centers.length }
+      : null,
+  );
 
-    if (layer === 'community') {
-      if (catalogue.error) return { summary: null, message: CATALOGUE_UNREADABLE };
-      if (!catalogue.resolved) return { summary: null, message: null };
-      if (marks.length === 0) {
+  /**
+   * **A read that failed, for a kind the diver switched on** — said whether or not there is still
+   * a map, which is the state a mode never had. With one layer a failure meant an empty screen
+   * and the sentence was the screen; with three filters the catalogue can fail while the diver's
+   * own dives are on the map, and saying nothing would quietly draw fewer marks than were asked
+   * for.
+   *
+   * **One sentence per distinct failure, not per kind.** `CATALOGUE_UNREADABLE` (domain/
+   * logbook.ts) is one sentence about "the community catalogue", and both catalogue reads failing
+   * at once is one thing gone wrong — printing it twice would be the screen counting its own
+   * tables at the diver.
+   */
+  const failures: string[] = [];
+  if (shown.has('mine') && error) failures.push(LOGBOOK_UNREADABLE);
+  if ((shown.has('community') && catalogue.error) || (shown.has('centers') && centres.error)) {
+    failures.push(CATALOGUE_UNREADABLE);
+  }
+
+  /**
+   * **Why a switched-on kind has nothing on the map — one sentence each, and only when the map
+   * is empty.**
+   *
+   * The split is the rule rather than a layout convenience. A **failure** is always said, because
+   * it is the one state where the map is silently not showing what the diver asked for. An
+   * **emptiness** is said only when there is nothing else to look at: the summary line's own
+   * `0 sites` reports it in the line the screen was drawing anyway, and a paragraph explaining an
+   * empty catalogue over a map full of the diver's own dives is a reproach for something they did
+   * not do.
+   *
+   * Each sentence **names a gesture**, which is M2n's rule and the reason there are two of them
+   * per kind rather than one: "you have none" and "none of yours has a position" are different
+   * problems with different answers, and a diver told only "nothing here" has been given no way
+   * to act.
+   */
+  const emptiness = (): string[] => {
+    if (marks.length > 0) return [];
+    const reasons: string[] = [];
+    if (shown.has('mine') && resolved && !error) {
+      if (logged === 0) {
+        reasons.push('No dives logged yet. A dive joins the map when you give it a pin.');
+      } else {
+        // **The common case, and a different sentence from the one above it.** Every dive logged
+        // before M2l has null coordinates (§10), so a full logbook with an empty map is the
+        // expected state rather than a fault — and the sentence has to name the gesture, because
+        // nothing on this screen sets a pin (§2.3's other half; see the note at the foot of this
+        // file).
+        reasons.push(
+          `None of your ${String(logged)} logged dives has a pin yet. Open a dive, edit it, and tap “Use my location” at the site.`,
+        );
+      }
+    }
+    if (shown.has('community') && catalogue.resolved && !catalogue.error) {
+      if (catalogue.sites.length === 0) {
         // **Two sentences, because a guest is not waiting for the same thing a signed-in diver
         // is.** The catalogue reaches a device only through a pull (§5, §7), and §7.4 erases it
         // on the way out precisely because "a guest never had them" — so telling a guest their
         // next sync will bring sites would be pointing at something that cannot happen.
-        return {
-          summary: null,
-          message:
-            session === null
-              ? 'No community sites here yet. They arrive with an account, on your first sync.'
-              : 'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
-        };
+        reasons.push(
+          session === null
+            ? 'No community sites here yet. They arrive with an account, on your first sync.'
+            : 'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
+        );
+      } else {
+        // **The device holds sites and none of them can be drawn, which is a different sentence
+        // from "there are none"** — and it did not exist before M3e, though the state always
+        // did: the community layer said "No community sites here yet" over a device holding
+        // thirty of them, because it only ever counted the ones it could position. §5 asks a new
+        // site for a name and `siteFactsFrom` passes a pin only when the dive carried one, so a
+        // catalogue of nameless-place rows is ordinary. The centres layer has had its own version
+        // of this sentence since M3c; this is the sibling it should always have had.
+        reasons.push(
+          `None of your ${String(catalogue.sites.length)} community sites has a position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.`,
+        );
       }
-      return { summary: formatCommunitySummary(marks.length), message: null };
     }
-
-    if (error) {
-      // `LOGBOOK_UNREADABLE` (db/useDives.ts) — the one owner of what this hook's `error`
-      // says, shared with the dives list, search and the Stats tab.
-      return { summary: null, message: LOGBOOK_UNREADABLE };
+    if (shown.has('centers') && centres.resolved && !centres.error) {
+      if (centres.centers.length === 0) {
+        // **The same guest/member split**, and for the same reason: a centre reaches this table
+        // through a pull or through §2.3's *add a centre*, and §5 puts an account behind both.
+        reasons.push(
+          session === null
+            ? 'No dive centres here yet. They arrive with an account, on your first sync.'
+            : 'No dive centres here yet. Centres appear as divers add them and your next sync brings them down.',
+        );
+      } else {
+        // §2.3 is why: *"a centre inherits its name alone — the form's pin is where the diver
+        // entered the water, so writing it to a centre files a dive site as the shop's address"*.
+        // So a centre only ever gets a position from a catalogue that surveyed it, and the honest
+        // answer is to send the diver to the list, where a centre with no position is still a row.
+        reasons.push(
+          `None of your ${formatCenterCount(centres.centers.length)} has a position yet. Tap “All centres” to browse them.`,
+        );
+      }
     }
-    if (!resolved) return { summary: null, message: null };
-
-    const logged = logbookStats(dives).dives;
-    if (logged === 0) {
-      return { summary: null, message: 'No dives logged yet. A dive joins the map when you give it a pin.' };
+    // **Nothing switched on is a legitimate state and the control is what says so** — every glyph
+    // is drawn in plain ink and none is inverted, which is a diver's own doing rather than a
+    // failure. What it may not be is a blank screen, so the sentence names all three switches.
+    if (shown.size === 0) {
+      reasons.push(
+        'Nothing selected. Switch on your dives, community sites or dive centres to put them on the map.',
+      );
     }
-    if (marks.length === 0) {
-      // **The common case, and a different sentence from the one above it.** Every dive logged
-      // before M2l has null coordinates (§10), so a full logbook with an empty map is the
-      // expected state rather than a fault — and the sentence has to name the gesture, because
-      // nothing on this screen sets a pin (§2.3's other half; see the note at the foot of this
-      // file).
-      return {
-        summary: null,
-        message: `None of your ${String(logged)} logged dives has a pin yet. Open a dive, edit it, and tap “Use my location” at the site.`,
-      };
-    }
-    const onMap = places.reduce((count, place) => count + place.dives.length, 0);
-    return { summary: formatMyDivesSummary(places.length, onMap, logged), message: null };
+    return reasons;
   };
 
-  const { summary, message } = body();
+  const messages = emptiness();
 
-  /** The mark whose sheet is open, or null. Looked up rather than stored, so a selection that
-   * outlives its mark — a dive deleted on another screen, a pull that merges a site away —
-   * simply closes the sheet instead of leaving it describing something that is gone. */
-  const selectedPlace = layer === 'mine' ? places.find((place) => place.key === selectedKey) : undefined;
+  /**
+   * The place whose sheet is open, or the catalogue site whose sheet is open — **looked up in
+   * what is actually drawn** rather than stored, so a selection that outlives its mark closes
+   * the sheet instead of describing something that is gone: a dive deleted on another screen, a
+   * pull that merges a site away, or a filter that took the mark off the map.
+   */
+  const selectedPlace =
+    selected?.kind === 'mine' ? places.find((place) => place.key === selected.key) : undefined;
   const selectedSite =
-    layer === 'community' ? communitySites.find(({ row }) => row.id === selectedKey)?.row : undefined;
+    selected?.kind === 'community'
+      ? communitySites.find(({ row }) => row.id === selected.key)?.row
+      : undefined;
+
+  /**
+   * **What the catalogue knows about the place a dive sheet is describing** — the other half of
+   * absorbing a site into the diver's own mark, and the reason that absorption costs nothing.
+   *
+   * Matched by `catalogueSiteIdentity` (domain/siteIdentity.ts), the same rule that decided the
+   * mark, so the sheet cannot show the facts of a row whose dot is still drawn beside it.
+   *
+   * **It does not consult the filter**, and that is the decision: these are facts about the place
+   * the sheet is already about, not a community mark the diver asked to see. Switching sites off
+   * says "do not put the catalogue on my map"; it does not say "do not tell me what my own dive
+   * site is".
+   *
+   * Read from the whole catalogue rather than from the placed rows, because a row can perfectly
+   * well know its country and its entry and have no pin — that is §5's ordinary new site.
+   */
+  const placeSite =
+    selectedPlace === undefined
+      ? undefined
+      : catalogue.sites.find((row) => catalogueSiteIdentity(row.id) === selectedPlace.key);
+  const placeFacts = placeSite === undefined ? null : formatSiteFacts(placeSite, units);
   const siteFacts = selectedSite === undefined ? null : formatSiteFacts(selectedSite, units);
 
   /**
-   * **What a tapped mark does, and it is not the same act on all three layers** (M3c).
+   * **What a tapped mark does, and it is not the same act on all three kinds.**
    *
-   * A site — the diver's own or the catalogue's — opens a sheet, because a site has nowhere else
-   * in the app to be shown: the sheet *is* its page. **A centre has a page**, so its mark goes
-   * there, and drawing a peek of that page under the map would be the same three facts in two
-   * places for one of them to fall behind (§4.1).
+   * A site — the diver's own place or the catalogue's row — opens a sheet, because a site has
+   * nowhere else in the app to be shown: the sheet *is* its page. **A centre has a page**, so its
+   * mark goes there, and drawing a peek of that page under the map would be the same three facts
+   * in two places for one of them to fall behind (§4.1).
    *
-   * The asymmetry is deliberate and it is the layer that carries it, never the mark: on the
-   * centres layer *every* mark navigates, so a diver never has to work out which kind of thing
-   * they are about to press. `selectedKey` simply stays null there, which is why the centres
-   * layer needs no sheet branch and no selected state.
+   * **M3c gave that asymmetry to the layer and M3e has to give it back to the mark**, which is one
+   * of the three prices the filter pays: "on the centres layer *every* mark navigates, so a diver
+   * never has to work out which kind of thing they are about to press" is not available when the
+   * three are drawn together. What pays for it instead is the `storefront` glyph inside a centre's
+   * mark — the one kind whose press leaves the screen is the one kind whose mark carries a symbol,
+   * and the filter's own capsule shows the same symbol one press away.
    */
-  const pressMark = (key: string) => {
-    if (layer === 'centers') {
-      router.push(`/center/${key}`);
+  const pressMark = (mark: MapMark) => {
+    if (mark.kind === 'centers') {
+      router.push(`/center/${mark.key}`);
       return;
     }
-    setSelectedKey(key);
+    setSelected({ kind: mark.kind, key: mark.key });
   };
 
   /** The sheet's way out — §0.6's one treatment for leaving, shared with the dive detail's back
@@ -432,7 +520,7 @@ export default function MapScreen() {
   const closeSheet = (label: string) => (
     <Pressable
       style={styles.mapSheetClose}
-      onPress={() => setSelectedKey(null)}
+      onPress={() => setSelected(null)}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
@@ -449,19 +537,19 @@ export default function MapScreen() {
       <View style={styles.mapArea}>
         {title}
         {summary !== null && <Text style={styles.mapSummary}>{summary}</Text>}
-        {/* **The way into the directory, on the centres layer and nowhere else** (M3c).
-            §0.6's day-strip action — "a bordered pill in tracked uppercase, not plain text, so it
-            reads as a control rather than a label" — because that is exactly what this is, and
-            inventing a second treatment for one control is what §0.6 exists to stop.
+        {/* **The way into the directory, while centres are switched on and not otherwise**
+            (M3c). §0.6's day-strip action — "a bordered pill in tracked uppercase, not plain
+            text, so it reads as a control rather than a label" — because that is exactly what
+            this is, and inventing a second treatment for one control is what §0.6 exists to stop.
 
-            It is on the layer rather than in the capsule for a measured reason: the header's
-            trailing reserve is derived from a glyph COUNT, so a magnifier that appeared on one
-            layer only would either under-reserve there or leave 49 pt of empty column on the
-            other two. And it is drawn on **every** branch of this layer, the failing one
-            included, on the same reasoning the toggle is: the directory reads the same table and
-            says so for itself, and a control that vanished when the data failed would strand a
-            diver on the broken half. */}
-        {layer === 'centers' && (
+            It is tied to the filter rather than living in the capsule for a measured reason: the
+            header's trailing reserve is derived from a glyph COUNT, so a fourth glyph that
+            appeared in one state only would either under-reserve there or leave a column of empty
+            header on the others. And it is drawn on **every** branch, the failing one included,
+            on the same reasoning the capsule is: the directory reads the same table and says so
+            for itself, and a control that vanished when the data failed would strand a diver on
+            the broken half. */}
+        {shown.has('centers') && (
           <View style={styles.mapCentersRow}>
             <Pressable
               style={styles.mapCentersAction}
@@ -475,20 +563,34 @@ export default function MapScreen() {
             </Pressable>
           </View>
         )}
-        {message !== null && (
+        {failures.map((sentence) => (
+          <View key={sentence} style={styles.mapNotice}>
+            <Text style={styles.mapNoticeText}>{sentence}</Text>
+          </View>
+        ))}
+        {messages.length > 0 && (
           <View style={styles.centerFill}>
-            <Text style={styles.messageText}>{message}</Text>
+            {messages.map((sentence) => (
+              <Text key={sentence} style={styles.messageText}>
+                {sentence}
+              </Text>
+            ))}
           </View>
         )}
         {/* The map is drawn only when there is somewhere to put it — `regionFor` returns null
             for no marks, and §1 would rather open a tab that says something true than centre a
-            map on a place the diver has never been. */}
-        {message === null && region !== null && (
+            map on a place the diver has never been.
+
+            **The region is computed at mount and does not follow the filter** (`initialRegion`,
+            M2n's own choice against a ref and `fitToCoordinates`), so switching a kind on adds
+            its marks without moving the camera off what the diver was looking at — which is right
+            for a filter, and does mean a lone centre a hundred miles away is added off-screen. */}
+        {region !== null && (
           <DiveMap
             scheme={scheme}
             region={region}
             marks={marks}
-            selectedKey={selectedKey}
+            selected={selected}
             onSelect={pressMark}
             showsUserLocation={locatable}
           />
@@ -506,6 +608,10 @@ export default function MapScreen() {
             <Text style={styles.mapSheetSummary}>
               {formatSiteSummary(logbookStats(selectedPlace.dives), waterTempRange(selectedPlace.dives), units)}
             </Text>
+            {/* What the catalogue knows about this place, when it knows it at all — the same
+                line a community site's own sheet draws, from the same formatter, so a place and
+                a row cannot describe themselves differently. */}
+            {placeFacts !== null && <Text style={styles.mapSheetFacts}>{placeFacts}</Text>}
             {/* **And here is where the depth palette lives on this screen** — one `DiveRow` per
                 dive, each with its own depth in its own band, beside its own number, exactly as
                 on the logbook. Nothing about a dive is re-rendered specially for the map. */}
@@ -571,4 +677,15 @@ export default function MapScreen() {
  * or in `components/DiveMap.tsx` is in the way of that — `DiveMap` takes its marks and its
  * region as props and holds no opinion about what a tap on the surface means, so a picker can
  * render the same component with one mark and its own handler.
+ *
+ * **What a site's own page is left to do** (M3e; brief §6 says it is the next task). The in-map
+ * sheet now carries everything the *logbook* knows about a place and everything the *catalogue*
+ * knows about it, in one card, for a site the diver has dived. What it cannot be is a page: it is
+ * reachable only by finding the mark, it has no route, it cannot be linked to from a dive, and it
+ * says nothing about a site the diver has **never** dived beyond the one facts line. So the page
+ * owes a route (`/site/[id]`), a way in from the dive detail's *Site* row — the exact shape M3c
+ * gave the *Centre* row — and a directory at `/sites`, which is also where §2.3's still-uncalled
+ * `search_sites` RPC finally gets a caller. The sheet is not a prototype of that page; it is the
+ * map's own answer, and both can exist for the reason `DiveCenterScreen` and this sheet already
+ * do — one is about a mark, the other about a row.
  */

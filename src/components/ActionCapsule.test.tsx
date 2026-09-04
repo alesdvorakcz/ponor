@@ -165,3 +165,87 @@ it('renders the real Liquid Glass material when the device has it, and an identi
   expect(pick(plainStyle, 'backgroundColor')).toBe(themeFor('dark').surface);
   expect(pick(glassStyle, 'backgroundColor')).toBeUndefined();
 });
+
+// --- A glyph that is a switch (M3e, `CapsuleAction.selected`) ---
+//
+// §3's Map layers became a filter, so three of this component's glyphs are now switches rather
+// than triggers: they report a state instead of taking you somewhere. §0.1 leaves exactly one
+// lever for "this one is chosen" — inverted ink, the `action`/`action-fg` pair every option chip
+// and the map's own selected mark already use — and the pair below is asserted together, because
+// "the switched-on one inverts" alone would pass for a capsule that inverted everything.
+
+const shownDives: CapsuleAction = {
+  key: 'mine',
+  symbol: { ios: 'mappin.and.ellipse', android: 'pin_drop' },
+  label: 'Hide your dives',
+  selected: true,
+  onPress: () => {},
+};
+const hiddenSites: CapsuleAction = { ...shownDives, key: 'community', label: 'Show community sites', selected: false };
+
+it('inverts the switch that is on and leaves the one that is off in plain ink', async () => {
+  mockIsLiquidGlassAvailable.mockReturnValue(false);
+  const styles = makeStyles('dark');
+  const t = await render(<ActionCapsule scheme="dark" actions={[shownDives, hiddenSites]} />);
+  const inverted = t.root
+    ? t.root.queryAll((n) => flatStyle(n).includes(styles.capsuleGlyphInkSelected as Record<string, unknown>))
+    : [];
+  expect(inverted).toHaveLength(1);
+  expect(findSymbols(t).map((s) => s.props.tintColor)).toEqual([themeFor('dark').actionFg, themeFor('dark').fg]);
+  expect(themeFor('dark').actionFg).not.toBe(themeFor('dark').fg);
+  // **What that style actually paints, and not merely that it is the style named for it.**
+  // Measured: swapping `capsuleGlyphInkSelected` for a `surface` fill left the check above
+  // green, because a test that looks a style up by name is satisfied by whatever the sheet
+  // happens to have put there. §0.1's one lever for "chosen" is the `action`/`action-fg` pair,
+  // and it is the SAME definition the form's Logged/Planned control uses — one `selectedFill`,
+  // asserted here as an equality so a second spelling of it fails rather than merely differing.
+  expect(styles.capsuleGlyphInkSelected).toEqual({
+    backgroundColor: themeFor('dark').action,
+    borderColor: themeFor('dark').action,
+  });
+  expect(styles.capsuleGlyphInkSelected).toEqual(styles.formStatusPillOn);
+});
+
+// **A trigger is untouched, which is the whole reason `selected` is optional.** Every glyph in
+// the Dives and search capsules is one, and none of them has a selectedness to report — a
+// capsule that announced `selected: false` on a magnifier would be telling a screen reader that
+// searching is a thing you can be "not on".
+it('leaves a plain trigger with no state to report at all', async () => {
+  mockIsLiquidGlassAvailable.mockReturnValue(false);
+  const styles = makeStyles('dark');
+  const t = await render(<ActionCapsule scheme="dark" actions={[search, logDive]} />);
+  // `Pressable` normalises the prop into a full `{busy, checked, disabled, expanded, selected}`
+  // object whatever it is handed, so the claim is about the one member: a trigger's `selected`
+  // is absent, not `false`.
+  expect(findButton(t, 'Search dives').props.accessibilityState?.selected).toBeUndefined();
+  const inverted = t.root
+    ? t.root.queryAll((n) => flatStyle(n).includes(styles.capsuleGlyphInkSelected as Record<string, unknown>))
+    : [];
+  expect(inverted).toHaveLength(0);
+});
+
+// The second channel, for a diver who cannot see the ink. `false` is stated rather than omitted
+// on a switch: "off" and "not a switch" are different things to a screen reader, and it is the
+// difference between an unchosen filter and a plain button.
+it('announces a switch’s state, in both of its states', async () => {
+  mockIsLiquidGlassAvailable.mockReturnValue(false);
+  const t = await render(<ActionCapsule scheme="dark" actions={[shownDives, hiddenSites]} />);
+  expect(findButton(t, 'Hide your dives').props.accessibilityState?.selected).toBe(true);
+  expect(findButton(t, 'Show community sites').props.accessibilityState?.selected).toBe(false);
+});
+
+// The switch keeps §0.5's floor: the 48 dp box is the Pressable and the inverted pill is drawn
+// inside it, so what a diver aims at does not change with the state. `dayStripAction` and the
+// map's *All centres* control make the same "small visible control, generous hidden target"
+// split, and this is that rule arriving inside the capsule.
+it('keeps a switch’s tap target the same size as a trigger’s', async () => {
+  mockIsLiquidGlassAvailable.mockReturnValue(false);
+  const styles = makeStyles('dark');
+  const t = await render(<ActionCapsule scheme="dark" actions={[shownDives, search]} />);
+  for (const label of ['Hide your dives', 'Search dives']) {
+    expect(flatStyle(findButton(t, label))).toContain(styles.capsuleGlyph as Record<string, unknown>);
+  }
+  expect((styles.capsuleGlyph as Record<string, unknown>).width).toBe(48);
+  // ...and the pill is genuinely smaller than the box it sits in, or the inset is decorative.
+  expect((styles.capsuleGlyphInk as Record<string, unknown>).width as number).toBeLessThan(48);
+});

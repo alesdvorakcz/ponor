@@ -1,21 +1,73 @@
+import { SymbolView } from 'expo-symbols';
 import MapView, { Marker } from 'react-native-maps';
 import { Text, View } from 'react-native';
 
 import { type MapPoint, type MapRegion } from '../domain/mapSites';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { themeFor } from '../theme/resolve';
+import { symbolName, type PlatformSymbol } from './symbolName';
 
-/** One mark on the map. `badge` is the dive count for a place of the diver's own, and `null`
- * for a community site — see `DiveMap` below on why those are two shapes and not one. */
-export interface MapMark {
+/**
+ * **The three kinds of thing this map draws**, as a list with the type derived from it rather
+ * than written twice (§4.1's "derive, or tie at compile time").
+ *
+ * It lives here rather than on the screen because a *kind* is a mark vocabulary and this file
+ * owns what a mark is; `MapScreen`'s filter is derived from this list, so a fourth kind would be
+ * one entry here and would appear in the filter on its own.
+ */
+export const MAP_MARK_KINDS = ['mine', 'community', 'centers'] as const;
+export type MapMarkKind = (typeof MAP_MARK_KINDS)[number];
+
+/**
+ * **One glyph per kind — the filter's, and the centre mark's** (M3e).
+ *
+ * The three were `MapScreen`'s until the layers became a filter, and they moved here for the
+ * reason that made the filter possible at all: a centre's mark carries `centers`' glyph, so the
+ * control that switches centres on and the mark it switches on **must** be the same symbol.
+ * Written twice they would agree today and drift the day either is restyled, and the drift would
+ * take the map's only legend with it (§4.1's "derive, or tie"). Keyed by `MapMarkKind`, so a
+ * fourth kind fails the build here rather than arriving as a blank capsule glyph.
+ *
+ * Exported individually as well because `symbolName.test.tsx` checks each Android half against a
+ * real Material name — see `DivesScreen`'s two for why no suite that renders a whole screen can.
+ */
+export const MY_DIVES_GLYPH = { ios: 'mappin.and.ellipse', android: 'pin_drop' } as const;
+export const EXPLORE_GLYPH = { ios: 'globe', android: 'public' } as const;
+export const CENTERS_GLYPH = { ios: 'storefront', android: 'storefront' } as const;
+
+export const MAP_KIND_GLYPH: Record<MapMarkKind, PlatformSymbol> = {
+  mine: MY_DIVES_GLYPH,
+  community: EXPLORE_GLYPH,
+  centers: CENTERS_GLYPH,
+};
+
+/** What names one mark, everywhere it is spoken about. Two fields rather than one string,
+ * because the three kinds share a key space now that they are drawn together — a catalogue
+ * site's row id and a place key are different vocabularies and a bare string could not say
+ * which one a selection came from. */
+export interface MapMarkRef {
+  kind: MapMarkKind;
   key: string;
+}
+
+/**
+ * One mark on the map.
+ *
+ * **A discriminated union, so a mark's interior cannot disagree with what it is** — only the
+ * diver's own place carries a count, and `badge` exists on no other member rather than being a
+ * nullable field every kind has to remember to leave null.
+ */
+export type MapMark = MapMarkRef & {
   /** What a screen reader announces, and what the sheet beneath is titled. A mark carries no
    * visible name — a bay with nine sites in it would be nine overlapping labels — so this is
-   * the only thing that names it, exactly as `CapsuleAction.label` is for a bare glyph. */
+   * the only thing that names it, exactly as `CapsuleAction.label` is for a bare glyph. Since
+   * M3e it also has to name the **kind**, because three kinds are on one map at once and the
+   * glyph that tells them apart by eye tells a screen reader nothing (`format/display.ts` owns
+   * the words). */
   label: string;
   point: MapPoint;
-  badge: string | null;
-}
+} & ({ kind: 'mine'; badge: string } | { kind: 'community' } | { kind: 'centers' });
 
 export interface DiveMapProps {
   scheme: ColorScheme;
@@ -24,8 +76,8 @@ export interface DiveMapProps {
    * `fitToCoordinates` call on a ref. */
   region: MapRegion;
   marks: readonly MapMark[];
-  selectedKey: string | null;
-  onSelect: (key: string) => void;
+  selected: MapMarkRef | null;
+  onSelect: (mark: MapMark) => void;
   /**
    * Whether to draw the diver's own position.
    *
@@ -109,14 +161,87 @@ export interface DiveMapProps {
  * tap, and confirmed by growing the dot until it answered. So the box is gone, both marks are
  * 26 pt (`mapMarkBadge`/`mapMarkDot`), and the size of the mark IS the target. A mocked map could
  * never have said so: it measures no view and produces no gesture.
+ *
+ * ── Three kinds on one map, and the one lever left to tell them apart (M3e) ────────────────
+ *
+ * §3's layers became a filter, so a diver can have their dives, the community's sites and the
+ * community's centres drawn at once. **§0.1 leaves no hue to separate them and M3c has already
+ * spent plain shape**: it built a disc beside a square, looked at both themes, and found that at
+ * map scale a square reads as the same mark drawn slightly wrong, and that two overlapping
+ * squares read as one stacked card. What §3 leaves is *ink weight or an inner glyph*.
+ *
+ * **So: one disc, one ink, three interiors.** The shape never varies, which turns M3c's second
+ * finding into an asset — with a single shape an overlap is self-evidently two marks — and the
+ * interior says what the mark is:
+ *
+ *  · **your dives** carry a NUMERAL, which they already did (§3's "badge = count per site"), and
+ *    a figure is not a symbol needing a legend: it is the count itself;
+ *  · **a dive centre** carries the `storefront` glyph, **the same glyph the filter control uses
+ *    to switch centres on** — which is §0.6's "a symbol that needs a legend has already failed"
+ *    answered rather than dodged: the legend is the control, one press away, in the same 19 pt
+ *    ink, and turning the filter off makes every mark carrying that glyph disappear;
+ *  · **a community site** carries NOTHING, and stays exactly the dot M2n drew and M3c measured.
+ *
+ * The empty interior is the one that had to be argued for, because §0.6 has twice ruled that a
+ * mark whose meaning is an absence is a legend — M2n refused a bare mark for a single dive for
+ * precisely that reason. It is admitted here on a different ground: a **dive site is what this
+ * map is of**. A shop is the exception (§3: a centre is not a place you get into the water) and a
+ * count is the diver's own, so the unmarked mark is the subject rather than a third code — and
+ * the alternative, a third glyph, spends a symbol at 13 pt on the most common mark on the screen.
+ * The other arrangement was drawn and looked at; the report for this task says what it showed.
+ *
+ * **A tap does not mean the same thing on all three**, and since M3e the MARK has to carry that
+ * rather than the layer: a centre goes to its page and the other two open a sheet. M3c gave the
+ * asymmetry to the layer on the grounds that "a diver never has to work out which kind of thing
+ * they are about to press"; the glyph is what pays for that now, which is the second job it does.
  */
 
 /** A mark sits on its coordinate by its middle — see the `anchor` prop below. Hoisted out of
  * the render so the object identity is stable across renders rather than a new one per mark. */
 const MARK_ANCHOR = { x: 0.5, y: 0.5 } as const;
 
-export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUserLocation }: DiveMapProps) {
+/**
+ * The centre glyph's drawn size inside its 26 pt disc. Smaller than the capsule's 19 pt for the
+ * obvious reason — the disc is half the capsule's height — and settled by looking rather than by
+ * arithmetic, since what matters is whether an awning reads over Apple's cartography at all.
+ */
+const MARK_GLYPH_SIZE = 14;
+
+/**
+ * **Which mark wins when two land on one pixel** (M3e), and the rule is: **the one that says the
+ * most is on top, so an overlap can only ever hide the mark that says the least.**
+ *
+ * This is a defect the simulator found and nothing else could have. A dive at a catalogue site
+ * the diver never paired — a site typed by hand, or one another diver surveyed at the same rock —
+ * draws a badge and a dot on the same coordinate, and the dot went **over** the badge: the count
+ * disappeared completely and the place read as somewhere the diver had never been. A mocked map
+ * has no z-order and would never have said so.
+ *
+ * Ordered by how much each interior carries. A place's badge holds a figure that exists nowhere
+ * else on the screen. A centre's glyph says which catalogue it is from, and a centre hidden under
+ * a plain dot is worse than the reverse, because it then reads as a *site* — the one confusion §3
+ * says this map may not create. A community site's dot means "a catalogue row is here", which any
+ * visible ring already says, so it is the one that can afford to be behind.
+ *
+ * **`zIndex` rather than the order of the children**, because `MKMapView` reorders annotations as
+ * it pleases — the library maps this onto `zPriority` and `layer.zPosition` (AIRMapMarker.m), and
+ * that is the only thing on iOS that holds.
+ *
+ * **A selected mark is deliberately NOT lifted, and that was measured rather than decided.** The
+ * obvious extra — add a constant to the chosen mark's `zIndex`, so the mark a diver has just
+ * pressed is the one they can see — was written, run on the simulator, and **had no effect**:
+ * two coincident badges kept the order they were first drawn in while the sheet below described
+ * the one behind. Selection itself repaints (an isolated dot inverts to solid ink in the same
+ * frame), so the re-render happens; what does not happen is `MKMapView` re-sorting an annotation
+ * view it already holds. The line is gone rather than left in as a claim nothing could support —
+ * and the cost is small, because a mark that is *fully* covered cannot be pressed in the first
+ * place, so the case only ever arises for a mark whose visible crescent inverts anyway.
+ */
+const MARK_Z: Record<MapMarkKind, number> = { community: 1, centers: 2, mine: 3 };
+
+export function DiveMap({ scheme, region, marks, selected, onSelect, showsUserLocation }: DiveMapProps) {
   const styles = makeStyles(scheme);
+  const theme = themeFor(scheme);
   return (
     <MapView
       style={styles.mapSurface}
@@ -150,12 +275,15 @@ export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUse
       showsCompass
     >
       {marks.map((mark) => {
-        const selected = mark.key === selectedKey;
+        // **Both halves compared, because three kinds share one key space** (M3e): a place key
+        // and a catalogue row's id are different vocabularies and a bare string could name a
+        // mark of the wrong kind. `key` alone was enough while one layer drew at a time.
+        const chosen = selected !== null && selected.kind === mark.kind && selected.key === mark.key;
         return (
           <Marker
-            key={mark.key}
+            key={`${mark.kind}:${mark.key}`}
             coordinate={mark.point}
-            onPress={() => onSelect(mark.key)}
+            onPress={() => onSelect(mark)}
             // **The mark's CENTRE is the coordinate, said rather than assumed** (M3c). Without
             // this, an annotation's position moves when the mark's size changes — measured:
             // taking the transparent 48 dp wrapper off shifted every mark on screen by about
@@ -163,6 +291,9 @@ export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUse
             // said they were. An explicit anchor makes a mark's place a fact about its
             // coordinate rather than a consequence of its size.
             anchor={MARK_ANCHOR}
+            // Which mark wins an overlap — see `MARK_Z` above for the defect this fixes and why
+            // it cannot be done with the order of the children.
+            zIndex={MARK_Z[mark.kind]}
             // The mark is drawn by this app, so the platform's own red teardrop — a hue nobody
             // here chose, sitting inside the depth scale's own range — is replaced rather than
             // tinted. A `Marker` with children renders them instead of its default pin.
@@ -177,20 +308,33 @@ export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUse
             accessibilityLabel={mark.label}
           >
             {/* No wrapper: the mark is the annotation, and the annotation is the tap target —
-                see this file's own note above for the measurement that settled it. */}
-            {mark.badge === null ? (
-                // **A community site has no number to show, so it shows none.** §3 badges a
-                // count "per site" of *your* dives; a catalogue site the diver has never been
-                // to has no count, and a badge reading `0` — or worse, a mark carrying the
-                // site's name at map scale — would be saying something the layer does not know.
-                // The two layers never draw at once (the capsule is a toggle, not a filter),
-                // so a dot and a badge are never on screen together to be told apart.
-              <View style={[styles.mapMarkDot, selected && styles.mapMarkDotSelected]} />
-            ) : (
-              <View style={[styles.mapMarkBadge, selected && styles.mapMarkBadgeSelected]}>
-                <Text style={[styles.mapMarkBadgeLabel, selected && styles.mapMarkBadgeLabelSelected]}>
+                see this file's own note above for the measurement that settled it.
+
+                One disc, three interiors, and the switch is on the mark's own `kind` rather than
+                on whether some field happens to be null — which is what the union above buys:
+                a community site cannot acquire a badge and a place cannot lose one. */}
+            {mark.kind === 'mine' ? (
+              <View style={[styles.mapMarkBadge, chosen && styles.mapMarkBadgeSelected]}>
+                <Text style={[styles.mapMarkBadgeLabel, chosen && styles.mapMarkBadgeLabelSelected]}>
                   {mark.badge}
                 </Text>
+              </View>
+            ) : (
+              // **A catalogue row has no number to show, so it shows none.** §3 badges a count
+              // "per site" of *your* dives; a row the diver has never been to has no count, and
+              // a badge reading `0` — or worse, a mark carrying the row's name at map scale —
+              // would be saying something the catalogue does not know.
+              <View style={[styles.mapMarkDot, chosen && styles.mapMarkDotSelected]}>
+                {/* And a centre says which kind of row it is, in the filter's own glyph. A
+                    community site draws nothing here — see this file's note above for why the
+                    unmarked mark is the site rather than a third symbol. */}
+                {mark.kind === 'centers' && (
+                  <SymbolView
+                    name={symbolName(CENTERS_GLYPH)}
+                    size={MARK_GLYPH_SIZE}
+                    tintColor={chosen ? theme.actionFg : theme.fg}
+                  />
+                )}
               </View>
             )}
           </Marker>

@@ -3,6 +3,7 @@ import {
   groupDivesByPlace,
   pointOf,
   regionFor,
+  sitesWithoutYourMark,
   withPoints,
   waterTempRange,
   type MapPoint,
@@ -242,6 +243,94 @@ describe('withPoints', () => {
     expect(withPoints([shop, { id: 'c2', name: 'Aqua', latitude: null, longitude: null }])).toEqual([
       { row: shop, point: { latitude: 43.5, longitude: 16.4 } },
     ]);
+  });
+});
+
+/**
+ * **The rule that stops one place being drawn twice** (M3e), now that §3's layers are a filter
+ * and the diver's dives and the community catalogue are on the map together.
+ *
+ * The case it exists for is not "two marks near each other": §2.3's *Add "…" as a new site*
+ * copies the dive's own pin into the new row and pairs the dive to it by id, so every site this
+ * app has created sits on **exactly** the coordinate of the dive that created it, and one mark
+ * simply covers the other.
+ */
+describe('sitesWithoutYourMark', () => {
+  const placed = (row: DiveSite) => ({ row, point: { latitude: 43.5, longitude: 16.4 } });
+  const at = (row: DiveSite, over: Parameters<typeof dive>[0] = {}) =>
+    dive({ siteId: row.id, siteName: row.name, latitude: 43.5, longitude: 16.4, ...over });
+
+  it('drops a catalogue site the diver has a mark on already', () => {
+    const row = site({ id: 's1', name: 'Kotelna', latitude: 43.5, longitude: 16.4 });
+    expect(sitesWithoutYourMark([placed(row)], groupDivesByPlace([at(row)]))).toEqual([]);
+  });
+
+  // The other half, and it is what makes the first one a rule rather than a filter that empties
+  // the catalogue: a row nobody has dived keeps its dot.
+  it('keeps a catalogue site the diver has never dived', () => {
+    const dived = site({ id: 's1', name: 'Kotelna', latitude: 43.5, longitude: 16.4 });
+    const unknown = site({ id: 's2', name: 'Vis', latitude: 43.06, longitude: 16.18 });
+    const kept = sitesWithoutYourMark([placed(dived), placed(unknown)], groupDivesByPlace([at(dived)]));
+    expect(kept.map(({ row }) => row.id)).toEqual(['s2']);
+  });
+
+  // Nothing of the diver's own on the map — the filter is off, or the logbook has no pins —
+  // leaves the catalogue exactly as it arrived.
+  it('drops nothing when there are no places to absorb into', () => {
+    const rows = [placed(site({ id: 's1' })), placed(site({ id: 's2' }))];
+    expect(sitesWithoutYourMark(rows, [])).toEqual(rows);
+  });
+
+  /**
+   * **By identity, and only by the id tier** — a place keyed by a hand-typed NAME never absorbs
+   * a catalogue row, however that row is spelled.
+   *
+   * This is the decision `catalogueSiteIdentity` (domain/siteIdentity.ts) records, and the cost
+   * runs the other way from the usual one: folding names here would let one diver's `Blue Hole`
+   * take Egypt's, Malta's and Croatia's rows off the map at once. Two marks a few metres apart
+   * is the honest answer, and it is the same trade-off `siteIdentity.ts` already accepts for
+   * Stats' "sites visited".
+   */
+  it('never absorbs a row on the strength of its name', () => {
+    const row = site({ id: 's1', name: 'Kotelna', latitude: 43.5, longitude: 16.4 });
+    const typed = dive({ siteName: 'Kotelna', latitude: 43.5, longitude: 16.4 });
+    expect(sitesWithoutYourMark([placed(row)], groupDivesByPlace([typed]))).toEqual([placed(row)]);
+  });
+
+  // A pinned dive that names no place at all keys by its own id (`placeKeyOf`'s third tier), and
+  // a catalogue row must not vanish because a dive id happened to collide with a site id.
+  it('never absorbs a row into a dive that names no place', () => {
+    const row = site({ id: 'd1', latitude: 43.5, longitude: 16.4 });
+    const nameless = dive({ id: 'd1', latitude: 43.5, longitude: 16.4 });
+    expect(sitesWithoutYourMark([placed(row)], groupDivesByPlace([nameless]))).toEqual([placed(row)]);
+  });
+
+  /**
+   * **A row this build cannot identify keeps its mark**, which is the `identity === null` half of
+   * the condition and was measured to be load-bearing rather than assumed: without this test,
+   * flipping that half to drop such a row left every other assertion here green.
+   *
+   * The direction is the point. An unidentifiable row is not "already drawn" — it is a row with
+   * nothing to compare — so absorbing it would take a mark off the map on the strength of a
+   * missing id, which is the one failure a map may not have. This module's standing stance
+   * (`groupDivesByPlace`, `withPoints`, and `siteIdentityOf` next door) is that a corrupt row
+   * costs its own column's opinion and never the gesture.
+   */
+  it('keeps a catalogue row it cannot identify at all', () => {
+    const nameless = { ...site({ name: 'Vis' }), id: '' };
+    const dived = site({ id: 's1', name: 'Kotelna', latitude: 43.5, longitude: 16.4 });
+    const kept = sitesWithoutYourMark(
+      [placed(nameless), placed(dived)],
+      groupDivesByPlace([at(dived)]),
+    );
+    expect(kept.map(({ row }) => row.id)).toEqual(['']);
+  });
+
+  // Order is the catalogue's own, unchanged — the marks are drawn in it and `regionFor` frames
+  // them in it, so a filter that reordered would move the map for no reason.
+  it('hands back what is left in the order it was given', () => {
+    const rows = [placed(site({ id: 'a' })), placed(site({ id: 'b' })), placed(site({ id: 'c' }))];
+    expect(sitesWithoutYourMark(rows, []).map(({ row }) => row.id)).toEqual(['a', 'b', 'c']);
   });
 });
 

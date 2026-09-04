@@ -3,10 +3,10 @@ import { SymbolView } from 'expo-symbols';
 
 import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
-import { CENTERS_GLYPH, EXPLORE_GLYPH, MY_DIVES_GLYPH } from '../screens/MapScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
+import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
 import { CarriedMark } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
 import { EntryIcon } from './EntryIcon';
@@ -70,16 +70,18 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. **Fourteen symbols in six places**: the search capsule's magnifier, the
+// it can only be listed. **Fifteen symbols in seven places**: the search capsule's magnifier, the
 // two `entry` chips, the five capsule glyphs `DivesScreen`, `SearchScreen` and `MapScreen` hand
-// to `ActionCapsule`, `navigation/tabs.ts`' four, and M1h's carried treatment — the return mark
-// and the clear control's ring.
+// to `ActionCapsule`, `navigation/tabs.ts`' four, M1h's carried treatment — the return mark and
+// the clear control's ring — and, since M3e, **the glyph inside a dive centre's map mark**.
 //
 // It was ten in six until M2n, and the three that joined are §3's Map tab: its own tab glyph, and
 // BOTH states of the layer toggle in the capsule — one control that renders a different symbol
 // depending on which layer is showing, so a check of one state proves nothing about the other.
 // The fourteenth is M3a's Stats tab, and the tab block below is now tied to `TAB_ROUTES` so the
-// fifteenth cannot arrive without one.
+// fifteenth cannot arrive without one. The Map's own count did not grow when M3e turned its
+// toggle into three switches — the same three symbols, drawn at once rather than one at a time —
+// but a **seventh place** did arrive, because one of those three is now also drawn on the map.
 //
 // It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
 // condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
@@ -160,17 +162,15 @@ it.each([
   ['dive list’s magnifier', SEARCH_GLYPH, 'search'],
   ['dive list’s plus', LOG_DIVE_GLYPH, 'add'],
   ['search screen’s close', CLOSE_SEARCH_GLYPH, 'close'],
-  // The Map tab's layer toggle (M2n), which is ONE control in two states — §3's "toggle to
-  // explore all community sites" — so both glyphs are here. Each is what the capsule renders
-  // while the other layer is showing, and either one missing its Material name would leave the
-  // browser's and Android's capsule empty in exactly one of the two states, which is the half
-  // a single-state check would sail past.
-  ['map screen’s explore toggle', EXPLORE_GLYPH, 'public'],
-  ['map screen’s my-dives toggle', MY_DIVES_GLYPH, 'pin_drop'],
-  // The third layer (M3c), and the third state of the same one control — a glyph missing its
-  // Material name would leave the browser's and Android's capsule empty in exactly one of the
-  // three states, which is the half a single-state check sails past.
-  ['map screen’s centres toggle', CENTERS_GLYPH, 'storefront'],
+  // The Map tab's three filter switches (M2n, M3c, M3e), which since the layers became a
+  // filter are all three drawn at once rather than being three states of one control. They live
+  // in `DiveMap.tsx` rather than on the screen, because the centres glyph is also drawn INSIDE a
+  // centre's mark and the two must be one symbol — `MAP_KIND_GLYPH` is that tie, and this checks
+  // the three values it holds. One of them missing its Material name would leave the browser's
+  // and Android's capsule with a hole in it where a switch should be.
+  ['map screen’s community switch', EXPLORE_GLYPH, 'public'],
+  ['map screen’s my-dives switch', MY_DIVES_GLYPH, 'pin_drop'],
+  ['map screen’s centres switch', CENTERS_GLYPH, 'storefront'],
   ['centres directory’s close', CLOSE_CENTERS_GLYPH, 'close'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
   await render(
@@ -179,6 +179,37 @@ it.each([
   const name = nameProp();
   expect(name?.android).toBe(material);
   expect(name?.web).toBe(material);
+});
+
+/**
+ * **The seventh place, and the reason it is not covered by the capsule block above** (M3e).
+ *
+ * `MAP_KIND_GLYPH.centers` is drawn twice on one screen — in the filter capsule, and **inside a
+ * dive centre's mark on the map** — and that second drawing is what lets the map do without a
+ * legend at all. It is a separate `symbolName` call in a separate component, so the capsule's row
+ * above says nothing about it: `DiveMap` could pass the raw `PlatformSymbol` and every check in
+ * this file would stay green while the mark drew a blank disc in a browser and on Android, which
+ * is the exact defect this whole file exists for.
+ *
+ * `react-native-maps` resolves through `__mocks__/react-native-maps.js` like everywhere else, and
+ * a centre mark is the only kind that carries a symbol — a place carries a numeral and a
+ * community site carries nothing — so one mark is the whole render this needs.
+ */
+it('gives a centre’s map mark an Android and a web name, not just an iOS one', async () => {
+  await render(
+    <DiveMap
+      scheme="dark"
+      region={{ latitude: 43, longitude: 16, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+      marks={[{ kind: 'centers', key: 'c1', label: 'Ponorka, dive centre', point: { latitude: 43, longitude: 16 } }]}
+      selected={null}
+      onSelect={() => {}}
+      showsUserLocation={false}
+    />,
+  );
+  const name = nameProp();
+  expect(name?.android).toBe('storefront');
+  expect(name?.web).toBe('storefront');
+  expect(name?.ios).toBe(CENTERS_GLYPH.ios);
 });
 
 // --- The two tab glyphs, which are the one call site with no render to observe ---

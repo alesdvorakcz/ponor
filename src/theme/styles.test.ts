@@ -113,6 +113,25 @@ describe('a map mark', () => {
     // until it is pressable" cannot creep back the other way without a decision.
     expect(dot).toBeLessThan(48);
   });
+
+  /**
+   * **And both marks place their interior the same way** (M3e), because since the filter there is
+   * an interior in both: a numeral in the badge, and a `storefront` glyph in the dot when the
+   * mark is a dive centre. Two discs of one size whose contents sat on two different centres
+   * would read as two shapes rather than one vocabulary — which is exactly the failure M3c
+   * measured when it tried a square beside a circle.
+   *
+   * Written as an equality AND against `'center'`, so it fails whether the dot alone loses its
+   * centring or both do. The dot had none at all until a glyph needed one, and nothing here
+   * noticed until this was written.
+   */
+  it.each(['dark', 'light'] as const)('centres what is inside both marks, identically (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    for (const axis of ['alignItems', 'justifyContent'] as const) {
+      expect(sheet.mapMarkDot?.[axis]).toBe('center');
+      expect(sheet.mapMarkDot?.[axis]).toBe(sheet.mapMarkBadge?.[axis]);
+    }
+  });
 });
 
 describe('the form field row', () => {
@@ -918,23 +937,23 @@ describe('the app content column', () => {
   // **The Map tab's own cap, read the same way and against its own capsule** (M2n).
   //
   // Written as a relation for the reason the Dives one is, and with one difference that is the
-  // whole point of it being a separate test: the capsule this clears holds **one** glyph, so the
-  // sum below counts one glyph box and no divider. A sheet that gave this header the Dives
-  // reserve would pass every "is it capped" check and leave 61 pt of empty column on a screen
-  // whose summary line is the longest thing on it; a sheet that gave the Dives header THIS
-  // reserve would put its summary back under the glass. Neither can happen while both are
-  // derived, and this is what fails if either stops being.
+  // whole point of it being a separate test: the two capsules hold different numbers of glyphs,
+  // so the sum below has to be this one's. A sheet that gave this header the Dives reserve would
+  // pass every "is it capped" check and put the map's summary line back under the glass; a sheet
+  // that gave the Dives header THIS reserve would leave a column of empty header on it. Neither
+  // can happen while both are derived, and this is what fails if either stops being.
   it('stops the map header text column short of its own capsule, glyph for glyph', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
-      // **Two glyphs since M3c** — §3's toggle gained a third layer (dive centres) and the
-      // capsule now shows the two layers the diver is NOT on, so it holds a glyph box, a
-      // hairline and a second glyph box inside its own padding.
-      const twoGlyphCapsule =
+      // **Three glyphs since M3e** — §3's layers became a filter, so the capsule holds one switch
+      // per kind, all three drawn at once: three glyph boxes and two hairlines inside its own
+      // padding. It was one under M2n's toggle and two under M3c's, and the count moved here
+      // each time because a hand-typed reserve is the defect this pairing exists to catch.
+      const threeGlyphCapsule =
         (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 +
-        (sheet.capsuleGlyph?.width as number) * 2 +
-        (sheet.capsuleDivider?.width as number);
-      const leadingEdge = (sheet.capsuleFloat?.right as number) + twoGlyphCapsule;
+        (sheet.capsuleGlyph?.width as number) * 3 +
+        (sheet.capsuleDivider?.width as number) * 2;
+      const leadingEdge = (sheet.capsuleFloat?.right as number) + threeGlyphCapsule;
       expect(leadingEdge).toBeGreaterThan(0);
 
       const short = ['mapTitle', 'mapSummary'].filter((name) => {
@@ -944,13 +963,12 @@ describe('the app content column', () => {
       expect(short).toEqual([]);
       // One column, so one cap across both lines of the block.
       expect(sheet.mapSummary?.paddingRight).toBe(sheet.mapTitle?.paddingRight);
-      // ...and it now EQUALS the Dives header's, because both capsules hold two glyphs — which
-      // is a coincidence of the counts rather than a shared constant, and is why the assertion
-      // above is written against this capsule's own geometry rather than against that number.
-      // It was `toBeLessThan` while the map's capsule held one glyph; keeping that form would
-      // have meant deleting the check the day the counts met, which is exactly when a sheet
-      // reusing the other screen's constant stops being visible to anything else in this file.
-      expect(sheet.mapTitle?.paddingRight).toBe(sheet.divesTitle?.paddingRight);
+      // ...and it is WIDER than the Dives header's again, having briefly equalled it while both
+      // capsules held two glyphs. Asserted as a relation rather than a number, so the day either
+      // capsule changes only the one that changed has to move — and asserted at all, because two
+      // constants that were equal for one milestone is exactly when a sheet quietly reusing the
+      // other screen's number stops being visible to anything else in this file.
+      expect(sheet.mapTitle?.paddingRight).toBeGreaterThan(sheet.divesTitle?.paddingRight as number);
       // The LEADING edge is untouched, exactly as on the Dives header.
       expect(sheet.mapTitle?.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
     }
