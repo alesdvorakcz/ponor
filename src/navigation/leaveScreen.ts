@@ -50,3 +50,27 @@ export function backToDives(): void {
 export function backToSettings(): void {
   leaveTo('/settings');
 }
+
+/**
+ * The way out of the centres directory (M3c), which is reached from §3's Map tab — the layer
+ * that draws the centres the catalogue has a position for, and which is where a diver who
+ * wanted the whole list pressed *All centres*.
+ *
+ * The Map rather than the Dives list, on `backToSettings`' own reasoning: a diver who deep-linked
+ * into the directory and pressed the way out should land on the screen it belongs to, not on an
+ * answer to a question they did not ask.
+ */
+export function backToMap(): void {
+  leaveTo('/map');
+}
+
+/**
+ * The way out of one centre's page (M3c). It is reached from three places — the directory, a
+ * mark on the Map's centre layer, and a dive's own *Centre* row — which is exactly why the
+ * fallback matters so little and the pop matters so much: `router.back()` returns to whichever
+ * of the three it was, and the fallback is only ever consulted on a cold deep link, where the
+ * directory is the screen this page belongs beneath.
+ */
+export function backToCenters(): void {
+  leaveTo('/centers');
+}

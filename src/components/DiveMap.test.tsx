@@ -92,6 +92,18 @@ it('draws one mark per place, at the coordinate it was given', async () => {
     { latitude: 43.6, longitude: 16.5 },
   ]);
   expect(mapView(t).props.initialRegion).toBe(REGION);
+  /**
+   * **And each one sits on that coordinate by its middle** (M3c). A map annotation's position
+   * otherwise depends on how big its mark is: taking the old transparent 48 dp wrapper off
+   * shifted every mark on screen by about half the difference, which is a mark drawn beside the
+   * place rather than on it. A mocked map can say nothing about pixels, but it can say the
+   * anchor was asked for — and that is the half that would go missing if someone dropped the
+   * prop while tidying.
+   */
+  expect(markers(t).map((m) => m.props.anchor)).toEqual([
+    { x: 0.5, y: 0.5 },
+    { x: 0.5, y: 0.5 },
+  ]);
 });
 
 // §3: "badge = count per site". Always the count, including `1` — a bare mark for a single dive

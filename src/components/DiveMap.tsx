@@ -99,7 +99,22 @@ export interface DiveMapProps {
  * is being evaluated, not a component that renders nothing. DESIGN.md §9 already records the
  * gap ("`react-native-maps` has no web support, so M2's Map tab will not render there"); the
  * `.web` sibling is what turns it from a crash into a sentence.
+ *
+ * ── What a mark is, and what it is not (M3c) ──────────────────────────────────────────────
+ *
+ * Each mark used to sit inside a transparent 48 dp box, on `capsuleGlyph`'s pattern, so §0.5's
+ * tap floor could be met without drawing a mark that size. **On a device that buys nothing**: an
+ * `MKAnnotationView` is hit-tested over the mark it actually draws, so the 14 pt community dot
+ * could not be pressed at all — found by being the first task with a catalogue row positioned to
+ * tap, and confirmed by growing the dot until it answered. So the box is gone, both marks are
+ * 26 pt (`mapMarkBadge`/`mapMarkDot`), and the size of the mark IS the target. A mocked map could
+ * never have said so: it measures no view and produces no gesture.
  */
+
+/** A mark sits on its coordinate by its middle — see the `anchor` prop below. Hoisted out of
+ * the render so the object identity is stable across renders rather than a new one per mark. */
+const MARK_ANCHOR = { x: 0.5, y: 0.5 } as const;
+
 export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUserLocation }: DiveMapProps) {
   const styles = makeStyles(scheme);
   return (
@@ -141,6 +156,13 @@ export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUse
             key={mark.key}
             coordinate={mark.point}
             onPress={() => onSelect(mark.key)}
+            // **The mark's CENTRE is the coordinate, said rather than assumed** (M3c). Without
+            // this, an annotation's position moves when the mark's size changes — measured:
+            // taking the transparent 48 dp wrapper off shifted every mark on screen by about
+            // half the difference, which means the marks were never sitting where the comment
+            // said they were. An explicit anchor makes a mark's place a fact about its
+            // coordinate rather than a consequence of its size.
+            anchor={MARK_ANCHOR}
             // The mark is drawn by this app, so the platform's own red teardrop — a hue nobody
             // here chose, sitting inside the depth scale's own range — is replaced rather than
             // tinted. A `Marker` with children renders them instead of its default pin.
@@ -154,27 +176,23 @@ export function DiveMap({ scheme, region, marks, selectedKey, onSelect, showsUse
             accessibilityRole="button"
             accessibilityLabel={mark.label}
           >
-            {/* §0.5's 48 dp floor as a real box rather than `hitSlop`, exactly as
-                `capsuleGlyph` (theme/styles.ts) does for a capsule's glyph: the visible mark is
-                small so a map of nine sites is readable, and the thing a wet thumb has to hit
-                is not. */}
-            <View style={styles.mapMarkTarget}>
-              {mark.badge === null ? (
+            {/* No wrapper: the mark is the annotation, and the annotation is the tap target —
+                see this file's own note above for the measurement that settled it. */}
+            {mark.badge === null ? (
                 // **A community site has no number to show, so it shows none.** §3 badges a
                 // count "per site" of *your* dives; a catalogue site the diver has never been
                 // to has no count, and a badge reading `0` — or worse, a mark carrying the
                 // site's name at map scale — would be saying something the layer does not know.
                 // The two layers never draw at once (the capsule is a toggle, not a filter),
                 // so a dot and a badge are never on screen together to be told apart.
-                <View style={[styles.mapMarkDot, selected && styles.mapMarkDotSelected]} />
-              ) : (
-                <View style={[styles.mapMarkBadge, selected && styles.mapMarkBadgeSelected]}>
-                  <Text style={[styles.mapMarkBadgeLabel, selected && styles.mapMarkBadgeLabelSelected]}>
-                    {mark.badge}
-                  </Text>
-                </View>
-              )}
-            </View>
+              <View style={[styles.mapMarkDot, selected && styles.mapMarkDotSelected]} />
+            ) : (
+              <View style={[styles.mapMarkBadge, selected && styles.mapMarkBadgeSelected]}>
+                <Text style={[styles.mapMarkBadgeLabel, selected && styles.mapMarkBadgeLabelSelected]}>
+                  {mark.badge}
+                </Text>
+              </View>
+            )}
           </Marker>
         );
       })}

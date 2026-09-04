@@ -21,6 +21,17 @@ interface SearchCapsuleProps {
    * summons a keyboard nobody asked for.
    */
   autoFocus?: boolean;
+  /**
+   * What the empty field says, and what a screen reader calls it — **one string for both**,
+   * which is the whole reason this is a prop rather than two (M3c).
+   *
+   * They were the literal `"Search dives"` twice over while the logbook was the only thing
+   * anybody searched. §3's centres directory is the second caller and searches a different
+   * population, so a field promising dives there would be a placeholder that lies and an
+   * announcement that lies with it — and two props would let them drift apart in the way §4.1
+   * opens with. Defaulted rather than required, so the screen this was written for is unchanged.
+   */
+  placeholder?: string;
 }
 
 /**
@@ -41,7 +52,13 @@ interface SearchCapsuleProps {
  * SearchCapsule.test.tsx pins that the two are shape-for-shape identical, not just each
  * individually plausible.
  */
-export function SearchCapsule({ scheme, value, onChangeText, autoFocus }: SearchCapsuleProps) {
+export function SearchCapsule({
+  scheme,
+  value,
+  onChangeText,
+  autoFocus,
+  placeholder = 'Search dives',
+}: SearchCapsuleProps) {
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
 
@@ -65,14 +82,14 @@ export function SearchCapsule({ scheme, value, onChangeText, autoFocus }: Search
   const input = (
     <TextInput
       style={styles.searchCapsuleInput}
-      placeholder="Search dives"
+      placeholder={placeholder}
       placeholderTextColor={theme.fgMuted}
       value={value}
       onChangeText={onChangeText}
       autoCapitalize="none"
       autoCorrect={false}
       autoFocus={autoFocus}
-      accessibilityLabel="Search dives"
+      accessibilityLabel={placeholder}
     />
   );
 

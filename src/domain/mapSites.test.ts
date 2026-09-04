@@ -3,7 +3,7 @@ import {
   groupDivesByPlace,
   pointOf,
   regionFor,
-  sitesWithPoints,
+  withPoints,
   waterTempRange,
   type MapPoint,
 } from './mapSites';
@@ -217,19 +217,31 @@ describe('groupDivesByPlace', () => {
   });
 });
 
-describe('sitesWithPoints', () => {
+describe('withPoints', () => {
   it('keeps the catalogue rows that carry a position', () => {
     const placed = site({ name: 'Blue Hole', latitude: 43.5, longitude: 16.4 });
-    expect(sitesWithPoints([placed, site({ name: 'Nowhere' })])).toEqual([
-      { site: placed, point: { latitude: 43.5, longitude: 16.4 } },
+    expect(withPoints([placed, site({ name: 'Nowhere' })])).toEqual([
+      { row: placed, point: { latitude: 43.5, longitude: 16.4 } },
     ]);
   });
 
   // The state of the catalogue today: `dive_sites` reaches the device only through a pull and
   // nothing creates a site yet, so this is the branch the community layer's empty screen is for.
   it('answers an empty layer for a catalogue that has none', () => {
-    expect(sitesWithPoints([])).toEqual([]);
-    expect(sitesWithPoints([site(), site()])).toEqual([]);
+    expect(withPoints([])).toEqual([]);
+    expect(withPoints([site(), site()])).toEqual([]);
+  });
+
+  // **The centres half, and it is the same function on purpose** (M3c). `dive_sites` and
+  // `dive_centers` are one shape under two names (§5 covers them in one sentence), so "can this
+  // row be drawn" has one answer — a `centersWithPoints` beside this would be six identical
+  // lines rather than a deliberate near-duplicate. The row comes back untouched, which is what
+  // lets the Map label a centre by its own rule.
+  it('answers the same question about a centre, and hands the row back unchanged', () => {
+    const shop = { id: 'c1', name: 'Ponorka', latitude: 43.5, longitude: 16.4 };
+    expect(withPoints([shop, { id: 'c2', name: 'Aqua', latitude: null, longitude: null }])).toEqual([
+      { row: shop, point: { latitude: 43.5, longitude: 16.4 } },
+    ]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { foldForMatching, searchDives } from './search';
+import { browseCenters, foldForMatching, searchDives } from './search';
 
 describe('searchDives', () => {
   // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
@@ -163,5 +163,66 @@ describe('foldForMatching — §10\'s diacritic fold, and exactly where it stops
     expect(DIVERGENCES.length).toBeGreaterThan(3);
     expect(DIVERGENCES.filter((row) => row.why.trim().length < 20)).toEqual([]);
     expect(DIVERGENCES.filter((row) => row.client === row.server)).toEqual([]);
+  });
+});
+
+/**
+ * `browseCenters` — §3's centres directory, as a list (M3c).
+ *
+ * `searchDives`' sibling above, differing on two axes and stating both: it reads community rows
+ * with one column worth matching, and it ORDERS them, because a directory of shops has no order
+ * of its own to preserve and leaving it to whatever SQLite returned would make the same list read
+ * differently on two devices.
+ */
+describe('browseCenters', () => {
+  const centre = (id: string, name: string | null) => ({ id, name });
+
+  it('opens on the whole catalogue when nothing has been typed', () => {
+    const rows = [centre('a', 'Ponorka'), centre('b', 'Kotelna')];
+    expect(browseCenters(rows, '').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
+    expect(browseCenters(rows, '   ').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
+  });
+
+  // Both sides through `foldForMatching`, which is why `zelezna` finds `Železná` here for the
+  // same reason it does in the logbook and on the server (§2.3, M2j).
+  it('matches on a folded substring', () => {
+    const rows = [centre('a', 'Železná'), centre('b', 'Ponorka')];
+    expect(browseCenters(rows, 'zelez').map((c) => c.name)).toEqual(['Železná']);
+    expect(browseCenters(rows, 'NOR').map((c) => c.name)).toEqual(['Ponorka']);
+    expect(browseCenters(rows, '  ponorka  ').map((c) => c.name)).toEqual(['Ponorka']);
+  });
+
+  /**
+   * **Alphabetical by the FOLDED name**, so `Železná` sits next to `Zelena` rather than after
+   * every other Z — which is where a Czech diver looks for it — and without `localeCompare`,
+   * whose answer depends on the device's ICU build (`foldForMatching`'s own note).
+   */
+  it('orders by the folded name, so an accent does not send a row to the end', () => {
+    const rows = [centre('a', 'Zubatá'), centre('b', 'Železná'), centre('c', 'Aqua')];
+    // A comparison on the RAW names puts `Ž` after every `Z` — `'Zubatá' < 'Železná'` — so this
+    // order is the fold's doing and nothing else's.
+    expect('Zubatá' < 'Železná').toBe(true);
+    expect(browseCenters(rows, '').map((c) => c.name)).toEqual(['Aqua', 'Železná', 'Zubatá']);
+  });
+
+  // Two rows spelled the same way must not swap places between renders, so the id breaks the tie.
+  it('breaks a tie on the id rather than leaving it to the caller’s order', () => {
+    const rows = [centre('b', 'Ponorka'), centre('a', 'ponorka')];
+    expect(browseCenters(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
+  });
+
+  // `dive_centers.name` is nullable in both databases (§6), so a row with none can arrive by
+  // pull. It sorts first and matches nothing but an empty query — never every query, which is
+  // what folding an absent name to `''` and testing `includes` the other way round would do.
+  it('keeps an unnamed row without letting it match everything', () => {
+    const rows = [centre('a', null), centre('b', 'Ponorka')];
+    expect(browseCenters(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
+    expect(browseCenters(rows, 'pon').map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('does not mutate the array it was handed', () => {
+    const rows = [centre('a', 'Ponorka'), centre('b', 'Aqua')];
+    browseCenters(rows, '');
+    expect(rows.map((c) => c.id)).toEqual(['a', 'b']);
   });
 });

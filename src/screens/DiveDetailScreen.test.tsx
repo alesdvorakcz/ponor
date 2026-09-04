@@ -1665,3 +1665,43 @@ describe('the unit setting', () => {
     expect(heroColour(imperial)).toBe(band);
   });
 });
+
+// --- The centre row goes somewhere, when there is somewhere to go (M3c) ---------------------
+
+/**
+ * `dive_centers` had no reader on any screen until M3c: a diver could add a centre, watch it
+ * sync, and never see it again. §6 pairs a dive to `center_id` and snapshots `center_name`, so
+ * the id is what decides whether this row has a page behind it.
+ */
+it('opens the centre’s page from the Centre row when the dive is paired to one', async () => {
+  const d = dive({ centerId: 'c-p', centerName: 'Ponorka' });
+  const t = await renderDetailTree(d);
+  const row = t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Open Ponorka') ?? [];
+  expect(row).toHaveLength(1);
+  await fireEvent.press(row[0]!);
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/c-p');
+});
+
+/**
+ * **A dive with a snapshot and no id has nowhere to go, and the row is text.** That is the
+ * ordinary case rather than a fault: §2.3 only started publishing centres in M2o, so a centre
+ * typed by hand has never named a catalogue row — and a row that looked pressable and did nothing
+ * is the dead control §0.6 objects to four separate times.
+ */
+it('leaves the Centre row as plain text when the dive names a centre it never published', async () => {
+  const d = dive({ centerId: null, centerName: 'Ponorka' });
+  const t = await renderDetailTree(d);
+  expect(textIn(t)).toContain('Ponorka');
+  expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Open Ponorka')).toHaveLength(0);
+});
+
+// The link belongs to the centre and to nothing else on this screen: a site has no page (its
+// sheet on the Map is where it is shown), and every other row here is a value rather than a
+// destination.
+it('makes no other row on the screen a destination', async () => {
+  const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
+  const t = await renderDetailTree(d);
+  const opens = (t.root?.queryAll((n) => typeof n.props?.accessibilityLabel === 'string' && String(n.props.accessibilityLabel).startsWith('Open ')) ?? [])
+    .map((n) => String(n.props.accessibilityLabel));
+  expect(opens).toEqual(['Open Ponorka']);
+});

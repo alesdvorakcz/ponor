@@ -532,7 +532,15 @@ function build(scheme: ColorScheme) {
   // would silently under-reserve the day either capsule changes. `MapScreen.test.tsx` counts the
   // glyphs this screen actually renders against the count assumed here, exactly as
   // `DivesScreen.test.tsx` does for its own — the half a scheme-only sheet cannot see.
-  const MAP_CAPSULE_GLYPHS = 1;
+  // **Two since M3c**, when §3's toggle gained a third layer — dive centres — and the capsule
+  // went from one glyph to two: the two layers the diver is NOT on, so a press lands anywhere in
+  // one tap rather than cycling. The reserve moved with it because it is derived, which is the
+  // whole point of `actionCapsuleWidth`; the number below is the only edit that change needed.
+  //
+  // It now equals `DIVES_HEADER_TRAILING_INSET` — a coincidence of two capsules holding two
+  // glyphs each, not a shared constant, and the two stay separate for the reason they were
+  // separate: the day either capsule gains or loses a glyph, exactly one of these must move.
+  const MAP_CAPSULE_GLYPHS = 2;
   const MAP_HEADER_TRAILING_INSET =
     CONTENT_INSET + actionCapsuleWidth(MAP_CAPSULE_GLYPHS) + CAPSULE_CLEARANCE;
 
@@ -1447,16 +1455,6 @@ function build(scheme: ColorScheme) {
       paddingRight: MAP_HEADER_TRAILING_INSET,
       paddingBottom: 8,
     },
-    // **One mark's tap target** — §0.5's 48 dp floor as a real box, exactly as `capsuleGlyph`
-    // above is for a capsule's glyph and for the same reason: the visible mark has to be small
-    // enough that nine sites in one bay are readable, and the thing a wet thumb has to hit does
-    // not. Transparent and centred, so the mark sits ON its coordinate rather than beside it.
-    mapMarkTarget: {
-      width: CAPSULE_GLYPH,
-      height: CAPSULE_GLYPH,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
     // **A place of the diver's own: a pill carrying its dive count** (§3: "badge = count per
     // site"). Always the count, including `1` — a bare mark for a single dive would make the
     // ABSENCE of a number mean "one", which is a legend, and §0.6/§10 have twice ruled that a
@@ -1496,14 +1494,20 @@ function build(scheme: ColorScheme) {
     mapMarkBadgeLabelSelected: {
       color: theme.actionFg,
     },
-    // **A community site: a dot, because there is no count to show.** §3 badges "your dives"
-    // per site, and a catalogue site the diver has never dived has none — a badge reading `0`
-    // would be a number about the wrong thing. Same two-state ink as the badge above, so the
+    // **A community site or centre: a dot, because there is no count to show.** §3 badges "your
+    // dives" per site, and a catalogue row the diver has never dived has none — a badge reading
+    // `0` would be a number about the wrong thing. Same two-state ink as the badge above, so the
     // toggle changes what a mark IS without changing the vocabulary it is drawn in.
+    //
+    // **26 across, which is the badge's own diameter, and it is a tap target rather than a
+    // styling choice** (M3c): a map annotation is hit-tested over the mark it draws, so at 14 it
+    // was not pressable at all. The two marks now share a size and differ only in whether a
+    // figure is inside, which is also the honest reading of what they mean — one catalogue row
+    // there, against N of your dives there.
     mapMarkDot: {
-      width: 14,
-      height: 14,
-      borderRadius: 7,
+      width: 26,
+      height: 26,
+      borderRadius: 13,
       borderWidth: 1,
       borderColor: theme.fg,
       backgroundColor: theme.surface,
@@ -1580,6 +1584,29 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: CONTENT_INSET,
       paddingBottom: 12,
     },
+    // **The way into the centres directory**, on the centres layer only (M3c) — the row it sits
+    // in, in the app's one column, directly under the summary line the layer draws.
+    mapCentersRow: {
+      flexDirection: 'row',
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 8,
+    },
+    // §0.5's 48 dp floor on the Pressable, centred around a visually smaller pill — the "small
+    // visible control, generous hidden target" split `dayStripAction` and `plannedAction` already
+    // make, and the reason the pill is nested rather than being the Pressable itself.
+    mapCentersAction: {
+      minHeight: 48,
+      minWidth: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+    },
+    // The pill and its label: `actionPill`/`actionPillLabel` at the top of this function, the
+    // same quiet bordered control §0.6 gives the day strip and an "Up next" row. One definition
+    // under a name that says where it is placed — a second set of pill properties for one screen
+    // is the drift §4.1 is about.
+    mapCentersActionPill: actionPill,
+    mapCentersActionLabel: actionPillLabel,
     // The dive rows inside the sheet. Its bottom padding is composed at the call site from
     // `screenBottomInset` (this module's own owner of "how far above the bottom edge content
     // may end"), because the sheet's own bottom edge is the display's and the tab bar is in
@@ -3375,6 +3402,82 @@ function build(scheme: ColorScheme) {
     // exists to have stopped three times already.
     accountSecondaryAction: mutedControl,
     accountSecondaryActionLabel: mutedControlLabel,
+    // ------------------------------------------------------------------------------------
+    // Dive centres (DESIGN.md §5's community model and §6's `dive_centers`, M3c) —
+    // `DiveCenterScreen` (`/center/[id]`) and `DiveCentersScreen` (`/centers`)
+    // ------------------------------------------------------------------------------------
+    // **Not one new shape**, which is now the fourth screen pair in a row to be able to say so
+    // (the preset editor, the certification editor and the account screen before it). A centre's
+    // page is a title, a muted summary line and a column of §0.6 rows over a list of `DiveRow`s
+    // — every one of which already has a definition — and the directory is Settings' own list
+    // shape with the search screen's dock under it. The keys below are placements, not types.
+    centerScroll: rowScroll,
+    // `paddingBottom` composed at the call site from `screenBottomInset`, exactly as
+    // `settingsContent` leaves it: both of these screens are pushed OVER the tab bar, so their
+    // scrolls run to the bottom of the display and the last row would otherwise sit under the
+    // Liquid Glass.
+    centerContent: rowScrollContent,
+    // The centre's name, and the directory's own title. `screenHeading` plus the row inset —
+    // the composition `presetHeading`, `certificationHeading`, `accountHeading` and
+    // `settingsHeading` all make, and two keys rather than one shared across two screens on
+    // `detailBack`/`formBack`'s precedent: the placement is per screen, the type is not.
+    centerHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    centersHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // The line under a centre's name — `formatSiteSummary`'s "3 dives · deepest 18.2 m ·
+    // 18–24 °C", the same sentence the Map tab's site sheet carries about a place.
+    //
+    // `divesSummary`/`mapSummary`/`mapSheetSummary`'s treatment: a muted mono line of figures
+    // hanging under a title, which §0.6 refuses to give a second size or ink to. It carries no
+    // trailing cap, unlike the two header lines, because nothing floats over this screen — the
+    // cap is a clearance from a capsule, and a screen with no capsule has nothing to clear.
+    //
+    // **No colour, and the `deepest` in it is why that is a rule**: an aggregate over the dives
+    // at a centre is a claim no single band is true of (§0.6's own argument for the Dives
+    // header, and §10 has now ruled it three times).
+    centerSummary: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 8,
+    },
+    // A named group on either screen — the centre page's *What the catalogue knows* and *Your
+    // dives*, and the directory's own heading. `settingsSectionTitle`'s composition of
+    // `clusterLabel`, which is §0.6's one treatment for a group header wherever it appears.
+    // **`paddingTop` where `settingsSectionTitle` has none, and it was found by looking.** On
+    // Settings a section heading always follows a row, so the row's own hairline and height give
+    // it air; here the first heading lands directly under the muted summary line, and at 4 pt
+    // apart the two read as one block rather than as a figure and the structure beneath it.
+    centerSectionTitle: {
+      ...clusterLabel,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 12,
+      paddingBottom: 8,
+    },
+    // A centre's name leading its row in the directory. `settingsRowInk` — full ink, for the
+    // two reasons that key already carries and both of which apply here at once: it is the
+    // thing a diver scans the list for, and the row is a **destination**. §0.1 rules out a hue
+    // and §0.6 spends the chevron on in-place disclosure alone, "never on navigation".
+    centerRowName: settingsRowInk,
+    // The second line under it — `formatCenterRow`'s "Croatia · 3 dives". Row metadata in the
+    // §0.6 sense, and the same definition `settingsPresetSummary` and
+    // `settingsCertificationSummary` take, under a name that says which list it is on.
+    centerRowSummary: settingsRowMeta,
+    // The sentence that stands where the rows would be: "you have no centres yet", "they could
+    // not be read", "nothing matches". `settingsPresetEmpty`'s own definition, and the reason
+    // is that key's: those are different sentences and must never be confused.
+    centerEmpty: settingsSectionNote,
+    // What the catalogue knows that is not a figure — a country, a website. The form's own row
+    // is what draws them (`formField`/`formFieldRow`/`formFieldLabel`), so the only key here is
+    // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
+    // `accountEmail` reads it — a web address is a name, however little it looks like one.
+    centerFactValue: rowValueSans,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

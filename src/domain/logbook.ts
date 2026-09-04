@@ -33,3 +33,18 @@
  * and reopening the app is the one thing that has ever fixed it.
  */
 export const LOGBOOK_UNREADABLE = "Couldn't open your logbook. Try closing and reopening the app.";
+
+/**
+ * Shown when the device's copy of the community catalogue could not be read — `useDiveSites`'
+ * and `useDiveCenters`' own `error`, which is a different event from the one above and needs a
+ * different sentence: the logbook is the diver's, the catalogue is everybody's, and a screen
+ * that confused the two would tell a diver their dives were gone because a shop list failed.
+ *
+ * **Here for this module's whole reason, one copy earlier than last time** (M3c). The Map tab has
+ * carried this as a literal since M2n and it was the only reader; the centres directory and a
+ * centre's own page are the second and third, and `PRESETS_UNREADABLE`/`LOGBOOK_UNREADABLE` are
+ * both records of what waiting until the fourth costs. Same shape as the sentence above — it
+ * names what to do rather than what happened — and the same straight apostrophe, deliberately.
+ */
+export const CATALOGUE_UNREADABLE =
+  "Couldn't read the community catalogue. Try closing and reopening the app.";

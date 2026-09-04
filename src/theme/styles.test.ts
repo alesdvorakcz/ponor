@@ -48,6 +48,31 @@ describe('the 48 dp floor a style claims is a floor it keeps', () => {
       .map(([name]) => name);
     expect(shrunk).toEqual([]);
   });
+
+  /**
+   * **Every control drawn as a small pill inside a bigger target keeps the target** (M3c).
+   *
+   * §0.6's day strip, §2.4's *Complete dive*, the form's Logged/Planned control and the Map's
+   * *All centres* all use one shape: `actionPill` nested inside a `Pressable` whose own box is
+   * §0.5's 48 dp floor — "small visible control, generous hidden target". The pill itself is
+   * 11 pt of label and ~26 dp tall, so **the floor is the only thing making any of them
+   * pressable by a wet thumb**, and nothing was checking it: the sweep above only refuses a
+   * negative margin on a box that already claims 48.
+   *
+   * Swept by NAME rather than listed, on this file's own rule: a style `X` whose sibling
+   * `XPill` exists is one of these pairs by construction, so a fifth arrives already covered
+   * and a fifth that forgot the floor fails here rather than shipping.
+   */
+  it.each(['dark', 'light'] as const)('gives every pill control a 48 dp box to sit in (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    const pairs = Object.keys(sheet).filter((name) => sheet[`${name}Pill`] !== undefined);
+    // Vacuity check, exactly as above: a sheet with no such pairs would pass by saying nothing.
+    expect(pairs.length).toBeGreaterThan(3);
+    const short = pairs.filter(
+      (name) => sheet[name]?.minHeight !== 48 || sheet[name]?.minWidth !== 48,
+    );
+    expect(short).toEqual([]);
+  });
 });
 
 // Every field on the dive form (FormField.tsx, DateTimeField.tsx, OptionChips /
@@ -61,6 +86,35 @@ describe('the 48 dp floor a style claims is a floor it keeps', () => {
 // The floor moved from `formFieldHeader` (the label row above a bordered input) to
 // `formField` itself when §0.6's design pass collapsed the two into one row — same floor,
 // same reason, one row instead of two.
+/**
+ * **A map mark is its own tap target** (M3c, measured on a device).
+ *
+ * Each mark used to sit in a transparent 48 dp box, written to meet §0.5's floor the way
+ * `capsuleGlyph` does for a capsule. An `MKAnnotationView` is hit-tested over the mark it
+ * actually draws, so that box bought nothing and the 14 pt community dot could not be pressed at
+ * all — on a mocked map nothing could have said so, since it measures no view and produces no
+ * gesture.
+ *
+ * What is left to pin from here is the half a stylesheet can see: **the two marks are the same
+ * size**, so whichever one a layer draws, a press lands on the same thing. A dot quietly shrunk
+ * back below the badge is the defect returning.
+ */
+describe('a map mark', () => {
+  it.each(['dark', 'light'] as const)('draws both marks at one size, which is what a press hits (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    const dot = sheet.mapMarkDot?.width;
+    expect(typeof dot).toBe('number');
+    expect(dot).toBe(sheet.mapMarkDot?.height);
+    expect(dot).toBe(sheet.mapMarkBadge?.height);
+    // The badge grows with a three-digit count, so its width is a MINIMUM rather than a size.
+    expect(sheet.mapMarkBadge?.minWidth).toBe(dot);
+    // 26 rather than 48, which is §0.5's floor and is deliberately not met here: a 48 pt disc on
+    // a map covers the place it is marking. Asserted as an upper bound so that "make it bigger
+    // until it is pressable" cannot creep back the other way without a decision.
+    expect(dot).toBeLessThan(48);
+  });
+});
+
 describe('the form field row', () => {
   it('is tall enough for the controls that sit in it', () => {
     expect(makeStyles('dark').formField.minHeight).toBe(48);
@@ -738,6 +792,11 @@ describe('the app content column', () => {
     // scale. Nothing about it is where a screen's content begins — it is not on a screen's
     // column at all, it is on Apple's cartography.
     'mapMarkBadge',
+    // The centres layer's *All centres* control (M3c): the 48 dp target around its pill, and the
+    // pill's own label padding. Both are distances INSIDE the control — `mapCentersRow` is the
+    // one that says where it begins, and that is in the column and asserted below.
+    'mapCentersAction',
+    'mapCentersActionPill',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -778,6 +837,15 @@ describe('the app content column', () => {
     'mapSheetHeader',
     'mapSheetSummary',
     'mapSheetFacts',
+    // The centres layer's way into the directory (M3c) and the two screens behind it. A control
+    // under the layer's summary line hangs off the same column that line does, and a centre's
+    // page and the directory are ordinary row screens — Settings' shape, Settings' column.
+    'mapCentersRow',
+    'centerHeading',
+    'centerSummary',
+    'centerSectionTitle',
+    'centerEmpty',
+    'centersHeading',
   ];
 
   it('starts every screen content at the same edge, in both schemes', () => {
@@ -856,12 +924,17 @@ describe('the app content column', () => {
   // whose summary line is the longest thing on it; a sheet that gave the Dives header THIS
   // reserve would put its summary back under the glass. Neither can happen while both are
   // derived, and this is what fails if either stops being.
-  it('stops the map header text column short of its own one-glyph capsule', () => {
+  it('stops the map header text column short of its own capsule, glyph for glyph', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
-      const oneGlyphCapsule =
-        (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 + (sheet.capsuleGlyph?.width as number);
-      const leadingEdge = (sheet.capsuleFloat?.right as number) + oneGlyphCapsule;
+      // **Two glyphs since M3c** — §3's toggle gained a third layer (dive centres) and the
+      // capsule now shows the two layers the diver is NOT on, so it holds a glyph box, a
+      // hairline and a second glyph box inside its own padding.
+      const twoGlyphCapsule =
+        (sheet.actionCapsulePlain?.paddingHorizontal as number) * 2 +
+        (sheet.capsuleGlyph?.width as number) * 2 +
+        (sheet.capsuleDivider?.width as number);
+      const leadingEdge = (sheet.capsuleFloat?.right as number) + twoGlyphCapsule;
       expect(leadingEdge).toBeGreaterThan(0);
 
       const short = ['mapTitle', 'mapSummary'].filter((name) => {
@@ -871,10 +944,13 @@ describe('the app content column', () => {
       expect(short).toEqual([]);
       // One column, so one cap across both lines of the block.
       expect(sheet.mapSummary?.paddingRight).toBe(sheet.mapTitle?.paddingRight);
-      // ...and it is narrower than the Dives header's, because that capsule is wider. Asserted
-      // rather than left implied: the cheapest wrong edit here is reusing the other screen's
-      // constant, which is invisible to every other assertion in this file.
-      expect(sheet.mapTitle?.paddingRight).toBeLessThan(sheet.divesTitle?.paddingRight as number);
+      // ...and it now EQUALS the Dives header's, because both capsules hold two glyphs — which
+      // is a coincidence of the counts rather than a shared constant, and is why the assertion
+      // above is written against this capsule's own geometry rather than against that number.
+      // It was `toBeLessThan` while the map's capsule held one glyph; keeping that form would
+      // have meant deleting the check the day the counts met, which is exactly when a sheet
+      // reusing the other screen's constant stops being visible to anything else in this file.
+      expect(sheet.mapTitle?.paddingRight).toBe(sheet.divesTitle?.paddingRight);
       // The LEADING edge is untouched, exactly as on the Dives header.
       expect(sheet.mapTitle?.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
     }

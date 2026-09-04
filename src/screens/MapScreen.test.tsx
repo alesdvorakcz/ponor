@@ -10,22 +10,26 @@ import { router } from 'expo-router';
 
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { UNNAMED_SITE } from '../format/display';
-import { type Dive, type DiveSite } from '../domain/types';
+import { UNNAMED_CENTER, UNNAMED_SITE } from '../format/display';
+import { type Dive, type DiveCenter, type DiveSite } from '../domain/types';
 import { locationPermission, requestLocationPermission } from '../platform/locationPermission';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthBandColor } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
-import { LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
 import MapScreen from './MapScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
+// The centres half of the catalogue (M3c) — its own hook, mocked on its own, which is also what
+// makes "a failed centres read does not take the sites off the map" a thing this file can state.
+jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 jest.mock('../cloud/useAuthSession', () => ({
   useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
@@ -43,6 +47,7 @@ jest.mock('../platform/locationPermission', () => ({
 
 const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
 const mockUseDiveSites = useDiveSites as jest.MockedFunction<typeof useDiveSites>;
+const mockUseDiveCenters = useDiveCenters as jest.MockedFunction<typeof useDiveCenters>;
 const mockUseAuthSession = useAuthSession as jest.MockedFunction<typeof useAuthSession>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const mockLocationPermission = locationPermission as jest.MockedFunction<typeof locationPermission>;
@@ -68,6 +73,31 @@ function catalogueState(sites: DiveSite[], over: Partial<DiveSiteListState> = {}
   return { sites, resolved: true, error: undefined, ...over };
 }
 
+function centresState(centers: DiveCenter[], over: Partial<DiveCenterListState> = {}): DiveCenterListState {
+  return { centers, resolved: true, error: undefined, ...over };
+}
+
+let centreSeq = 0;
+/** A catalogue centre in the shape M2o actually writes: **a name and nothing else** (§2.3 — "a
+ * centre inherits its name alone"). Every other field is opted into by a test that is about it,
+ * which is what stops a fixture full of complete centres from hiding the common case. */
+const centre = (over: Partial<DiveCenter> = {}): DiveCenter => ({
+  id: `centre-${String(centreSeq++).padStart(4, '0')}`,
+  name: 'Ponorka',
+  country: null,
+  latitude: null,
+  longitude: null,
+  website: null,
+  createdBy: null,
+  status: 'active',
+  mergedInto: null,
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z',
+  deletedAt: null,
+  dirty: false,
+  ...over,
+});
+
 let siteSeq = 0;
 const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   id: `site-${String(siteSeq++).padStart(4, '0')}`,
@@ -92,6 +122,7 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
 beforeEach(() => {
   mockUseDives.mockReturnValue(divesState([]));
   mockUseDiveSites.mockReturnValue(catalogueState([]));
+  mockUseDiveCenters.mockReturnValue(centresState([]));
   mockUseAuthSession.mockReturnValue({ session: null, resolved: true });
   mockUseUnitSystem.mockReturnValue('metric');
   mockLocationPermission.mockResolvedValue('denied');
@@ -342,23 +373,30 @@ it('closes the sheet again', async () => {
 
 // --- The layer toggle (§3: "toggle to explore all community sites") ---
 
-// One control, two states, and the label says what pressing it DOES rather than what is
-// showing — which is what lets a plain `CapsuleAction` serve as a toggle without `ActionCapsule`
-// growing a state of its own.
-it('offers one toggle whose label names the layer it takes you to', async () => {
+// **Three layers, and the capsule offers the two you are not on** (M3c). Every label says what
+// pressing it DOES rather than what is showing, which is what lets plain `CapsuleAction`s serve
+// as a toggle without `ActionCapsule` growing a state of its own — and the positions are stable,
+// because the set is `MAP_LAYERS` minus the current one rather than a list written per layer.
+it('offers the two layers it is not on, and names each by where it takes you', async () => {
   mockUseDives.mockReturnValue(divesState([pinned()]));
   const t = await show();
-  expect(capsuleLabels(t)).toEqual(['Explore community sites']);
+  expect(capsuleLabels(t)).toEqual(['Explore community sites', 'Explore dive centres']);
   await press(t, 'Explore community sites');
-  expect(capsuleLabels(t)).toEqual(['Show my dives']);
+  expect(capsuleLabels(t)).toEqual(['Show my dives', 'Explore dive centres']);
+  await press(t, 'Explore dive centres');
+  expect(capsuleLabels(t)).toEqual(['Show my dives', 'Explore community sites']);
+  // ...and back, in one press from anywhere, which is the whole reason this is two glyphs
+  // rather than a three-way cycle.
+  await press(t, 'Show my dives');
+  expect(capsuleLabels(t)).toEqual(['Explore community sites', 'Explore dive centres']);
 });
 
 // The capsule is drawn even on the branches that have nothing to show, unlike the Dives
 // screen's: those glyphs act on the data, this one acts on the screen, and a diver whose
-// logbook read failed must still be able to cross to the other layer.
+// logbook read failed must still be able to cross to the other layers.
 it('keeps the toggle reachable when the layer it is on has failed', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('nope') }));
-  expect(capsuleLabels(await show())).toEqual(['Explore community sites']);
+  expect(capsuleLabels(await show())).toEqual(['Explore community sites', 'Explore dive centres']);
 });
 
 // **What the toggle does when there is nothing behind it**, which is the state the catalogue is
@@ -452,6 +490,155 @@ it('forgets the open sheet when the layer changes, and does not reopen it on the
   expect(textIn(t)).not.toContain('1 dive · deepest 18.2 m');
   await press(t, 'Show my dives');
   expect(textIn(t)).not.toContain('1 dive · deepest 18.2 m');
+});
+
+// --- The centres layer (M3c) ---
+
+/** Puts the screen on the centres layer, which is one press from where it opens. */
+async function onCentres(): Promise<RenderResult> {
+  const t = await show();
+  await press(t, 'Explore dive centres');
+  return t;
+}
+
+/**
+ * **The layer draws catalogue centres, and it uses the SAME mark a community site does.**
+ *
+ * That is the argument that made this a third mode rather than a second mark on the community
+ * layer: because the layers never draw together, the dot means "a catalogue row is here" and the
+ * summary line says which catalogue — so a centre needed no new vocabulary at all. A second mark
+ * would have had to differ from a site's by shape alone (§0.1 spends every hue on depth, M2n
+ * settled that the marks are monochrome), at map scale, over Apple's cartography.
+ */
+it('draws the centres that carry a position, in the community mark', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    centresState([
+      centre({ name: 'Ponorka', latitude: 50.08, longitude: 14.44 }),
+      centre({ name: 'Aqua Split' }),
+    ]),
+  );
+  const t = await onCentres();
+  expect(markers(t)).toHaveLength(1);
+  expect(markers(t).map((m) => m.props.accessibilityLabel)).toEqual(['Ponorka']);
+  // No badge — a catalogue row the diver has never dived is not a count of anything.
+  expect(textIn(t)).not.toContain('1');
+});
+
+/**
+ * **Both figures, because they are almost never the same one.** §2.3 gives a new centre its name
+ * alone — the form's pin is where the diver entered the water — so a catalogue of twelve centres
+ * with one position is the ordinary state, and a line reading "1 centre" would make this look
+ * like a map of every centre there is.
+ */
+it('says how many centres it is NOT drawing', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    centresState([
+      centre({ name: 'Ponorka', latitude: 50.08, longitude: 14.44 }),
+      centre({ name: 'Aqua Split' }),
+      centre({ name: 'Kotelna' }),
+    ]),
+  );
+  expect(textIn(await onCentres())).toContain('Dive centres · 1 of 3 centres on the map');
+});
+
+/**
+ * **The layer's ordinary state**: the device holds centres and none of them can be drawn. A
+ * different sentence from "you have no centres", and one that names the gesture — exactly as the
+ * pinless-dives sentence names *"Use my location"*, because a map with nothing on it and no way
+ * to act is a reproach.
+ */
+it('sends a diver to the list when no centre has a position', async () => {
+  mockUseDiveCenters.mockReturnValue(centresState([centre({ name: 'Ponorka' }), centre({ name: 'Kotelna' })]));
+  const t = await onCentres();
+  expect(textIn(t).join(' ')).toContain('None of your 2 centres has a position yet');
+  expect(textIn(t).join(' ')).toContain('All centres');
+  expect(hasMap(t)).toBe(false);
+});
+
+// The way into the directory is on this layer and on no other — it is a control about centres,
+// and §0.6 objects to a control that is about something not on screen.
+it('offers the directory on the centres layer and nowhere else', async () => {
+  mockUseDives.mockReturnValue(divesState([pinned()]));
+  const mine = await show();
+  expect(textIn(mine)).not.toContain('All centres');
+  await press(mine, 'Explore community sites');
+  expect(textIn(mine)).not.toContain('All centres');
+  await press(mine, 'Explore dive centres');
+  expect(textIn(mine)).toContain('All centres');
+  await press(mine, 'All centres');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/centers');
+});
+
+// Drawn on every branch of this layer, the failing one included — the same reasoning the toggle
+// is: the directory reads the same table and reports for itself, and a control that vanished
+// when the data failed would strand a diver on the broken half.
+it('keeps the directory reachable when the centres read has failed', async () => {
+  mockUseDiveCenters.mockReturnValue(centresState([], { error: new Error('nope') }));
+  const t = await onCentres();
+  expect(textIn(t)).toContain(CATALOGUE_UNREADABLE);
+  expect(textIn(t)).toContain('All centres');
+});
+
+it('states nothing about a centres catalogue it has not read yet', async () => {
+  mockUseDiveCenters.mockReturnValue(centresState([], { resolved: false }));
+  const t = await onCentres();
+  expect(textIn(t).join(' ')).not.toContain('No dive centres here yet');
+  expect(hasMap(t)).toBe(false);
+});
+
+// The same guest/member split the community layer draws, and for the same reason: §5 puts an
+// account behind both ways a centre reaches this table.
+it('says why the centres layer is empty, and says it differently to a guest', async () => {
+  const guest = await onCentres();
+  expect(textIn(guest).join(' ')).toContain('No dive centres here yet');
+  expect(textIn(guest).join(' ')).toContain('an account');
+
+  mockUseAuthSession.mockReturnValue({ session: { user: { id: 'u1' } } as never, resolved: true });
+  const member = await onCentres();
+  expect(textIn(member).join(' ')).toContain('No dive centres here yet');
+  expect(textIn(member).join(' ')).not.toContain('an account');
+  expect(textIn(member).join(' ')).toContain('sync');
+});
+
+/**
+ * **A centre's mark goes to its page; a site's opens a sheet.** A site has nowhere else in the
+ * app to be shown, so its sheet IS its page; a centre has one, and drawing a peek of it under the
+ * map would put the same three facts in two places. The asymmetry belongs to the LAYER — every
+ * mark on this one navigates — so a diver never has to work out which kind of thing they are
+ * about to press.
+ */
+it('opens a centre’s page from its mark, and opens no sheet', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    centresState([centre({ id: 'c-p', name: 'Ponorka', country: 'CZ', latitude: 50.08, longitude: 14.44 })]),
+  );
+  const t = await onCentres();
+  await tapMark(t, 'Ponorka');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/c-p');
+  // Nothing of the site sheet's vocabulary appears: no close control, no facts line.
+  expect(allNodes(t).some((n) => n.props?.accessibilityLabel === 'Close Ponorka')).toBe(false);
+  expect(textIn(t)).not.toContain('CZ');
+});
+
+// `dive_centers.name` is nullable in both databases (§6), so a row with none can arrive by pull.
+// A mark a screen reader announces as nothing is worse than one it announces as unnamed — and it
+// must be the CENTRE's own words, not the site's: `UNNAMED_SITE` here would announce a dive shop
+// as a dive site, which is precisely the confusion the third layer exists to avoid.
+it('calls an unnamed centre what the rest of the app calls one', async () => {
+  mockUseDiveCenters.mockReturnValue(centresState([centre({ name: null, latitude: 50.08, longitude: 14.44 })]));
+  const t = await onCentres();
+  expect(markers(t).map((m) => m.props.accessibilityLabel)).toEqual([UNNAMED_CENTER]);
+  expect(markers(t).map((m) => m.props.accessibilityLabel)).not.toEqual([UNNAMED_SITE]);
+});
+
+// A failed centres read must not take the sites off the map — that is what the two hooks are two
+// hooks for (db/useDiveCenters.ts).
+it('keeps the community sites drawable when the centres read has failed', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([site({ name: 'Vis', latitude: 43.06, longitude: 16.18 })]));
+  mockUseDiveCenters.mockReturnValue(centresState([], { error: new Error('nope') }));
+  const t = await show();
+  await press(t, 'Explore community sites');
+  expect(markers(t)).toHaveLength(1);
+  expect(textIn(t)).toContain('Community · 1 site');
 });
 
 // --- Location (§5 of the brief: a map needs no permission, and must not ask for one) ---

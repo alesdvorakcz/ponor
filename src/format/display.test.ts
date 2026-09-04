@@ -14,7 +14,11 @@ import {
   formatCurrent,
   formatSurge,
   formatWaves,
+  formatCenterCount,
+  formatCenterRow,
+  formatCentersSummary,
   formatCommunitySummary,
+  UNNAMED_CENTER,
   formatCoordinates,
   formatConfiguration,
   formatCylinderSpec,
@@ -375,6 +379,22 @@ describe('diveSiteLabel', () => {
   it('names a dive with neither rather than returning nothing', () => {
     expect(diveSiteLabel({ siteName: null, centerName: null })).toBe(UNNAMED_SITE);
     expect(UNNAMED_SITE).toBe('Unnamed site');
+  });
+
+  /**
+   * **The centre's own words, asserted as a literal here and only here** (M3c).
+   *
+   * `dive_centers.name` is nullable in both databases (§6), so a catalogue centre with no name
+   * can arrive by pull, and three screens call it something. Each of those screens asserts that
+   * it uses this constant rather than a literal of its own, which is the §4.1 claim they are
+   * making — and none of them can say what the constant *is*: a test comparing the screen's
+   * output against `UNNAMED_CENTER` passes just as happily when the constant is `UNNAMED_SITE`.
+   * Measured, not assumed: collapsing the two left every screen suite green. A constant's value
+   * is the one place a literal is honest, so it is written out once, here.
+   */
+  it('calls an unnamed CENTRE a centre, which is not what it calls an unnamed site', () => {
+    expect(UNNAMED_CENTER).toBe('Unnamed centre');
+    expect(UNNAMED_CENTER).not.toBe(UNNAMED_SITE);
   });
 });
 
@@ -1197,6 +1217,59 @@ describe('the map layer lines', () => {
   it('says nothing about coverage on the community layer', () => {
     expect(formatCommunitySummary(12)).not.toContain('on the map');
     expect(formatCommunitySummary(12)).not.toContain('Your dives');
+  });
+});
+
+/**
+ * The Map's centres layer (M3c). It takes `formatMyDivesSummary`'s coverage shape rather than
+ * `formatCommunitySummary`'s flat count, and the reason is a fact about the data: §2.3 gives a new
+ * centre its name alone, so a catalogue of twelve with one position is the ordinary state and a
+ * line reading "1 centre" would make the map look complete.
+ */
+describe('formatCentersSummary', () => {
+  it('names the layer and says how much of it is on the map', () => {
+    expect(formatCentersSummary(1, 12)).toBe('Dive centres · 1 of 12 centres on the map');
+  });
+
+  it('drops the coverage when every centre is drawn', () => {
+    expect(formatCentersSummary(3, 3)).toBe('Dive centres · 3 centres on the map');
+    expect(formatCentersSummary(1, 1)).toBe('Dive centres · 1 centre on the map');
+  });
+
+  it('pluralises a single centre', () => {
+    expect(formatCenterCount(1)).toBe('1 centre');
+    expect(formatCenterCount(0)).toBe('0 centres');
+    expect(formatCenterCount(12)).toBe('12 centres');
+  });
+});
+
+/**
+ * A centre's second line in the directory: what the catalogue knows about the shop and what the
+ * diver's own logbook says about it, which is the pair that makes a community directory worth
+ * reading.
+ */
+describe('formatCenterRow', () => {
+  it('joins the country and the dive count', () => {
+    expect(formatCenterRow({ country: 'HR' }, 3)).toBe('HR · 3 dives');
+    expect(formatCenterRow({ country: 'HR' }, 1)).toBe('HR · 1 dive');
+  });
+
+  it('omits the half that has nothing behind it', () => {
+    expect(formatCenterRow({ country: null }, 2)).toBe('2 dives');
+    expect(formatCenterRow({ country: 'HR' }, 0)).toBe('HR');
+    expect(formatCenterRow({ country: '' }, 2)).toBe('2 dives');
+  });
+
+  /**
+   * **A nought is omitted, not drawn**, and this is the one place this module's standing rule
+   * does real work rather than merely being observed: most rows in a community catalogue are
+   * shops the diver has never used, so a column of `0 dives` would say the same nothing on every
+   * row. A centre's own PAGE takes the other answer (`formatSiteSummary` always states the
+   * count), because a page opened to ask "what did I do with this shop" must answer.
+   */
+  it('answers null for a centre with nothing to say', () => {
+    expect(formatCenterRow({ country: null }, 0)).toBeNull();
+    expect(formatCenterRow({ country: '' }, 0)).toBeNull();
   });
 });
 

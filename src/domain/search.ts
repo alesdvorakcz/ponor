@@ -119,3 +119,65 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
     }),
   );
 }
+
+/**
+ * **§3's centres directory, as a list** (M3c) — every centre the device holds that the query
+ * names, in the order they are shown.
+ *
+ * ── Its sibling above, and the two axes it differs on (§4.1 asks a near-duplicate to say) ──
+ *
+ * `searchDives` filters the diver's own logbook across six columns and **never sorts**, because
+ * a logbook already has an order (§2.5) and a filtered logbook keeps it. This reads community
+ * rows with one column worth matching, and it **does** order them: a directory of shops has no
+ * order of its own to preserve, so something has to choose one, and leaving it to whatever
+ * SQLite happened to return would make the same list read differently on two devices.
+ *
+ * Both go through `foldForMatching`, on both sides, which is the point of that function having
+ * one owner: `zelezna` finds `Železná` here for exactly the reason it does in the logbook and on
+ * the server (§2.3, M2j), without this file deciding anything about accents.
+ *
+ * ── Alphabetical, and the rejected alternative ────────────────────────────────────────────
+ *
+ * By folded name, then by id so two centres spelled the same way cannot swap places between
+ * renders. Folded rather than `localeCompare`d deliberately: this repo keeps comparisons off the
+ * device's locale and ICU build wherever it can (`foldForMatching`'s own note on
+ * `toLocaleLowerCase`), and folding puts `Železná` next to `Zelena` rather than after `Z…`
+ * everything, which is where a Czech diver looks for it.
+ *
+ * **Rejected: the diver's own centres first.** It is §2.1's "the app learns" and it is the wrong
+ * rule here — this list's job is to let a diver *find* a shop, including one they have never
+ * dived with, and a list whose top changes as the logbook grows is one a diver cannot learn the
+ * shape of. The dives they have with each centre are on the row (`formatCenterRow`), which is
+ * where that fact belongs.
+ *
+ * An empty query is the whole catalogue rather than nothing at all: this is a directory first
+ * and a search second, which is the difference between it and `SearchScreen` (that one clears
+ * its list on arrival, because the list it would otherwise show is the one the diver just left).
+ *
+ * A row it cannot read costs that row rather than the screen — the stance every list rule in
+ * `domain/` takes, because this runs during render over whatever the database handed back.
+ */
+export function browseCenters<T extends { id: string; name: string | null }>(
+  centers: readonly T[],
+  query: string,
+): T[] {
+  const needle = foldForMatching(query);
+  // **An empty query needs no branch of its own**: it folds to `''`, and every string contains
+  // `''`, so the whole catalogue comes through by construction rather than by a condition. An
+  // explicit `if (needle === '') return true` was written here first and measured — it could not
+  // fail, which §10 declines. (`searchDives` above keeps its early return for a different
+  // reason: it hands back the caller's own array, unfiltered, so a caller composing it with
+  // `groupIntoTrips` gets the same reference.)
+  const matching = centers.filter((center) => {
+    if (center === null || center === undefined) return false;
+    const name = typeof center.name === 'string' ? center.name : '';
+    return foldForMatching(name).includes(needle);
+  });
+
+  return matching.sort((a, b) => {
+    const left = foldForMatching(typeof a.name === 'string' ? a.name : '');
+    const right = foldForMatching(typeof b.name === 'string' ? b.name : '');
+    if (left !== right) return left < right ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}

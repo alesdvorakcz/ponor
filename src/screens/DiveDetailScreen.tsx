@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -173,6 +173,24 @@ interface Field {
   value: string;
   mono: boolean;
   computed?: boolean;
+  /**
+   * Where pressing this row goes, for the one row on this screen that goes anywhere (M3c): the
+   * **centre**, when §6's `center_id` pairs the dive to a catalogue row.
+   *
+   * **Present only when the dive carries an id**, which is the whole rule and is worth stating
+   * because the other case is the ordinary one. §6 stores `center_id` *and* a `center_name`
+   * snapshot; a centre typed by hand and never published has the snapshot and no id, so there is
+   * no row to open and the row stays exactly what it was — text. That is not a degraded state:
+   * §2.3 makes a name-only centre the normal case, and every dive logged before M2o has one.
+   *
+   * A dive whose id names a centre this device does not hold — an admin has hidden it, or a pull
+   * has not brought it down — still gets the link, and the centre's page says it could not find
+   * it. That is `DiveDetailScreen`'s own shape for a dive reached by an unknown id, one screen
+   * along, rather than a second rule: the alternative is reading the whole centres catalogue here
+   * to decide whether one row may be pressed, which makes the dive detail depend on a table it
+   * otherwise never touches.
+   */
+  opens?: Href;
 }
 
 /**
@@ -188,20 +206,37 @@ interface Field {
  * out. `detailValueMark`'s fixed `width` is what keeps it a slot rather than letting it
  * push the value around — see that style's own comment in theme/styles.ts.
  */
-function Row({ label, value, mono, computed, styles }: Field & { styles: Styles }) {
+function Row({ label, value, mono, computed, opens, styles }: Field & { styles: Styles }) {
   const valueStyle = mono
     ? computed
       ? [styles.detailValue, styles.detailValueComputed]
       : styles.detailValue
     : styles.detailValueText;
-  return (
-    <View style={styles.detailRow}>
+  const contents = (
+    <>
       <Text style={styles.detailLabel}>{label}</Text>
       <View style={styles.detailValueWrap}>
         {computed && <Text style={styles.detailValueMark}>=</Text>}
         <Text style={valueStyle}>{value}</Text>
       </View>
-    </View>
+    </>
+  );
+  // **A row that goes somewhere is a Pressable and looks identical** (M3c). §0.1 rules out a hue,
+  // and §0.6 spends the chevron on in-place disclosure alone — "the mark is never spent on
+  // navigation" — so a navigation row on this screen has no visual mark available and is not
+  // given an invented one. The announcement is where the difference lives, and it says what
+  // pressing it does rather than merely what the row is called, which is Settings' own rule for
+  // every row that opens something.
+  if (opens === undefined) return <View style={styles.detailRow}>{contents}</View>;
+  return (
+    <Pressable
+      style={styles.detailRow}
+      onPress={() => router.push(opens)}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${value}`}
+    >
+      {contents}
+    </Pressable>
   );
 }
 
@@ -363,7 +398,18 @@ function CompleteButton({ dive, styles }: { dive: Dive; styles: Styles }) {
 function whereFields(dive: Dive): Field[] {
   const fields: Field[] = [];
   if (dive.siteName !== null) fields.push({ label: 'Site', value: dive.siteName, mono: false });
-  if (dive.centerName !== null) fields.push({ label: 'Centre', value: dive.centerName, mono: false });
+  if (dive.centerName !== null) {
+    // **The link is the id's, never the snapshot's** (M3c). §6 pairs `center_id` with a
+    // `center_name` snapshot, and `Field.opens` above carries why a dive with only the snapshot
+    // has nowhere to go: the centre was typed by hand and never published, which §2.3 makes the
+    // ordinary case rather than a fault. The row is the same row either way.
+    fields.push({
+      label: 'Centre',
+      value: dive.centerName,
+      mono: false,
+      opens: dive.centerId === null ? undefined : `/center/${dive.centerId}`,
+    });
+  }
   const entry = formatEntry(dive.entry);
   if (entry !== null) fields.push({ label: 'Entry', value: entry, mono: false });
   const salinity = formatSalinity(dive.salinity);

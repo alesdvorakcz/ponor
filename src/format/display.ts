@@ -16,6 +16,7 @@ import {
   type ConditionLevel,
   type Configuration,
   type Dive,
+  type DiveCenter,
   type DiveSite,
   type DiveStatus,
   type Entry,
@@ -913,6 +914,23 @@ export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): s
 export const UNNAMED_SITE = 'Unnamed site';
 
 /**
+ * What a **catalogue centre** is called when its row carries no name (M3c) — the centres
+ * directory's rows, and the heading of a centre's own page.
+ *
+ * `UNNAMED_SITE`'s sibling and deliberately a separate constant rather than a shared "Unnamed"
+ * with the noun appended: §0.5's Czech runs 20–30 % longer and declines both nouns, so the two
+ * are two strings to translate rather than one string plus a rule about grammar.
+ *
+ * **It is not `diveSiteLabel`'s fallback moved**, and the difference is which object has no
+ * name. That function answers "what is this DIVE called" and falls back through the dive's own
+ * centre before reaching `UNNAMED_SITE`; this names a `dive_centers` ROW, which has only a name
+ * to lose. §5 asks a new centre for a name and nothing else, so this is an edge — but the column
+ * is nullable in both databases (§6, so §7's one-transaction push can never reject a diver's
+ * whole sync over one row), and a row with no name can arrive in a pull.
+ */
+export const UNNAMED_CENTER = 'Unnamed centre';
+
+/**
  * What a dive is CALLED on screen: its site, or its centre when no site was recorded, or
  * `UNNAMED_SITE` when it has neither. The single owner of that choice — `DiveRow.tsx`'s
  * site line, `DiveDetailScreen.tsx`'s hero heading, and anything added later.
@@ -1078,6 +1096,68 @@ export function formatMyDivesSummary(places: number, onMap: number, logged: numb
  */
 export function formatCommunitySummary(places: number): string {
   return ['Community', formatSiteCount(places)].join(METADATA_SEPARATOR);
+}
+
+/**
+ * How many centres, as a phrase: "1 centre", "12 centres" — `formatDiveCount`'s sibling, and
+ * exported for the same reason it is: two callers (the centres directory's own line and the map
+ * layer's summary below), English needs one comparison and Czech needs three forms (§0.5,
+ * i18next in M3), so the plural lives here rather than in a template literal on a screen.
+ */
+export function formatCenterCount(count: number): string {
+  return `${count} ${count === 1 ? 'centre' : 'centres'}`;
+}
+
+/**
+ * **The line under the Map tab's title while it is showing dive centres** — `"Dive centres · 1
+ * of 12 on the map"`.
+ *
+ * It has `formatMyDivesSummary`'s shape rather than `formatCommunitySummary`'s, and the coverage
+ * half is the whole reason: **a centre almost never has a position, by design.** §2.3 gives the
+ * rule in one sentence — *"a centre inherits its name alone — the form's pin is where the diver
+ * entered the water, so writing it to a centre files a dive site as the shop's address"* — so
+ * every centre this app has ever created has a name and nothing else, and the only centres that
+ * can be drawn are ones a pull brought down with a `location` on them. A map that silently drew
+ * one mark for a catalogue of twelve would look like a map of every centre there is.
+ *
+ * `known` is what the device holds; `onMap` is what could be drawn. They are equal only when
+ * every centre has a pin, which is the case this line stops claiming falsely rather than the
+ * case it was written for.
+ */
+export function formatCentersSummary(onMap: number, known: number): string {
+  const coverage =
+    onMap < known ? `${onMap} of ${formatCenterCount(known)} on the map` : `${formatCenterCount(onMap)} on the map`;
+  return ['Dive centres', coverage].join(METADATA_SEPARATOR);
+}
+
+/**
+ * **A centre's second line in the directory** — `"Croatia · 3 dives"`, or null when neither half
+ * has anything behind it.
+ *
+ * The two halves come from two different places and that is what makes the line worth having:
+ * the country is what the *catalogue* knows about the shop, the count is what the *diver's own
+ * logbook* says about it, and a directory of community centres is only interesting where those
+ * two meet. `formatDiveCount` owns the plural.
+ *
+ * **A centre the diver has never dived with shows no count, rather than `0 dives`.** That is this
+ * module's standing rule (a figure with nothing behind it is omitted, never drawn as a
+ * placeholder) doing real work here rather than being merely observed: most rows in a community
+ * catalogue are shops this diver has never used, and a column of noughts would be the list
+ * telling the diver something they already know, once per row, in the slot where the interesting
+ * rows say something.
+ *
+ * The centre's own page is the other answer and deliberately differs: there `formatSiteSummary`
+ * always states the count, because a page opened to ask "what did I do with this shop" must
+ * answer even when the answer is none.
+ *
+ * Null rather than `''`, so a caller draws no line at all instead of an empty one — the same
+ * contract `formatSiteFacts` and `formatCylinderSpec` keep.
+ */
+export function formatCenterRow(center: Pick<DiveCenter, 'country'>, dives: number): string | null {
+  const parts: string[] = [];
+  if (center.country !== null && center.country !== '') parts.push(center.country);
+  if (dives > 0) parts.push(formatDiveCount(dives));
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /**

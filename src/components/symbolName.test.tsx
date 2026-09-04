@@ -3,7 +3,8 @@ import { SymbolView } from 'expo-symbols';
 
 import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
-import { EXPLORE_GLYPH, MY_DIVES_GLYPH } from '../screens/MapScreen';
+import { CENTERS_GLYPH, EXPLORE_GLYPH, MY_DIVES_GLYPH } from '../screens/MapScreen';
+import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
 import { CarriedMark } from './CarriedMark';
@@ -166,6 +167,11 @@ it.each([
   // a single-state check would sail past.
   ['map screen’s explore toggle', EXPLORE_GLYPH, 'public'],
   ['map screen’s my-dives toggle', MY_DIVES_GLYPH, 'pin_drop'],
+  // The third layer (M3c), and the third state of the same one control — a glyph missing its
+  // Material name would leave the browser's and Android's capsule empty in exactly one of the
+  // three states, which is the half a single-state check sails past.
+  ['map screen’s centres toggle', CENTERS_GLYPH, 'storefront'],
+  ['centres directory’s close', CLOSE_CENTERS_GLYPH, 'close'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
   await render(
     <ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />,

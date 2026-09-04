@@ -1,6 +1,6 @@
 import { diveSiteLabel } from '../format/display';
 import { siteIdentityOf } from './siteIdentity';
-import { type Dive, type DiveSite } from './types';
+import { type Dive } from './types';
 
 /**
  * **What the Map tab knows about places** (DESIGN.md §3: *"clustered pins of your dives (badge
@@ -222,24 +222,36 @@ function placeKeyOf(dive: Dive): string {
 }
 
 /**
- * **The community layer's markers** — §3's *"toggle to explore all community sites"*.
+ * **The community layers' markers** — §3's *"toggle to explore all community sites"*, and since
+ * M3c the same question asked of `dive_centers`.
  *
  * A different question from the personal layer's, and deliberately a different function rather
- * than one that takes both: a catalogue site has a surveyed position and no dives of yours, a
+ * than one that takes both: a catalogue row has a surveyed position and no dives of yours, a
  * personal place has your dives and one of their positions. §5 settles which wins where both
- * exist — the dive's own point — and the two never mix on screen because the toggle shows one
- * layer at a time.
+ * exist — the dive's own point — and the layers never mix on screen because the toggle shows one
+ * at a time.
+ *
+ * **Generic over the row rather than duplicated per table** (M3c), and that is §4.1 read
+ * strictly rather than loosely: `dive_sites` and `dive_centers` are the *same* table under two
+ * names (file 2 of the migrations gives them the same shape, §5 covers them in one sentence),
+ * and "can this row be drawn" has exactly one answer for both. A `centersWithPoints` beside this
+ * would not be a deliberate near-duplicate answering a different question — it would be the same
+ * six lines twice, which is the defect §4.1 opens with.
  *
  * `db/catalogue.ts` has already filtered to what may be offered (live, and `status = 'active'`,
  * so a merged duplicate is not drawn twice); what is left to decide here is only whether a row
- * has a position at all, which most will not until §5's PostGIS column is being pulled.
+ * has a position at all — **which most centres never will**, by design: §2.3 gives a new centre
+ * its name alone, because the dive form's pin is where the diver entered the water and writing
+ * it to a centre would file a dive site as the shop's address.
  */
-export function sitesWithPoints(sites: readonly DiveSite[]): { site: DiveSite; point: MapPoint }[] {
-  const placed: { site: DiveSite; point: MapPoint }[] = [];
-  for (const site of sites) {
-    if (!site) continue;
-    const point = pointOf(site);
-    if (point !== null) placed.push({ site, point });
+export function withPoints<T extends { latitude: number | null; longitude: number | null }>(
+  rows: readonly T[],
+): { row: T; point: MapPoint }[] {
+  const placed: { row: T; point: MapPoint }[] = [];
+  for (const row of rows) {
+    if (!row) continue;
+    const point = pointOf(row);
+    if (point !== null) placed.push({ row, point });
   }
   return placed;
 }

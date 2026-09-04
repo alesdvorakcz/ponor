@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 
-import { backToDives, backToSettings } from './leaveScreen';
+import { backToCenters, backToDives, backToMap, backToSettings } from './leaveScreen';
 
 // The same expo-router shape both screen tests already mock — `router` is a plain object of
 // functions, so the whole module is replaced rather than any one method spied on.
@@ -28,6 +28,12 @@ beforeEach(() => {
 const exits = [
   ['backToDives', backToDives, '/'],
   ['backToSettings', backToSettings, '/settings'],
+  // The two M3c added: the centres directory sits on §3's Map tab, where the centre layer is,
+  // and one centre's page sits on the directory. Each is here rather than only in the screen
+  // that calls it, for the reason above — and each names a DIFFERENT route, which is what makes
+  // the fallback assertion below able to fail at all.
+  ['backToMap', backToMap, '/map'],
+  ['backToCenters', backToCenters, '/centers'],
 ] as const;
 
 it.each(exits)('%s pops the navigation stack when there is history to go back to', (_name, leave) => {
