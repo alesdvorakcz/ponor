@@ -1,3 +1,4 @@
+import { setActiveLanguage } from '../i18n';
 import { dive } from './diveFixture';
 import {
   centerFactsFrom,
@@ -13,7 +14,7 @@ import {
   outOfScaleNote,
   optionNote,
   toFormNumber,
-  UNKNOWN_OPTION_NOTE,
+  unknownOptionMessage,
 } from './diveFormSchema';
 import { type UnitSystem } from '../format/units';
 import {
@@ -210,7 +211,7 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     // are the test: a note on a value from a newer client, and NO note on any value this
     // form's own controls hand back — including the three "nothing picked" spellings, which
     // is how an untouched field reaches this and must never be flagged.
-    expect(unknownOptionNote(ENTRY_VALUES, 'liveaboard')).toBe(UNKNOWN_OPTION_NOTE);
+    expect(unknownOptionNote(ENTRY_VALUES, 'liveaboard')).toBe(unknownOptionMessage());
     for (const value of ENTRY_VALUES) expect(unknownOptionNote(ENTRY_VALUES, value)).toBeUndefined();
     for (const empty of [null, undefined, '']) expect(unknownOptionNote(ENTRY_VALUES, empty)).toBeUndefined();
 
@@ -220,8 +221,8 @@ describe('the fixed-option fields, against the vocabulary they come from', () =>
     // The sentence is the whole difference between the old policy and this one, so it is
     // asserted rather than left to whoever edits it next: a note reading "pick one of the
     // options to save" would describe a refusal that no longer happens.
-    expect(UNKNOWN_OPTION_NOTE).toContain('saved as it is');
-    expect(UNKNOWN_OPTION_NOTE).not.toContain('to save.');
+    expect(unknownOptionMessage()).toContain('saved as it is');
+    expect(unknownOptionMessage()).not.toContain('to save.');
   });
 });
 
@@ -273,7 +274,7 @@ describe('outOfScaleNote', () => {
    *
    * The property DESIGN.md §10 asks of this note is that it attributes the value to nobody:
    * these four fields are the only ones in the app where the diver could have typed the bad
-   * number himself, so `UNKNOWN_OPTION_NOTE`'s "came from a newer version of Ponor" would
+   * number himself, so `unknownOptionMessage`'s "came from a newer version of Ponor" would
    * blame a future build for the owner's own keypad, on his own dive, in his own logbook. The
    * intent was always "assert the ABSENCE of attribution, so rewording stays free and
    * re-blaming does not".
@@ -324,7 +325,7 @@ describe('outOfScaleNote', () => {
    * somebody.** That judgement is yours, and the suite will stay green either way.
    *
    * **The teeth are proved rather than assumed.** The same predicate runs against
-   * `UNKNOWN_OPTION_NOTE` below — the one note in this app that deliberately DOES attribute —
+   * `unknownOptionMessage` below — the one note in this app that deliberately DOES attribute —
    * and it has to say so. That assertion carries the whole file: emptying the word list, and
    * separately dropping just `came` and `from` from it, each turn this test red (**1 failed /
    * 75** in this file, both times). A list of words nothing would ever contain passes for ever
@@ -337,11 +338,11 @@ describe('outOfScaleNote', () => {
   it('carries no word blame is usually spelled with, unlike its sibling', () => {
     expect(attributesAnOrigin(outOfScaleNote(RATING_VALUES, 9))).toBe(false);
     expect(attributesAnOrigin(outOfScaleNote(CONDITION_SCALE_VALUES, 7))).toBe(false);
-    // The teeth. `UNKNOWN_OPTION_NOTE` names a source on purpose and is right to — a value
+    // The teeth. `unknownOptionMessage` names a source on purpose and is right to — a value
     // outside a closed vocabulary was never typeable, so it can only have come from another
     // client. If the predicate cannot see the attribution in *that* sentence, it is not
     // seeing attribution at all and the two assertions above mean nothing.
-    expect(attributesAnOrigin(UNKNOWN_OPTION_NOTE)).toBe(true);
+    expect(attributesAnOrigin(unknownOptionMessage())).toBe(true);
   });
 
   it('promises the value is kept, in whichever words it chooses to', () => {
@@ -363,9 +364,9 @@ describe('optionNote', () => {
   // eleven chip rows each passing the right one. The dispatch is the thing worth pinning:
   // wired backwards, a rating of 9 would announce that it came from a newer version of Ponor.
   it('gives a word vocabulary the unknown-option note and a numeric scale the out-of-scale one', () => {
-    expect(optionNote(ENTRY_VALUES, 'liveaboard')).toBe(UNKNOWN_OPTION_NOTE);
+    expect(optionNote(ENTRY_VALUES, 'liveaboard')).toBe(unknownOptionMessage());
     expect(optionNote(RATING_VALUES, 9)).toBe(outOfScaleNote(RATING_VALUES, 9));
-    expect(optionNote(RATING_VALUES, 9)).not.toBe(UNKNOWN_OPTION_NOTE);
+    expect(optionNote(RATING_VALUES, 9)).not.toBe(unknownOptionMessage());
   });
 
   it('says nothing for a value either kind of vocabulary actually offers', () => {
@@ -935,5 +936,42 @@ describe('centerFactsFrom', () => {
   // address, and inferring a country from that pin would be a guess.
   it('takes the name and nothing else — not the pin, not a country', () => {
     expect(centerFactsFrom('Emperor')).toEqual({ name: 'Emperor' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h) — the two messages this schema builds
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  afterEach(() => {
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **The date refusal has to be looked up when the issue is raised, not when this module is
+   * imported** — which is why it is `error: () => t(…)` rather than a `message` string. A schema
+   * object is built once, at module load, before any diver has chosen a language; a string
+   * there would have said "Enter a real date" under a Czech form until the app was killed.
+   */
+  it('refuses an impossible date in the language the form is being read in', () => {
+    setActiveLanguage('cs');
+    const refusal = diveFormSchema.safeParse({ date: '2026-02-30' });
+    expect(refusal.success).toBe(false);
+    expect(refusal.error?.issues.map((i) => i.message)).toContain('Zadejte skutečné datum (RRRR-MM-DD).');
+  });
+
+  /** §10's keep-and-flag pair, in Czech: the one that attributes a source and the one that
+   * deliberately does not (see `outOfScaleNote`). */
+  it('flags a value it has no chip for, in Czech, without changing which note attributes', () => {
+    setActiveLanguage('cs');
+    expect(unknownOptionMessage()).toBe(
+      'Tato hodnota pochází z novější verze Ponoru. Ukládá se tak, jak je — nahradíte ji výběrem některé z možností.',
+    );
+    expect(outOfScaleNote([0, 1, 2, 3], 9)).toBe(
+      '9 není žádná z těchto možností. Ukládá se tak, jak je — nahradíte ji klepnutím na některou.',
+    );
+    // The figure travels through `figure`, so a fraction reads with a Czech decimal mark.
+    expect(outOfScaleNote([0, 1, 2, 3], 1.5)).toContain('1,5 není');
   });
 });

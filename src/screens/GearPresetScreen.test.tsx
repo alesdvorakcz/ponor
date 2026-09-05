@@ -6,7 +6,7 @@
 // `mock`/`require`, and every jest.mock() call is hoisted above every import regardless.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
 import { softDeleteGearPreset, updateGearPreset } from '../db/gearPresets';
@@ -15,11 +15,12 @@ import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { db } from '../db/client';
 import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
-import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
+import { unknownOptionMessage } from '../domain/diveFormSchema';
 import { presetsUnreadable } from '../domain/presets';
 import { CONFIGURATION_VALUES, TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import GearPresetScreen from './GearPresetScreen';
 
@@ -339,7 +340,7 @@ it('says the id names nothing live, rather than showing a blank editor', async (
   const t = await render(<GearPresetScreen presetId="gone" />);
   expect(textIn(t).join(' ')).toContain("Couldn't find that preset");
   // Not a blank form either: a screen offering fields over no preset would write nothing on
-  // save, or — the danger `MISSING_DIVE_MESSAGE` records for the dive form — quietly create
+  // save, or — the danger `missingDiveMessage` records for the dive form — quietly create
   // a second one.
   expect(findField(t, 'Preset name')).toBeUndefined();
 });
@@ -738,13 +739,13 @@ it('counts a cylinder holding only the pressures it never shows as nothing to st
 it('flags a material it has no chip for, rather than showing nothing at all', async () => {
   // The known material first, so the sentence is proven ABSENT before it is asserted present
   // — otherwise a screen that showed the note unconditionally would pass the half that
-  // matters. `UNKNOWN_OPTION_NOTE` comes from the file that owns what the value means
+  // matters. `unknownOptionMessage` comes from the file that owns what the value means
   // (diveFormSchema.ts), never a copy of the words here.
   const known = await open(twin12());
-  expect(textIn(known).join(' ')).not.toContain(UNKNOWN_OPTION_NOTE);
+  expect(textIn(known).join(' ')).not.toContain(unknownOptionMessage());
 
   const t = await open(preset({ tanks: [tank({ material: 'carbon' as Tank['material'], sizeL: 12 })] }));
-  expect(textIn(t).join(' ')).toContain(UNKNOWN_OPTION_NOTE);
+  expect(textIn(t).join(' ')).toContain(unknownOptionMessage());
   // ...and the chip row alone would have said nothing at all: none of them is selected, which
   // is indistinguishable from a preset whose material was never recorded.
   for (const material of TANK_MATERIAL_VALUES) {
@@ -758,10 +759,10 @@ it('flags a material it has no chip for, rather than showing nothing at all', as
 // preset whose rig was simply never recorded — and would stay that way silently.
 it('flags a configuration it has no chip for, exactly as it flags a material', async () => {
   const known = await open(twin12());
-  expect(textIn(known).join(' ')).not.toContain(UNKNOWN_OPTION_NOTE);
+  expect(textIn(known).join(' ')).not.toContain(unknownOptionMessage());
 
   const t = await open(preset({ tanks: [tank({ configuration: 'rebreather' as Tank['configuration'], sizeL: 12 })] }));
-  expect(textIn(t).join(' ')).toContain(UNKNOWN_OPTION_NOTE);
+  expect(textIn(t).join(' ')).toContain(unknownOptionMessage());
   // ...and the chip row alone said nothing: none of the three is selected, which a diver
   // cannot tell apart from a preset that records no rig at all.
   for (const configuration of CONFIGURATION_VALUES) {
@@ -852,4 +853,65 @@ it('keeps its own delete control muted, never coloured', async () => {
 it('draws no graphic and paints nothing off-palette', async () => {
   const t = await open(twin12());
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /** The editor's own chrome, and the four cylinder rows it reads under the same `field.*` keys
+   * the dive form does — which is the point of putting them there rather than on each screen. */
+  it('names itself, its rows and its two acts in Czech', async () => {
+    const said = textIn(await open(preset({ name: 'dvojče 12 ocel' })));
+    expect(said).toContain('Upravit předvolbu');
+    expect(said).toContain('Název předvolby');
+    expect(said).toContain('Materiál');
+    expect(said).toContain('Objem');
+    expect(said).toContain('Konfigurace');
+    expect(said).toContain('Provozní tlak');
+    expect(said).toContain('Uložit předvolbu');
+    expect(said).toContain('Smazat předvolbu');
+    expect(said).toContain('‹ Zrušit');
+    expect(said).not.toContain('Working pressure');
+  });
+
+  /** The three refusals `domain/presets.ts` owns for both screens (§4.1) — a rule's verdict,
+   * not a field label, which is why they were given an owner two milestones ago. */
+  it('refuses a nameless preset in Czech', async () => {
+    const t = await open(preset({ name: 'dvojče 12 ocel' }));
+    await typeInto(t, 'Název předvolby', '   ');
+    await press(t, 'Uložit předvolbu');
+    await settle();
+    expect(textIn(t).join(' ')).toContain('Pojmenujte tuto předvolbu, ať ji zase najdete.');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    const t = await open(preset({ name: 'twin 12 steel' }));
+    expect(textIn(t)).toContain('Edit preset');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Upravit předvolbu');
+    expect(textIn(t)).not.toContain('Edit preset');
+  });
 });

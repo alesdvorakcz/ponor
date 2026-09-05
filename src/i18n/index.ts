@@ -13,6 +13,8 @@ import { initReactI18next, useTranslation } from 'react-i18next';
 
 import { cs } from './cs';
 import { en } from './en';
+import { LANGUAGES, type Language } from './languages';
+import { installPluralRulesPolyfill } from './pluralRules';
 
 /**
  * **The app's one i18next instance** (DESIGN.md §4: `i18next` + `expo-localization`, English
@@ -45,11 +47,7 @@ import { en } from './en';
  * time", applied to the one thing about translation that is otherwise checked by nothing.
  */
 
-/** A language the app actually ships. Both are complete; neither is a fallback for the other
- * in the sense §1 means, because both are written. */
-export const LANGUAGES = ['en', 'cs'] as const;
-
-export type Language = (typeof LANGUAGES)[number];
+export { LANGUAGES, type Language } from './languages';
 
 /**
  * **What a missing string falls back to** (§1: never block). i18next resolves a key the active
@@ -141,6 +139,16 @@ export type TranslationValues = Readonly<Record<string, string | number>>;
  * interpolated into a sentence arrives as `&#39;`, and half the app's sentences have one.
  *
  */
+/**
+ * **Before `init`, because i18next caches a plural rule the first time it resolves one.**
+ *
+ * Hermes on iOS has no `Intl.PluralRules`, and i18next's fallback for a runtime without one is
+ * `count === 1 ? 'one' : 'other'` — English's rule, applied to Czech, which is the exact
+ * failure this milestone exists to prevent. `pluralRules.ts` carries the whole account,
+ * including why no gate caught it. It does nothing at all where a real ICU exists.
+ */
+installPluralRulesPolyfill();
+
 void i18next.use(initReactI18next).init({
   resources: { en, cs },
   lng: deviceLanguage(),

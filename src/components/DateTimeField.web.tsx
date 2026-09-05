@@ -1,6 +1,7 @@
 import { type CSSProperties, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { ClearFieldControl } from './ClearFieldControl';
 import type { DateTimeField as NativeDateTimeField, DateTimeFieldProps } from './DateTimeField';
@@ -103,7 +104,7 @@ export function DateTimeField({ label, value, onChange, mode, scheme, onClear }:
             // `''`, never a value derived from what this field currently holds — see
             // `FormField.onClear`'s own docblock, and DESIGN.md §10's coercion contract.
             onPress={() => onClear('')}
-            accessibilityLabel={`Clear ${label}`}
+            accessibilityLabel={t('field.clear', { label })}
             scheme={scheme}
           />
         )}

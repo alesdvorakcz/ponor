@@ -6,7 +6,7 @@
 // `mock`/`require`, and every jest.mock() call is hoisted above every import regardless.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -14,6 +14,7 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { dive } from '../domain/diveFixture';
 import { makeStyles } from '../theme/styles';
 import { logbookUnreadable } from '../domain/logbook';
+import { setActiveLanguage } from '../i18n';
 import SearchScreen from './SearchScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -257,4 +258,57 @@ it('dismisses the keyboard on scroll but not on a tap that opens a dive', async 
   if (!list) throw new Error('SearchScreen did not render the results list');
   expect(list.props.keyboardDismissMode).toBe('on-drag');
   expect(list.props.keyboardShouldPersistTaps).toBe('handled');
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /** The three states this screen keeps apart, said in Czech: nothing typed, nothing found,
+   * and a logbook that would not open. The last is `logbookUnreadable`'s, shared with four
+   * other screens, and the middle one is `dives.noMatches`, shared with the Dives list. */
+  it('keeps its three states apart in Czech', async () => {
+    stubDives({ dives: [dive({ id: 'a', siteName: 'Vis' })], numbers: new Map() });
+    const t = await render(<SearchScreen />);
+    expect(textIn(t).join(' ')).toContain('Hledejte ve svých ponorech podle lokality');
+
+    await fireEvent.changeText(findField(t), 'nic takového');
+    expect(textIn(t).join(' ')).toContain('Hledání neodpovídá žádný ponor.');
+    await cleanup();
+
+    stubDives({ dives: [], numbers: new Map(), error: new Error('disk') });
+    const failed = await render(<SearchScreen />);
+    expect(textIn(failed).join(' ')).toContain('Deník se nepodařilo otevřít.');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    stubDives({ dives: [dive({ id: 'a', siteName: 'Vis' })], numbers: new Map() });
+    const t = await render(<SearchScreen />);
+    expect(textIn(t).join(' ')).toContain('Search your dives by site');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t).join(' ')).toContain('Hledejte ve svých ponorech');
+    expect(textIn(t).join(' ')).not.toContain('Search your dives by site');
+  });
 });

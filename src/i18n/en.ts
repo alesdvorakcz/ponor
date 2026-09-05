@@ -132,7 +132,22 @@ export const en = {
      * owns them. */
     figure: {
       deepest: 'deepest {{depth}}',
-      /** `formatCoverage` — "7 of 24 dives". `{{total}}` already carries its own noun. */
+      /**
+       * `formatCoverage` — "7 of 24 dives". `{{total}}` already carries its own noun, which is
+       * the half Czech cannot copy: *z* governs the genitive, so a nominative count phrase
+       * dropped in after it reads `1 z 2 lokality` where the language wants `ze 2 lokalit`.
+       *
+       * **So the two languages hang the noun on different numbers**, and that is why this one
+       * template takes four values for two figures. English says *7 of 24 dives* — the noun on
+       * the total, as it always has. Czech says *7 ponorů z 24* (`{{onMapCount}} z {{count}}`):
+       * the noun rides the FIRST number, in the nominative phrase `count.dives` already owns,
+       * and the preposition is left governing a bare numeral, which has no case to get wrong.
+       *
+       * `{{count}}` is the total, and it is here for Czech's sake alone — `z` vocalises to *ze*
+       * before 2, 3 and 4, which is exactly i18next's `few`. English holds one form and no
+       * suffix; i18next falls back from a missing `_one`/`_other` to the bare key, which is
+       * what keeps this sentence byte-identical to the one that shipped.
+       */
       coverage: '{{onMap}} of {{total}}',
       today: 'Today',
       yesterday: 'Yesterday',
@@ -186,15 +201,37 @@ export const en = {
       unnamedCenter: 'Unnamed centre',
       siteMark: '{{name}}, dive site',
       centerMark: '{{name}}, dive centre',
+      /** The heading over the diver's own dives on a site's page and on a centre's — one
+       * sentence about one relation, said on two screens about two tables. */
+      yourDives: 'Your dives',
     },
 
-    /** §3's certification wallet. */
+    /** §3's certification wallet — the card's own summary line, and the editor that writes it. */
     certification: {
       untitled: 'Certification',
       cardNumber: '#{{number}}',
       issued: 'issued {{date}}',
       expires: 'expires {{date}}',
       expired: 'expired {{date}}',
+      addHeading: 'Add certification',
+      editHeading: 'Edit certification',
+      agency: 'Agency',
+      agencyPlaceholder: 'PADI',
+      course: 'Course',
+      coursePlaceholder: 'Rescue Diver',
+      cardNumberLabel: 'Card number',
+      cardNumberPlaceholder: '1234567',
+      issuedLabel: 'Issued',
+      expiresLabel: 'Expires',
+      neverExpires: 'Doesn’t expire',
+      empty: 'Add at least one detail — the agency, the course, a card number or a date.',
+      save: 'Save certification',
+      saveFailed: "Couldn't save that certification. Try again.",
+      deleteLabel: 'Delete certification',
+      deleteTitle: 'Delete this certification?',
+      deleteBody: "It will be removed from your wallet. This can't be undone.",
+      deleteFailed: "Couldn't delete that certification. Try again.",
+      notFound: "Couldn't find that certification — it may have been deleted.",
     },
 
     /** §3's RMV trend, said as a direction. Neutral on purpose: a lower figure is not "better". */
@@ -204,10 +241,40 @@ export const en = {
       up: 'up from {{before}}',
     },
 
-    /** §3's Stats tab. Its own plural, because Czech declines the noun after "the last …". */
+    /**
+     * §3's Stats tab. `rmvWindow` carries its own plural, because Czech declines the noun after
+     * "the last …" and a count phrase interpolated there would be nominative.
+     *
+     * **The counter labels are this screen's, not `field.*`'s**, and §4.1's rule for a
+     * deliberate near-duplicate is to say which question each answers. `field.rmv` names *this
+     * dive's* gas figure on the dive detail; `stats.rmv` names the mean over a window of recent
+     * dives. They are the same three letters about two different subjects, and a shared key
+     * would tie a logbook's aggregate to a dive's row.
+     */
     stats: {
+      title: 'Stats',
       rmvWindow_one: 'Averaged over the last {{count, figure}} dive with gas recorded.',
       rmvWindow_other: 'Averaged over the last {{count, figure}} dives with gas recorded.',
+      groupLogbook: 'Logbook',
+      groupPlaces: 'Places',
+      groupGas: 'Gas',
+      groupCurrency: 'Currency',
+      dives: 'Dives',
+      underwater: 'Underwater',
+      deepest: 'Deepest',
+      sites: 'Sites',
+      countries: 'Countries',
+      rmv: 'RMV',
+      trend: 'Trend',
+      lastDive: 'Last dive',
+      nothingLogged: 'Nothing to count yet. Log a dive and this fills itself in.',
+      onlyPlanned:
+        'Nothing to count yet. A planned dive isn’t one you’ve done — complete it after surfacing and it lands here.',
+      countriesUnknown:
+        'Countries come from the map’s own sites. None of your dives names one that knows its country yet.',
+      refresher: 'Over six months since your last dive. A refresher is worth booking before the next one.',
+      /** What a screen reader hears instead of the RMV bars (`RmvSparkline`). */
+      rmvSeries: 'Each dive, oldest to newest: {{values}}',
     },
 
     /** What the app says when it cannot read something whole (`domain/logbook.ts`,
@@ -302,6 +369,370 @@ export const en = {
       editCertification: 'Edit certification {{name}}',
       account: 'Account & sync',
       openAccount: 'Open account & sync',
+    },
+
+    /** Words the whole app shares because they name one act, not one screen's version of it —
+     * the two buttons on every confirmation dialog, and the announcement every row that opens
+     * something makes. */
+    common: {
+      cancel: 'Cancel',
+      delete: 'Delete',
+      close: 'Close',
+      open: 'Open {{name}}',
+    },
+
+    /**
+     * §0.6's one treatment for leaving, as words. Five destinations, each a visible chevroned
+     * label and the fuller thing a screen reader is told — *"says what leaving does, which is
+     * the half a diver cannot see from the chevron"*.
+     *
+     * `cancel`/`cancelLabel` are shared by the three editors (the dive form, the preset editor,
+     * the certification editor), which already spelled them identically.
+     */
+    back: {
+      dives: '‹ Dives',
+      divesLabel: 'Back to dives',
+      sites: '‹ Sites',
+      sitesLabel: 'Back to sites',
+      centres: '‹ Centres',
+      centresLabel: 'Back to centres',
+      settings: '‹ Settings',
+      settingsLabel: 'Back to Settings',
+      cancel: '‹ Cancel',
+      cancelLabel: 'Leave without saving',
+    },
+
+    /**
+     * **§4.1's one deliberate exception, discharged.** That table has said since M1e that
+     * *"roughly twenty-five field labels are duplicated as literals across the form and the dive
+     * detail… they are not unified yet on purpose: translation has to key every one of them, and
+     * that pass is where the set belongs"*. This is that pass, and this is where the set landed.
+     *
+     * Four screens read these keys — the dive form, the dive detail, the preset editor and a
+     * site's page — and each of the four used to carry its own literal. A word here is what the
+     * FIELD is called; what a field's *value* reads as is still `format/display.ts`'s and
+     * nothing on a screen may look one up.
+     *
+     * The five shapes at the top are not field names: they are the sentences a screen reader
+     * hears about a field, and they were retyped at eleven call sites for the same reason the
+     * labels were.
+     */
+    field: {
+      labelValue: '{{label}}: {{value}}',
+      clear: 'Clear {{label}}',
+      clearCarried: 'Clear carried {{label}}',
+      fillWith: 'Fill {{label}} with {{value}}',
+      /** `CarriedMark`'s pair (components/CarriedMark.tsx): what a row that was carried and
+       * then cleared shows, and the same state without the typography for a screen reader,
+       * which would otherwise spell the em dash out loud. */
+      cleared: '— cleared',
+      clearedSpoken: 'cleared',
+      expand: 'Expand {{title}}',
+      collapse: 'Collapse {{title}}',
+      /** The two answers an accessory chip gives. Not a vocabulary of `domain/types.ts` — the
+       * stored value is the token's presence in a set, and these are the control's own words. */
+      yes: 'Yes',
+      no: 'No',
+      date: 'Date',
+      site: 'Site',
+      centre: 'Centre',
+      entry: 'Entry',
+      salinity: 'Salinity',
+      waterBody: 'Water body',
+      gps: 'GPS',
+      country: 'Country',
+      website: 'Website',
+      /** **"Site depth", never "Depth"** — §6's own parenthesis, and a site's page shows the
+       * rock's depth beside the diver's deepest dive there. */
+      siteDepth: 'Site depth',
+      status: 'Status',
+      timeIn: 'Time in',
+      timeOut: 'Time out',
+      surfaceInterval: 'Surface interval',
+      maxDepth: 'Max depth',
+      avgDepth: 'Avg depth',
+      duration: 'Duration',
+      cylinder: 'Cylinder',
+      cylinderNumbered: 'Cylinder {{number}}',
+      material: 'Material',
+      size: 'Size',
+      configuration: 'Configuration',
+      workingPressure: 'Working pressure',
+      startPressure: 'Start pressure',
+      endPressure: 'End pressure',
+      used: 'Used',
+      mod: 'MOD',
+      gasUsed: 'Gas used',
+      rmv: 'RMV',
+      weather: 'Weather',
+      waterTemp: 'Water temp',
+      airTemp: 'Air temp',
+      visibility: 'Visibility',
+      visibilityDistance: 'Visibility distance',
+      waves: 'Waves',
+      current: 'Current',
+      surge: 'Surge',
+      suit: 'Suit',
+      suitThickness: 'Suit thickness',
+      equipment: 'Equipment',
+      weights: 'Weights',
+      weighting: 'Weighting',
+      buddy: 'Buddy',
+      guide: 'Guide',
+      title: 'Title',
+      notes: 'Notes',
+      rating: 'Rating',
+      presetName: 'Preset name',
+    },
+
+    /**
+     * What a GROUP of dive fields is called — the dive form's collapsible groups (§2.2) and the
+     * dive detail's clusters (§0.6), which are the same fields typed into and read back.
+     *
+     * **One namespace because two of them are one word**: *Conditions* and *Gas & cylinders* are
+     * on both screens and were two literals. The rest are genuinely per-screen — a form groups
+     * *Times & depth* where a detail clusters *Depth & duration* — and each is named for the
+     * screen that has it rather than forced into a shared shape.
+     *
+     * `equipment` and `notes` here are the *group* names; `field.equipment` and `field.notes`
+     * are the rows inside them (an accessory set, a free-text note). Same word, two objects.
+     */
+    group: {
+      dateTime: 'Date & time',
+      siteCentre: 'Site & centre',
+      depthDuration: 'Depth & duration',
+      timesDepth: 'Times & depth',
+      gas: 'Gas & cylinders',
+      conditions: 'Conditions',
+      waterEntry: 'Water & entry',
+      equipment: 'Equipment',
+      equipmentPeople: 'Equipment & people',
+      people: 'People',
+      notes: 'Notes',
+      notesRating: 'Notes & rating',
+    },
+
+    /** §2.2's dive form — its own chrome, its refusals, and §2.3's catalogue offers. Every field
+     * label it draws is `field.*` above, shared with the detail it will be read back on. */
+    form: {
+      headingNewDive: 'New dive',
+      headingNewPlan: 'New plan',
+      headingEditDive: 'Edit dive',
+      headingEditPlan: 'Edit plan',
+      saveDive: 'Save dive',
+      savePlan: 'Save plan',
+      /** §2.4's control names the QUESTION, and `accessibilityState` carries the answer. */
+      plannedDive: 'Planned dive',
+      carriedFrom: 'Carried from {{from}} — clear any of them',
+      lastDive: 'your last dive',
+      notSet: 'Not set',
+      useMyLocation: 'Use my location',
+      locating: 'Locating…',
+      positionServicesOff: 'Location Services are off for this device. Turn them on to pin a dive.',
+      positionDenied:
+        'Ponor is not allowed to use your location. Allow it in the device’s Settings, then tap again.',
+      positionTimedOut: 'That took too long. Try again where there is more sky.',
+      positionImprecise:
+        'That fix was only good to about {{metres, figure}} m — too rough to pin a dive site. Try again where there is more sky.',
+      positionFailed: 'Could not get a location fix. Try again in a moment.',
+      ratingLevel: '{{label}}: {{level}} of {{max}}',
+      saveFailed: "Couldn't save this dive. Try again.",
+      missingDive: "Couldn't find that dive — it may have been deleted.",
+      addSite: 'Add “{{name}}” as a new site',
+      addCentre: 'Add “{{name}}” as a new dive centre',
+      addingSite: 'Adding the site…',
+      addingCentre: 'Adding the centre…',
+      addFailed: 'Could not add that just now — the dive keeps the name.',
+      addAnyway: '{{offer}} anyway',
+      didYouMean: 'Did you mean “{{name}}”?',
+      lookingForMatch: 'Looking for a match…',
+      dateInvalid: 'Enter a real date (YYYY-MM-DD).',
+      unknownOption:
+        'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.',
+      outOfScale:
+        '{{value, figure}} is not one of these options. It is saved as it is — tap an option to replace it.',
+    },
+
+    /** §2.1's cylinder presets — the form's capture controls, §3's editor, and the three
+     * refusals `domain/presets.ts` owns for both. */
+    preset: {
+      heading: 'Edit preset',
+      presets: 'Presets',
+      apply: 'Apply preset {{name}}',
+      saveAs: 'Save as preset',
+      save: 'Save preset',
+      cancelSaving: 'Cancel saving a preset',
+      namePlaceholder: 'twin 12 steel',
+      unnamed: 'Give this preset a name, so you can find it again.',
+      noCylinders: 'A preset with no cylinders fills nothing in — fill the cylinder fields first.',
+      duplicate: 'You already have a preset called “{{name}}”.',
+      saveFailed: "Couldn't save that preset. Try again.",
+      notFound: "Couldn't find that preset — it may have been deleted.",
+      deleteLabel: 'Delete preset',
+      deleteTitle: 'Delete this preset?',
+      deleteBody: "It will be removed from your presets. This can't be undone.",
+      deleteFailed: "Couldn't delete that preset. Try again.",
+    },
+
+    /** §3's dive detail — the screen's own chrome. Its rows are `field.*` and its clusters
+     * `group.*`; its *Complete dive* control says `dives.completeDive`, the same words the
+     * list's own pill says. */
+    detail: {
+      edit: 'Edit',
+      notFound: 'Dive not found.',
+      deleteLabel: 'Delete dive',
+      deleteTitle: 'Delete this dive?',
+      deleteBody: "It will be removed from your logbook. This can't be undone.",
+      deleteFailed: "Couldn't delete this dive. Try again.",
+    },
+
+    /**
+     * §3's Map tab. The six switch labels say **what pressing the glyph will do**, so each kind
+     * has two of them and the one on offer is the one the press carries out.
+     *
+     * The three "none of your N have a position" sentences each interpolate a count, and Czech
+     * needs its own forms for all three — see `cs.ts`, where the genitive collapses four plural
+     * categories into two.
+     */
+    map: {
+      title: 'Map',
+      showMine: 'Show your dives',
+      hideMine: 'Hide your dives',
+      showCommunity: 'Show community sites',
+      hideCommunity: 'Hide community sites',
+      showCenters: 'Show dive centres',
+      hideCenters: 'Hide dive centres',
+      allSites: 'All sites',
+      allCentres: 'All centres',
+      sitePage: 'Site page',
+      closeSheet: 'Close {{name}}',
+      noDives: 'No dives logged yet. A dive joins the map when you give it a pin.',
+      /**
+       * **No plural in English, and that is not an oversight to fix here.** The sentence that
+       * shipped reads "None of your 1 logged dives has a pin yet" for a diver with one dive —
+       * a real wart, on a screen a new diver reaches early. Giving it an `_one` form would
+       * change English, which this milestone may not do; it is reported instead.
+       */
+      noDivePins:
+        'None of your {{count, figure}} logged dives has a pin yet. Open a dive, edit it, and tap “Use my location” at the site.',
+      noSitesGuest: 'No community sites here yet. They arrive with an account, on your first sync.',
+      noSitesMember:
+        'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
+      /** The same English wart as `noDivePins`, from the same shape, reported rather than fixed. */
+      noSitePositions:
+        'None of your {{count, figure}} community sites has a position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.',
+      noCentresGuest: 'No dive centres here yet. They arrive with an account, on your first sync.',
+      noCentresMember:
+        'No dive centres here yet. Centres appear as divers add them and your next sync brings them down.',
+      /** This one DOES decline in English, because it was built from `formatCenterCount` rather
+       * than from a bare number — so both forms are kept, and both are byte-identical to what
+       * that composition produced. */
+      noCentrePositions_one:
+        'None of your {{count, figure}} centre has a position yet. Tap “All centres” to browse them.',
+      noCentrePositions_other:
+        'None of your {{count, figure}} centres has a position yet. Tap “All centres” to browse them.',
+      nothingSelected:
+        'Nothing selected. Switch on your dives, community sites or dive centres to put them on the map.',
+      /** The browser build, which has no cartography (`DiveMap.web.tsx`). */
+      webUnavailable: 'The map itself needs the Ponor app — the browser build has no cartography to draw on.',
+      webPlaces_one: '{{count, figure}} place would be pinned here.',
+      webPlaces_other: '{{count, figure}} places would be pinned here.',
+    },
+
+    /** A dive site's own page (§3, M3f) and the directory that lists them. */
+    site: {
+      heading: 'Dive sites',
+      notFound: 'Site not found.',
+      facts: 'Site',
+      defaults: 'Site defaults',
+      defaultsNote:
+        'Picking this site on a new dive fills these in, over anything carried from your last dive.',
+      searchPlaceholder: 'Search sites',
+      close: 'Close sites',
+      noneGuest:
+        'No dive sites yet. They arrive with an account — on your first sync, and when you add one from a dive.',
+      noneMember:
+        'No dive sites yet. Name the site on a dive and tap “Add” to publish one; your next sync brings the community’s.',
+      noMatches: 'No sites match your search.',
+    },
+
+    /** A dive centre's own page (§3, M3c) and the directory that lists them. */
+    centre: {
+      heading: 'Dive centres',
+      notFound: 'Centre not found.',
+      /** The catalogue-facts cluster on a centre's page — `site.facts`' sibling one table
+       * over, and named for its own noun because Czech declines both. */
+      facts: 'Centre',
+      searchPlaceholder: 'Search centres',
+      close: 'Close centres',
+      noneGuest:
+        'No dive centres yet. They arrive with an account — on your first sync, and when you add one from a dive.',
+      noneMember:
+        'No dive centres yet. Name the centre on a dive and tap “Add” to publish one; your next sync brings the community’s.',
+      noMatches: 'No centres match your search.',
+    },
+
+    /** §3's search screen. Its "no matches" sentence is `dives.noMatches`, which the Dives list
+     * already says about the same failure. */
+    search: {
+      close: 'Close search',
+      prompt: 'Search your dives by site, centre, buddy or notes.',
+    },
+
+    /** §5's auth screen and §7.4's sign-out. */
+    account: {
+      heading: 'Account',
+      whatItIsFor:
+        'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.',
+      signIn: 'Sign in',
+      createAccount: 'Create account',
+      switchToSignUp: 'Create an account',
+      switchToSignIn: 'I already have an account',
+      email: 'Email',
+      emailPlaceholder: 'you@example.com',
+      password: 'Password',
+      signedInAs: 'Signed in as',
+      /** §7.4's adoption sentence. English moves its verb as well as its noun; Czech moves the
+       * participle too, which is why it reaches all four forms. */
+      adopted_one: '{{count, figure}} dive from this phone was added to your logbook.',
+      adopted_other: '{{count, figure}} dives from this phone were added to your logbook.',
+      signOut: 'Sign out',
+      signOutTitle: 'Sign out?',
+      signOutBody:
+        'Your logbook will be removed from this device. It stays in your account, and signing back in brings it back.',
+      checkEmail: 'Check your email',
+      sentTo: 'Sent to',
+      openTheLink: 'Open the link in that email, then sign in here.',
+      nothingArrives:
+        'Nothing arrives? The address may be wrong, or it may already have an account — try signing in.',
+      backToSignIn: 'Back to sign in',
+      noBackendRefused: 'This build’s Supabase settings were refused: {{cause}}',
+      noBackendMissing:
+        'This build has no backend, so there is nothing to sign in to. Missing: {{missing}}.',
+    },
+
+    /** What `cloud/auth.ts` says about a sign-in, a sign-up or a sign-out — one sentence per
+     * distinct refusal, and never the server's own wording. */
+    auth: {
+      emailRequired: 'Enter your email address.',
+      passwordRequired: 'Enter your password.',
+      credentialsRejected: 'That email and password don’t match an account.',
+      emailTaken: 'That email already has an account — sign in instead.',
+      passwordTooWeak: 'That password is too weak — try a longer one.',
+      emailMalformed: 'That doesn’t look like an email address.',
+      signupDisabled: 'New accounts are switched off right now.',
+      tooManyTries: 'Too many tries. Wait a minute and try again.',
+      confirmationRequired:
+        'This account isn’t confirmed yet. Open the link in the email sent to that address, then sign in.',
+      serverUnreachable:
+        'Couldn’t reach the server. Your logbook is safe on this phone — try again when you’re online.',
+      signInFailed: 'Couldn’t sign in. Try again.',
+      signUpFailed: 'Couldn’t create the account. Try again.',
+      signOutUnavailable: 'Sign-out can’t clear this device yet, so nothing was signed out.',
+      wipeFailed: 'Couldn’t clear this device’s logbook, so nothing was signed out.',
+      unpushedChanges:
+        'This phone has dives your account hasn’t received yet. Connect and try again — nothing was cleared, and you’re still signed in.',
+      signOutFailed: 'This device’s logbook was cleared, but signing out didn’t finish. Try again.',
     },
   },
 };

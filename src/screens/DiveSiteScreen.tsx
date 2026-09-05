@@ -20,6 +20,7 @@ import {
   formatWaterBody,
   unnamedSite,
 } from '../format/display';
+import { t, useT } from '../i18n';
 import { backToSites } from '../navigation/leaveScreen';
 import { type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
@@ -109,10 +110,13 @@ function siteLabel(site: Pick<DiveSite, 'name'>): string {
  * i18next keys them and not before). The VALUES go through `format/display.ts`, so a site's entry
  * reads the same word here as on a dive logged at it.
  */
-const SITE_DEFAULT_ROWS: Record<SiteDefaultField, { label: string; read: (site: DiveSite) => string | null }> = {
-  entry: { label: 'Entry', read: (site) => formatEntry(site.entry) },
-  salinity: { label: 'Salinity', read: (site) => formatSalinity(site.salinity) },
-  waterBody: { label: 'Water body', read: (site) => formatWaterBody(site.waterBody) },
+const SITE_DEFAULT_ROWS: Record<
+  SiteDefaultField,
+  { label: () => string; read: (site: DiveSite) => string | null }
+> = {
+  entry: { label: () => t('field.entry'), read: (site) => formatEntry(site.entry) },
+  salinity: { label: () => t('field.salinity'), read: (site) => formatSalinity(site.salinity) },
+  waterBody: { label: () => t('field.waterBody'), read: (site) => formatWaterBody(site.waterBody) },
 };
 
 /**
@@ -130,9 +134,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToSites}
       accessibilityRole="button"
-      accessibilityLabel="Back to sites"
+      accessibilityLabel={t('back.sitesLabel')}
     >
-      <Text style={styles.detailBackLabel}>‹ Sites</Text>
+      <Text style={styles.detailBackLabel}>{t('back.sites')}</Text>
     </Pressable>
   );
 }
@@ -158,6 +162,9 @@ interface DiveSiteScreenProps {
 }
 
 export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {}) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
@@ -181,7 +188,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
               arrives under it when there is one (§10, `DiveDetailScreen`). */}
           {catalogue.error !== undefined && <Text style={styles.messageText}>{catalogueUnreadable()}</Text>}
           {catalogue.error === undefined && catalogue.resolved && (
-            <Text style={styles.messageText}>Site not found.</Text>
+            <Text style={styles.messageText}>{t('site.notFound')}</Text>
           )}
         </View>
       </View>
@@ -214,7 +221,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           (domain/logbook.ts), the same sentence five other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.siteSummary}>{logbookUnreadable()}</Text>}
       <SiteFacts site={site} units={units} styles={styles} />
-      {myDives.length > 0 && <Text style={styles.siteSectionTitle}>Your dives</Text>}
+      {myDives.length > 0 && <Text style={styles.siteSectionTitle}>{t('place.yourDives')}</Text>}
     </View>
   );
 
@@ -265,7 +272,7 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
   const country = site.country !== null && site.country !== '' ? site.country : null;
   const depth = formatDepth(site.maxDepthM, units);
   const defaults = SITE_DEFAULT_FIELDS.map((field) => ({
-    label: SITE_DEFAULT_ROWS[field].label,
+    label: SITE_DEFAULT_ROWS[field].label(),
     value: SITE_DEFAULT_ROWS[field].read(site),
   })).filter((row): row is { label: string; value: string } => row.value !== null);
 
@@ -273,18 +280,18 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
     <View>
       {(country !== null || depth !== null) && (
         <View>
-          <Text style={styles.siteSectionTitle}>Site</Text>
-          {country !== null && <FactRow label="Country" value={country} styles={styles} />}
+          <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
+          {country !== null && <FactRow label={t('field.country')} value={country} styles={styles} />}
           {/* **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few
               points above it is already showing the diver's deepest dive here. Two depths on one
               screen with one of them unlabelled is the confusion §2.3 refuses to create in the
               other direction when it declines to seed this column from a dive. */}
-          {depth !== null && <FactRow label="Site depth" value={depth} styles={styles} />}
+          {depth !== null && <FactRow label={t('field.siteDepth')} value={depth} styles={styles} />}
         </View>
       )}
       {defaults.length > 0 && (
         <View>
-          <Text style={styles.siteSectionTitle}>Site defaults</Text>
+          <Text style={styles.siteSectionTitle}>{t('site.defaults')}</Text>
           {defaults.map((row) => (
             <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
           ))}
@@ -295,10 +302,7 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
               carry-over and below anything the diver has typed, and a caption claiming the rows
               are simply "filled in" would be wrong about the tier that matters most. */}
           <View style={styles.siteDefaultsCaption}>
-            <Text style={styles.siteDefaultsCaptionText}>
-              Picking this site on a new dive fills these in, over anything carried from your last
-              dive.
-            </Text>
+            <Text style={styles.siteDefaultsCaptionText}>{t('site.defaultsNote')}</Text>
           </View>
         </View>
       )}

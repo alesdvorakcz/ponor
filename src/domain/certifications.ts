@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { calendarDateToUtcMs } from './datetime';
 import type { Certification } from './types';
 
@@ -47,8 +48,9 @@ import type { Certification } from './types';
  * with no agency, no course, no number and no dates is a row that cannot be told from the
  * next empty one, cannot be searched for, and gives the diver nothing to correct.
  */
-export const EMPTY_CERTIFICATION_NOTE =
-  'Add at least one detail — the agency, the course, a card number or a date.';
+export function emptyCertificationNote(): string {
+  return t('certification.empty');
+}
 
 /** The five fields a diver fills in. The stamps and the flag are the repository's (§7.1). */
 export type CertificationFields = Pick<
@@ -114,7 +116,7 @@ export function certificationRefusal(fields: CertificationFields): Certification
   const empty = CERTIFICATION_FIELDS.every((field) => stored[field] === null);
   return {
     refused: empty,
-    note: empty ? EMPTY_CERTIFICATION_NOTE : null,
+    note: empty ? emptyCertificationNote() : null,
     stored,
   };
 }

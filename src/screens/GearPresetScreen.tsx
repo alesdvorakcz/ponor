@@ -17,7 +17,7 @@ import {
   unknownOptionNote,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { PRESET_SAVE_FAILED, presetsUnreadable, presetRefusal } from '../domain/presets';
+import { presetSaveFailed, presetsUnreadable, presetRefusal } from '../domain/presets';
 import {
   CONFIGURATION_VALUES,
   TANK_MATERIAL_VALUES,
@@ -28,6 +28,7 @@ import {
 } from '../domain/types';
 import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
+import { t, useT } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
@@ -37,11 +38,13 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  * Shown when the id names nothing live — deleted on another device, or a stale deep link.
  *
  * Said rather than swallowed, and above all the screen does not fall back to an empty editor:
- * `MISSING_DIVE_MESSAGE` (DiveFormScreen.tsx) records why that second option is the dangerous
+ * `missingDiveMessage` (DiveFormScreen.tsx) records why that second option is the dangerous
  * one — a form that quietly created a NEW row because it could not find the one it was
  * editing would duplicate on the device that still has it, and again on every later attempt.
  */
-const MISSING_PRESET_MESSAGE = "Couldn't find that preset — it may have been deleted.";
+function missingPresetMessage(): string {
+  return t('preset.notFound');
+}
 
 /* The other reason there is no preset on screen is `presetsUnreadable` (domain/presets.ts),
  * and it is a different sentence on purpose: `useGearPresets`' `error` exists for exactly this
@@ -64,18 +67,24 @@ const MISSING_PRESET_MESSAGE = "Couldn't find that preset — it may have been d
  */
 
 /** Shown when `softDeleteGearPreset`'s write rejects. Its own literal, unlike the save's
- * (`PRESET_SAVE_FAILED`, domain/presets.ts): no other screen deletes a preset, so there is
+ * (`presetSaveFailed`, domain/presets.ts): no other screen deletes a preset, so there is
  * nothing here for a second copy to drift from. §10: "A local save failure is shown to the
  * diver" — the alternative is a diver believing the preset is gone and finding it under the
  * chips on their next dive. */
-const DELETE_ERROR_MESSAGE = "Couldn't delete that preset. Try again.";
+function deleteErrorMessage(): string {
+  return t('preset.deleteFailed');
+}
 
 /** What the delete confirmation says — `DiveDetailScreen`'s own pair, one object over. Held
  * here rather than inline so a test can assert on the same strings the diver reads. The body
  * states the consequence in the diver's terms rather than in the schema's ("a tombstone is
  * written", §6, which is true and means nothing here). */
-const DELETE_TITLE = 'Delete this preset?';
-const DELETE_BODY = "It will be removed from your presets. This can't be undone.";
+function deleteTitle(): string {
+  return t('preset.deleteTitle');
+}
+function deleteBody(): string {
+  return t('preset.deleteBody');
+}
 
 /**
  * A cylinder with every field unrecorded, for a preset that holds none — which
@@ -212,6 +221,9 @@ export interface GearPresetScreenProps {
  * for a value the repository strips on its way to the database.
  */
 export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   // The device's own top clearance, from the app's one owner of that rule (`screenTopInset`,
@@ -286,7 +298,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
               nothing on this frame moves when the sentence or the editor arrives under it. */}
           {resolved && (
             <Text style={styles.messageText}>
-              {error === undefined ? MISSING_PRESET_MESSAGE : presetsUnreadable()}
+              {error === undefined ? missingPresetMessage() : presetsUnreadable()}
             </Text>
           )}
         </View>
@@ -356,7 +368,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
       await updateGearPreset(db, preset.id, { name: refusal.storedName, tanks });
       backToSettings();
     } catch {
-      setSaveError(PRESET_SAVE_FAILED);
+      setSaveError(presetSaveFailed());
     } finally {
       // Released on both paths, so a failed save leaves a control the diver can press again
       // rather than one that silently stopped working.
@@ -377,7 +389,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
       await softDeleteGearPreset(db, preset.id);
       backToSettings();
     } catch {
-      setDeleteError(DELETE_ERROR_MESSAGE);
+      setDeleteError(deleteErrorMessage());
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -392,10 +404,10 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
   // *Delete dive* deleted nothing at all until that module existed.
   const confirmDelete = () => {
     confirmDestructive({
-      title: DELETE_TITLE,
-      body: DELETE_BODY,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      title: deleteTitle(),
+      body: deleteBody(),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
       onConfirm: () => void runDelete(),
     });
   };
@@ -407,11 +419,11 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
         {/* What this screen is, not what the preset is called: the name is an editable field
             two rows down, and a heading repeating it would go stale the moment it is typed
             over. "Edit preset" is `headingFor`'s own shape one screen over. */}
-        <Text style={styles.presetHeading}>Edit preset</Text>
+        <Text style={styles.presetHeading}>{t('preset.heading')}</Text>
 
         <View>
           <FormField
-            label="Preset name"
+            label={t('field.presetName')}
             value={draft.name}
             // Typing clears the note: it described the name that was in the box, and a
             // sentence about a name the diver has already changed is a stale complaint.
@@ -420,7 +432,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
               setDraft((current) => ({ ...current, name: text }));
             }}
             scheme={scheme}
-            placeholder="twin 12 steel"
+            placeholder={t('preset.namePlaceholder')}
           />
           <FieldNote message={nameNote ?? undefined} scheme={scheme} />
         </View>
@@ -431,7 +443,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
             §4.1 records (twenty-five of them across the app, awaiting i18next); the two that
             already drifted once come from `O2_LABEL`/`HE_LABEL`. */}
         <OptionChips
-          label="Material"
+          label={t('field.material')}
           value={draft.tank.material as TankMaterial | '' | null | undefined}
           options={TANK_MATERIAL_VALUES}
           displayLabel={(option) => formatTankMaterial(option) ?? option}
@@ -448,7 +460,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
             own option fields ask — the sentence is that file's rule to state. */}
         <FieldNote message={unknownOptionNote(TANK_MATERIAL_VALUES, draft.tank.material)} scheme={scheme} />
         <FormField
-          label="Size"
+          label={t('field.size')}
           value={toInputString(draft.tank.sizeL)}
           onChange={(text) => editTank('sizeL', text)}
           scheme={scheme}
@@ -465,7 +477,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
             fractional-count hazard the old field carried has no way to arise. Chips rather
             than a keypad, matching the dive form's own control for this field. */}
         <OptionChips
-          label="Configuration"
+          label={t('field.configuration')}
           value={draft.tank.configuration as Configuration | '' | null | undefined}
           options={CONFIGURATION_VALUES}
           displayLabel={(option) => formatConfiguration(option) ?? option}
@@ -474,7 +486,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
         />
         <FieldNote message={unknownOptionNote(CONFIGURATION_VALUES, draft.tank.configuration)} scheme={scheme} />
         <FormField
-          label="Working pressure"
+          label={t('field.workingPressure')}
           value={toInputString(draft.tank.workingBar)}
           onChange={(text) => editTank('workingBar', text)}
           scheme={scheme}
@@ -516,10 +528,10 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
           onPress={confirmDelete}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Delete preset"
+          accessibilityLabel={t('preset.deleteLabel')}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.presetDeleteLabel}>Delete preset</Text>
+          <Text style={styles.presetDeleteLabel}>{t('preset.deleteLabel')}</Text>
         </Pressable>
       </ScrollView>
 
@@ -548,10 +560,10 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
           // Verb plus noun, naming what it writes — the shape `Save dive`, `Delete dive` and
           // `Complete dive` already use, and the same words the dive form's capture confirms
           // with, because it is the same act on the same object.
-          accessibilityLabel="Save preset"
+          accessibilityLabel={t('preset.save')}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.actionLabel}>Save preset</Text>
+          <Text style={styles.actionLabel}>{t('preset.save')}</Text>
         </Pressable>
       </View>
     </View>
@@ -578,9 +590,9 @@ function BackControl({ styles }: { styles: Styles }) {
       // Says what leaving does, which is the half a diver cannot see from the chevron —
       // deliberately free of the word "Save", so it can never be mistaken, by a screen reader
       // or by a test query, for the control at the bottom of the screen.
-      accessibilityLabel="Leave without saving"
+      accessibilityLabel={t('back.cancelLabel')}
     >
-      <Text style={styles.formBackLabel}>‹ Cancel</Text>
+      <Text style={styles.formBackLabel}>{t('back.cancel')}</Text>
     </Pressable>
   );
 }

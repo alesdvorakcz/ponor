@@ -3,7 +3,7 @@ import {
   certificationExpiry,
   certificationRefusal,
   compareCertifications,
-  EMPTY_CERTIFICATION_NOTE,
+  emptyCertificationNote,
   type CertificationFields,
 } from './certifications';
 import type { Certification } from './types';
@@ -52,7 +52,7 @@ describe('what refuses a save', () => {
     const refusal = certificationRefusal(fields());
 
     expect(refusal.refused).toBe(true);
-    expect(refusal.note).toBe(EMPTY_CERTIFICATION_NOTE);
+    expect(refusal.note).toBe(emptyCertificationNote());
   });
 
   /** Blank text is nothing, so a card of spaces is a card of nothing — this is where `''` stops

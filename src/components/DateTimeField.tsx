@@ -10,6 +10,7 @@ import {
   timeOfDayToLocalDate,
 } from '../domain/datetime';
 import { formatDiveDate } from '../format/display';
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 // The one control that empties a form row (§4.1). This file used to draw its own chip and its
@@ -163,7 +164,7 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
           accessibilityRole="button"
           // Same `label: value` shape `OptionChips` already uses on this form, so a screen
           // reader announces what the field currently holds rather than only what it is for.
-          accessibilityLabel={`${label}: ${displayText}`}
+          accessibilityLabel={t('field.labelValue', { label, value: displayText })}
           accessibilityState={{ expanded: open }}
         >
           <Text style={recorded ? styles.formFieldPickerText : styles.formFieldPickerTextUnset}>{displayText}</Text>
@@ -188,7 +189,7 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
             // buddy discarded and a buddy never carried are not. The control is shared
             // because emptying a row is one gesture; the treatment around it belongs to
             // carry-over, and this row has none.
-            accessibilityLabel={`Clear ${label}`}
+            accessibilityLabel={t('field.clear', { label })}
             scheme={scheme}
           />
         )}

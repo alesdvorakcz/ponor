@@ -6,7 +6,7 @@
 // `mock`/`require`, and every jest.mock() call is hoisted above every import regardless.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
 import {
@@ -16,8 +16,9 @@ import {
 } from '../db/certifications';
 import { useCertifications } from '../db/useCertifications';
 import { confirmDestructive, type DestructiveConfirmation } from '../platform/confirmDestructive';
-import { EMPTY_CERTIFICATION_NOTE } from '../domain/certifications';
+import { emptyCertificationNote } from '../domain/certifications';
 import { type Certification } from '../domain/types';
+import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
 import CertificationScreen from './CertificationScreen';
@@ -286,7 +287,7 @@ it('writes an edited card through the repository and leaves the screen', async (
  * **Create writes a NEW card and never an update**, which is the whole reason this screen
  * takes a `mode`: with an id alone, "there is no card yet" and "the card you asked for is
  * gone" are one state, and the screen would either refuse to create or create a duplicate on
- * every attempt (`MISSING_DIVE_MESSAGE`, DiveFormScreen.tsx, records that defect).
+ * every attempt (`missingDiveMessage`, DiveFormScreen.tsx, records that defect).
  */
 it('writes a new card in create mode, and never touches an existing one', async () => {
   const t = await openNew();
@@ -328,7 +329,7 @@ it('refuses a card with nothing in it, says so, and writes nothing', async () =>
 
   expect(mockCreate).not.toHaveBeenCalled();
   expect(mockBack).not.toHaveBeenCalled();
-  expect(textIn(t)).toContain(EMPTY_CERTIFICATION_NOTE);
+  expect(textIn(t)).toContain(emptyCertificationNote());
 });
 
 /** The note is about a card the diver has since put something into, so it goes the moment they
@@ -336,11 +337,11 @@ it('refuses a card with nothing in it, says so, and writes nothing', async () =>
 it('drops that note as soon as the diver types something', async () => {
   const t = await openNew();
   await press(t, 'Save certification');
-  expect(textIn(t)).toContain(EMPTY_CERTIFICATION_NOTE);
+  expect(textIn(t)).toContain(emptyCertificationNote());
 
   await typeInto(t, 'Agency', 'S');
 
-  expect(textIn(t)).not.toContain(EMPTY_CERTIFICATION_NOTE);
+  expect(textIn(t)).not.toContain(emptyCertificationNote());
 });
 
 /**
@@ -554,4 +555,65 @@ it('draws the way out the way every other stacked screen draws it', async () => 
   const back = findControl(t, 'Leave without saving');
   expect([back?.props?.style].flat(5)).toContain(styles.formBack);
   expect(textIn(t)).toContain('‹ Cancel');
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /** §3's wallet editor: its heading in both modes, its five rows, and the refusal
+   * `domain/certifications.ts` owns. */
+  it('names its rows and both of its headings in Czech', async () => {
+    const created = textIn(await openNew());
+    expect(created).toContain('Přidat certifikaci');
+    expect(created).toContain('Organizace');
+    expect(created).toContain('Kurz');
+    expect(created).toContain('Číslo karty');
+    expect(created).toContain('Vydáno');
+    expect(created).toContain('Platí do');
+    expect(created).toContain('Uložit certifikaci');
+    expect(created).toContain('‹ Zrušit');
+    expect(created).not.toContain('Card number');
+    await cleanup();
+
+    const edited = textIn(await open(card({ agency: 'PADI', course: 'Rescue Diver' })));
+    expect(edited).toContain('Upravit certifikaci');
+    expect(edited).toContain('Smazat certifikaci');
+  });
+
+  it('refuses an empty card in Czech', async () => {
+    const t = await openNew();
+    await press(t, 'Uložit certifikaci');
+    expect(textIn(t).join(' ')).toContain('Vyplňte aspoň jeden údaj');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    const t = await openNew();
+    expect(textIn(t)).toContain('Add certification');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Přidat certifikaci');
+    expect(textIn(t)).not.toContain('Add certification');
+  });
 });

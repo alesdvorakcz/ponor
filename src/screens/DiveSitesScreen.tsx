@@ -18,6 +18,7 @@ import { type DiveSite } from '../domain/types';
 import { formatSiteCount, formatSiteRow, unnamedSite } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
+import { t, useT } from '../i18n';
 import { backToMap } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -68,6 +69,9 @@ export const CLOSE_SITES_GLYPH = { ios: 'xmark', android: 'close' } as const;
  * over the tabs so the bottom of the screen is the bottom of the screen.
  */
 export default function DiveSitesScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
@@ -85,7 +89,7 @@ export default function DiveSitesScreen() {
   const shown = browseCatalogue(catalogue.sites, query);
 
   const close: readonly CapsuleAction[] = [
-    { key: 'close-sites', symbol: CLOSE_SITES_GLYPH, label: 'Close sites', onPress: backToMap },
+    { key: 'close-sites', symbol: CLOSE_SITES_GLYPH, label: t('site.close'), onPress: backToMap },
   ];
 
   /**
@@ -104,11 +108,9 @@ export default function DiveSitesScreen() {
       // reaches this table two ways and §5 puts an account behind both: a pull, and §2.3's *add a
       // site*, which is offered to a signed-in diver alone. Telling a guest their next sync will
       // bring sites would be pointing at something that cannot happen.
-      return session === null
-        ? 'No dive sites yet. They arrive with an account — on your first sync, and when you add one from a dive.'
-        : 'No dive sites yet. Name the site on a dive and tap “Add” to publish one; your next sync brings the community’s.';
+      return t(session === null ? 'site.noneGuest' : 'site.noneMember');
     }
-    if (shown.length === 0) return 'No sites match your search.';
+    if (shown.length === 0) return t('site.noMatches');
     return null;
   };
 
@@ -128,7 +130,7 @@ export default function DiveSitesScreen() {
         keyExtractor={(site) => site.id}
         ListHeaderComponent={
           <View>
-            <Text style={styles.sitesHeading}>Dive sites</Text>
+            <Text style={styles.sitesHeading}>{t('site.heading')}</Text>
             {/* The count of what is on screen, in the muted mono line every screen in this app
                 hangs under its title. Absent while the read has not answered, for the reason
                 above; absent under a message too, since the message is what the line would
@@ -162,7 +164,7 @@ export default function DiveSitesScreen() {
           KeyboardAvoidingView lift it with the keyboard. `insets.bottom` clears the home indicator
           when the keyboard is down. */}
       <View style={[styles.searchDock, { paddingBottom: insets.bottom + 12 }]}>
-        <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} placeholder="Search sites" />
+        <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} placeholder={t('site.searchPlaceholder')} />
         <ActionCapsule scheme={scheme} actions={close} />
       </View>
     </KeyboardAvoidingView>
@@ -200,7 +202,7 @@ function SiteRow({
       // where a relative one is resolved at runtime and checked against nothing at all.
       onPress={() => router.push(`/site/${site.id}`)}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${name}`}
+      accessibilityLabel={t('common.open', { name })}
     >
       <View style={styles.formFieldRow}>
         <Text style={styles.siteRowName}>{name}</Text>

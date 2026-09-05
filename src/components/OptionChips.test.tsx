@@ -151,7 +151,7 @@ it('draws the return mark and the ring on the carried row, and neither anywhere 
 
 // The em dash is typography, and a screen reader unaided makes "dash cleared" of it. Defended
 // on `FormField` from the start and not here, so a diver on a cleared CHIP row heard exactly
-// the thing `CLEARED_ANNOUNCEMENT` exists to prevent — the same guarantee written once and not
+// the thing `clearedAnnouncement` exists to prevent — the same guarantee written once and not
 // mirrored.
 it('announces the tag as a word, not as punctuation', async () => {
   const t = await renderChips({ value: '', cleared: true });

@@ -1164,9 +1164,32 @@ export function formatSiteCount(count: number): string {
  *
  * **The "of" half appears only when the two differ**, because `24 of 24 dives` is a comparison
  * with nothing to say. `known` is what the device holds; `onMap` is what could be drawn.
+ *
+ * **It hands the template four values for two figures, because the two languages hang the noun
+ * on different numbers** (M3h — M3g found this and left it here). English writes *7 of 24 dives*
+ * and the noun goes with the total. Czech cannot: *z* governs the genitive, so a nominative
+ * count phrase dropped in after it reads `1 z 2 lokality` where the language wants `ze 2
+ * lokalit` — the composed count phrase that reads wrong and passes every test. Czech therefore
+ * writes *7 ponorů z 24*, with the noun on `onMapCount` and nothing but a numeral after the
+ * preposition.
+ *
+ * So both spellings of the pair are offered and each resource file takes the one its grammar
+ * needs. `count` is the total, and it is here only so Czech's `few` can vocalise `z` to `ze`;
+ * English holds no plural forms of this key at all and i18next falls back to the bare one,
+ * which is what keeps the English sentence byte-identical to the one that shipped.
+ *
+ * **This still has exactly one owner of the plural.** `count` (the callback) is
+ * `formatDiveCount` and its siblings either way; nothing here counts anything or compares a
+ * count with 1.
  */
 function formatCoverage(onMap: number, known: number, count: (value: number) => string): string {
-  return onMap < known ? t('figure.coverage', { onMap, total: count(known) }) : count(onMap);
+  if (onMap >= known) return count(onMap);
+  return t('figure.coverage', {
+    onMap,
+    total: count(known),
+    onMapCount: count(onMap),
+    count: known,
+  });
 }
 
 /**

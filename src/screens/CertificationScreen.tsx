@@ -17,7 +17,7 @@ import {
   type CertificationFields,
 } from '../domain/certifications';
 import { type Certification } from '../domain/types';
-import { t } from '../i18n';
+import { t, useT } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
@@ -27,12 +27,14 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  * Shown when the id names nothing live — deleted on another device, or a stale deep link.
  *
  * Said rather than swallowed, and above all this screen does not fall back to a blank *new*
- * card: `MISSING_DIVE_MESSAGE` (DiveFormScreen.tsx) records why that is the dangerous option —
+ * card: `missingDiveMessage` (DiveFormScreen.tsx) records why that is the dangerous option —
  * a form that quietly created a NEW row because it could not find the one it was editing would
  * duplicate on the device that still has it, and again on every later attempt. `mode` is what
  * makes the two cases tellable apart here, exactly as it does on the dive form.
  */
-const MISSING_CERTIFICATION_MESSAGE = "Couldn't find that certification — it may have been deleted.";
+function missingCertificationMessage(): string {
+  return t('certification.notFound');
+}
 
 /**
  * What a failed read says, on both screens that show a card.
@@ -51,17 +53,25 @@ export function certificationsUnreadable(): string {
 /** Shown when the write rejects. §10: "a local save failure is shown to the diver" — the
  * alternative is a diver believing their card is stored and finding an empty wallet on the
  * boat where they were asked for it. */
-const SAVE_ERROR_MESSAGE = "Couldn't save that certification. Try again.";
+function saveErrorMessage(): string {
+  return t('certification.saveFailed');
+}
 
 /** Shown when `softDeleteCertification`'s write rejects. Its own literal, unlike the read
  * failure above: no other screen deletes a card, so there is nothing here for a second copy to
  * drift from — `GearPresetScreen`'s own delete error makes the same call. */
-const DELETE_ERROR_MESSAGE = "Couldn't delete that certification. Try again.";
+function deleteErrorMessage(): string {
+  return t('certification.deleteFailed');
+}
 
 /** What the delete confirmation says — `GearPresetScreen`'s own pair, one object over. Held
  * here rather than inline so a test can assert on the same strings the diver reads. */
-const DELETE_TITLE = 'Delete this certification?';
-const DELETE_BODY = "It will be removed from your wallet. This can't be undone.";
+function deleteTitle(): string {
+  return t('certification.deleteTitle');
+}
+function deleteBody(): string {
+  return t('certification.deleteBody');
+}
 
 /**
  * The five fields as text, plus the card they came from.
@@ -103,7 +113,7 @@ export interface CertificationScreenProps {
    * **A mode rather than "an id means edit"**, which is `DiveFormScreen`'s shape and is the
    * one that can tell *there is no card yet* from *the card you asked for is gone*. Without
    * it those two states are both "no certification in hand", and the screen would either
-   * refuse to create or silently create a duplicate — the defect `MISSING_DIVE_MESSAGE`
+   * refuse to create or silently create a duplicate — the defect `missingDiveMessage`
    * records. `GearPresetScreen` gets away with a bare optional id because §10 puts preset
    * creation in the dive form; a certification has nowhere else to come from.
    */
@@ -138,6 +148,9 @@ export interface CertificationScreenProps {
  * answer came from another version of Ponor.
  */
 export default function CertificationScreen({ mode, certificationId }: CertificationScreenProps) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   // The device's own top clearance, from the app's one owner of that rule (`screenTopInset`,
@@ -200,7 +213,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
               one a diver most needs to leave. */}
           {resolved && (
             <Text style={styles.messageText}>
-              {error === undefined ? MISSING_CERTIFICATION_MESSAGE : certificationsUnreadable()}
+              {error === undefined ? missingCertificationMessage() : certificationsUnreadable()}
             </Text>
           )}
         </View>
@@ -234,7 +247,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
       }
       backToSettings();
     } catch {
-      setSaveError(SAVE_ERROR_MESSAGE);
+      setSaveError(saveErrorMessage());
     } finally {
       // Released on both paths, so a failed save leaves a control the diver can press again
       // rather than one that silently stopped working.
@@ -255,7 +268,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
       await softDeleteCertification(db, certification.id);
       backToSettings();
     } catch {
-      setDeleteError(DELETE_ERROR_MESSAGE);
+      setDeleteError(deleteErrorMessage());
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -267,10 +280,10 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
   // chrome the app does not draw, and `platform/confirmDestructive.ts` owns which chrome.
   const confirmDelete = () => {
     confirmDestructive({
-      title: DELETE_TITLE,
-      body: DELETE_BODY,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      title: deleteTitle(),
+      body: deleteBody(),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
       onConfirm: () => void runDelete(),
     });
   };
@@ -287,7 +300,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
             editable fields two rows down, and a heading repeating them would go stale the
             moment they are typed over. `headingFor`'s own shape one screen over. */}
         <Text style={styles.certificationHeading}>
-          {certification === null ? 'Add certification' : 'Edit certification'}
+          {t(certification === null ? 'certification.addHeading' : 'certification.editHeading')}
         </Text>
 
         {/* §3's own three words for this row — "agency, level, card number" — with `course`
@@ -295,28 +308,28 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
             prints on the card. The labels are literals for the reason §4.1 records (roughly
             twenty-five of them across the app, awaiting i18next). */}
         <FormField
-          label="Agency"
+          label={t('certification.agency')}
           value={draft.agency ?? ''}
           onChange={(text) => edit('agency', text)}
           scheme={scheme}
-          placeholder="PADI"
+          placeholder={t('certification.agencyPlaceholder')}
         />
         <FormField
-          label="Course"
+          label={t('certification.course')}
           value={draft.course ?? ''}
           onChange={(text) => edit('course', text)}
           scheme={scheme}
-          placeholder="Rescue Diver"
+          placeholder={t('certification.coursePlaceholder')}
         />
         <FormField
-          label="Card number"
+          label={t('certification.cardNumberLabel')}
           value={draft.cardNumber ?? ''}
           onChange={(text) => edit('cardNumber', text)}
           scheme={scheme}
           // §0.6: "Figures in mono, names in sans." A card number is a figure, and a mono row
           // is what makes a long one readable back off the plastic digit by digit.
           mono
-          placeholder="1234567"
+          placeholder={t('certification.cardNumberPlaceholder')}
         />
         {/* Dates through the platform's picker (§10, M1d: "an invalid date cannot be
             entered"), the same control the dive form's own date row uses. Both carry a clear
@@ -324,16 +337,16 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
             and "not recorded" has to be reachable from a field the diver has filled in by
             mistake. */}
         <DateTimeField
-          label="Issued"
+          label={t('certification.issuedLabel')}
           value={draft.issuedOn}
           onChange={(value) => edit('issuedOn', value)}
           onClear={(value) => edit('issuedOn', value)}
           mode="date"
           scheme={scheme}
-          placeholder="Not set"
+          placeholder={t('form.notSet')}
         />
         <DateTimeField
-          label="Expires"
+          label={t('certification.expiresLabel')}
           value={draft.expiresOn}
           onChange={(value) => edit('expiresOn', value)}
           onClear={(value) => edit('expiresOn', value)}
@@ -342,7 +355,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
           // A different empty state from *Issued*'s, and it is the fact rather than a
           // placeholder: §6 gives `expires_on` to "(O₂, first aid)", so a null here means this
           // card does not expire rather than that nobody has typed it yet.
-          placeholder="Doesn’t expire"
+          placeholder={t('certification.neverExpires')}
         />
         <FieldNote message={note ?? undefined} scheme={scheme} />
 
@@ -362,10 +375,10 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
               onPress={confirmDelete}
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel="Delete certification"
+              accessibilityLabel={t('certification.deleteLabel')}
               accessibilityState={{ disabled: busy }}
             >
-              <Text style={styles.certificationDeleteLabel}>Delete certification</Text>
+              <Text style={styles.certificationDeleteLabel}>{t('certification.deleteLabel')}</Text>
             </Pressable>
           </>
         )}
@@ -392,10 +405,10 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
           accessibilityRole="button"
           // Verb plus noun, naming what it writes — the shape `Save dive` and `Save preset`
           // already use, and the same words in both modes because it is the same act.
-          accessibilityLabel="Save certification"
+          accessibilityLabel={t('certification.save')}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.actionLabel}>Save certification</Text>
+          <Text style={styles.actionLabel}>{t('certification.save')}</Text>
         </Pressable>
       </View>
     </View>
@@ -421,9 +434,9 @@ function BackControl({ styles }: { styles: Styles }) {
       // Says what leaving does, which is the half a diver cannot see from the chevron —
       // deliberately free of the word "Save", so it can never be mistaken, by a screen reader
       // or by a test query, for the control at the bottom of the screen.
-      accessibilityLabel="Leave without saving"
+      accessibilityLabel={t('back.cancelLabel')}
     >
-      <Text style={styles.formBackLabel}>‹ Cancel</Text>
+      <Text style={styles.formBackLabel}>{t('back.cancel')}</Text>
     </Pressable>
   );
 }

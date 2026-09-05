@@ -279,7 +279,7 @@ describe('one cycle at a time (§7.5)', () => {
    * written for.** A cycle never rejects — it swallows its failure and reports `failed` (§1) —
    * so the only thing that can leave a rejected promise on the lock is `runExclusive`, and
    * §7.4's wipe rejects whenever the erase itself could not run (`cloud/localLogbook.ts`, and
-   * `auth.ts` turns that into `WIPE_FAILED`). Released on a *settled* job rather than a
+   * `auth.ts` turns that into `wipeFailed`). Released on a *settled* job rather than a
    * successful one, or a diver whose sign-out failed once never syncs again for the life of
    * the process.
    */

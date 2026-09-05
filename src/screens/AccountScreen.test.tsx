@@ -6,7 +6,7 @@
 // `mock`/`require`, and every jest.mock() call is hoisted above every import regardless.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,19 +14,20 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   authenticate,
   credentialRefusal,
-  CREDENTIALS_REJECTED,
-  EMAIL_REQUIRED,
+  credentialsRejected,
+  emailRequired,
   endSession,
-  SIGN_OUT_UNAVAILABLE,
+  signOutUnavailable,
   type AuthOutcome,
   type Credentials,
   type SignOutOutcome,
 } from '../cloud/auth';
 import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
-import AccountScreen, { adoptionSentence, SIGN_OUT_BODY, SIGN_OUT_TITLE } from './AccountScreen';
+import AccountScreen, { adoptionSentence, signOutBody, signOutTitle } from './AccountScreen';
 
 /**
  * **No real sign-in has ever been performed from this tree.** There are no credentials for the
@@ -355,14 +356,14 @@ describe('signed out', () => {
   it('shows what went wrong as text on the screen', async () => {
     mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({
       kind: 'failed',
-      message: CREDENTIALS_REJECTED,
+      message: credentialsRejected(),
     }));
     const t = await render(<AccountScreen />);
     await typeCredentials(t, 'ales@example.com', 'wrong');
 
     await pressControl(t, 'Sign in');
 
-    expect(textIn(t)).toContain(CREDENTIALS_REJECTED);
+    expect(textIn(t)).toContain(credentialsRejected());
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
@@ -387,9 +388,9 @@ describe('signed out', () => {
     await pressControl(t, 'Sign in');
 
     const lines = textIn(t);
-    expect(lines).toContain(EMAIL_REQUIRED);
-    expect(lines.indexOf(EMAIL_REQUIRED)).toBeGreaterThan(lines.indexOf('Email'));
-    expect(lines.indexOf(EMAIL_REQUIRED)).toBeLessThan(lines.indexOf('Password'));
+    expect(lines).toContain(emailRequired());
+    expect(lines.indexOf(emailRequired())).toBeGreaterThan(lines.indexOf('Email'));
+    expect(lines.indexOf(emailRequired())).toBeLessThan(lines.indexOf('Password'));
   });
 
   /**
@@ -401,7 +402,7 @@ describe('signed out', () => {
   it('puts what the server said under the pair, not under one row of it', async () => {
     mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({
       kind: 'failed',
-      message: CREDENTIALS_REJECTED,
+      message: credentialsRejected(),
     }));
     const t = await render(<AccountScreen />);
     await typeCredentials(t, 'ales@example.com', 'wrong');
@@ -409,23 +410,23 @@ describe('signed out', () => {
     await pressControl(t, 'Sign in');
 
     const lines = textIn(t);
-    expect(lines.indexOf(CREDENTIALS_REJECTED)).toBeGreaterThan(lines.indexOf('Password'));
+    expect(lines.indexOf(credentialsRejected())).toBeGreaterThan(lines.indexOf('Password'));
   });
 
   /** A sentence about credentials the diver has already changed is a stale complaint. */
   it('drops the message the moment either row is edited', async () => {
     mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({
       kind: 'failed',
-      message: CREDENTIALS_REJECTED,
+      message: credentialsRejected(),
     }));
     const t = await render(<AccountScreen />);
     await typeCredentials(t, 'ales@example.com', 'wrong');
     await pressControl(t, 'Sign in');
-    expect(textIn(t)).toContain(CREDENTIALS_REJECTED);
+    expect(textIn(t)).toContain(credentialsRejected());
 
     await fireEvent.changeText(findField(t, 'Password'), 'wrong-b');
 
-    expect(textIn(t)).not.toContain(CREDENTIALS_REJECTED);
+    expect(textIn(t)).not.toContain(credentialsRejected());
   });
 
   /**
@@ -600,12 +601,12 @@ describe('signing out', () => {
     await pressControl(t, 'Sign out');
 
     expect(alertSpy).toHaveBeenCalledTimes(1);
-    expect(alertSpy.mock.calls[0]?.[0]).toBe(SIGN_OUT_TITLE);
-    expect(alertSpy.mock.calls[0]?.[1]).toBe(SIGN_OUT_BODY);
+    expect(alertSpy.mock.calls[0]?.[0]).toBe(signOutTitle());
+    expect(alertSpy.mock.calls[0]?.[1]).toBe(signOutBody());
     // Both halves in one body: what goes, and that it comes back. A body naming only the loss
     // would be true and would leave a diver believing their logbook was gone for good.
-    expect(SIGN_OUT_BODY).toContain('removed from this device');
-    expect(SIGN_OUT_BODY).toContain('signing back in brings it back');
+    expect(signOutBody()).toContain('removed from this device');
+    expect(signOutBody()).toContain('signing back in brings it back');
     expect(alertButtons().map((b) => b.style)).toEqual(['cancel', 'destructive']);
   });
 
@@ -678,7 +679,7 @@ describe('signing out', () => {
   it('says so when the sign-out could not be carried out', async () => {
     mockEndSession.mockImplementation(async (): Promise<SignOutOutcome> => ({
       ok: false,
-      message: SIGN_OUT_UNAVAILABLE,
+      message: signOutUnavailable(),
     }));
     stubSession({ session: SESSION });
     const t = await render(<AccountScreen />);
@@ -689,7 +690,7 @@ describe('signing out', () => {
       destructive?.onPress?.();
     });
 
-    expect(textIn(t)).toContain(SIGN_OUT_UNAVAILABLE);
+    expect(textIn(t)).toContain(signOutUnavailable());
   });
 });
 
@@ -873,5 +874,70 @@ describe('the mode toggle and the action it belongs to', () => {
     expect(onAPhone.controls).toEqual(['Sign in', 'Create an account']);
     expect(onAPhone.padding).toBeGreaterThan(onNothing.padding);
     expect(onAPhone.padding).toBeGreaterThanOrEqual(34);
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **§7.4's adoption sentence, which reaches all four Czech forms** — the participle agrees
+   * with the count as well as the noun (*byl přidán* · *byly přidány* · *bylo přidáno*), where
+   * English moves only its verb. Three counts, because a test at 1 and 4 would be satisfied by
+   * English's own two-form rule and would say nothing about the third branch at 5.
+   */
+  it('declines the adoption sentence, participle and all', () => {
+    expect(adoptionSentence(1)).toBe('Z tohoto telefonu byl do vašeho deníku přidán 1 ponor.');
+    expect(adoptionSentence(3)).toBe('Z tohoto telefonu byly do vašeho deníku přidány 3 ponory.');
+    expect(adoptionSentence(9)).toBe('Z tohoto telefonu bylo do vašeho deníku přidáno 9 ponorů.');
+    expect(adoptionSentence(3)).not.toBe(adoptionSentence(9));
+    expect(adoptionSentence(0)).toBeNull();
+  });
+
+  it('says what an account is for, and offers both acts, in Czech', async () => {
+    const t = await render(<AccountScreen />);
+    expect(textIn(t)).toContain('Přihlásit se');
+    expect(textIn(t)).toContain('Vytvořit si účet');
+    expect(textIn(t).join(' ')).toContain('Ponor funguje i bez účtu.');
+    expect(textIn(t).join(' ')).not.toContain('Ponor works fully without an account.');
+  });
+
+  /** The one destructive dialog in v1 (§7.4), and the sentence a diver reads before it. */
+  it('asks the sign-out question in Czech', () => {
+    expect(signOutTitle()).toBe('Odhlásit se?');
+    expect(signOutBody()).toBe(
+      'Váš deník bude z tohoto zařízení odstraněn. Zůstane ve vašem účtu a po opětovném přihlášení se vrátí.',
+    );
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    const t = await render(<AccountScreen />);
+    expect(textIn(t)).toContain('Sign in');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Přihlásit se');
+    expect(textIn(t)).not.toContain('Sign in');
   });
 });

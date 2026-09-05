@@ -1,11 +1,11 @@
 import {
   comparePresets,
   duplicatePresetMessage,
-  EMPTY_PRESET_MESSAGE,
+  emptyPresetMessage,
   presetMatching,
   presetNamed,
   presetRefusal,
-  UNNAMED_PRESET_MESSAGE,
+  unnamedPresetMessage,
 } from './presets';
 import type { GearPreset, Tank } from './types';
 
@@ -168,7 +168,7 @@ describe('presetRefusal', () => {
   // A preset is found by its name and by nothing else — it is all a chip shows.
   it.each([['an empty name', ''], ['a whitespace-only name', '   ']])('refuses %s', (_case, name) => {
     const verdict = presetRefusal([], name, REAL_CYLINDER);
-    expect(verdict.name).toBe(UNNAMED_PRESET_MESSAGE);
+    expect(verdict.name).toBe(unnamedPresetMessage());
     expect(verdict.refused).toBe(true);
     // The cylinders are fine, and the verdict says so — which is what lets a screen with two
     // slots answer both questions at once instead of one at a time.
@@ -207,7 +207,7 @@ describe('presetRefusal', () => {
     ['a cylinder holding only the pressures a preset never stores', [tank({ startBar: 200, endBar: 60 })]],
   ])('refuses %s', (_case, tanks) => {
     const verdict = presetRefusal([], 'twin 12 steel', tanks);
-    expect(verdict.cylinders).toBe(EMPTY_PRESET_MESSAGE);
+    expect(verdict.cylinders).toBe(emptyPresetMessage());
     expect(verdict.refused).toBe(true);
   });
 
@@ -216,8 +216,8 @@ describe('presetRefusal', () => {
   // sentence first; the editor has two and shows both.
   it('answers both questions independently, so a caller can show either or both', () => {
     const verdict = presetRefusal([], '', []);
-    expect(verdict.name).toBe(UNNAMED_PRESET_MESSAGE);
-    expect(verdict.cylinders).toBe(EMPTY_PRESET_MESSAGE);
+    expect(verdict.name).toBe(unnamedPresetMessage());
+    expect(verdict.cylinders).toBe(emptyPresetMessage());
   });
 
   // `storedName` is the name as it will be written, decided here rather than trimmed again at

@@ -7,6 +7,7 @@ import {
   type Quantity,
   type UnitSystem,
 } from '../format/units';
+import { t } from '../i18n';
 import { isCalendarDate } from './datetime';
 import {
   CONFIGURATION_VALUES,
@@ -206,8 +207,9 @@ const optionalText = z
  * token set, so it went with them rather than waiting for a boolean field that may never
  * exist.
  */
-export const UNKNOWN_OPTION_NOTE =
-  'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.';
+export function unknownOptionMessage(): string {
+  return t('form.unknownOption');
+}
 
 /**
  * The note for one fixed-choice field's current value, or `undefined` when there is nothing
@@ -220,14 +222,14 @@ export const UNKNOWN_OPTION_NOTE =
  */
 export function unknownOptionNote<T extends string | number>(options: readonly T[], value: unknown): string | undefined {
   if (value === null || value === undefined || value === '') return undefined;
-  return (options as readonly unknown[]).includes(value) ? undefined : UNKNOWN_OPTION_NOTE;
+  return (options as readonly unknown[]).includes(value) ? undefined : unknownOptionMessage();
 }
 
 /**
  * What a diver reads next to a **numeric scale** — `rating`, `waves`, `current`, `surge` —
  * holding a number none of its chips offers.
  *
- * **A sibling of `UNKNOWN_OPTION_NOTE` above, not a second copy of it**, and §4.1's rule for
+ * **A sibling of `unknownOptionMessage` above, not a second copy of it**, and §4.1's rule for
  * deliberate near-duplicates is to say here which question each answers. That one is for a
  * closed *vocabulary* (`entry`, `suit`, a cylinder material): those values were never
  * typeable, so a value outside the list can only have been written by another client, and the
@@ -271,7 +273,7 @@ export function outOfScaleNote(options: readonly number[], value: unknown): stri
   const parsed = toFormNumber(value);
   if (parsed === null) return undefined;
   if (options.includes(parsed)) return undefined;
-  return `${parsed} is not one of these options. It is saved as it is — tap an option to replace it.`;
+  return t('form.outOfScale', { value: parsed });
 }
 
 /**
@@ -282,7 +284,7 @@ export function outOfScaleNote(options: readonly number[], value: unknown): stri
  * about: a **numeric** vocabulary is an ordered scale whose out-of-range values the diver
  * could once have typed (`outOfScaleNote` — states the value, attributes nothing), and a
  * **string** vocabulary is a closed list nobody could ever type into, so a foreign member can
- * only have been written by another client (`UNKNOWN_OPTION_NOTE` — free to say so).
+ * only have been written by another client (`unknownOptionMessage` — free to say so).
  *
  * Asking the options rather than asking the call site is deliberate. The alternative is a
  * prop on `ControlledOptionField` naming the note, which is eleven independent chances to
@@ -331,7 +333,7 @@ const optionalTokenSet = z
  * empty string rather than either of those — and all three collapse to null
  * so a never-touched picker looks the same as a numeric field left blank.
  *
- * **A value outside the list is kept, not refused** (§1, §10 — see `UNKNOWN_OPTION_NOTE`
+ * **A value outside the list is kept, not refused** (§1, §10 — see `unknownOptionMessage`
  * above). It is still never something a diver could type: these are taps on a fixed list.
  * But rejecting one made `handleSubmit` refuse to call `onValid` for the whole form, so an
  * `entry` written by a newer client — delivered by M2 sync, and carried into a fresh dive by
@@ -475,7 +477,12 @@ export const diveFormSchema = z.object({
   status: optionalStatus,
 
   // Core strip (§2.2) — always visible.
-  date: z.string().refine(isCalendarDate, { message: 'Enter a real date (YYYY-MM-DD).' }),
+  // `error` as a callback rather than a `message` string, and that is the whole of what
+  // translation changed here: a string is evaluated when this schema object is built, which is
+  // module load — before any diver has chosen a language and for ever afterwards. Zod calls
+  // this when it raises the issue, so the sentence is in the language the form is being read
+  // in. (M3h; the same reason six `const`s became functions in M3g.)
+  date: z.string().refine(isCalendarDate, { error: () => t('form.dateInvalid') }),
   siteId: optionalText,
   siteName: optionalText,
   centerId: optionalText,

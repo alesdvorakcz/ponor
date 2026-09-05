@@ -1,5 +1,6 @@
 import { Text, View } from 'react-native';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import type { DiveMap as NativeDiveMap, DiveMapProps } from './DiveMap';
 
@@ -39,12 +40,10 @@ export function DiveMap({ scheme, marks }: DiveMapProps) {
   const styles = makeStyles(scheme);
   return (
     <View style={styles.centerFill}>
-      <Text style={styles.messageText}>
-        The map itself needs the Ponor app — the browser build has no cartography to draw on.
-      </Text>
-      <Text style={styles.messageText}>
-        {marks.length === 1 ? '1 place would be pinned here.' : `${marks.length} places would be pinned here.`}
-      </Text>
+      <Text style={styles.messageText}>{t('map.webUnavailable')}</Text>
+      {/* The count declines, and in Czech so does the verb with it — *bylo připnuto* against
+          *byla připnuta* — so i18next picks the form rather than a ternary on `=== 1`. */}
+      <Text style={styles.messageText}>{t('map.webPlaces', { count: marks.length })}</Text>
     </View>
   );
 }

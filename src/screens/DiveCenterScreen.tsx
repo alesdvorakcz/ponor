@@ -11,6 +11,7 @@ import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { waterTempRange } from '../domain/mapSites';
 import { formatSiteSummary, unnamedCenter } from '../format/display';
+import { t, useT } from '../i18n';
 import { backToCenters } from '../navigation/leaveScreen';
 import { isOpenableWebsite, openWebsite } from '../platform/openWebsite';
 import { resolveScheme } from '../theme/resolve';
@@ -91,9 +92,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToCenters}
       accessibilityRole="button"
-      accessibilityLabel="Back to centres"
+      accessibilityLabel={t('back.centresLabel')}
     >
-      <Text style={styles.detailBackLabel}>‹ Centres</Text>
+      <Text style={styles.detailBackLabel}>{t('back.centres')}</Text>
     </Pressable>
   );
 }
@@ -119,6 +120,9 @@ interface DiveCenterScreenProps {
 }
 
 export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps = {}) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
@@ -142,7 +146,7 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
               sentence arrives under it when there is one (§10, `DiveDetailScreen`). */}
           {catalogue.error !== undefined && <Text style={styles.messageText}>{catalogueUnreadable()}</Text>}
           {catalogue.error === undefined && catalogue.resolved && (
-            <Text style={styles.messageText}>Centre not found.</Text>
+            <Text style={styles.messageText}>{t('centre.notFound')}</Text>
           )}
         </View>
       </View>
@@ -182,16 +186,16 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
       {logbookError !== undefined && <Text style={styles.centerSummary}>{logbookUnreadable()}</Text>}
       {hasFacts && (
         <View>
-          <Text style={styles.centerSectionTitle}>Centre</Text>
+          <Text style={styles.centerSectionTitle}>{t('centre.facts')}</Text>
           {center.country !== null && center.country !== '' && (
-            <FactRow label="Country" value={center.country} styles={styles} />
+            <FactRow label={t('field.country')} value={center.country} styles={styles} />
           )}
           {website !== null && website !== '' && (
             <WebsiteRow website={website} styles={styles} />
           )}
         </View>
       )}
-      {myDives.length > 0 && <Text style={styles.centerSectionTitle}>Your dives</Text>}
+      {myDives.length > 0 && <Text style={styles.centerSectionTitle}>{t('place.yourDives')}</Text>}
     </View>
   );
 
@@ -235,16 +239,16 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
  * where a tap would land".
  */
 function WebsiteRow({ website, styles }: { website: string; styles: Styles }) {
-  if (!isOpenableWebsite(website)) return <FactRow label="Website" value={website} styles={styles} />;
+  if (!isOpenableWebsite(website)) return <FactRow label={t('field.website')} value={website} styles={styles} />;
   return (
     <Pressable
       style={styles.formField}
       onPress={() => void openWebsite(website)}
       accessibilityRole="link"
-      accessibilityLabel={`Open ${website}`}
+      accessibilityLabel={t('common.open', { name: website })}
     >
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>Website</Text>
+        <Text style={styles.formFieldLabel}>{t('field.website')}</Text>
         <Text style={styles.centerFactValue}>{website}</Text>
       </View>
     </Pressable>

@@ -1,9 +1,10 @@
 import { Pressable, Text, View, type ColorValue } from 'react-native';
 import { type ReactNode } from 'react';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-import { CarriedMark, CLEARED_ANNOUNCEMENT, CLEARED_TAG } from './CarriedMark';
+import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
 
 /**
@@ -153,8 +154,8 @@ export function OptionChips<T extends string | number>({ label, value, options, 
             existed: label row, chip row, nothing between them. */}
         {showCleared && (
           <View style={styles.formFieldValue}>
-            <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
-              {CLEARED_TAG}
+            <Text style={styles.formFieldCleared} accessibilityLabel={clearedAnnouncement()}>
+              {clearedTag()}
             </Text>
           </View>
         )}
@@ -167,7 +168,7 @@ export function OptionChips<T extends string | number>({ label, value, options, 
           <View style={styles.formFieldCarryState}>
             <CarriedMark scheme={scheme} />
             <ClearFieldControl
-              accessibilityLabel={`Clear carried ${label}`}
+              accessibilityLabel={t('field.clearCarried', { label })}
               onPress={() => onClear?.()}
               scheme={scheme}
             />
@@ -192,7 +193,7 @@ export function OptionChips<T extends string | number>({ label, value, options, 
               // Unchanged by the icon, deliberately: §0.6 makes the icon a supplement to the
               // label, so what a screen reader hears is exactly what it heard before — the
               // symbol adds nothing to say that the words do not already say.
-              accessibilityLabel={`${label}: ${displayLabel(option)}`}
+              accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
               accessibilityState={{ selected }}
             >
               {icon?.(option, ink)}

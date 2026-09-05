@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RmvSparkline } from '../components/RmvSparkline';
 import { useDives } from '../db/useDives';
 import { logbookUnreadable } from '../domain/logbook';
+import { t, useT } from '../i18n';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { todayCalendarDate } from '../domain/datetime';
@@ -43,7 +44,7 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * §0.6 sanctions it, and the rows stay in the same order at the same height however empty a
  * logbook is.
  *
- * Exported so its test reads the same character a diver does. `CLEARED_TAG`
+ * Exported so its test reads the same character a diver does. `clearedTag`
  * (components/CarriedMark.tsx) is its sibling and the app's only other em dash — that one is a
  * *gesture* ("you cleared this"), this one is an *absence* ("nothing recorded"), which is why
  * neither may become the other's constant.
@@ -71,9 +72,12 @@ export const NO_FIGURE = '—';
  * its own (see the screen's own docblock), so a sentence pointing at a control that is not on
  * screen would be worse than one that simply says what is missing.
  */
-export const NOTHING_LOGGED_MESSAGE = 'Nothing to count yet. Log a dive and this fills itself in.';
-export const ONLY_PLANNED_MESSAGE =
-  'Nothing to count yet. A planned dive isn’t one you’ve done — complete it after surfacing and it lands here.';
+export function nothingLoggedMessage(): string {
+  return t('stats.nothingLogged');
+}
+export function onlyPlannedMessage(): string {
+  return t('stats.onlyPlanned');
+}
 
 /**
  * **Why the countries figure is a dash**, said once under the row rather than left as a mystery
@@ -90,8 +94,9 @@ export const ONLY_PLANNED_MESSAGE =
  * sites: §2.3 makes that a deliberate act behind a sign-in, this screen cannot perform it, and
  * §1's stance is that the app states what is true rather than what the diver has failed to do.
  */
-export const COUNTRIES_UNKNOWN_NOTE =
-  'Countries come from the map’s own sites. None of your dives names one that knows its country yet.';
+export function countriesUnknownNote(): string {
+  return t('stats.countriesUnknown');
+}
 
 /**
  * **§3's refresher nudge** — *"currency (days since your last dive, refresher nudge after 6
@@ -104,8 +109,9 @@ export const COUNTRIES_UNKNOWN_NOTE =
  * should" — and it is a caption under the figure rather than a banner, because §0.6 gives a
  * sentence about a row the slot under that row.
  */
-export const REFRESHER_MESSAGE =
-  'Over six months since your last dive. A refresher is worth booking before the next one.';
+export function refresherMessage(): string {
+  return t('stats.refresher');
+}
 
 /* What a failed logbook read says is `logbookUnreadable` (db/useDives.ts) now, and this is
  * the note M3a left here being discharged. It read: "the same sentence the Dives list, the
@@ -247,6 +253,10 @@ function Note({ message, styles }: { message: string | null; styles: Styles }) {
  * the same note where the styles are.
  */
 export default function StatsScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n).
+  // A screen root is one of the two places that needs it: `LanguageSync` is a sibling in the
+  // root layout, so nothing above this re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   // The diver's units (§3), read once here and passed into the formatters — depths follow the
@@ -272,7 +282,7 @@ export default function StatsScreen() {
    * exactly as `DivesScreen`'s and `MapScreen`'s do. It carries its own top clearance
    * (`statsHeading`), so it lands in the same place on the branches that draw no scroll.
    */
-  const title = <Text style={styles.statsHeading}>Stats</Text>;
+  const title = <Text style={styles.statsHeading}>{t('stats.title')}</Text>;
 
   if (error) {
     return (
@@ -296,7 +306,7 @@ export default function StatsScreen() {
 
   const stats = logbookStats(dives);
 
-  // **Nothing to count, and two ways to have nothing** — see `NOTHING_LOGGED_MESSAGE`. Keyed on
+  // **Nothing to count, and two ways to have nothing** — see `nothingLoggedMessage`. Keyed on
   // `stats.dives`, the logged count, rather than on `dives.length`: §2.4 keeps a plan out of
   // every figure on this screen, so a logbook of plans has nothing to show here even though it
   // is not empty. `dives.length` is then what tells the two sentences apart, and it is the only
@@ -307,7 +317,7 @@ export default function StatsScreen() {
         {title}
         <View style={styles.centerFill}>
           <Text style={styles.messageText}>
-            {dives.length === 0 ? NOTHING_LOGGED_MESSAGE : ONLY_PLANNED_MESSAGE}
+            {dives.length === 0 ? nothingLoggedMessage() : onlyPlannedMessage()}
           </Text>
         </View>
       </View>
@@ -337,17 +347,17 @@ export default function StatsScreen() {
 
         {/* §3's first three, and the same three the Dives header states under its own title —
             one owner, rendered twice, never computed twice (§4.1). */}
-        <Group title="Logbook" styles={styles}>
-          <Counter label="Dives" value={String(stats.dives)} styles={styles} />
-          <Counter label="Underwater" value={formatTimeUnderwater(stats.minutes)} styles={styles} />
-          <Counter label="Deepest" value={formatDepth(stats.deepestM, units)} styles={styles} />
+        <Group title={t('stats.groupLogbook')} styles={styles}>
+          <Counter label={t('stats.dives')} value={String(stats.dives)} styles={styles} />
+          <Counter label={t('stats.underwater')} value={formatTimeUnderwater(stats.minutes)} styles={styles} />
+          <Counter label={t('stats.deepest')} value={formatDepth(stats.deepestM, units)} styles={styles} />
         </Group>
 
-        <Group title="Places" styles={styles}>
+        <Group title={t('stats.groupPlaces')} styles={styles}>
           {/* A count, so `0` is a figure rather than an absence — the rule `formatDiveCount`
               states for the same reason ("the count is always present, including `0 dives`"): a
               logbook whose dives name no place has been read, and nought is what it says. */}
-          <Counter label="Sites" value={String(sitesVisited(dives))} styles={styles} />
+          <Counter label={t('stats.sites')} value={String(sitesVisited(dives))} styles={styles} />
           {/* **And this one is the opposite, which is why the two sit side by side.** `0`
               countries would read as "you have dived in no countries", which is false of anyone
               with a dive; what the figure actually reports is how many the app KNOWS, and today
@@ -356,11 +366,11 @@ export default function StatsScreen() {
               a dive names a site that knows its own country. `countriesVisited`'s own docblock
               carries the reasoning; this is the half a `number` cannot say. */}
           <Counter
-            label="Countries"
+            label={t('stats.countries')}
             value={countries === 0 ? null : String(countries)}
             styles={styles}
           />
-          <Note message={countries === 0 ? COUNTRIES_UNKNOWN_NOTE : null} styles={styles} />
+          <Note message={countries === 0 ? countriesUnknownNote() : null} styles={styles} />
         </Group>
 
         {/* §3's "RMV trend", as counters: where it is now, and which way it moved. Both rows are
@@ -368,9 +378,9 @@ export default function StatsScreen() {
             needs an average depth, a duration and a cylinder size together (§2.2 asks for none
             of them), so a dash here is the ordinary state of a perfectly good logbook rather
             than a fault. */}
-        <Group title="Gas" styles={styles}>
+        <Group title={t('stats.groupGas')} styles={styles}>
           <Counter
-            label="RMV"
+            label={t('stats.rmv')}
             value={trend === null ? null : formatRmv(trend.recent)}
             // **The one drawn figure on the screen** (M3d), and the dives it draws are the
             // dives the number beside it is averaged over — `rmvTrend`'s own window, handed
@@ -381,7 +391,7 @@ export default function StatsScreen() {
             shape={trend === null ? null : <RmvSparkline values={trend.recentValues} scheme={scheme} />}
             styles={styles}
           />
-          <Counter label="Trend" value={trend === null ? null : formatRmvTrend(trend)} styles={styles} />
+          <Counter label={t('stats.trend')} value={trend === null ? null : formatRmvTrend(trend)} styles={styles} />
           {/* Only when there is a figure to qualify. An unstated window makes an RMV
               unreadable — five dives and fifty answer different questions — and a caption
               explaining the window of a dash would be explaining nothing. It counts the same
@@ -396,13 +406,13 @@ export default function StatsScreen() {
         {/* §3's currency. The dash here means every logged dive is dated ahead of today, which
             `currency` refuses to read as "you dived in the future" (§10: a dive that has not
             happened yet is not recent) — rare, and the only honest answer when it happens. */}
-        <Group title="Currency" styles={styles}>
+        <Group title={t('stats.groupCurrency')} styles={styles}>
           <Counter
-            label="Last dive"
+            label={t('stats.lastDive')}
             value={since === null ? null : formatDaysSince(since.days)}
             styles={styles}
           />
-          <Note message={since !== null && since.refresher ? REFRESHER_MESSAGE : null} styles={styles} />
+          <Note message={since !== null && since.refresher ? refresherMessage() : null} styles={styles} />
         </Group>
       </ScrollView>
     </View>

@@ -1,5 +1,6 @@
 import { isAuthRetryableFetchError, type SupabaseClient } from '@supabase/supabase-js';
 
+import { t } from '../i18n';
 import { type LocalLogbook, type WipeOutcome } from './localLogbook';
 
 /**
@@ -130,9 +131,13 @@ export type SignOutOutcome = { readonly ok: true } | { readonly ok: false; reado
  */
 export const CONFIRMATION_REDIRECT = 'ponor://';
 
-export const EMAIL_REQUIRED = 'Enter your email address.';
+export function emailRequired(): string {
+  return t('auth.emailRequired');
+}
 /** Nothing was typed in the password row. */
-export const PASSWORD_REQUIRED = 'Enter your password.';
+export function passwordRequired(): string {
+  return t('auth.passwordRequired');
+}
 /**
  * The wrong password, or an email with no account behind it.
  *
@@ -142,9 +147,13 @@ export const PASSWORD_REQUIRED = 'Enter your password.';
  * with that email" here would be this app inventing an answer the server withheld, and
  * inventing it wrongly half the time.
  */
-export const CREDENTIALS_REJECTED = 'That email and password don’t match an account.';
+export function credentialsRejected(): string {
+  return t('auth.credentialsRejected');
+}
 /** Sign-up against an address that already has an account. */
-export const EMAIL_TAKEN = 'That email already has an account — sign in instead.';
+export function emailTaken(): string {
+  return t('auth.emailTaken');
+}
 /**
  * The server's password policy said no.
  *
@@ -153,13 +162,21 @@ export const EMAIL_TAKEN = 'That email already has an account — sign in instea
  * not own (§4.1) — and the copy would be wrong the day the owner changes the setting, with
  * nothing to notice.
  */
-export const PASSWORD_TOO_WEAK = 'That password is too weak — try a longer one.';
+export function passwordTooWeak(): string {
+  return t('auth.passwordTooWeak');
+}
 /** The address is not an address. */
-export const EMAIL_MALFORMED = 'That doesn’t look like an email address.';
+export function emailMalformed(): string {
+  return t('auth.emailMalformed');
+}
 /** Sign-ups are switched off for the project. */
-export const SIGNUP_DISABLED = 'New accounts are switched off right now.';
+export function signupDisabled(): string {
+  return t('auth.signupDisabled');
+}
 /** The server is rate-limiting this address or this device. */
-export const TOO_MANY_TRIES = 'Too many tries. Wait a minute and try again.';
+export function tooManyTries(): string {
+  return t('auth.tooManyTries');
+}
 /**
  * **Signing in to an account whose address has not been confirmed yet — the one error here a
  * diver will misdiagnose, so it gets its own sentence.**
@@ -167,7 +184,7 @@ export const TOO_MANY_TRIES = 'Too many tries. Wait a minute and try again.';
  * The owner switched email confirmation **on** (M2e), so this is now an ordinary state rather
  * than a misconfiguration: sign up, do not open the link, try to sign in. Supabase answers
  * `email_not_confirmed`, whose own text is a variant of "Email not confirmed" — and everything
- * around it on screen is a password field. Left on `CREDENTIALS_REJECTED` a diver would retype
+ * around it on screen is a password field. Left on `credentialsRejected` a diver would retype
  * a correct password four times and conclude the app is broken, which is the exact failure the
  * project's own §0.6 rule about error text exists to prevent.
  *
@@ -176,19 +193,25 @@ export const TOO_MANY_TRIES = 'Too many tries. Wait a minute and try again.';
  * runs before or after the confirmation check is the server's business, and an app asserting
  * something it cannot see is how this project's spec has drifted before.
  */
-export const CONFIRMATION_REQUIRED =
-  'This account isn’t confirmed yet. Open the link in the email sent to that address, then sign in.';
+export function confirmationRequired(): string {
+  return t('auth.confirmationRequired');
+}
 /**
  * The network. §1: "the whole app runs offline from on-device SQLite" — so this says the thing
  * a diver actually needs to know, which is that nothing is lost, rather than reporting a
  * failure as if something were at stake.
  */
-export const SERVER_UNREACHABLE =
-  'Couldn’t reach the server. Your logbook is safe on this phone — try again when you’re online.';
+export function serverUnreachable(): string {
+  return t('auth.serverUnreachable');
+}
 /** Anything else, per mode. Two sentences rather than one, because they name what did not
  * happen and those are different things. */
-export const SIGN_IN_FAILED = 'Couldn’t sign in. Try again.';
-export const SIGN_UP_FAILED = 'Couldn’t create the account. Try again.';
+export function signInFailed(): string {
+  return t('auth.signInFailed');
+}
+export function signUpFailed(): string {
+  return t('auth.signUpFailed');
+}
 
 /**
  * The build cannot erase the local logbook yet, so it did not sign out (`localLogbook.ts`).
@@ -198,9 +221,13 @@ export const SIGN_UP_FAILED = 'Couldn’t create the account. Try again.';
  * removed from this device. A control that refuses out loud can be fixed; a dialog that lies
  * about what happened cannot.
  */
-export const SIGN_OUT_UNAVAILABLE = 'Sign-out can’t clear this device yet, so nothing was signed out.';
+export function signOutUnavailable(): string {
+  return t('auth.signOutUnavailable');
+}
 /** The erase itself rejected. Same refusal, without the "yet". */
-export const WIPE_FAILED = 'Couldn’t clear this device’s logbook, so nothing was signed out.';
+export function wipeFailed(): string {
+  return t('auth.wipeFailed');
+}
 /**
  * **This phone is holding something the account has not received, so it was not erased.**
  *
@@ -214,11 +241,14 @@ export const WIPE_FAILED = 'Couldn’t clear this device’s logbook, so nothing
  * It quotes no number. §0.6 wants error text that names an action, and "3 changes" invites a
  * diver to go looking for three things no screen can point at.
  */
-export const UNPUSHED_CHANGES =
-  'This phone has dives your account hasn’t received yet. Connect and try again — nothing was cleared, and you’re still signed in.';
+export function unpushedChanges(): string {
+  return t('auth.unpushedChanges');
+}
 /** The logbook went and the session did not. Says both halves, because the diver is now
  * looking at an empty logbook and is owed the reason. */
-export const SIGN_OUT_FAILED = 'This device’s logbook was cleared, but signing out didn’t finish. Try again.';
+export function signOutFailed(): string {
+  return t('auth.signOutFailed');
+}
 
 /**
  * What must be typed before anything is sent, or `null` when the pair is worth a call.
@@ -227,7 +257,7 @@ export const SIGN_OUT_FAILED = 'This device’s logbook was cleared, but signing
  * below is the server's answer to that, and a regular expression here would be a second,
  * worse copy of a rule somebody else owns (§4.1), differing from it exactly at the addresses
  * people argue about. It does not check the password's length either, for the reason
- * `PASSWORD_TOO_WEAK` records.
+ * `passwordTooWeak` records.
  *
  * One refusal at a time, and it **names its own row** (§0.6: "a field error is text... under
  * the row it belongs to"). The email is asked for first because it is the first row: a diver
@@ -235,8 +265,8 @@ export const SIGN_OUT_FAILED = 'This device’s logbook was cleared, but signing
  * moment the first is answered.
  */
 export function credentialRefusal({ email, password }: Credentials): CredentialRefusal | null {
-  if (email.trim() === '') return { field: 'email', message: EMAIL_REQUIRED };
-  if (password === '') return { field: 'password', message: PASSWORD_REQUIRED };
+  if (email.trim() === '') return { field: 'email', message: emailRequired() };
+  if (password === '') return { field: 'password', message: passwordRequired() };
   return null;
 }
 
@@ -262,28 +292,28 @@ export function messageFor(error: unknown, mode: AuthMode): string {
   // Checked before the code, because a fetch failure has no code to switch on: `AuthRetryableFetchError`
   // is constructed client-side when the request never completed, which is the ordinary state
   // of a phone on a boat.
-  if (isAuthRetryableFetchError(error)) return SERVER_UNREACHABLE;
+  if (isAuthRetryableFetchError(error)) return serverUnreachable();
 
   switch (codeOf(error)) {
     case 'invalid_credentials':
-      return CREDENTIALS_REJECTED;
+      return credentialsRejected();
     case 'user_already_exists':
     case 'email_exists':
-      return EMAIL_TAKEN;
+      return emailTaken();
     case 'weak_password':
-      return PASSWORD_TOO_WEAK;
+      return passwordTooWeak();
     case 'email_address_invalid':
     case 'validation_failed':
-      return EMAIL_MALFORMED;
+      return emailMalformed();
     case 'signup_disabled':
-      return SIGNUP_DISABLED;
+      return signupDisabled();
     case 'over_request_rate_limit':
     case 'over_email_send_rate_limit':
-      return TOO_MANY_TRIES;
+      return tooManyTries();
     case 'email_not_confirmed':
-      return CONFIRMATION_REQUIRED;
+      return confirmationRequired();
     default:
-      return mode === 'signUp' ? SIGN_UP_FAILED : SIGN_IN_FAILED;
+      return mode === 'signUp' ? signUpFailed() : signInFailed();
   }
 }
 
@@ -359,7 +389,7 @@ export async function authenticate(
         // A user with no session is confirmation waiting to happen — unless there is no user
         // either, which is a shape the client does not document and this app has no sentence
         // for. Reported as the plain failure rather than as a confirmation nobody was sent.
-        if (data.user === null) return { kind: 'failed', message: SIGN_UP_FAILED };
+        if (data.user === null) return { kind: 'failed', message: signUpFailed() };
         return { kind: 'confirmationSent', email };
       }
     } else {
@@ -368,7 +398,7 @@ export async function authenticate(
       // No error and no session is not a state the client documents either. It is reported
       // rather than trusted, because the alternative is a screen that switches to "signed in"
       // on a session that does not exist.
-      if (data.session === null) return { kind: 'failed', message: SIGN_IN_FAILED };
+      if (data.session === null) return { kind: 'failed', message: signInFailed() };
     }
   } catch (thrown) {
     // The client answers with `{ error }` rather than throwing, so reaching here means
@@ -392,10 +422,10 @@ export async function authenticate(
  *
  * **A refusal is a third way, and it is not a failure of anything.** The wipe pushes this
  * device's pending rows first and declines to erase what the server has not acknowledged
- * (`cloud/localLogbook.ts`); a diver signing out on a boat gets `UNPUSHED_CHANGES` and keeps
+ * (`cloud/localLogbook.ts`); a diver signing out on a boat gets `unpushedChanges` and keeps
  * both their logbook and their session. It is told apart from a rejected erase by the value
  * the wipe returns rather than by the class of a thrown error, because a diver reads a
- * different sentence for each and `WIPE_FAILED` would be the wrong one — it says the erase was
+ * different sentence for each and `wipeFailed` would be the wrong one — it says the erase was
  * attempted and could not be done, and here it was not attempted at all.
  *
  * **`scope: 'local'`, not the default.** Supabase signs out globally unless told otherwise,
@@ -414,21 +444,21 @@ export async function endSession(
   client: SupabaseClient,
   logbook: LocalLogbook,
 ): Promise<SignOutOutcome> {
-  if (!logbook.wired) return { ok: false, message: SIGN_OUT_UNAVAILABLE };
+  if (!logbook.wired) return { ok: false, message: signOutUnavailable() };
 
   let wiped: WipeOutcome;
   try {
     wiped = await logbook.wipe();
   } catch {
-    return { ok: false, message: WIPE_FAILED };
+    return { ok: false, message: wipeFailed() };
   }
-  if (!wiped.done) return { ok: false, message: UNPUSHED_CHANGES };
+  if (!wiped.done) return { ok: false, message: unpushedChanges() };
 
   try {
     const { error } = await client.auth.signOut({ scope: 'local' });
-    if (error) return { ok: false, message: SIGN_OUT_FAILED };
+    if (error) return { ok: false, message: signOutFailed() };
   } catch {
-    return { ok: false, message: SIGN_OUT_FAILED };
+    return { ok: false, message: signOutFailed() };
   }
 
   return { ok: true };

@@ -1,3 +1,4 @@
+import { setActiveLanguage } from '../i18n';
 import {
   AuthApiError,
   AuthRetryableFetchError,
@@ -8,24 +9,24 @@ import {
   authenticate,
   credentialRefusal,
   CONFIRMATION_REDIRECT,
-  CONFIRMATION_REQUIRED,
-  CREDENTIALS_REJECTED,
-  EMAIL_MALFORMED,
-  EMAIL_REQUIRED,
-  EMAIL_TAKEN,
+  confirmationRequired,
+  credentialsRejected,
+  emailMalformed,
+  emailRequired,
+  emailTaken,
   endSession,
   messageFor,
-  PASSWORD_REQUIRED,
-  PASSWORD_TOO_WEAK,
-  SERVER_UNREACHABLE,
-  SIGN_IN_FAILED,
-  SIGN_OUT_FAILED,
-  SIGN_OUT_UNAVAILABLE,
-  SIGN_UP_FAILED,
-  SIGNUP_DISABLED,
-  TOO_MANY_TRIES,
-  UNPUSHED_CHANGES,
-  WIPE_FAILED,
+  passwordRequired,
+  passwordTooWeak,
+  serverUnreachable,
+  signInFailed,
+  signOutFailed,
+  signOutUnavailable,
+  signUpFailed,
+  signupDisabled,
+  tooManyTries,
+  unpushedChanges,
+  wipeFailed,
   type AuthMode,
 } from './auth';
 import { localLogbook, type LocalLogbook } from './localLogbook';
@@ -83,7 +84,7 @@ describe('credentialRefusal', () => {
       // The row, not just the sentence: "Enter your email address." shipped under *Password*
       // until this screen was put on a phone and read.
       field: 'email',
-      message: EMAIL_REQUIRED,
+      message: emailRequired(),
     });
   });
 
@@ -91,14 +92,14 @@ describe('credentialRefusal', () => {
   it('treats a whitespace-only email as no email at all', () => {
     expect(credentialRefusal({ email: '   ', password: 'hunter2' })).toEqual({
       field: 'email',
-      message: EMAIL_REQUIRED,
+      message: emailRequired(),
     });
   });
 
   it('asks for the password once there is an email', () => {
     expect(credentialRefusal({ email: 'ales@example.com', password: '' })).toEqual({
       field: 'password',
-      message: PASSWORD_REQUIRED,
+      message: passwordRequired(),
     });
   });
 
@@ -123,16 +124,16 @@ describe('messageFor', () => {
    * as "Couldn't sign in. Try again." — which is a true sentence and tells them nothing.
    */
   it.each([
-    ['invalid_credentials', CREDENTIALS_REJECTED],
-    ['user_already_exists', EMAIL_TAKEN],
-    ['email_exists', EMAIL_TAKEN],
-    ['weak_password', PASSWORD_TOO_WEAK],
-    ['email_address_invalid', EMAIL_MALFORMED],
-    ['validation_failed', EMAIL_MALFORMED],
-    ['signup_disabled', SIGNUP_DISABLED],
-    ['over_request_rate_limit', TOO_MANY_TRIES],
-    ['over_email_send_rate_limit', TOO_MANY_TRIES],
-    ['email_not_confirmed', CONFIRMATION_REQUIRED],
+    ['invalid_credentials', credentialsRejected()],
+    ['user_already_exists', emailTaken()],
+    ['email_exists', emailTaken()],
+    ['weak_password', passwordTooWeak()],
+    ['email_address_invalid', emailMalformed()],
+    ['validation_failed', emailMalformed()],
+    ['signup_disabled', signupDisabled()],
+    ['over_request_rate_limit', tooManyTries()],
+    ['over_email_send_rate_limit', tooManyTries()],
+    ['email_not_confirmed', confirmationRequired()],
   ])('answers %s with its own sentence', (code, expected) => {
     expect(messageFor(new AuthApiError('server text', 400, code), 'signIn')).toBe(expected);
   });
@@ -141,29 +142,29 @@ describe('messageFor', () => {
    * The one error a diver will misdiagnose. With confirmation switched on (owner's call, M2e)
    * an unconfirmed account answers a *correct* password with `email_not_confirmed`, and every
    * other thing on screen is a password field — so if this ever collapsed into
-   * `CREDENTIALS_REJECTED` a diver would retype a working password until they gave up.
+   * `credentialsRejected` a diver would retype a working password until they gave up.
    */
   it('never tells an unconfirmed account that its password is wrong', () => {
     const unconfirmed = messageFor(new AuthApiError('Email not confirmed', 400, 'email_not_confirmed'), 'signIn');
-    expect(unconfirmed).not.toBe(CREDENTIALS_REJECTED);
-    expect(unconfirmed).toBe(CONFIRMATION_REQUIRED);
+    expect(unconfirmed).not.toBe(credentialsRejected());
+    expect(unconfirmed).toBe(confirmationRequired());
   });
 
   it('names the network when the request never completed', () => {
-    expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signIn')).toBe(SERVER_UNREACHABLE);
-    expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signUp')).toBe(SERVER_UNREACHABLE);
+    expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signIn')).toBe(serverUnreachable());
+    expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signUp')).toBe(serverUnreachable());
   });
 
   it('falls back to the sentence for the act that failed, not to one sentence for both', () => {
     const unknown = new AuthApiError('teapot', 418, 'a_code_from_a_newer_server');
-    expect(messageFor(unknown, 'signIn')).toBe(SIGN_IN_FAILED);
-    expect(messageFor(unknown, 'signUp')).toBe(SIGN_UP_FAILED);
+    expect(messageFor(unknown, 'signIn')).toBe(signInFailed());
+    expect(messageFor(unknown, 'signUp')).toBe(signUpFailed());
   });
 
   it('says something for a thrown value that is not an error at all', () => {
-    expect(messageFor('plain string', 'signIn')).toBe(SIGN_IN_FAILED);
-    expect(messageFor(null, 'signUp')).toBe(SIGN_UP_FAILED);
-    expect(messageFor(undefined, 'signIn')).toBe(SIGN_IN_FAILED);
+    expect(messageFor('plain string', 'signIn')).toBe(signInFailed());
+    expect(messageFor(null, 'signUp')).toBe(signUpFailed());
+    expect(messageFor(undefined, 'signIn')).toBe(signInFailed());
   });
 });
 
@@ -206,7 +207,7 @@ describe('the password never comes back out', () => {
 
     const outcome = await authenticate(client, 'signIn', { email: 'a@b.c', password: SECRET }, UNWIRED);
 
-    expect(outcome).toEqual({ kind: 'failed', message: CREDENTIALS_REJECTED });
+    expect(outcome).toEqual({ kind: 'failed', message: credentialsRejected() });
   });
 
   /**
@@ -250,7 +251,7 @@ describe('authenticate', () => {
     const outcome = await authenticate(client, 'signIn', { email: ' ', password: 'x' }, UNWIRED);
 
     // The field travels with the message, so the screen can put it under the row it names.
-    expect(outcome).toEqual({ kind: 'failed', message: EMAIL_REQUIRED, field: 'email' });
+    expect(outcome).toEqual({ kind: 'failed', message: emailRequired(), field: 'email' });
     expect(auth.signInWithPassword).not.toHaveBeenCalled();
     expect(auth.signUp).not.toHaveBeenCalled();
   });
@@ -409,7 +410,7 @@ describe('authenticate', () => {
 
     await expect(authenticate(client, 'signIn', { email: 'a@b.c', password: 'p' }, UNWIRED)).resolves.toEqual({
       kind: 'failed',
-      message: SIGN_IN_FAILED,
+      message: signInFailed(),
     });
   });
 
@@ -419,7 +420,7 @@ describe('authenticate', () => {
 
     await expect(authenticate(client, 'signUp', { email: 'a@b.c', password: 'p' }, UNWIRED)).resolves.toEqual({
       kind: 'failed',
-      message: SIGN_UP_FAILED,
+      message: signUpFailed(),
     });
   });
 
@@ -429,7 +430,7 @@ describe('authenticate', () => {
 
     await expect(authenticate(client, 'signIn', { email: 'a@b.c', password: 'p' }, UNWIRED)).resolves.toEqual({
       kind: 'failed',
-      message: SERVER_UNREACHABLE,
+      message: serverUnreachable(),
     });
   });
 });
@@ -480,7 +481,7 @@ describe('endSession', () => {
   /**
    * The refusal for a build whose seam is not wired (`localLogbook.ts`). The shipped seam is
    * wired from M2g, so this arm is now unreachable through the app and is kept for the same
-   * reason `SIGN_OUT_UNAVAILABLE` is: the assertion that matters is the second one, and signing
+   * reason `signOutUnavailable` is: the assertion that matters is the second one, and signing
    * out without wiping would leave the device holding a logbook that the confirmation dialog
    * had just promised to remove.
    */
@@ -489,7 +490,7 @@ describe('endSession', () => {
 
     await expect(endSession(client, UNWIRED)).resolves.toEqual({
       ok: false,
-      message: SIGN_OUT_UNAVAILABLE,
+      message: signOutUnavailable(),
     });
     expect(auth.signOut).not.toHaveBeenCalled();
   });
@@ -498,7 +499,7 @@ describe('endSession', () => {
     const { client, auth } = fakeClient();
     const { logbook } = wiredLogbook({ wipe: jest.fn().mockRejectedValue(new Error('database is locked')) });
 
-    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: WIPE_FAILED });
+    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: wipeFailed() });
     expect(auth.signOut).not.toHaveBeenCalled();
   });
 
@@ -507,7 +508,7 @@ describe('endSession', () => {
     auth.signOut.mockResolvedValue({ error: new AuthApiError('nope', 500, 'unexpected_failure') });
     const { logbook, wipe } = wiredLogbook();
 
-    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: SIGN_OUT_FAILED });
+    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: signOutFailed() });
     expect(wipe).toHaveBeenCalledTimes(1);
   });
 
@@ -516,13 +517,13 @@ describe('endSession', () => {
     auth.signOut.mockRejectedValue(new Error('storage exploded'));
     const { logbook } = wiredLogbook();
 
-    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: SIGN_OUT_FAILED });
+    await expect(endSession(client, logbook)).resolves.toEqual({ ok: false, message: signOutFailed() });
   });
 
   /**
    * §7.4's wipe refusing because this phone is still holding rows the account has not received
    * (`cloud/localLogbook.ts`). **It is not a failure**, and the two things it must not do are
-   * both here: it must not end the session, and it must not be reported with `WIPE_FAILED`,
+   * both here: it must not end the session, and it must not be reported with `wipeFailed`,
    * whose sentence says the erase was attempted and could not be done.
    */
   it('keeps the session and says why when the device still owes the server', async () => {
@@ -531,7 +532,7 @@ describe('endSession', () => {
 
     await expect(endSession(client, logbook)).resolves.toEqual({
       ok: false,
-      message: UNPUSHED_CHANGES,
+      message: unpushedChanges(),
     });
     expect(auth.signOut).not.toHaveBeenCalled();
   });
@@ -540,9 +541,9 @@ describe('endSession', () => {
    * one is "connect and try again", the other is "this did not work". A single message for both
    * would tell a diver at sea that their phone is broken. */
   it('tells a refusal apart from a failed erase', async () => {
-    expect(UNPUSHED_CHANGES).not.toBe(WIPE_FAILED);
-    expect(UNPUSHED_CHANGES).not.toBe(SIGN_OUT_FAILED);
-    expect(UNPUSHED_CHANGES).not.toBe(SIGN_OUT_UNAVAILABLE);
+    expect(unpushedChanges()).not.toBe(wipeFailed());
+    expect(unpushedChanges()).not.toBe(signOutFailed());
+    expect(unpushedChanges()).not.toBe(signOutUnavailable());
   });
 });
 
@@ -552,12 +553,44 @@ describe('endSession', () => {
  *
  * M2e wrote this test the other way round (`wired` was `false`, and the test said out loud that
  * it was "meant to be deleted by whoever wires it"). M2g wired it, so the assertion turns over
- * rather than going away: `endSession`'s `SIGN_OUT_UNAVAILABLE` arm is now unreachable through
+ * rather than going away: `endSession`'s `signOutUnavailable` arm is now unreachable through
  * the app, and if this ever flipped back, that is the sentence a diver would meet at the one
  * control §7.4 calls destructive.
  */
 describe('the shipped local-logbook seam', () => {
   it('is wired, so the app in this tree really erases on sign-out', () => {
     expect(localLogbook.wired).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * **Asserted as words rather than against the functions themselves**, and the difference is the
+ * whole value of it: every other test in this file compares `messageFor(...)` with the same
+ * function it dispatches to, which pins the DISPATCH and can never fail over what a sentence
+ * says. These two are the wording, in the language that has to be looked up for it.
+ */
+describe('in Czech', () => {
+  afterEach(() => {
+    setActiveLanguage('en');
+  });
+
+  it('says what it refuses in Czech, one sentence per cause', () => {
+    setActiveLanguage('cs');
+    expect(credentialRefusal({ email: '', password: 'x' })?.message).toBe(
+      'Zadejte svoji e-mailovou adresu.',
+    );
+    expect(messageFor({ code: 'invalid_credentials' }, 'signIn')).toBe(
+      'Tento e-mail a heslo neodpovídají žádnému účtu.',
+    );
+    expect(messageFor({ code: 'email_not_confirmed' }, 'signIn')).toBe(
+      'Tento účet zatím není potvrzený. Otevřete odkaz v e-mailu, který na tu adresu přišel, a pak se přihlaste.',
+    );
+    // The two "anything else" sentences stay two, because they name what did not happen.
+    expect(messageFor({ code: 'unheard_of' }, 'signIn')).toBe('Přihlášení se nezdařilo. Zkuste to znovu.');
+    expect(messageFor({ code: 'unheard_of' }, 'signUp')).toBe('Účet se nepodařilo vytvořit. Zkuste to znovu.');
   });
 });

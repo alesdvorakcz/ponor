@@ -3,7 +3,7 @@ import { render, type RenderResult } from '@testing-library/react-native';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { CarriedMark, CLEARED_ANNOUNCEMENT, CLEARED_TAG } from './CarriedMark';
+import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
 
 // Same RTL adaptation every component test in this repo notes: `render` is async and its
 // `root` is a test-renderer `TestInstance` exposing `queryAll(predicate)` over HOST elements
@@ -68,9 +68,9 @@ it('draws nothing outside its own treatment (§0.4/§0.1)', async () => {
 // assertion, which would compare the constant with itself: what is pinned is the em dash, the
 // word, and the space between them — the reading §0.6 asks the row for.
 it('spells the cleared tag as an em dash and the word, and says only the word out loud', () => {
-  expect(CLEARED_TAG).toBe('— cleared');
-  expect(CLEARED_ANNOUNCEMENT).toBe('cleared');
+  expect(clearedTag()).toBe('— cleared');
+  expect(clearedAnnouncement()).toBe('cleared');
   // The announcement is the tag minus its typography, not a second wording that could drift
   // from it — a screen reader and a diver must be told the same thing.
-  expect(CLEARED_TAG.endsWith(CLEARED_ANNOUNCEMENT)).toBe(true);
+  expect(clearedTag().endsWith(clearedAnnouncement())).toBe(true);
 });

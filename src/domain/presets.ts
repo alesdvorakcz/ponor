@@ -196,16 +196,21 @@ export function presetMatching(
  * §1's "never block a save" is about a **dive** and does not reach here — the same line
  * `presetNamed` above already draws for the duplicate refusal.
  */
-export const UNNAMED_PRESET_MESSAGE = 'Give this preset a name, so you can find it again.';
+export function unnamedPresetMessage(): string {
+  return t('preset.unnamed');
+}
 /** One sentence for both screens, deliberately. The two started as different wordings — the
  * form's "fill some in first", the editor's "add one, or delete this preset" — and the second
  * named a way out the form does not have. Same verdict, same words; the editor's *Delete
  * preset* control is visible on its own screen and does not need the sentence to point at it. */
-export const EMPTY_PRESET_MESSAGE =
-  'A preset with no cylinders fills nothing in — fill the cylinder fields first.';
+export function emptyPresetMessage(): string {
+  return t('preset.noCylinders');
+}
 /** Quotes the spelling the EXISTING preset has, never the one the diver just typed: sending
  * them to look for a chip that says no such thing would be its own small lie. */
-export const duplicatePresetMessage = (name: string) => `You already have a preset called “${name}”.`;
+export function duplicatePresetMessage(name: string): string {
+  return t('preset.duplicate', { name });
+}
 
 /**
  * **What the app says when a preset write or read fails**, for the two screens that each say
@@ -220,8 +225,8 @@ export const duplicatePresetMessage = (name: string) => `You already have a pres
  *
  * **Where the line falls, since this milestone has now moved it twice.** A failure sentence
  * belongs to the screen that says it, and the app's existing ones prove why they may look
- * alike without being copies: Settings' `SAVE_FAILED`, the dive form's `SAVE_ERROR_MESSAGE`
- * and the dive detail's `DELETE_ERROR_MESSAGE` all differ, because each names a different
+ * alike without being copies: Settings' `saveFailed`, the dive form's `saveErrorMessage`
+ * and the dive detail's `deleteErrorMessage` all differ, because each names a different
  * object. A single implementation is already one owner and needs no module. These two are
  * different: two screens naming the SAME object arrive at the same words, and at that point
  * there is a rule to own. `GearPresetScreen`'s "Couldn't delete that preset" stays where it
@@ -232,7 +237,9 @@ export const duplicatePresetMessage = (name: string) => `You already have a pres
  * the same event as having none, which is what `useGearPresets`' `error` field exists to tell
  * apart.
  */
-export const PRESET_SAVE_FAILED = "Couldn't save that preset. Try again.";
+export function presetSaveFailed(): string {
+  return t('preset.saveFailed');
+}
 export function presetsUnreadable(): string {
   return t('unreadable.presets');
 }
@@ -282,8 +289,8 @@ export function presetRefusal(
   const storedName = name.trim();
   const clash = storedName === '' ? null : presetNamed(presets, storedName, exceptId);
   const onName =
-    storedName === '' ? UNNAMED_PRESET_MESSAGE : clash === null ? null : duplicatePresetMessage(clash.name);
-  const onCylinders = tanks.map(withoutPressures).some(isRecordedTank) ? null : EMPTY_PRESET_MESSAGE;
+    storedName === '' ? unnamedPresetMessage() : clash === null ? null : duplicatePresetMessage(clash.name);
+  const onCylinders = tanks.map(withoutPressures).some(isRecordedTank) ? null : emptyPresetMessage();
   return {
     storedName,
     name: onName,

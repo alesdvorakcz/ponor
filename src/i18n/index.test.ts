@@ -70,7 +70,14 @@ it('walks both resource files deeply enough for the comparison below to mean any
   expect(EN_KEYS).toContain('count.dives');
   expect(EN_KEYS).toContain('vocabulary.entry.shore');
   expect(EN_KEYS).toContain('date.month.aug');
-  expect(EN_KEYS.length).toBeGreaterThan(100);
+  // M3h's own namespaces, named here rather than left to the total: the floor is what stops a
+  // parity test passing over two empty objects, and a floor that only knew M3g's key set would
+  // stay green over a `field` or `group` block deleted from both files at once.
+  expect(EN_KEYS).toContain('field.maxDepth');
+  expect(EN_KEYS).toContain('group.gas');
+  expect(EN_KEYS).toContain('map.noCentrePositions');
+  expect(EN_KEYS).toContain('auth.emailRequired');
+  expect(EN_KEYS.length).toBeGreaterThan(350);
   expect(CS_KEYS.length).toBe(EN_KEYS.length);
 });
 
@@ -167,6 +174,67 @@ it('declines “days ago” through all four forms', () => {
   expect(formatDaysSince(2)).toBe('před 2 dny');
   expect(formatDaysSince(5)).toBe('před 5 dny');
   expect(formatDaysSince(0)).toBe('Dnes');
+});
+
+/**
+ * **§7.4's adoption sentence reaches all four Czech forms, and the participle moves with the
+ * noun** — *byl přidán* · *byly přidány* · *bylo přidáno*. English moves only its verb, so a
+ * test that looked at 1 and 2 would be satisfied by a two-form rule and would say nothing about
+ * 5, which is where the participle changes again.
+ */
+it('declines the adoption sentence through all four Czech forms', () => {
+  setActiveLanguage('cs');
+  expect(t('account.adopted', { count: 1 })).toBe(
+    'Z tohoto telefonu byl do vašeho deníku přidán 1 ponor.',
+  );
+  expect(t('account.adopted', { count: 3 })).toBe(
+    'Z tohoto telefonu byly do vašeho deníku přidány 3 ponory.',
+  );
+  expect(t('account.adopted', { count: 5 })).toBe(
+    'Z tohoto telefonu bylo do vašeho deníku přidáno 5 ponorů.',
+  );
+  expect(t('account.adopted', { count: 1.5 })).toBe(
+    'Z tohoto telefonu bylo do vašeho deníku přidáno 1,5 ponoru.',
+  );
+  // Stated as inequalities too, so four keys holding one sentence could not satisfy it.
+  expect(t('account.adopted', { count: 3 })).not.toBe(t('account.adopted', { count: 5 }));
+  expect(t('account.adopted', { count: 1 })).not.toBe(t('account.adopted', { count: 3 }));
+});
+
+/**
+ * The browser build's own count (`DiveMap.web.tsx`), which Jest never renders — its platform is
+ * iOS, so the `.web` file has no reachable caller here. The **rule** is still reachable, and it
+ * is the sharper of the two: *místo* is neuter, so 2–4 takes *byla připnuta* where 1 and 5 take
+ * *bylo připnuto* — a distinction English's "1 place / N places" has no room for.
+ */
+it('declines the browser map’s place count through all four Czech forms', () => {
+  setActiveLanguage('cs');
+  expect(t('map.webPlaces', { count: 1 })).toBe('Připnulo by se sem 1 místo.');
+  expect(t('map.webPlaces', { count: 3 })).toBe('Připnula by se sem 3 místa.');
+  expect(t('map.webPlaces', { count: 12 })).toBe('Připnulo by se sem 12 míst.');
+  expect(t('map.webPlaces', { count: 3 })).not.toBe(t('map.webPlaces', { count: 12 }));
+});
+
+/** And English is exactly the two sentences that shipped, at the one count that used to be a
+ * literal `'1 place would be pinned here.'` and the one that was a template. */
+it('leaves the browser map’s English count on its own two forms', () => {
+  expect(t('map.webPlaces', { count: 1 })).toBe('1 place would be pinned here.');
+  expect(t('map.webPlaces', { count: 4 })).toBe('4 places would be pinned here.');
+});
+
+/**
+ * **A key Czech declines and English does not, resolved in English.**
+ *
+ * `figure.coverage` is the one place this app relies on i18next falling back from a missing
+ * `_one`/`_other` to the bare key: Czech needs four forms of it (the `z`/`ze` alternation) and
+ * English needs none, and adding two identical English forms would have invented a plural the
+ * app never had. If that fallback ever stops working the English map summary renders the key
+ * itself, which nothing else here would catch.
+ */
+it('resolves an English key that only Czech declines', () => {
+  const rendered = t('figure.coverage', { onMap: 7, total: '24 dives', count: 24 });
+  expect(rendered).toBe('7 of 24 dives');
+  expect(rendered).not.toContain('figure.coverage');
 });
 
 /**

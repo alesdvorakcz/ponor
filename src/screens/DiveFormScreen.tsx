@@ -55,7 +55,7 @@ import {
   type DiveFormValues,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { PRESET_SAVE_FAILED, presetMatching, presetRefusal } from '../domain/presets';
+import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/presets';
 import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asSuggestedField,
@@ -90,6 +90,7 @@ import {
   formatCoordinates,
   formatCurrent,
   formatCylinderSpec,
+  formatDiveStatus,
   formatEntry,
   formatEquipmentToken,
   formatSalinity,
@@ -105,6 +106,7 @@ import {
   O2_LABEL,
 } from '../format/display';
 import { unitLabel, type UnitSystem } from '../format/units';
+import { t, useT, type TranslationKey } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
 import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
@@ -590,9 +592,15 @@ export const FORM_GROUP_IDS = ['times', 'gas', 'conditions', 'water', 'equipment
 export type FormGroupId = (typeof FORM_GROUP_IDS)[number];
 
 export interface FormGroupSpec {
-  /** What the header reads. Here rather than at the call site so the persisted id and the
-   * visible word cannot drift, and so an i18next pass has one place to reach. */
-  title: string;
+  /**
+   * What the header reads, as a KEY rather than as a word (M3h). Here rather than at the call
+   * site so the persisted id and the visible word cannot drift — and a key rather than a
+   * string because this `Record` is built when the module is first imported, which is before
+   * the diver's language is known and for ever afterwards: a title resolved here would say
+   * "Conditions" over a Czech form until the app was killed. `groupProps` resolves it per
+   * render, and `useT()` on this screen is what makes that render happen.
+   */
+  titleKey: TranslationKey;
   /** Every field rendered inside this group. What §2.2's "already has a value in it" is asked
    * of, and nothing else — the group's contents are still the JSX below. */
   fields: readonly FieldPath<DiveFormInput>[];
@@ -627,9 +635,9 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   // §2.2's four measurements, and the group M1i gave them back. The strip held max depth,
   // duration and time in until this milestone; they are here with the average depth they belong
   // beside, and the group opens by default because these are what a diver fills on most dives.
-  times: { title: 'Times & depth', fields: ['maxDepthM', 'avgDepthM', 'durationMin', 'timeIn'], startsOpen: true },
+  times: { titleKey: 'group.timesDepth', fields: ['maxDepthM', 'avgDepthM', 'durationMin', 'timeIn'], startsOpen: true },
   gas: {
-    title: 'Gas & cylinders',
+    titleKey: 'group.gas',
     // Open by default for the same reason *Times & depth* is, and holding the two pressures
     // M1i moved back out of the strip: they are read off the cylinder they belong to, which is
     // the thing this group is about.
@@ -652,7 +660,7 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
     ],
   },
   conditions: {
-    title: 'Conditions',
+    titleKey: 'group.conditions',
     startsOpen: false,
     // **Weather leads** (M1i): it is the first thing anyone notices about a dive day. What is
     // left here is what the day was like and nothing else — *entry*, *salinity*, *water body*
@@ -677,17 +685,17 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   // "a group opens when this dive already has a value in it" has to open *Water & entry* for a
   // dive that has nothing in it but a pin.
   water: {
-    title: 'Water & entry',
+    titleKey: 'group.waterEntry',
     fields: ['entry', 'salinity', 'waterBody', 'latitude', 'longitude'],
     startsOpen: false,
   },
   equipment: {
-    title: 'Equipment',
+    titleKey: 'group.equipment',
     startsOpen: false,
     fields: ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel'],
   },
-  people: { title: 'People', fields: ['buddy', 'guide'], startsOpen: false },
-  notes: { title: 'Notes & rating', fields: ['title', 'notes', 'rating'], startsOpen: false },
+  people: { titleKey: 'group.people', fields: ['buddy', 'guide'], startsOpen: false },
+  notes: { titleKey: 'group.notesRating', fields: ['title', 'notes', 'rating'], startsOpen: false },
 };
 
 /**
@@ -889,7 +897,7 @@ interface CatalogueAddition {
   /** The same row while the write is in flight — the shape `ControlledPositionField`'s
    * *Locating…* already uses, and it names the noun rather than saying a bare "Adding…",
    * because a screen reader meets this sentence with no row around it. */
-  readonly busy: string;
+  readonly busy: () => string;
   /**
    * Makes the row and answers with its id, which is what the dive's `site_id`/`center_id`
    * is then set to (§6's pairing).
@@ -925,8 +933,8 @@ interface CatalogueAddition {
 
 const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
   siteId: {
-    offer: (name) => `Add “${name}” as a new site`,
-    busy: 'Adding the site…',
+    offer: (name) => t('form.addSite', { name }),
+    busy: () => t('form.addingSite'),
     // Both sources, asked together (§5's "offline dedupe" and §2.3's fuzzy check are the same
     // question asked of two catalogues). `nearMatches` (domain/suggest.ts) owns what counts as
     // one and in what order; this owns only that both are asked and that the row's own pin
@@ -958,8 +966,8 @@ const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
     },
   },
   centerId: {
-    offer: (name) => `Add “${name}” as a new dive centre`,
-    busy: 'Adding the centre…',
+    offer: (name) => t('form.addCentre', { name }),
+    busy: () => t('form.addingCentre'),
     // No country and no pin — `centerFactsFrom` carries the whole of why a dive knows the
     // site it happened at and knows nothing about the shop on shore but its name.
     create: async (name) => {
@@ -1005,7 +1013,9 @@ async function pairedSite(id: string): Promise<SiteDefaults | null> {
  * One sentence for both tables. The row it appears under says which one, and a second copy of
  * this differing only in the noun would be two strings to keep in step for no reader's benefit.
  */
-const CATALOGUE_ADD_FAILED = 'Could not add that just now — the dive keeps the name.';
+function catalogueAddFailed(): string {
+  return t('form.addFailed');
+}
 
 /**
  * §2.3's own sentence, with the catalogue's own spelling in it: *"a fuzzy check suggests
@@ -1022,7 +1032,9 @@ const CATALOGUE_ADD_FAILED = 'Could not add that just now — the dive keeps the
  *
  * One sentence, not one per table: only sites are ever checked (see `CatalogueAddition.similar`).
  */
-const DID_YOU_MEAN = (name: string) => `Did you mean “${name}”?`;
+function didYouMean(name: string): string {
+  return t('form.didYouMean', { name });
+}
 
 /**
  * The same offer after the check has asked its question — §2.3's *"one tap picks the existing
@@ -1040,16 +1052,20 @@ const DID_YOU_MEAN = (name: string) => `Did you mean “${name}”?`;
  * changes, and there is no reading of "no, add mine" that needs different words for a site and
  * a centre — which is also why this survives if `similar_centers` ever arrives (§5).
  */
-const addAnyway = (offer: string) => `${offer} anyway`;
+function addAnyway(offer: string): string {
+  return t('form.addAnyway', { offer });
+}
 
 /**
  * What the row says while the check is out — and it says *checking*, not *adding*, because at
  * that moment nothing is being added and the answer may well be that nothing will be.
  *
- * One sentence rather than one per table, on `CATALOGUE_ADD_FAILED`'s own reasoning: the row it
+ * One sentence rather than one per table, on `catalogueAddFailed`'s own reasoning: the row it
  * appears under says which field is being checked, and only sites are checked at all.
  */
-const LOOKING_FOR_A_MATCH = 'Looking for a match…';
+function lookingForAMatch(): string {
+  return t('form.lookingForMatch');
+}
 
 /**
  * One live offer to publish what a field's text names: what the row reads, what it reads while
@@ -1270,7 +1286,7 @@ function ControlledTextField({
    * act, and the last is the act after the diver has been asked a question about it.
    */
   const additionLabel = (offer: CatalogueOffer): string => {
-    if (phase === 'checking') return LOOKING_FOR_A_MATCH;
+    if (phase === 'checking') return lookingForAMatch();
     if (phase === 'adding') return offer.busyLabel;
     return matches.length > 0 ? offer.insistLabel : offer.label;
   };
@@ -1305,7 +1321,7 @@ function ControlledTextField({
                 // suggestion travels whole, so the tap that answers the question goes through
                 // `onPickSuggestion` — the one path that sets §6's pair.
                 matches: matches.map((suggestion): FieldMatch => ({
-                  question: DID_YOU_MEAN(suggestion.value),
+                  question: didYouMean(suggestion.value),
                   suggestion,
                 })),
               };
@@ -1407,7 +1423,9 @@ function ControlledTextField({
 /** What a picker field reads as while it holds nothing. Deliberately neutral — §1's "only
  * the fields you use", no form-shaming — and deliberately not blank: an empty box would read
  * as a control that failed to load rather than as a field with nothing in it. */
-const NOT_RECORDED = 'Not set';
+function notRecorded(): string {
+  return t('form.notSet');
+}
 
 interface ControlledDateTimeFieldProps {
   control: FormControl;
@@ -1459,7 +1477,7 @@ function ControlledDateTimeField({ control, name, label, mode, scheme, optional,
             mode={mode}
             scheme={scheme}
             day={day}
-            placeholder={NOT_RECORDED}
+            placeholder={notRecorded()}
             // Same split `FormField` draws between typing and clearing, and the same `''`
             // — `DateTimeField` passes the literal empty string, never a value derived from
             // what the field holds, so `optionalText` turns a cleared time into `null`
@@ -1568,7 +1586,9 @@ function ControlledOptionField<T extends string | number>({ control, name, label
  * and §0.6's whole account of this form is that it is "the dive detail you can type into". A
  * diver sets `GPS` here and reads `GPS` back there.
  */
-const POSITION_LABEL = 'GPS';
+function positionLabel(): string {
+  return t('field.gps');
+}
 
 /** What the row reads while it holds no pin. **An invitation rather than a placeholder**, and
  * that is the one way this row departs from `DateTimeField`'s "Not set": a date field's
@@ -1576,12 +1596,16 @@ const POSITION_LABEL = 'GPS';
  * has met a date picker. Nothing about an empty coordinate row says a tap would ask the
  * device where you are, so the row says it — in §2.3's own words, which have named this
  * affordance since before any of it was built. */
-const USE_MY_LOCATION = 'Use my location';
+function locationInvitation(): string {
+  return t('form.useMyLocation');
+}
 
 /** What the row reads while the device is being asked. Present tense and no punctuation
  * beyond the ellipsis: it is a state, not a sentence, and it stands in the same slot the pin
  * will occupy so nothing moves when the answer arrives. */
-const LOCATING = 'Locating…';
+function locatingLabel(): string {
+  return t('form.locating');
+}
 
 /**
  * **What each way of failing to get a pin says to the diver** — one sentence per refusal, and
@@ -1614,12 +1638,15 @@ const LOCATING = 'Locating…';
  * §1 binds every one of these: they are text under a row, never a blocked save. A diver who
  * cannot get a pin logs the dive without one.
  */
-const POSITION_REFUSAL_NOTES: Record<PositionRefusal, string> = {
-  servicesOff: 'Location Services are off for this device. Turn them on to pin a dive.',
-  denied: 'Ponor is not allowed to use your location. Allow it in the device’s Settings, then tap again.',
-  timedOut: 'That took too long. Try again where there is more sky.',
-  imprecise: `That fix was only good to about ${COARSEST_USABLE_FIX_M} m — too rough to pin a dive site. Try again where there is more sky.`,
-  failed: 'Could not get a location fix. Try again in a moment.',
+const POSITION_REFUSAL_NOTES: Record<PositionRefusal, () => string> = {
+  servicesOff: () => t('form.positionServicesOff'),
+  denied: () => t('form.positionDenied'),
+  timedOut: () => t('form.positionTimedOut'),
+  // The threshold reaches the sentence as a value rather than as a template literal, so
+  // `COARSEST_USABLE_FIX_M` is still the one place that owns the figure and the comma a Czech
+  // reader expects still comes from `figure` (src/i18n).
+  imprecise: () => t('form.positionImprecise', { metres: COARSEST_USABLE_FIX_M }),
+  failed: () => t('form.positionFailed'),
 };
 
 /**
@@ -1689,7 +1716,7 @@ function ControlledPositionField({
   // a pin set here and read back there cannot be two spellings of one point. `null` unless
   // BOTH are real, which is also exactly the condition for showing the clear control.
   const pin = formatCoordinates(latitude, longitude);
-  const shown = locating ? LOCATING : (pin ?? USE_MY_LOCATION);
+  const shown = locating ? locatingLabel() : (pin ?? locationInvitation());
 
   const locate = async () => {
     setLocating(true);
@@ -1703,7 +1730,7 @@ function ControlledPositionField({
         setValue('latitude', outcome.latitude, { shouldDirty: true });
         setValue('longitude', outcome.longitude, { shouldDirty: true });
       } else {
-        setNote(POSITION_REFUSAL_NOTES[outcome.reason]);
+        setNote(POSITION_REFUSAL_NOTES[outcome.reason]());
       }
     } finally {
       // Released on both paths, exactly as the save control's own flag is: a refusal that left
@@ -1717,7 +1744,7 @@ function ControlledPositionField({
     <>
       <View style={[styles.formField, locating && styles.formFieldFocused]}>
         <View style={styles.formFieldRow}>
-          <Text style={styles.formFieldLabel}>{POSITION_LABEL}</Text>
+          <Text style={styles.formFieldLabel}>{positionLabel()}</Text>
           <Pressable
             style={styles.formFieldPicker}
             onPress={() => void locate()}
@@ -1726,7 +1753,7 @@ function ControlledPositionField({
             // (`DateTimeField`, `ControlledCylinderSpec`), so a screen reader hears what the
             // row holds — and, while it holds nothing, hears the invitation rather than an
             // empty slot.
-            accessibilityLabel={`${POSITION_LABEL}: ${shown}`}
+            accessibilityLabel={t('field.labelValue', { label: positionLabel(), value: shown })}
             // Both, never one: `disabled` is what stops the press, `accessibilityState` is
             // what stops a screen reader announcing an available control that ignores taps —
             // the save control's own rule, and `busy` is the word for a control that will
@@ -1758,7 +1785,7 @@ function ControlledPositionField({
               // No "carried" here, for `DateTimeField`'s own stated reason: §2.1 puts the GPS
               // point in the fresh half, so nothing on this row was ever inherited and there
               // is no `— cleared` tag to leave behind. This control unsets an optional field.
-              accessibilityLabel={`Clear ${POSITION_LABEL}`}
+              accessibilityLabel={t('field.clear', { label: positionLabel() })}
               scheme={scheme}
             />
           )}
@@ -1841,7 +1868,7 @@ function RatingField({ label, value, onChange, scheme }: RatingFieldProps) {
               style={styles.ratingTarget}
               onPress={() => onChange(selected ? '' : level)}
               accessibilityRole="button"
-              accessibilityLabel={`${label}: ${level} of ${RATING_MAX}`}
+              accessibilityLabel={t('form.ratingLevel', { label, level, max: RATING_MAX })}
               accessibilityState={{ selected }}
             >
               <RatingDot filled={level <= filled} scheme={scheme} variant="field" />
@@ -1870,7 +1897,7 @@ function ControlledRatingField({ control, scheme }: { control: FormControl; sche
       name="rating"
       render={({ field, fieldState }) => (
         <>
-          <RatingField label="Rating" value={field.value} onChange={field.onChange} scheme={scheme} />
+          <RatingField label={t('field.rating')} value={field.value} onChange={field.onChange} scheme={scheme} />
           <FieldNote message={fieldState.error?.message ?? optionNote(RATING_VALUES, field.value)} scheme={scheme} />
         </>
       )}
@@ -1918,7 +1945,9 @@ function EquipmentTokenField({ label, worn, onChange, scheme }: EquipmentTokenFi
           accessibilityLabel={label}
           accessibilityState={{ checked: worn }}
         >
-          <Text style={[styles.formChipText, worn && styles.formChipTextSelected]}>{worn ? 'Yes' : 'No'}</Text>
+          <Text style={[styles.formChipText, worn && styles.formChipTextSelected]}>
+            {worn ? t('field.yes') : t('field.no')}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -1964,7 +1993,7 @@ function withEquipmentToken(current: readonly Equipment[], token: Equipment, wor
  * known and deliberate gap rather than an oversight. It is *kept* — `withEquipmentToken`
  * above is what guarantees that, and it is the part that actually matters, since the failure
  * this policy exists to prevent is silent data loss. Telling the diver it is there needs a
- * sentence in the shape of `UNKNOWN_OPTION_NOTE`, and that sentence ("pick one of the
+ * sentence in the shape of `unknownOptionMessage`, and that sentence ("pick one of the
  * options to replace it") is wrong for a set, where tapping a chip adds a different token
  * rather than replacing this one. M1h's form-design task owns how this control presents
  * itself; the honest wording belongs with it rather than invented here.
@@ -2000,7 +2029,9 @@ function ControlledEquipmentField({ control, scheme }: { control: FormControl; s
  * below), and the word this form calls that specification by. Not "Cylinder spec": the group
  * around it is already *Gas & cylinders*, and the gas rows beside it are what make the
  * distinction visible without a second noun. */
-const CYLINDER_LABEL = 'Cylinder';
+function cylinderLabel(): string {
+  return t('field.cylinder');
+}
 
 /**
  * What the cylinder block currently reads as — `Single 12 l Steel · 232 bar`, or `null` when
@@ -2121,14 +2152,14 @@ function ControlledCylinderSpec({
         // that there is a control here. The open/closed state travels as STATE beside it,
         // exactly as `FormGroup`'s header carries it, rather than as a word in the label
         // that would then have to change out from under it.
-        accessibilityLabel={`${CYLINDER_LABEL}: ${summary ?? NOT_RECORDED}`}
+        accessibilityLabel={t('field.labelValue', { label: cylinderLabel(), value: summary ?? notRecorded() })}
         accessibilityState={{ expanded }}
       >
         <View style={styles.formFieldRow}>
-          <Text style={styles.formFieldLabel}>{CYLINDER_LABEL}</Text>
+          <Text style={styles.formFieldLabel}>{cylinderLabel()}</Text>
           <View style={styles.formFieldPicker}>
             <Text style={summary === null ? styles.formFieldPickerTextUnset : styles.formFieldPickerText}>
-              {summary ?? NOT_RECORDED}
+              {summary ?? notRecorded()}
             </Text>
           </View>
           <View style={[styles.disclosureChevron, expanded && styles.disclosureChevronExpanded]} />
@@ -2172,7 +2203,7 @@ function PresetChips({
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>Presets</Text>
+        <Text style={styles.formFieldLabel}>{t('preset.presets')}</Text>
       </View>
       <View style={styles.formChipRow}>
         {presets.map((preset) => (
@@ -2183,7 +2214,7 @@ function PresetChips({
             accessibilityRole="button"
             // Says what pressing it does, not merely what it is called: a row of chips
             // announced as bare names says nothing about where a tap would land.
-            accessibilityLabel={`Apply preset ${preset.name}`}
+            accessibilityLabel={t('preset.apply', { name: preset.name })}
           >
             <Text style={styles.formChipText}>{preset.name}</Text>
           </Pressable>
@@ -2269,7 +2300,7 @@ function PresetCapture({
       {naming && (
         <>
           <FormField
-            label="Preset name"
+            label={t('field.presetName')}
             value={name}
             // Typing clears the note: it described the name that was in the box, and a
             // sentence about a name the diver has already changed is a stale complaint.
@@ -2278,7 +2309,7 @@ function PresetCapture({
               setName(text);
             }}
             scheme={scheme}
-            placeholder="twin 12 steel"
+            placeholder={t('preset.namePlaceholder')}
           />
           <FieldNote message={note ?? undefined} scheme={scheme} />
         </>
@@ -2296,9 +2327,9 @@ function PresetCapture({
             // Announced more fully than it is written, exactly as this screen's own `‹ Cancel`
             // is ("Leave without saving"): out of context a bare "Cancel" would be
             // indistinguishable from the control that leaves the whole form.
-            accessibilityLabel="Cancel saving a preset"
+            accessibilityLabel={t('preset.cancelSaving')}
           >
-            <Text style={styles.formPresetActionLabel}>Cancel</Text>
+            <Text style={styles.formPresetActionLabel}>{t('common.cancel')}</Text>
           </Pressable>
         )}
         <Pressable
@@ -2306,10 +2337,10 @@ function PresetCapture({
           onPress={naming ? () => confirm() : () => setNaming(true)}
           disabled={naming && saving}
           accessibilityRole="button"
-          accessibilityLabel={naming ? 'Save preset' : 'Save as preset'}
+          accessibilityLabel={naming ? t('preset.save') : t('preset.saveAs')}
           accessibilityState={{ disabled: naming && saving }}
         >
-          <Text style={styles.formPresetActionLabel}>{naming ? 'Save preset' : 'Save as preset'}</Text>
+          <Text style={styles.formPresetActionLabel}>{naming ? t('preset.save') : t('preset.saveAs')}</Text>
         </Pressable>
       </View>
     </>
@@ -2401,12 +2432,15 @@ function StatusControl({ control, scheme }: { control: FormControl; scheme: Colo
             // Deliberately free of the word "Save", so it can never be mistaken — by a
             // screen reader or by a test query — for the save control it changes the
             // wording of.
-            accessibilityLabel="Planned dive"
+            accessibilityLabel={t('form.plannedDive')}
             accessibilityState={{ checked: planned }}
           >
             <View style={[styles.formStatusPill, planned && styles.formStatusPillOn]}>
+              {/* The word is the STORED value's, read through §4.1's owner of that
+                  conversion (`formatDiveStatus`, format/display.ts) rather than spelled here —
+                  the same two words the dive detail's Status row reads back. */}
               <Text style={[styles.formStatusLabel, planned && styles.formStatusLabelOn]}>
-                {planned ? 'Planned' : 'Logged'}
+                {formatDiveStatus(planned ? 'planned' : 'logged')}
               </Text>
             </View>
           </Pressable>
@@ -2437,16 +2471,18 @@ function StatusControl({ control, scheme }: { control: FormControl; scheme: Colo
  * function has no answer to, which is why nothing here has a case for it.
  */
 function headingFor(mode: 'create' | 'edit', stored: DiveStatus | null, chosen: DiveStatus): string {
-  if (mode === 'create') return chosen === 'planned' ? 'New plan' : 'New dive';
-  if (stored === 'planned' && chosen === 'logged') return 'Complete dive';
-  return chosen === 'planned' ? 'Edit plan' : 'Edit dive';
+  if (mode === 'create') return t(chosen === 'planned' ? 'form.headingNewPlan' : 'form.headingNewDive');
+  // The same words the dive detail's own *Complete dive* control says, from one key: it is the
+  // same act on the same object, arrived at from the other end.
+  if (stored === 'planned' && chosen === 'logged') return t('dives.completeDive');
+  return t(chosen === 'planned' ? 'form.headingEditPlan' : 'form.headingEditDive');
 }
 
 /** What the save control says it will do — "the diver should never have to remember which
  * mode they are in to know what the button does." Both the visible label and the
  * accessibility one, from this one function, so the two cannot drift. */
 function saveLabelFor(chosen: DiveStatus): string {
-  return chosen === 'planned' ? 'Save plan' : 'Save dive';
+  return t(chosen === 'planned' ? 'form.savePlan' : 'form.saveDive');
 }
 
 /**
@@ -2483,8 +2519,8 @@ function saveLabelFor(chosen: DiveStatus): string {
  * dive" means here.
  */
 function carriedFromLabel(sourceNumber: number | undefined): string {
-  const from = sourceNumber === undefined ? 'your last dive' : `#${sourceNumber}`;
-  return `Carried from ${from} — clear any of them`;
+  const from = sourceNumber === undefined ? t('form.lastDive') : `#${String(sourceNumber)}`;
+  return t('form.carriedFrom', { from });
 }
 
 /**
@@ -2548,7 +2584,9 @@ export interface DiveFormScreenProps {
 /** Shown when `createDive`'s or `updateDive`'s write rejects (`onValid` below) — see
  * `formSaveError` (theme/styles.ts) for why this is not silent, and not a `disabled` save
  * control either. */
-const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
+function saveErrorMessage(): string {
+  return t('form.saveFailed');
+}
 
 /**
  * Shown when Save is pressed in edit mode and there is no dive to write to — the id names
@@ -2559,14 +2597,16 @@ const SAVE_ERROR_MESSAGE = "Couldn't save this dive. Try again.";
  * logged a NEW dive because it could not find the one it was editing would duplicate the
  * dive on the device that still has it, and duplicate it again on every later attempt.
  */
-const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been deleted.";
+function missingDiveMessage(): string {
+  return t('form.missingDive');
+}
 
 /* Nothing *Save as preset* says lives on this screen any more. The three refusals — an unnamed
  * preset, a duplicate name, a cylinder block with nothing in it — are `presetRefusal`'s
  * (domain/presets.ts), because §3's editor states exactly the same three and two of them were
  * byte-identical copies here; §4.1's "one deliberate exception, until i18next" covers duplicated
  * **field labels**, and a sentence stating a rule's verdict is not one. The failed-write
- * sentence went the same way (`PRESET_SAVE_FAILED`) for the plainer reason that the editor says
+ * sentence went the same way (`presetSaveFailed`) for the plainer reason that the editor says
  * it too, about the same object, in the same words. */
 
 /**
@@ -2581,7 +2621,7 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
  * its `disabled` prop — because §1's "never block a save" binds the CONTROL itself, not
  * just what happens after it is pressed. `handleSubmit(onValid)` still runs
  * `zodResolver(diveFormSchema)` underneath, so a diver can always tap Save; a rejected
- * `createDive` says so (`SAVE_ERROR_MESSAGE`) instead of pretending it worked, and never
+ * `createDive` says so (`saveErrorMessage`) instead of pretending it worked, and never
  * touches the diver's typed values — §1's "never block a save" cuts both ways, and losing
  * what a diver already entered because the disk was full is the other direction of the same
  * failure.
@@ -2613,6 +2653,9 @@ const MISSING_DIVE_MESSAGE = "Couldn't find that dive — it may have been delet
  * fix a typo silently completed it.
  */
 export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveFormScreenProps) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
@@ -2860,7 +2903,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   /** One group's props, from `FORM_GROUPS`' own entry — so a group's title, its persisted id
    * and the fields §2.2's value rule reads cannot be three different opinions. */
   const groupProps = (id: FormGroupId) => ({
-    title: FORM_GROUPS[id].title,
+    title: t(FORM_GROUPS[id].titleKey),
     scheme,
     expanded: toggled.get(id) ?? openByRule.has(id),
     onToggle: (open: boolean) => toggleGroup(id, open),
@@ -3176,7 +3219,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     return {
       label,
       insistLabel: addAnyway(label),
-      busyLabel: kind.busy,
+      busyLabel: kind.busy(),
       // Only built when the table has a check at all (§5: there is no `similar_centers`), so a
       // centre's press goes straight to the write and never pauses on a question that cannot
       // be asked. `undefined` rather than a function answering `[]`, so the row can tell the
@@ -3221,7 +3264,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         } catch {
           // §1: the dive is the thing being logged and the row is a by-product. Nothing here
           // reaches the save path, and the dive goes on holding its name snapshot (§6).
-          return CATALOGUE_ADD_FAILED;
+          return catalogueAddFailed();
         }
       },
     };
@@ -3347,7 +3390,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         await createGearPreset(db, { name: refusal.storedName, tanks });
         return null;
       } catch {
-        return PRESET_SAVE_FAILED;
+        return presetSaveFailed();
       }
     },
     [getValues, units, presets],
@@ -3379,9 +3422,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     try {
       if (mode === 'edit') {
         // Nothing to write to. Told, not swallowed, and above all not turned into a
-        // `createDive` — see MISSING_DIVE_MESSAGE.
+        // `createDive` — see missingDiveMessage.
         if (target === null) {
-          setSaveError(MISSING_DIVE_MESSAGE);
+          setSaveError(missingDiveMessage());
           return;
         }
         // Only what changed (`toDivePatch`), never the whole row: an untouched field must
@@ -3411,7 +3454,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // form that has already been written.
       backToDives();
     } catch {
-      setSaveError(SAVE_ERROR_MESSAGE);
+      setSaveError(saveErrorMessage());
     } finally {
       // Released on both paths. A failed save that left the control latched shut would
       // strand the diver on a form they cannot resubmit — the same "told nothing, can do
@@ -3446,7 +3489,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // a save" binds a control that refuses what a diver typed, and there is nothing typed and no
   // dive to write it to. What happens once the answer IS in is untouched, in both directions —
   // a real dive seeds and saves as before, and a dive that genuinely is not there still gets
-  // today's blank form and `MISSING_DIVE_MESSAGE` on save, which is the direction that must
+  // today's blank form and `missingDiveMessage` on save, which is the direction that must
   // never loosen.
   //
   // **The heading is withheld too, and it was the last claim this branch made** (M1g). It read
@@ -3547,14 +3590,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               blocking rule, so a mistyped one was the single thing that could refuse a save
               — and a control that cannot produce `31.8.2026` removes that case rather than
               adjudicating it. Required (§2.2), so no `optional`, and therefore no `×`. */}
-          <ControlledDateTimeField control={control} name="date" label="Date" mode="date" scheme={scheme} />
+          <ControlledDateTimeField control={control} name="date" label={t('field.date')} mode="date" scheme={scheme} />
           {/* Two of §2.3's four autocompleting fields. `history` and `onPairedId` are what
               turn autocomplete on here; which column each draws from, and which id pairs
               with it, come from the `name` above — see `ControlledTextFieldProps.history`. */}
           <ControlledTextField
             control={control}
             name="siteName"
-            label="Site"
+            label={t('field.site')}
             scheme={scheme}
             carryOver={carryOver}
             history={history}
@@ -3564,7 +3607,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="centerName"
-            label="Centre"
+            label={t('field.centre')}
             scheme={scheme}
             carryOver={carryOver}
             history={history}
@@ -3582,18 +3625,18 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="maxDepthM"
-            label="Max depth"
+            label={t('field.maxDepth')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
             unit={unitLabel('depth', units)}
           />
-          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label="Avg depth" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
+          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label={t('field.avgDepth')} scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
           <ControlledTextField
             control={control}
             carryOver={carryOver}
             name="durationMin"
-            label="Duration"
+            label={t('field.duration')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
@@ -3612,7 +3655,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               computed from this plus duration (derived.ts) and gets no control at all, and
               §2.1's surface interval runs from one dive's end to the next one's start. §0.6
               marks both as computed rather than asking for them. */}
-          <ControlledDateTimeField control={control} name="timeIn" label="Time in" mode="time" scheme={scheme} optional day={chosenDate} />
+          <ControlledDateTimeField control={control} name="timeIn" label={t('field.timeIn')} mode="time" scheme={scheme} optional day={chosenDate} />
         </FormGroup>
 
         {/* DESIGN.md §6: the form shows a single cylinder until "+ add cylinder" is
@@ -3640,7 +3683,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="tanks.0.material"
-            label="Material"
+            label={t('field.material')}
             options={TANK_MATERIAL_VALUES}
             displayLabel={(option) => formatTankMaterial(option) ?? option}
             scheme={scheme}
@@ -3648,7 +3691,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="tanks.0.sizeL"
-            label="Size"
+            label={t('field.size')}
             scheme={scheme}
             keyboardType="decimal-pad"
             carryOver={carryOver}
@@ -3676,7 +3719,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="tanks.0.configuration"
-            label="Configuration"
+            label={t('field.configuration')}
             options={CONFIGURATION_VALUES}
             displayLabel={(option) => formatConfiguration(option) ?? option}
             scheme={scheme}
@@ -3684,7 +3727,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="tanks.0.workingBar"
-            label="Working pressure"
+            label={t('field.workingPressure')}
             scheme={scheme}
             keyboardType="decimal-pad"
             carryOver={carryOver}
@@ -3739,7 +3782,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="tanks.0.startBar"
-            label="Start pressure"
+            label={t('field.startPressure')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
@@ -3749,7 +3792,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="tanks.0.endBar"
-            label="End pressure"
+            label={t('field.endPressure')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
@@ -3771,7 +3814,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="weather"
-            label="Weather"
+            label={t('field.weather')}
             options={WEATHER_VALUES}
             displayLabel={(option) => formatWeather(option) ?? option}
             scheme={scheme}
@@ -3780,13 +3823,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="waterTempC"
-            label="Water temp"
+            label={t('field.waterTemp')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
             unit={unitLabel('temperature', units)}
           />
-          <ControlledTextField control={control} carryOver={carryOver} name="airTempC" label="Air temp" scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
+          <ControlledTextField control={control} carryOver={carryOver} name="airTempC" label={t('field.airTemp')} scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('temperature', units)} />
           {/* Two visibility fields, deliberately (§10): nobody measures visibility, so the
               scale is the primary and the distance is an optional refinement for divers who
               estimate one. They carry two different labels because two rows both reading
@@ -3807,7 +3850,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="visibility"
-            label="Visibility"
+            label={t('field.visibility')}
             options={VISIBILITY_VALUES}
             displayLabel={(option) => formatVisibility(option) ?? option}
             scheme={scheme}
@@ -3816,7 +3859,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="visibilityM"
-            label="Visibility distance"
+            label={t('field.visibilityDistance')}
             scheme={scheme}
             keyboardType="decimal-pad"
             mono
@@ -3840,7 +3883,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="waves"
-            label="Waves"
+            label={t('field.waves')}
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatWaves(level) ?? String(level)}
             scheme={scheme}
@@ -3849,7 +3892,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="current"
-            label="Current"
+            label={t('field.current')}
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatCurrent(level) ?? String(level)}
             scheme={scheme}
@@ -3858,7 +3901,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="surge"
-            label="Surge"
+            label={t('field.surge')}
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatSurge(level) ?? String(level)}
             scheme={scheme}
@@ -3882,7 +3925,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="entry"
-            label="Entry"
+            label={t('field.entry')}
             options={ENTRY_VALUES}
             displayLabel={(option) => formatEntry(option) ?? option}
             scheme={scheme}
@@ -3896,7 +3939,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="salinity"
-            label="Salinity"
+            label={t('field.salinity')}
             options={SALINITY_VALUES}
             displayLabel={(option) => formatSalinity(option) ?? option}
             scheme={scheme}
@@ -3905,7 +3948,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="waterBody"
-            label="Water body"
+            label={t('field.waterBody')}
             options={WATER_BODY_VALUES}
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
@@ -3922,7 +3965,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="suit"
-            label="Suit"
+            label={t('field.suit')}
             options={SUIT_VALUES}
             displayLabel={(option) => formatSuit(option) ?? option}
             scheme={scheme}
@@ -3935,7 +3978,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="suitThicknessMm"
-            label="Suit thickness"
+            label={t('field.suitThickness')}
             scheme={scheme}
             keyboardType="decimal-pad"
             carryOver={carryOver}
@@ -3949,7 +3992,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="weightsKg"
-            label="Weights"
+            label={t('field.weights')}
             scheme={scheme}
             keyboardType="decimal-pad"
             carryOver={carryOver}
@@ -3965,7 +4008,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             control={control}
             carryOver={carryOver}
             name="weightsFeel"
-            label="Weighting"
+            label={t('field.weighting')}
             options={WEIGHTS_FEEL_VALUES}
             displayLabel={(option) => formatWeightsFeel(option) ?? option}
             scheme={scheme}
@@ -3984,7 +4027,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="buddy"
-            label="Buddy"
+            label={t('field.buddy')}
             scheme={scheme}
             carryOver={carryOver}
             history={history}
@@ -3994,7 +4037,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField
             control={control}
             name="guide"
-            label="Guide"
+            label={t('field.guide')}
             scheme={scheme}
             carryOver={carryOver}
             history={history}
@@ -4004,14 +4047,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         </FormGroup>
 
         <FormGroup {...groupProps('notes')}>
-          <ControlledTextField control={control} carryOver={carryOver} name="title" label="Title" scheme={scheme} />
-          <ControlledTextField control={control} carryOver={carryOver} name="notes" label="Notes" scheme={scheme} multiline />
+          <ControlledTextField control={control} carryOver={carryOver} name="title" label={t('field.title')} scheme={scheme} />
+          <ControlledTextField control={control} carryOver={carryOver} name="notes" label={t('field.notes')} scheme={scheme} multiline />
           <ControlledRatingField control={control} scheme={scheme} />
         </FormGroup>
       </ScrollView>
 
       {/* Task 6: a failed `createDive` says so, plainly, rather than pretending the save
-          worked (§1's "never block a save" cutting the other way — see `SAVE_ERROR_MESSAGE`
+          worked (§1's "never block a save" cutting the other way — see `saveErrorMessage`
           above). A sibling of `formFooter` below, not nested inside it or `formScroll`
           above, so it is visible without scrolling exactly as the save control itself
           always is. */}
@@ -4084,9 +4127,9 @@ function CancelControl({ styles }: { styles: Styles }) {
       // Says what leaving does, which is the half a diver cannot see from the chevron:
       // deliberately not containing the word "Save", so this can never be mistaken — by a
       // screen reader or by a test query — for the save control at the bottom of the form.
-      accessibilityLabel="Leave without saving"
+      accessibilityLabel={t('back.cancelLabel')}
     >
-      <Text style={styles.formBackLabel}>‹ Cancel</Text>
+      <Text style={styles.formBackLabel}>{t('back.cancel')}</Text>
     </Pressable>
   );
 }

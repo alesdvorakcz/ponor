@@ -16,6 +16,7 @@ import { browseCatalogue } from '../domain/search';
 import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
 import { type DiveCenter } from '../domain/types';
 import { formatCenterCount, formatCenterRow, unnamedCenter } from '../format/display';
+import { t, useT } from '../i18n';
 import { backToMap } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -58,6 +59,9 @@ export const CLOSE_CENTERS_GLYPH = { ios: 'xmark', android: 'close' } as const;
  * bottom of the screen is the bottom of the screen.
  */
 export default function DiveCentersScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
@@ -79,7 +83,7 @@ export default function DiveCentersScreen() {
   const shown = browseCatalogue(catalogue.centers, query);
 
   const close: readonly CapsuleAction[] = [
-    { key: 'close-centers', symbol: CLOSE_CENTERS_GLYPH, label: 'Close centres', onPress: backToMap },
+    { key: 'close-centers', symbol: CLOSE_CENTERS_GLYPH, label: t('centre.close'), onPress: backToMap },
   ];
 
   /**
@@ -98,11 +102,9 @@ export default function DiveCentersScreen() {
       // table two ways and §5 puts an account behind both: a pull, and §2.3's *add a centre*,
       // which is offered to a signed-in diver alone. Telling a guest their next sync will bring
       // centres would be pointing at something that cannot happen.
-      return session === null
-        ? 'No dive centres yet. They arrive with an account — on your first sync, and when you add one from a dive.'
-        : 'No dive centres yet. Name the centre on a dive and tap “Add” to publish one; your next sync brings the community’s.';
+      return t(session === null ? 'centre.noneGuest' : 'centre.noneMember');
     }
-    if (shown.length === 0) return 'No centres match your search.';
+    if (shown.length === 0) return t('centre.noMatches');
     return null;
   };
 
@@ -122,7 +124,7 @@ export default function DiveCentersScreen() {
         keyExtractor={(center) => center.id}
         ListHeaderComponent={
           <View>
-            <Text style={styles.centersHeading}>Dive centres</Text>
+            <Text style={styles.centersHeading}>{t('centre.heading')}</Text>
             {/* The count of what is on screen, in the muted mono line every screen in this app
                 hangs under its title. Absent while the read has not answered, for the reason
                 above; absent under a message too, since the message is what the line would
@@ -155,7 +157,7 @@ export default function DiveCentersScreen() {
           KeyboardAvoidingView lift it with the keyboard. `insets.bottom` clears the home
           indicator when the keyboard is down. */}
       <View style={[styles.searchDock, { paddingBottom: insets.bottom + 12 }]}>
-        <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} placeholder="Search centres" />
+        <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} placeholder={t('centre.searchPlaceholder')} />
         <ActionCapsule scheme={scheme} actions={close} />
       </View>
     </KeyboardAvoidingView>
@@ -182,7 +184,7 @@ function CenterRow({ center, dives, styles }: { center: DiveCenter; dives: numbe
       // where a relative one is resolved at runtime and checked against nothing at all.
       onPress={() => router.push(`/center/${center.id}`)}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${name}`}
+      accessibilityLabel={t('common.open', { name })}
     >
       <View style={styles.formFieldRow}>
         <Text style={styles.centerRowName}>{name}</Text>

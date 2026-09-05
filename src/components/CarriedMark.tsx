@@ -1,6 +1,7 @@
 import { SymbolView } from 'expo-symbols';
 import { type ColorValue } from 'react-native';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { symbolName, type PlatformSymbol } from './symbolName';
@@ -81,7 +82,9 @@ export function CarriedMark({ scheme, size = 16 }: CarriedMarkProps) {
  * clear as a group — cannot spell it two ways; §4.1's "duplicated field labels" exception
  * covers a *label*, and this is a rule's own vocabulary.
  */
-export const CLEARED_TAG = '— cleared';
+export function clearedTag(): string {
+  return t('field.cleared');
+}
 
 /**
  * What that tag says out loud: the same word without the typography.
@@ -90,4 +93,6 @@ export const CLEARED_TAG = '— cleared';
  * meeting the string above spells the punctuation out — "dash cleared" — and the em dash is
  * there to make the row LOOK empty, which is a job it cannot do in speech.
  */
-export const CLEARED_ANNOUNCEMENT = 'cleared';
+export function clearedAnnouncement(): string {
+  return t('field.clearedSpoken');
+}

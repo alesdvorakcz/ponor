@@ -126,7 +126,26 @@ export const cs = {
 
     figure: {
       deepest: 'nejhlubší {{depth}}',
-      coverage: '{{onMap}} z {{total}}',
+      /**
+       * **The noun rides the FIRST number here, where English hangs it on the second.**
+       * *7 ponorů z 24*, not *7 z 24 ponorů* — because `z` governs the genitive and
+       * `count.dives`' phrase is nominative, so the composed version read `1 z 2 lokality`
+       * where Czech wants `ze 2 lokalit`. Moving the noun in front of the preposition leaves
+       * `z` governing a bare numeral, which has no case to get wrong.
+       *
+       * **The four forms differ by one letter and it is not a plural.** `z` vocalises to `ze`
+       * before a word beginning with an awkward cluster, and *dvou*, *tří* and *čtyř* are three
+       * of them — which is exactly i18next's `few`. It is a phonological rule wearing a plural
+       * category's clothes, and it is right for 2–4 and 1 and 5 and most of what follows. It is
+       * **wrong** for 6, 7, 16, 17, 60–79 and 100–400, whose numerals also begin with those
+       * sounds and which no plural category can pick out; those read `z` and would be spoken
+       * `ze`. Fixing them needs a rule about how a numeral is PRONOUNCED, which is a second
+       * owner of a language rule written in JavaScript. Reported rather than attempted.
+       */
+      coverage_one: '{{onMapCount}} z {{count, figure}}',
+      coverage_few: '{{onMapCount}} ze {{count, figure}}',
+      coverage_many: '{{onMapCount}} z {{count, figure}}',
+      coverage_other: '{{onMapCount}} z {{count, figure}}',
       today: 'Dnes',
       yesterday: 'Včera',
       daysAgo_one: 'před {{count, figure}} dnem',
@@ -161,6 +180,7 @@ export const cs = {
       unnamedCenter: 'Nepojmenované centrum',
       siteMark: '{{name}}, potápěčská lokalita',
       centerMark: '{{name}}, potápěčské centrum',
+      yourDives: 'Vaše ponory',
     },
 
     certification: {
@@ -171,6 +191,27 @@ export const cs = {
        * line reads the same whichever noun a diver has in mind. */
       expires: 'platí do {{date}}',
       expired: 'platnost skončila {{date}}',
+      addHeading: 'Přidat certifikaci',
+      editHeading: 'Upravit certifikaci',
+      /** *Organizace*, not *agentura*: PADI and SSI call themselves agencies in English and
+       * Czech divers say *organizace*. */
+      agency: 'Organizace',
+      agencyPlaceholder: 'PADI',
+      course: 'Kurz',
+      coursePlaceholder: 'Rescue Diver',
+      cardNumberLabel: 'Číslo karty',
+      cardNumberPlaceholder: '1234567',
+      issuedLabel: 'Vydáno',
+      expiresLabel: 'Platí do',
+      neverExpires: 'Nevyprší',
+      empty: 'Vyplňte aspoň jeden údaj — organizaci, kurz, číslo karty nebo datum.',
+      save: 'Uložit certifikaci',
+      saveFailed: 'Certifikaci se nepodařilo uložit. Zkuste to znovu.',
+      deleteLabel: 'Smazat certifikaci',
+      deleteTitle: 'Smazat tuto certifikaci?',
+      deleteBody: 'Zmizí z vaší peněženky. Tohle nejde vzít zpět.',
+      deleteFailed: 'Certifikaci se nepodařilo smazat. Zkuste to znovu.',
+      notFound: 'Tu certifikaci se nepodařilo najít — možná byla smazána.',
     },
 
     /** *Spotřeba* is feminine, hence *klesla* / *stoupla*. Neutral verbs: the figure moved,
@@ -182,10 +223,32 @@ export const cs = {
     },
 
     stats: {
+      title: 'Statistiky',
       rmvWindow_one: 'Průměr z posledního {{count, figure}} ponoru se zaznamenaným plynem.',
       rmvWindow_few: 'Průměr z posledních {{count, figure}} ponorů se zaznamenaným plynem.',
       rmvWindow_many: 'Průměr z posledních {{count, figure}} ponoru se zaznamenaným plynem.',
       rmvWindow_other: 'Průměr z posledních {{count, figure}} ponorů se zaznamenaným plynem.',
+      groupLogbook: 'Deník',
+      groupPlaces: 'Místa',
+      groupGas: 'Plyn',
+      /** *Aktuálnost* — how current a diver's practice is, which is what §3's "currency" means
+       * and what a Czech instructor calls it. Not *měna*. */
+      groupCurrency: 'Aktuálnost',
+      dives: 'Ponory',
+      underwater: 'Pod vodou',
+      deepest: 'Nejhlubší',
+      sites: 'Lokality',
+      countries: 'Země',
+      rmv: 'RMV',
+      trend: 'Trend',
+      lastDive: 'Poslední ponor',
+      nothingLogged: 'Zatím není co počítat. Zaznamenejte ponor a tohle se vyplní samo.',
+      onlyPlanned:
+        'Zatím není co počítat. Plánovaný ponor není ponor, který jste odpotápěli — dokončete ho po vynoření a objeví se tady.',
+      countriesUnknown:
+        'Země pocházejí z lokalit na mapě. Žádný z vašich ponorů zatím nejmenuje lokalitu, která zná svoji zemi.',
+      refresher: 'Od posledního ponoru uplynulo přes půl roku. Před dalším se vyplatí objednat opakovací kurz.',
+      rmvSeries: 'Každý ponor, od nejstaršího po nejnovější: {{values}}',
     },
 
     unreadable: {
@@ -272,6 +335,348 @@ export const cs = {
       editCertification: 'Upravit certifikaci {{name}}',
       account: 'Účet a synchronizace',
       openAccount: 'Otevřít účet a synchronizaci',
+    },
+
+    common: {
+      cancel: 'Zrušit',
+      delete: 'Smazat',
+      close: 'Zavřít',
+      open: 'Otevřít {{name}}',
+    },
+
+    back: {
+      dives: '‹ Ponory',
+      divesLabel: 'Zpět na ponory',
+      sites: '‹ Lokality',
+      sitesLabel: 'Zpět na lokality',
+      centres: '‹ Centra',
+      centresLabel: 'Zpět na centra',
+      settings: '‹ Nastavení',
+      settingsLabel: 'Zpět do Nastavení',
+      cancel: '‹ Zrušit',
+      cancelLabel: 'Odejít bez uložení',
+    },
+
+    /**
+     * **A field name interpolated into a sentence stays in the nominative**, and that is a
+     * deliberate compromise rather than an oversight. *Vymazat Max. hloubka* wants the
+     * accusative *Max. hloubku*, and getting it would need a second, cased form of every one of
+     * these forty labels — a table Czech would have to keep in step with the nominative one for
+     * the sake of five screen-reader strings. Czech interfaces do exactly this, and a screen
+     * reader announcing the label unchanged is what lets a diver match what they heard to the
+     * row they are on.
+     */
+    field: {
+      labelValue: '{{label}}: {{value}}',
+      clear: 'Vymazat {{label}}',
+      clearCarried: 'Vymazat převzaté {{label}}',
+      fillWith: 'Vyplnit {{label}} hodnotou {{value}}',
+      cleared: '— vymazáno',
+      clearedSpoken: 'vymazáno',
+      expand: 'Rozbalit {{title}}',
+      collapse: 'Sbalit {{title}}',
+      yes: 'Ano',
+      no: 'Ne',
+      date: 'Datum',
+      site: 'Lokalita',
+      centre: 'Centrum',
+      entry: 'Vstup',
+      salinity: 'Slanost',
+      waterBody: 'Vodní plocha',
+      gps: 'GPS',
+      country: 'Země',
+      website: 'Web',
+      siteDepth: 'Hloubka lokality',
+      status: 'Stav',
+      /** *Čas vstupu* / *Čas výstupu*, agreeing with `field.entry` above — the water is what a
+       * diver goes into and comes out of, and *Začátek* / *Konec* would name the clock instead. */
+      timeIn: 'Čas vstupu',
+      timeOut: 'Čas výstupu',
+      surfaceInterval: 'Povrchový interval',
+      maxDepth: 'Max. hloubka',
+      avgDepth: 'Prům. hloubka',
+      duration: 'Doba ponoru',
+      cylinder: 'Láhev',
+      cylinderNumbered: 'Láhev {{number}}',
+      material: 'Materiál',
+      /** A cylinder's water capacity in litres, which Czech divers call its *objem*. */
+      size: 'Objem',
+      configuration: 'Konfigurace',
+      workingPressure: 'Provozní tlak',
+      startPressure: 'Počáteční tlak',
+      endPressure: 'Konečný tlak',
+      /** *Spotřeba* is the bar used; *Spotřeba plynu* the litres. Same noun, two quantities,
+       * exactly as English's *Used* and *Gas used* are. */
+      used: 'Spotřeba',
+      mod: 'MOD',
+      gasUsed: 'Spotřeba plynu',
+      rmv: 'RMV',
+      weather: 'Počasí',
+      waterTemp: 'Teplota vody',
+      airTemp: 'Teplota vzduchu',
+      /** The judged scale is *viditelnost*; the measured distance is *dohlednost*, which is the
+       * meteorological term for exactly that and the only word that still means the right thing
+       * when the row is read on its own. */
+      visibility: 'Viditelnost',
+      visibilityDistance: 'Dohlednost',
+      waves: 'Vlny',
+      current: 'Proud',
+      surge: 'Vlnobití',
+      suit: 'Oblek',
+      suitThickness: 'Tloušťka obleku',
+      equipment: 'Vybavení',
+      /** The lead itself is *zátěž*; how it felt is *vyvážení*, which is what a diver says about
+       * being over- or under-weighted. */
+      weights: 'Zátěž',
+      weighting: 'Vyvážení',
+      buddy: 'Buddy',
+      guide: 'Průvodce',
+      title: 'Název',
+      notes: 'Poznámky',
+      rating: 'Hodnocení',
+      presetName: 'Název předvolby',
+    },
+
+    group: {
+      dateTime: 'Datum a čas',
+      siteCentre: 'Lokalita a centrum',
+      depthDuration: 'Hloubka a doba',
+      timesDepth: 'Časy a hloubka',
+      /** Named in `settings.noPresets` too — *"ve skupině Plyn a láhve"* — so the sentence
+       * pointing at this group and the group's own heading are one string. */
+      gas: 'Plyn a láhve',
+      conditions: 'Podmínky',
+      waterEntry: 'Voda a vstup',
+      equipment: 'Vybavení',
+      equipmentPeople: 'Vybavení a lidé',
+      people: 'Lidé',
+      notes: 'Poznámky',
+      notesRating: 'Poznámky a hodnocení',
+    },
+
+    form: {
+      headingNewDive: 'Nový ponor',
+      headingNewPlan: 'Nový plán',
+      headingEditDive: 'Upravit ponor',
+      headingEditPlan: 'Upravit plán',
+      saveDive: 'Uložit ponor',
+      savePlan: 'Uložit plán',
+      plannedDive: 'Plánovaný ponor',
+      /** `{{from}}` is either `#6` or `form.lastDive` below, and both stand in the genitive
+       * after *z* — which is why the fallback is written *posledního ponoru* rather than as a
+       * nominative phrase this sentence would then govern wrongly. */
+      carriedFrom: 'Převzato z {{from}} — cokoli z toho můžete vymazat',
+      lastDive: 'posledního ponoru',
+      notSet: 'Nevyplněno',
+      useMyLocation: 'Použít moji polohu',
+      locating: 'Zjišťuji polohu…',
+      positionServicesOff:
+        'Polohové služby jsou pro toto zařízení vypnuté. Zapněte je, abyste mohli ponor připnout.',
+      positionDenied:
+        'Ponor nesmí používat vaši polohu. Povolte ji v Nastavení zařízení a klepněte znovu.',
+      positionTimedOut: 'Trvalo to příliš dlouho. Zkuste to znovu tam, kde je víc oblohy.',
+      positionImprecise:
+        'Poloha vyšla přesná jen asi na {{metres, figure}} m — na připnutí lokality je to příliš hrubé. Zkuste to znovu tam, kde je víc oblohy.',
+      positionFailed: 'Polohu se nepodařilo zjistit. Zkuste to za chvíli znovu.',
+      ratingLevel: '{{label}}: {{level}} z {{max}}',
+      saveFailed: 'Tento ponor se nepodařilo uložit. Zkuste to znovu.',
+      missingDive: 'Ten ponor se nepodařilo najít — možná byl smazán.',
+      addSite: 'Přidat „{{name}}“ jako novou lokalitu',
+      addCentre: 'Přidat „{{name}}“ jako nové potápěčské centrum',
+      addingSite: 'Přidávám lokalitu…',
+      addingCentre: 'Přidávám centrum…',
+      addFailed: 'Teď se to nepodařilo přidat — ponor si název ponechá.',
+      /** *i tak* goes at the END in Czech, where English's *anyway* also does — so the offer
+       * can still be interpolated whole rather than written out a second time per table. */
+      addAnyway: '{{offer}} i tak',
+      didYouMean: 'Nemysleli jste „{{name}}“?',
+      lookingForMatch: 'Hledám shodu…',
+      dateInvalid: 'Zadejte skutečné datum (RRRR-MM-DD).',
+      unknownOption:
+        'Tato hodnota pochází z novější verze Ponoru. Ukládá se tak, jak je — nahradíte ji výběrem některé z možností.',
+      outOfScale:
+        '{{value, figure}} není žádná z těchto možností. Ukládá se tak, jak je — nahradíte ji klepnutím na některou.',
+    },
+
+    preset: {
+      heading: 'Upravit předvolbu',
+      presets: 'Předvolby',
+      apply: 'Použít předvolbu {{name}}',
+      saveAs: 'Uložit jako předvolbu',
+      save: 'Uložit předvolbu',
+      cancelSaving: 'Zrušit ukládání předvolby',
+      namePlaceholder: 'dvojče 12 ocel',
+      unnamed: 'Pojmenujte tuto předvolbu, ať ji zase najdete.',
+      noCylinders: 'Předvolba bez lahví nic nevyplní — vyplňte nejdřív pole láhve.',
+      duplicate: 'Předvolbu s názvem „{{name}}“ už máte.',
+      saveFailed: 'Předvolbu se nepodařilo uložit. Zkuste to znovu.',
+      notFound: 'Tu předvolbu se nepodařilo najít — možná byla smazána.',
+      deleteLabel: 'Smazat předvolbu',
+      deleteTitle: 'Smazat tuto předvolbu?',
+      deleteBody: 'Zmizí z vašich předvoleb. Tohle nejde vzít zpět.',
+      deleteFailed: 'Předvolbu se nepodařilo smazat. Zkuste to znovu.',
+    },
+
+    detail: {
+      edit: 'Upravit',
+      notFound: 'Ponor nenalezen.',
+      deleteLabel: 'Smazat ponor',
+      deleteTitle: 'Smazat tento ponor?',
+      deleteBody: 'Zmizí z vašeho deníku. Tohle nejde vzít zpět.',
+      deleteFailed: 'Tento ponor se nepodařilo smazat. Zkuste to znovu.',
+    },
+
+    /**
+     * **The three "none of your N …" sentences reach only two Czech forms, not four.** After
+     * *z vašich* the noun is genitive plural for 2–4 and for 5-and-up alike — *z vašich 3
+     * ponorů*, *z vašich 30 ponorů* — so `few`, `many` and `other` are one sentence. Only `one`
+     * differs, and it drops the numeral for *jediný*: *z vašich 1 ponorů* is not Czech, and
+     * "your only logged dive" says the same thing better than "your 1 logged dive" does in
+     * English.
+     *
+     * Putting *vašich* between the preposition and the numeral also settles the vocalisation
+     * `figure.coverage` above cannot: *z* stands before a word here, never before a digit.
+     */
+    map: {
+      title: 'Mapa',
+      showMine: 'Zobrazit vaše ponory',
+      hideMine: 'Skrýt vaše ponory',
+      showCommunity: 'Zobrazit komunitní lokality',
+      hideCommunity: 'Skrýt komunitní lokality',
+      showCenters: 'Zobrazit potápěčská centra',
+      hideCenters: 'Skrýt potápěčská centra',
+      allSites: 'Všechny lokality',
+      allCentres: 'Všechna centra',
+      sitePage: 'Stránka lokality',
+      closeSheet: 'Zavřít {{name}}',
+      noDives: 'Zatím žádný zaznamenaný ponor. Ponor se na mapě objeví, jakmile mu dáte bod.',
+      noDivePins_one:
+        'Váš jediný zaznamenaný ponor zatím nemá bod. Otevřete ponor, upravte ho a u lokality klepněte na „Použít moji polohu“.',
+      noDivePins_few:
+        'Žádný z vašich {{count, figure}} zaznamenaných ponorů zatím nemá bod. Otevřete ponor, upravte ho a u lokality klepněte na „Použít moji polohu“.',
+      noDivePins_many:
+        'Žádný z vašich {{count, figure}} zaznamenaných ponorů zatím nemá bod. Otevřete ponor, upravte ho a u lokality klepněte na „Použít moji polohu“.',
+      noDivePins_other:
+        'Žádný z vašich {{count, figure}} zaznamenaných ponorů zatím nemá bod. Otevřete ponor, upravte ho a u lokality klepněte na „Použít moji polohu“.',
+      noSitesGuest: 'Zatím tu nejsou žádné komunitní lokality. Přijdou s účtem, při první synchronizaci.',
+      noSitesMember:
+        'Zatím tu nejsou žádné komunitní lokality. Lokality přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
+      noSitePositions_one:
+        'Vaše jediná komunitní lokalita zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+      noSitePositions_few:
+        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+      noSitePositions_many:
+        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+      noSitePositions_other:
+        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+      noCentresGuest: 'Zatím tu nejsou žádná potápěčská centra. Přijdou s účtem, při první synchronizaci.',
+      noCentresMember:
+        'Zatím tu nejsou žádná potápěčská centra. Centra přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
+      noCentrePositions_one:
+        'Vaše jediné centrum zatím nemá polohu. Klepnutím na „Všechna centra“ je můžete procházet.',
+      noCentrePositions_few:
+        'Žádné z vašich {{count, figure}} center zatím nemá polohu. Klepnutím na „Všechna centra“ je můžete procházet.',
+      noCentrePositions_many:
+        'Žádné z vašich {{count, figure}} center zatím nemá polohu. Klepnutím na „Všechna centra“ je můžete procházet.',
+      noCentrePositions_other:
+        'Žádné z vašich {{count, figure}} center zatím nemá polohu. Klepnutím na „Všechna centra“ je můžete procházet.',
+      nothingSelected:
+        'Nic není vybráno. Zapněte své ponory, komunitní lokality nebo potápěčská centra a objeví se na mapě.',
+      webUnavailable: 'Samotná mapa potřebuje aplikaci Ponor — verze pro prohlížeč nemá čím kreslit.',
+      /** *Místo* is neuter, so the verb moves with the count: *bylo připnuto* against *byla
+       * připnuta* — all four forms are reached here, which is rare. */
+      webPlaces_one: 'Připnulo by se sem {{count, figure}} místo.',
+      webPlaces_few: 'Připnula by se sem {{count, figure}} místa.',
+      webPlaces_many: 'Připnulo by se sem {{count, figure}} místa.',
+      webPlaces_other: 'Připnulo by se sem {{count, figure}} míst.',
+    },
+
+    site: {
+      heading: 'Potápěčské lokality',
+      notFound: 'Lokalita nenalezena.',
+      facts: 'Lokalita',
+      defaults: 'Výchozí hodnoty lokality',
+      defaultsNote:
+        'Když tuto lokalitu vyberete u nového ponoru, tato pole se vyplní — a přepíšou cokoli převzatého z posledního ponoru.',
+      searchPlaceholder: 'Hledat lokality',
+      close: 'Zavřít lokality',
+      noneGuest:
+        'Zatím žádné potápěčské lokality. Přijdou s účtem — při první synchronizaci a když nějakou přidáte u ponoru.',
+      noneMember:
+        'Zatím žádné potápěčské lokality. Pojmenujte lokalitu u ponoru a klepněte na „Přidat“; další synchronizace stáhne ty komunitní.',
+      noMatches: 'Hledání neodpovídá žádná lokalita.',
+    },
+
+    centre: {
+      heading: 'Potápěčská centra',
+      notFound: 'Centrum nenalezeno.',
+      facts: 'Centrum',
+      searchPlaceholder: 'Hledat centra',
+      close: 'Zavřít centra',
+      noneGuest:
+        'Zatím žádná potápěčská centra. Přijdou s účtem — při první synchronizaci a když nějaké přidáte u ponoru.',
+      noneMember:
+        'Zatím žádná potápěčská centra. Pojmenujte centrum u ponoru a klepněte na „Přidat“; další synchronizace stáhne ta komunitní.',
+      noMatches: 'Hledání neodpovídá žádné centrum.',
+    },
+
+    search: {
+      close: 'Zavřít hledání',
+      prompt: 'Hledejte ve svých ponorech podle lokality, centra, buddyho nebo poznámek.',
+    },
+
+    account: {
+      heading: 'Účet',
+      whatItIsFor:
+        'Ponor funguje i bez účtu. S účtem se váš deník zálohuje, synchronizuje do dalších zařízení a můžete přidávat potápěčské lokality a centra, která použijí i ostatní.',
+      signIn: 'Přihlásit se',
+      createAccount: 'Vytvořit účet',
+      switchToSignUp: 'Vytvořit si účet',
+      switchToSignIn: 'Účet už mám',
+      email: 'E-mail',
+      emailPlaceholder: 'vy@example.com',
+      password: 'Heslo',
+      signedInAs: 'Přihlášen jako',
+      /** All four forms, and the participle moves with the count as well as the noun —
+       * *byl přidán* · *byly přidány* · *bylo přidáno*. English moves only its verb. */
+      adopted_one: 'Z tohoto telefonu byl do vašeho deníku přidán {{count, figure}} ponor.',
+      adopted_few: 'Z tohoto telefonu byly do vašeho deníku přidány {{count, figure}} ponory.',
+      adopted_many: 'Z tohoto telefonu bylo do vašeho deníku přidáno {{count, figure}} ponoru.',
+      adopted_other: 'Z tohoto telefonu bylo do vašeho deníku přidáno {{count, figure}} ponorů.',
+      signOut: 'Odhlásit se',
+      signOutTitle: 'Odhlásit se?',
+      signOutBody:
+        'Váš deník bude z tohoto zařízení odstraněn. Zůstane ve vašem účtu a po opětovném přihlášení se vrátí.',
+      checkEmail: 'Zkontrolujte e-mail',
+      sentTo: 'Odesláno na',
+      openTheLink: 'Otevřete odkaz v tom e-mailu a pak se tu přihlaste.',
+      nothingArrives:
+        'Nic nepřišlo? Adresa může být špatně, nebo už k ní účet existuje — zkuste se přihlásit.',
+      backToSignIn: 'Zpět na přihlášení',
+      noBackendRefused: 'Nastavení Supabase v tomto buildu bylo odmítnuto: {{cause}}',
+      noBackendMissing: 'Tento build nemá backend, takže není kam se přihlásit. Chybí: {{missing}}.',
+    },
+
+    auth: {
+      emailRequired: 'Zadejte svoji e-mailovou adresu.',
+      passwordRequired: 'Zadejte svoje heslo.',
+      credentialsRejected: 'Tento e-mail a heslo neodpovídají žádnému účtu.',
+      emailTaken: 'K tomuto e-mailu už účet existuje — přihlaste se.',
+      passwordTooWeak: 'To heslo je příliš slabé — zkuste delší.',
+      emailMalformed: 'Tohle nevypadá jako e-mailová adresa.',
+      signupDisabled: 'Nové účty jsou teď vypnuté.',
+      tooManyTries: 'Příliš mnoho pokusů. Počkejte minutu a zkuste to znovu.',
+      confirmationRequired:
+        'Tento účet zatím není potvrzený. Otevřete odkaz v e-mailu, který na tu adresu přišel, a pak se přihlaste.',
+      serverUnreachable:
+        'Server se nepodařilo kontaktovat. Váš deník je v bezpečí v telefonu — zkuste to znovu, až budete online.',
+      signInFailed: 'Přihlášení se nezdařilo. Zkuste to znovu.',
+      signUpFailed: 'Účet se nepodařilo vytvořit. Zkuste to znovu.',
+      signOutUnavailable: 'Odhlášení zatím neumí toto zařízení vyčistit, takže se nic neodhlásilo.',
+      wipeFailed: 'Deník v tomto zařízení se nepodařilo vymazat, takže se nic neodhlásilo.',
+      unpushedChanges:
+        'Tento telefon má ponory, které váš účet ještě nedostal. Připojte se a zkuste to znovu — nic se nevymazalo a jste stále přihlášeni.',
+      signOutFailed: 'Deník tohoto zařízení byl vymazán, ale odhlášení se nedokončilo. Zkuste to znovu.',
     },
   },
 };

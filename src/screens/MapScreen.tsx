@@ -39,8 +39,8 @@ import {
 } from '../domain/mapSites';
 import { catalogueSiteIdentity } from '../domain/siteIdentity';
 import { type DiveCenter, type DiveSite } from '../domain/types';
+import { t, useT, type TranslationKey } from '../i18n';
 import {
-  formatCenterCount,
   formatCenterMarkLabel,
   formatDiveMarkLabel,
   formatMapSummary,
@@ -101,10 +101,10 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  *
  * Keyed by the kind, so a fourth kind is one entry here and a missing one does not compile.
  */
-const KIND_SWITCH: Record<MapMarkKind, { show: string; hide: string }> = {
-  mine: { show: 'Show your dives', hide: 'Hide your dives' },
-  community: { show: 'Show community sites', hide: 'Hide community sites' },
-  centers: { show: 'Show dive centres', hide: 'Hide dive centres' },
+const KIND_SWITCH: Record<MapMarkKind, { show: TranslationKey; hide: TranslationKey }> = {
+  mine: { show: 'map.showMine', hide: 'map.hideMine' },
+  community: { show: 'map.showCommunity', hide: 'map.hideCommunity' },
+  centers: { show: 'map.showCenters', hide: 'map.hideCenters' },
 };
 
 /**
@@ -236,6 +236,9 @@ function DirectoryLink({
  * on the `DiveRow`s inside the site sheet, each depth in its own band, beside its own number.
  */
 export default function MapScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
@@ -362,7 +365,7 @@ export default function MapScreen() {
    * same treatment and the same place whether it is showing a map, a message or nothing yet,
    * exactly as `DivesScreen`'s does across its four states.
    */
-  const title = <Text style={styles.mapTitle}>Map</Text>;
+  const title = <Text style={styles.mapTitle}>{t('map.title')}</Text>;
 
   /**
    * **The filter, and it is drawn on every branch — including the failing ones.**
@@ -380,7 +383,7 @@ export default function MapScreen() {
   const capsuleActions: readonly CapsuleAction[] = MAP_MARK_KINDS.map((kind) => ({
     key: kind,
     symbol: MAP_KIND_GLYPH[kind],
-    label: shown.has(kind) ? KIND_SWITCH[kind].hide : KIND_SWITCH[kind].show,
+    label: t(shown.has(kind) ? KIND_SWITCH[kind].hide : KIND_SWITCH[kind].show),
     selected: shown.has(kind),
     onPress: () => toggleKind(kind),
   }));
@@ -448,16 +451,18 @@ export default function MapScreen() {
     const reasons: string[] = [];
     if (shown.has('mine') && resolved && !error) {
       if (logged === 0) {
-        reasons.push('No dives logged yet. A dive joins the map when you give it a pin.');
+        reasons.push(t('map.noDives'));
       } else {
         // **The common case, and a different sentence from the one above it.** Every dive logged
         // before M2l has null coordinates (§10), so a full logbook with an empty map is the
         // expected state rather than a fault — and the sentence has to name the gesture, because
         // nothing on this screen sets a pin (§2.3's other half; see the note at the foot of this
         // file).
-        reasons.push(
-          `None of your ${String(logged)} logged dives has a pin yet. Open a dive, edit it, and tap “Use my location” at the site.`,
-        );
+        // **A counted noun inside a sentence, so the sentence carries the count** rather than
+        // interpolating a phrase built elsewhere: Czech puts the noun in the genitive after
+        // *z vašich* and a nominative count phrase dropped in here would read wrong and pass
+        // every test (§4.1's Czech case-government note, `cs.ts`).
+        reasons.push(t('map.noDivePins', { count: logged }));
       }
     }
     if (shown.has('community') && catalogue.resolved && !catalogue.error) {
@@ -466,11 +471,7 @@ export default function MapScreen() {
         // is.** The catalogue reaches a device only through a pull (§5, §7), and §7.4 erases it
         // on the way out precisely because "a guest never had them" — so telling a guest their
         // next sync will bring sites would be pointing at something that cannot happen.
-        reasons.push(
-          session === null
-            ? 'No community sites here yet. They arrive with an account, on your first sync.'
-            : 'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
-        );
+        reasons.push(t(session === null ? 'map.noSitesGuest' : 'map.noSitesMember'));
       } else {
         // **The device holds sites and none of them can be drawn, which is a different sentence
         // from "there are none"** — and it did not exist before M3e, though the state always
@@ -479,37 +480,30 @@ export default function MapScreen() {
         // site for a name and `siteFactsFrom` passes a pin only when the dive carried one, so a
         // catalogue of nameless-place rows is ordinary. The centres layer has had its own version
         // of this sentence since M3c; this is the sibling it should always have had.
-        reasons.push(
-          `None of your ${String(catalogue.sites.length)} community sites has a position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.`,
-        );
+        reasons.push(t('map.noSitePositions', { count: catalogue.sites.length }));
       }
     }
     if (shown.has('centers') && centres.resolved && !centres.error) {
       if (centres.centers.length === 0) {
         // **The same guest/member split**, and for the same reason: a centre reaches this table
         // through a pull or through §2.3's *add a centre*, and §5 puts an account behind both.
-        reasons.push(
-          session === null
-            ? 'No dive centres here yet. They arrive with an account, on your first sync.'
-            : 'No dive centres here yet. Centres appear as divers add them and your next sync brings them down.',
-        );
+        reasons.push(t(session === null ? 'map.noCentresGuest' : 'map.noCentresMember'));
       } else {
         // §2.3 is why: *"a centre inherits its name alone — the form's pin is where the diver
         // entered the water, so writing it to a centre files a dive site as the shop's address"*.
         // So a centre only ever gets a position from a catalogue that surveyed it, and the honest
         // answer is to send the diver to the list, where a centre with no position is still a row.
-        reasons.push(
-          `None of your ${formatCenterCount(centres.centers.length)} has a position yet. Tap “All centres” to browse them.`,
-        );
+        // This one used to compose `formatCenterCount`'s phrase into the sentence, which is
+        // the exact shape Czech breaks — so the sentence declines the noun itself, in both
+        // languages, and the two forms are byte-identical to what that composition produced.
+        reasons.push(t('map.noCentrePositions', { count: centres.centers.length }));
       }
     }
     // **Nothing switched on is a legitimate state and the control is what says so** — every glyph
     // is drawn in plain ink and none is inverted, which is a diver's own doing rather than a
     // failure. What it may not be is a blank screen, so the sentence names all three switches.
     if (shown.size === 0) {
-      reasons.push(
-        'Nothing selected. Switch on your dives, community sites or dive centres to put them on the map.',
-      );
+      reasons.push(t('map.nothingSelected'));
     }
     return reasons;
   };
@@ -597,7 +591,7 @@ export default function MapScreen() {
       accessibilityRole="button"
       accessibilityLabel={label}
     >
-      <Text style={styles.mapSheetCloseLabel}>Close</Text>
+      <Text style={styles.mapSheetCloseLabel}>{t('common.close')}</Text>
     </Pressable>
   );
 
@@ -630,10 +624,10 @@ export default function MapScreen() {
         {(shown.has('community') || shown.has('centers')) && (
           <View style={styles.mapDirectoryRow}>
             {shown.has('community') && (
-              <DirectoryLink label="All sites" href="/sites" styles={styles} />
+              <DirectoryLink label={t('map.allSites')} href="/sites" styles={styles} />
             )}
             {shown.has('centers') && (
-              <DirectoryLink label="All centres" href="/centers" styles={styles} />
+              <DirectoryLink label={t('map.allCentres')} href="/centers" styles={styles} />
             )}
           </View>
         )}
@@ -673,7 +667,7 @@ export default function MapScreen() {
           <View style={styles.mapSheet}>
             <View style={styles.mapSheetHeader}>
               <Text style={styles.mapSheetTitle}>{selectedPlace.label}</Text>
-              {closeSheet(`Close ${selectedPlace.label}`)}
+              {closeSheet(t('map.closeSheet', { name: selectedPlace.label }))}
             </View>
             {/* §3's "depth/temp summary". `logbookStats` is the same owner the Dives header
                 asks and `waterTempRange` its map-side sibling; `formatSiteSummary` owns the
@@ -697,9 +691,9 @@ export default function MapScreen() {
                 that has never synced. */}
             {placeSite !== undefined && (
               <DirectoryLink
-                label="Site page"
+                label={t('map.sitePage')}
                 href={`/site/${placeSite.id}`}
-                announce={`Open ${siteLabel(placeSite)}`}
+                announce={t('common.open', { name: siteLabel(placeSite) })}
                 style={styles.mapSheetAction}
                 styles={styles}
               />

@@ -5,7 +5,7 @@
 // `screenTopInset(insets.top)` like every other, and the real hook throws without a Provider.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 
 import { useAuthSession } from '../cloud/useAuthSession';
@@ -22,6 +22,7 @@ import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthBandColor } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
+import { setActiveLanguage } from '../i18n';
 import MapScreen from './MapScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -1113,4 +1114,143 @@ it('paints nothing outside the sheet, and never from the depth scale on a mark',
   // in both schemes, because that component takes its scheme as a prop rather than reading the
   // OS, and the marks are the only thing on this screen where the hue question was ever open.
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h) — the three sentences on this screen that carry a counted noun
+// ---------------------------------------------------------------------------------------
+//
+// Each of the three used to build its count into the sentence with a template literal, and one
+// of them (`centres`) composed `formatCenterCount`'s own phrase. Czech puts the noun in the
+// genitive after *z vašich*, so a phrase built anywhere else reads wrong there and right here —
+// which is exactly the failure M3g named and could not see from English.
+
+/** The centres sentence with the composition removed, in English, at both counts. It is the one
+ * of the three that DID decline in English, because it was built from `formatCenterCount`; both
+ * forms have to come out byte-identical to what that composition produced. */
+it('says the centres sentence in the same English the composed version said', async () => {
+  mockUseDiveCenters.mockReturnValue(centresState([centre({ name: 'Ponorka' })]));
+  const one = await withCentres();
+  expect(textIn(one).join(' ')).toContain('None of your 1 centre has a position yet.');
+  await cleanup();
+
+  mockUseDiveCenters.mockReturnValue(centresState([centre({ name: 'Ponorka' }), centre({ name: 'Kotelna' })]));
+  const two = await withCentres();
+  expect(textIn(two).join(' ')).toContain('None of your 2 centres has a position yet.');
+});
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted before the language goes back: `useT` subscribes this screen to i18next's
+    // `languageChanged`, so switching while it is mounted is a state update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **Two counts, because one would only prove the key resolved.** Czech's genitive plural is
+   * the same word for 2–4 and for 5-and-up — *z vašich 3 ponorů*, *z vašich 30 ponorů* — so the
+   * form that has to differ is `one`, which drops the numeral for *jediný* rather than writing
+   * the ungrammatical *z vašich 1 ponorů*.
+   */
+  it('declines the pinless-dives sentence rather than interpolating a count into it', async () => {
+    mockUseDives.mockReturnValue(divesState([dive({ id: 'a' })]));
+    const one = await show();
+    expect(textIn(one).join(' ')).toContain('Váš jediný zaznamenaný ponor zatím nemá bod.');
+    await cleanup();
+
+    mockUseDives.mockReturnValue(divesState([dive({ id: 'a' }), dive({ id: 'b' }), dive({ id: 'c' })]));
+    const three = await show();
+    expect(textIn(three).join(' ')).toContain('Žádný z vašich 3 zaznamenaných ponorů zatím nemá bod.');
+    expect(textIn(three).join(' ')).not.toContain('None of your');
+  });
+
+  it('declines the pinless-sites sentence the same way', async () => {
+    mockUseDiveSites.mockReturnValue(catalogueState([site({ name: 'Vis' })]));
+    const one = await show();
+    await press(one, 'Zobrazit komunitní lokality');
+    expect(textIn(one).join(' ')).toContain('Vaše jediná komunitní lokalita zatím nemá polohu.');
+    await cleanup();
+
+    mockUseDiveSites.mockReturnValue(catalogueState([site({ name: 'Vis' }), site({ name: 'Kotelna' })]));
+    const two = await show();
+    await press(two, 'Zobrazit komunitní lokality');
+    expect(textIn(two).join(' ')).toContain('Žádná z vašich 2 komunitních lokalit zatím nemá polohu.');
+  });
+
+  /** The one that used to compose `formatCenterCount`'s phrase — *"z vašich 2 centra"* is what
+   * a nominative phrase would have produced, and *center* is the genitive plural it needs. */
+  it('declines the pinless-centres sentence, which used to compose a count phrase', async () => {
+    mockUseDiveCenters.mockReturnValue(centresState([centre({ name: 'Ponorka' })]));
+    const one = await show();
+    await press(one, 'Zobrazit potápěčská centra');
+    expect(textIn(one).join(' ')).toContain('Vaše jediné centrum zatím nemá polohu.');
+    await cleanup();
+
+    mockUseDiveCenters.mockReturnValue(
+      centresState([centre({ name: 'Ponorka' }), centre({ name: 'Kotelna' })]),
+    );
+    const two = await show();
+    await press(two, 'Zobrazit potápěčská centra');
+    expect(textIn(two).join(' ')).toContain('Žádné z vašich 2 center zatím nemá polohu.');
+    expect(textIn(two).join(' ')).not.toContain('2 centra zatím');
+  });
+
+  /** The summary line, whose coverage clause is the one M3g left for this task, read on the
+   * screen that draws it rather than only through the formatter. */
+  it('reads the coverage clause with the noun where Czech can take it', async () => {
+    mockUseDives.mockReturnValue(
+      divesState([pinned({ id: 'a' }), dive({ id: 'b' }), dive({ id: 'c' })]),
+    );
+    const t = await show();
+    expect(summaryLine(t)).toBe('1 ponor ze 3');
+  });
+
+  /** The title and the filter's own six labels, which are this screen's whole chrome. */
+  it('names itself and its three switches in Czech', async () => {
+    mockUseDives.mockReturnValue(divesState([pinned()]));
+    const t = await show();
+    expect(textIn(t)).toContain('Mapa');
+    expect(capsuleLabels(t)).toEqual([
+      'Skrýt vaše ponory',
+      'Zobrazit komunitní lokality',
+      'Zobrazit potápěčská centra',
+    ]);
+  });
+
+  /** The sheet a diver's own place opens, including the directory pill M3f put in it. */
+  it('opens a place’s sheet in Czech, with its way to the site’s page', async () => {
+    mockUseDives.mockReturnValue(divesState([pinned({ siteId: 'site-a', siteName: 'Vis', maxDepthM: 18.2 })]));
+    mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'site-a', name: 'Vis', country: 'HR' })]));
+    const t = await show();
+    await tapMark(t, 'Vis, 1 ponor');
+    expect(textIn(t)).toContain('1 ponor · nejhlubší 18,2 m');
+    expect(textIn(t)).toContain('Stránka lokality');
+    expect(textIn(t)).toContain('Zavřít');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    mockUseDives.mockReturnValue(divesState([pinned()]));
+    const t = await show();
+    expect(textIn(t)).toContain('Map');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Mapa');
+    expect(textIn(t)).not.toContain('Map');
+  });
 });

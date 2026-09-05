@@ -10,6 +10,7 @@ import { useDives } from '../db/useDives';
 import { logbookUnreadable } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
+import { t, useT } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset } from '../theme/styles';
@@ -53,6 +54,9 @@ export const CLOSE_SEARCH_GLYPH = { ios: 'xmark', android: 'close' } as const;
  * a header per trip and bury the rows that were asked for.
  */
 export default function SearchScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
@@ -66,7 +70,7 @@ export default function SearchScreen() {
   const matching = asked ? searchDives(dives, query) : [];
 
   const close: readonly CapsuleAction[] = [
-    { key: 'close-search', symbol: CLOSE_SEARCH_GLYPH, label: 'Close search', onPress: backToDives },
+    { key: 'close-search', symbol: CLOSE_SEARCH_GLYPH, label: t('search.close'), onPress: backToDives },
   ];
 
   // The three states a diver can be in here, kept visibly distinct for the same reason
@@ -79,10 +83,10 @@ export default function SearchScreen() {
       return <Text style={styles.messageText}>{logbookUnreadable()}</Text>;
     }
     if (!asked) {
-      return <Text style={styles.messageText}>Search your dives by site, centre, buddy or notes.</Text>;
+      return <Text style={styles.messageText}>{t('search.prompt')}</Text>;
     }
     if (matching.length === 0) {
-      return <Text style={styles.messageText}>No dives match your search.</Text>;
+      return <Text style={styles.messageText}>{t('dives.noMatches')}</Text>;
     }
     return null;
   };

@@ -4,7 +4,7 @@
 // every `jest.mock()` call is hoisted above every import regardless.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
 import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
@@ -14,6 +14,7 @@ import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
+import { setActiveLanguage } from '../i18n';
 import { unnamedCenter } from '../format/display';
 import { openWebsite } from '../platform/openWebsite';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -319,4 +320,57 @@ it('sets its heading in the treatment every other screen title uses', async () =
   const styles = makeStyles('light');
   const heading = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.centerHeading));
   expect(heading?.children).toEqual(['Ponorka']);
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  it('names its cluster, its rows and its way out in Czech', async () => {
+    mockUseDiveCenters.mockReturnValue(
+      catalogueState([centre({ country: 'CZ', website: 'https://ponorka.example' })]),
+    );
+    const said = textIn(await show());
+    expect(said).toContain('Centrum');
+    expect(said).toContain('Země');
+    expect(said).toContain('Web');
+    expect(said).toContain('‹ Centra');
+    expect(said).not.toContain('Website');
+  });
+
+  it('says a centre it cannot find is not there, in Czech', async () => {
+    mockUseDiveCenters.mockReturnValue(catalogueState([]));
+    expect(textIn(await show())).toContain('Centrum nenalezeno.');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    mockUseDiveCenters.mockReturnValue(catalogueState([centre({ country: 'CZ' })]));
+    const t = await show();
+    expect(textIn(t)).toContain('Country');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Země');
+    expect(textIn(t)).not.toContain('Country');
+  });
 });

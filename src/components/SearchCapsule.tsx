@@ -2,6 +2,7 @@ import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { SymbolView } from 'expo-symbols';
 import { TextInput, View } from 'react-native';
 
+import { t } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -57,10 +58,15 @@ export function SearchCapsule({
   value,
   onChangeText,
   autoFocus,
-  placeholder = 'Search dives',
+  placeholder,
 }: SearchCapsuleProps) {
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
+  // The default is read here rather than written as a parameter default, because a parameter
+  // default is still evaluated per render and this is the one that has to be: `dives.search` is
+  // the Dives capsule's own words, so the field a diver meets on that screen and the field on
+  // its own screen cannot say two things.
+  const prompt = placeholder ?? t('dives.search');
 
   // An SF Symbol, not a drawn/imported approximation (expo-symbols, DESIGN.md §0.6) — real
   // enough that SearchCapsule.test.tsx can pin the exact native module it resolves to.
@@ -82,14 +88,14 @@ export function SearchCapsule({
   const input = (
     <TextInput
       style={styles.searchCapsuleInput}
-      placeholder={placeholder}
+      placeholder={prompt}
       placeholderTextColor={theme.fgMuted}
       value={value}
       onChangeText={onChangeText}
       autoCapitalize="none"
       autoCorrect={false}
       autoFocus={autoFocus}
-      accessibilityLabel={placeholder}
+      accessibilityLabel={prompt}
     />
   );
 

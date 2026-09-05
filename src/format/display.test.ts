@@ -1662,6 +1662,39 @@ describe('in Czech', () => {
     expect(formatRmvWindow(1)).not.toBe(formatRmvWindow(3));
   });
 
+  /**
+   * **The Map summary's coverage clause — the composed count phrase M3g flagged and left here.**
+   *
+   * The defect was invisible in every sense that matters: English's *"1 of 2 sites"* is right,
+   * every test was green, and the Czech it produced — *1 z 2 lokality* — is a phrase a Czech
+   * reader trips over and no assertion asked about. `z` governs the genitive; `count.sites`'
+   * phrase is nominative. So the clause is rebuilt with the noun on the FIRST number, which is
+   * the nominative position it is already in, and the preposition left governing a bare numeral.
+   *
+   * Asserted at four counts because that is what makes it a test of the rule rather than of the
+   * key: one clause in Czech proves nothing about the noun's case, and the `few` row is where
+   * the `z`/`ze` alternation lives.
+   */
+  it('hangs the map’s coverage noun where Czech can take it, not after the preposition', () => {
+    const words = (line: string | null) => (line === null ? null : line.replaceAll(NON_BREAKING_SPACE, ' '));
+    expect(words(formatMapSummary({ onMap: 7, known: 24 }, null, null))).toBe('7 ponorů z 24');
+    expect(words(formatMapSummary(null, { onMap: 1, known: 2 }, null))).toBe('1 lokalita ze 2');
+    expect(words(formatMapSummary(null, null, { onMap: 2, known: 5 }))).toBe('2 centra z 5');
+    expect(words(formatMapSummary(null, { onMap: 3, known: 30 }, null))).toBe('3 lokality z 30');
+
+    // The defect itself, named: the old composition put the nominative phrase after `z`.
+    expect(words(formatMapSummary(null, { onMap: 1, known: 2 }, null))).not.toContain('z 2 lokality');
+  });
+
+  /** The collapsed case is untouched by any of it — when everything is drawn there is no
+   * comparison to make, so the clause is `formatSiteCount`'s own phrase and nothing else. */
+  it('drops the coverage half in Czech too, when everything is on the map', () => {
+    const words = (line: string | null) => (line === null ? null : line.replaceAll(NON_BREAKING_SPACE, ' '));
+    expect(words(formatMapSummary({ onMap: 24, known: 24 }, { onMap: 2, known: 2 }, null))).toBe(
+      '24 ponorů · 2 lokality',
+    );
+  });
+
   it('leaves a unit symbol alone — those are the same marks in both languages', () => {
     expect(formatDuration(72)).toBe('72 min');
     expect(formatVolume(11.1)).toBe('11,1 l');

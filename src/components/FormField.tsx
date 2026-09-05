@@ -2,9 +2,10 @@ import { forwardRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-import { CarriedMark, CLEARED_ANNOUNCEMENT, CLEARED_TAG } from './CarriedMark';
+import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
 
 export interface FormFieldProps {
@@ -387,9 +388,9 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // the value would be — a row the diver emptied on purpose has to read differently from one
   // carry-over never filled, which is the entire point of the state and the thing this form
   // knew and never showed.
-  const clearedTag = showCleared ? (
-    <Text style={styles.formFieldCleared} accessibilityLabel={CLEARED_ANNOUNCEMENT}>
-      {CLEARED_TAG}
+  const clearedNode = showCleared ? (
+    <Text style={styles.formFieldCleared} accessibilityLabel={clearedAnnouncement()}>
+      {clearedTag()}
     </Text>
   ) : null;
 
@@ -404,7 +405,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
                 an empty field is already showing this same word as its placeholder, and both
                 at once would read as "m m". */}
             {unit !== undefined && value !== '' && <Text style={styles.formFieldUnit}>{unit}</Text>}
-            {clearedTag}
+            {clearedNode}
           </View>
         ) : (
           // **A stacked row keeps the tag, and that is a correction rather than symmetry for
@@ -415,7 +416,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           // row the same `carryOver` prop, so "unreachable" there is one line of
           // `CARRIED_FIELDS` away from being wrong, and a row given part of the treatment must
           // not fail quietly.
-          clearedTag !== null && <View style={styles.formFieldValue}>{clearedTag}</View>
+          clearedNode !== null && <View style={styles.formFieldValue}>{clearedNode}</View>
         )}
         {/* §0.6's carried treatment, as one object at the row's trailing edge: the return mark
             and the 20 pt ring in its 48 dp box.
@@ -433,7 +434,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           <View style={styles.formFieldCarryState}>
             <CarriedMark scheme={scheme} />
             <ClearFieldControl
-              accessibilityLabel={`Clear carried ${label}`}
+              accessibilityLabel={t('field.clearCarried', { label })}
               onPress={() => onClear?.('')}
               scheme={scheme}
             />
@@ -470,7 +471,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               // Names the field as well as the value: the form has four autocompleting
               // fields, and "Blue Hole, button" on its own says nothing about where a pick
               // would land.
-              accessibilityLabel={`Fill ${label} with ${suggestion.value}`}
+              accessibilityLabel={t('field.fillWith', { label, value: suggestion.value })}
             >
               <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
             </Pressable>

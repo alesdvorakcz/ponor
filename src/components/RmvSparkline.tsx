@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 
 import { formatRmv } from '../format/display';
+import { t } from '../i18n';
 import { makeStyles, RMV_SPARK_STEPS } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -63,7 +64,7 @@ function seriesLabel(values: readonly number[]): string {
     .map((value) => formatRmv(value))
     .filter((text): text is string => text !== null)
     .join(', ');
-  return `Each dive, oldest to newest: ${spoken}`;
+  return t('stats.rmvSeries', { values: spoken });
 }
 
 export interface RmvSparklineProps {

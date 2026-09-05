@@ -8,6 +8,7 @@ import { authenticate, endSession, type AuthMode, type CredentialField } from '.
 import { localLogbook } from '../cloud/localLogbook';
 import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { t, useT, type TranslationKey } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
@@ -30,14 +31,15 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  * never gates anything, and the sentence is what says so on the screen itself rather than only
  * in the navigation.
  */
-const WHAT_AN_ACCOUNT_IS_FOR =
-  'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.';
+function whatAnAccountIsFor(): string {
+  return t('account.whatItIsFor');
+}
 
 /** The two things a diver does here, as the action's own label. The mode is one value and
  * these are two views of it (`SWITCH_TO`, below, is the third). */
-const ACTION_LABEL: Record<AuthMode, string> = {
-  signIn: 'Sign in',
-  signUp: 'Create account',
+const ACTION_LABEL: Record<AuthMode, TranslationKey> = {
+  signIn: 'account.signIn',
+  signUp: 'account.createAccount',
 };
 
 /**
@@ -68,9 +70,9 @@ const ACTION_LABEL: Record<AuthMode, string> = {
  * §5's one screen to one action, which is what stops a diver having to read a control before
  * they can read the button.
  */
-const SWITCH_TO: Record<AuthMode, string> = {
-  signIn: 'Create an account',
-  signUp: 'I already have an account',
+const SWITCH_TO: Record<AuthMode, TranslationKey> = {
+  signIn: 'account.switchToSignUp',
+  signUp: 'account.switchToSignIn',
 };
 
 /** The other mode. One function so the control, the label and the state cannot disagree. */
@@ -98,9 +100,10 @@ function otherMode(mode: AuthMode): AuthMode {
  */
 export function adoptionSentence(count: number): string | null {
   if (count <= 0) return null;
-  return count === 1
-    ? '1 dive from this phone was added to your logbook.'
-    : `${count} dives from this phone were added to your logbook.`;
+  // i18next picks the form, so nothing here compares a count with 1: English moves its verb
+  // (*was* / *were*) and Czech moves the participle with the noun as well (*byl přidán* ·
+  // *byly přidány* · *bylo přidáno*), which is four branches rather than two.
+  return t('account.adopted', { count });
 }
 
 /**
@@ -115,12 +118,15 @@ export function adoptionSentence(count: number): string | null {
  * believing their logbook was gone. And the reassurance is the *second* half, after the loss,
  * because a diver who reads only the first sentence must not be reassured out of noticing it.
  *
- * Held as constants rather than inline for `DELETE_TITLE`/`DELETE_BODY`'s own reason
+ * Held as functions rather than inline for `deleteTitle`/`deleteBody`'s own reason
  * (GearPresetScreen.tsx): a test asserts on the same strings the diver reads.
  */
-export const SIGN_OUT_TITLE = 'Sign out?';
-export const SIGN_OUT_BODY =
-  'Your logbook will be removed from this device. It stays in your account, and signing back in brings it back.';
+export function signOutTitle(): string {
+  return t('account.signOutTitle');
+}
+export function signOutBody(): string {
+  return t('account.signOutBody');
+}
 
 /**
  * What stands where the form would be when this build has no backend at all.
@@ -141,9 +147,9 @@ export const SIGN_OUT_BODY =
 function noBackendMessage(): string {
   if (cloud.configured) return '';
   if (cloud.cause !== undefined) {
-    return `This build’s Supabase settings were refused: ${cloud.cause.message}`;
+    return t('account.noBackendRefused', { cause: cloud.cause.message });
   }
-  return `This build has no backend, so there is nothing to sign in to. Missing: ${cloud.missing.join(' and ')}.`;
+  return t('account.noBackendMissing', { missing: cloud.missing.join(' and ') });
 }
 
 /**
@@ -192,6 +198,9 @@ function noBackendMessage(): string {
  * deletion and it is a later task).
  */
 export default function AccountScreen() {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   // The device's own top clearance, from the app's one owner of that rule (`screenTopInset`,
@@ -224,7 +233,7 @@ export default function AccountScreen() {
    * putting the screen on a phone and reading it. Anything that came back from the **server**
    * carries no row, deliberately: Supabase answers a wrong password and an unknown address
    * with one `invalid_credentials` so that nobody can test whether an address has an account
-   * (`CREDENTIALS_REJECTED`, cloud/auth.ts), and pinning that to one field would be this app
+   * (`credentialsRejected`, cloud/auth.ts), and pinning that to one field would be this app
    * inventing the answer the server withheld. Those land under the password row, which is the
    * last row of the pair they are about.
    */
@@ -255,7 +264,7 @@ export default function AccountScreen() {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <BackControl styles={styles} />
-        <Text style={styles.accountHeading}>Account</Text>
+        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
         <View style={styles.accountCaption}>
           <Text style={styles.accountCaptionText}>{noBackendMessage()}</Text>
         </View>
@@ -322,10 +331,10 @@ export default function AccountScreen() {
   // this app does not draw, and `platform/confirmDestructive.ts` owns which one.
   const confirmSignOut = () => {
     confirmDestructive({
-      title: SIGN_OUT_TITLE,
-      body: SIGN_OUT_BODY,
-      confirmLabel: 'Sign out',
-      cancelLabel: 'Cancel',
+      title: signOutTitle(),
+      body: signOutBody(),
+      confirmLabel: t('account.signOut'),
+      cancelLabel: t('common.cancel'),
       onConfirm: () => void runSignOut(),
     });
   };
@@ -338,7 +347,7 @@ export default function AccountScreen() {
             `GearPresetScreen` both apply to their own not-found branches — a screen must not
             say "you are not signed in" before anything has looked. The heading stays put
             through all of it, so this is a screen filling in rather than one appearing. */}
-        <Text style={styles.accountHeading}>Account</Text>
+        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
       </View>
     );
   }
@@ -359,12 +368,12 @@ export default function AccountScreen() {
           contentContainerStyle={styles.settingsContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.accountHeading}>Account</Text>
+          <Text style={styles.accountHeading}>{t('account.heading')}</Text>
 
           {address !== null && (
             <View style={styles.formField}>
               <View style={styles.formFieldRow}>
-                <Text style={styles.formFieldLabel}>Signed in as</Text>
+                <Text style={styles.formFieldLabel}>{t('account.signedInAs')}</Text>
                 <Text style={styles.accountEmail}>{address}</Text>
               </View>
             </View>
@@ -399,10 +408,10 @@ export default function AccountScreen() {
             onPress={confirmSignOut}
             disabled={busy}
             accessibilityRole="button"
-            accessibilityLabel="Sign out"
+            accessibilityLabel={t('account.signOut')}
             accessibilityState={{ disabled: busy }}
           >
-            <Text style={styles.accountSecondaryActionLabel}>Sign out</Text>
+            <Text style={styles.accountSecondaryActionLabel}>{t('account.signOut')}</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -420,7 +429,7 @@ export default function AccountScreen() {
         >
           {/* The one state where the heading changes, and it changes because the diver has
               just acted and there is exactly one thing left for them to do. */}
-          <Text style={styles.accountHeading}>Check your email</Text>
+          <Text style={styles.accountHeading}>{t('account.checkEmail')}</Text>
 
           {/* **The address, shown back.** A typo at registration is the failure confirmation
               exists to catch, and it is caught only if the diver can see what was typed. It is
@@ -428,23 +437,18 @@ export default function AccountScreen() {
               those differ by the trim `authenticate` performs. */}
           <View style={styles.formField}>
             <View style={styles.formFieldRow}>
-              <Text style={styles.formFieldLabel}>Sent to</Text>
+              <Text style={styles.formFieldLabel}>{t('account.sentTo')}</Text>
               <Text style={styles.accountEmail}>{confirmationSentTo}</Text>
             </View>
           </View>
 
           <View style={styles.accountCaption}>
-            <Text style={styles.accountCaptionText}>
-              Open the link in that email, then sign in here.
-            </Text>
+            <Text style={styles.accountCaptionText}>{t('account.openTheLink')}</Text>
             {/* The two ways no mail arrives, said without asserting either. The app cannot
                 tell them apart: with confirmation on, Supabase answers a sign-up against an
                 address that already has an account exactly as it answers a new one, on
                 purpose, so that nobody can test whether a given address is registered. */}
-            <Text style={styles.accountCaptionText}>
-              Nothing arrives? The address may be wrong, or it may already have an account —
-              try signing in.
-            </Text>
+            <Text style={styles.accountCaptionText}>{t('account.nothingArrives')}</Text>
           </View>
 
           <Pressable
@@ -455,9 +459,9 @@ export default function AccountScreen() {
               setNote(null);
             }}
             accessibilityRole="button"
-            accessibilityLabel="Back to sign in"
+            accessibilityLabel={t('account.backToSignIn')}
           >
-            <Text style={styles.accountSecondaryActionLabel}>Back to sign in</Text>
+            <Text style={styles.accountSecondaryActionLabel}>{t('account.backToSignIn')}</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -478,15 +482,15 @@ export default function AccountScreen() {
         contentContainerStyle={styles.settingsContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.accountHeading}>Account</Text>
+        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
 
         <View style={styles.accountCaption}>
-          <Text style={styles.accountCaptionText}>{WHAT_AN_ACCOUNT_IS_FOR}</Text>
+          <Text style={styles.accountCaptionText}>{whatAnAccountIsFor()}</Text>
         </View>
 
         <View>
           <FormField
-            label="Email"
+            label={t('account.email')}
             value={email}
             onChange={(text) => {
               // Typing clears the note: it described the pair that was in the boxes, and a
@@ -501,12 +505,12 @@ export default function AccountScreen() {
             // see it happen. §0.6 keeps names in sans, and an address is a name.
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="you@example.com"
+            placeholder={t('account.emailPlaceholder')}
           />
           {/* Only ever the refusal this app made about THIS row — see `note` above. */}
           <FieldNote message={noteFor('email')} scheme={scheme} />
           <FormField
-            label="Password"
+            label={t('account.password')}
             value={password}
             onChange={(text) => {
               setNote(null);
@@ -545,10 +549,10 @@ export default function AccountScreen() {
           // about rather than a control that does nothing.
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel={ACTION_LABEL[mode]}
+          accessibilityLabel={t(ACTION_LABEL[mode])}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.actionLabel}>{ACTION_LABEL[mode]}</Text>
+          <Text style={styles.actionLabel}>{t(ACTION_LABEL[mode])}</Text>
         </Pressable>
 
         <Pressable
@@ -562,10 +566,10 @@ export default function AccountScreen() {
           }}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel={SWITCH_TO[mode]}
+          accessibilityLabel={t(SWITCH_TO[mode])}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.accountSecondaryActionLabel}>{SWITCH_TO[mode]}</Text>
+          <Text style={styles.accountSecondaryActionLabel}>{t(SWITCH_TO[mode])}</Text>
         </Pressable>
       </View>
     </View>
@@ -596,9 +600,9 @@ function BackControl({ styles }: { styles: Styles }) {
       // Says what leaving does, and deliberately free of the words that name this screen's own
       // controls, so it can never be mistaken — by a screen reader or by a test query — for
       // *Sign in* or *Sign out*.
-      accessibilityLabel="Back to Settings"
+      accessibilityLabel={t('back.settingsLabel')}
     >
-      <Text style={styles.formBackLabel}>‹ Settings</Text>
+      <Text style={styles.formBackLabel}>{t('back.settings')}</Text>
     </Pressable>
   );
 }

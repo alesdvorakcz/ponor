@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -69,7 +70,7 @@ export function FormGroup({ title, scheme, children, expanded, onToggle }: FormG
         style={styles.formGroupHeader}
         onPress={() => onToggle(!expanded)}
         accessibilityRole="button"
-        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} ${title}`}
+        accessibilityLabel={expanded ? t('field.collapse', { title }) : t('field.expand', { title })}
         accessibilityState={{ expanded }}
       >
         <Text style={styles.formGroupTitle}>{title}</Text>

@@ -9,7 +9,7 @@
 // hoisted above every import regardless of where it sits textually.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -55,6 +55,7 @@ import {
   type GearPreset,
   type Tank,
 } from '../domain/types';
+import { setActiveLanguage, t as translated } from '../i18n';
 import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, POSITION_REFUSALS } from '../platform/location';
 import { themeFor } from '../theme/resolve';
@@ -592,7 +593,7 @@ it('moved the five measurements into their groups rather than repeating them', a
   // rather than listed here, as every other "open them all" sweep in this file is: what this
   // test is about is the five labels below, and a group added to the form has to be opened by
   // it or a measurement could hide in the one group nobody listed.
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
   for (const label of ['Max depth', 'Duration', 'Time in', 'Start pressure', 'End pressure']) {
     expect(textIn(t).filter((s) => s === label)).toHaveLength(1);
   }
@@ -767,7 +768,7 @@ it('draws its groups in the order the layout declares, under the titles it decla
     .map((n) => String(n.props?.accessibilityLabel ?? ''))
     .filter((label) => label.startsWith('Expand ') || label.startsWith('Collapse '))
     .map((label) => label.replace(/^(Expand|Collapse) /, ''));
-  expect(headers).toEqual(FORM_GROUP_IDS.map((id) => FORM_GROUPS[id].title));
+  expect(headers).toEqual(FORM_GROUP_IDS.map((id) => translated(FORM_GROUPS[id].titleKey)));
 });
 
 /**
@@ -886,7 +887,7 @@ it.each(FORM_GROUP_IDS)(
     stubReturningDiver();
     stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
     const t = await render(<DiveFormScreen mode="create" />);
-    await openGroup(t, FORM_GROUPS[id].title);
+    await openGroup(t, translated(FORM_GROUPS[id].titleKey));
 
     const onScreen = new Set(textIn(t));
     const shown = Object.entries(FIELD_LABELS)
@@ -929,7 +930,7 @@ it('has a §2.2 section for every group the layout holds, naming the same fields
   // is invisible to every other assertion in this file — both sides agree, and the form is
   // simply not the one §2.2 describes.
   expect(SECTION_ORDER.map(([title, fields]) => [title, [...fields]])).toEqual(
-    FORM_GROUP_IDS.map((id) => [FORM_GROUPS[id].title, [...FORM_GROUPS[id].fields]]),
+    FORM_GROUP_IDS.map((id) => [translated(FORM_GROUPS[id].titleKey), [...FORM_GROUPS[id].fields]]),
   );
 });
 
@@ -945,7 +946,7 @@ it('has a §2.2 section for every group the layout holds, naming the same fields
 
 it('draws no Latitude or Longitude row with every group open', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
   const shown = new Set(textIn(t));
   expect(shown.has('Latitude')).toBe(false);
   expect(shown.has('Longitude')).toBe(false);
@@ -959,7 +960,7 @@ it('offers no keyboard for a coordinate anywhere on the form', async () => {
   // existence. Every `TextInput` on the form is swept rather than three labels being checked,
   // so a keypad wired to `latitude` under any label at all fails here.
   const t = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
   for (const label of ['Latitude', 'Longitude', 'GPS']) {
     expect(findTextInput(t, label)).toBeUndefined();
   }
@@ -1487,7 +1488,7 @@ it.each(GROUP_VALUES)('opens %s over a dive that has a value in it, and leaves t
   stubOpenGroups(COLLAPSE_DEFAULT_OPEN);
   stubLogbookFor(dive({ id: 'target', ...recorded }));
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  expect(expandedGroups(t)).toEqual([FORM_GROUPS[id].title]);
+  expect(expandedGroups(t)).toEqual([translated(FORM_GROUPS[id].titleKey)]);
 });
 
 it('opens the group carry-over filled, which is the case §2.2 says makes this matter', async () => {
@@ -1854,7 +1855,7 @@ it('draws nothing outside its own makeStyles treatment, collapsed or expanded', 
   // whatever that group happens to contain, which is the same hole the field sweep further
   // down was rewritten for.
   for (const id of FORM_GROUP_IDS) {
-    await openGroup(t, FORM_GROUPS[id].title);
+    await openGroup(t, translated(FORM_GROUPS[id].titleKey));
     expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
   }
 
@@ -1865,7 +1866,7 @@ it('draws nothing outside its own makeStyles treatment, collapsed or expanded', 
   // a sweep that never seeds carry-over is a sweep of the half of the form that has none.
   stubDives({ dives: [FULLY_CARRIED()] });
   const carried = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(carried, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(carried, translated(FORM_GROUPS[id].titleKey));
   await openCylinder(carried);
   expect(unexpectedGraphics(carried, 'light')).toHaveLength(0);
 
@@ -2937,7 +2938,7 @@ it.each(Object.entries(CARRIED_ROWS))(
   'offers the carried treatment on %s, and only when that field carried something',
   async (_field, { label, group, cylinder }) => {
     const reveal = async (t: RenderResult) => {
-      if (group !== undefined) await openGroup(t, FORM_GROUPS[group].title);
+      if (group !== undefined) await openGroup(t, translated(FORM_GROUPS[group].titleKey));
       if (cylinder === true) await openCylinder(t);
     };
 
@@ -2979,7 +2980,7 @@ it.each(Object.entries(CARRIED_ROWS))(
 it('gives every carried row both halves of the treatment, and nothing a fresh row', async () => {
   stubDives({ dives: [FULLY_CARRIED()] });
   const t = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
   await openCylinder(t);
 
   const styles = makeStyles('light');
@@ -2995,7 +2996,7 @@ it('gives every carried row both halves of the treatment, and nothing a fresh ro
   // everywhere" cannot be satisfied by drawing them unconditionally.
   stubDives({ dives: [dive({ date: '2026-08-10' })] });
   const fresh = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(fresh, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(fresh, translated(FORM_GROUPS[id].titleKey));
   expect(fresh.root ? fresh.root.queryAll((n) => wears(n, styles.formFieldCarryState)) : []).toHaveLength(0);
 });
 
@@ -3634,7 +3635,7 @@ it.each(CHIP_MARKS)('draws the marks §0.6 gives %s, and no others', async (labe
 // controls. Derived from what actually announces itself on screen, with every group open.
 it('has a marks row for every option control on the form, and none for a control that is not there', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  for (const id of FORM_GROUP_IDS) await openGroup(t, FORM_GROUPS[id].title);
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
 
   // **What makes a control one of these is that it can be *chosen*** — `accessibilityState
   // .selected` — not that its label happens to contain a colon. `Date`, `Time in` and
@@ -4866,7 +4867,7 @@ it('seeds the form from a dive that only arrives after the first render', async 
  * So edit mode holds the frame — §0.6's way out and the heading, the two things that are true
  * before anything is read — and draws the fields only once there is an answer. What that
  * answer turns out to be is untouched: a dive that really is gone still gets today's blank
- * form and `MISSING_DIVE_MESSAGE` on save (the test above), because a save against a missing
+ * form and `missingDiveMessage` on save (the test above), because a save against a missing
  * dive refusing is the direction that must never loosen.
  */
 describe('before the dives read has answered', () => {
@@ -7727,3 +7728,165 @@ it('keeps a site-filled row unmarked when the form reseeds under it', async () =
   expect(findClearCarried(t, 'Entry')).toBeDefined();
   expect(findClearCarried(t, 'Water body')).toBeDefined();
 });
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h) — and the other half of §4.1's discharged exception
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted before the language goes back: `useT` subscribes this screen to i18next's
+    // `languageChanged`, so switching while it is mounted is a state update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **The seven group headers, which are §2.2's own list**, and the core strip's three rows.
+   * Asserted as words rather than through `FORM_GROUPS`' keys, because a test comparing a key
+   * with itself would stay green over a header that spelled its own title.
+   */
+  it('heads its groups and its core strip in Czech', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(textIn(t)).toContain('Nový ponor');
+    expect(textIn(t)).toContain('Datum');
+    expect(textIn(t)).toContain('Lokalita');
+    expect(textIn(t)).toContain('Centrum');
+    expect(textIn(t)).toContain('Časy a hloubka');
+    expect(textIn(t)).toContain('Plyn a láhve');
+    expect(textIn(t)).toContain('Podmínky');
+    expect(textIn(t)).toContain('Voda a vstup');
+    expect(textIn(t)).toContain('Vybavení');
+    expect(textIn(t)).toContain('Lidé');
+    expect(textIn(t)).toContain('Poznámky a hodnocení');
+    expect(textIn(t)).not.toContain('Times & depth');
+  });
+
+  /**
+   * **§4.1's exception, discharged, and this is the assertion that says so.** Those ~25 labels
+   * were duplicated literals on this screen and on the dive detail; they now come from one
+   * `field.*` key each. The proof is that the FORM draws the same Czech words the DETAIL's own
+   * Czech test asserts — a literal retyped on either screen would leave English standing here.
+   */
+  it('labels every field with the word the dive detail reads it back under', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'Časy a hloubka');
+    await openGroup(t, 'Podmínky');
+    await openGroup(t, 'Voda a vstup');
+    await openGroup(t, 'Vybavení');
+    await openGroup(t, 'Lidé');
+    const said = textIn(t);
+
+    expect(said).toContain('Max. hloubka');
+    expect(said).toContain('Prům. hloubka');
+    expect(said).toContain('Doba ponoru');
+    expect(said).toContain('Čas vstupu');
+    expect(said).toContain('Počasí');
+    expect(said).toContain('Teplota vody');
+    expect(said).toContain('Teplota vzduchu');
+    expect(said).toContain('Viditelnost');
+    expect(said).toContain('Dohlednost');
+    expect(said).toContain('Vlny');
+    expect(said).toContain('Proud');
+    expect(said).toContain('Vlnobití');
+    expect(said).toContain('Vstup');
+    expect(said).toContain('Slanost');
+    expect(said).toContain('Vodní plocha');
+    expect(said).toContain('GPS');
+    expect(said).toContain('Oblek');
+    expect(said).toContain('Tloušťka obleku');
+    expect(said).toContain('Zátěž');
+    expect(said).toContain('Vyvážení');
+    expect(said).toContain('Buddy');
+    expect(said).toContain('Průvodce');
+    expect(said).not.toContain('Max depth');
+    expect(said).not.toContain('Water temp');
+  });
+
+  /** The cylinder block, whose four spec rows the preset editor reads under the same keys. */
+  it('labels the cylinder rows in Czech', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'Plyn a láhve');
+    await openCylinderIn(t, 'Láhev');
+    const said = textIn(t);
+    expect(said).toContain('Láhev');
+    expect(said).toContain('Materiál');
+    expect(said).toContain('Objem');
+    expect(said).toContain('Konfigurace');
+    expect(said).toContain('Provozní tlak');
+    expect(said).toContain('Počáteční tlak');
+    expect(said).toContain('Konečný tlak');
+    expect(said).toContain('Nevyplněno');
+  });
+
+  /**
+   * **The heading and the save control move together with §2.4's switch**, and the two words
+   * on the switch itself are the STORED value's — `formatDiveStatus`, §4.1's owner — rather
+   * than this screen's, which is what stops *Plánovaný* meaning one thing here and another on
+   * the dive detail's Status row.
+   */
+  it('says what it is and what saving will do, on both sides of the status switch', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(textIn(t)).toContain('Nový ponor');
+    expect(textIn(t)).toContain('Uložit ponor');
+    expect(textIn(t)).toContain('Zaznamenaný');
+
+    const control = (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'switch') : []).find(
+      (n) => String(n.props?.accessibilityLabel ?? '') === 'Plánovaný ponor',
+    );
+    expect(control).toBeDefined();
+    await fireEvent.press(control!);
+    expect(textIn(t)).toContain('Nový plán');
+    expect(textIn(t)).toContain('Uložit plán');
+    expect(textIn(t)).toContain('Plánovaný');
+  });
+
+  /** §0.6's carried caption, whose fallback has to be genitive because *z* governs it. */
+  it('names where a carried value came from, in the case the preposition governs', async () => {
+    stubDives({
+      dives: [dive({ id: 'last', status: 'logged', siteName: 'Vis', suit: 'wet' })],
+      numbers: new Map([['last', 1]]),
+    });
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(textIn(t).join(' ')).toContain('Převzato z #1 — cokoli z toho můžete vymazat');
+  });
+
+  /** The way out, which three editors share (`back.cancel`). */
+  it('offers the same way out the preset and certification editors offer', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(textIn(t)).toContain('‹ Zrušit');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    const t = await render(<DiveFormScreen mode="create" />);
+    expect(textIn(t)).toContain('New dive');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Nový ponor');
+    expect(textIn(t)).not.toContain('New dive');
+  });
+});
+
+/** `openCylinder`'s Czech-aware twin: the row is found by its own label, which is now a word
+ * rather than a constant. */
+async function openCylinderIn(t: RenderResult, label: string) {
+  const row = findPickerField(t, label);
+  if (!row) throw new Error(`no ${label} row found`);
+  if (row.props?.accessibilityState?.expanded === true) return;
+  await fireEvent.press(row);
+}

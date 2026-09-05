@@ -5,7 +5,7 @@
 // `screenTopInset(insets.top)` like every other, and the real hook throws without a Provider.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, render, type RenderResult } from '@testing-library/react-native';
 
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
@@ -16,16 +16,17 @@ import { assignDiveNumbers } from '../domain/diveNumber';
 import { logbookStats } from '../domain/logbookStats';
 import { type Dive, type DiveSite, type Tank } from '../domain/types';
 import { formatLogbookSummary } from '../format/display';
+import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthScale } from '../theme/tokens';
 import { makeStyles, RMV_SPARK_STEPS, screenBottomInset } from '../theme/styles';
 import { logbookUnreadable } from '../domain/logbook';
 import StatsScreen, {
-  COUNTRIES_UNKNOWN_NOTE,
-  NOTHING_LOGGED_MESSAGE,
+  countriesUnknownNote,
+  nothingLoggedMessage,
   NO_FIGURE,
-  ONLY_PLANNED_MESSAGE,
-  REFRESHER_MESSAGE,
+  onlyPlannedMessage,
+  refresherMessage,
 } from './StatsScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -239,7 +240,7 @@ it('reports a failed logbook read rather than a screen of noughts', async () => 
   expect(textIn(t).join(' ')).toContain(logbookUnreadable());
   // Not the empty-logbook sentence, and no figures either: a read that failed knows nothing
   // about how many dives there are, and "0 dives" over a broken read is the plausible lie.
-  expect(textIn(t)).not.toContain(NOTHING_LOGGED_MESSAGE);
+  expect(textIn(t)).not.toContain(nothingLoggedMessage());
   expect(counters(t)).toEqual({});
 });
 
@@ -251,8 +252,8 @@ it('states nothing at all until the read has answered', async () => {
   mockUseDives.mockReturnValue(divesState([], { resolved: false }));
   const t = await show();
   expect(counters(t)).toEqual({});
-  expect(textIn(t)).not.toContain(NOTHING_LOGGED_MESSAGE);
-  expect(textIn(t)).not.toContain(ONLY_PLANNED_MESSAGE);
+  expect(textIn(t)).not.toContain(nothingLoggedMessage());
+  expect(textIn(t)).not.toContain(onlyPlannedMessage());
   expect(textIn(t).join(' ')).not.toContain('Couldn’t open');
 });
 
@@ -261,8 +262,8 @@ it('states nothing at all until the read has answered', async () => {
 it('tells a first-run diver what would fill this screen', async () => {
   mockUseDives.mockReturnValue(divesState([]));
   const t = await show();
-  expect(textIn(t)).toContain(NOTHING_LOGGED_MESSAGE);
-  expect(textIn(t)).not.toContain(ONLY_PLANNED_MESSAGE);
+  expect(textIn(t)).toContain(nothingLoggedMessage());
+  expect(textIn(t)).not.toContain(onlyPlannedMessage());
   expect(counters(t)).toEqual({});
 });
 
@@ -275,8 +276,8 @@ it('tells a diver whose logbook holds only plans that a plan is not a dive yet',
     divesState([dive({ status: 'planned', date: daysAgo(-2), siteName: 'Vis', maxDepthM: 30 })]),
   );
   const t = await show();
-  expect(textIn(t)).toContain(ONLY_PLANNED_MESSAGE);
-  expect(textIn(t)).not.toContain(NOTHING_LOGGED_MESSAGE);
+  expect(textIn(t)).toContain(onlyPlannedMessage());
+  expect(textIn(t)).not.toContain(nothingLoggedMessage());
   expect(counters(t)).toEqual({});
 });
 
@@ -307,7 +308,7 @@ it('keeps every row and marks the empty figures, for a logbook that recorded alm
     Trend: NO_FIGURE,
     'Last dive': 'Today',
   });
-  expect(textIn(t)).toContain(COUNTRIES_UNKNOWN_NOTE);
+  expect(textIn(t)).toContain(countriesUnknownNote());
 });
 
 // --- The figures themselves ---
@@ -389,7 +390,7 @@ it('counts countries once the catalogue knows them, and drops the note that expl
   );
   const t = await show();
   expect(counters(t).Countries).toBe('2');
-  expect(textIn(t)).not.toContain(COUNTRIES_UNKNOWN_NOTE);
+  expect(textIn(t)).not.toContain(countriesUnknownNote());
 });
 
 // §2.3: the country is derived from the site's own pin and from nothing else, so a site created
@@ -400,7 +401,7 @@ it('learns no country from a site that does not know its own', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'site-hr', country: null })]));
   const t = await show();
   expect(counters(t).Countries).toBe(NO_FIGURE);
-  expect(textIn(t)).toContain(COUNTRIES_UNKNOWN_NOTE);
+  expect(textIn(t)).toContain(countriesUnknownNote());
 });
 
 // §3's "RMV trend", as §3's own "counters first": the recent mean, the direction it moved, and
@@ -513,7 +514,7 @@ it.each([
   mockUseDives.mockReturnValue(divesState([dive({ date: daysAgo(days) })]));
   const t = await show();
   expect(counters(t)['Last dive']).toBe(`${days} days ago`);
-  expect(textIn(t).includes(REFRESHER_MESSAGE)).toBe(nudged);
+  expect(textIn(t).includes(refresherMessage())).toBe(nudged);
 });
 
 // --- §0.1's sweep, on a screen whose figures include a real depth ---
@@ -566,4 +567,82 @@ it('keeps its last counter clear of the tab bar', async () => {
   // was asked rather than a number typed — `screenBottomInset` floors it at the app's own
   // minimum, which is what makes this comparison worth anything.
   expect(content).toContainEqual({ paddingBottom: screenBottomInset(0) });
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h)
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /** §3's fixed inventory — four group headings and eight counter labels — plus the figures
+   * beside them, which have spoken Czech since M3g and used to sit under English labels. */
+  it('names every group and every counter in Czech, beside the figures it already spoke', async () => {
+    mockUseDives.mockReturnValue(divesState([gasDive(18.4)]));
+    const t = await show();
+    const said = textIn(t);
+    expect(said).toContain('Statistiky');
+    expect(said).toContain('Deník');
+    expect(said).toContain('Ponory');
+    expect(said).toContain('Pod vodou');
+    expect(said).toContain('Nejhlubší');
+    expect(said).toContain('Místa');
+    expect(said).toContain('Lokality');
+    expect(said).toContain('Země');
+    expect(said).toContain('Plyn');
+    expect(said).toContain('RMV');
+    expect(said).toContain('Trend');
+    expect(said).toContain('Aktuálnost');
+    expect(said).toContain('Poslední ponor');
+    expect(said).not.toContain('Logbook');
+    expect(said).not.toContain('Deepest');
+  });
+
+  /** The three sentences this screen says when it has nothing, or nothing but a reason. */
+  it('says what it cannot count, in Czech', async () => {
+    mockUseDives.mockReturnValue(divesState([]));
+    const empty = await show();
+    expect(textIn(empty).join(' ')).toContain('Zatím není co počítat.');
+    await cleanup();
+
+    mockUseDives.mockReturnValue(divesState([dive({ id: 'p', status: 'planned' })]));
+    const planned = await show();
+    expect(textIn(planned).join(' ')).toContain('Plánovaný ponor není ponor, který jste odpotápěli');
+  });
+
+  /** The countries note, which is the one sentence on this screen explaining a structural dash. */
+  it('explains the missing countries in Czech', async () => {
+    mockUseDives.mockReturnValue(divesState([gasDive(18.4)]));
+    const t = await show();
+    expect(textIn(t).join(' ')).toContain('Země pocházejí z lokalit na mapě.');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    mockUseDives.mockReturnValue(divesState([gasDive(18.4)]));
+    const t = await show();
+    expect(textIn(t)).toContain('Stats');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Statistiky');
+    expect(textIn(t)).not.toContain('Stats');
+  });
 });

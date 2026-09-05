@@ -9,7 +9,7 @@
 // restate here.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 
@@ -25,6 +25,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
+import { setActiveLanguage } from '../i18n';
 import { depthColor } from '../theme/depth';
 import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
@@ -1738,4 +1739,165 @@ it('makes the two paired rows destinations and no others', async () => {
   expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/s1');
   await fireEvent.press(opens[1]!);
   expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/c-p');
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3h) — §4.1's "one deliberate exception, until i18next", discharged
+// ---------------------------------------------------------------------------------------
+//
+// Until this milestone `format/display.ts` spoke Czech and this screen did not, so a Czech
+// diver read *Vstup: Břeh* — a Czech value under an English label. What closes it is that the
+// labels are keys (`field.*`, src/i18n) shared with the dive form, so the word a diver types
+// into and the word they read back cannot be two words.
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted before the language goes back: `useT` subscribes this screen to i18next's
+    // `languageChanged`, so switching while it is mounted is a state update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **Every cluster heading and every row label a full dive draws**, asserted as words rather
+   * than as "the key resolved": a label left as a literal on this screen would still render,
+   * would still be a perfectly good English word, and would fail nothing at all in English.
+   */
+  it('labels its rows and clusters in Czech, values and all', async () => {
+    const said = await renderDetail(
+      dive({
+        date: '2026-08-16',
+        timeIn: '09:30',
+        durationMin: 47,
+        maxDepthM: 41.2,
+        avgDepthM: 18,
+        siteName: 'Vis',
+        centerName: 'Ponorka',
+        entry: 'shore',
+        salinity: 'salt',
+        waterBody: 'ocean',
+        waterTempC: 21,
+        visibility: 'high',
+        waves: 1,
+        current: 2,
+        surge: 0,
+        weather: 'sunny',
+        suit: 'wet',
+        suitThicknessMm: 5,
+        equipment: ['hood', 'torch'],
+        weightsKg: 6,
+        weightsFeel: 'good',
+        buddy: 'Jana',
+        rating: 4,
+        tanks: [tank()],
+      }),
+    );
+
+    // The clusters (§0.6), in the order the screen draws them.
+    expect(said).toContain('Datum a čas');
+    expect(said).toContain('Lokalita a centrum');
+    expect(said).toContain('Hloubka a doba');
+    expect(said).toContain('Podmínky');
+    expect(said).toContain('Plyn a láhve');
+    expect(said).toContain('Vybavení a lidé');
+    expect(said).toContain('Poznámky');
+
+    // The rows — the set §4.1 named as duplicated across this screen and the form.
+    expect(said).toContain('Stav');
+    expect(said).toContain('Datum');
+    expect(said).toContain('Čas vstupu');
+    expect(said).toContain('Čas výstupu');
+    expect(said).toContain('Lokalita');
+    expect(said).toContain('Centrum');
+    expect(said).toContain('Vstup');
+    expect(said).toContain('Slanost');
+    expect(said).toContain('Vodní plocha');
+    expect(said).toContain('Max. hloubka');
+    expect(said).toContain('Prům. hloubka');
+    expect(said).toContain('Doba ponoru');
+    expect(said).toContain('Teplota vody');
+    expect(said).toContain('Viditelnost');
+    expect(said).toContain('Vlny');
+    expect(said).toContain('Proud');
+    expect(said).toContain('Vlnobití');
+    expect(said).toContain('Počasí');
+    expect(said).toContain('Oblek');
+    expect(said).toContain('Tloušťka obleku');
+    expect(said).toContain('Vybavení');
+    expect(said).toContain('Zátěž');
+    expect(said).toContain('Vyvážení');
+    expect(said).toContain('Buddy');
+    expect(said).toContain('Hodnocení');
+    expect(said).toContain('Láhev');
+    expect(said).toContain('Materiál');
+    expect(said).toContain('Objem');
+    expect(said).toContain('Konfigurace');
+    expect(said).toContain('Provozní tlak');
+    expect(said).toContain('Počáteční tlak');
+    expect(said).toContain('Konečný tlak');
+    expect(said).toContain('Spotřeba');
+
+    // And no English label survived beside them. Named individually rather than swept, because
+    // a sweep for "any ASCII word" would trip over MOD, RMV, O₂ and a buddy called Jana.
+    expect(said).not.toContain('Max depth');
+    expect(said).not.toContain('Water temp');
+    expect(said).not.toContain('Conditions');
+    expect(said).not.toContain('Gas & cylinders');
+  });
+
+  /** The values were already Czech before this milestone (M3g moved `format/display.ts`); what
+   * this pins is that the labels caught up, so no row reads a Czech word under an English one. */
+  it('reads a value and its label in one language', async () => {
+    const said = await renderDetail(dive({ entry: 'shore', salinity: 'fresh', suit: 'semidry' }));
+    expect(said).toContain('Vstup');
+    expect(said).toContain('Břeh');
+    expect(said).toContain('Slanost');
+    expect(said).toContain('Sladká');
+    expect(said).toContain('Oblek');
+    expect(said).toContain('Polosuchý');
+  });
+
+  /** The screen's own chrome: the way out, the two actions, and the one destructive dialog. */
+  it('names its way out and its three actions in Czech', async () => {
+    const t = await renderDetailTree(dive({ status: 'planned' }));
+    expect(textIn(t)).toContain('‹ Ponory');
+    expect(textIn(t)).toContain('Upravit');
+    expect(textIn(t)).toContain('Dokončit ponor');
+    expect(textIn(t)).toContain('Smazat ponor');
+  });
+
+  /** A numbered cylinder, which is the one label on this screen that interpolates. */
+  it('numbers a second cylinder in Czech', async () => {
+    const said = await renderDetail(dive({ tanks: [tank(), tank({ sizeL: 7 })] }));
+    expect(said).toContain('Láhev 1');
+    expect(said).toContain('Láhev 2');
+  });
+
+  it('says a dive it cannot find is not there, in Czech', async () => {
+    expect(await renderDetailFor('nope')).toContain('Ponor nenalezen.');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: nothing is re-rendered by the test, so the repaint can only come from this screen
+   * hearing i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its
+   * state change reaches nobody here — without the hook a diver would change the setting in
+   * Settings, come back, and read the old words until something else redrew the screen.
+   */
+  it('repaints itself when the language changes under it', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    const t = await renderDetailTree(dive({ maxDepthM: 41.2 }));
+    expect(textIn(t)).toContain('Max depth');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Max. hloubka');
+    expect(textIn(t)).not.toContain('Max depth');
+  });
 });

@@ -50,6 +50,7 @@ import {
   METADATA_SEPARATOR,
 } from '../format/display';
 import { type UnitSystem } from '../format/units';
+import { t, useT } from '../i18n';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
@@ -232,7 +233,7 @@ function Row({ label, value, mono, computed, opens, styles }: Field & { styles: 
       style={styles.detailRow}
       onPress={() => router.push(opens)}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${value}`}
+      accessibilityLabel={t('common.open', { name: value })}
     >
       {contents}
     </Pressable>
@@ -290,9 +291,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToDives}
       accessibilityRole="button"
-      accessibilityLabel="Back to dives"
+      accessibilityLabel={t('back.divesLabel')}
     >
-      <Text style={styles.detailBackLabel}>‹ Dives</Text>
+      <Text style={styles.detailBackLabel}>{t('back.dives')}</Text>
     </Pressable>
   );
 }
@@ -301,9 +302,15 @@ function BackButton({ styles }: { styles: Styles }) {
  * on the same strings the diver reads, without either copy drifting. The body states the
  * consequence in the diver's terms — there is no undo in the app — rather than in the
  * schema's ("a tombstone is written", DESIGN.md §6, which is true and means nothing here). */
-const DELETE_TITLE = 'Delete this dive?';
-const DELETE_BODY = "It will be removed from your logbook. This can't be undone.";
-const DELETE_ERROR_MESSAGE = "Couldn't delete this dive. Try again.";
+function deleteTitle(): string {
+  return t('detail.deleteTitle');
+}
+function deleteBody(): string {
+  return t('detail.deleteBody');
+}
+function deleteErrorMessage(): string {
+  return t('detail.deleteFailed');
+}
 
 /**
  * The dive's own action (M1d task 7), at the trailing edge of the top bar — where the back
@@ -337,9 +344,9 @@ function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
       style={styles.detailAction}
       onPress={() => router.push(editDiveHref(dive.id))}
       accessibilityRole="button"
-      accessibilityLabel="Edit"
+      accessibilityLabel={t('detail.edit')}
     >
-      <Text style={styles.detailActionLabel}>Edit</Text>
+      <Text style={styles.detailActionLabel}>{t('detail.edit')}</Text>
     </Pressable>
   );
 }
@@ -377,10 +384,10 @@ function CompleteButton({ dive, styles }: { dive: Dive; styles: Styles }) {
         style={styles.detailComplete}
         onPress={() => router.push(completeDiveHref(dive.id))}
         accessibilityRole="button"
-        accessibilityLabel="Complete dive"
+        accessibilityLabel={t('dives.completeDive')}
       >
         <View style={styles.detailCompletePill}>
-          <Text style={styles.detailCompleteLabel}>Complete dive</Text>
+          <Text style={styles.detailCompleteLabel}>{t('dives.completeDive')}</Text>
         </View>
       </Pressable>
     </View>
@@ -403,7 +410,7 @@ function whereFields(dive: Dive): Field[] {
     // text. That is the ordinary case rather than a fault: §2.3 only started publishing sites in
     // M2o, and every dive logged before it is one.
     fields.push({
-      label: 'Site',
+      label: t('field.site'),
       value: dive.siteName,
       mono: false,
       opens: dive.siteId === null ? undefined : `/site/${dive.siteId}`,
@@ -415,20 +422,20 @@ function whereFields(dive: Dive): Field[] {
     // has nowhere to go: the centre was typed by hand and never published, which §2.3 makes the
     // ordinary case rather than a fault. The row is the same row either way.
     fields.push({
-      label: 'Centre',
+      label: t('field.centre'),
       value: dive.centerName,
       mono: false,
       opens: dive.centerId === null ? undefined : `/center/${dive.centerId}`,
     });
   }
   const entry = formatEntry(dive.entry);
-  if (entry !== null) fields.push({ label: 'Entry', value: entry, mono: false });
+  if (entry !== null) fields.push({ label: t('field.entry'), value: entry, mono: false });
   const salinity = formatSalinity(dive.salinity);
-  if (salinity !== null) fields.push({ label: 'Salinity', value: salinity, mono: false });
+  if (salinity !== null) fields.push({ label: t('field.salinity'), value: salinity, mono: false });
   const waterBody = formatWaterBody(dive.waterBody);
-  if (waterBody !== null) fields.push({ label: 'Water body', value: waterBody, mono: false });
+  if (waterBody !== null) fields.push({ label: t('field.waterBody'), value: waterBody, mono: false });
   const coordinates = formatCoordinates(dive.latitude, dive.longitude);
-  if (coordinates !== null) fields.push({ label: 'GPS', value: coordinates, mono: true });
+  if (coordinates !== null) fields.push({ label: t('field.gps'), value: coordinates, mono: true });
   return fields;
 }
 
@@ -451,27 +458,27 @@ function whereFields(dive: Dive): Field[] {
 function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
   const waterTemp = formatTemperature(dive.waterTempC, units);
-  if (waterTemp !== null) fields.push({ label: 'Water temp', value: waterTemp, mono: true });
+  if (waterTemp !== null) fields.push({ label: t('field.waterTemp'), value: waterTemp, mono: true });
   const airTemp = formatTemperature(dive.airTempC, units);
-  if (airTemp !== null) fields.push({ label: 'Air temp', value: airTemp, mono: true });
+  if (airTemp !== null) fields.push({ label: t('field.airTemp'), value: airTemp, mono: true });
   const visibility = formatVisibility(dive.visibility);
-  if (visibility !== null) fields.push({ label: 'Visibility', value: visibility, mono: false });
+  if (visibility !== null) fields.push({ label: t('field.visibility'), value: visibility, mono: false });
   const visibilityDistance = formatDepth(dive.visibilityM, units);
   if (visibilityDistance !== null) {
-    fields.push({ label: 'Visibility distance', value: visibilityDistance, mono: true });
+    fields.push({ label: t('field.visibilityDistance'), value: visibilityDistance, mono: true });
   }
   // `mono: false`, and that changed with the words: §0.6 splits the two faces by what a value
   // IS — "figures in mono, names in sans" — so a row now reading "Small" belongs with
   // Visibility and Weather beside it rather than with the temperatures above. While these
   // were bare digits mono was right; it is the value that moved, not the rule.
   const waves = formatWaves(dive.waves);
-  if (waves !== null) fields.push({ label: 'Waves', value: waves, mono: false });
+  if (waves !== null) fields.push({ label: t('field.waves'), value: waves, mono: false });
   const current = formatCurrent(dive.current);
-  if (current !== null) fields.push({ label: 'Current', value: current, mono: false });
+  if (current !== null) fields.push({ label: t('field.current'), value: current, mono: false });
   const surge = formatSurge(dive.surge);
-  if (surge !== null) fields.push({ label: 'Surge', value: surge, mono: false });
+  if (surge !== null) fields.push({ label: t('field.surge'), value: surge, mono: false });
   const weather = formatWeather(dive.weather);
-  if (weather !== null) fields.push({ label: 'Weather', value: weather, mono: false });
+  if (weather !== null) fields.push({ label: t('field.weather'), value: weather, mono: false });
   return fields;
 }
 
@@ -493,17 +500,17 @@ function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
 function equipmentFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
   const suit = formatSuit(dive.suit);
-  if (suit !== null) fields.push({ label: 'Suit', value: suit, mono: false });
+  if (suit !== null) fields.push({ label: t('field.suit'), value: suit, mono: false });
   const thickness = formatSuitThickness(dive.suitThicknessMm);
-  if (thickness !== null) fields.push({ label: 'Suit thickness', value: thickness, mono: true });
+  if (thickness !== null) fields.push({ label: t('field.suitThickness'), value: thickness, mono: true });
   const equipment = formatEquipment(dive.equipment);
-  if (equipment !== null) fields.push({ label: 'Equipment', value: equipment, mono: false });
+  if (equipment !== null) fields.push({ label: t('field.equipment'), value: equipment, mono: false });
   const weights = formatWeight(dive.weightsKg, units);
-  if (weights !== null) fields.push({ label: 'Weights', value: weights, mono: true });
+  if (weights !== null) fields.push({ label: t('field.weights'), value: weights, mono: true });
   const weightsFeel = formatWeightsFeel(dive.weightsFeel);
-  if (weightsFeel !== null) fields.push({ label: 'Weighting', value: weightsFeel, mono: false });
-  if (dive.buddy !== null) fields.push({ label: 'Buddy', value: dive.buddy, mono: false });
-  if (dive.guide !== null) fields.push({ label: 'Guide', value: dive.guide, mono: false });
+  if (weightsFeel !== null) fields.push({ label: t('field.weighting'), value: weightsFeel, mono: false });
+  if (dive.buddy !== null) fields.push({ label: t('field.buddy'), value: dive.buddy, mono: false });
+  if (dive.guide !== null) fields.push({ label: t('field.guide'), value: dive.guide, mono: false });
   return fields;
 }
 
@@ -539,16 +546,16 @@ function tankFields(tank: Tank, units: UnitSystem): Field[] {
   // stored while the form's own chip said "Steel" — the same cylinder reading two ways one
   // screen apart. format/display.ts owns that string for all five now.
   const material = formatTankMaterial(tank.material);
-  if (material !== null) fields.push({ label: 'Material', value: material, mono: false });
+  if (material !== null) fields.push({ label: t('field.material'), value: material, mono: false });
   // The rig, where a numeric `Count` used to sit (§10). It is `mono: false` because it is a
   // name now, not a figure — the same line the rest of this screen draws between a word and
   // a number.
   const configuration = formatConfiguration(tank.configuration);
-  if (configuration !== null) fields.push({ label: 'Configuration', value: configuration, mono: false });
+  if (configuration !== null) fields.push({ label: t('field.configuration'), value: configuration, mono: false });
   const size = formatVolume(tank.sizeL);
-  if (size !== null) fields.push({ label: 'Size', value: size, mono: true });
+  if (size !== null) fields.push({ label: t('field.size'), value: size, mono: true });
   const working = formatPressure(tank.workingBar, units);
-  if (working !== null) fields.push({ label: 'Working pressure', value: working, mono: true });
+  if (working !== null) fields.push({ label: t('field.workingPressure'), value: working, mono: true });
   // The two label constants, not two more string literals: the form spelled these `O2 %` and
   // `He %` — one cylinder reading two ways one screen apart, the same defect
   // `formatTankMaterial` above was introduced to close. See `O2_LABEL` (format/display.ts)
@@ -566,13 +573,13 @@ function tankFields(tank: Tank, units: UnitSystem): Field[] {
   const n2 = formatPercent(nitrogenPct(tank.o2Pct, tank.hePct));
   if (n2 !== null) fields.push({ label: N2_LABEL, value: n2, mono: true, computed: true });
   const tankMod = formatDepth(mod(tank.o2Pct), units);
-  if (tankMod !== null) fields.push({ label: 'MOD', value: tankMod, mono: true, computed: true });
+  if (tankMod !== null) fields.push({ label: t('field.mod'), value: tankMod, mono: true, computed: true });
   const start = formatPressure(tank.startBar, units);
-  if (start !== null) fields.push({ label: 'Start pressure', value: start, mono: true });
+  if (start !== null) fields.push({ label: t('field.startPressure'), value: start, mono: true });
   const end = formatPressure(tank.endBar, units);
-  if (end !== null) fields.push({ label: 'End pressure', value: end, mono: true });
+  if (end !== null) fields.push({ label: t('field.endPressure'), value: end, mono: true });
   const used = formatPressure(usedBar(tank), units);
-  if (used !== null) fields.push({ label: 'Used', value: used, mono: true, computed: true });
+  if (used !== null) fields.push({ label: t('field.used'), value: used, mono: true, computed: true });
   return fields;
 }
 
@@ -670,6 +677,9 @@ export default function DiveDetailScreen({
   showBackButton = true,
   onDeleted = backToDives,
 }: DiveDetailScreenProps = {}) {
+  // The subscription that repaints this screen when the diver changes the language (src/i18n) —
+  // a screen root, so nothing above it re-renders on its own.
+  useT();
   const scheme: ColorScheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   // How far down this screen's content begins, read off the device (`screenTopInset`,
@@ -727,7 +737,7 @@ export default function DiveDetailScreen({
               BOTH branches and in both states (§0.6 — "a form with no visible way out was
               shipped once and only found by using the app"), and nothing moves when the sentence
               or the dive arrives under it. */}
-          {resolved && <Text style={styles.messageText}>Dive not found.</Text>}
+          {resolved && <Text style={styles.messageText}>{t('detail.notFound')}</Text>}
         </View>
       </View>
     );
@@ -747,7 +757,7 @@ export default function DiveDetailScreen({
       await softDeleteDive(db, dive.id);
       onDeleted();
     } catch {
-      setDeleteError(DELETE_ERROR_MESSAGE);
+      setDeleteError(deleteErrorMessage());
     } finally {
       // Released on both paths, so a failed delete leaves a control the diver can press
       // again rather than one that silently stopped working.
@@ -768,10 +778,10 @@ export default function DiveDetailScreen({
   // the question and what to do with the answer, and nothing about where it is drawn.
   const confirmDelete = () => {
     confirmDestructive({
-      title: DELETE_TITLE,
-      body: DELETE_BODY,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
+      title: deleteTitle(),
+      body: deleteBody(),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
       onConfirm: () => void runDelete(),
     });
   };
@@ -844,20 +854,20 @@ export default function DiveDetailScreen({
               `first` is a fixed prop here rather than an index the list of clusters below
               would have to compute — every other cluster is conditional, and the topmost
               one is this one either way. */}
-          <Cluster title="Date & time" styles={styles} first>
-            <Row label="Status" value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
-            <Row label="Date" value={formatDiveDate(dive.date)} mono styles={styles} />
-            {dive.timeIn !== null && <Row label="Time in" value={dive.timeIn} mono styles={styles} />}
+          <Cluster title={t('group.dateTime')} styles={styles} first>
+            <Row label={t('field.status')} value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
+            <Row label={t('field.date')} value={formatDiveDate(dive.date)} mono styles={styles} />
+            {dive.timeIn !== null && <Row label={t('field.timeIn')} value={dive.timeIn} mono styles={styles} />}
             {timeOutValue !== null && (
-              <Row label="Time out" value={timeOutValue} mono computed styles={styles} />
+              <Row label={t('field.timeOut')} value={timeOutValue} mono computed styles={styles} />
             )}
             {surfaceInterval !== null && (
-              <Row label="Surface interval" value={surfaceInterval} mono computed styles={styles} />
+              <Row label={t('field.surfaceInterval')} value={surfaceInterval} mono computed styles={styles} />
             )}
           </Cluster>
 
           {where.length > 0 && (
-            <Cluster title="Site & centre" styles={styles}>
+            <Cluster title={t('group.siteCentre')} styles={styles}>
               {where.map((f) => (
                 <Row key={f.label} {...f} styles={styles} />
               ))}
@@ -865,25 +875,25 @@ export default function DiveDetailScreen({
           )}
 
           {showDepthDuration && (
-            <Cluster title="Depth & duration" styles={styles}>
+            <Cluster title={t('group.depthDuration')} styles={styles}>
               {maxDepth !== null && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Max depth</Text>
+                  <Text style={styles.detailLabel}>{t('field.maxDepth')}</Text>
                   <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />
                 </View>
               )}
               {avgDepth !== null && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Avg depth</Text>
+                  <Text style={styles.detailLabel}>{t('field.avgDepth')}</Text>
                   <DepthValue metres={dive.avgDepthM} scheme={scheme} units={units} />
                 </View>
               )}
-              {duration !== null && <Row label="Duration" value={duration} mono styles={styles} />}
+              {duration !== null && <Row label={t('field.duration')} value={duration} mono styles={styles} />}
             </Cluster>
           )}
 
           {conditions.length > 0 && (
-            <Cluster title="Conditions" styles={styles}>
+            <Cluster title={t('group.conditions')} styles={styles}>
               {conditions.map((f) => (
                 <Row key={f.label} {...f} styles={styles} />
               ))}
@@ -891,15 +901,17 @@ export default function DiveDetailScreen({
           )}
 
           {showGasCluster && (
-            <Cluster title="Gas & cylinders" styles={styles}>
-              {gasUsed !== null && <Row label="Gas used" value={gasUsed} mono computed styles={styles} />}
-              {rmvValue !== null && <Row label="RMV" value={rmvValue} mono computed styles={styles} />}
+            <Cluster title={t('group.gas')} styles={styles}>
+              {gasUsed !== null && <Row label={t('field.gasUsed')} value={gasUsed} mono computed styles={styles} />}
+              {rmvValue !== null && <Row label={t('field.rmv')} value={rmvValue} mono computed styles={styles} />}
               {tankGroups.map(({ index, fields }) => {
                 if (fields.length === 0) return null;
                 return (
                   <View key={index} style={styles.detailTank}>
                     <Text style={styles.detailTankTitle}>
-                      {dive.tanks.length > 1 ? `Cylinder ${index + 1}` : 'Cylinder'}
+                      {dive.tanks.length > 1
+                        ? t('field.cylinderNumbered', { number: index + 1 })
+                        : t('field.cylinder')}
                     </Text>
                     {fields.map((f) => (
                       <Row key={f.label} {...f} styles={styles} />
@@ -911,7 +923,7 @@ export default function DiveDetailScreen({
           )}
 
           {equipment.length > 0 && (
-            <Cluster title="Equipment & people" styles={styles}>
+            <Cluster title={t('group.equipmentPeople')} styles={styles}>
               {equipment.map((f) => (
                 <Row key={f.label} {...f} styles={styles} />
               ))}
@@ -919,9 +931,9 @@ export default function DiveDetailScreen({
           )}
 
           {hasNotes && (
-            <Cluster title="Notes" styles={styles}>
-              {dive.title !== null && <Row label="Title" value={dive.title} mono={false} styles={styles} />}
-              {rating !== null && <Row label="Rating" value={rating} mono styles={styles} />}
+            <Cluster title={t('group.notes')} styles={styles}>
+              {dive.title !== null && <Row label={t('field.title')} value={dive.title} mono={false} styles={styles} />}
+              {rating !== null && <Row label={t('field.rating')} value={rating} mono styles={styles} />}
               {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
             </Cluster>
           )}
@@ -947,10 +959,10 @@ export default function DiveDetailScreen({
             onPress={confirmDelete}
             disabled={deleting}
             accessibilityRole="button"
-            accessibilityLabel="Delete dive"
+            accessibilityLabel={t('detail.deleteLabel')}
             accessibilityState={{ disabled: deleting }}
           >
-            <Text style={styles.detailDeleteLabel}>Delete dive</Text>
+            <Text style={styles.detailDeleteLabel}>{t('detail.deleteLabel')}</Text>
           </Pressable>
         </View>
       </ScrollView>
