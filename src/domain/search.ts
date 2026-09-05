@@ -121,16 +121,25 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
 }
 
 /**
- * **§3's centres directory, as a list** (M3c) — every centre the device holds that the query
- * names, in the order they are shown.
+ * **A catalogue directory, as a list** — every row the device holds that the query names, in the
+ * order they are shown. §3's centres directory (M3c) and its sites directory (M3f) are both this
+ * function; it was `browseCenters` while there was only one.
+ *
+ * **One function rather than two**, on `withPoints`' own reasoning (domain/mapSites.ts):
+ * `dive_sites` and `dive_centers` are the same table under two names (file 2 of the migrations
+ * gives them the same shape, §5 covers them in one sentence), and "which of these rows does this
+ * query name, and in what order" has exactly one answer for both. A `browseSites` beside it would
+ * not be a deliberate near-duplicate answering a different question — it would be the same
+ * fifteen lines twice, which is the defect §4.1 opens with. It was already generic over the row
+ * before the second caller existed; only the name and this paragraph changed.
  *
  * ── Its sibling above, and the two axes it differs on (§4.1 asks a near-duplicate to say) ──
  *
  * `searchDives` filters the diver's own logbook across six columns and **never sorts**, because
  * a logbook already has an order (§2.5) and a filtered logbook keeps it. This reads community
- * rows with one column worth matching, and it **does** order them: a directory of shops has no
- * order of its own to preserve, so something has to choose one, and leaving it to whatever
- * SQLite happened to return would make the same list read differently on two devices.
+ * rows with one column worth matching, and it **does** order them: a directory has no order of
+ * its own to preserve, so something has to choose one, and leaving it to whatever SQLite happened
+ * to return would make the same list read differently on two devices.
  *
  * Both go through `foldForMatching`, on both sides, which is the point of that function having
  * one owner: `zelezna` finds `Železná` here for exactly the reason it does in the logbook and on
@@ -138,17 +147,17 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
  *
  * ── Alphabetical, and the rejected alternative ────────────────────────────────────────────
  *
- * By folded name, then by id so two centres spelled the same way cannot swap places between
+ * By folded name, then by id so two rows spelled the same way cannot swap places between
  * renders. Folded rather than `localeCompare`d deliberately: this repo keeps comparisons off the
  * device's locale and ICU build wherever it can (`foldForMatching`'s own note on
  * `toLocaleLowerCase`), and folding puts `Železná` next to `Zelena` rather than after `Z…`
  * everything, which is where a Czech diver looks for it.
  *
- * **Rejected: the diver's own centres first.** It is §2.1's "the app learns" and it is the wrong
- * rule here — this list's job is to let a diver *find* a shop, including one they have never
- * dived with, and a list whose top changes as the logbook grows is one a diver cannot learn the
- * shape of. The dives they have with each centre are on the row (`formatCenterRow`), which is
- * where that fact belongs.
+ * **Rejected: the diver's own places first.** It is §2.1's "the app learns" and it is the wrong
+ * rule here — this list's job is to let a diver *find* a shop or a rock, including one they have
+ * never been to, and a list whose top changes as the logbook grows is one a diver cannot learn
+ * the shape of. The dives they have at each row are on the row itself (`formatCenterRow`,
+ * `formatSiteRow`), which is where that fact belongs.
  *
  * An empty query is the whole catalogue rather than nothing at all: this is a directory first
  * and a search second, which is the difference between it and `SearchScreen` (that one clears
@@ -157,7 +166,7 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
  * A row it cannot read costs that row rather than the screen — the stance every list rule in
  * `domain/` takes, because this runs during render over whatever the database handed back.
  */
-export function browseCenters<T extends { id: string; name: string | null }>(
+export function browseCatalogue<T extends { id: string; name: string | null }>(
   centers: readonly T[],
   query: string,
 ): T[] {

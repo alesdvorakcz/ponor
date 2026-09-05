@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { browseCenters, foldForMatching, searchDives } from './search';
+import { browseCatalogue, foldForMatching, searchDives } from './search';
 
 describe('searchDives', () => {
   // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
@@ -167,29 +167,34 @@ describe('foldForMatching — §10\'s diacritic fold, and exactly where it stops
 });
 
 /**
- * `browseCenters` — §3's centres directory, as a list (M3c).
+ * `browseCatalogue` — §3's catalogue directories, as a list: the centres one (M3c) and the sites
+ * one (M3f), which are one function because `dive_sites` and `dive_centers` are one table shape.
  *
  * `searchDives`' sibling above, differing on two axes and stating both: it reads community rows
- * with one column worth matching, and it ORDERS them, because a directory of shops has no order
- * of its own to preserve and leaving it to whatever SQLite returned would make the same list read
+ * with one column worth matching, and it ORDERS them, because a directory has no order of its own
+ * to preserve and leaving it to whatever SQLite returned would make the same list read
  * differently on two devices.
+ *
+ * The rows below are built as `{ id, name }` and nothing else, which is the whole of what this
+ * function may read — a fixture carrying a `website` or a `max_depth_m` would let a rule about
+ * one table's columns pass here unnoticed.
  */
-describe('browseCenters', () => {
+describe('browseCatalogue', () => {
   const centre = (id: string, name: string | null) => ({ id, name });
 
   it('opens on the whole catalogue when nothing has been typed', () => {
     const rows = [centre('a', 'Ponorka'), centre('b', 'Kotelna')];
-    expect(browseCenters(rows, '').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
-    expect(browseCenters(rows, '   ').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
+    expect(browseCatalogue(rows, '').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
+    expect(browseCatalogue(rows, '   ').map((c) => c.name)).toEqual(['Kotelna', 'Ponorka']);
   });
 
   // Both sides through `foldForMatching`, which is why `zelezna` finds `Železná` here for the
   // same reason it does in the logbook and on the server (§2.3, M2j).
   it('matches on a folded substring', () => {
     const rows = [centre('a', 'Železná'), centre('b', 'Ponorka')];
-    expect(browseCenters(rows, 'zelez').map((c) => c.name)).toEqual(['Železná']);
-    expect(browseCenters(rows, 'NOR').map((c) => c.name)).toEqual(['Ponorka']);
-    expect(browseCenters(rows, '  ponorka  ').map((c) => c.name)).toEqual(['Ponorka']);
+    expect(browseCatalogue(rows, 'zelez').map((c) => c.name)).toEqual(['Železná']);
+    expect(browseCatalogue(rows, 'NOR').map((c) => c.name)).toEqual(['Ponorka']);
+    expect(browseCatalogue(rows, '  ponorka  ').map((c) => c.name)).toEqual(['Ponorka']);
   });
 
   /**
@@ -202,13 +207,13 @@ describe('browseCenters', () => {
     // A comparison on the RAW names puts `Ž` after every `Z` — `'Zubatá' < 'Železná'` — so this
     // order is the fold's doing and nothing else's.
     expect('Zubatá' < 'Železná').toBe(true);
-    expect(browseCenters(rows, '').map((c) => c.name)).toEqual(['Aqua', 'Železná', 'Zubatá']);
+    expect(browseCatalogue(rows, '').map((c) => c.name)).toEqual(['Aqua', 'Železná', 'Zubatá']);
   });
 
   // Two rows spelled the same way must not swap places between renders, so the id breaks the tie.
   it('breaks a tie on the id rather than leaving it to the caller’s order', () => {
     const rows = [centre('b', 'Ponorka'), centre('a', 'ponorka')];
-    expect(browseCenters(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
+    expect(browseCatalogue(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
   });
 
   // `dive_centers.name` is nullable in both databases (§6), so a row with none can arrive by
@@ -216,13 +221,13 @@ describe('browseCenters', () => {
   // what folding an absent name to `''` and testing `includes` the other way round would do.
   it('keeps an unnamed row without letting it match everything', () => {
     const rows = [centre('a', null), centre('b', 'Ponorka')];
-    expect(browseCenters(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
-    expect(browseCenters(rows, 'pon').map((c) => c.id)).toEqual(['b']);
+    expect(browseCatalogue(rows, '').map((c) => c.id)).toEqual(['a', 'b']);
+    expect(browseCatalogue(rows, 'pon').map((c) => c.id)).toEqual(['b']);
   });
 
   it('does not mutate the array it was handed', () => {
     const rows = [centre('a', 'Ponorka'), centre('b', 'Aqua')];
-    browseCenters(rows, '');
+    browseCatalogue(rows, '');
     expect(rows.map((c) => c.id)).toEqual(['a', 'b']);
   });
 });

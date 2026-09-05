@@ -32,7 +32,9 @@ import {
   formatMapSummary,
   formatSiteMarkLabel,
   formatPendingChanges,
+  formatSiteCount,
   formatSiteFacts,
+  formatSiteRow,
   formatSiteSummary,
   formatTemperatureRange,
   formatDuration,
@@ -1052,20 +1054,32 @@ describe('formatLogbookSummary', () => {
   // is the actual rule and it holds in every language: split the line on ordinary spaces and
   // what comes back must be the figures and the middots, whole. Pasting the expected line with
   // invisible U+00A0s in it would assert the same thing in a form no reader could check.
-  it('breaks only between figures, never inside one', () => {
+  //
+  // **And the middot travels with the figure in front of it** (M3f). M1m stopped a figure being
+  // torn in half and left the platform to choose which side of the fold the middot landed on; it
+  // takes the last opportunity that fits, so the header folded as `128 dives · 96 h 12 min` above
+  // `· deepest 41.2 m` — a second line opening with what reads as a bullet. M3e measured exactly
+  // that on `formatMapSummary` and this is the same fix on the line M1m wrote the rule for. The
+  // clause that used to sit here — "the separator itself keeps its ordinary spaces, it is the
+  // whole of what may break" — was answering a narrower question than it appeared to: the space
+  // AFTER the middot is still ordinary, so the line still folds, and it folds where the owner's
+  // own sheet draws it.
+  it('breaks only after a middot, never inside a figure and never before one', () => {
     const line = formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric');
     expect(line.split(' ')).toEqual([
-      `128${NON_BREAKING_SPACE}dives`,
-      '·',
-      `96${NON_BREAKING_SPACE}h${NON_BREAKING_SPACE}12${NON_BREAKING_SPACE}min`,
-      '·',
+      `128${NON_BREAKING_SPACE}dives${NON_BREAKING_SPACE}·`,
+      `96${NON_BREAKING_SPACE}h${NON_BREAKING_SPACE}12${NON_BREAKING_SPACE}min${NON_BREAKING_SPACE}·`,
       `deepest${NON_BREAKING_SPACE}41.2${NON_BREAKING_SPACE}m`,
     ]);
-    // The separator itself keeps its ordinary spaces — it is the whole of what may break, so a
-    // `METADATA_SEPARATOR` that ever went non-breaking would leave the line no fold at all and
-    // put it straight back under the capsule.
+    // The two separators must not become one string: `METADATA_SEPARATOR` is for the lines with no
+    // measure (a dive row's metadata, a cylinder spec), where both spaces may break and nothing is
+    // going to, and taking a non-breaking space there would be a rule about folding applied to a
+    // line that never folds.
+    expect(WRAPPING_SEPARATOR).not.toBe(METADATA_SEPARATOR);
     expect(METADATA_SEPARATOR).not.toContain(NON_BREAKING_SPACE);
-    expect(line).toContain(METADATA_SEPARATOR);
+    // ...and the line still has somewhere to fold, or §0.6's cap on this column would simply put
+    // it back under the glass.
+    expect(line).toContain(' ');
   });
 
   // **The shortest possible line cannot wrap at all**, which is the empty logbook's (§10, M1h):
@@ -1407,6 +1421,60 @@ describe('formatSiteFacts', () => {
     expect(
       formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
     ).toBe('112 ft');
+  });
+});
+
+/**
+ * **A site's row in the sites directory** (M3f) — `formatCenterRow`'s deliberate near-duplicate,
+ * differing on the one axis §6 gives the two tables: a centre has a country and a website, a site
+ * has four facts more, and they are what a diver opens a catalogue of rocks to read.
+ *
+ * The facts half is `formatSiteFacts`' and is asserted here only where the two meet: that it is
+ * *that* line and not a second listing of the same columns, and that the dive count joins it in
+ * the same middot list.
+ */
+const KOTELNA = { country: 'CZ', entry: 'shore', salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 } as const;
+const NAMELESS = { country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null } as const;
+
+describe('formatSiteRow', () => {
+  it('joins what the catalogue knows to how many dives the diver has there', () => {
+    expect(formatSiteRow(KOTELNA, 3, 'metric')).toBe('CZ · Shore · Fresh · Quarry · 42.0 m · 3 dives');
+    expect(formatSiteRow(KOTELNA, 1, 'metric')).toBe('CZ · Shore · Fresh · Quarry · 42.0 m · 1 dive');
+  });
+
+  // It is `formatSiteFacts`' line and not a second listing of the same five columns — asserted as
+  // an equality against that function, so a row that started spelling its own facts (a different
+  // order, a raw `quarry`, a metric depth) fails here rather than drifting one screen away from
+  // the Map's card about the same site.
+  it('states the catalogue’s facts in exactly the words the map states them', () => {
+    expect(formatSiteRow(KOTELNA, 0, 'imperial')).toBe(formatSiteFacts(KOTELNA, 'imperial'));
+    expect(formatSiteRow(KOTELNA, 0, 'imperial')).toContain('138 ft');
+  });
+
+  it('omits the half that has nothing behind it', () => {
+    expect(formatSiteRow(NAMELESS, 2, 'metric')).toBe('2 dives');
+    expect(formatSiteRow({ ...NAMELESS, country: 'CZ' }, 0, 'metric')).toBe('CZ');
+  });
+
+  /**
+   * **A nought is omitted, not drawn**, for `formatCenterRow`'s reason: most rows in a community
+   * catalogue are places the diver has never been, so a column of `0 dives` would say the same
+   * nothing on every row. A site's own PAGE takes the other answer (`formatSiteSummary` always
+   * states the count), because a page opened to ask "what have I done here" must answer.
+   */
+  it('answers null for a site with nothing to say', () => {
+    expect(formatSiteRow(NAMELESS, 0, 'metric')).toBeNull();
+  });
+});
+
+// `formatDiveCount`'s sibling, exported since M3f for the sites directory's own count line. One
+// comparison in English; Czech needs three forms (§0.5), which is why the plural is here and not
+// in a template literal on a screen.
+describe('formatSiteCount', () => {
+  it('pluralises a single site', () => {
+    expect(formatSiteCount(1)).toBe('1 site');
+    expect(formatSiteCount(0)).toBe('0 sites');
+    expect(formatSiteCount(12)).toBe('12 sites');
   });
 });
 

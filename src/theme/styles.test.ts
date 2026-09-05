@@ -811,11 +811,15 @@ describe('the app content column', () => {
     // scale. Nothing about it is where a screen's content begins — it is not on a screen's
     // column at all, it is on Apple's cartography.
     'mapMarkBadge',
-    // The centres layer's *All centres* control (M3c): the 48 dp target around its pill, and the
-    // pill's own label padding. Both are distances INSIDE the control — `mapCentersRow` is the
-    // one that says where it begins, and that is in the column and asserted below.
-    'mapCentersAction',
-    'mapCentersActionPill',
+    // The Map's three pills that leave the screen — *All sites* and *All centres* under the
+    // summary line (M3c, M3f) and *Site page* inside an open sheet: the 48 dp target around each
+    // and the pill's own label padding. All of them are distances INSIDE a control —
+    // `mapDirectoryRow` is the one that says where the row begins, and that is in the column and
+    // asserted below; the sheet's copy takes the sheet's own padding.
+    'mapDirectoryAction',
+    'mapDirectoryActionPill',
+    'mapSheetAction',
+    'mapSheetActionPill',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -856,15 +860,22 @@ describe('the app content column', () => {
     'mapSheetHeader',
     'mapSheetSummary',
     'mapSheetFacts',
-    // The centres layer's way into the directory (M3c) and the two screens behind it. A control
-    // under the layer's summary line hangs off the same column that line does, and a centre's
-    // page and the directory are ordinary row screens — Settings' shape, Settings' column.
-    'mapCentersRow',
+    // The two layers' ways into their directories (M3c, M3f) and the four screens behind them. A
+    // control under the layer's summary line hangs off the same column that line does, and a
+    // catalogue row's page and its directory are ordinary row screens — Settings' shape, Settings'
+    // column.
+    'mapDirectoryRow',
     'centerHeading',
     'centerSummary',
     'centerSectionTitle',
     'centerEmpty',
     'centersHeading',
+    'siteHeading',
+    'siteSummary',
+    'siteSectionTitle',
+    'siteEmpty',
+    'sitesHeading',
+    'siteDefaultsCaption',
   ];
 
   it('starts every screen content at the same edge, in both schemes', () => {

@@ -655,7 +655,7 @@ it('says the catalogue failed once, however many of its tables did', async () =>
 it('draws the community sites that carry a position, and names them', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      site({ name: 'Vis', country: 'Croatia', entry: 'boat', maxDepthM: 34, latitude: 43.06, longitude: 16.18 }),
+      site({ id: 's-vis', name: 'Vis', country: 'Croatia', entry: 'boat', maxDepthM: 34, latitude: 43.06, longitude: 16.18 }),
       site({ name: 'Nowhere in particular' }),
     ]),
   );
@@ -663,9 +663,7 @@ it('draws the community sites that carry a position, and names them', async () =
   await press(t, 'Show community sites');
   expect(markers(t)).toHaveLength(1);
   expect(summaryLine(t)).toBe('0 dives · 1 of 2 sites');
-  await tapMark(t, 'Vis, dive site');
-  expect(textIn(t)).toContain('Vis');
-  expect(textIn(t)).toContain('Croatia · Boat · 34.0 m');
+  expect(markLabels(t)).toEqual(['Vis, dive site']);
 });
 
 // §5 asks a new site only for a name, but `dive_sites.name` is nullable in both databases (§6,
@@ -736,6 +734,27 @@ it('gives a dived catalogue site’s facts to the sheet its own mark opens', asy
   expect(textIn(t)).toContain('Croatia · Boat · 34.0 m');
 });
 
+/**
+ * **...and the way to that place's page** (M3f), which is the other half of what absorbing costs
+ * nothing: the catalogue row's dot is gone, and both its facts and the page behind it are still
+ * reachable from the mark standing on it.
+ *
+ * The link belongs to the catalogue ROW and not to the place, which is why it is absent below for
+ * a place the catalogue does not know: a hand-typed site has no page, and a pill that pressed
+ * nothing is the dead control §0.6 objects to.
+ */
+it('offers the site’s page from the sheet its own mark opens', async () => {
+  mockUseDives.mockReturnValue(divesState([pinned({ maxDepthM: 18.2 })]));
+  mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 's1', name: 'Blue Hole', country: 'Croatia' })]));
+  const t = await show();
+  await tapMark(t, 'Blue Hole, 1 dive');
+  expect(textIn(t)).toContain('Site page');
+  // Announced by the place's name rather than by the pill's words, which is Settings' rule for
+  // every control that opens something — "Site page" alone says nothing about where it lands.
+  await press(t, 'Open Blue Hole');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/s1');
+});
+
 // ...and a place the catalogue does not hold gets no line rather than an empty one — a dive at a
 // hand-typed site is every dive in a logbook that has never synced.
 it('says nothing about a place the catalogue does not know', async () => {
@@ -747,6 +766,9 @@ it('says nothing about a place the catalogue does not know', async () => {
   await tapMark(t, 'Kotelna, 1 dive');
   expect(textIn(t)).toContain('1 dive · deepest 18.2 m');
   expect(textIn(t)).not.toContain('Croatia');
+  // ...and no page to offer either, for the same reason: the dive names the site by hand, so
+  // nothing pairs it to the row of that name and there is no row to open (M3f).
+  expect(textIn(t)).not.toContain('Site page');
 });
 
 /**
@@ -773,15 +795,15 @@ it('forgets the open sheet when the filter changes, and does not reopen it on th
 // dives ON takes a community site off the map (the absorption above), so a site's sheet has to
 // close on a press about something else.
 it('forgets the open sheet when a kind it is not about is switched', async () => {
-  mockUseDiveSites.mockReturnValue(
-    catalogueState([site({ name: 'Vis', country: 'Croatia', latitude: 43.06, longitude: 16.18 })]),
-  );
+  mockUseDives.mockReturnValue(divesState([pinned({ maxDepthM: 18.2 })]));
   const t = await show();
-  await press(t, 'Show community sites');
-  await tapMark(t, 'Vis, dive site');
-  expect(textIn(t)).toContain('Croatia');
+  await tapMark(t, 'Blue Hole, 1 dive');
+  expect(textIn(t)).toContain('1 dive · deepest 18.2 m');
+  // A press about the CENTRES, over a sheet describing the diver's own dives. Nothing about the
+  // open sheet has changed, and it closes anyway — the blunt version of the rule, which M2n
+  // measured the narrow one failing.
   await press(t, 'Show dive centres');
-  expect(textIn(t)).not.toContain('Croatia');
+  expect(textIn(t)).not.toContain('1 dive · deepest 18.2 m');
 });
 
 // --- The centres ---
@@ -861,6 +883,35 @@ it('offers the directory while centres are switched on and not otherwise', async
   expect(textIn(t)).not.toContain('All centres');
 });
 
+/**
+ * **The sites directory has the same way in, tied to its own switch** (M3f) — and the pair is
+ * asserted together, because the failure worth catching is not "the pill is missing" but "the pill
+ * is there under the wrong switch, or opens the other directory".
+ *
+ * Both pills live in one row, so a diver with both kinds on sees both; each is drawn only while
+ * its own kind is, for the reason the centres one is — §0.6 objects to a control about something
+ * that is not on screen.
+ */
+it('offers each directory under its own switch, and both together', async () => {
+  mockUseDives.mockReturnValue(divesState([pinned()]));
+  const t = await show();
+  expect(textIn(t)).not.toContain('All sites');
+
+  await press(t, 'Show community sites');
+  expect(textIn(t)).toContain('All sites');
+  expect(textIn(t)).not.toContain('All centres');
+  await press(t, 'All sites');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/sites');
+
+  await press(t, 'Show dive centres');
+  expect(textIn(t)).toContain('All sites');
+  expect(textIn(t)).toContain('All centres');
+
+  await press(t, 'Hide community sites');
+  expect(textIn(t)).not.toContain('All sites');
+  expect(textIn(t)).toContain('All centres');
+});
+
 // Drawn on every branch, the failing one included — the same reasoning the capsule is: the
 // directory reads the same table and reports for itself, and a control that vanished when the
 // data failed would strand a diver on the broken half.
@@ -895,13 +946,13 @@ it('says why there are no centres, and says it differently to a guest', async ()
 });
 
 /**
- * **A centre's mark goes to its page; a site's and a place's open a sheet.** A site has nowhere
- * else in the app to be shown, so its sheet IS its page; a centre has one, and drawing a peek of
- * it under the map would put the same three facts in two places.
+ * **A catalogue row goes to its page; the diver's own dives open a sheet** (M3f, replacing M3e's
+ * "a centre's mark navigates and the other two do not").
  *
- * **M3c gave that asymmetry to the layer and M3e has to give it back to the mark**, which is one
- * of the three prices the filter pays. What makes it legible is the `storefront` glyph: the one
- * kind whose press leaves the screen is the one kind whose mark carries a symbol.
+ * M3e's rule was an exception because a site had no page to navigate to; `/site/[id]` exists now,
+ * so the community site's sheet — which held `formatSiteFacts` and nothing else — became the peek
+ * of a page that §4.1 refuses, and it went. What is left is legible from the mark: the one that
+ * opens a sheet is the one wearing a numeral, because the numeral means *these dives are yours*.
  */
 it('opens a centre’s page from its mark, and opens no sheet', async () => {
   mockUseDiveCenters.mockReturnValue(
@@ -916,34 +967,43 @@ it('opens a centre’s page from its mark, and opens no sheet', async () => {
 });
 
 /**
- * **And a site's mark does NOT navigate, which is the half that makes the asymmetry a rule
- * rather than a coincidence.** The two kinds carry ids from two tables and the same id can name a
- * row in each; a press that read the key without the kind would open a centre's page from a
- * site's dot.
+ * **A site's mark goes to the SITE's page, and the kind is what decides that — never the key.**
+ *
+ * The two catalogue kinds carry ids from two tables and the same id can name a row in each, so a
+ * press that read the key without the kind would open a centre's page from a site's dot. Both
+ * marks navigate now, which is what makes that mistake reachable and invisible: it would still
+ * push a route, still land on a real page, and only be wrong about which.
  */
-it('opens a sheet from a site’s mark even when a centre shares its id', async () => {
+it('sends a site’s mark to the site’s page even when a centre shares its id', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([site({ id: 'shared', name: 'Vis', country: 'Croatia', latitude: 43.06, longitude: 16.18 })]),
   );
-  mockUseDiveCenters.mockReturnValue(centresState([centre({ id: 'shared', name: 'Ponorka' })]));
+  mockUseDiveCenters.mockReturnValue(
+    centresState([centre({ id: 'shared', name: 'Ponorka', latitude: 50.08, longitude: 14.44 })]),
+  );
   const t = await show();
   await press(t, 'Show community sites');
+  await press(t, 'Show dive centres');
   await tapMark(t, 'Vis, dive site');
-  expect(router.push).not.toHaveBeenCalled();
-  expect(textIn(t)).toContain('Croatia');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/shared');
+  await tapMark(t, 'Ponorka, dive centre');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/shared');
+  // ...and neither opened a sheet on the way.
+  expect(allNodes(t).filter((n) => String(n.props?.accessibilityLabel ?? '').startsWith('Close '))).toHaveLength(0);
 });
 
 /**
- * **One sheet at a time, even where the two key spaces touch.**
+ * **The two key spaces touch, and the kind is what keeps them apart.**
  *
  * A place's key is `site:<id>` / `name:<fold>` / `dive:<id>` and a catalogue mark's key is the
  * row's own id, so the two overlap only if a `dive_sites` row is literally called `site:s1` —
  * which nothing this app writes ever is (§6's ids are client-generated UUIDv7) and which a pull
- * from a server this build did not write could still deliver. Both sheets are looked up by KIND
- * as well as by key for that, and measured: replacing the kind check with a null check left every
- * other assertion in this file green, because nothing else here makes the two spaces meet.
+ * from a server this build did not write could still deliver. The sheet is looked up by KIND as
+ * well as by key for that, and it was measured under M3e: replacing the kind check with a null
+ * check left every other assertion in this file green, because nothing else here makes the two
+ * spaces meet.
  */
-it('opens one sheet when a catalogue row is named like a place key', async () => {
+it('tells a place from a catalogue row whose id spells a place key', async () => {
   mockUseDives.mockReturnValue(divesState([pinned({ maxDepthM: 18.2 })]));
   mockUseDiveSites.mockReturnValue(
     catalogueState([site({ id: 'site:s1', name: 'Vis', country: 'Croatia', latitude: 43.06, longitude: 16.18 })]),
@@ -955,16 +1015,16 @@ it('opens one sheet when a catalogue row is named like a place key', async () =>
 
   await tapMark(t, 'Blue Hole, 1 dive');
   expect(textIn(t)).toContain('1 dive · deepest 18.2 m');
-  expect(textIn(t)).not.toContain('Croatia');
   expect(closes()).toHaveLength(1);
+  expect(router.push).not.toHaveBeenCalled();
 
-  // ...and the other way round, which is a separate mutation and was separately green: the
-  // catalogue row's sheet must not also open the place whose key its id happens to spell.
+  // ...and the other way round, which is a separate failure: the catalogue row's mark must open
+  // its own page and must not select the place whose key its id happens to spell.
   await press(t, 'Close Blue Hole');
   await tapMark(t, 'Vis, dive site');
-  expect(textIn(t)).toContain('Croatia');
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/site:s1');
   expect(textIn(t)).not.toContain('1 dive · deepest 18.2 m');
-  expect(closes()).toHaveLength(1);
+  expect(closes()).toHaveLength(0);
 });
 
 // `dive_centers.name` is nullable in both databases (§6), so a row with none can arrive by pull.

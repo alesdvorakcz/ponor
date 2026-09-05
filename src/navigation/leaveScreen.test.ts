@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 
-import { backToCenters, backToDives, backToMap, backToSettings } from './leaveScreen';
+import { backToCenters, backToDives, backToMap, backToSettings, backToSites } from './leaveScreen';
 
 // The same expo-router shape both screen tests already mock — `router` is a plain object of
 // functions, so the whole module is replaced rather than any one method spied on.
@@ -34,6 +34,10 @@ const exits = [
   // the fallback assertion below able to fail at all.
   ['backToMap', backToMap, '/map'],
   ['backToCenters', backToCenters, '/centers'],
+  // ...and the one M3f added: a site's page sits on the sites directory, which sits on the Map
+  // beside the centres one. Both directories share `backToMap` rather than each getting an exit
+  // of its own, because they are reached from one screen and land on it.
+  ['backToSites', backToSites, '/sites'],
 ] as const;
 
 it.each(exits)('%s pops the navigation stack when there is history to go back to', (_name, leave) => {

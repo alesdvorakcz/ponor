@@ -52,13 +52,17 @@ export function backToSettings(): void {
 }
 
 /**
- * The way out of the centres directory (M3c), which is reached from §3's Map tab — the layer
- * that draws the centres the catalogue has a position for, and which is where a diver who
- * wanted the whole list pressed *All centres*.
+ * The way out of either catalogue directory — centres (M3c) and sites (M3f) — both of which are
+ * reached from §3's Map tab, where the filter that draws a kind also carries the pill that opens
+ * the whole list of it.
  *
  * The Map rather than the Dives list, on `backToSettings`' own reasoning: a diver who deep-linked
- * into the directory and pressed the way out should land on the screen it belongs to, not on an
+ * into a directory and pressed the way out should land on the screen it belongs to, not on an
  * answer to a question they did not ask.
+ *
+ * **One exit for both directories rather than two**, unlike the two page exits below: they are
+ * reached from one screen and land on it, so a `backToMapFromSites` would be the same call under
+ * a second name. The pages differ because they land on *different* screens.
  */
 export function backToMap(): void {
   leaveTo('/map');
@@ -73,4 +77,14 @@ export function backToMap(): void {
  */
 export function backToCenters(): void {
   leaveTo('/centers');
+}
+
+/**
+ * The way out of one site's page (M3f) — `backToCenters`' twin one table over, and reached from
+ * the same three kinds of place: the sites directory, a mark on the Map's community layer, and a
+ * dive's own *Site* row. The pop is what does the work; the fallback is consulted only on a cold
+ * deep link, where the directory is the screen this page belongs beneath.
+ */
+export function backToSites(): void {
+  leaveTo('/sites');
 }

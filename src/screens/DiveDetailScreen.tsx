@@ -174,21 +174,20 @@ interface Field {
   mono: boolean;
   computed?: boolean;
   /**
-   * Where pressing this row goes, for the one row on this screen that goes anywhere (M3c): the
-   * **centre**, when §6's `center_id` pairs the dive to a catalogue row.
+   * Where pressing this row goes, for the two rows on this screen that go anywhere: the **centre**
+   * (M3c) and the **site** (M3f), each when §6's `*_id` pairs the dive to a catalogue row.
    *
    * **Present only when the dive carries an id**, which is the whole rule and is worth stating
-   * because the other case is the ordinary one. §6 stores `center_id` *and* a `center_name`
-   * snapshot; a centre typed by hand and never published has the snapshot and no id, so there is
-   * no row to open and the row stays exactly what it was — text. That is not a degraded state:
-   * §2.3 makes a name-only centre the normal case, and every dive logged before M2o has one.
+   * because the other case is the ordinary one. §6 stores each id *and* a name snapshot; a place
+   * typed by hand and never published has the snapshot and no id, so there is no row to open and
+   * the row stays exactly what it was — text. That is not a degraded state: §2.3 makes a name-only
+   * place the normal case, and every dive logged before M2o has one.
    *
-   * A dive whose id names a centre this device does not hold — an admin has hidden it, or a pull
-   * has not brought it down — still gets the link, and the centre's page says it could not find
-   * it. That is `DiveDetailScreen`'s own shape for a dive reached by an unknown id, one screen
-   * along, rather than a second rule: the alternative is reading the whole centres catalogue here
-   * to decide whether one row may be pressed, which makes the dive detail depend on a table it
-   * otherwise never touches.
+   * A dive whose id names a row this device does not hold — an admin has hidden it, or a pull has
+   * not brought it down — still gets the link, and that row's page says it could not find it. That
+   * is `DiveDetailScreen`'s own shape for a dive reached by an unknown id, one screen along, rather
+   * than a second rule: the alternative is reading the whole catalogue here to decide whether one
+   * row may be pressed, which makes the dive detail depend on tables it otherwise never touches.
    */
   opens?: Href;
 }
@@ -397,7 +396,19 @@ function CompleteButton({ dive, styles }: { dive: Dive; styles: Styles }) {
  */
 function whereFields(dive: Dive): Field[] {
   const fields: Field[] = [];
-  if (dive.siteName !== null) fields.push({ label: 'Site', value: dive.siteName, mono: false });
+  if (dive.siteName !== null) {
+    // **The link is the id's, never the snapshot's** (M3f, on M3c's own rule one column over).
+    // §6 pairs `site_id` with a `site_name` snapshot; a site typed by hand and never published has
+    // the snapshot and no id, so there is no row to open and the row stays exactly what it was —
+    // text. That is the ordinary case rather than a fault: §2.3 only started publishing sites in
+    // M2o, and every dive logged before it is one.
+    fields.push({
+      label: 'Site',
+      value: dive.siteName,
+      mono: false,
+      opens: dive.siteId === null ? undefined : `/site/${dive.siteId}`,
+    });
+  }
   if (dive.centerName !== null) {
     // **The link is the id's, never the snapshot's** (M3c). §6 pairs `center_id` with a
     // `center_name` snapshot, and `Field.opens` above carries why a dive with only the snapshot

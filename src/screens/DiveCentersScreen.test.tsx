@@ -13,8 +13,9 @@ import { dive } from '../domain/diveFixture';
 import { CATALOGUE_UNREADABLE } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
 import { UNNAMED_CENTER } from '../format/display';
+import { LIVE_SEARCH_DELAY_MS } from '../hooks/useCatalogueSupplement';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import DiveCentersScreen, { LIVE_SEARCH_DELAY_MS } from './DiveCentersScreen';
+import DiveCentersScreen from './DiveCentersScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));

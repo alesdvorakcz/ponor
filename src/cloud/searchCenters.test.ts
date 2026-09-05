@@ -145,6 +145,26 @@ it.each([[null], [{}], ['rows'], [undefined]])('answers nothing for a body shape
   expect(await searchCenters(withServer(answered(data)), 'Ponorka')).toEqual([]);
 });
 
+/**
+ * **The array check is `Array.isArray` and not "can this be mapped", and until M3f nothing here
+ * could tell the two apart.**
+ *
+ * Every body in the case above answers `[]` whether the check is there or not: `null.map` and
+ * `'rows'.map` throw, and the reader's own `catch` returns the same empty list — so deleting the
+ * guard left this file green, measured rather than assumed. The distinction is only visible for a
+ * body that is not an array and *would* map, which is what this passes: without the guard those
+ * rows come back raw, in the server's snake_case, and are handed to the catalogue as if they had
+ * been read.
+ *
+ * Contrived as a payload and exact as a rule: `jsonb` cannot produce this, and what the guard
+ * actually says is "anything that is not an array is a server this build does not understand" —
+ * which is a statement about the shape, not about whether the next line happens to throw.
+ */
+it('refuses a body that is not an array even when it could be mapped', async () => {
+  const mappable = { map: (fn: (row: unknown) => unknown) => [fn(PONORKA)] };
+  expect(await searchCenters(withServer(answered(mappable)), 'Ponorka')).toEqual([]);
+});
+
 // §1: the app runs offline, and a directory of shops must work at sea. Every way of failing
 // answers the same empty list and the device's own rows are what the diver is reading.
 it('answers nothing when the call itself rejects', async () => {

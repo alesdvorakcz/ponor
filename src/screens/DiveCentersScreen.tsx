@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { router } from 'expo-router';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,15 +6,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
 import { SearchCapsule } from '../components/SearchCapsule';
 import { applyPulledDiveCenters } from '../db/catalogue';
-import { db } from '../db/client';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
 import { searchCenters } from '../cloud/searchCenters';
-import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { isDiveWithCenter } from '../domain/centerDives';
 import { CATALOGUE_UNREADABLE } from '../domain/logbook';
-import { browseCenters } from '../domain/search';
+import { browseCatalogue } from '../domain/search';
+import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
 import { type DiveCenter } from '../domain/types';
 import { formatCenterCount, formatCenterRow, UNNAMED_CENTER } from '../format/display';
 import { backToMap } from '../navigation/leaveScreen';
@@ -25,17 +24,6 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * in a capsule. Exported so `symbolName.test.tsx` can check the Android half against a real
  * Material name, for the reason `SearchScreen`'s own close glyph is. */
 export const CLOSE_CENTERS_GLYPH = { ios: 'xmark', android: 'close' } as const;
-
-/**
- * **How long after the last keystroke the server is asked** (§2.3's *"live search adds anything
- * newer when online"*).
- *
- * A number rather than a call per keystroke, because a keystroke is not a question: a diver
- * typing `Ponorka` would otherwise send seven round trips, six of which are already stale when
- * they land. 400 ms is a pause rather than a delay — the device's own answer is already on
- * screen the whole time, so what this delays is a list getting *longer*, never a list appearing.
- */
-export const LIVE_SEARCH_DELAY_MS = 400;
 
 /**
  * **The dive centres directory** (`/centers`, M3c) — §2.3's *"typing a site or center searches
@@ -79,43 +67,16 @@ export default function DiveCentersScreen() {
   const [query, setQuery] = useState('');
 
   /**
-   * **The online supplement**, debounced, and deliberately fire-and-forget.
-   *
-   * Nothing on screen waits for it and nothing reports it: `searchCenters` answers `[]` for every
-   * way of failing (no backend in this build, nobody signed in, no signal, a server that refused)
-   * and the device's own rows are what the diver is reading meanwhile. §1 is the whole of that —
-   * a directory of shops must work at sea — and §0.6 is the rest: a notice under a search field
-   * that fired on every keystroke made out of signal is a message with no gesture beneath it.
-   *
-   * The write is `applyPulledDiveCenters`, which is `applyPulledRows` (db/dirty.ts): rows land
-   * **clean**, only where they may safely replace what is here, and `sync_state` is untouched —
-   * the migration is explicit that advancing the watermark on a filtered answer would step it
-   * past everything the filter excluded.
+   * **The online supplement**, debounced and fire-and-forget —
+   * `hooks/useCatalogueSupplement.ts`, which owns the pause, the cancellation and the silence, and
+   * carries the whole of why none of them is reported. It was written out here until the sites
+   * directory needed the identical effect (M3f); what stays at this call site is the pair that has
+   * to differ, and the hook's shared type variable is what stops the centres RPC being handed the
+   * sites writer.
    */
-  useEffect(() => {
-    const wanted = query.trim();
-    if (wanted === '') return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const rows = await searchCenters(cloud, wanted);
-          if (cancelled || rows.length === 0) return;
-          await applyPulledDiveCenters(db, rows);
-        } catch {
-          // The read cannot throw (that module's own contract); the write can, and a catalogue
-          // that refused a write is the same outcome as a server that never answered — the
-          // device's own rows, already on screen.
-        }
-      })();
-    }, LIVE_SEARCH_DELAY_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query]);
+  useCatalogueSupplement(query, searchCenters, applyPulledDiveCenters);
 
-  const shown = browseCenters(catalogue.centers, query);
+  const shown = browseCatalogue(catalogue.centers, query);
 
   const close: readonly CapsuleAction[] = [
     { key: 'close-centers', symbol: CLOSE_CENTERS_GLYPH, label: 'Close centres', onPress: backToMap },

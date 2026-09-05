@@ -554,12 +554,15 @@ export const NON_BREAKING_SPACE = '\u00A0';
  * the fold the middot lands on, because the space in front of it is still a break opportunity and
  * the platform takes the last one that fits.
  *
- * **`formatLogbookSummary` deliberately still uses the other one.** M1m chose its separator
- * knowing the line wraps, and its own test states the reason in as many words: the separator is
- * "the whole of what may break", and a fully non-breaking one would leave the header no fold at
- * all. Half of that survives here \u2014 the space after the middot still breaks \u2014 but it is a change
- * to a settled decision on a screen this task is not about, so the Dives header is left alone and
- * the report for M3e says what was seen.
+ * **`formatLogbookSummary` uses this too, since M3f.** It did not while M3e was the only caller,
+ * and the reason it did not has not survived a second look. M1m's rule was that the separator is
+ * *"the whole of what may break"*, and a fully non-breaking one would leave the header no fold at
+ * all \u2014 which is true and is not what this constant is: the space **after** the middot still
+ * breaks, so the header still folds in exactly the place M1m's own sheet draws it. What changes is
+ * only which side of that fold the middot lands on, and the Dives header had the same defect M3e
+ * measured on the map \u2014 `128 dives \u00b7 96 h 12 min` above `\u00b7 deepest 41.2 m`, a second line opening
+ * with what reads as a bullet. One line has a measure and folds; both of the app's two such lines
+ * now fold the same way.
  */
 export const WRAPPING_SEPARATOR = `${NON_BREAKING_SPACE}· `;
 
@@ -913,14 +916,24 @@ export function formatDaysSince(days: number | null): string | null {
  * figure loses its unit or its label, which is a worse line than the one the cap prevents.
  *
  * So **a figure is one unbreakable unit and the middots are the only break opportunities**:
- * every space INSIDE a figure is U+00A0, and `METADATA_SEPARATOR`'s are left ordinary. That is a
- * rule about the line rather than about any one string, so it holds for `1 dive · 47 min`, for
- * feet, and for §0.5's Czech, which is 20–30 % longer and is the case that wraps first.
+ * every space INSIDE a figure is U+00A0. That is a rule about the line rather than about any one
+ * string, so it holds for `1 dive · 47 min`, for feet, and for §0.5's Czech, which is 20–30 %
+ * longer and is the case that wraps first.
  *
  * It belongs here rather than in `formatDiveCount` and friends because those figures are read
  * inside rows that do not wrap, where a non-breaking space would be an invisible difference
  * with no consequence — and §4.1's rule is that a shared owner keeps the shared meaning. What
  * is specific to the header is that the line has a measure.
+ *
+ * **And the middot travels with the figure in front of it** (`WRAPPING_SEPARATOR`, M3f). M1m
+ * settled *whether* the line may break inside a figure and left *which side of the break the
+ * middot lands on* to the platform, which takes the last opportunity that fits — so the header
+ * could and did fold as `128 dives · 96 h 12 min` above `· deepest 41.2 m`, a second line opening
+ * with what reads as a bullet in a list rather than the tail of a sentence. M3e measured that on
+ * `formatMapSummary` and fixed it there, recording the Dives header as the same defect left
+ * standing because M1m had chosen its separator deliberately. It had — for the half of the
+ * question it was answering. The line still has somewhere to fold, because the space *after* the
+ * middot is still ordinary; it simply cannot fold in front of one.
  */
 export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): string {
   const parts: string[] = [formatDiveCount(stats.dives)];
@@ -931,7 +944,7 @@ export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): s
   const deepest = formatDepth(stats.deepestM, system);
   if (deepest !== null) parts.push(`deepest ${deepest}`);
 
-  return parts.map((figure) => figure.replace(/ /gu, NON_BREAKING_SPACE)).join(METADATA_SEPARATOR);
+  return parts.map((figure) => figure.replace(/ /gu, NON_BREAKING_SPACE)).join(WRAPPING_SEPARATOR);
 }
 
 /**
@@ -1071,12 +1084,15 @@ export function formatDiveCount(count: number): string {
 }
 
 /**
- * How many catalogue sites, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling
- * above, and private because its one caller is the Map tab's summary line directly below.
- * English needs one comparison and Czech needs three forms (§0.5, i18next in M3), which is the
- * whole reason a plural lives in this module rather than in a template literal on a screen.
+ * How many catalogue sites, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling above,
+ * and `formatCenterCount`'s one table over. English needs one comparison and Czech needs three
+ * forms (§0.5, i18next in M3), which is the whole reason a plural lives in this module rather than
+ * in a template literal on a screen.
+ *
+ * **Exported since M3f**, when the sites directory became its second caller — the Map tab's
+ * summary line below was the first and the only one while the word appeared once in the app.
  */
-function formatSiteCount(count: number): string {
+export function formatSiteCount(count: number): string {
   return `${count} ${count === 1 ? 'site' : 'sites'}`;
 }
 
@@ -1253,6 +1269,45 @@ export function formatCenterCount(count: number): string {
 export function formatCenterRow(center: Pick<DiveCenter, 'country'>, dives: number): string | null {
   const parts: string[] = [];
   if (center.country !== null && center.country !== '') parts.push(center.country);
+  if (dives > 0) parts.push(formatDiveCount(dives));
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
+}
+
+/**
+ * **A site's second line in the directory** (M3f) — `"CZ · Shore · Fresh · Quarry · 42.0 m ·
+ * 3 dives"`, or null when neither half has anything behind it.
+ *
+ * **`formatCenterRow`'s deliberate near-duplicate, and §4.1 requires it to say what it answers
+ * differently.** That one has one catalogue fact to state, because §6 gives a centre a `website`
+ * and a country and nothing else a directory row could carry. A site has four more — `entry`,
+ * `salinity`, `water_body` and its own `max_depth_m` — and they are the reason a diver opens a
+ * catalogue of rocks at all. So the two rows are the same shape over different content, which is
+ * exactly the difference §6 draws between the two tables, and unifying them would mean picking one
+ * table's facts for both.
+ *
+ * **The facts half is `formatSiteFacts` and is never re-listed here.** That function is the Map's
+ * own line about a site, so a row in this directory and a place's card on the map cannot describe
+ * one site in two vocabularies (§4.1) — what differs between the two surfaces is the diver's own
+ * dive count, which a map sheet has its own better answer for.
+ *
+ * **A site the diver has never dived shows no count, rather than `0 dives`** — this module's
+ * standing rule (a figure with nothing behind it is omitted, never drawn as a placeholder) doing
+ * real work: most rows in a community catalogue are places this diver has never been, and a column
+ * of noughts would be the list telling them something they already know, once per row, in the slot
+ * where the interesting rows say something. The site's own **page** is the other answer and
+ * deliberately differs: there `formatSiteSummary` always states the count, because a page opened
+ * to ask "what have I done here" must answer even when the answer is none.
+ *
+ * Null rather than `''`, so a caller draws no line at all instead of an empty one — the contract
+ * `formatSiteFacts` and `formatCenterRow` already keep.
+ */
+export function formatSiteRow(
+  site: Pick<DiveSite, 'country' | 'entry' | 'salinity' | 'waterBody' | 'maxDepthM'>,
+  dives: number,
+  system: UnitSystem,
+): string | null {
+  const facts = formatSiteFacts(site, system);
+  const parts: string[] = facts === null ? [] : [facts];
   if (dives > 0) parts.push(formatDiveCount(dives));
   return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { router } from 'expo-router';
-import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
+import { router, type Href } from 'expo-router';
+import {
+  FlatList,
+  Pressable,
+  Text,
+  View,
+  useColorScheme,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
@@ -45,7 +53,7 @@ import {
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { locationPermission } from '../platform/locationPermission';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
+import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
 /**
  * ── §3's layers are a FILTER, not a mode (owner's call, M3e, reversing M3c) ────────────────
@@ -69,9 +77,16 @@ import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
  *
  * **What the reversal cost, stated because M3c's argument for modes was that they cost nothing:**
  * a centre's mark needs a symbol inside it, a site a diver has dived would be drawn twice at one
- * coordinate if nothing stopped it (`sitesWithoutYourMark`, domain/mapSites.ts), and a tap now
- * means two different things depending on which mark it lands on. All three were the reasons not
- * to mix; all three are paid here rather than avoided.
+ * coordinate if nothing stopped it (`sitesWithoutYourMark`, domain/mapSites.ts), and a tap means
+ * two things depending on which mark it lands on. All three were the reasons not to mix; all three
+ * are paid here rather than avoided.
+ *
+ * **The third of those is now a rule instead of an exception** (M3f). It read "a centre's mark
+ * navigates and the other two open a sheet" because a site had no page to navigate to; `/site/[id]`
+ * exists now, so it reads **a catalogue row goes to its page, your own dives open a sheet** — and
+ * the mark says which, because the mark that opens a sheet is the one wearing a numeral. See
+ * `pressMark` for the whole of it, including which sheet went with the change and why M3e's own
+ * §4.1 argument is what removed it.
  */
 
 /**
@@ -134,6 +149,50 @@ function catalogueMarks<T extends { id: string }>(
   label: (row: T) => string,
 ): MapMark[] {
   return placed.map(({ row, point }) => ({ kind, key: row.id, label: label(row), point }));
+}
+
+/**
+ * **A pill on this screen that leaves it for a catalogue screen** — the two directory links under
+ * the summary line, and the site's page from an open sheet.
+ *
+ * §0.6's day-strip action: *"a bordered pill in tracked uppercase, not plain text, so it reads as
+ * a control rather than a label"*. One component rather than three copies of a Pressable wrapping
+ * a View wrapping a Text — this screen had one of them and grew two more in M3f, which is the
+ * point at which a shape becomes a rule (§4.1).
+ *
+ * The 48 dp box (§0.5) is the Pressable and the pill inside it is smaller — `dayStripAction`'s own
+ * "small visible control, generous hidden target" split. `style` is the outer box, because the
+ * sheet's copy sits inside a card rather than in the header row and takes that card's padding.
+ *
+ * `announce` is for the one link whose label is not what it opens: *All sites* and *All centres*
+ * say what they do, and *Site page* is a category, so the sheet's copy announces the place by
+ * name. That is Settings' rule for every row that opens something.
+ */
+function DirectoryLink({
+  label,
+  href,
+  announce,
+  style,
+  styles,
+}: {
+  label: string;
+  href: Href;
+  announce?: string;
+  style?: StyleProp<ViewStyle>;
+  styles: Styles;
+}) {
+  return (
+    <Pressable
+      style={style ?? styles.mapDirectoryAction}
+      onPress={() => router.push(href)}
+      accessibilityRole="button"
+      accessibilityLabel={announce ?? label}
+    >
+      <View style={styles.mapDirectoryActionPill}>
+        <Text style={styles.mapDirectoryActionLabel}>{label}</Text>
+      </View>
+    </Pressable>
+  );
 }
 
 /**
@@ -458,17 +517,18 @@ export default function MapScreen() {
   const messages = emptiness();
 
   /**
-   * The place whose sheet is open, or the catalogue site whose sheet is open — **looked up in
-   * what is actually drawn** rather than stored, so a selection that outlives its mark closes
-   * the sheet instead of describing something that is gone: a dive deleted on another screen, a
-   * pull that merges a site away, or a filter that took the mark off the map.
+   * The place whose sheet is open — **looked up in what is actually drawn** rather than stored, so
+   * a selection that outlives its mark closes the sheet instead of describing something that is
+   * gone: a dive deleted on another screen, a pull that merges a site away, or a filter that took
+   * the mark off the map.
+   *
+   * **Only a place of the diver's own can be selected now** (M3f). A catalogue mark of either kind
+   * navigates to that row's page, so `selected` is `kind: 'mine'` in practice — the type still
+   * carries all three because `MapMarkRef` is `DiveMap`'s vocabulary and the lookup is written to
+   * find nothing for the other two rather than to assume they cannot arrive.
    */
   const selectedPlace =
     selected?.kind === 'mine' ? places.find((place) => place.key === selected.key) : undefined;
-  const selectedSite =
-    selected?.kind === 'community'
-      ? communitySites.find(({ row }) => row.id === selected.key)?.row
-      : undefined;
 
   /**
    * **What the catalogue knows about the place a dive sheet is describing** — the other half of
@@ -490,26 +550,39 @@ export default function MapScreen() {
       ? undefined
       : catalogue.sites.find((row) => catalogueSiteIdentity(row.id) === selectedPlace.key);
   const placeFacts = placeSite === undefined ? null : formatSiteFacts(placeSite, units);
-  const siteFacts = selectedSite === undefined ? null : formatSiteFacts(selectedSite, units);
 
   /**
-   * **What a tapped mark does, and it is not the same act on all three kinds.**
+   * **What a tapped mark does, and the rule is now one sentence: a catalogue row goes to its
+   * page, and your own dives open a sheet** (M3f).
    *
-   * A site — the diver's own place or the catalogue's row — opens a sheet, because a site has
-   * nowhere else in the app to be shown: the sheet *is* its page. **A centre has a page**, so its
-   * mark goes there, and drawing a peek of that page under the map would be the same three facts
-   * in two places for one of them to fall behind (§4.1).
+   * M3e had to say it in two, and said so: *"A site — the diver's own place or the catalogue's row
+   * — opens a sheet, because a site has nowhere else in the app to be shown: the sheet IS its
+   * page. A centre has a page, so its mark goes there, and drawing a peek of that page under the
+   * map would be the same three facts in two places for one of them to fall behind (§4.1)."* The
+   * premise of the first half was true when it was written and is not now: `/site/[id]` exists, so
+   * a community site's sheet became precisely the peek that paragraph refuses — its whole content
+   * was `formatSiteFacts`, which is a strict subset of the page's own cluster. The sheet went, and
+   * M3e's own §4.1 argument is what removed it rather than a new opinion.
    *
-   * **M3c gave that asymmetry to the layer and M3e has to give it back to the mark**, which is one
-   * of the three prices the filter pays: "on the centres layer *every* mark navigates, so a diver
-   * never has to work out which kind of thing they are about to press" is not available when the
-   * three are drawn together. What pays for it instead is the `storefront` glyph inside a centre's
-   * mark — the one kind whose press leaves the screen is the one kind whose mark carries a symbol,
-   * and the filter's own capsule shows the same symbol one press away.
+   * **What is left is a better rule than the one it replaces**, and it is legible from the mark:
+   * the mark that opens a sheet is the one wearing a numeral, because the numeral is what says
+   * *these dives are yours*. The two catalogue marks — a plain dot and a storefront glyph — both
+   * leave the screen. M3e's worry was that a diver should never have to work out which kind of
+   * thing they are about to press, and one rule over two kinds of interior answers it better than
+   * one exception did.
+   *
+   * The sheet a diver's own place opens is unchanged and is not a page of anything: it is about a
+   * GROUP OF DIVES, which may have no catalogue row behind it at all (every dive at a hand-typed
+   * site), and it draws them in their own depth bands. Where the catalogue does know the place, the
+   * sheet says so and offers the page (`placeSite` above).
    */
   const pressMark = (mark: MapMark) => {
     if (mark.kind === 'centers') {
       router.push(`/center/${mark.key}`);
+      return;
+    }
+    if (mark.kind === 'community') {
+      router.push(`/site/${mark.key}`);
       return;
     }
     setSelected({ kind: mark.kind, key: mark.key });
@@ -537,30 +610,31 @@ export default function MapScreen() {
       <View style={styles.mapArea}>
         {title}
         {summary !== null && <Text style={styles.mapSummary}>{summary}</Text>}
-        {/* **The way into the directory, while centres are switched on and not otherwise**
-            (M3c). §0.6's day-strip action — "a bordered pill in tracked uppercase, not plain
-            text, so it reads as a control rather than a label" — because that is exactly what
-            this is, and inventing a second treatment for one control is what §0.6 exists to stop.
+        {/* **The ways into the two directories, each while its own kind is switched on** (M3c for
+            centres, M3f for sites). §0.6's day-strip action — "a bordered pill in tracked
+            uppercase, not plain text, so it reads as a control rather than a label" — because that
+            is exactly what these are, and inventing a second treatment for one control is what
+            §0.6 exists to stop.
 
-            It is tied to the filter rather than living in the capsule for a measured reason: the
-            header's trailing reserve is derived from a glyph COUNT, so a fourth glyph that
-            appeared in one state only would either under-reserve there or leave a column of empty
-            header on the others. And it is drawn on **every** branch, the failing one included,
-            on the same reasoning the capsule is: the directory reads the same table and says so
-            for itself, and a control that vanished when the data failed would strand a diver on
-            the broken half. */}
-        {shown.has('centers') && (
-          <View style={styles.mapCentersRow}>
-            <Pressable
-              style={styles.mapCentersAction}
-              onPress={() => router.push('/centers')}
-              accessibilityRole="button"
-              accessibilityLabel="All centres"
-            >
-              <View style={styles.mapCentersActionPill}>
-                <Text style={styles.mapCentersActionLabel}>All centres</Text>
-              </View>
-            </Pressable>
+            They are tied to the filter rather than living in the capsule for a measured reason:
+            the header's trailing reserve is derived from a glyph COUNT, so a glyph that appeared
+            in one state only would either under-reserve there or leave a column of empty header on
+            the others. And they are drawn on **every** branch, the failing one included, on the
+            same reasoning the capsule is: a directory reads the same table and says so for itself,
+            and a control that vanished when the data failed would strand a diver on the broken
+            half.
+
+            **One row for both.** A second row would push the map down by a row's height for a
+            diver who switched both kinds on, and the two pills are the same object about two
+            tables; the row is only drawn at all when at least one of them is in it. */}
+        {(shown.has('community') || shown.has('centers')) && (
+          <View style={styles.mapDirectoryRow}>
+            {shown.has('community') && (
+              <DirectoryLink label="All sites" href="/sites" styles={styles} />
+            )}
+            {shown.has('centers') && (
+              <DirectoryLink label="All centres" href="/centers" styles={styles} />
+            )}
           </View>
         )}
         {failures.map((sentence) => (
@@ -608,10 +682,28 @@ export default function MapScreen() {
             <Text style={styles.mapSheetSummary}>
               {formatSiteSummary(logbookStats(selectedPlace.dives), waterTempRange(selectedPlace.dives), units)}
             </Text>
-            {/* What the catalogue knows about this place, when it knows it at all — the same
-                line a community site's own sheet draws, from the same formatter, so a place and
-                a row cannot describe themselves differently. */}
+            {/* What the catalogue knows about this place, when it knows it at all — one line from
+                `formatSiteFacts`, which is also what the site's own page spells out as labelled
+                rows. **Two renderings of five values and not two answers**: every value comes from
+                the same formatter either way, so the words cannot drift; what differs is the
+                measure, since a card under a map has one line and a page has rows. That is the
+                same relation `formatCenterRow` already has to a centre page's fact rows. */}
             {placeFacts !== null && <Text style={styles.mapSheetFacts}>{placeFacts}</Text>}
+            {/* **And the way to that page, for the place the catalogue does know.** This is what
+                makes absorbing a catalogue row into the diver's own mark cost nothing (M3e's rule,
+                `sitesWithoutYourMark`): the dot is gone, and the facts AND the page it led to are
+                both still reachable from the mark standing on it. Drawn only where there is a row
+                to open — a dive at a hand-typed site has no page, which is every dive in a logbook
+                that has never synced. */}
+            {placeSite !== undefined && (
+              <DirectoryLink
+                label="Site page"
+                href={`/site/${placeSite.id}`}
+                announce={`Open ${siteLabel(placeSite)}`}
+                style={styles.mapSheetAction}
+                styles={styles}
+              />
+            )}
             {/* **And here is where the depth palette lives on this screen** — one `DiveRow` per
                 dive, each with its own depth in its own band, beside its own number, exactly as
                 on the logbook. Nothing about a dive is re-rendered specially for the map. */}
@@ -637,18 +729,6 @@ export default function MapScreen() {
                 { paddingBottom: screenBottomInset(insets.bottom) },
               ]}
             />
-          </View>
-        )}
-        {selectedSite !== undefined && (
-          <View style={[styles.mapSheet, { paddingBottom: screenBottomInset(insets.bottom) }]}>
-            <View style={styles.mapSheetHeader}>
-              <Text style={styles.mapSheetTitle}>{siteLabel(selectedSite)}</Text>
-              {closeSheet(`Close ${siteLabel(selectedSite)}`)}
-            </View>
-            {/* What the catalogue knows, or no line at all: §5 asks a new site only for a name,
-                so a row with nothing else is the expected shape rather than a degraded one, and
-                `formatSiteFacts` returns null rather than an empty line for it. */}
-            {siteFacts !== null && <Text style={styles.mapSheetFacts}>{siteFacts}</Text>}
           </View>
         )}
         {/* Last inside the region so nothing it overlaps can cover it back, exactly as on the
@@ -678,14 +758,13 @@ export default function MapScreen() {
  * region as props and holds no opinion about what a tap on the surface means, so a picker can
  * render the same component with one mark and its own handler.
  *
- * **What a site's own page is left to do** (M3e; brief §6 says it is the next task). The in-map
- * sheet now carries everything the *logbook* knows about a place and everything the *catalogue*
- * knows about it, in one card, for a site the diver has dived. What it cannot be is a page: it is
- * reachable only by finding the mark, it has no route, it cannot be linked to from a dive, and it
- * says nothing about a site the diver has **never** dived beyond the one facts line. So the page
- * owes a route (`/site/[id]`), a way in from the dive detail's *Site* row — the exact shape M3c
- * gave the *Centre* row — and a directory at `/sites`, which is also where §2.3's still-uncalled
- * `search_sites` RPC finally gets a caller. The sheet is not a prototype of that page; it is the
- * map's own answer, and both can exist for the reason `DiveCenterScreen` and this sheet already
- * do — one is about a mark, the other about a row.
+ * **A site's own page was what M3e left owed, and M3f built it.** That note asked for four things
+ * and all four are here: the route (`/site/[id]`), the way in from the dive detail's *Site* row,
+ * the directory at `/sites`, and a caller at last for §2.3's `search_sites`. What it got wrong was
+ * the last sentence — *"the sheet is not a prototype of that page; both can exist"* — which is
+ * true of the sheet a diver's OWN place opens and was not true of the community site's. That one
+ * held `formatSiteFacts` and nothing else, which is a strict subset of the page's own cluster, so
+ * it was the peek §4.1 refuses; it is gone and its mark navigates. The place sheet stays, because
+ * it is about a group of dives rather than about a row, it exists for places the catalogue has
+ * never heard of, and it now carries the way to the page for the ones it has.
  */

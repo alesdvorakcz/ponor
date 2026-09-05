@@ -4,6 +4,7 @@ import { SymbolView } from 'expo-symbols';
 import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
+import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
 import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
@@ -172,6 +173,7 @@ it.each([
   ['map screen’s my-dives switch', MY_DIVES_GLYPH, 'pin_drop'],
   ['map screen’s centres switch', CENTERS_GLYPH, 'storefront'],
   ['centres directory’s close', CLOSE_CENTERS_GLYPH, 'close'],
+  ['sites directory’s close', CLOSE_SITES_GLYPH, 'close'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
   await render(
     <ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />,

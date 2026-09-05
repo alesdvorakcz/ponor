@@ -1695,13 +1695,47 @@ it('leaves the Centre row as plain text when the dive names a centre it never pu
   expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Open Ponorka')).toHaveLength(0);
 });
 
-// The link belongs to the centre and to nothing else on this screen: a site has no page (its
-// sheet on the Map is where it is shown), and every other row here is a value rather than a
-// destination.
-it('makes no other row on the screen a destination', async () => {
+// --- ...and so does the site row, on the same rule (M3f) -------------------------------------
+
+/**
+ * `/site/[id]` exists as of M3f, so the *Site* row is a destination on exactly the terms the
+ * *Centre* row already was: §6 pairs a dive to `site_id` and snapshots `site_name`, and the id is
+ * what decides whether there is a page behind the row.
+ */
+it('opens the site’s page from the Site row when the dive is paired to one', async () => {
+  const d = dive({ siteId: 's-kot', siteName: 'Kotelna' });
+  const t = await renderDetailTree(d);
+  const row = t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Open Kotelna') ?? [];
+  expect(row).toHaveLength(1);
+  await fireEvent.press(row[0]!);
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/s-kot');
+});
+
+/** The same ordinary case one column over: §2.3 only started publishing sites in M2o, so a site
+ * typed by hand has never named a catalogue row and the row stays text. */
+it('leaves the Site row as plain text when the dive names a site it never published', async () => {
+  const d = dive({ siteId: null, siteName: 'Kotelna' });
+  const t = await renderDetailTree(d);
+  expect(textIn(t)).toContain('Kotelna');
+  expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Open Kotelna')).toHaveLength(0);
+});
+
+/**
+ * **The two rows go to two different pages, and nothing else on the screen goes anywhere.**
+ *
+ * Both halves matter and they fail differently. A dive paired to both must not send the *Site*
+ * row to `/center/…` — the two ids sit one line apart in `whereFields` and the columns are one
+ * word different — so the destinations are asserted per row rather than counted. And every other
+ * row here is a value: a buddy, a depth, a suit.
+ */
+it('makes the two paired rows destinations and no others', async () => {
   const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
   const t = await renderDetailTree(d);
-  const opens = (t.root?.queryAll((n) => typeof n.props?.accessibilityLabel === 'string' && String(n.props.accessibilityLabel).startsWith('Open ')) ?? [])
-    .map((n) => String(n.props.accessibilityLabel));
-  expect(opens).toEqual(['Open Ponorka']);
+  const opens = (t.root?.queryAll((n) => typeof n.props?.accessibilityLabel === 'string' && String(n.props.accessibilityLabel).startsWith('Open ')) ?? []);
+  expect(opens.map((n) => String(n.props.accessibilityLabel))).toEqual(['Open Blue Hole', 'Open Ponorka']);
+
+  await fireEvent.press(opens[0]!);
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/s1');
+  await fireEvent.press(opens[1]!);
+  expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/c-p');
 });

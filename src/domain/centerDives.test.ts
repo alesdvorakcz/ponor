@@ -54,6 +54,20 @@ describe('isDiveWithCenter', () => {
     expect(isDiveWithCenter(dive({ centerName: 'Ponorka' }), centre({ id: '' }))).toBe(false);
   });
 
+  /**
+   * **It reads the centre pair and never the site's** (M3f). The two-tier rule itself now lives in
+   * `domain/catalogueDives.ts`, shared with a site's page, and what this module owns is the
+   * projection onto §6's `center_id`/`center_name`. A dive whose SITE is called *Ponorka* is that
+   * projection swapped — the one failure sharing a rule makes cheap to introduce, and one no
+   * fixture whose two columns agree could ever show.
+   */
+  it('reads §6’s centre columns and not the site’s', () => {
+    expect(isDiveWithCenter(dive({ siteName: 'Ponorka', centerName: null }), centre())).toBe(false);
+    expect(isDiveWithCenter(dive({ siteId: 'c1', centerId: null, centerName: null }), centre())).toBe(false);
+    // ...and a dive at a site of another name still belongs by its centre.
+    expect(isDiveWithCenter(dive({ centerName: 'Ponorka', siteName: 'Kotelna' }), centre())).toBe(true);
+  });
+
   // §2.4: a plan is excluded from stats and numbering, and `groupDivesByPlace` already keeps one
   // off the map for the same reason.
   it('excludes a planned dive', () => {

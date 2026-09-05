@@ -344,6 +344,19 @@ function build(scheme: ColorScheme) {
     letterSpacing: 1,
   };
 
+  // §0.5's 48 dp floor around one of those pills, on the Map tab — the "small visible control,
+  // generous hidden target" split `dayStripAction` and `plannedAction` already make, which is why
+  // the pill is nested inside the Pressable rather than being it. One definition for the three
+  // places that box appears on that screen (the two directory pills and the sheet's way to a
+  // site's page), because three copies of five properties is what §4.1 opens with.
+  const mapAction: ViewStyle = {
+    minHeight: 48,
+    minWidth: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  };
+
   // M1c task 11, DESIGN.md §0.6: the Dives screen's floating bottom row — the search
   // capsule and the "+" — is "separated by a soft shadow, not a line," and the "+" shares
   // that exact treatment ("its own floating button beside the capsule ... sharing the same
@@ -745,6 +758,45 @@ function build(scheme: ColorScheme) {
     // the same line without sharing this style.
     paddingTop: SCREEN_HEADING_TOP,
     gap: 20,
+  };
+
+  // **The two definitions the catalogue's four screens share** (M3c wrote them for a centre's
+  // page and directory; M3f gave a site's the same pair and hoisted them here rather than
+  // copying them). Everything else those screens use is already a shared row type; these two are
+  // the only shapes they invented, so a second copy of either is the drift §4.1 opens with — and
+  // an invisible one, since two pages differing by a point of padding is not something a gate
+  // could catch.
+  //
+  // The summary line under a catalogue row's name — `formatSiteSummary`'s "3 dives · deepest
+  // 18.2 m · 18–24 °C", the same sentence the Map tab's own sheet carries about a place, and the
+  // directory's count line. `divesSummary`/`mapSummary`/`mapSheetSummary`'s treatment: a muted
+  // mono line of figures hanging under a title, which §0.6 refuses to give a second size or ink
+  // to. It carries no trailing cap, unlike the two header lines, because nothing floats over
+  // these screens — the cap is a clearance from a capsule, and a screen with no capsule has
+  // nothing to clear.
+  //
+  // **No colour, and the `deepest` in it is why that is a rule**: an aggregate over the dives at
+  // a place is a claim no single band is true of (§0.6's own argument for the Dives header, and
+  // §10 has now ruled it three times).
+  const catalogueSummary: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
+    paddingHorizontal: CONTENT_INSET,
+    paddingBottom: 8,
+  };
+  // A named group on any of the four — a page's *Centre*/*Site* cluster and its *Your dives*, and
+  // a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
+  // §0.6's one treatment for a group header wherever it appears. **`paddingTop` where
+  // `settingsSectionTitle` has none, and it was found by looking.** On Settings a section heading
+  // always follows a row, so the row's own hairline and height give it air; here the first
+  // heading lands directly under the muted summary line, and at 4 pt apart the two read as one
+  // block rather than as a figure and the structure beneath it.
+  const catalogueSectionTitle: TextStyle = {
+    ...clusterLabel,
+    paddingHorizontal: CONTENT_INSET,
+    paddingTop: 12,
+    paddingBottom: 8,
   };
 
   return StyleSheet.create({
@@ -1625,9 +1677,12 @@ function build(scheme: ColorScheme) {
     // and a screen that reported nothing would quietly show fewer marks than were asked for.
     mapNotice: noticeBanner,
     mapNoticeText: noticeBannerText,
-    // **The way into the centres directory**, drawn while centres are switched on (M3c) — the
-    // row it sits in, in the app's one column, directly under the summary line.
-    mapCentersRow: {
+    // **The ways into the two catalogue directories** — centres while centres are switched on
+    // (M3c), sites while community sites are (M3f) — in the row they share, in the app's one
+    // column, directly under the summary line. **One row rather than one per kind**: they are two
+    // pills of the same object side by side, and a second row would move the map down by a row's
+    // height for a diver who switched both on.
+    mapDirectoryRow: {
       flexDirection: 'row',
       paddingHorizontal: CONTENT_INSET,
       paddingBottom: 8,
@@ -1635,19 +1690,33 @@ function build(scheme: ColorScheme) {
     // §0.5's 48 dp floor on the Pressable, centred around a visually smaller pill — the "small
     // visible control, generous hidden target" split `dayStripAction` and `plannedAction` already
     // make, and the reason the pill is nested rather than being the Pressable itself.
-    mapCentersAction: {
-      minHeight: 48,
-      minWidth: 48,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: 4,
-    },
+    mapDirectoryAction: mapAction,
     // The pill and its label: `actionPill`/`actionPillLabel` at the top of this function, the
     // same quiet bordered control §0.6 gives the day strip and an "Up next" row. One definition
     // under a name that says where it is placed — a second set of pill properties for one screen
     // is the drift §4.1 is about.
-    mapCentersActionPill: actionPill,
-    mapCentersActionLabel: actionPillLabel,
+    mapDirectoryActionPill: actionPill,
+    mapDirectoryActionLabel: actionPillLabel,
+    // **The way from a place's sheet to that place's page** (M3f), drawn only where the catalogue
+    // knows the place the sheet is about. Same object as the two above, one screen region down:
+    // the sheet's own card rather than the header row, so it takes the sheet's padding instead of
+    // the content inset.
+    //
+    // **`alignSelf` is the whole difference, and it was found by looking.** The two pills above sit
+    // in a `flexDirection: 'row'`, which makes them hug their own content at the leading edge; this
+    // one is a direct child of the sheet, which stretches, so `mapAction`'s centring — meant for
+    // the pill inside the 48 dp box — centred the box itself and drew the control in the middle of
+    // a card whose every other line is left-aligned. That is M2f's own finding arriving on a third
+    // screen: *"centred while every other element was left-aligned on the content inset, which is a
+    // second idiom for one control"*. Centring is coherent under a full-width button and nowhere
+    // else.
+    // The `marginHorizontal` is `mapSheet`'s own doing: that card sets no column of its own, so
+    // every child brings the content inset with it (`mapSheetHeader`, `mapSheetSummary` and
+    // `mapSheetFacts` all pad by `CONTENT_INSET`). A padding here would sit inside the tap target
+    // and shrink it; a margin moves the whole 48 dp box, which is what §0.5 is measuring.
+    mapSheetAction: { ...mapAction, alignSelf: 'flex-start', marginHorizontal: CONTENT_INSET - 4 },
+    mapSheetActionPill: actionPill,
+    mapSheetActionLabel: actionPillLabel,
     // The dive rows inside the sheet. Its bottom padding is composed at the call site from
     // `screenBottomInset` (this module's own owner of "how far above the bottom edge content
     // may end"), because the sheet's own bottom edge is the display's and the tab bar is in
@@ -3444,14 +3513,23 @@ function build(scheme: ColorScheme) {
     accountSecondaryAction: mutedControl,
     accountSecondaryActionLabel: mutedControlLabel,
     // ------------------------------------------------------------------------------------
-    // Dive centres (DESIGN.md §5's community model and §6's `dive_centers`, M3c) —
-    // `DiveCenterScreen` (`/center/[id]`) and `DiveCentersScreen` (`/centers`)
+    // The catalogue's pages and directories (DESIGN.md §5's community model, §6's `dive_sites`
+    // and `dive_centers`) — `DiveCenterScreen` (`/center/[id]`) and `DiveCentersScreen`
+    // (`/centers`), M3c; `DiveSiteScreen` (`/site/[id]`) and `DiveSitesScreen` (`/sites`), M3f
     // ------------------------------------------------------------------------------------
-    // **Not one new shape**, which is now the fourth screen pair in a row to be able to say so
-    // (the preset editor, the certification editor and the account screen before it). A centre's
-    // page is a title, a muted summary line and a column of §0.6 rows over a list of `DiveRow`s
-    // — every one of which already has a definition — and the directory is Settings' own list
-    // shape with the search screen's dock under it. The keys below are placements, not types.
+    // **Not one new shape**, which is now the fifth screen pair in a row to be able to say so
+    // (the preset editor, the certification editor and the account screen before it). A catalogue
+    // row's page is a title, a muted summary line and a column of §0.6 rows over a list of
+    // `DiveRow`s — every one of which already has a definition — and a directory is Settings' own
+    // list shape with the search screen's dock under it. The keys below are placements, not types.
+    //
+    // **Four screens, one set of definitions, four sets of keys** (M3f). The two `catalogue*`
+    // consts above the return are where the two real definitions live, and every key here is one
+    // of them or of the shared row types; what the per-screen names buy is `detailBack`/`formBack`
+    // 's own precedent — the placement is per screen, the type is not — and the ability to move
+    // one screen without moving three. A site's page and a centre's page genuinely differ in
+    // content (§6 gives one a `website` and the other four facts a dive inherits), and they
+    // deliberately do not differ in treatment.
     centerScroll: rowScroll,
     // `paddingBottom` composed at the call site from `screenBottomInset`, exactly as
     // `settingsContent` leaves it: both of these screens are pushed OVER the tab bar, so their
@@ -3481,13 +3559,7 @@ function build(scheme: ColorScheme) {
     // **No colour, and the `deepest` in it is why that is a rule**: an aggregate over the dives
     // at a centre is a claim no single band is true of (§0.6's own argument for the Dives
     // header, and §10 has now ruled it three times).
-    centerSummary: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-      paddingHorizontal: CONTENT_INSET,
-      paddingBottom: 8,
-    },
+    centerSummary: catalogueSummary,
     // A named group on either screen — the centre page's *What the catalogue knows* and *Your
     // dives*, and the directory's own heading. `settingsSectionTitle`'s composition of
     // `clusterLabel`, which is §0.6's one treatment for a group header wherever it appears.
@@ -3495,12 +3567,7 @@ function build(scheme: ColorScheme) {
     // Settings a section heading always follows a row, so the row's own hairline and height give
     // it air; here the first heading lands directly under the muted summary line, and at 4 pt
     // apart the two read as one block rather than as a figure and the structure beneath it.
-    centerSectionTitle: {
-      ...clusterLabel,
-      paddingHorizontal: CONTENT_INSET,
-      paddingTop: 12,
-      paddingBottom: 8,
-    },
+    centerSectionTitle: catalogueSectionTitle,
     // A centre's name leading its row in the directory. `settingsRowInk` — full ink, for the
     // two reasons that key already carries and both of which apply here at once: it is the
     // thing a diver scans the list for, and the row is a **destination**. §0.1 rules out a hue
@@ -3519,6 +3586,36 @@ function build(scheme: ColorScheme) {
     // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
     // `accountEmail` reads it — a web address is a name, however little it looks like one.
     centerFactValue: rowValueSans,
+    // --- the same four keys again, for the sites pair (M3f) --------------------------------
+    // Every one of them is the definition its centres twin above takes, under a name that says
+    // which screen it is placed on. What a site's page has that a centre's does not is content:
+    // §6 gives it `entry`, `salinity`, `water_body` and its own `max_depth_m`, three of which are
+    // §2.1's site defaults, and the caption that says so is `captionBlock`/`captionText` — the
+    // sentence-under-a-block Settings and the account screen already speak in.
+    siteScroll: rowScroll,
+    siteContent: rowScrollContent,
+    siteHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    sitesHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    siteSummary: catalogueSummary,
+    siteSectionTitle: catalogueSectionTitle,
+    siteRowName: settingsRowInk,
+    siteRowSummary: settingsRowMeta,
+    siteEmpty: settingsSectionNote,
+    siteFactValue: rowValueSans,
+    // **What the three site-default rows are for**, said once under them rather than marked on
+    // each: §2.1 prefills a new dive's entry, salinity and water body from the site, and a page
+    // that showed those three beside a country and a depth would give a diver no way to tell the
+    // facts that *do something* from the facts that merely describe. A sentence rather than a
+    // per-row mark for §0.6's own reason about the carried-over return mark — a second symbol is
+    // new vocabulary for a single case, and this one has a sentence's worth to say.
+    siteDefaultsCaption: captionBlock,
+    siteDefaultsCaptionText: captionText,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------
