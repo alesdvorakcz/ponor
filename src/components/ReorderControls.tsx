@@ -4,6 +4,7 @@ import { db } from '../db/client';
 import { type ReorderOutcome } from '../db/dives';
 import { type Db } from '../db/types';
 import { type Dive } from '../domain/types';
+import { t } from '../i18n';
 import { type UnitSystem } from '../format/units';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -71,11 +72,13 @@ export function moveUp(listOrder: string[], index: number): string[] {
  * mystery bug, rather than a diver seeing a message that explains what
  * happened.
  */
-const NOT_APPLIED_MESSAGE = "Couldn't reorder — this day already sorts by entry time.";
+function notAppliedMessage(): string {
+  return t('dives.reorderNotApplied');
+}
 
 export interface ApplyReorderResult {
   /** Non-null only when the day did not end up sorted the way `orderedIds`
-   * asked. See `NOT_APPLIED_MESSAGE`. */
+   * asked. See `notAppliedMessage`. */
   message: string | null;
 }
 
@@ -95,7 +98,7 @@ export async function applyReorder(
   reorder: Reorder,
 ): Promise<ApplyReorderResult> {
   const outcome = await reorder(db, date, orderedIds);
-  return { message: outcome.applied ? null : NOT_APPLIED_MESSAGE };
+  return { message: outcome.applied ? null : notAppliedMessage() };
 }
 
 /**
@@ -195,8 +198,8 @@ export type ReorderGate = ReturnType<typeof createReorderGate>;
  */
 function rowLabel(dive: Dive, index: number, total: number): string {
   const site = dive.siteName ?? dive.centerName;
-  const position = `dive ${index + 1} of ${total}`;
-  return site !== null ? `${site} (${position})` : position;
+  const position = t('dives.rowPosition', { index: index + 1, total });
+  return site !== null ? t('dives.rowPositionNamed', { site, position }) : position;
 }
 
 interface ReorderControlsProps {
@@ -319,7 +322,7 @@ export function ReorderControls({
               disabled={upDisabled}
               onPress={() => onReorder(moveUp(listOrder, index))}
               accessibilityRole="button"
-              accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} up`}
+              accessibilityLabel={t('dives.moveUp', { row: rowLabel(dive, index, dives.length) })}
               accessibilityState={{ disabled: upDisabled }}
               hitSlop={ARROW_HIT_SLOP}
             >
@@ -330,7 +333,7 @@ export function ReorderControls({
               disabled={downDisabled}
               onPress={() => onReorder(moveDown(listOrder, index))}
               accessibilityRole="button"
-              accessibilityLabel={`Move ${rowLabel(dive, index, dives.length)} down`}
+              accessibilityLabel={t('dives.moveDown', { row: rowLabel(dive, index, dives.length) })}
               accessibilityState={{ disabled: downDisabled }}
               hitSlop={ARROW_HIT_SLOP}
             >

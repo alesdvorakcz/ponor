@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { isDiveCount } from '../domain/diveNumber';
 import { DEFAULT_UNIT_SYSTEM, isUnitSystem, type UnitSystem } from '../format/units';
+import { isLanguagePreference, type LanguagePreference } from '../i18n';
 import { settings } from './schema';
 import type { Db } from './types';
 
@@ -186,6 +187,64 @@ export function readUnitSystem(rows: unknown[]): UnitSystem {
   const value =
     row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
   return isUnitSystem(value) ? value : DEFAULT_UNIT_SYSTEM;
+}
+
+/**
+ * The diver's chosen language (DESIGN.md §3: "units …, language"), the fourth key this
+ * local-only table holds — and **`locale`, because that is the name §6 gives it** in its own
+ * list of what this table stores ("units · locale · the form-group memory · `dives_before`").
+ * What it holds is §3's *language*, which is the word the Settings row and every function
+ * below use; the key is the stored shape's name and never changes, exactly as
+ * `OPEN_FORM_GROUPS_KEY` keeps M1h's spelling.
+ *
+ * §7.4 keeps it through a sign-out with the other two: a language is something this diver set
+ * on this device, and re-asking would be hostile.
+ */
+const LOCALE_KEY = 'locale';
+
+/** The `locale` row as a builder, for `useLiveQuery` — the same shape the queries above take,
+ * and for the same reason: changing the preference has to repaint every screen. */
+export function languageQuery(db: Db) {
+  return db.select().from(settings).where(eq(settings.key, LOCALE_KEY));
+}
+
+/**
+ * The language preference out of `languageQuery`'s rows: the stored value when it names one
+ * this build knows, and `'system'` otherwise — an absent row (the ordinary case, since §3 makes
+ * the device's locale the default), an uninterpretable one, or a language a future build offers
+ * and this one does not.
+ *
+ * **On `readUnitSystem`'s side of that function's documented asymmetry, and for a stronger
+ * version of its reason.** A wrong `dives_before` misnumbers a whole logbook silently, so it
+ * refuses. A language that failed to load is not that kind of lie at all: the app renders in
+ * the device's language, which is the state every diver starts in anyway, and the Settings row
+ * is one tap away. Degrading to `'system'` rather than to `'en'` is the load-bearing half —
+ * falling back to English would take a Czech diver's phone off Czech because a row failed to
+ * parse.
+ *
+ * `rows` is `unknown[]`, not this query's real return type, because `useLiveQuery`'s `.data` is
+ * typed that loosely — the same reason the readers above take it.
+ */
+export function readLanguage(rows: unknown[]): LanguagePreference {
+  const row = Array.isArray(rows) ? rows.at(0) : undefined;
+  const value =
+    row !== null && typeof row === 'object' ? (row as { value?: unknown }).value : undefined;
+  return isLanguagePreference(value) ? value : 'system';
+}
+
+/**
+ * Records the diver's language. Written by the Settings screen (§3) and by nothing else, on
+ * `setUnitSystem`'s reasoning below: the key, the upsert and the reader all live here so that
+ * `readLanguage` above only ever sees strings this function wrote.
+ *
+ * Takes a `LanguagePreference`, so there is nothing to validate — a three-member union cannot
+ * be handed a value it does not have.
+ */
+export async function setLanguage(db: Db, preference: LanguagePreference): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key: LOCALE_KEY, value: preference })
+    .onConflictDoUpdate({ target: settings.key, set: { value: preference } });
 }
 
 /**

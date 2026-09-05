@@ -9,7 +9,7 @@ import {
   type MapPoint,
 } from './mapSites';
 import { type DiveSite } from './types';
-import { UNNAMED_SITE } from '../format/display';
+import { unnamedSite } from '../format/display';
 
 /**
  * **The half of the Map tab a test can actually settle.**
@@ -162,7 +162,7 @@ describe('groupDivesByPlace', () => {
       dive({ latitude: 20.1, longitude: -87.5 }),
     ]);
     expect(places).toHaveLength(2);
-    expect(places.map((place) => place.label)).toEqual([UNNAMED_SITE, UNNAMED_SITE]);
+    expect(places.map((place) => place.label)).toEqual([unnamedSite(), unnamedSite()]);
     expect(places.map((place) => place.dives.length)).toEqual([1, 1]);
   });
 

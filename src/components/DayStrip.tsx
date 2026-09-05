@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { formatDiveCount, formatDiveDate } from '../format/display';
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -49,24 +50,31 @@ export function DayStrip({ date, count, active, scheme, onToggle }: DayStripProp
   return (
     <View style={[styles.dayStrip, active && styles.dayStripActive]}>
       {/* The count phrase comes from `formatDiveCount` (format/display.ts), not from an
-          inline singular/plural choice here: the "Up next" header needs the same phrase,
-          and Czech (i18next, en + cs) does not pluralise on `=== 1`, so a second copy would
-          be a second place to find and fix. */}
+          inline singular/plural choice here: the "Up next" header needs the same phrase, and
+          Czech does not pluralise on `=== 1` — it has four forms, and `count.dives` in the
+          resource files is where they live. The sentence around it is its own key, because a
+          Czech translator has to be able to move the clause; interpolating a count phrase
+          into it works here only because a phrase standing after a middot stays nominative
+          (`cs.ts` has the general rule and where it fails). */}
       <Text style={styles.dayStripText}>
-        {formattedDate} · {formatDiveCount(count)}, no times
+        {t('dives.dayStrip', { date: formattedDate, dives: formatDiveCount(count) })}
       </Text>
       <Pressable
         style={styles.dayStripAction}
         onPress={onToggle}
         accessibilityRole="button"
-        accessibilityLabel={active ? `Done reordering ${formattedDate}` : `Reorder ${formattedDate}`}
+        accessibilityLabel={
+          active
+            ? t('dives.doneReordering', { date: formattedDate })
+            : t('dives.reorderDay', { date: formattedDate })
+        }
       >
         {/* §0.6: "a bordered pill in tracked uppercase... small, quiet, unmistakably
             pressable" — nested inside the Pressable above rather than replacing it, so the
             48 dp touch target (`dayStripAction`'s own minHeight/minWidth) stays exactly as
             it was; this pill is only the smaller visual mark centred inside it. */}
         <View style={styles.dayStripActionPill}>
-          <Text style={styles.dayStripActionLabel}>{active ? 'Done' : 'Reorder'}</Text>
+          <Text style={styles.dayStripActionLabel}>{active ? t('dives.done') : t('dives.reorder')}</Text>
         </View>
       </Pressable>
     </View>

@@ -11,9 +11,9 @@ import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { CATALOGUE_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable } from '../domain/logbook';
 import { type Dive, type DiveSite } from '../domain/types';
-import { UNNAMED_SITE } from '../format/display';
+import { unnamedSite } from '../format/display';
 import { LIVE_SEARCH_DELAY_MS } from '../hooks/useCatalogueSupplement';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveSitesScreen from './DiveSitesScreen';
@@ -183,7 +183,7 @@ it('draws no second line at all for a site with nothing behind either half', asy
 
 it('calls an unnamed site what the rest of the app calls one', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: null })]));
-  expect(rowNames(await show())).toEqual([UNNAMED_SITE]);
+  expect(rowNames(await show())).toEqual([unnamedSite()]);
 });
 
 it('opens a site from its row', async () => {
@@ -319,7 +319,7 @@ it('states nothing about a catalogue it has not read yet', async () => {
 it('reports a failed read rather than an empty directory', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   const text = textIn(await show());
-  expect(text).toContain(CATALOGUE_UNREADABLE);
+  expect(text).toContain(catalogueUnreadable());
   expect(text.join(' ')).not.toContain('No dive sites yet');
 });
 

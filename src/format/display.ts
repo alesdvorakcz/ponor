@@ -12,6 +12,17 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // calls it), so only the shape of its answer may come back the other way.
 import type { WaterTempRange } from '../domain/mapSites';
 import {
+  CONDITION_SCALE_VALUES,
+  CONFIGURATION_VALUES,
+  ENTRY_VALUES,
+  EQUIPMENT_VALUES,
+  SALINITY_VALUES,
+  SUIT_VALUES,
+  TANK_MATERIAL_VALUES,
+  VISIBILITY_VALUES,
+  WATER_BODY_VALUES,
+  WEATHER_VALUES,
+  WEIGHTS_FEEL_VALUES,
   type Certification,
   type ConditionLevel,
   type Configuration,
@@ -30,7 +41,15 @@ import {
   type Weather,
   type WeightsFeel,
 } from '../domain/types';
-import { displayFigure, displayNumber, unitLabel, type UnitSystem } from './units';
+import { t, type TranslationKey } from '../i18n';
+import {
+  displayFigure,
+  displayNumber,
+  figureText,
+  UNIT_SYSTEMS,
+  unitLabel,
+  type UnitSystem,
+} from './units';
 
 /**
  * The SI-to-diver-facing conversion boundary (DESIGN.md §6: "SI units
@@ -54,6 +73,16 @@ import { displayFigure, displayNumber, unitLabel, type UnitSystem } from './unit
  * and litres/l-per-min have no imperial counterpart that is the same
  * quantity — see `format/units.ts`'s top docblock, which states why §3
  * lists exactly four pairs.
+ *
+ * **The language is not a parameter, and that is the one asymmetry with the unit system.**
+ * Every word below is looked up (`t`, src/i18n) rather than spelled here; the unit system is
+ * threaded because two callers on one screen may legitimately want different units, and a
+ * language has exactly one answer for the whole app at any instant. See src/i18n's own
+ * docblock for the argument and for what a component has to do to notice a change.
+ *
+ * What did NOT move is the ownership. This module is still the only place a stored value
+ * becomes diver-facing text; a screen that reached for `t('vocabulary.salinity.fresh')` itself
+ * would be the second owner §4.1 exists to prevent, and nothing would fail.
  *
  * Every formatter returns null for a field that was never recorded (null)
  * or cannot be a real reading (NaN, ±Infinity — e.g. a value that reached
@@ -177,9 +206,9 @@ export function formatDepth(metres: number | null, system: UnitSystem): string |
  * dashes and a reason rather than an inconsistency.
  */
 export function formatDepthBandRange(fromM: number, toM: number | null, system: UnitSystem): string {
-  const from = String(displayNumber('depth', fromM, system));
+  const from = figureText(displayNumber('depth', fromM, system));
   if (toM === null) return `${from}+ ${unitLabel('depth', system)}`;
-  return `${from}–${String(displayNumber('depth', toM, system))}`;
+  return `${from}–${figureText(displayNumber('depth', toM, system))}`;
 }
 
 /**
@@ -196,7 +225,7 @@ export function formatDepthBandRange(fromM: number, toM: number | null, system: 
  * same reason: the sentence and the labels must not disagree about where a band ends.
  */
 export function formatDepthBoundary(metres: number, system: UnitSystem): string {
-  return `${String(displayNumber('depth', metres, system))} ${unitLabel('depth', system)}`;
+  return `${figureText(displayNumber('depth', metres, system))} ${unitLabel('depth', system)}`;
 }
 
 /** Duration to the whole minute, e.g. "72 min" — how divers log it, never h:mm. Minutes in
@@ -285,7 +314,7 @@ export function formatSiteSummary(
   const parts: string[] = [formatDiveCount(stats.dives)];
 
   const deepest = formatDepth(stats.deepestM, system);
-  if (deepest !== null) parts.push(`deepest ${deepest}`);
+  if (deepest !== null) parts.push(t('figure.deepest', { depth: deepest }));
 
   const water = formatTemperatureRange(temperatures, system);
   if (water !== null) parts.push(water);
@@ -381,7 +410,7 @@ export function formatWeight(kg: number | null, system: UnitSystem): string | nu
  */
 export function formatVolume(litres: number | null): string | null {
   if (!isFiniteNumber(litres)) return null;
-  return `${litres} l`;
+  return `${figureText(litres)} l`;
 }
 
 /**
@@ -400,7 +429,7 @@ export function formatGasUsed(litres: number | null): string | null {
 /** Respiratory minute volume, e.g. "18.4 l/min". */
 export function formatRmv(litresPerMin: number | null): string | null {
   if (!isFiniteNumber(litresPerMin)) return null;
-  return `${litresPerMin.toFixed(1)} l/min`;
+  return `${figureText(litresPerMin, 1)} l/min`;
 }
 
 /**
@@ -436,8 +465,10 @@ export function formatRmvTrend(trend: Pick<RmvTrend, 'recent' | 'previous'>): st
   const before = formatRmv(trend.previous);
   const now = formatRmv(trend.recent);
   if (before === null || now === null) return null;
-  if (before === now) return 'steady';
-  return `${trend.recent < trend.previous ? 'down' : 'up'} from ${before}`;
+  if (before === now) return t('trend.steady');
+  return trend.recent < trend.previous
+    ? t('trend.down', { before })
+    : t('trend.up', { before });
 }
 
 /**
@@ -457,18 +488,18 @@ export function formatRmvTrend(trend: Pick<RmvTrend, 'recent' | 'previous'>): st
  * those three words the sentence would be false for almost every logbook.
  */
 export function formatRmvWindow(count: number): string {
-  return `Averaged over the last ${formatDiveCount(count)} with gas recorded.`;
+  return t('stats.rmvWindow', { count });
 }
 
 /** A gas fraction, e.g. "32 %" — O₂ or He content, unrounded. */
 export function formatPercent(pct: number | null): string | null {
   if (!isFiniteNumber(pct)) return null;
-  return `${pct} %`;
+  return `${figureText(pct)} %`;
 }
 
 /**
  * What a cylinder's two gas fractions are CALLED — the same words on the form a diver fills
- * in and on the detail they land on. `UNNAMED_SITE` above is the precedent: a word shared by
+ * in and on the detail they land on. `unnamedSite` above is the precedent: a word shared by
  * two call sites lives here, where §4.1 puts diver-facing text, rather than being retyped at
  * each of them.
  *
@@ -587,7 +618,7 @@ export const N2_LABEL = 'N₂';
  */
 export function formatSuitThickness(mm: number | null): string | null {
   if (!isFiniteNumber(mm)) return null;
-  return `${mm} mm`;
+  return `${figureText(mm)} mm`;
 }
 
 /**
@@ -702,23 +733,24 @@ export function formatCylinders(tanks: readonly Tank[], system: UnitSystem): str
 }
 
 /**
- * The words the three 0–3 condition scales are read in — one table each, and the one place in
- * this module where a per-value table is the right answer rather than the drift `capitalize`'s
- * docblock warns about.
+ * Which of the three 0–3 scales a level belongs to — the whole of what the tables that used to
+ * live here still decide, now that the words themselves are in `src/i18n`.
  *
- * The reason is simply that there is no word to capitalise: the stored value is an integer, so
- * *something* has to say that a waves 2 is "Medium". What the tables are not is a second
- * vocabulary — `CONDITION_SCALE_VALUES` (domain/types.ts) is still the source of which levels
- * exist, and `Record<ConditionLevel, string>` makes TypeScript demand a word for every one of
- * them, so widening that list is a compile error here until somebody names the new level. That
- * is §4.1's "derive, or tie at compile time" doing the work a shared `capitalize` does for the
- * string vocabularies.
+ * There is no word to capitalise on these three: the stored value is an integer, so *something*
+ * has to say that a waves 2 is "Medium". What that something is not is a second vocabulary —
+ * `CONDITION_SCALE_VALUES` (domain/types.ts) is still the source of which levels exist, and
+ * `Record<ConditionLevel, string>` in `en.ts`/`cs.ts` still makes TypeScript demand a word for
+ * every one of them, so widening that list is a compile error in both resource files until
+ * somebody names the new level in both languages. §4.1's "derive, or tie at compile time",
+ * moved with the words rather than lost with them.
  *
  * **Three tables, not one, and the differences are the point.** Level 0 is *Flat* water and
  * *no* current; level 1 is a *Small* wave, a *Light* current and *Some* surge. A single shared
  * scale would have to pick one wording and be wrong about two subjects — and these words are
  * what a diver actually says, which is the whole reason §0.6 stopped asking them to type a
- * digit.
+ * digit. **Czech makes the split harder rather than softer**: *vlny* are feminine plural,
+ * *proud* masculine and *vlnobití* neuter, so even the levels English spells identically
+ * ("Medium", "Strong") take three different endings.
  *
  * M1h added these. Until then the three fields were text boxes and this module rendered the
  * bare number back (`formatConditionScale`), which was honest while the diver typed the digit
@@ -726,9 +758,7 @@ export function formatCylinders(tanks: readonly Tank[], system: UnitSystem): str
  * word, read back a number, which is the `Steel`/`steel` drift §4.1 opens with, one screen
  * apart. So both screens go through these.
  */
-const WAVES_LABELS: Record<ConditionLevel, string> = { 0: 'Flat', 1: 'Small', 2: 'Medium', 3: 'Large' };
-const CURRENT_LABELS: Record<ConditionLevel, string> = { 0: 'None', 1: 'Light', 2: 'Medium', 3: 'Strong' };
-const SURGE_LABELS: Record<ConditionLevel, string> = { 0: 'None', 1: 'Some', 2: 'Medium', 3: 'Strong' };
+type ConditionScale = 'waves' | 'current' | 'surge';
 
 /**
  * One level of one 0–3 scale, in words — **or the bare number when it is not a level at all**.
@@ -741,30 +771,37 @@ const SURGE_LABELS: Record<ConditionLevel, string> = { 0: 'None', 1: 'Some', 2: 
  * this build has no word for is shown **as the number it is**. The diver sees that something
  * unusual is recorded rather than seeing nothing at all.
  *
- * Rounded values are not coerced to the nearest level either: `1.5` renders "1.5", because
- * inventing "Small" for it would be this module deciding what a diver meant.
+ * Rounded values are not coerced to the nearest level either: `1.5` renders "1.5" (and "1,5"
+ * in Czech — it is a figure, so it goes through `figureText`), because inventing "Small" for
+ * it would be this module deciding what a diver meant.
+ *
+ * The membership test is `CONDITION_SCALE_VALUES` rather than a lookup that falls back on
+ * `undefined`: `t` returns the key itself for a key that does not exist, so a `waves: 7` would
+ * have rendered the literal text `vocabulary.waves.7` on screen — the one failure mode a
+ * translated lookup has that a table did not.
  */
-function formatConditionLevel(value: number | null, labels: Record<ConditionLevel, string>): string | null {
+function formatConditionLevel(value: number | null, scale: ConditionScale): string | null {
   if (!isFiniteNumber(value)) return null;
-  return labels[value as ConditionLevel] ?? `${value}`;
+  if (!(CONDITION_SCALE_VALUES as readonly number[]).includes(value)) return figureText(value);
+  return t(`vocabulary.${scale}.${value as ConditionLevel}`);
 }
 
 /** The sea state, e.g. "Small" — level 0 is *Flat*, which is a real reading and not "nothing
  * recorded"; an unrecorded scale is `null` and produces no row at all. */
 export function formatWaves(value: number | null): string | null {
-  return formatConditionLevel(value, WAVES_LABELS);
+  return formatConditionLevel(value, 'waves');
 }
 
 /** The current, e.g. "Light". Level 0 is *None* — the diver looked and there was none, which
  * is worth recording and is not the same as never having looked. */
 export function formatCurrent(value: number | null): string | null {
-  return formatConditionLevel(value, CURRENT_LABELS);
+  return formatConditionLevel(value, 'current');
 }
 
 /** The surge, e.g. "Some" — the back-and-forth a swell pushes through a site, which is why
  * §0.6 draws its mark with two-way arrows where the current's point one way. */
 export function formatSurge(value: number | null): string | null {
-  return formatConditionLevel(value, SURGE_LABELS);
+  return formatConditionLevel(value, 'surge');
 }
 
 /** A dive site's GPS position, e.g. "50.12345, 14.56789". Null unless BOTH coordinates are
@@ -782,7 +819,7 @@ export function formatCoordinates(latitude: number | null, longitude: number | n
  * legal range is `DiveRow.tsx`'s `filledDotCount`, not this module's job. */
 export function formatRating(rating: number | null): string | null {
   if (!isFiniteNumber(rating)) return null;
-  return `${rating} / 5`;
+  return `${figureText(rating)} / 5`;
 }
 
 /**
@@ -871,9 +908,9 @@ export function formatTimeUnderwater(minutes: number | null): string | null {
 export function formatDaysSince(days: number | null): string | null {
   if (!isFiniteNumber(days) || days < 0) return null;
   const whole = Math.round(days);
-  if (whole === 0) return 'Today';
-  if (whole === 1) return 'Yesterday';
-  return `${whole} days ago`;
+  if (whole === 0) return t('figure.today');
+  if (whole === 1) return t('figure.yesterday');
+  return t('figure.daysAgo', { count: whole });
 }
 
 /**
@@ -942,7 +979,7 @@ export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): s
   if (underwater !== null) parts.push(underwater);
 
   const deepest = formatDepth(stats.deepestM, system);
-  if (deepest !== null) parts.push(`deepest ${deepest}`);
+  if (deepest !== null) parts.push(t('figure.deepest', { depth: deepest }));
 
   return parts.map((figure) => figure.replace(/ /gu, NON_BREAKING_SPACE)).join(WRAPPING_SEPARATOR);
 }
@@ -951,29 +988,39 @@ export function formatLogbookSummary(stats: LogbookStats, system: UnitSystem): s
  * What a dive is called when it has no name of its own. Exported so `groupIntoTrips`
  * (domain/trips.ts) can title an unplaced TRIP with the same words a row uses for an
  * unplaced dive — the words are shared; the rules that reach them are not (see below).
+ *
+ * **A function since M3g, and it had to become one.** As a `const` its value was fixed when
+ * the module was first imported — before any diver has chosen a language, and for ever
+ * afterwards — so a screen switched to Czech would have gone on saying "Unnamed site" until
+ * the app was killed. Every string in this file that used to be a constant is a call for the
+ * same reason; there is nothing else to read into the shape.
  */
-export const UNNAMED_SITE = 'Unnamed site';
+export function unnamedSite(): string {
+  return t('place.unnamedSite');
+}
 
 /**
  * What a **catalogue centre** is called when its row carries no name (M3c) — the centres
  * directory's rows, and the heading of a centre's own page.
  *
- * `UNNAMED_SITE`'s sibling and deliberately a separate constant rather than a shared "Unnamed"
+ * `unnamedSite`'s sibling and deliberately a separate string rather than a shared "Unnamed"
  * with the noun appended: §0.5's Czech runs 20–30 % longer and declines both nouns, so the two
  * are two strings to translate rather than one string plus a rule about grammar.
  *
  * **It is not `diveSiteLabel`'s fallback moved**, and the difference is which object has no
  * name. That function answers "what is this DIVE called" and falls back through the dive's own
- * centre before reaching `UNNAMED_SITE`; this names a `dive_centers` ROW, which has only a name
+ * centre before reaching `unnamedSite`; this names a `dive_centers` ROW, which has only a name
  * to lose. §5 asks a new centre for a name and nothing else, so this is an edge — but the column
  * is nullable in both databases (§6, so §7's one-transaction push can never reject a diver's
  * whole sync over one row), and a row with no name can arrive in a pull.
  */
-export const UNNAMED_CENTER = 'Unnamed centre';
+export function unnamedCenter(): string {
+  return t('place.unnamedCenter');
+}
 
 /**
  * What a dive is CALLED on screen: its site, or its centre when no site was recorded, or
- * `UNNAMED_SITE` when it has neither. The single owner of that choice — `DiveRow.tsx`'s
+ * `unnamedSite()`'s words when it has neither. The single owner of that choice — `DiveRow.tsx`'s
  * site line, `DiveDetailScreen.tsx`'s hero heading, and anything added later.
  *
  * This exists because the two call sites each answered it themselves and had already
@@ -994,19 +1041,21 @@ export const UNNAMED_CENTER = 'Unnamed centre';
  * "unify" them.
  */
 export function diveSiteLabel(dive: Pick<Dive, 'siteName' | 'centerName'>): string {
-  return dive.siteName ?? dive.centerName ?? UNNAMED_SITE;
+  return dive.siteName ?? dive.centerName ?? unnamedSite();
 }
 
 /**
  * What a certification card is called when it names nothing at all.
  *
- * `UNNAMED_SITE`'s sibling one object over, and it exists for the same reason: a row with no
+ * `unnamedSite`'s sibling one object over, and it exists for the same reason: a row with no
  * heading is a blank line, which is worse than a placeholder. It is reachable even though
  * `certificationRefusal` (domain/certifications.ts) will not let a diver *author* such a card
  * — §6 makes every column nullable, so `pull_changes` can deliver one from another client, and
  * everything that reads a wallet has to tolerate what the editor will not write.
  */
-export const UNTITLED_CERTIFICATION = 'Certification';
+export function untitledCertification(): string {
+  return t('certification.untitled');
+}
 
 /**
  * What a card is CALLED on screen: its agency and its course, whichever of them it has.
@@ -1026,7 +1075,7 @@ export function certificationLabel(
   const parts = [certification.agency, certification.course].filter(
     (part): part is string => part !== null && part.trim() !== '',
   );
-  return parts.length === 0 ? UNTITLED_CERTIFICATION : parts.join(' ');
+  return parts.length === 0 ? untitledCertification() : parts.join(' ');
 }
 
 /**
@@ -1054,14 +1103,20 @@ export function formatCertificationSummary(
 ): string | null {
   const parts: string[] = [];
   const number = certification.cardNumber?.trim() ?? '';
-  if (number !== '') parts.push(`#${number}`);
-  if (certification.issuedOn !== null) parts.push(`issued ${formatDiveDate(certification.issuedOn)}`);
+  if (number !== '') parts.push(t('certification.cardNumber', { number }));
+  if (certification.issuedOn !== null) {
+    parts.push(t('certification.issued', { date: formatDiveDate(certification.issuedOn) }));
+  }
   if (certification.expiresOn !== null) {
     // Present tense for a card that is still good, past tense for one that is not — and
     // nothing at all when `certificationExpiry` could not tell, since a date this build cannot
-    // read is still the diver's and is shown as it stands rather than judged.
-    const verb = expiry === 'expired' ? 'expired' : 'expires';
-    parts.push(`${verb} ${formatDiveDate(certification.expiresOn)}`);
+    // read is still the diver's and is shown as it stands rather than judged. Two whole keys
+    // rather than one with the verb interpolated: Czech says *platí do* against *platnost
+    // skončila*, which is not one sentence with a word swapped.
+    const date = formatDiveDate(certification.expiresOn);
+    parts.push(
+      expiry === 'expired' ? t('certification.expired', { date }) : t('certification.expires', { date }),
+    );
   }
   return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
@@ -1071,29 +1126,32 @@ export function formatCertificationSummary(
  * choice, because there are two callers for it — the "Up next" header's trailing slot
  * (TripHeader.tsx) and a day strip's own sentence (DayStrip.tsx, "18 Aug 2026 · 2 dives, no
  * times") — and the strip previously carried an inline copy. English needs one comparison;
- * Czech (i18next, en + cs, a later milestone) needs three forms and does not split on
- * `=== 1`, so a second copy would be a second place to find and fix.
+ * Czech needs **four** forms and does not split on `=== 1`, so a second copy would have been a
+ * second place to find and fix. i18next picks the form (`count.dives`, src/i18n); nothing here
+ * compares a count with anything.
  *
  * Takes and returns non-null, unlike every formatter above: `count` is something the app
  * counts (an array length), never a nullable field read back out of the database, so there
  * is no absent case to thread through. The guards above exist for stored values; this has
- * none.
+ * none. **Which also means Czech's `many` — the fractional form — is unreachable from any
+ * caller in this app**; it is written in `cs.ts` because the rule has four branches, and it is
+ * exercised directly by that file's own tests.
  */
 export function formatDiveCount(count: number): string {
-  return `${count} ${count === 1 ? 'dive' : 'dives'}`;
+  return t('count.dives', { count });
 }
 
 /**
  * How many catalogue sites, as a phrase: "1 site", "3 sites" — `formatDiveCount`'s sibling above,
- * and `formatCenterCount`'s one table over. English needs one comparison and Czech needs three
- * forms (§0.5, i18next in M3), which is the whole reason a plural lives in this module rather than
- * in a template literal on a screen.
+ * and `formatCenterCount`'s one table over. English needs one comparison and Czech needs four
+ * forms (§0.5), which is the whole reason a plural lives in this module rather than in a template
+ * literal on a screen.
  *
  * **Exported since M3f**, when the sites directory became its second caller — the Map tab's
  * summary line below was the first and the only one while the word appeared once in the app.
  */
 export function formatSiteCount(count: number): string {
-  return `${count} ${count === 1 ? 'site' : 'sites'}`;
+  return t('count.sites', { count });
 }
 
 /**
@@ -1108,7 +1166,7 @@ export function formatSiteCount(count: number): string {
  * with nothing to say. `known` is what the device holds; `onMap` is what could be drawn.
  */
 function formatCoverage(onMap: number, known: number, count: (value: number) => string): string {
-  return onMap < known ? `${onMap} of ${count(known)}` : count(onMap);
+  return onMap < known ? t('figure.coverage', { onMap, total: count(known) }) : count(onMap);
 }
 
 /**
@@ -1226,21 +1284,21 @@ export function formatDiveMarkLabel(place: string, dives: number): string {
 }
 
 export function formatSiteMarkLabel(name: string): string {
-  return `${name}, dive site`;
+  return t('place.siteMark', { name });
 }
 
 export function formatCenterMarkLabel(name: string): string {
-  return `${name}, dive centre`;
+  return t('place.centerMark', { name });
 }
 
 /**
  * How many centres, as a phrase: "1 centre", "12 centres" — `formatDiveCount`'s sibling, and
  * exported for the same reason it is: two callers (the centres directory's own line and the map
- * layer's summary below), English needs one comparison and Czech needs three forms (§0.5,
- * i18next in M3), so the plural lives here rather than in a template literal on a screen.
+ * layer's summary below), English needs one comparison and Czech needs four forms (§0.5), so the
+ * plural lives here rather than in a template literal on a screen.
  */
 export function formatCenterCount(count: number): string {
-  return `${count} ${count === 1 ? 'centre' : 'centres'}`;
+  return t('count.centres', { count });
 }
 
 /**
@@ -1333,13 +1391,25 @@ export function formatSiteRow(
  */
 export function formatPendingChanges(count: number): string | null {
   if (count <= 0) return null;
-  return `${count} ${count === 1 ? 'change' : 'changes'} waiting to sync`;
+  return t('count.changesWaiting', { count });
 }
 
-const MONTH_NAMES: readonly string[] = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
+/**
+ * The twelve months, as keys rather than as words — **and written out rather than built from
+ * `` `date.month.${n}` ``**, because a computed key is a key the compiler cannot check and this
+ * function's whole failure mode is rendering a key on screen.
+ *
+ * What the key holds differs sharply between the two languages, which is the point of putting
+ * it in the resource file at all: English writes an abbreviated NAME (`Aug`) and Czech a
+ * NUMERAL (`8`), with `date.long` supplying each language's own punctuation around it. A Czech
+ * month name would have to be genitive — *16. srpna 2026* — which is correct, longer, and a
+ * decision the resource file records so it can be changed there and only there.
+ */
+const MONTH_KEYS = [
+  'date.month.jan', 'date.month.feb', 'date.month.mar', 'date.month.apr',
+  'date.month.may', 'date.month.jun', 'date.month.jul', 'date.month.aug',
+  'date.month.sep', 'date.month.oct', 'date.month.nov', 'date.month.dec',
+] as const satisfies readonly TranslationKey[];
 
 /**
  * A dive's `date` for display, e.g. "16 Aug 2026".
@@ -1369,15 +1439,18 @@ export function formatDiveDate(date: string): string {
   const year = Number(yearStr);
   const month = Number(monthStr);
   const day = Number(dayStr);
-  const monthName = Number.isInteger(month) ? MONTH_NAMES[month - 1] : undefined;
+  const monthKey = Number.isInteger(month) ? MONTH_KEYS[month - 1] : undefined;
   // isCalendarDate has already proven `date` names a real calendar date in
   // canonical YYYY-MM-DD form, so this split always yields three integers
   // and month is always 1-12 in practice. The guard below doesn't lean on
   // that holding after some future edit to either function — same
   // reasoning datetime.ts itself gives for re-checking Number.isInteger
   // after a regex that already looks like it guarantees it.
-  if (!Number.isInteger(year) || !Number.isInteger(day) || monthName === undefined) return date;
-  return `${day} ${monthName} ${year}`;
+  if (!Number.isInteger(year) || !Number.isInteger(day) || monthKey === undefined) return date;
+  // The whole shape of the date is the pattern's, not this function's: `16 Aug 2026` and
+  // `16. 8. 2026` are one call apart, and `domain/trips.ts` reads a range's leading token back
+  // out of whatever comes out (`16` / `16.`) rather than re-splitting the stored string.
+  return t('date.long', { day, month: t(monthKey), year });
 }
 
 /**
@@ -1394,36 +1467,60 @@ export function formatTimeRange(timeIn: string | null, durationMin: number | nul
 
 /**
  * Categorical fields — entry, salinity, water body, cylinder material, rig configuration,
- * weather, visibility, suit, weighting feel and each equipment token — are stored
- * as the closed lowercase vocabulary `domain/types.ts` declares: the database's vocabulary,
- * not the diver's. This
- * module is the one other place a stored value becomes a displayed string in this app, so
- * that's where these live too, rather than each screen capitalising inline.
+ * weather, visibility, suit, weighting feel and each equipment token — are stored as the closed
+ * lowercase vocabulary `domain/types.ts` declares: the database's vocabulary, not the diver's.
+ * This module is the one other place a stored value becomes a displayed string in this app, so
+ * that is where the words live, rather than each screen translating inline.
  *
- * Every member of those unions is a single lowercase word, so one shared
- * capitalise-first-letter helper covers all of them — no per-value table that could fall
- * out of sync as a union grows a new member; a new value just capitalises like the rest.
- * That is why M1h's five new vocabularies cost this file ten lines rather than five tables.
- * English-only, like every other string this file returns: the app has no i18n framework
- * yet (a later milestone), so this is not a translation boundary.
+ * **Until M3g one shared `capitalize` covered all of them, and the reason it could is exactly
+ * what translation took away.** Every member of those unions is a single lowercase English
+ * word, so `shore` → `Shore` needed no table and a union that grew a member needed no edit.
+ * `Břeh` cannot be derived from `shore`, so the table comes back — and comes back with §4.1's
+ * safeguard attached: `en.ts` and `cs.ts` declare each group `satisfies Record<Entry, string>`,
+ * so adding a value to a vocabulary is a **compile error in both languages** until somebody
+ * names it. That is a stronger tie than `capitalize` ever had, which quietly invented a word.
+ *
+ * `capitalize` survives for the one job that is not translation — see `vocabularyWord` below.
  */
 function capitalize<T extends string>(value: T): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/**
+ * **Whether this build has a word for a stored value at all**, which is the guard every
+ * formatter below needs and none of them needed before.
+ *
+ * §10 rules that a value from a client this build does not know is **stored and flagged, never
+ * rejected** — so `dive.entry` is typed `Entry` and can hold `'jetty'` at runtime, delivered by
+ * §7's pull. `capitalize` handled that invisibly and well: an unknown token rendered as
+ * `Jetty`. A lookup does not — i18next returns the KEY for a key it has no string for, so the
+ * same dive would have put the literal text `vocabulary.entry.jetty` on screen. That is the one
+ * regression translating this family could introduce, and this is where it is closed: a known
+ * value gets its word, an unknown one gets `capitalize`'s old behaviour, and §1's "never block"
+ * holds either way.
+ *
+ * The membership list is the vocabulary itself (`domain/types.ts`), never a second list here.
+ */
+function known<T extends string>(values: readonly T[], value: T): boolean {
+  return (values as readonly string[]).includes(value);
+}
+
 /** How the diver entered the water, e.g. "Shore". */
 export function formatEntry(entry: Entry | null): string | null {
-  return entry === null ? null : capitalize(entry);
+  if (entry === null) return null;
+  return known(ENTRY_VALUES, entry) ? t(`vocabulary.entry.${entry}`) : capitalize(entry);
 }
 
 /** The water's salinity, e.g. "Fresh". Two values since M1h — `brackish` went (§10). */
 export function formatSalinity(salinity: Salinity | null): string | null {
-  return salinity === null ? null : capitalize(salinity);
+  if (salinity === null) return null;
+  return known(SALINITY_VALUES, salinity) ? t(`vocabulary.salinity.${salinity}`) : capitalize(salinity);
 }
 
 /** The kind of water body, e.g. "Quarry". */
 export function formatWaterBody(waterBody: WaterBody | null): string | null {
-  return waterBody === null ? null : capitalize(waterBody);
+  if (waterBody === null) return null;
+  return known(WATER_BODY_VALUES, waterBody) ? t(`vocabulary.waterBody.${waterBody}`) : capitalize(waterBody);
 }
 
 /**
@@ -1435,7 +1532,8 @@ export function formatWaterBody(waterBody: WaterBody | null): string | null {
  * changed about the cylinder summary line.
  */
 export function formatConfiguration(configuration: Configuration | null): string | null {
-  return configuration === null ? null : capitalize(configuration);
+  if (configuration === null) return null;
+  return known(CONFIGURATION_VALUES, configuration) ? t(`vocabulary.configuration.${configuration}`) : capitalize(configuration);
 }
 
 /**
@@ -1452,7 +1550,8 @@ export function formatConfiguration(configuration: Configuration | null): string
  * (`WEATHER_VALUES`, domain/types.ts); nothing about the weather is decided here.
  */
 export function formatWeather(weather: Weather | null): string | null {
-  return weather === null ? null : capitalize(weather);
+  if (weather === null) return null;
+  return known(WEATHER_VALUES, weather) ? t(`vocabulary.weather.${weather}`) : capitalize(weather);
 }
 
 /**
@@ -1463,12 +1562,14 @@ export function formatWeather(weather: Weather | null): string | null {
  * optional refinement. `formatDepth` is what renders the other half.
  */
 export function formatVisibility(visibility: Visibility | null): string | null {
-  return visibility === null ? null : capitalize(visibility);
+  if (visibility === null) return null;
+  return known(VISIBILITY_VALUES, visibility) ? t(`vocabulary.visibility.${visibility}`) : capitalize(visibility);
 }
 
 /** The exposure suit worn, e.g. "Semidry". */
 export function formatSuit(suit: Suit | null): string | null {
-  return suit === null ? null : capitalize(suit);
+  if (suit === null) return null;
+  return known(SUIT_VALUES, suit) ? t(`vocabulary.suit.${suit}`) : capitalize(suit);
 }
 
 /**
@@ -1477,7 +1578,8 @@ export function formatSuit(suit: Suit | null): string | null {
  * "6 kg, and I was over" is the fact a diver uses to dial in the next dive.
  */
 export function formatWeightsFeel(weightsFeel: WeightsFeel | null): string | null {
-  return weightsFeel === null ? null : capitalize(weightsFeel);
+  if (weightsFeel === null) return null;
+  return known(WEIGHTS_FEEL_VALUES, weightsFeel) ? t(`vocabulary.weightsFeel.${weightsFeel}`) : capitalize(weightsFeel);
 }
 
 /**
@@ -1517,7 +1619,7 @@ export function formatEquipment(equipment: readonly Equipment[]): string | null 
  * case for it to report.
  */
 export function formatEquipmentToken(token: Equipment): string {
-  return capitalize(token);
+  return known(EQUIPMENT_VALUES, token) ? t(`vocabulary.equipment.${token}`) : capitalize(token);
 }
 
 /**
@@ -1533,7 +1635,8 @@ export function formatEquipmentToken(token: Equipment): string {
  * string, and one shared `capitalize` covers it exactly as it covers the other four.
  */
 export function formatTankMaterial(material: TankMaterial | null): string | null {
-  return material === null ? null : capitalize(material);
+  if (material === null) return null;
+  return known(TANK_MATERIAL_VALUES, material) ? t(`vocabulary.tankMaterial.${material}`) : capitalize(material);
 }
 
 /**
@@ -1542,7 +1645,12 @@ export function formatTankMaterial(material: TankMaterial | null): string | null
  * and returns a plain string rather than threading a null case that can't occur.
  */
 export function formatDiveStatus(status: DiveStatus): string {
-  return capitalize(status);
+  // `DiveStatus` is a bare union with no value list in `domain/types.ts` to check against, so
+  // the two members are named here — the same `known` guard, spelled out because there is no
+  // list to point at. `splitPlanned` (domain/trips.ts) already treats anything that is not
+  // affirmatively `logged` as planned, which is how a strange status reaches this at all.
+  const spelled = status === 'logged' || status === 'planned';
+  return spelled ? t(`vocabulary.diveStatus.${status}`) : capitalize(status);
 }
 
 /**
@@ -1566,5 +1674,5 @@ export function formatDiveStatus(status: DiveStatus): string {
  * to `DEFAULT_UNIT_SYSTEM`, so there is no "no system chosen" state for this to describe.
  */
 export function formatUnitSystem(system: UnitSystem): string {
-  return capitalize(system);
+  return known(UNIT_SYSTEMS, system) ? t(`vocabulary.unitSystem.${system}`) : capitalize(system);
 }

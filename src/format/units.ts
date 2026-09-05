@@ -1,4 +1,5 @@
 import type { Dive, Tank } from '../domain/types';
+import { decimalSeparator } from '../i18n';
 
 /**
  * The four unit pairs DESIGN.md §3 gives Settings — **m/ft · bar/psi · °C/°F · kg/lb** —
@@ -177,8 +178,9 @@ export function unitLabel(quantity: Quantity, system: UnitSystem): string {
 /**
  * A converted figure rounded to a pair's own precision, as a **number**.
  *
- * `displayFigure` below then calls `.toFixed()` on this result rather than on the raw
- * converted value, and that second step is load-bearing rather than redundant: `toFixed`
+ * `displayFigure` below then pads this result with `figureText` (whose `toFixed` this is
+ * about) rather than padding the raw converted value, and that second step is load-bearing
+ * rather than redundant: `toFixed`
  * applied straight to a small negative value emits a negative zero as text —
  * `(-0.4).toFixed(0)` is the string `"-0"`, so a water temperature of −0.4 °C would read
  * "-0 °C", which is not a temperature anyone writes. Applied to the rounded *number* it
@@ -212,6 +214,35 @@ export function displayNumber(quantity: Quantity, si: number, system: UnitSystem
 }
 
 /**
+ * **A number as a diver reads it — which is where the decimal separator lives.** `41.2` in
+ * English, `41,2` in Czech (`figure.decimalSeparator`, src/i18n).
+ *
+ * **The one place in the app that writes a fractional figure**, which is what makes the comma
+ * a single edit rather than a sweep: `displayFigure` below routes the four unit pairs through
+ * it, and `format/display.ts` routes the figures that have no pair (a cylinder's litres, an
+ * RMV, a suit's millimetres, a gas fraction, a rating, a band boundary). §4.1's split between
+ * the two modules is unchanged — this decides *what number*, that decides *what string*.
+ *
+ * **It cannot move a dive between depth bands, and that is worth stating rather than
+ * assuming** (§10). `theme/depth.ts` reads the stored metre value and has never seen anything
+ * this function returns; nothing in the app parses a formatted figure back into a number
+ * either — `displayValueFor` hands the form a `number`, and `storedValueFor` compares numbers
+ * with `===`. The comma is text, all the way out.
+ *
+ * `decimals` matches `UnitSpec.decimals`: a count to pad to, or `null` for "exactly as
+ * recorded", which is the weight spec's case and every caller that has no pair at all.
+ *
+ * The replacement is on the FIRST `.` only, because there is only ever one — this takes a
+ * real, finite number, and `String`/`toFixed` produce at most one point. Exponent notation
+ * (`1e+21`) contains none and passes through untouched.
+ */
+export function figureText(value: number, decimals: number | null = null): string {
+  const text = decimals === null ? String(value) : value.toFixed(decimals);
+  const separator = decimalSeparator();
+  return separator === '.' ? text : text.replace('.', separator);
+}
+
+/**
  * A stored SI value split into the numeral a diver reads and the unit word beside it, e.g.
  * `{ value: '24.6', unit: 'm' }` or `{ value: '81', unit: 'ft' }`.
  *
@@ -233,8 +264,8 @@ export function displayFigure(
   const converted = spec.fromSi(si);
   const value =
     spec.decimals === null
-      ? String(converted)
-      : roundToDecimals(converted, spec.decimals).toFixed(spec.decimals);
+      ? figureText(converted)
+      : figureText(roundToDecimals(converted, spec.decimals), spec.decimals);
   return { value, unit: spec.unit };
 }
 

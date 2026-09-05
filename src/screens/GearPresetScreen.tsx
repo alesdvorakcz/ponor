@@ -17,7 +17,7 @@ import {
   unknownOptionNote,
   type TankFormInput,
 } from '../domain/diveFormSchema';
-import { PRESET_SAVE_FAILED, PRESETS_UNREADABLE, presetRefusal } from '../domain/presets';
+import { PRESET_SAVE_FAILED, presetsUnreadable, presetRefusal } from '../domain/presets';
 import {
   CONFIGURATION_VALUES,
   TANK_MATERIAL_VALUES,
@@ -43,7 +43,7 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
  */
 const MISSING_PRESET_MESSAGE = "Couldn't find that preset — it may have been deleted.";
 
-/* The other reason there is no preset on screen is `PRESETS_UNREADABLE` (domain/presets.ts),
+/* The other reason there is no preset on screen is `presetsUnreadable` (domain/presets.ts),
  * and it is a different sentence on purpose: `useGearPresets`' `error` exists for exactly this
  * distinction, and it holds one screen deeper than Settings — telling a diver their preset may
  * have been deleted when the database simply could not be read sends them looking for
@@ -286,7 +286,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
               nothing on this frame moves when the sentence or the editor arrives under it. */}
           {resolved && (
             <Text style={styles.messageText}>
-              {error === undefined ? MISSING_PRESET_MESSAGE : PRESETS_UNREADABLE}
+              {error === undefined ? MISSING_PRESET_MESSAGE : presetsUnreadable()}
             </Text>
           )}
         </View>

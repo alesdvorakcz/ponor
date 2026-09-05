@@ -12,9 +12,9 @@ import { useDives, type DiveListState } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
-import { UNNAMED_CENTER } from '../format/display';
+import { unnamedCenter } from '../format/display';
 import { openWebsite } from '../platform/openWebsite';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
@@ -254,7 +254,7 @@ it('says the centre is not here once it has looked', async () => {
 it('reports a failed catalogue read rather than a missing centre', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   const text = textIn(await show());
-  expect(text).toContain(CATALOGUE_UNREADABLE);
+  expect(text).toContain(catalogueUnreadable());
   expect(text).not.toContain('Centre not found.');
 });
 
@@ -271,14 +271,14 @@ it('offers the way out whether or not the centre is here', async () => {
 /**
  * The centre is readable and the logbook is not, which is a different failure from either of the
  * two above and gets the sentence four other screens say about the same event
- * (`LOGBOOK_UNREADABLE`, domain/logbook.ts). The page still names the centre: what failed is the
+ * (`logbookUnreadable`, domain/logbook.ts). The page still names the centre: what failed is the
  * half about the diver, not the half about the shop.
  */
 it('names the centre and reports the logbook failure under it', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('nope') }));
   const text = textIn(await show());
   expect(text).toContain('Ponorka');
-  expect(text).toContain(LOGBOOK_UNREADABLE);
+  expect(text).toContain(logbookUnreadable());
   // No summary: "0 dives" over an unreadable logbook is a figure with nothing behind it.
   expect(text).not.toContain('0 dives');
 });
@@ -297,7 +297,7 @@ it('says nothing about a logbook it has not read yet', async () => {
 // it must be the words the rest of the app uses.
 it('calls an unnamed centre what the rest of the app calls one', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([centre({ name: null })]));
-  expect(textIn(await show())).toContain(UNNAMED_CENTER);
+  expect(textIn(await show())).toContain(unnamedCenter());
 });
 
 it('reads the summary in the diver’s own units', async () => {

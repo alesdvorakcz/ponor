@@ -4,20 +4,22 @@ import {
   VISIBILITY_VALUES,
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
+  type Entry,
   type Equipment,
+  type Suit,
   type Tank,
 } from '../domain/types';
 import {
   certificationLabel,
   formatCertificationSummary,
-  UNTITLED_CERTIFICATION,
+  untitledCertification,
   formatCurrent,
   formatSurge,
   formatWaves,
   formatCenterCount,
   formatCenterRow,
   formatCenterMarkLabel,
-  UNNAMED_CENTER,
+  unnamedCenter,
   formatCoordinates,
   formatConfiguration,
   formatCylinderSpec,
@@ -72,9 +74,10 @@ import {
   formatWaterBody,
   formatWeight,
   diveSiteLabel,
-  UNNAMED_SITE,
+  unnamedSite,
 } from './display';
 import { UNIT_SYSTEMS } from './units';
+import { setActiveLanguage } from '../i18n';
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
@@ -381,8 +384,8 @@ describe('diveSiteLabel', () => {
   // Always text, never null: a row or a hero with no heading is a blank line, which is the
   // exact defect this function exists to close. The one hard difference from `tripKeyOf`.
   it('names a dive with neither rather than returning nothing', () => {
-    expect(diveSiteLabel({ siteName: null, centerName: null })).toBe(UNNAMED_SITE);
-    expect(UNNAMED_SITE).toBe('Unnamed site');
+    expect(diveSiteLabel({ siteName: null, centerName: null })).toBe(unnamedSite());
+    expect(unnamedSite()).toBe('Unnamed site');
   });
 
   /**
@@ -392,13 +395,13 @@ describe('diveSiteLabel', () => {
    * can arrive by pull, and three screens call it something. Each of those screens asserts that
    * it uses this constant rather than a literal of its own, which is the §4.1 claim they are
    * making — and none of them can say what the constant *is*: a test comparing the screen's
-   * output against `UNNAMED_CENTER` passes just as happily when the constant is `UNNAMED_SITE`.
+   * output against `unnamedCenter` passes just as happily when the constant is `unnamedSite`.
    * Measured, not assumed: collapsing the two left every screen suite green. A constant's value
    * is the one place a literal is honest, so it is written out once, here.
    */
   it('calls an unnamed CENTRE a centre, which is not what it calls an unnamed site', () => {
-    expect(UNNAMED_CENTER).toBe('Unnamed centre');
-    expect(UNNAMED_CENTER).not.toBe(UNNAMED_SITE);
+    expect(unnamedCenter()).toBe('Unnamed centre');
+    expect(unnamedCenter()).not.toBe(unnamedSite());
   });
 });
 
@@ -1505,8 +1508,8 @@ describe('certificationLabel', () => {
    * will not let a diver author one.
    */
   it('falls back for a card that names nothing, blanks included', () => {
-    expect(certificationLabel({ agency: null, course: null })).toBe(UNTITLED_CERTIFICATION);
-    expect(certificationLabel({ agency: '   ', course: '' })).toBe(UNTITLED_CERTIFICATION);
+    expect(certificationLabel({ agency: null, course: null })).toBe(untitledCertification());
+    expect(certificationLabel({ agency: '   ', course: '' })).toBe(untitledCertification());
   });
 });
 
@@ -1562,5 +1565,119 @@ describe('formatCertificationSummary', () => {
    */
   it('answers null when there is nothing to add beyond the card’s own name', () => {
     expect(formatCertificationSummary({ cardNumber: null, issuedOn: null, expiresOn: null }, null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3g) — §4.1's owner still owns it, it just looks the word up
+// ---------------------------------------------------------------------------------------
+//
+// What is asserted here is the part translation could break invisibly: a vocabulary value that
+// resolves to its own KEY, a date whose whole shape changes, a figure whose separator does not,
+// and the §10 case where a value from a newer client has no word in either language.
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(() => {
+    setActiveLanguage('en');
+  });
+
+  it('reads the whole Dives header line in Czech, with a comma in the depth', () => {
+    // §0.6's own example, translated: `128 ponorů · 96 h 12 min · nejhlubší 41,2 m`. The
+    // non-breaking spaces M1m sets inside each figure survive, which is why this compares
+    // against a string built from the same constant rather than a typed-out line.
+    const line = formatLogbookSummary({ dives: 128, minutes: 5772, deepestM: 41.2 }, 'metric');
+    expect(line.replace(new RegExp(NON_BREAKING_SPACE, 'gu'), ' ')).toBe(
+      '128 ponorů · 96 h 12 min · nejhlubší 41,2 m',
+    );
+  });
+
+  it('keeps the header’s one-dive case grammatical, which English gets for free', () => {
+    const line = formatLogbookSummary({ dives: 1, minutes: 47, deepestM: 12 }, 'metric');
+    expect(line.replace(new RegExp(NON_BREAKING_SPACE, 'gu'), ' ')).toBe(
+      '1 ponor · 47 min · nejhlubší 12,0 m',
+    );
+  });
+
+  it('writes a date the way Czech writes one, day and month as numerals', () => {
+    expect(formatDiveDate('2026-08-16')).toBe('16. 8. 2026');
+    expect(formatDiveDate('2026-01-01')).toBe('1. 1. 2026');
+    // And still hands back an uninterpretable value unchanged — the never-invent rule is not
+    // a property of the English pattern.
+    expect(formatDiveDate('sometime')).toBe('sometime');
+  });
+
+  it('reads every vocabulary in Czech rather than as a key', () => {
+    expect(formatEntry('shore')).toBe('Břeh');
+    expect(formatSalinity('fresh')).toBe('Sladká');
+    expect(formatWaterBody('quarry')).toBe('Lom');
+    expect(formatTankMaterial('steel')).toBe('Ocel');
+    expect(formatConfiguration('twinset')).toBe('Dvojče');
+    expect(formatSuit('semidry')).toBe('Polosuchý');
+    expect(formatWaves(0)).toBe('Klid');
+    expect(formatCurrent(0)).toBe('Žádný');
+    // The three scales disagree about gender where English repeats a word, which is the whole
+    // reason they stayed three tables: *žádný proud*, *žádné vlnobití*.
+    expect(formatSurge(0)).toBe('Žádné');
+    expect(formatCurrent(3)).not.toBe(formatSurge(3));
+  });
+
+  it('capitalises a value neither language has a word for, rather than printing the key', () => {
+    // §10: a value from a client this build does not know is stored and flagged, never
+    // refused — so `dive.entry` is typed `Entry` and can hold this at runtime. A bare lookup
+    // would put the literal text `vocabulary.entry.jetty` on a dive detail.
+    expect(formatEntry('jetty' as Entry)).toBe('Jetty');
+    expect(formatSuit('membrane' as Suit)).toBe('Membrane');
+    // The same rule for the numeric scales, whose out-of-range value is shown as the number
+    // it is — with a Czech decimal mark, because it is a figure.
+    expect(formatWaves(7)).toBe('7');
+    expect(formatWaves(1.5)).toBe('1,5');
+  });
+
+  it('names a place with no name of its own in Czech', () => {
+    expect(unnamedSite()).toBe('Nepojmenovaná lokalita');
+    expect(unnamedCenter()).toBe('Nepojmenované centrum');
+    expect(diveSiteLabel({ siteName: null, centerName: null })).toBe('Nepojmenovaná lokalita');
+    expect(untitledCertification()).toBe('Certifikace');
+  });
+
+  it('says what a card’s dates mean without a verb that has to agree with a noun', () => {
+    expect(
+      formatCertificationSummary({ cardNumber: '1234567', issuedOn: '2018-07-14', expiresOn: '2027-07-14' }, 'current'),
+    ).toBe('č. 1234567 · vydáno 14. 7. 2018 · platí do 14. 7. 2027');
+    expect(
+      formatCertificationSummary({ cardNumber: null, issuedOn: null, expiresOn: '2024-03-03' }, 'expired'),
+    ).toBe('platnost skončila 3. 3. 2024');
+  });
+
+  it('declines the RMV window rather than interpolating a nominative count into it', () => {
+    // The case English never has to think about: *z posledních 5 ponorů* governs the genitive,
+    // so a sentence built by dropping `formatDiveCount`'s own phrase into it would read
+    // *z posledních 3 ponory*. This key carries its own four forms.
+    expect(formatRmvWindow(1)).toBe('Průměr z posledního 1 ponoru se zaznamenaným plynem.');
+    expect(formatRmvWindow(3)).toBe('Průměr z posledních 3 ponorů se zaznamenaným plynem.');
+    expect(formatRmvWindow(5)).toBe('Průměr z posledních 5 ponorů se zaznamenaným plynem.');
+    expect(formatRmvWindow(1)).not.toBe(formatRmvWindow(3));
+  });
+
+  it('leaves a unit symbol alone — those are the same marks in both languages', () => {
+    expect(formatDuration(72)).toBe('72 min');
+    expect(formatVolume(11.1)).toBe('11,1 l');
+    expect(formatSuitThickness(2.5)).toBe('2,5 mm');
+    expect(formatRmv(18.4)).toBe('18,4 l/min');
+    expect(formatDepth(41.2, 'metric')).toBe('41,2 m');
+    expect(formatDepth(41.2, 'imperial')).toBe('135 ft');
+  });
+
+  /**
+   * **The one figure deliberately left with a decimal point**, and it is not an oversight.
+   * A pair of coordinates is already separated by a comma, so `50,12345, 14,56789` is four
+   * numbers to anyone reading it quickly and two to nobody. Recorded here so the next reader
+   * finds a decision rather than a gap.
+   */
+  it('keeps a decimal point in a coordinate pair, where a comma already separates the two', () => {
+    expect(formatCoordinates(50.12345, 14.56789)).toBe('50.12345, 14.56789');
   });
 });

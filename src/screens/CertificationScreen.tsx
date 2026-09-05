@@ -17,6 +17,7 @@ import {
   type CertificationFields,
 } from '../domain/certifications';
 import { type Certification } from '../domain/types';
+import { t } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
@@ -40,10 +41,12 @@ const MISSING_CERTIFICATION_MESSAGE = "Couldn't find that certification — it m
  * for exactly this distinction, and telling a diver their card may have been deleted when the
  * database simply could not be read sends them looking for something that is still there.
  * Shared with Settings, which says the same thing about the same event one route up — two
- * screens naming the same object is what turns a look-alike into a copy (`PRESETS_UNREADABLE`,
+ * screens naming the same object is what turns a look-alike into a copy (`presetsUnreadable`,
  * domain/presets.ts, is the same call one object over).
  */
-export const CERTIFICATIONS_UNREADABLE = "Couldn't load your certifications. Try again.";
+export function certificationsUnreadable(): string {
+  return t('unreadable.certifications');
+}
 
 /** Shown when the write rejects. §10: "a local save failure is shown to the diver" — the
  * alternative is a diver believing their card is stored and finding an empty wallet on the
@@ -197,7 +200,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
               one a diver most needs to leave. */}
           {resolved && (
             <Text style={styles.messageText}>
-              {error === undefined ? MISSING_CERTIFICATION_MESSAGE : CERTIFICATIONS_UNREADABLE}
+              {error === undefined ? MISSING_CERTIFICATION_MESSAGE : certificationsUnreadable()}
             </Text>
           )}
         </View>

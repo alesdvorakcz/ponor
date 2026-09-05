@@ -16,7 +16,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { db } from '../db/client';
 import { formatConfiguration, formatTankMaterial, HE_LABEL, O2_LABEL } from '../format/display';
 import { UNKNOWN_OPTION_NOTE } from '../domain/diveFormSchema';
-import { PRESETS_UNREADABLE } from '../domain/presets';
+import { presetsUnreadable } from '../domain/presets';
 import { CONFIGURATION_VALUES, TANK_MATERIAL_VALUES, type GearPreset, type Tank } from '../domain/types';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -369,7 +369,7 @@ describe('before the preset read has answered', () => {
     // The other sentence this branch can say. Neither is known yet, so neither is said.
     stubPresets([], undefined, false);
     const t = await render(<GearPresetScreen presetId="target" />);
-    expect(textIn(t).join(' ')).not.toContain(PRESETS_UNREADABLE);
+    expect(textIn(t).join(' ')).not.toContain(presetsUnreadable());
   });
 
   it('still offers the way out while it waits', async () => {

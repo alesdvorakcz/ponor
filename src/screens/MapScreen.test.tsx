@@ -15,13 +15,13 @@ import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { UNNAMED_CENTER, UNNAMED_SITE } from '../format/display';
+import { unnamedCenter, unnamedSite } from '../format/display';
 import { type Dive, type DiveCenter, type DiveSite } from '../domain/types';
 import { locationPermission, requestLocationPermission } from '../platform/locationPermission';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthBandColor } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import MapScreen from './MapScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -272,7 +272,7 @@ it('states nothing about a logbook it has not read yet', async () => {
 it('reports a failed logbook read rather than an empty map', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('nope') }));
   const t = await show();
-  expect(textIn(t).join(' ')).toContain(LOGBOOK_UNREADABLE);
+  expect(textIn(t).join(' ')).toContain(logbookUnreadable());
   expect(hasMap(t)).toBe(false);
 });
 
@@ -580,7 +580,7 @@ it('reports a failed catalogue read rather than an empty one', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   const t = await show();
   await press(t, 'Show community sites');
-  expect(textIn(t).join(' ')).toContain(CATALOGUE_UNREADABLE);
+  expect(textIn(t).join(' ')).toContain(catalogueUnreadable());
 });
 
 it('states nothing about a catalogue it has not read yet', async () => {
@@ -626,7 +626,7 @@ it('says a switched-on kind failed even when the map is still full', async () =>
   const t = await show();
   await press(t, 'Show community sites');
   expect(hasMap(t)).toBe(true);
-  expect(textIn(t).join(' ')).toContain(CATALOGUE_UNREADABLE);
+  expect(textIn(t).join(' ')).toContain(catalogueUnreadable());
 });
 
 // ...and it is not said about a kind the diver switched off. A catalogue that failed while
@@ -635,11 +635,11 @@ it('says nothing about a kind that failed and is not switched on', async () => {
   mockUseDives.mockReturnValue(divesState([pinned()]));
   mockUseDiveSites.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   mockUseDiveCenters.mockReturnValue(centresState([], { error: new Error('nope') }));
-  expect(textIn(await show()).join(' ')).not.toContain(CATALOGUE_UNREADABLE);
+  expect(textIn(await show()).join(' ')).not.toContain(catalogueUnreadable());
 });
 
 /**
- * **One sentence per failure, not per kind.** `CATALOGUE_UNREADABLE` is one sentence about "the
+ * **One sentence per failure, not per kind.** `catalogueUnreadable` is one sentence about "the
  * community catalogue" and both halves of it failing is one thing gone wrong — printing it twice
  * would be the screen counting its own tables at the diver.
  */
@@ -649,7 +649,7 @@ it('says the catalogue failed once, however many of its tables did', async () =>
   const t = await show();
   await press(t, 'Show community sites');
   await press(t, 'Show dive centres');
-  expect(textIn(t).filter((line) => line === CATALOGUE_UNREADABLE)).toHaveLength(1);
+  expect(textIn(t).filter((line) => line === catalogueUnreadable())).toHaveLength(1);
 });
 
 it('draws the community sites that carry a position, and names them', async () => {
@@ -670,12 +670,12 @@ it('draws the community sites that carry a position, and names them', async () =
 // so §7's one-transaction push can never reject a diver's whole sync over one row), and a row
 // with none can therefore arrive by pull. A mark a screen reader announces as nothing is worse
 // than one it announces as unnamed — and it must be the same "nothing" the dive list already
-// uses, which is why `UNNAMED_SITE` is imported rather than typed into the screen.
+// uses, which is why `unnamedSite` is imported rather than typed into the screen.
 it('calls an unnamed catalogue site what the rest of the app calls one', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([site({ latitude: 43.06, longitude: 16.18 })]));
   const t = await show();
   await press(t, 'Show community sites');
-  expect(markLabels(t)).toEqual([`${UNNAMED_SITE}, dive site`]);
+  expect(markLabels(t)).toEqual([`${unnamedSite()}, dive site`]);
 });
 
 // --- One place, one mark (M3e, brief §2) ---
@@ -918,7 +918,7 @@ it('offers each directory under its own switch, and both together', async () => 
 it('keeps the directory reachable when the centres read has failed', async () => {
   mockUseDiveCenters.mockReturnValue(centresState([], { error: new Error('nope') }));
   const t = await withCentres();
-  expect(textIn(t)).toContain(CATALOGUE_UNREADABLE);
+  expect(textIn(t)).toContain(catalogueUnreadable());
   expect(textIn(t)).toContain('All centres');
 });
 
@@ -1029,13 +1029,13 @@ it('tells a place from a catalogue row whose id spells a place key', async () =>
 
 // `dive_centers.name` is nullable in both databases (§6), so a row with none can arrive by pull.
 // A mark a screen reader announces as nothing is worse than one it announces as unnamed — and it
-// must be the CENTRE's own words, not the site's: `UNNAMED_SITE` here would announce a dive shop
+// must be the CENTRE's own words, not the site's: `unnamedSite` here would announce a dive shop
 // as a dive site, which is precisely the confusion the glyph exists to avoid.
 it('calls an unnamed centre what the rest of the app calls one', async () => {
   mockUseDiveCenters.mockReturnValue(centresState([centre({ name: null, latitude: 50.08, longitude: 14.44 })]));
   const t = await withCentres();
-  expect(markLabels(t)).toEqual([`${UNNAMED_CENTER}, dive centre`]);
-  expect(markLabels(t)).not.toEqual([`${UNNAMED_SITE}, dive centre`]);
+  expect(markLabels(t)).toEqual([`${unnamedCenter()}, dive centre`]);
+  expect(markLabels(t)).not.toEqual([`${unnamedSite()}, dive centre`]);
 });
 
 // A failed centres read must not take the sites off the map — that is what the two hooks are two

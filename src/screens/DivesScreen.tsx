@@ -14,7 +14,7 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
-import { LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { logbookUnreadable } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
 import { canReorder, groupIntoTrips, sameDateGroups, splitPlanned } from '../domain/trips';
@@ -26,6 +26,7 @@ import {
   formatPendingChanges,
 } from '../format/display';
 import { useWideLayout } from '../hooks/useWideLayout';
+import { t, useT } from '../i18n';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
@@ -54,7 +55,7 @@ type ListEntry =
  * arrows). A run that fails `canReorder` gets plain `dive` entries and no strip at all:
  * `canReorder` gates the STRIP as much as the arrows, since offering a control on a day
  * that cannot actually reorder (`reorderDivesForDate` would report success while
- * changing nothing — ReorderControls.tsx's own `NOT_APPLIED_MESSAGE`) would be a control
+ * changing nothing — ReorderControls.tsx's own `notAppliedMessage`) would be a control
  * that lies. This is the ONE place any of that is decided; `DayStrip`, `DiveRow` and
  * `ReorderControls` all just render whatever entry they are handed.
  */
@@ -188,13 +189,20 @@ export const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
  * no cause, because this screen cannot know one — the engine reports `failed` and deliberately
  * carries no server text (§9's Sentry, and `cloud/sync.ts`'s rule about error messages).
  *
- * Exported so its test asserts the same string a diver reads.
+ * Exported so its test asserts the same string a diver reads. A function rather than a
+ * constant since M3g, for the reason `unnamedSite` (format/display.ts) records: a constant's
+ * value is fixed before any diver has chosen a language.
  */
-export const SYNC_FAILED_MESSAGE =
-  'Couldn’t sync just now. Your dives are safe on this phone — try again when you’re online.';
+export function syncFailedMessage(): string {
+  return t('dives.syncFailed');
+}
 
 export default function DivesScreen() {
   const scheme = resolveScheme(useColorScheme());
+  // §3's language. Read as a subscription rather than as a value (src/i18n): this screen's own
+  // chrome and every figure `format/display.ts` hands it are worded from the active language,
+  // and without this the list would keep yesterday's words after the setting changed.
+  useT();
   // The diver's units (§3), read once here and threaded down exactly as `scheme` is — one
   // place per screen decides, and every component below stays a pure function of its props.
   const units = useUnitSystem();
@@ -238,7 +246,7 @@ export default function DivesScreen() {
   // Set only when a reorder request could not fully take effect
   // (`applyReorder`'s ApplyReorderResult) — canReorder is meant to keep that
   // unreachable, but it is still handled: see ReorderControls.tsx's
-  // NOT_APPLIED_MESSAGE docblock for why an unreachable branch that fails
+  // notAppliedMessage docblock for why an unreachable branch that fails
   // silently is worth guarding anyway.
   const [reorderMessage, setReorderMessage] = useState<string | null>(null);
   // M1c task 6, DESIGN.md §0.6: which day (if any) is currently in hand-ordering mode —
@@ -250,7 +258,7 @@ export default function DivesScreen() {
   // to dim every row that is not part of that one active date.
   const [activeReorderDate, setActiveReorderDate] = useState<string | null>(null);
   // §7.5's fourth trigger. `refreshing` is the platform control's own spinner; `syncMessage`
-  // is set only when a sync the diver ASKED for could not run (`SYNC_FAILED_MESSAGE` above) —
+  // is set only when a sync the diver ASKED for could not run (`syncFailedMessage` above) —
   // never by an automatic cycle, which reports itself through the pending line and nothing
   // else.
   const [refreshing, setRefreshing] = useState(false);
@@ -277,7 +285,7 @@ export default function DivesScreen() {
       // `skipped` is deliberately silent and is unreachable from here anyway: this control does
       // not exist unless a session does. `synced` says nothing either — the list itself is the
       // answer, redrawn by `useDives`'s live query as rows land.
-      if (outcome.kind === 'failed') setSyncMessage(SYNC_FAILED_MESSAGE);
+      if (outcome.kind === 'failed') setSyncMessage(syncFailedMessage());
     } finally {
       setRefreshing(false);
     }
@@ -333,10 +341,10 @@ export default function DivesScreen() {
    * one to report: this screen is never "in search", it only opens the screen that is.
    */
   const capsuleActions: readonly CapsuleAction[] = [
-    { key: 'search', symbol: SEARCH_GLYPH, label: 'Search dives', onPress: openSearch },
+    { key: 'search', symbol: SEARCH_GLYPH, label: t('dives.search'), onPress: openSearch },
     // Unchanged label from the 60 dp circle this replaces: it is the same action, said the
     // same way, and DivesScreen.test.tsx finds it by exactly this string.
-    { key: 'log-dive', symbol: LOG_DIVE_GLYPH, label: 'Log a dive', onPress: logDive },
+    { key: 'log-dive', symbol: LOG_DIVE_GLYPH, label: t('dives.logDive'), onPress: logDive },
   ];
 
   // One `ReorderGate` (ReorderControls.tsx) for the screen's lifetime — a
@@ -367,7 +375,7 @@ export default function DivesScreen() {
       setReorderMessage(null);
       return applyReorder(date, orderedIds, reorderDivesForDate)
         .then((result) => setReorderMessage(result.message))
-        .catch(() => setReorderMessage("Couldn't reorder that day. Try again."));
+        .catch(() => setReorderMessage(t('dives.reorderFailed')));
     });
     if (started === null) return; // this day already has a write in flight
     setPendingReorderDates((prev) => new Set(prev).add(date));
@@ -413,7 +421,7 @@ export default function DivesScreen() {
    * on three branches and the first content of the list on the fourth, and the list's content
    * has no top padding (`listContent`).
    */
-  const title = <Text style={styles.divesTitle}>Dives</Text>;
+  const title = <Text style={styles.divesTitle}>{t('dives.title')}</Text>;
 
   /**
    * **§7.5's quiet indicator, or nothing** — `3 changes waiting to sync`, under the summary
@@ -433,7 +441,7 @@ export default function DivesScreen() {
    * date draws no line at all, so the title block is its §0.6 self on every ordinary screen.
    *
    * **It is also the whole of what this app tells a diver about a failed sync**, and that is a
-   * decision rather than an omission — see `SYNC_FAILED_MESSAGE` above for the one exception.
+   * decision rather than an omission — see `syncFailedMessage` above for the one exception.
    * A cycle that fails leaves the flags exactly where they were, so this line simply stays,
    * saying the true thing (the account has not got these yet) instead of the alarming one (a
    * request did not complete). §1 makes that the rule: sync failures never block logging, and a
@@ -478,9 +486,9 @@ export default function DivesScreen() {
       <View style={root}>
         {title}
         <View style={styles.centerFill}>
-          {/* One sentence, one owner (`LOGBOOK_UNREADABLE`, db/useDives.ts) — four screens
+          {/* One sentence, one owner (`logbookUnreadable`, domain/logbook.ts) — four screens
               dispatch on this hook's `error` and each carried its own copy of it until M3b. */}
-          <Text style={styles.messageText}>{LOGBOOK_UNREADABLE}</Text>
+          <Text style={styles.messageText}>{logbookUnreadable()}</Text>
         </View>
       </View>
     );
@@ -554,7 +562,7 @@ export default function DivesScreen() {
       ? [
           {
             key: 'up-next',
-            title: 'Up next',
+            title: t('dives.upNext'),
             variant: 'upNext' as const,
             // How many dives are queued — NOT a date range. A batch of planned dives has
             // no single trip date range the way a logged trip does (each row states its
@@ -633,10 +641,10 @@ export default function DivesScreen() {
               // Names the dive it belongs to, so a screen reader moving down a queue of
               // planned dives can tell one "Complete dive" from the next — the same
               // reasoning ReorderControls.tsx's own `rowLabel` records for its arrows.
-              accessibilityLabel={`Complete dive: ${diveSiteLabel(item.dive)}`}
+              accessibilityLabel={t('dives.completeDiveFor', { site: diveSiteLabel(item.dive) })}
             >
               <View style={styles.plannedActionPill}>
-                <Text style={styles.plannedActionLabel}>Complete dive</Text>
+                <Text style={styles.plannedActionLabel}>{t('dives.completeDive')}</Text>
               </View>
             </Pressable>
           </View>
@@ -669,7 +677,7 @@ export default function DivesScreen() {
           style={styles.reorderNotice}
           onPress={() => setReorderMessage(null)}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss message"
+          accessibilityLabel={t('dives.dismiss')}
         >
           <Text style={styles.reorderNoticeText}>{reorderMessage}</Text>
         </Pressable>
@@ -690,9 +698,7 @@ export default function DivesScreen() {
         // lives now, and `useDives` applies it to both of its error fields; nothing on this
         // screen decides it, which is why there is no timer, no dismiss and no comparison here.
         <View style={styles.settingsNotice}>
-          <Text style={styles.settingsNoticeText}>
-            Couldn&apos;t read your settings — dive numbers may be missing your pre-Ponor count.
-          </Text>
+          <Text style={styles.settingsNoticeText}>{t('dives.settingsUnreadable')}</Text>
         </View>
       )}
       {/* The one thing this screen says about sync in words, and only ever about a pull the
@@ -705,7 +711,7 @@ export default function DivesScreen() {
           style={styles.syncNotice}
           onPress={() => setSyncMessage(null)}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss message"
+          accessibilityLabel={t('dives.dismiss')}
         >
           <Text style={styles.syncNoticeText}>{syncMessage}</Text>
         </Pressable>
@@ -729,7 +735,7 @@ export default function DivesScreen() {
           <>
             {title}
             <View style={styles.centerFill}>
-              <Text style={styles.messageText}>No dives match your search.</Text>
+              <Text style={styles.messageText}>{t('dives.noMatches')}</Text>
             </View>
           </>
         ) : (
@@ -825,7 +831,7 @@ export default function DivesScreen() {
           // two cannot drift apart by a point.
           <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
             <View style={styles.centerFill}>
-              <Text style={styles.messageText}>Select a dive to see its details.</Text>
+              <Text style={styles.messageText}>{t('dives.selectPrompt')}</Text>
             </View>
           </View>
         ) : (

@@ -1,4 +1,4 @@
-import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
+import { jsTabItems, nativeTabItems, TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 
@@ -109,7 +109,14 @@ it('names no ground for the native bar, so iOS keeps drawing its own material', 
 // milestone landing.
 it('lists the tabs once, in §3\'s order, keyed by route file name', () => {
   expect(TAB_ROUTES.map((route) => route.name)).toEqual(['index', 'map', 'stats', 'settings']);
-  expect(TAB_ROUTES.map((route) => route.title)).toEqual(['Dives', 'Map', 'Stats', 'Settings']);
+  // The KEY, not the word (M3g): the word is `src/i18n`'s and the two languages disagree
+  // about it on purpose, so a title asserted here would be asserting English twice.
+  expect(TAB_ROUTES.map((route) => route.titleKey)).toEqual([
+    'tabs.dives',
+    'tabs.map',
+    'tabs.stats',
+    'tabs.settings',
+  ]);
 });
 
 // --- What each layout is handed, and why the glyph is resolved here rather than there ---
@@ -133,10 +140,13 @@ it('hands each navigator every tab, in order, with the route name and title it r
   // Derived from `TAB_ROUTES` rather than re-typed as `['index', 'settings']`: the order and
   // the titles are pinned against the source above, so a tab added there but dropped by
   // either resolver fails here instead of being invisible on one platform.
-  expect(NATIVE_TAB_ITEMS.map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
-  expect(JS_TAB_ITEMS.map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
-  expect(NATIVE_TAB_ITEMS.map((tab) => tab.title)).toEqual(TAB_ROUTES.map((route) => route.title));
-  expect(JS_TAB_ITEMS.map((tab) => tab.title)).toEqual(TAB_ROUTES.map((route) => route.title));
+  expect(nativeTabItems().map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
+  expect(jsTabItems().map((tab) => tab.name)).toEqual(TAB_ROUTES.map((route) => route.name));
+  // The words, resolved. Asserted as the app's own English (`en.ts` is the app, not a
+  // translation of it) rather than against `TAB_ROUTES`, which no longer holds words — and a
+  // key that failed to resolve would render as `tabs.dives`, which this catches.
+  expect(nativeTabItems().map((tab) => tab.title)).toEqual(['Dives', 'Map', 'Stats', 'Settings']);
+  expect(jsTabItems().map((tab) => tab.title)).toEqual(['Dives', 'Map', 'Stats', 'Settings']);
 });
 
 it('gives each navigator its icon under the keys that navigator actually reads', () => {
@@ -144,10 +154,10 @@ it('gives each navigator its icon under the keys that navigator actually reads',
   // `sf`/`md`; the browser's `SymbolView` reads `ios`/`android`/`web`. Presence, not spelling
   // — a missing key is a blank bar on the platform that reads it, and `web` is the one that
   // was actually missing in this app once, in both icons, until symbolName.ts existed.
-  for (const tab of NATIVE_TAB_ITEMS) {
+  for (const tab of nativeTabItems()) {
     expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
   }
-  for (const tab of JS_TAB_ITEMS) {
+  for (const tab of jsTabItems()) {
     expect(Object.keys(tab.icon).sort()).toEqual(['android', 'ios', 'web']);
   }
 });
@@ -164,11 +174,11 @@ it('gives each navigator its icon under the keys that navigator actually reads',
 // survive a well-meaning `...route` spread in `tabs.ts` looking like a tidy-up, which is
 // exactly how it would come back. Asserted at runtime, here, so the tidy-up is red.
 it('hands the layouts no raw symbol to pass by mistake', () => {
-  for (const tab of [...NATIVE_TAB_ITEMS, ...JS_TAB_ITEMS]) {
+  for (const tab of [...nativeTabItems(), ...jsTabItems()]) {
     expect(tab).not.toHaveProperty('symbol');
   }
   // And the list is not empty, or the loop above proves nothing at all.
-  expect(NATIVE_TAB_ITEMS.length).toBe(TAB_ROUTES.length);
-  expect(JS_TAB_ITEMS.length).toBe(TAB_ROUTES.length);
+  expect(nativeTabItems().length).toBe(TAB_ROUTES.length);
+  expect(jsTabItems().length).toBe(TAB_ROUTES.length);
   expect(TAB_ROUTES.length).toBeGreaterThan(0);
 });

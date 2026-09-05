@@ -23,7 +23,7 @@ import {
 import { DiveRow } from '../components/DiveRow';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDives } from '../db/useDives';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -47,8 +47,8 @@ import {
   formatSiteFacts,
   formatSiteMarkLabel,
   formatSiteSummary,
-  UNNAMED_CENTER,
-  UNNAMED_SITE,
+  unnamedCenter,
+  unnamedSite,
 } from '../format/display';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { locationPermission } from '../platform/locationPermission';
@@ -108,28 +108,28 @@ const KIND_SWITCH: Record<MapMarkKind, { show: string; hide: string }> = {
 };
 
 /**
- * What a catalogue site is called on this screen — its name, or `UNNAMED_SITE` when it has
+ * What a catalogue site is called on this screen — its name, or `unnamedSite` when it has
  * none.
  *
  * **A deliberate near-duplicate of `diveSiteLabel`, and §4.1 requires it to say so.** That
  * function answers "what is this DIVE called" and reads a dive's site-then-centre pair; this
  * one answers "what is this catalogue ROW called" and has only a name to read — a site has no
  * centre to fall back to. What they share is the words for having neither, which is why
- * `UNNAMED_SITE` is imported rather than typed here: a mark a screen reader announces as
+ * `unnamedSite` is imported rather than typed here: a mark a screen reader announces as
  * nothing is worse than one it announces as unnamed, and it must be the same "nothing" the
  * dive list already uses. §5 asks a new site only for a name, so this is an edge rather than
  * the norm — but `dive_sites.name` is nullable in both databases (§6, so §7's one-transaction
  * push can never reject a diver's whole sync over one row) and a null can therefore arrive.
  */
 function siteLabel(site: Pick<DiveSite, 'name'>): string {
-  return site.name ?? UNNAMED_SITE;
+  return site.name ?? unnamedSite();
 }
 
 /** The same for a catalogue **centre**, in that noun's own words (M3c). Two constants rather
- * than one "Unnamed" plus a noun, for the reason `UNNAMED_CENTER` records: §0.5's Czech declines
+ * than one "Unnamed" plus a noun, for the reason `unnamedCenter` records: §0.5's Czech declines
  * both nouns, so they are two strings to translate rather than one string and a grammar rule. */
 function centreLabel(centre: Pick<DiveCenter, 'name'>): string {
-  return centre.name ?? UNNAMED_CENTER;
+  return centre.name ?? unnamedCenter();
 }
 
 /**
@@ -345,7 +345,7 @@ export default function MapScreen() {
       // (theme/styles.ts) for why a bare mark for a single dive would be a legend.
       badge: String(place.dives.length),
     })),
-    // `UNNAMED_SITE`/`UNNAMED_CENTER` rather than a literal, so a catalogue row with no name is
+    // `unnamedSite`/`unnamedCenter` rather than a literal, so a catalogue row with no name is
     // called on this map exactly what the rest of the app calls one (§4.1). §5 asks a new row
     // only for a name, so this is an edge rather than the norm — but a mark with no label at all
     // is a mark a screen reader cannot announce.
@@ -416,15 +416,15 @@ export default function MapScreen() {
    * own dives are on the map, and saying nothing would quietly draw fewer marks than were asked
    * for.
    *
-   * **One sentence per distinct failure, not per kind.** `CATALOGUE_UNREADABLE` (domain/
+   * **One sentence per distinct failure, not per kind.** `catalogueUnreadable` (domain/
    * logbook.ts) is one sentence about "the community catalogue", and both catalogue reads failing
    * at once is one thing gone wrong — printing it twice would be the screen counting its own
    * tables at the diver.
    */
   const failures: string[] = [];
-  if (shown.has('mine') && error) failures.push(LOGBOOK_UNREADABLE);
+  if (shown.has('mine') && error) failures.push(logbookUnreadable());
   if ((shown.has('community') && catalogue.error) || (shown.has('centers') && centres.error)) {
-    failures.push(CATALOGUE_UNREADABLE);
+    failures.push(catalogueUnreadable());
   }
 
   /**

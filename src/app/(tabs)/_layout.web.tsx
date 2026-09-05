@@ -2,7 +2,8 @@ import { Tabs } from 'expo-router/js-tabs';
 import { SymbolView } from 'expo-symbols';
 import { useColorScheme } from 'react-native';
 
-import { JS_TAB_ITEMS, jsTabsAppearance } from '../../navigation/tabs';
+import { useT } from '../../i18n';
+import { jsTabItems, jsTabsAppearance } from '../../navigation/tabs';
 import { resolveScheme } from '../../theme/resolve';
 
 /**
@@ -34,14 +35,16 @@ import { resolveScheme } from '../../theme/resolve';
  * test file here would ship to a diver's phone, so nothing could reach it. The consequence was
  * not subtle: the browser's `SymbolView` reads `name.web`, a raw `PlatformSymbol` has no such
  * key, and this bar would draw no glyphs at all — the very defect `components/symbolName.ts`
- * exists to prevent, in the one file that had no witness. `JS_TAB_ITEMS` arrives resolved and
+ * exists to prevent, in the one file that had no witness. `jsTabItems()` arrives resolved and
  * carries no raw symbol, so that edit no longer type-checks.
  */
 export default function WebTabsLayout() {
   const scheme = resolveScheme(useColorScheme());
+  // The subscription that makes a language change repaint the bar — see `_layout.tsx`.
+  useT();
   return (
     <Tabs screenOptions={jsTabsAppearance(scheme)}>
-      {JS_TAB_ITEMS.map((tab) => (
+      {jsTabItems().map((tab) => (
         <Tabs.Screen
           key={tab.name}
           name={tab.name}

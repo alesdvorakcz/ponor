@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RmvSparkline } from '../components/RmvSparkline';
 import { useDives } from '../db/useDives';
-import { LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { logbookUnreadable } from '../domain/logbook';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { todayCalendarDate } from '../domain/datetime';
@@ -107,7 +107,7 @@ export const COUNTRIES_UNKNOWN_NOTE =
 export const REFRESHER_MESSAGE =
   'Over six months since your last dive. A refresher is worth booking before the next one.';
 
-/* What a failed logbook read says is `LOGBOOK_UNREADABLE` (db/useDives.ts) now, and this is
+/* What a failed logbook read says is `logbookUnreadable` (db/useDives.ts) now, and this is
  * the note M3a left here being discharged. It read: "the same sentence the Dives list, the
  * search screen and the Map tab each say for the same failure — and therefore a **fourth
  * literal copy** of it, which §4.1 would rather see given one owner… the four are one sentence
@@ -279,7 +279,7 @@ export default function StatsScreen() {
       <View style={root}>
         {title}
         <View style={styles.centerFill}>
-          <Text style={styles.messageText}>{LOGBOOK_UNREADABLE}</Text>
+          <Text style={styles.messageText}>{logbookUnreadable()}</Text>
         </View>
       </View>
     );

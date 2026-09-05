@@ -12,7 +12,7 @@
 // reports one.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -30,12 +30,13 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { formatDiveCount, formatPendingChanges, NON_BREAKING_SPACE } from '../format/display';
+import { setActiveLanguage } from '../i18n';
 import { completeDiveHref } from '../navigation/editDiveLink';
 import { depthBandColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from '../theme/styles';
-import { LOGBOOK_UNREADABLE } from '../domain/logbook';
-import DivesScreen, { SYNC_FAILED_MESSAGE } from './DivesScreen';
+import { logbookUnreadable } from '../domain/logbook';
+import DivesScreen, { syncFailedMessage } from './DivesScreen';
 
 // Jest hoists jest.mock() calls above the imports above at transform time regardless of
 // where it sits textually, so it can live here without an import/first violation.
@@ -479,7 +480,7 @@ it('shows the dives and a settings notice, rather than blanking the logbook, whe
   });
   const text = textIn(await render(<DivesScreen />)).join(' ');
   expect(text).toContain('Blue Hole');
-  expect(text).not.toContain(LOGBOOK_UNREADABLE);
+  expect(text).not.toContain(logbookUnreadable());
   expect(text.toLowerCase()).toContain("couldn't read your settings");
 });
 
@@ -495,7 +496,7 @@ it('still blanks the logbook for a failed dives read even when the settings read
     settingsError: new Error('settings unreadable'),
   });
   const text = textIn(await render(<DivesScreen />)).join(' ');
-  expect(text).toContain(LOGBOOK_UNREADABLE);
+  expect(text).toContain(logbookUnreadable());
   expect(text.toLowerCase()).not.toContain("couldn't read your settings");
 });
 
@@ -1209,7 +1210,7 @@ it('names the screen on a failed read, with no capsule beside it', async () => {
   const t = await render(<DivesScreen />);
 
   expect(textIn(t)).toContain('Dives');
-  expect(textIn(t).join(' ')).toContain(LOGBOOK_UNREADABLE);
+  expect(textIn(t).join(' ')).toContain(logbookUnreadable());
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
   expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').capsuleFloat)) : []).toHaveLength(0);
   expect(findRoot(t)).toBeTruthy();
@@ -2177,13 +2178,13 @@ it('says so when a sync the diver asked for could not run, and lets them dismiss
   const [control] = findRefreshControls(t);
   await fireEvent(control!, 'refresh');
 
-  expect(textIn(t)).toContain(SYNC_FAILED_MESSAGE);
+  expect(textIn(t)).toContain(syncFailedMessage());
 
   const [dismiss] = t.root
     ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Dismiss message')
     : [];
   await fireEvent.press(dismiss!);
-  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+  expect(textIn(t)).not.toContain(syncFailedMessage());
 });
 
 it('says nothing when the sync worked', async () => {
@@ -2195,7 +2196,7 @@ it('says nothing when the sync worked', async () => {
   const [control] = findRefreshControls(t);
   await fireEvent(control!, 'refresh');
 
-  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+  expect(textIn(t)).not.toContain(syncFailedMessage());
 });
 
 // A refused cycle is not a failure — it is the engine correctly declining, and there is no
@@ -2212,5 +2213,105 @@ it('says nothing when the engine refused the cycle', async () => {
   const [control] = findRefreshControls(t);
   await fireEvent(control!, 'refresh');
 
-  expect(textIn(t)).not.toContain(SYNC_FAILED_MESSAGE);
+  expect(textIn(t)).not.toContain(syncFailedMessage());
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3g) — §0.5's 20–30 %, and the plural rule the header depends on
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted before the language goes back: `useT` subscribes every mounted component to
+    // i18next's `languageChanged` (src/i18n), so switching while one is on screen is a state
+    // update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  /**
+   * **The header's own three figures, in Czech, at a count that needs the `other` form.** A
+   * test that rendered one Czech logbook would prove the key resolved; the second render is
+   * what proves the rule, because English's two forms would put *ponory* on both.
+   */
+  it('says what the logbook adds up to, declined for the count it is', async () => {
+    stubDives({ dives: [dive({ id: 'a', maxDepthM: 41.2, durationMin: 47 })] });
+    const one = await render(<DivesScreen />);
+    expect(textIn(one)).toContain('Ponory');
+    expect(textIn(one)).toContain('1 ponor · 47 min · nejhlubší 41,2 m');
+
+    await cleanup();
+    stubDives({
+      dives: [1, 2, 3, 4, 5].map((n) => dive({ id: `d${String(n)}`, maxDepthM: 10, durationMin: 10 })),
+    });
+    const five = await render(<DivesScreen />);
+    expect(textIn(five)).toContain('5 ponorů · 50 min · nejhlubší 10,0 m');
+  });
+
+  /**
+   * **The screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: no `rerender` is called, so the repaint can only come from this screen hearing
+   * i18next's `languageChanged`. `LanguageSync` is a sibling in the root layout and its state
+   * change reaches nobody here; without the hook a diver would change the setting in Settings,
+   * come back, and read the old words until something else happened to redraw the list.
+   */
+  it('repaints itself when the language changes under it, with nothing else re-rendering', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    stubDives({ dives: [dive({ id: 'a', maxDepthM: 41.2, durationMin: 47 })] });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t)).toContain('Dives');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Ponory');
+    expect(textIn(t)).toContain('1 ponor · 47 min · nejhlubší 41,2 m');
+    expect(textIn(t)).not.toContain('Dives');
+  });
+
+  /** §10 wrote this label two milestones before it existed: *"the day it becomes `Další v
+   * pořadí`"*, in the entry about why a rule must never key on a display string. */
+  it('heads the planned queue with §10’s own Czech words, and counts them', async () => {
+    stubDives({ dives: [dive({ id: 'p1', status: 'planned', date: '2026-09-01' }), dive({ id: 'p2', status: 'planned', date: '2026-09-02' })] });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t)).toContain('Další v pořadí');
+    expect(textIn(t)).toContain('2 ponory');
+    expect(textIn(t)).toContain('Dokončit ponor');
+  });
+
+  /** §7.5's quiet indicator, whose Czech declines the verb as well as the noun. */
+  it('says how many changes are waiting, with the verb the count asks for', async () => {
+    mockSignedIn();
+    mockPendingChanges.mockImplementation(() => 1);
+    stubDives({ dives: [dive({ id: 'a' })] });
+    const one = await render(<DivesScreen />);
+    expect(textIn(one)).toContain('1 změna čeká na synchronizaci');
+
+    await cleanup();
+    mockPendingChanges.mockImplementation(() => 3);
+    const three = await render(<DivesScreen />);
+    expect(textIn(three)).toContain('3 změny čekají na synchronizaci');
+  });
+
+  /** The empty logbook keeps its `0 dives` job — §10 makes that line a state signal rather
+   * than a statistic, and it is the whole of what tells this branch from the unread one. */
+  it('keeps the first-run screen’s count as a signal, in Czech', async () => {
+    stubDives({ dives: [] });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t)).toContain('0 ponorů');
+    expect(textIn(t)).toContain('ZATÍM NIC ZAZNAMENÁNO');
+  });
+
+  /** A failed read is one sentence with one owner (`logbookUnreadable`, domain/logbook.ts), and
+   * it moves with the language like everything else this screen says. */
+  it('reports an unreadable logbook in Czech', async () => {
+    stubDives({ dives: [], error: new Error('disk') });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t).join(' ')).toContain('Deník se nepodařilo otevřít.');
+    expect(textIn(t).join(' ')).not.toContain('Couldn');
+  });
 });

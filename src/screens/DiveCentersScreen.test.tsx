@@ -10,9 +10,9 @@ import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
 import { useDives, type DiveListState } from '../db/useDives';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { CATALOGUE_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
-import { UNNAMED_CENTER } from '../format/display';
+import { unnamedCenter } from '../format/display';
 import { LIVE_SEARCH_DELAY_MS } from '../hooks/useCatalogueSupplement';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveCentersScreen from './DiveCentersScreen';
@@ -163,7 +163,7 @@ it('draws no second line at all for a centre with nothing behind either half', a
 
 it('calls an unnamed centre what the rest of the app calls one', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([centre({ name: null })]));
-  expect(rowNames(await show())).toEqual([UNNAMED_CENTER]);
+  expect(rowNames(await show())).toEqual([unnamedCenter()]);
 });
 
 it('opens a centre from its row', async () => {
@@ -327,7 +327,7 @@ it('states nothing about a catalogue it has not read yet', async () => {
 it('reports a failed read rather than an empty directory', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   const text = textIn(await show());
-  expect(text).toContain(CATALOGUE_UNREADABLE);
+  expect(text).toContain(catalogueUnreadable());
   expect(text.join(' ')).not.toContain('No dive centres yet');
 });
 

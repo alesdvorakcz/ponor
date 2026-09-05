@@ -1,8 +1,9 @@
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
 import { formatDuration, formatTimeRange } from '../format/display';
+import { setActiveLanguage } from '../i18n';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -475,4 +476,60 @@ it('draws the same dive in the same band colour whichever system it is read in',
       .find((c) => c !== undefined && c === depthColor(24.6, 'dark'));
   expect(colourOf(metric)).toBe(depthColor(24.6, 'dark'));
   expect(colourOf(imperial)).toBe(depthColor(24.6, 'dark'));
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech, and the one thing `memo` makes this component's own problem (M3g)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * **This row is `memo`'d, so it has to hear about a language change itself.**
+ *
+ * Every other component in the app re-renders because its parent does. This one is wrapped in
+ * `memo`, and its words come from `format/display.ts` and from `t` — neither of which is a
+ * prop, so nothing about a language change is visible in the props it is compared on.
+ *
+ * **The props below are deliberately stable**, which is what makes this a real test rather than
+ * a coincidence. In the app `DivesScreen` recreates `openDive` on every render, so `memo` is
+ * defeated anyway and the row redraws whatever it does — a test that mounted the screen would
+ * pass with the subscription deleted. Held stable, the memo actually bites: `useT()` inside the
+ * component is the only reason the row hears anything at all.
+ */
+it('redraws its own words when the language changes, though its props did not', async () => {
+  const onPress = () => {};
+  const planned = dive({ id: 'p', status: 'planned', date: '2026-08-16' });
+  const t = await render(<DiveRow dive={planned} number={undefined} scheme="dark" units="metric" onPress={onPress} />);
+  expect(textIn(t)).toContain('planned');
+
+  // Rerendered with the SAME props object identities, exactly as `memo` would see them.
+  // `act` is awaited: React 19's always returns a thenable, and an unawaited one leaves a
+  // scope open that empties every render after it.
+  await act(() => {
+    setActiveLanguage('cs');
+  });
+  await t.rerender(<DiveRow dive={planned} number={undefined} scheme="dark" units="metric" onPress={onPress} />);
+  try {
+    expect(textIn(t)).toContain('plánovaný');
+    expect(textIn(t)).toContain('16. 8. 2026');
+    expect(textIn(t)).not.toContain('planned');
+  } finally {
+    await cleanup();
+    setActiveLanguage('en');
+  }
+});
+
+it('speaks a dive number in Czech to a screen reader', async () => {
+  setActiveLanguage('cs');
+  try {
+    const t = await render(
+      <DiveRow dive={dive({ id: 'a', siteName: 'Blue Hole', maxDepthM: 18 })} number={12} scheme="dark" units="metric" onPress={() => {}} />,
+    );
+    // Narrowed the way this file's own first assertion does — a null root must fail as a
+    // missing render rather than as a mismatched string.
+    if (!t.root) throw new Error('DiveRow did not render a root element');
+    expect(t.root.props.accessibilityLabel).toBe('Ponor 12, Blue Hole, 18,0 m');
+  } finally {
+    await cleanup();
+    setActiveLanguage('en');
+  }
 });

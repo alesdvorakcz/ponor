@@ -4,11 +4,14 @@ import { settings } from './schema';
 import {
   divesBeforeQuery,
   getDivesBefore,
+  languageQuery,
   openFormGroupsQuery,
   readDivesBefore,
+  readLanguage,
   readOpenFormGroups,
   readUnitSystem,
   setDivesBefore,
+  setLanguage,
   setOpenFormGroups,
   setUnitSystem,
   unitSystemQuery,
@@ -204,6 +207,81 @@ describe('setUnitSystem', () => {
     await setUnitSystem(db, 'imperial');
     expect(await getDivesBefore(db)).toBe(247);
     expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// locale — §3's language setting (M3g), stored under the name §6 gives it
+// ---------------------------------------------------------------------------------------
+//
+// The fourth key this table holds. It degrades on `readUnitSystem`'s side of that reader's
+// documented asymmetry rather than `dives_before`'s — and to `'system'`, not to `'en'`, which is
+// the load-bearing half: falling back to English would take a Czech diver's phone off Czech
+// because a row failed to parse.
+
+describe('readLanguage', () => {
+  it('follows the device on a fresh database — §3 makes that the default', async () => {
+    expect(readLanguage(await languageQuery(db))).toBe('system');
+  });
+
+  it('returns the stored preference', async () => {
+    await db.insert(settings).values({ key: 'locale', value: 'cs' });
+    expect(readLanguage(await languageQuery(db))).toBe('cs');
+    // ...and the other two, so a reader hard-wired to one value cannot pass.
+    await db.update(settings).set({ value: 'en' });
+    expect(readLanguage(await languageQuery(db))).toBe('en');
+    await db.update(settings).set({ value: 'system' });
+    expect(readLanguage(await languageQuery(db))).toBe('system');
+  });
+
+  it('falls back to the device for a value this build cannot honour, never to English', async () => {
+    // `'de'` is the case that matters: a language a later build offers, read by this one. An
+    // English fallback would be this build overriding a Czech phone over a row it merely does
+    // not recognise.
+    for (const bad of ['de', 'Czech', 'cs-CZ', '', '  cs  ', 'null']) {
+      const fresh = createTestDb();
+      await fresh.insert(settings).values({ key: 'locale', value: bad });
+      expect(readLanguage(await languageQuery(fresh))).toBe('system');
+    }
+  });
+
+  it('ignores unrelated settings keys', async () => {
+    await db.insert(settings).values({ key: 'units', value: 'imperial' });
+    expect(readLanguage(await languageQuery(db))).toBe('system');
+  });
+
+  it('never throws on a malformed rows argument — it runs during a render, which may not throw', () => {
+    const malformed = [null, undefined, 'nope', 42, [{}], [{ value: 42 }], [null]] as unknown[];
+    for (const bad of malformed) {
+      expect(() => readLanguage(bad as unknown[])).not.toThrow();
+      expect(readLanguage(bad as unknown[])).toBe('system');
+    }
+  });
+});
+
+describe('setLanguage', () => {
+  it('records the choice where readLanguage finds it', async () => {
+    await setLanguage(db, 'cs');
+    expect(readLanguage(await languageQuery(db))).toBe('cs');
+  });
+
+  it('overwrites the previous choice rather than adding a second row', async () => {
+    await setLanguage(db, 'cs');
+    await setLanguage(db, 'system');
+    const rows = await languageQuery(db);
+    expect(rows).toHaveLength(1);
+    expect(readLanguage(rows)).toBe('system');
+  });
+
+  it('leaves the other three keys alone — four keys, one table', async () => {
+    await setDivesBefore(db, 247);
+    await setUnitSystem(db, 'imperial');
+    await setOpenFormGroups(db, { gas: true });
+    await setLanguage(db, 'cs');
+    expect(await getDivesBefore(db)).toBe(247);
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ gas: true });
+    expect(readLanguage(await languageQuery(db))).toBe('cs');
   });
 });
 

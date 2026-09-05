@@ -2,6 +2,7 @@ import { Image, Pressable, ScrollView, Text, View, type ImageSourcePropType } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDepthBoundary, METADATA_SEPARATOR } from '../format/display';
+import { t } from '../i18n';
 import { type UnitSystem } from '../format/units';
 import { deepestBandStartM, shallowestBandEndM } from '../theme/depth';
 import { makeStyles, screenBottomInset } from '../theme/styles';
@@ -69,6 +70,12 @@ interface EmptyStateProps {
  * contradicts — and in imperial, a caption reading "6 m" under bars labelled `0–20 · 20–39 · …`
  * would be a first-run screen teaching in two unit systems at once.
  *
+ * **Nor is one word.** The reason line is a single key with the two depths interpolated, not an
+ * English sentence with figures dropped into gaps: §0.5's Czech is 20–30 % longer and puts its
+ * clauses in a different order, so a sentence assembled from JSX fragments would be
+ * untranslatable without rebuilding this component. Same for the promise above it, which was
+ * two source lines and is one string.
+ *
  * The primary action sits in the bottom third of the screen (DESIGN.md
  * §0.5: wet hands, one thumb) and is styled from the `action`/`action-fg`
  * tokens — the app's one button treatment (§0.1: colour is depth and
@@ -130,26 +137,27 @@ export function EmptyState({ scheme, system, onPress }: EmptyStateProps) {
             the legend below carry every fact the mark carries, so a screen reader announcing
             it would only ever announce "image". */}
         <Image source={MARK} style={styles.emptyStateMark} accessible={false} />
-        <Text style={styles.emptyStateLabel}>NOTHING LOGGED YET</Text>
-        <Text style={styles.emptyStateText}>
-          Ponor keeps every dive on this phone. No account, no upload, works with the boat out
-          of signal.
-        </Text>
+        <Text style={styles.emptyStateLabel}>{t('empty.label')}</Text>
+        <Text style={styles.emptyStateText}>{t('empty.promise')}</Text>
         <DepthLegend scheme={scheme} system={system} />
         <Text style={styles.emptyStateReason}>
-          colour is depth{METADATA_SEPARATOR}nothing else in Ponor is coloured
+          {t('empty.reasonColour')}
+          {METADATA_SEPARATOR}
+          {t('empty.reasonNothingElse')}
         </Text>
         {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
             so this sentence can never contradict the bars directly above it — see the
             docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
             way a dive's depth is. */}
         <Text style={styles.emptyStateReason}>
-          red fades out by {formatDepthBoundary(shallowestBandEndM, system)}, blue carries past{' '}
-          {formatDepthBoundary(deepestBandStartM, system)} — the scale follows the light
+          {t('empty.reasonLight', {
+            shallow: formatDepthBoundary(shallowestBandEndM, system),
+            deep: formatDepthBoundary(deepestBandStartM, system),
+          })}
         </Text>
       </ScrollView>
       <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.actionLabel}>Log your first dive</Text>
+        <Text style={styles.actionLabel}>{t('empty.action')}</Text>
       </Pressable>
     </View>
   );

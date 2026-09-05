@@ -1,10 +1,10 @@
-import { formatDiveDate, UNNAMED_SITE } from '../format/display';
+import { formatDiveDate, unnamedSite } from '../format/display';
 import { calendarDateToUtcMs, normaliseTimeOfDay } from './datetime';
 import { type Dive } from './types';
 
 const MS_PER_DAY = 86_400_000;
 
-// `UNNAMED_SITE` is the title for a trip whose dives have neither `centerName`
+// `unnamedSite` is the title for a trip whose dives have neither `centerName`
 // nor `siteName` set — `tripKeyOf` returns null for those, and this is what
 // that null renders as. Never used for the grouping comparison itself (see
 // `tripKeyOf`). DESIGN.md §1's no-form-shaming stance means an unnamed dive is
@@ -45,7 +45,7 @@ export interface Trip {
  * fragmented one week into a dozen one-dive "trips". `siteName` is the fallback
  * for a dive with no centre recorded, so shore diving groups exactly as it did
  * before. `null` means genuinely unplaced — distinct from any string value,
- * including `UNNAMED_SITE` itself, so two unplaced dives group with each other
+ * including `unnamedSite` itself, so two unplaced dives group with each other
  * (`null === null`) but a named dive can never accidentally match one by
  * sharing that display text.
  *
@@ -194,7 +194,7 @@ export function groupIntoTrips(dives: Dive[]): Trip[] {
     if (first === undefined) return; // current is empty; nothing to flush.
     trips.push({
       key: first.id,
-      title: tripKeyOf(first) ?? UNNAMED_SITE,
+      title: tripKeyOf(first) ?? unnamedSite(),
       dateRange: dateRangeOf(current),
       dives: current,
     });

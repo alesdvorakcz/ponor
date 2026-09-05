@@ -6,7 +6,7 @@ import { DiveRow } from '../components/DiveRow';
 import { useDives } from '../db/useDives';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { waterTempRange } from '../domain/mapSites';
 import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaults';
@@ -18,7 +18,7 @@ import {
   formatSalinity,
   formatSiteSummary,
   formatWaterBody,
-  UNNAMED_SITE,
+  unnamedSite,
 } from '../format/display';
 import { backToSites } from '../navigation/leaveScreen';
 import { type UnitSystem } from '../format/units';
@@ -79,7 +79,7 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * survivor — and for both of those, "not found" is true.
  */
 
-/** What this page calls the site it is showing — its name, or `UNNAMED_SITE`.
+/** What this page calls the site it is showing — its name, or `unnamedSite`.
  *
  * **A deliberate near-duplicate of `diveSiteLabel`, of `MapScreen`'s `siteLabel` and of
  * `DiveCenterScreen`'s `centerLabel`, and §4.1 requires it to say so.** `diveSiteLabel` answers
@@ -90,7 +90,7 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * is an edge — but `dive_sites.name` is nullable in both databases (§6, so §7's one-transaction
  * push can never reject a diver's whole sync over one row) and a null can arrive in a pull. */
 function siteLabel(site: Pick<DiveSite, 'name'>): string {
-  return site.name ?? UNNAMED_SITE;
+  return site.name ?? unnamedSite();
 }
 
 /**
@@ -179,7 +179,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           {/* Three states, one branch each. A failed read must never read as "not found", and a
               read that has not answered says nothing at all — the frame is drawn, and the sentence
               arrives under it when there is one (§10, `DiveDetailScreen`). */}
-          {catalogue.error !== undefined && <Text style={styles.messageText}>{CATALOGUE_UNREADABLE}</Text>}
+          {catalogue.error !== undefined && <Text style={styles.messageText}>{catalogueUnreadable()}</Text>}
           {catalogue.error === undefined && catalogue.resolved && (
             <Text style={styles.messageText}>Site not found.</Text>
           )}
@@ -210,9 +210,9 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
       <Text style={styles.siteHeading}>{siteLabel(site)}</Text>
       {summary !== null && <Text style={styles.siteSummary}>{summary}</Text>}
       {/* The one failure that has to be said here: the site is on screen and readable, and it is
-          the logbook underneath it that could not be opened — `LOGBOOK_UNREADABLE`
+          the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence five other screens say about the same event. */}
-      {logbookError !== undefined && <Text style={styles.siteSummary}>{LOGBOOK_UNREADABLE}</Text>}
+      {logbookError !== undefined && <Text style={styles.siteSummary}>{logbookUnreadable()}</Text>}
       <SiteFacts site={site} units={units} styles={styles} />
       {myDives.length > 0 && <Text style={styles.siteSectionTitle}>Your dives</Text>}
     </View>

@@ -1,5 +1,6 @@
-import { render, type RenderResult } from '@testing-library/react-native';
+import { cleanup, render, type RenderResult } from '@testing-library/react-native';
 
+import { setActiveLanguage } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { fonts } from '../theme/fonts';
 import { DayStrip } from './DayStrip';
@@ -136,4 +137,46 @@ it('renders its action as a bordered pill in tracked uppercase, not plain text',
   const labelStyle = flatStyle(label);
   expect(labelStyle.some((s) => s.textTransform === 'uppercase')).toBe(true);
   expect(labelStyle.some((s) => typeof s.letterSpacing === 'number' && s.letterSpacing > 0)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3g)
+// ---------------------------------------------------------------------------------------
+
+// The strip is `18 Aug 2026 · 2 dives, no times` — a date whose whole shape changes, a count
+// with four Czech forms, and a clause the translator has to be able to move. Asserted at two
+// and at five dives, because a single count proves the key resolved and nothing about the rule.
+it('states the day, the count and the reason in Czech', async () => {
+  setActiveLanguage('cs');
+  try {
+    const two = await render(<DayStrip date="2026-08-18" count={2} active={false} scheme="dark" onToggle={() => {}} />);
+    expect(textIn(two).join(' ')).toContain('18. 8. 2026 · 2 ponory, bez časů');
+    expect(textIn(two).join(' ')).toContain('Seřadit');
+
+    const five = await render(<DayStrip date="2026-08-18" count={5} active={false} scheme="dark" onToggle={() => {}} />);
+    expect(textIn(five).join(' ')).toContain('5 ponorů, bez časů');
+  } finally {
+    // Unmounted before the language goes back, and awaited — RNTL's `cleanup` is async, and an
+    // unawaited one leaves an act scope open that empties every render after it. `useT`
+    // subscribes every mounted component to i18next's `languageChanged` (src/i18n), so a switch
+    // made while one is still on screen is a state update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  }
+});
+
+it('names the day it would reorder, in Czech, so two strips do not sound alike', async () => {
+  setActiveLanguage('cs');
+  try {
+    const t = await render(<DayStrip date="2026-08-18" count={2} active={false} scheme="dark" onToggle={() => {}} />);
+    const button = t.root?.queryAll((n) => n.props?.accessibilityRole === 'button')[0];
+    expect(button?.props.accessibilityLabel).toBe('Seřadit 18. 8. 2026');
+  } finally {
+    // Unmounted before the language goes back, and awaited — RNTL's `cleanup` is async, and an
+    // unawaited one leaves an act scope open that empties every render after it. `useT`
+    // subscribes every mounted component to i18next's `languageChanged` (src/i18n), so a switch
+    // made while one is still on screen is a state update outside `act`.
+    await cleanup();
+    setActiveLanguage('en');
+  }
 });

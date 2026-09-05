@@ -11,11 +11,11 @@ import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { searchSites } from '../cloud/searchSites';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { CATALOGUE_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable } from '../domain/logbook';
 import { browseCatalogue } from '../domain/search';
 import { isDiveAtSite } from '../domain/siteDives';
 import { type DiveSite } from '../domain/types';
-import { formatSiteCount, formatSiteRow, UNNAMED_SITE } from '../format/display';
+import { formatSiteCount, formatSiteRow, unnamedSite } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
 import { backToMap } from '../navigation/leaveScreen';
@@ -96,7 +96,7 @@ export default function DiveSitesScreen() {
    * sites yet" would be a claim about a database nothing has asked).
    */
   const message = (): string | null => {
-    if (catalogue.error !== undefined) return CATALOGUE_UNREADABLE;
+    if (catalogue.error !== undefined) return catalogueUnreadable();
     if (!catalogue.resolved) return null;
     if (catalogue.sites.length === 0) {
       // **Two sentences, because a guest is not waiting for the same thing a signed-in diver is**
@@ -190,7 +190,7 @@ function SiteRow({
   units: UnitSystem;
   styles: Styles;
 }) {
-  const name = site.name ?? UNNAMED_SITE;
+  const name = site.name ?? unnamedSite();
   const summary = formatSiteRow(site, dives, units);
   return (
     <Pressable

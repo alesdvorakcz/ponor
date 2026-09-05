@@ -7,10 +7,10 @@ import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { divesWithCenter } from '../domain/centerDives';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { waterTempRange } from '../domain/mapSites';
-import { formatSiteSummary, UNNAMED_CENTER } from '../format/display';
+import { formatSiteSummary, unnamedCenter } from '../format/display';
 import { backToCenters } from '../navigation/leaveScreen';
 import { isOpenableWebsite, openWebsite } from '../platform/openWebsite';
 import { resolveScheme } from '../theme/resolve';
@@ -64,7 +64,7 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * themselves on the pull that delivers the merge (§5, and `domain/merges.ts` owns the rule).
  */
 
-/** What this page calls the centre it is showing — its name, or `UNNAMED_CENTER`.
+/** What this page calls the centre it is showing — its name, or `unnamedCenter`.
  *
  * **A deliberate near-duplicate of `diveSiteLabel`, and of `MapScreen`'s own `siteLabel`, and
  * §4.1 requires it to say so.** `diveSiteLabel` answers "what is this DIVE called" and falls
@@ -73,7 +73,7 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * for having none are `format/display.ts`'s, never a literal here, because a heading a screen
  * reader announces as nothing is worse than one it announces as unnamed. */
 function centerLabel(center: { name: string | null }): string {
-  return center.name ?? UNNAMED_CENTER;
+  return center.name ?? unnamedCenter();
 }
 
 /**
@@ -140,7 +140,7 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           {/* Three states, one branch each. A failed read must never read as "not found", and
               a read that has not answered says nothing at all — the frame is drawn, and the
               sentence arrives under it when there is one (§10, `DiveDetailScreen`). */}
-          {catalogue.error !== undefined && <Text style={styles.messageText}>{CATALOGUE_UNREADABLE}</Text>}
+          {catalogue.error !== undefined && <Text style={styles.messageText}>{catalogueUnreadable()}</Text>}
           {catalogue.error === undefined && catalogue.resolved && (
             <Text style={styles.messageText}>Centre not found.</Text>
           )}
@@ -177,9 +177,9 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
       <Text style={styles.centerHeading}>{centerLabel(center)}</Text>
       {summary !== null && <Text style={styles.centerSummary}>{summary}</Text>}
       {/* The one failure that has to be said here: the centre is on screen and readable, and it
-          is the logbook underneath it that could not be opened — `LOGBOOK_UNREADABLE`
+          is the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence four other screens say about the same event. */}
-      {logbookError !== undefined && <Text style={styles.centerSummary}>{LOGBOOK_UNREADABLE}</Text>}
+      {logbookError !== undefined && <Text style={styles.centerSummary}>{logbookUnreadable()}</Text>}
       {hasFacts && (
         <View>
           <Text style={styles.centerSectionTitle}>Centre</Text>

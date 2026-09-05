@@ -10,22 +10,24 @@
 // a zero-inset render cannot tell a screen that asks the device from one that never does.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '../db/client';
-import { setDivesBefore, setUnitSystem } from '../db/settings';
+import { setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
+import { useLanguagePreference } from '../db/useLanguage';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { todayCalendarDate } from '../domain/datetime';
 import { type Certification, type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
+import { LANGUAGE_PREFERENCES, setActiveLanguage, type LanguagePreference } from '../i18n';
 import {
   LOCATION_PERMISSION_STATES,
   locationPermission,
@@ -49,6 +51,10 @@ import SettingsScreen from './SettingsScreen';
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn() }));
 jest.mock('../db/useDivesBefore', () => ({ useDivesBefore: jest.fn() }));
+// The fifth live read (M3g): §3's language preference, mocked per module for the reason the
+// four others are — it is a database read, and this screen must render against any of the
+// three preferences without one.
+jest.mock('../db/useLanguage', () => ({ useLanguagePreference: jest.fn() }));
 // The third live read (M1e): §3's cylinder presets, mocked per module for the same reason
 // the two above are — it is a database read, and this screen must render against any list of
 // presets, and against a read that failed, without one.
@@ -79,6 +85,7 @@ jest.mock('../db/settings', () => ({
   ...jest.requireActual('../db/settings'),
   setUnitSystem: jest.fn(),
   setDivesBefore: jest.fn(),
+  setLanguage: jest.fn(),
 }));
 // §3's location access (M2m). **Both halves are faked, and the requesting one is faked so
 // that it can be witnessed NOT being called** — §3's rule is that reading the status must not
@@ -97,10 +104,12 @@ jest.mock('expo-linking', () => ({ ...jest.requireActual('expo-linking'), openSe
 
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
+const mockUseLanguagePreference = useLanguagePreference as jest.Mock;
 const mockUseGearPresets = useGearPresets as jest.Mock;
 const mockUseCertifications = useCertifications as jest.Mock;
 const mockSetUnitSystem = setUnitSystem as jest.Mock;
 const mockSetDivesBefore = setDivesBefore as jest.Mock;
+const mockSetLanguage = setLanguage as jest.Mock;
 const mockPush = router.push as jest.Mock;
 const mockLocationPermission = locationPermission as jest.Mock;
 const mockRequestLocationPermission = requestLocationPermission as jest.Mock;
@@ -163,6 +172,7 @@ function stubSettings({
   certificationsResolved = true,
   divesBeforeResolved = true,
   permission = 'granted',
+  language = 'system',
 }: {
   units?: string;
   divesBefore?: number | null;
@@ -174,6 +184,7 @@ function stubSettings({
   certificationsResolved?: boolean;
   divesBeforeResolved?: boolean;
   permission?: LocationPermissionState;
+  language?: LanguagePreference;
 } = {}) {
   // A fresh promise per call, never one resolved object handed back for ever: this screen
   // reads the permission again every time the app returns to the foreground, and a stub that
@@ -181,6 +192,9 @@ function stubSettings({
   // `platform/locationPermission.ts` refuses to be.
   mockLocationPermission.mockImplementation(() => Promise.resolve(permission));
   mockUseUnitSystem.mockImplementation(() => units);
+  // Defaults to `'system'` — the state a diver who has never opened this row is in, and what
+  // `readLanguage` degrades an absent row to (db/settings.ts).
+  mockUseLanguagePreference.mockImplementation(() => language);
   // Both `*Resolved` flags default to TRUE — the read has answered — because that is what every
   // test in this file is about. Spelled out rather than left `undefined` so this stub keeps
   // modelling a state the real hooks can actually be in, and so the two describe-less cases
@@ -229,6 +243,7 @@ async function returnToForeground() {
 beforeEach(() => {
   mockSetUnitSystem.mockImplementation(() => Promise.resolve());
   mockSetDivesBefore.mockImplementation(() => Promise.resolve());
+  mockSetLanguage.mockImplementation(() => Promise.resolve());
   mockOpenSettings.mockImplementation(() => Promise.resolve());
   appStateHandlers = [];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((event, handler) => {
@@ -240,10 +255,12 @@ beforeEach(() => {
 afterEach(() => {
   mockUseUnitSystem.mockReset();
   mockUseDivesBefore.mockReset();
+  mockUseLanguagePreference.mockReset();
   mockUseGearPresets.mockReset();
   mockUseCertifications.mockReset();
   mockSetUnitSystem.mockReset();
   mockSetDivesBefore.mockReset();
+  mockSetLanguage.mockReset();
   mockPush.mockReset();
   mockLocationPermission.mockReset();
   mockRequestLocationPermission.mockReset();
@@ -260,8 +277,19 @@ function textIn(t: RenderResult): string[] {
 }
 
 function findChip(t: RenderResult, label: string) {
-  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === `Units: ${label}`) : [];
-  if (!node) throw new Error(`SettingsScreen did not render a "${label}" chip`);
+  return chipIn(t, 'Units', label);
+}
+
+/** §3's language row's own chips (M3g). A separate finder rather than a widened `findChip`,
+ * because `OptionChips` announces a chip as `<row label>: <value>` and the two rows are two
+ * rows — a finder that matched on the value alone would find whichever came first. */
+function findLanguageChip(t: RenderResult, label: string) {
+  return chipIn(t, 'Language', label);
+}
+
+function chipIn(t: RenderResult, row: string, label: string) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === `${row}: ${label}`) : [];
+  if (!node) throw new Error(`SettingsScreen did not render a "${row}: ${label}" chip`);
   return node;
 }
 
@@ -650,7 +678,11 @@ it('carries no delete of its own, so the list stays a list', async () => {
   // can say anything about it — and an inventory taken before that read answers would be an
   // inventory of a screen mid-load.
   await waitFor(() => {
-    const labels = buttonLabels(t).filter((label) => !label.startsWith('Units: '));
+    // Both chip rows are filtered out, not just Units': a chip announces itself as
+    // `<label>: <value>` and this assertion is about the screen's ROWS.
+    const labels = buttonLabels(t).filter(
+      (label) => !label.startsWith('Units: ') && !label.startsWith('Language: '),
+    );
     expect(labels).toEqual([
       'Edit preset twin 12 steel',
       'Location access: Allowed',
@@ -865,7 +897,7 @@ it('opens the editor in create mode from that row', async () => {
 /**
  * **A failed read is said, and it is not the same sentence as an empty wallet** —
  * `useCertifications`' `error` field exists for that distinction, and the sentence is the
- * editor's own (`CERTIFICATIONS_UNREADABLE`) rather than a second literal here.
+ * editor's own (`certificationsUnreadable`) rather than a second literal here.
  */
 it('says the read failed rather than leaving an empty section', async () => {
   stubSettings({ certifications: [], certificationsError: new Error('no database') });
@@ -923,9 +955,12 @@ it('keeps the presets when the wallet cannot be read, and the other way round', 
 // Scope and grammar
 // ---------------------------------------------------------------------------------------
 
-// §3 lists more under Settings — data export, delete account, language — and every one of them
-// belongs to a later part of M3. This is a scope assertion, and it can fail: a stray control
-// added here would show up as a fourth labelled field.
+// §3 lists more under Settings — data export, delete account — and both belong to a later part
+// of M3. This is a scope assertion, and it can fail: a stray control added here would show up
+// as a fifth labelled field.
+//
+// **Language is the fourth and arrived in M3g**, in the place §3 lists it: beside units, as a
+// setting about the app rather than as a list of the diver's own things.
 //
 // **The list grows by §3's entries arriving, one deliberate edit at a time, and never by being
 // loosened.** §3's location access is the third and arrived in M2m — a row whose label is a
@@ -938,14 +973,19 @@ it('keeps the presets when the wallet cannot be read, and the other way round', 
 // & sync likewise, as a destination in full ink. "Fields I use" was on this list until M1i
 // dropped it from v1 (§2.2, §9) — it is not a later milestone, it is not coming, and this test
 // should not start expecting it.
-it('carries §3’s three labelled settings and no more', async () => {
+it('carries §3’s four labelled settings and no more', async () => {
   stubSettings({
     presets: [preset({ name: 'twin 12 steel' })],
     certifications: [certification()],
   });
   const t = await render(<SettingsScreen />);
   const labels = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formFieldLabel)) : [];
-  expect(labels.flatMap((n) => n.children)).toEqual(['Units', 'Dives before Ponor', 'Location access']);
+  expect(labels.flatMap((n) => n.children)).toEqual([
+    'Units',
+    'Language',
+    'Dives before Ponor',
+    'Location access',
+  ]);
   expect(textIn(t)).toContain('Cylinder presets');
   // And the wallet really is on screen while that list stays at three, so this cannot pass
   // because the section failed to render at all.
@@ -956,10 +996,10 @@ it('carries §3’s three labelled settings and no more', async () => {
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Seven rows with one preset and one card: Units, Dives before Ponor, the preset's own, §3's
-// location access, the card's own, *Add a certification* and §3's account & sync — every one of
-// them the same `formField` row, so a preset, a card, a report, an action and a destination are
-// rows of this screen rather than new kinds of object drawn beside them.
+// Eight rows with one preset and one card: Units, §3's language, Dives before Ponor, the
+// preset's own, §3's location access, the card's own, *Add a certification* and §3's account &
+// sync — every one of them the same `formField` row, so a preset, a card, a report, an action
+// and a destination are rows of this screen rather than new kinds of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
   stubSettings({
     presets: [preset({ name: 'twin 12 steel' })],
@@ -967,7 +1007,7 @@ it('uses the form’s own row grammar rather than inventing a third one', async 
   });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(7);
+  expect(rows).toHaveLength(8);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks
@@ -1338,4 +1378,149 @@ it('draws the unread placeholder in the muted ink an answer never takes', async 
   const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes('Checking…')) : [];
   if (!text) throw new Error('SettingsScreen rendered no unread placeholder');
   expect(text.props.style).toBe(makeStyles('light').settingsLocationStatusUnread);
+});
+
+// ---------------------------------------------------------------------------------------
+// §3's language row (M3g)
+// ---------------------------------------------------------------------------------------
+//
+// The row is `OptionChips` over `LANGUAGE_PREFERENCES`, exactly as *Units* is over
+// `UNIT_SYSTEMS` — same component, same grammar, same one-writer rule. What it does NOT do is
+// apply the choice: `LanguageSync` (src/i18n) reads the same row back through the same live
+// query and puts the app into it, so this screen writes a setting and nothing else.
+
+it('offers the device and both languages, and names each language in itself', async () => {
+  stubSettings();
+  const t = await render(<SettingsScreen />);
+  expect(textIn(t)).toContain('Language');
+  // The two real languages are NOT translated, which is the row's one rule: a diver who has
+  // landed in a language they cannot read has to be able to find the way out of it.
+  expect(textIn(t)).toContain('English');
+  expect(textIn(t)).toContain('Čeština');
+  expect(textIn(t)).toContain('Device');
+  // Derived from the source list rather than re-typed, so a third language added to
+  // `src/i18n` appears here on its own — the same tie the units row keeps to `UNIT_SYSTEMS`.
+  expect(LANGUAGE_PREFERENCES).toHaveLength(3);
+});
+
+it('shows the stored preference as the chosen chip, including the device', async () => {
+  stubSettings({ language: 'cs' });
+  const t = await render(<SettingsScreen />);
+  const styleOf = (label: string) =>
+    [findLanguageChip(t, label).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  expect(styleOf('Čeština')).toContain(makeStyles('light').formChipSelected);
+  expect(styleOf('Device')).not.toContain(makeStyles('light').formChipSelected);
+
+  // And `'system'` is a real answer rather than the absence of one — the whole reason this row
+  // has three chips instead of two.
+  await cleanup();
+  stubSettings({ language: 'system' });
+  const device = await render(<SettingsScreen />);
+  const deviceStyleOf = (label: string) =>
+    [findLanguageChip(device, label).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+  expect(deviceStyleOf('Device')).toContain(makeStyles('light').formChipSelected);
+  expect(deviceStyleOf('Čeština')).not.toContain(makeStyles('light').formChipSelected);
+});
+
+it('writes the chosen language through setLanguage', async () => {
+  stubSettings({ language: 'system' });
+  const t = await render(<SettingsScreen />);
+  await fireEvent.press(findLanguageChip(t, 'Čeština'));
+  expect(mockSetLanguage).toHaveBeenCalledTimes(1);
+  expect(mockSetLanguage).toHaveBeenCalledWith(db, 'cs');
+});
+
+// `OptionChips` reports `''` when the diver presses the chip already selected. A language has
+// no cleared state — `readLanguage` degrades an absent row to `'system'`, which is itself one
+// of the three chips — so that press must write nothing rather than putting an empty string
+// into a row `readLanguage` would then have to interpret.
+it('writes nothing when the diver presses the language that is already chosen', async () => {
+  stubSettings({ language: 'cs' });
+  const t = await render(<SettingsScreen />);
+  await fireEvent.press(findLanguageChip(t, 'Čeština'));
+  expect(mockSetLanguage).not.toHaveBeenCalled();
+});
+
+// §1's "never block a save", the other way round — the same rule the units row keeps. The chip
+// does not move, because it renders from the live read; a control that silently did nothing is
+// what this codebase has shipped before.
+it('says so when a language write fails, rather than leaving the chip to explain itself', async () => {
+  stubSettings({ language: 'system' });
+  mockSetLanguage.mockImplementation(() => Promise.reject(new Error('disk full')));
+  const t = await render(<SettingsScreen />);
+  await fireEvent.press(findLanguageChip(t, 'Čeština'));
+  await waitFor(() => expect(textIn(t).join(' ')).toContain("Couldn't save that"));
+});
+
+// ---------------------------------------------------------------------------------------
+// The screen in Czech
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted before the language goes back, and awaited: RNTL's `cleanup` is async, and
+    // `useT` subscribes every mounted component to i18next's `languageChanged` (src/i18n).
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  it('moves every label, caption and status on the screen', async () => {
+    stubSettings({
+      presets: [preset({ name: 'twin 12 steel', tanks: [tank({ sizeL: 12, material: 'steel' })] })],
+      certifications: [certification({ cardNumber: '1234567', expiresOn: '2027-07-14' })],
+      divesBefore: 247,
+    });
+    const t = await render(<SettingsScreen />);
+    await waitFor(() => expect(textIn(t)).toContain('Povoleno'));
+    const text = textIn(t).join(' ');
+    expect(text).toContain('Nastavení');
+    expect(text).toContain('Jednotky');
+    expect(text).toContain('Jazyk');
+    expect(text).toContain('Ponory před Ponorem');
+    expect(text).toContain('Předvolby lahví');
+    expect(text).toContain('Přístup k poloze');
+    expect(text).toContain('Certifikace');
+    expect(text).toContain('Účet a synchronizace');
+    // A preset's summary is `format/display.ts`'s, not this screen's, and it moves with it:
+    // *Jedna láhev* is not in this file's vocabulary at all.
+    expect(text).toContain('12 l Ocel');
+    // A card's dates likewise — and its date is written the Czech way.
+    expect(text).toContain('platí do 14. 7. 2027');
+    // And nothing is left behind in English.
+    expect(text).not.toContain('Settings');
+    expect(text).not.toContain('Cylinder presets');
+  });
+
+  /**
+   * **This screen's own subscription** (`useT`, src/i18n), and the only thing that proves it is
+   * there: no `rerender` is called, so the repaint can only come from the screen hearing
+   * i18next's `languageChanged`. It matters most here of anywhere — this is the screen the
+   * diver is standing on when they press the chip, so without it the one act that changes the
+   * language would visibly do nothing.
+   */
+  it('repaints itself the moment the language changes, with nothing else re-rendering', async () => {
+    await cleanup();
+    setActiveLanguage('en');
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    await waitFor(() => expect(textIn(t)).toContain('Allowed'));
+    expect(textIn(t)).toContain('Settings');
+
+    await act(() => {
+      setActiveLanguage('cs');
+    });
+    expect(textIn(t)).toContain('Nastavení');
+    expect(textIn(t)).toContain('Povoleno');
+    expect(textIn(t)).not.toContain('Settings');
+  });
+
+  it('names the unit chips in Czech while leaving the unit symbols alone', async () => {
+    stubSettings({ units: 'imperial' });
+    const t = await render(<SettingsScreen />);
+    expect(textIn(t)).toContain('Metrické');
+    expect(textIn(t)).toContain('Imperiální');
+  });
 });

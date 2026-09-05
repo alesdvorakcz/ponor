@@ -12,10 +12,10 @@ import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
-import { CATALOGUE_UNREADABLE, LOGBOOK_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { SITE_DEFAULT_FIELDS } from '../domain/siteDefaults';
 import { type Dive, type DiveSite } from '../domain/types';
-import { UNNAMED_SITE } from '../format/display';
+import { unnamedSite } from '../format/display';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
 import DiveSiteScreen from './DiveSiteScreen';
@@ -342,7 +342,7 @@ it('does not open a page for a site an admin merged away', async () => {
 it('reports a failed catalogue read rather than a missing site', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([], { error: new Error('nope') }));
   const text = textIn(await show());
-  expect(text).toContain(CATALOGUE_UNREADABLE);
+  expect(text).toContain(catalogueUnreadable());
   expect(text).not.toContain('Site not found.');
 });
 
@@ -374,7 +374,7 @@ it('leaves for the sites directory rather than for the map', async () => {
 
 /**
  * The site is readable and the logbook is not, which is a different failure from either of the two
- * above and gets the sentence five other screens say about the same event (`LOGBOOK_UNREADABLE`,
+ * above and gets the sentence five other screens say about the same event (`logbookUnreadable`,
  * domain/logbook.ts). The page still names the site and still says what the catalogue knows: what
  * failed is the half about the diver.
  */
@@ -383,7 +383,7 @@ it('names the site and reports the logbook failure under it', async () => {
   mockUseDives.mockReturnValue(divesState([], { error: new Error('nope') }));
   const text = textIn(await show());
   expect(text).toContain('Kotelna');
-  expect(text).toContain(LOGBOOK_UNREADABLE);
+  expect(text).toContain(logbookUnreadable());
   expect(text).toContain('CZ');
   // No summary: "0 dives" over an unreadable logbook is a figure with nothing behind it.
   expect(text).not.toContain('0 dives');
@@ -403,7 +403,7 @@ it('says nothing about a logbook it has not read yet', async () => {
 // must be the words the rest of the app uses.
 it('calls an unnamed site what the rest of the app calls one', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: null })]));
-  expect(textIn(await show())).toContain(UNNAMED_SITE);
+  expect(textIn(await show())).toContain(unnamedSite());
 });
 
 /** Both depths follow the diver's own system — the summary's, which is a dive's, and the

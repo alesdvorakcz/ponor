@@ -1,5 +1,7 @@
+import { setActiveLanguage } from '../i18n';
 import {
   DEFAULT_UNIT_SYSTEM,
+  figureText,
   displayFigure,
   displayNumber,
   displayValueFor,
@@ -217,5 +219,60 @@ describe('isUnitSystem', () => {
 describe('DEFAULT_UNIT_SYSTEM', () => {
   it('is metric', () => {
     expect(DEFAULT_UNIT_SYSTEM).toBe('metric');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// figureText — the decimal separator (M3g)
+// ---------------------------------------------------------------------------------------
+//
+// §10's depth bands are computed from the stored metre value, so a comma cannot move a dive
+// between bands; what it can do is reach a place that parses, and the point of routing every
+// fractional figure through one function is that there is one place to check.
+
+describe('figureText', () => {
+  afterEach(() => {
+    setActiveLanguage('en');
+  });
+
+  it('writes a fraction with the mark the language uses', () => {
+    expect(figureText(41.2, 1)).toBe('41.2');
+    setActiveLanguage('cs');
+    expect(figureText(41.2, 1)).toBe('41,2');
+  });
+
+  it('leaves a whole number alone in both languages', () => {
+    expect(figureText(208, 0)).toBe('208');
+    setActiveLanguage('cs');
+    expect(figureText(208, 0)).toBe('208');
+    // And no grouping — 1284 dives is 1284, not 1,284 or 1 284. `Intl.NumberFormat` was
+    // rejected for exactly this: it would rewrite an English figure the app already ships.
+    expect(figureText(1284)).toBe('1284');
+  });
+
+  it('pads to the pair’s own precision, or shows the value exactly as recorded', () => {
+    // The weight spec's `null`: 6 kg reads `6`, never `6.0`.
+    expect(figureText(6)).toBe('6');
+    expect(figureText(6, 1)).toBe('6.0');
+    setActiveLanguage('cs');
+    expect(figureText(6, 1)).toBe('6,0');
+  });
+
+  it('carries the mark through every figure `displayFigure` builds', () => {
+    setActiveLanguage('cs');
+    expect(displayFigure('depth', 24.6, 'metric')).toEqual({ value: '24,6', unit: 'm' });
+    // The unit words themselves do NOT move: `m`, `bar`, `°C` and `kg` are the same marks in
+    // Czech, and `format/units.ts` owns them rather than the resource files.
+    expect(displayFigure('pressure', 207.5, 'metric')).toEqual({ value: '208', unit: 'bar' });
+    expect(displayFigure('temperature', -0.4, 'metric')).toEqual({ value: '0', unit: '°C' });
+  });
+
+  it('does not disturb the numbers the form round-trips, which are never text', () => {
+    setActiveLanguage('cs');
+    // `displayValueFor`/`storedValueFor` hand each other `number`s, so the comma exists only
+    // between the formatter and the diver's eyes — the property §10 asks for in the sentence
+    // about depth bands, stated where it could actually break.
+    expect(displayValueFor('depth', 24.63, 'imperial')).toBe(81);
+    expect(storedValueFor('depth', 81, 24.63, 'imperial')).toBe(24.63);
   });
 });

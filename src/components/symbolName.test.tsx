@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
 
-import { JS_TAB_ITEMS, NATIVE_TAB_ITEMS, TAB_ROUTES } from '../navigation/tabs';
+import { jsTabItems, nativeTabItems, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
@@ -235,7 +235,7 @@ it('gives a centre’s map mark an Android and a web name, not just an iOS one',
 // so that edit is a `tsc` error rather than a silent blank bar. `tabs.test.ts` owns that
 // structural property — every route resolved, in order, with nothing raw left on it.
 //
-// What is read here is `NATIVE_TAB_ITEMS`/`JS_TAB_ITEMS` themselves rather than the
+// What is read here is `nativeTabItems()`/`jsTabItems()` themselves rather than the
 // converters applied to `TAB_ROUTES`, because those two lists are literally what the layouts
 // map over: a resolution that dropped a route, or resolved it with the wrong glyph, is caught
 // here, where re-deriving the answer from the source would only have proved the converters
@@ -267,8 +267,8 @@ it('pins a Material name for every tab in the bar, and for no tab that is not', 
 });
 
 it.each(TAB_MATERIAL_NAMES)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
-  const native = NATIVE_TAB_ITEMS.find((tab) => tab.name === name);
-  const js = JS_TAB_ITEMS.find((tab) => tab.name === name);
+  const native = nativeTabItems().find((tab) => tab.name === name);
+  const js = jsTabItems().find((tab) => tab.name === name);
   // The routes existing is part of the assertion: `.find` on a name nobody ships returns
   // `undefined`, and every expectation below would then be checking `undefined?.android`
   // against itself. A renamed or dropped tab must fail here rather than pass vacuously.

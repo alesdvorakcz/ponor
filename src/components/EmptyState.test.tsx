@@ -6,9 +6,10 @@
 // reason the screen tests record.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
 import { UNIT_SYSTEMS } from '../format/units';
+import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -168,4 +169,49 @@ it('opens the form when that action is pressed', async () => {
   const t = await render(<EmptyState scheme="dark" system="metric" onPress={onPress} />);
   await fireEvent.press(actionIn(t));
   expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+// ---------------------------------------------------------------------------------------
+// Czech (M3g) — §0.6's first-run screen, the one that teaches §0.1
+// ---------------------------------------------------------------------------------------
+
+describe('in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    // Unmounted first, then switched back. `useT` subscribes every mounted component to
+    // i18next's `languageChanged` (src/i18n), so a switch made while one is still on screen is
+    // a real state update outside `act` — the library's own cleanup runs in its own hook, and
+    // this does not depend on which of the two Jest happens to call first.
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  it('says every one of the block’s five things in Czech', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    const text = textIn(t);
+    expect(text).toContain('ZATÍM NIC ZAZNAMENÁNO');
+    expect(text).toContain('Ponor drží každý ponor v tomto telefonu.');
+    expect(text).toContain('barva je hloubka');
+    expect(text).toContain('Zaznamenat první ponor');
+    // And nothing is left in English behind it — the whole screen moves or none of it does.
+    expect(text).not.toContain('NOTHING LOGGED YET');
+    expect(text).not.toContain('Log your first dive');
+  });
+
+  /**
+   * **The reason line is one string with two figures dropped into it, not an English sentence
+   * with gaps.** Czech puts the clauses in a different order and §0.5 makes it 20–30 % longer,
+   * so a sentence assembled from JSX fragments would be untranslatable without rebuilding the
+   * component — and the two depths still come from `theme/depth.ts` in the diver's own units,
+   * which is what stops the caption contradicting the bars above it.
+   */
+  it('keeps the two band boundaries inside the Czech sentence, in the diver’s own units', async () => {
+    const metric = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    expect(textIn(metric)).toContain('červená mizí v 6 m, modrá drží i za 40 m — škála sleduje světlo');
+
+    const imperial = await render(<EmptyState scheme="dark" system="imperial" onPress={() => {}} />);
+    expect(textIn(imperial)).toContain('červená mizí v 20 ft, modrá drží i za 131 ft — škála sleduje světlo');
+  });
 });

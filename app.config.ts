@@ -40,6 +40,12 @@ const config: ExpoConfig = {
     //
     // It is a NATIVE config change, so it lands only at the next prebuild + dev-client build.
     'expo-secure-store',
+    // §4's `expo-localization`, asked for by `npx expo install`. It is a native config change
+    // rather than a runtime one: the plugin declares the locales the binary claims to support,
+    // which is what stops iOS handing the app a locale it has no strings for. `src/i18n/`
+    // reduces whatever it gets to `en` or `cs` regardless, so this lands at the next prebuild
+    // and nothing waits on it.
+    'expo-localization',
     // §2.3's "use my location — pressed right on the boat", which is the ONLY way a dive gets a
     // GPS pin now that M1i took the two coordinate keypads off the form (§2.2). The string is
     // what iOS shows in the permission sheet, and it is the app's own sentence rather than the

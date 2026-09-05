@@ -2,6 +2,7 @@ import type { BottomTabNavigationOptions } from 'expo-router/js-tabs';
 import type { NativeTabsProps } from 'expo-router/unstable-native-tabs';
 
 import { nativeTabSymbol, symbolName, type PlatformSymbol } from '../components/symbolName';
+import { t, type TranslationKey } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -10,8 +11,13 @@ import { type ColorScheme } from '../theme/tokens';
 export interface TabRoute {
   /** The route's file name under `src/app/(tabs)/`, without its extension. */
   name: string;
-  /** The word in the bar, and the screen's own title. */
-  title: string;
+  /**
+   * The word in the bar, as a KEY rather than as a word (M3g). It was a string, resolved when
+   * this module was first imported — which is before the diver's language is known and for
+   * ever afterwards, so a bar built from it would have said "Dives" under a Czech screen
+   * until the app was killed. `nativeTabItems`/`jsTabItems` below resolve it per call.
+   */
+  titleKey: TranslationKey;
   /** Its glyph, in each platform's own vocabulary — `nativeTabSymbol` (components/symbolName.ts)
    * owns which key the tab bar asks for each half under. */
   symbol: PlatformSymbol;
@@ -28,20 +34,19 @@ export interface TabRoute {
  *
  * `name` is a route file name and not a label: expo-router matches `<NativeTabs.Trigger name>`
  * against the files in `src/app/(tabs)/`, so `'index'` here means `(tabs)/index.tsx`. It is
- * not translated; `title` is the string a diver reads, and is what i18next will key when M3
- * arrives.
+ * not translated; `titleKey` is what names the string a diver reads, and `src/i18n` holds it.
  */
 export const TAB_ROUTES: readonly TabRoute[] = [
   // `water.waves` over `list.bullet`: the tab is the logbook, and §0.3 already spends the
   // app's iconography on water rather than on documents — a list glyph would say "rows",
   // which is the least interesting true thing about this screen.
-  { name: 'index', title: 'Dives', symbol: { ios: 'water.waves', android: 'waves' } },
+  { name: 'index', titleKey: 'tabs.dives', symbol: { ios: 'water.waves', android: 'waves' } },
   // §3's second tab (M2n). It sits between Dives and Settings because that is §3's own order —
   // Dives, Map, Stats, Settings — and M3's Stats tab goes in the gap this leaves rather than on
   // the end. `map`/`map` is the same word in both vocabularies, which is a coincidence of these
   // two libraries and not a rule: `symbolName.test.tsx` pins the Material half like every other
   // glyph, because "they happen to agree today" is exactly the shape that stops being true.
-  { name: 'map', title: 'Map', symbol: { ios: 'map', android: 'map' } },
+  { name: 'map', titleKey: 'tabs.map', symbol: { ios: 'map', android: 'map' } },
   // §3's third tab (M3a), in the gap the entry above left for it rather than on the end — §3's
   // order is Dives, Map, Stats, Settings, and a tab appended after Settings would read as
   // correct in every other test in this file.
@@ -53,8 +58,8 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // vocabulary this tab is competing with is every other dive app's — and a tab glyph is a
   // signpost rather than a promise about what is behind it, with the word "Stats" beside it
   // saying the rest. It is also still right the day §9's charts arrive.
-  { name: 'stats', title: 'Stats', symbol: { ios: 'chart.bar', android: 'bar_chart' } },
-  { name: 'settings', title: 'Settings', symbol: { ios: 'gearshape', android: 'settings' } },
+  { name: 'stats', titleKey: 'tabs.stats', symbol: { ios: 'chart.bar', android: 'bar_chart' } },
+  { name: 'settings', titleKey: 'tabs.settings', symbol: { ios: 'gearshape', android: 'settings' } },
 ];
 
 /**
@@ -103,10 +108,17 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * spellings; the `icon` types are read off its own return types rather than restated here, so
  * a change to either shape lands in one place.
  *
- * Computed once at module load rather than per render. Both converters are pure functions of
- * a frozen list, so every value is identical to what the layouts computed inline; what
- * changes is that the objects are now stable across renders instead of fresh each time, which
- * can only reduce work downstream.
+ * **Functions rather than constants since M3g, and the glyph half is still computed once.**
+ * The two converters are pure functions of a frozen list and were built at module load for
+ * exactly that reason. A tab's WORD is not: it is whatever the diver's language says, and a
+ * list built once said English for ever. So the icons stay pre-resolved above and only the
+ * title is read per call — which is also why both layouts now call `useT()`, without which
+ * they would never re-render to ask again.
+ *
+ * **All four labels move together, including Map's and Stats's, whose screens are still
+ * English** (M3g translates three surfaces and the next task takes the rest). The bar is one
+ * object: two Czech labels beside two English ones is a bar that looks broken, where four
+ * Czech labels over two not-yet-translated screens looks like work in progress.
  */
 export interface NativeTabItem {
   name: string;
@@ -120,19 +132,33 @@ export interface JsTabItem {
   icon: ReturnType<typeof symbolName>;
 }
 
+/** The glyphs, resolved once — the half of each item that cannot change while the app runs. */
+const NATIVE_TAB_ICONS: readonly ReturnType<typeof nativeTabSymbol>[] = TAB_ROUTES.map((route) =>
+  nativeTabSymbol(route.symbol),
+);
+
+const JS_TAB_ICONS: readonly ReturnType<typeof symbolName>[] = TAB_ROUTES.map((route) =>
+  symbolName(route.symbol),
+);
+
 /** What `(tabs)/_layout.tsx` maps over. */
-export const NATIVE_TAB_ITEMS: readonly NativeTabItem[] = TAB_ROUTES.map((route) => ({
-  name: route.name,
-  title: route.title,
-  icon: nativeTabSymbol(route.symbol),
-}));
+export function nativeTabItems(): readonly NativeTabItem[] {
+  return TAB_ROUTES.map((route, index) => ({
+    name: route.name,
+    title: t(route.titleKey),
+    // Non-null by construction: this maps the very list the icons were built from, in order.
+    icon: NATIVE_TAB_ICONS[index]!,
+  }));
+}
 
 /** What `(tabs)/_layout.web.tsx` maps over. */
-export const JS_TAB_ITEMS: readonly JsTabItem[] = TAB_ROUTES.map((route) => ({
-  name: route.name,
-  title: route.title,
-  icon: symbolName(route.symbol),
-}));
+export function jsTabItems(): readonly JsTabItem[] {
+  return TAB_ROUTES.map((route, index) => ({
+    name: route.name,
+    title: t(route.titleKey),
+    icon: JS_TAB_ICONS[index]!,
+  }));
+}
 
 /**
  * What the NATIVE tab bar looks like — the props `(tabs)/_layout.tsx` spreads onto

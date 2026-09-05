@@ -1,4 +1,5 @@
 import { type UnitSystem } from '../format/units';
+import { t } from '../i18n';
 import { withoutPressures } from './carryOver';
 import { isRecordedTank, sameTanks, toStoredTanks, type DiveFormInput } from './diveFormSchema';
 import type { GearPreset, Tank } from './types';
@@ -232,7 +233,9 @@ export const duplicatePresetMessage = (name: string) => `You already have a pres
  * apart.
  */
 export const PRESET_SAVE_FAILED = "Couldn't save that preset. Try again.";
-export const PRESETS_UNREADABLE = "Couldn't load your presets. Try again.";
+export function presetsUnreadable(): string {
+  return t('unreadable.presets');
+}
 
 export interface PresetRefusal {
   /** The name as it will be stored — trimmed here, so the string that was judged is the string

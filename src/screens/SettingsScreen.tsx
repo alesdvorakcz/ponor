@@ -7,15 +7,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
 import { db } from '../db/client';
-import { parseDiveCount, setDivesBefore, setUnitSystem } from '../db/settings';
+import { parseDiveCount, setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
+import { useLanguagePreference } from '../db/useLanguage';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { certificationExpiry } from '../domain/certifications';
 import { todayCalendarDate } from '../domain/datetime';
 import { isDiveCount } from '../domain/diveNumber';
-import { PRESETS_UNREADABLE } from '../domain/presets';
+import { presetsUnreadable } from '../domain/presets';
 import { type Certification, type GearPreset } from '../domain/types';
 import {
   certificationLabel,
@@ -24,16 +25,26 @@ import {
   formatUnitSystem,
 } from '../format/display';
 import { UNIT_SYSTEMS, type UnitSystem } from '../format/units';
+import {
+  LANGUAGE_PREFERENCES,
+  languageLabel,
+  t,
+  useT,
+  type LanguagePreference,
+  type TranslationKey,
+} from '../i18n';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
-import { CERTIFICATIONS_UNREADABLE } from './CertificationScreen';
+import { certificationsUnreadable } from './CertificationScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
 /** Shown when a settings write rejects. §1's "never block a save" cuts both ways, and this
  * is the other one: a diver who changes a setting and is not told the change failed is
  * looking at a screen that lies to them the next time they open it. */
-const SAVE_FAILED = "Couldn't save that. Try again.";
+function saveFailed(): string {
+  return t('settings.saveFailed');
+}
 
 /**
  * The two things that stand where the preset rows would be, and they are different sentences
@@ -46,19 +57,23 @@ const SAVE_FAILED = "Couldn't save that. Try again.";
  * already typed into the dive you are logging"), so a diver who has never saved one is
  * looking at a section with no visible way in. Without the line the section is a mystery.
  *
- * The read-failure half is `PRESETS_UNREADABLE` (domain/presets.ts) rather than a literal
+ * The read-failure half is `presetsUnreadable` (domain/presets.ts) rather than a literal
  * here, because `GearPresetScreen` says the same sentence about the same event one route
  * deeper and the two were byte-identical. A failure message normally belongs to the screen
- * that shows it — `SAVE_FAILED` above, the dive form's own save error, the detail screen's
+ * that shows it — `saveFailed` above, the dive form's own save error, the detail screen's
  * delete error, all of which differ because each names a different object — and that stays
  * true; two screens naming the same object is what turns a look-alike into a copy. The empty
  * line below has no twin and stays here.
  */
-const NO_PRESETS = 'Save one from a dive’s Gas & cylinders group and it will show up here.';
+function noPresets(): string {
+  return t('settings.noPresets');
+}
 
 /** §3's own name for this row, and the leading half of what a screen reader announces about
  * it. The words are the design's ("**location access**"), not a paraphrase of them. */
-const LOCATION_LABEL = 'Location access';
+function locationLabel(): string {
+  return t('settings.locationLabel');
+}
 
 /**
  * The value slot before the permission has been read.
@@ -69,7 +84,9 @@ const LOCATION_LABEL = 'Location access';
  * diver where they stand before anyone had looked. Present tense and no full stop, the same
  * shape the form's *Locating…* takes for the same kind of moment.
  */
-const LOCATION_UNREAD = 'Checking…';
+function locationUnread(): string {
+  return t('settings.locationUnread');
+}
 
 /**
  * What the row says when the system Settings app could not be opened at all.
@@ -81,13 +98,24 @@ const LOCATION_UNREAD = 'Checking…';
  * on web; §9 keeps the browser a testing target, which is a reason for it to say so rather
  * than a reason to crash in it).
  */
-const SETTINGS_UNREACHABLE = 'Couldn’t open Settings from here — open it yourself and find Ponor.';
+function settingsUnreachable(): string {
+  return t('settings.locationUnreachable');
+}
 
-/** One state's two lines: what the row's value column says, and the sentence under it. */
-interface LocationRowText {
+/** One state's two lines, as KEYS: what the row's value column says, and the sentence under
+ * it. Keys rather than words for `unnamedSite`'s reason (format/display.ts) — this table is a
+ * module constant, so its strings would have been frozen in whatever language the app started
+ * in. `locationRowText` below resolves a pair at render. */
+interface LocationRowKeys {
   /** The trailing value — where the diver stands, in as few words as that takes. */
-  readonly status: string;
+  readonly status: TranslationKey;
   /** Why that matters and what can be done about it, in the caption slot under the row. */
+  readonly note: TranslationKey;
+}
+
+/** One state's two lines, resolved. */
+interface LocationRowText {
+  readonly status: string;
   readonly note: string;
 }
 
@@ -126,28 +154,25 @@ interface LocationRowText {
  * to change it. Sharing them would mean one sentence trying to do both, and neither
  * vocabulary contains the other.
  */
-const LOCATION_ROW_TEXT: Record<LocationPermissionState, LocationRowText> = {
-  granted: {
-    status: 'Allowed',
-    note: 'Ponor can pin a dive where you are. Open Settings to change that.',
-  },
-  denied: {
-    status: 'Not allowed',
-    note: 'Ponor may not use your location. iOS asks once and never again, so Settings is the only place this can change.',
-  },
+const LOCATION_ROW_KEYS: Record<LocationPermissionState, LocationRowKeys> = {
+  granted: { status: 'settings.locationGranted', note: 'settings.locationGrantedNote' },
+  denied: { status: 'settings.locationDenied', note: 'settings.locationDeniedNote' },
   undetermined: {
-    status: 'Not asked yet',
-    note: 'Nobody has been asked yet — Ponor asks the first time you use it on a dive.',
+    status: 'settings.locationUndetermined',
+    note: 'settings.locationUndeterminedNote',
   },
   servicesOff: {
-    status: 'Location Services off',
-    note: 'Location Services are off for the whole device, so nothing on it can be located. That switch is the device’s, not Ponor’s.',
+    status: 'settings.locationServicesOff',
+    note: 'settings.locationServicesOffNote',
   },
-  unknown: {
-    status: 'Unknown',
-    note: 'Ponor couldn’t check where this stands. Settings will show it.',
-  },
+  unknown: { status: 'settings.locationUnknown', note: 'settings.locationUnknownNote' },
 };
+
+/** One state's pair, in the diver's language. */
+function locationRowText(state: LocationPermissionState): LocationRowText {
+  const keys = LOCATION_ROW_KEYS[state];
+  return { status: t(keys.status), note: t(keys.note) };
+}
 
 /**
  * One preset: its name, and what its cylinders are (`formatCylinders`, format/display.ts —
@@ -214,7 +239,9 @@ function CertificationRow({
       accessibilityRole="button"
       // Says what pressing it does, not merely what it is called — `Edit preset X`'s shape,
       // and the same verb because it is the same kind of act on the same kind of row.
-      accessibilityLabel={`Edit certification ${certificationLabel(certification)}`}
+      accessibilityLabel={t('settings.editCertification', {
+        name: certificationLabel(certification),
+      })}
     >
       <View style={styles.formFieldRow}>
         <Text style={styles.settingsCertificationName}>{certificationLabel(certification)}</Text>
@@ -239,7 +266,7 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
       // name says nothing about where a tap would land. The same shape the dive form's own
       // chips use ("Apply preset X"), and deliberately a different verb, because these two
       // rows do different things to the same preset.
-      accessibilityLabel={`Edit preset ${preset.name}`}
+      accessibilityLabel={t('settings.editPreset', { name: preset.name })}
     >
       <View style={styles.formFieldRow}>
         <Text style={styles.settingsPresetName}>{preset.name}</Text>
@@ -272,6 +299,9 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  *   its four pairs (§4.1), so the options here are `UNIT_SYSTEMS` itself rather than a
  *   second list of the same two words — §4.1's "derive, or tie at compile time". A third
  *   system added there appears here on its own.
+ * - **Language** (§3, M3g), on the same terms: the options are `LANGUAGE_PREFERENCES` itself
+ *   (src/i18n) and the words come from `languageLabel` there, so this screen offers exactly
+ *   the languages the app has and names none of them itself.
  * - **`dives_before`** (§2.5: "asked once at onboarding, editable in settings any time").
  *
  * The third entry is §3's **cylinder presets**, which is a list rather than a setting: it is
@@ -283,7 +313,7 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  *
  * The fourth is §3's **location access**, which is neither a setting nor a list: it is the one
  * row on this screen that only *reports*. The value belongs to the operating system, this
- * screen cannot write it and must not even ask for it — see `LOCATION_ROW_TEXT` above for the
+ * screen cannot write it and must not even ask for it — see `LOCATION_ROW_KEYS` above for the
  * five answers it can report and for why the row exists at all.
  *
  * **Both settings write through `db/settings.ts` and never touch the `settings` row
@@ -302,6 +332,9 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
 export default function SettingsScreen() {
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
+  // §3's language, read as a subscription (src/i18n): this screen both shows the setting and
+  // is the screen that changes it, so it is the one that must repaint the instant it does.
+  useT();
   // How far down this screen's content begins, from the device rather than from a constant
   // (`screenTopInset`, theme/styles.ts — the app's one owner of that rule). The reported
   // defect: with the sheet's old flat 48, "Settings" sat at 56.3 pt on an iPhone 17 Pro,
@@ -312,6 +345,12 @@ export default function SettingsScreen() {
   // wrote — the same discipline DivesScreen keeps with `useDives()`. A write below is never
   // read back from its own return value.
   const units = useUnitSystem();
+  // §3's language, as the diver's PREFERENCE rather than as the resolved language — the chips
+  // below have to be able to show *Device* as the selected one, which a resolved `'cs'` cannot
+  // say (db/useLanguage.ts). Applying it is `LanguageSync`'s job, not this screen's: this row
+  // writes the setting and reads it back through the same live query every other screen sees,
+  // exactly as *Units* does.
+  const language = useLanguagePreference();
   // `resolved` alongside the count for the reason that hook's own field states: `count` reads 0
   // before the read answers, which is indistinguishable from a diver who genuinely has none —
   // and this is the one screen where that 0 is not merely shown but typed over.
@@ -351,6 +390,7 @@ export default function SettingsScreen() {
   const today = todayCalendarDate();
 
   const [unitsError, setUnitsError] = useState<string | null>(null);
+  const [languageError, setLanguageError] = useState<string | null>(null);
   const [countError, setCountError] = useState<string | null>(null);
   // The `dives_before` field's own text, which is NOT the stored value: a diver mid-edit has
   // typed something that may not be a count yet ("", "2" on the way to "24"), and the field
@@ -428,7 +468,16 @@ export default function SettingsScreen() {
     // caller absorbs this rather than the component growing a mode.
     if (value === '') return;
     setUnitsError(null);
-    setUnitSystem(db, value).catch(() => setUnitsError(SAVE_FAILED));
+    setUnitSystem(db, value).catch(() => setUnitsError(saveFailed()));
+  };
+
+  const chooseLanguage = (value: LanguagePreference | '') => {
+    // `''` is `OptionChips`' "clear this field", and this row has no cleared state for the
+    // reason *Units* has none: `readLanguage` degrades an absent row to `'system'`, which is
+    // itself one of the three chips, so pressing the selected chip leaves the choice alone.
+    if (value === '') return;
+    setLanguageError(null);
+    setLanguage(db, value).catch(() => setLanguageError(saveFailed()));
   };
 
   const editCount = (text: string) => {
@@ -451,7 +500,7 @@ export default function SettingsScreen() {
     // §2.5: this offsets every dive number in the logbook, so the whole list renumbers as
     // soon as the write lands. That is the intended behaviour and it is visible immediately
     // — `useDives()` reads this same row through the same live query.
-    setDivesBefore(db, parsed).catch(() => setCountError(SAVE_FAILED));
+    setDivesBefore(db, parsed).catch(() => setCountError(saveFailed()));
   };
 
   // Leaving the field is where a half-typed or unusable value is resolved: the text goes
@@ -464,7 +513,7 @@ export default function SettingsScreen() {
     // diver's, `editCount` has already written it, and it must keep winning over any later
     // answer from the database.
     if (isDiveCount(parseDiveCount(countText))) return;
-    if (countText.trim() !== '') setCountError('Whole dives only, 0 or more — nothing was saved.');
+    if (countText.trim() !== '') setCountError(t('settings.divesBeforeInvalid'));
     // Past here the draft is being DISCARDED — the text was not a count and nothing was saved —
     // so there is no draft left for `countTyped` to protect, and leaving it set would make this
     // field permanently unfillable: a diver who typed something unusable before the read
@@ -476,7 +525,7 @@ export default function SettingsScreen() {
   };
 
   // §3's location access. `null` is "not read yet" and is a third thing beside the five
-  // states, never one of them — see `LOCATION_UNREAD`.
+  // states, never one of them — see `locationUnread`.
   const [permission, setPermission] = useState<LocationPermissionState | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
 
@@ -527,11 +576,11 @@ export default function SettingsScreen() {
     // Cleared at the start of the attempt, exactly as the form's own refusal note is, so the
     // sentence stands for as long as it is still true and no longer.
     setLocationError(null);
-    void Linking.openSettings().catch(() => setLocationError(SETTINGS_UNREACHABLE));
+    void Linking.openSettings().catch(() => setLocationError(settingsUnreachable()));
   };
   // `null` until the read answers, which is what keeps the row from stating an answer it does
   // not have.
-  const locationText = permission === null ? null : LOCATION_ROW_TEXT[permission];
+  const locationText = permission === null ? null : locationRowText(permission);
 
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
@@ -556,11 +605,11 @@ export default function SettingsScreen() {
         contentContainerStyle={[styles.settingsContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.settingsHeading}>Settings</Text>
+        <Text style={styles.settingsHeading}>{t('settings.title')}</Text>
 
         <View>
           <OptionChips
-            label="Units"
+            label={t('settings.units')}
             value={units}
             options={UNIT_SYSTEMS}
             displayLabel={formatUnitSystem}
@@ -574,9 +623,39 @@ export default function SettingsScreen() {
           )}
         </View>
 
+        {/* §3's **language**, listed there in the same breath as units and drawn as its own
+            row for that reason: it is a setting about the app, so it takes the form's row
+            (§0.6) and the same `OptionChips` *Units* uses.
+
+            **Three chips, not two.** §3 makes the device's locale the default, so *Device* is
+            a real answer and not the absence of one — a two-chip row would have to express it
+            by having nothing selected, which reads as a setting that failed to load, or by
+            hiding it behind pressing the selected chip, which is the hidden affordance §0.6
+            has already rejected twice.
+
+            **`English` and `Čeština` are not translated, and that is the row's one rule**
+            (`languageLabel`, src/i18n): a diver who has landed in a language they cannot read
+            has to be able to find their way out of it, and a Czech screen offering
+            *Angličtina* is no help at all to somebody who does not read Czech. */}
+        <View>
+          <OptionChips
+            label={t('settings.language')}
+            value={language}
+            options={LANGUAGE_PREFERENCES}
+            displayLabel={languageLabel}
+            onChange={chooseLanguage}
+            scheme={scheme}
+          />
+          {languageError !== null && (
+            <View style={styles.settingsCaption}>
+              <Text style={styles.settingsCaptionText}>{languageError}</Text>
+            </View>
+          )}
+        </View>
+
         <View>
           <FormField
-            label="Dives before Ponor"
+            label={t('settings.divesBefore')}
             value={countText}
             onChange={editCount}
             onBlur={settleCount}
@@ -590,17 +669,13 @@ export default function SettingsScreen() {
             placeholder="0"
           />
           <View style={styles.settingsCaption}>
-            <Text style={styles.settingsCaptionText}>
-              Dives you logged before Ponor. Your dive numbers start after it.
-            </Text>
+            <Text style={styles.settingsCaptionText}>{t('settings.divesBeforeNote')}</Text>
             {divesBefore === null && (
               // The one case `useDivesBefore` reports rather than degrading: the stored value
               // is present and is not a count, which would otherwise misnumber the whole
               // logbook by the diver's entire history with nothing on screen to say so. This
               // is the screen where that is fixable, so it says so here and nowhere else.
-              <Text style={styles.settingsCaptionText}>
-                Your saved count couldn&apos;t be read. Type it again to replace it.
-              </Text>
+              <Text style={styles.settingsCaptionText}>{t('settings.divesBeforeUnreadable')}</Text>
             )}
             {countError !== null && <Text style={styles.settingsCaptionText}>{countError}</Text>}
           </View>
@@ -612,7 +687,7 @@ export default function SettingsScreen() {
             is a cluster label"), the same one *Conditions* and *Gas & cylinders* wear on both
             other screens. */}
         <View>
-          <Text style={styles.settingsSectionTitle}>Cylinder presets</Text>
+          <Text style={styles.settingsSectionTitle}>{t('settings.presetsSection')}</Text>
           {presets.map((preset) => (
             <PresetRow key={preset.id} preset={preset} units={units} styles={styles} />
           ))}
@@ -631,7 +706,7 @@ export default function SettingsScreen() {
           {presetsResolved && presets.length === 0 && (
             <View style={styles.settingsPresetEmpty}>
               <Text style={styles.settingsCaptionText}>
-                {presetsError === undefined ? NO_PRESETS : PRESETS_UNREADABLE}
+                {presetsError === undefined ? noPresets() : presetsUnreadable()}
               </Text>
             </View>
           )}
@@ -658,16 +733,19 @@ export default function SettingsScreen() {
             style={styles.formField}
             onPress={openDeviceSettings}
             accessibilityRole="button"
-            accessibilityLabel={`${LOCATION_LABEL}: ${locationText?.status ?? LOCATION_UNREAD}`}
+            accessibilityLabel={t('settings.locationRow', {
+              label: locationLabel(),
+              status: locationText?.status ?? locationUnread(),
+            })}
           >
             <View style={styles.formFieldRow}>
-              <Text style={styles.formFieldLabel}>{LOCATION_LABEL}</Text>
+              <Text style={styles.formFieldLabel}>{locationLabel()}</Text>
               <Text
                 style={
                   locationText === null ? styles.settingsLocationStatusUnread : styles.settingsLocationStatus
                 }
               >
-                {locationText?.status ?? LOCATION_UNREAD}
+                {locationText?.status ?? locationUnread()}
               </Text>
             </View>
           </Pressable>
@@ -692,17 +770,17 @@ export default function SettingsScreen() {
             The empty case needs none: the *Add* row below is on screen whether or not the
             wallet holds anything, so a diver who has never added a card is looking at a
             control that says what to do rather than at a section with no visible way in —
-            which is the whole reason `NO_PRESETS` exists. The read-failure case still needs
+            which is the whole reason `noPresets` exists. The read-failure case still needs
             saying, because "couldn't read them" and "you have none" are the distinction
-            `useCertifications`' `error` field exists for, and it is `CERTIFICATIONS_UNREADABLE`
-            rather than a literal here for `PRESETS_UNREADABLE`'s reason: the editor says the
+            `useCertifications`' `error` field exists for, and it is `certificationsUnreadable`
+            rather than a literal here for `presetsUnreadable()`'s reason: the editor says the
             same sentence about the same event one route deeper.
 
             `certificationsResolved` still gates it, on M1f's rule — a screen with no answer
             must not state one — and that works in this order only because a failed read counts
             as an answer (`isResolved`, db/liveQuery.ts). */}
         <View>
-          <Text style={styles.settingsSectionTitle}>Certifications</Text>
+          <Text style={styles.settingsSectionTitle}>{t('settings.certificationsSection')}</Text>
           {certifications.map((certification) => (
             <CertificationRow
               key={certification.id}
@@ -716,15 +794,15 @@ export default function SettingsScreen() {
             onPress={() => router.push('/certification/new')}
             accessibilityRole="button"
             // Says what pressing it does, the shape every other pressable row here uses.
-            accessibilityLabel="Add a certification"
+            accessibilityLabel={t('settings.addCertification')}
           >
             <View style={styles.formFieldRow}>
-              <Text style={styles.settingsAddCertificationLabel}>Add a certification</Text>
+              <Text style={styles.settingsAddCertificationLabel}>{t('settings.addCertification')}</Text>
             </View>
           </Pressable>
           {certificationsResolved && certificationsError !== undefined && (
             <View style={styles.settingsCertificationEmpty}>
-              <Text style={styles.settingsCaptionText}>{CERTIFICATIONS_UNREADABLE}</Text>
+              <Text style={styles.settingsCaptionText}>{certificationsUnreadable()}</Text>
             </View>
           )}
         </View>
@@ -752,10 +830,10 @@ export default function SettingsScreen() {
           accessibilityRole="button"
           // Says what pressing it does rather than merely what it is called, the same shape
           // `Edit preset X` uses one row-type above.
-          accessibilityLabel="Open account & sync"
+          accessibilityLabel={t('settings.openAccount')}
         >
           <View style={styles.formFieldRow}>
-            <Text style={styles.settingsAccountLabel}>Account &amp; sync</Text>
+            <Text style={styles.settingsAccountLabel}>{t('settings.account')}</Text>
           </View>
         </Pressable>
       </ScrollView>

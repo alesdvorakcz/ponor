@@ -1,7 +1,8 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useColorScheme } from 'react-native';
 
-import { NATIVE_TAB_ITEMS, nativeTabsAppearance } from '../../navigation/tabs';
+import { useT } from '../../i18n';
+import { nativeTabItems, nativeTabsAppearance } from '../../navigation/tabs';
 import { resolveScheme } from '../../theme/resolve';
 
 /**
@@ -26,7 +27,7 @@ import { resolveScheme } from '../../theme/resolve';
  * diver's phone; `navigation/tabs.test.ts` records that and it is why every screen in this app
  * lives outside this directory. This file used to call `nativeTabSymbol` itself, which made
  * the one expression in it that could be wrong also the one expression nothing could check.
- * `NATIVE_TAB_ITEMS` arrives with the glyph already in the native bar's `{sf, md}` spelling
+ * `nativeTabItems()` arrives with the glyph already in the native bar's `{sf, md}` spelling
  * and with no raw symbol on it at all, so passing the unconverted value is not a mistake this
  * file can make — it does not compile. See that module for the measurement behind it.
  *
@@ -41,9 +42,12 @@ import { resolveScheme } from '../../theme/resolve';
  */
 export default function TabsLayout() {
   const scheme = resolveScheme(useColorScheme());
+  // §3's language setting. The bar's four words come from `navigation/tabs.ts` per render;
+  // this is what makes a render happen when the diver changes the language (src/i18n).
+  useT();
   return (
     <NativeTabs {...nativeTabsAppearance(scheme)}>
-      {NATIVE_TAB_ITEMS.map((tab) => (
+      {nativeTabItems().map((tab) => (
         <NativeTabs.Trigger key={tab.name} name={tab.name}>
           <NativeTabs.Trigger.Label>{tab.title}</NativeTabs.Trigger.Label>
           {/* Already `{sf, md}`. components/symbolName.ts is §4.1's owner of the per-platform

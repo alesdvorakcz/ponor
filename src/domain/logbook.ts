@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 /**
  * **What the app says about the logbook as a whole**, as opposed to about any one dive.
  *
@@ -22,7 +24,15 @@
  * is inconsistent about this more widely (`SETTINGS_UNREACHABLE` and `cloud/auth.ts` use `’`);
  * that is one sweep, not four, and it belongs with i18next.
  *
- * This file imports nothing, on purpose.
+ * **It imports `src/i18n` now, and the "imports nothing" rule it used to state is the thing
+ * that broke rather than a rule it abandoned.** The point of that line was that a sentence a
+ * screen renders must not carry a database with it — see the paragraph above about four test
+ * files mocking `db/useDives` wholesale. `src/i18n` carries resource objects and i18next, and
+ * no database, so the property those four tests actually depend on is intact.
+ *
+ * **And each sentence is a function rather than a `const`.** A constant's value is fixed at
+ * first import, which is before a diver has chosen a language and for ever after it; the same
+ * change reached every string in `format/display.ts` for the same reason (`unnamedSite`).
  */
 
 /**
@@ -32,7 +42,9 @@
  * It names what to do rather than what happened: a diver cannot act on "the query rejected",
  * and reopening the app is the one thing that has ever fixed it.
  */
-export const LOGBOOK_UNREADABLE = "Couldn't open your logbook. Try closing and reopening the app.";
+export function logbookUnreadable(): string {
+  return t('unreadable.logbook');
+}
 
 /**
  * Shown when the device's copy of the community catalogue could not be read — `useDiveSites`'
@@ -46,5 +58,6 @@ export const LOGBOOK_UNREADABLE = "Couldn't open your logbook. Try closing and r
  * both records of what waiting until the fourth costs. Same shape as the sentence above — it
  * names what to do rather than what happened — and the same straight apostrophe, deliberately.
  */
-export const CATALOGUE_UNREADABLE =
-  "Couldn't read the community catalogue. Try closing and reopening the app.";
+export function catalogueUnreadable(): string {
+  return t('unreadable.catalogue');
+}

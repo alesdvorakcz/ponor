@@ -11,11 +11,11 @@ import { useDives } from '../db/useDives';
 import { searchCenters } from '../cloud/searchCenters';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { isDiveWithCenter } from '../domain/centerDives';
-import { CATALOGUE_UNREADABLE } from '../domain/logbook';
+import { catalogueUnreadable } from '../domain/logbook';
 import { browseCatalogue } from '../domain/search';
 import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
 import { type DiveCenter } from '../domain/types';
-import { formatCenterCount, formatCenterRow, UNNAMED_CENTER } from '../format/display';
+import { formatCenterCount, formatCenterRow, unnamedCenter } from '../format/display';
 import { backToMap } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -90,7 +90,7 @@ export default function DiveCentersScreen() {
    * "no centres yet" would be a claim about a database nothing has asked).
    */
   const message = (): string | null => {
-    if (catalogue.error !== undefined) return CATALOGUE_UNREADABLE;
+    if (catalogue.error !== undefined) return catalogueUnreadable();
     if (!catalogue.resolved) return null;
     if (catalogue.centers.length === 0) {
       // **Two sentences, because a guest is not waiting for the same thing a signed-in diver
@@ -172,7 +172,7 @@ export default function DiveCentersScreen() {
  * row that opens something.
  */
 function CenterRow({ center, dives, styles }: { center: DiveCenter; dives: number; styles: Styles }) {
-  const name = center.name ?? UNNAMED_CENTER;
+  const name = center.name ?? unnamedCenter();
   const summary = formatCenterRow(center, dives);
   return (
     <Pressable

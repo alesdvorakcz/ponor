@@ -2,6 +2,7 @@ import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { type Dive } from '../domain/types';
+import { t, useT } from '../i18n';
 import {
   diveSiteLabel,
   formatDepth,
@@ -74,7 +75,7 @@ function accessibilityLabelFor(
   depth: string | null,
   plannedDate: string | null,
 ): string {
-  return [number !== undefined ? `Dive ${number}` : null, site, depth, plannedDate]
+  return [number !== undefined ? t('dives.diveNumber', { number }) : null, site, depth, plannedDate]
     .filter((part): part is string => part !== null)
     .join(', ');
 }
@@ -96,6 +97,13 @@ function accessibilityLabelFor(
  * (see `accessibilityLabelFor` above) rather than relying on `Pressable`'s default.
  */
 function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: DiveRowProps) {
+  // **This component is `memo`'d, which is why the subscription matters here more than
+  // anywhere else** (src/i18n). Its words come from `format/display.ts` and from `t` below,
+  // neither of which is a prop, so without a hook of its own a row would keep drawing the old
+  // language until one of its props happened to change. `scheme` and `units` stay props for
+  // the reason they always were: a caller may legitimately want either, and a test wants to
+  // render both.
+  useT();
   const styles = makeStyles(scheme);
   // `diveSiteLabel` (format/display.ts), never an inline `siteName ?? centerName ?? ...`
   // here: this row and the dive's own detail hero must call a dive the same thing, and the
@@ -141,7 +149,9 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
           {/* Always rendered, never conditioned on `number !== undefined` alone: a planned
               dive has no number to show, but the label slot above the site name should say
               so rather than sit empty (§2.4 — no number until completed). */}
-          <Text style={styles.diveNumber}>{number !== undefined ? `#${number}` : 'planned'}</Text>
+          <Text style={styles.diveNumber}>
+            {number !== undefined ? `#${number}` : t('dives.planned')}
+          </Text>
           <Text style={styles.diveSite} numberOfLines={2}>
             {site}
           </Text>
