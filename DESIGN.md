@@ -453,6 +453,16 @@ A deliberately small, WatermelonDB-style delta sync — two RPCs, whole-row over
 3. **Server clock only.** `last_pulled_at` comes from the server's response, never the phone's clock — divers change time zones constantly.
 4. **Guest → account.** On first sign-in, every local row is marked dirty and pushed; the server writes the owner. That is the entire "optional account" migration — the payoff of client-side UUIDs. **This used to read "local rows get the new `user_id`", which described a column that does not exist** (M2b): the device has no `user_id` anywhere, because a device holds exactly one person's logbook and a column repeating the same value on every row would be storage pretending to be a key. Nothing on the client changes at sign-in but the dirty flags.
 
+   **There are three destructive acts, and clearing one device is not among them** (owner's call). A local-only clear that keeps the account is **a no-op with extra steps**: the next pull brings everything back, and the one case it seemed to serve — handing the phone on — is what sign-out already does. So:
+
+   | | |
+   |---|---|
+   | **Sign out** | wipes this device, the account keeps everything |
+   | **Start over** | wipes this device **and the account's data**, and the account survives |
+   | **Delete account** | wipes both and the account with them (§8's App Store requirement) |
+
+   **Start over must go through tombstones, not a server-side purge**, and this is the part that decides the implementation. A hard delete on the server leaves a second device holding rows it believes are unsynced — and its next push **puts the whole logbook back**. A tombstone is the only form of deletion §7 can carry to a device that was not there when it happened. **Community rows are not included** in either start-over or deletion: a site or centre the diver contributed belongs to everyone who has dived it, and §5 has never allowed hard-deleting one.
+
    **Signing out wipes the local logbook** (owner's call, M2b). The data is on the server, signing back in re-syncs it, and a device that keeps one person's dives after they have left is the only way a second account could ever see them. So sign-out is a real erase, and the app must say so before it happens — it is the one destructive action in v1.
 
    **The wipe restores the device to its guest state: everything that came from an account goes, everything the diver set on this device stays.** `dives` and `gear_presets` go. `sync_state` goes, and that one is not optional — a stale `last_pulled_at` makes the next account's first pull skip every row older than it, silently and with no repair. The catalogue tables go too, which is the least obvious of the four: they arrive by pull, so a guest never had them, and keeping them would leave a site created offline sitting in the next account's dirty set to be pushed as **their** creation. `settings` **stays** — units, locale and the form-group memory are things this diver set on this device and re-asking would be hostile — with `dives_before` the one exception, because §6 syncs it to the profile and leaving it would hand the next account a wrong pre-Ponor number that shifts every dive number after it.
