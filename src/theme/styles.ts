@@ -662,6 +662,19 @@ function build(scheme: ColorScheme) {
     ...rowValue,
     fontFamily: fonts.sans,
   };
+  /**
+   * The same slot in muted ink — a row's value column while it is **not yet an answer**.
+   *
+   * **A placeholder and an answer must not look alike** (M1f's rule), and §0.6 leaves exactly
+   * one lever for saying so: "ink versus muted ink is the only lever". Two rows on Settings
+   * need it and each is a different flavour of "no answer yet" — the location row before the
+   * permission has been read, and an export row while its file is being prepared — so it is
+   * one definition here rather than the same three properties written twice.
+   */
+  const rowValueSansMuted: TextStyle = {
+    ...rowValueSans,
+    color: theme.fgMuted,
+  };
 
   // The form's inset is `CONTENT_INSET` at the top of this function, like every other screen's
   // — see that constant for why there is only one number now. What is still the FORM's own
@@ -3453,10 +3466,21 @@ function build(scheme: ColorScheme) {
     // the lever §0.6 leaves for it, and it is the pairing `formFieldPickerText` /
     // `formFieldPickerTextUnset` already draws one screen over for a value that is read rather
     // than typed.
-    settingsLocationStatusUnread: {
-      ...rowValueSans,
-      color: theme.fgMuted,
-    },
+    settingsLocationStatusUnread: rowValueSansMuted,
+    // §3's **data export** (M3i), which §8 lists under compliance rather than features: "full
+    // data export any time — CSV for spreadsheets, JSON for portability (GDPR Art. 20)".
+    //
+    // Two rows and a caption, and **not one new shape**: the rows are `formField` like every
+    // other row on this screen, and the label takes the full ink `settingsAddCertificationLabel`
+    // takes, for that key's own stated reason — it is a row that *does* something rather than
+    // one that holds a value, which is the distinction §0.6 spends ink versus muted ink on.
+    settingsExportLabel: settingsRowInk,
+    // The trailing slot while the file is being prepared — "Preparing…", muted, and the SAME
+    // definition the location row's own unread state takes (`rowValueSansMuted` above). One
+    // definition, two keys, which is this file's rule for a shared treatment
+    // (`detailBack`/`formBack`, `presetHeading`/`settingsHeading`): both are a row's value
+    // column saying it does not have an answer yet, and they must not drift apart.
+    settingsExportBusy: rowValueSansMuted,
     // ------------------------------------------------------------------------------------
     // The account screen (DESIGN.md §5's auth bullet and §7.4, M2e) — `AccountScreen`
     // ------------------------------------------------------------------------------------

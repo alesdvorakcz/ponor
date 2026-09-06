@@ -335,6 +335,16 @@ export const cs = {
       editCertification: 'Upravit certifikaci {{name}}',
       account: 'Účet a synchronizace',
       openAccount: 'Otevřít účet a synchronizaci',
+      exportSection: 'Export dat',
+      exportCsv: 'Exportovat jako CSV',
+      exportJson: 'Exportovat jako JSON',
+      exportContents:
+        'Vaše ponory, předvolby lahví, certifikace a lokality a centra, která jste přidali.',
+      exportFiles:
+        'CSV má jeden řádek na ponor, ve vašich jednotkách, pro tabulkový editor. JSON obsahuje všechno přesně tak, jak je to uložené.',
+      exportBusy: 'Připravuji…',
+      exportFailed: 'Export se nepodařilo připravit, takže se nic nezapsalo. Zkuste to znovu.',
+      exportUnavailable: 'Toto zařízení neumí sdílet soubor, takže není kam ho poslat.',
     },
 
     common: {

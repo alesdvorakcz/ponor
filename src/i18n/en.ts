@@ -369,6 +369,25 @@ export const en = {
       editCertification: 'Edit certification {{name}}',
       account: 'Account & sync',
       openAccount: 'Open account & sync',
+      /**
+       * §3's **data export**, which §8 lists under compliance: "full data export any time —
+       * CSV for spreadsheets, JSON for portability (GDPR Art. 20)".
+       *
+       * The two sentences under the pair are one each of the two questions a diver has here:
+       * *what is in it* (the section is not called "export my dives" because it is more than
+       * the dives), and *which of the two do I want*. Neither row gets its own caption — two
+       * captions under two adjacent rows read as two sections.
+       */
+      exportSection: 'Data export',
+      exportCsv: 'Export as CSV',
+      exportJson: 'Export as JSON',
+      exportContents:
+        'Your dives, cylinder presets, certifications, and the sites and centres you added.',
+      exportFiles:
+        'CSV is one row per dive for a spreadsheet, in your units. JSON is everything, exactly as stored.',
+      exportBusy: 'Preparing…',
+      exportFailed: 'Couldn’t prepare that export, so nothing was written. Try again.',
+      exportUnavailable: 'This device can’t share a file, so there’s nowhere to send it.',
     },
 
     /** Words the whole app shares because they name one act, not one screen's version of it —

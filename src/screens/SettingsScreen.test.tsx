@@ -16,14 +16,18 @@ import { router } from 'expo-router';
 import { AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { currentUserId } from '../cloud/currentUser';
 import { db } from '../db/client';
+import { readExportSource } from '../db/exportSource';
 import { setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
 import { useLanguagePreference } from '../db/useLanguage';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { type ExportSource } from '../domain/dataExport';
 import { todayCalendarDate } from '../domain/datetime';
+import { dive } from '../domain/diveFixture';
 import { type Certification, type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
@@ -34,6 +38,7 @@ import {
   requestLocationPermission,
   type LocationPermissionState,
 } from '../platform/locationPermission';
+import { shareTextFile } from '../platform/shareFile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset } from '../theme/styles';
 import SettingsScreen from './SettingsScreen';
@@ -101,6 +106,18 @@ jest.mock('../platform/locationPermission', () => ({
 // The way out to the device's own Settings app. Faked because there is no Settings app here,
 // and because "it was asked for" is the whole of what this screen can promise about it.
 jest.mock('expo-linking', () => ({ ...jest.requireActual('expo-linking'), openSettings: jest.fn() }));
+// §8's data export (M3i). Three seams, and each is faked because each is something this screen
+// hands work to rather than does: the read across every repository, the one-shot session read
+// that decides which community rows are this diver's, and the file write plus share sheet.
+//
+// `jest.requireActual` keeps `domain/dataExport.ts` REAL — this file asserts that the screen
+// hands the share sheet the file that module builds, and a stubbed builder would leave it
+// asserting against its own idea of what an export is. What the two native modules underneath
+// do is `platform/shareFile.test.ts`'s question, and what the files contain is
+// `domain/dataExport.test.ts`'s.
+jest.mock('../db/exportSource', () => ({ readExportSource: jest.fn() }));
+jest.mock('../cloud/currentUser', () => ({ currentUserId: jest.fn() }));
+jest.mock('../platform/shareFile', () => ({ shareTextFile: jest.fn() }));
 
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
@@ -114,6 +131,9 @@ const mockPush = router.push as jest.Mock;
 const mockLocationPermission = locationPermission as jest.Mock;
 const mockRequestLocationPermission = requestLocationPermission as jest.Mock;
 const mockOpenSettings = Linking.openSettings as jest.Mock;
+const mockReadExportSource = readExportSource as jest.Mock;
+const mockCurrentUserId = currentUserId as jest.Mock;
+const mockShareTextFile = shareTextFile as jest.Mock;
 
 let presetSeq = 0;
 /** A `GearPreset` with only the fields a case cares about. Ids come from a counter for the
@@ -245,6 +265,9 @@ beforeEach(() => {
   mockSetDivesBefore.mockImplementation(() => Promise.resolve());
   mockSetLanguage.mockImplementation(() => Promise.resolve());
   mockOpenSettings.mockImplementation(() => Promise.resolve());
+  mockCurrentUserId.mockImplementation(() => Promise.resolve(null));
+  mockReadExportSource.mockImplementation(() => Promise.resolve(exportSource()));
+  mockShareTextFile.mockImplementation(() => Promise.resolve('shared'));
   appStateHandlers = [];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((event, handler) => {
     if (event === 'change') appStateHandlers.push(handler as (state: AppStateStatus) => void);
@@ -265,10 +288,38 @@ afterEach(() => {
   mockLocationPermission.mockReset();
   mockRequestLocationPermission.mockReset();
   mockOpenSettings.mockReset();
+  mockCurrentUserId.mockReset();
+  mockReadExportSource.mockReset();
+  mockShareTextFile.mockReset();
   // Spies only — `jest.spyOn`'s `AppState` stub above. The module mocks are not spies and are
   // reset by name, as this file has always done.
   jest.restoreAllMocks();
 });
+
+/**
+ * What `readExportSource` hands back, with only the fields a case cares about. The rows
+ * themselves are the real domain types, because the builder this screen calls is real
+ * (`domain/dataExport.ts`) and it is what turns them into a file.
+ */
+function exportSource(over: Partial<ExportSource> = {}): ExportSource {
+  return {
+    dives: [],
+    gearPresets: [],
+    certifications: [],
+    diveSites: [],
+    diveCenters: [],
+    divesBefore: 0,
+    exportedAt: '2026-09-06T08:30:00.000Z',
+    exportedOn: '2026-09-06',
+    ...over,
+  };
+}
+
+function findExportRow(t: RenderResult, label: string) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
+  if (!node) throw new Error(`SettingsScreen rendered no "${label}" row`);
+  return node;
+}
 
 function textIn(t: RenderResult): string[] {
   return (t.root ? t.root.queryAll((n) => n.type === 'Text') : [])
@@ -689,6 +740,8 @@ it('carries no delete of its own, so the list stays a list', async () => {
       'Edit certification PADI Rescue Diver',
       'Add a certification',
       'Open account & sync',
+      'Export as CSV',
+      'Export as JSON',
     ]);
   });
 });
@@ -996,10 +1049,11 @@ it('carries §3’s four labelled settings and no more', async () => {
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Eight rows with one preset and one card: Units, §3's language, Dives before Ponor, the
-// preset's own, §3's location access, the card's own, *Add a certification* and §3's account &
-// sync — every one of them the same `formField` row, so a preset, a card, a report, an action
-// and a destination are rows of this screen rather than new kinds of object drawn beside them.
+// Ten rows with one preset and one card: Units, §3's language, Dives before Ponor, the
+// preset's own, §3's location access, the card's own, *Add a certification*, §3's account &
+// sync and M3i's two export rows — every one of them the same `formField` row, so a preset, a
+// card, a report, an action and a destination are rows of this screen rather than new kinds of
+// object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
   stubSettings({
     presets: [preset({ name: 'twin 12 steel' })],
@@ -1007,7 +1061,7 @@ it('uses the form’s own row grammar rather than inventing a third one', async 
   });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(8);
+  expect(rows).toHaveLength(10);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks
@@ -1522,5 +1576,188 @@ describe('in Czech', () => {
     const t = await render(<SettingsScreen />);
     expect(textIn(t)).toContain('Metrické');
     expect(textIn(t)).toContain('Imperiální');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Data export (DESIGN.md §3's Settings list, §8's compliance line — M3i)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * §8 lists this under **compliance** rather than features: "full data export any time — CSV
+ * for spreadsheets, JSON for portability (GDPR Art. 20)". It lands before account deletion
+ * deliberately, so what these cases are really about is that the control cannot lie: it either
+ * hands over a whole file or says it did not.
+ *
+ * `domain/dataExport.ts` is real here (see this file's mock block), so what `shareTextFile`
+ * receives below is the file the app would actually write.
+ */
+describe('data export', () => {
+  it('offers both files, and says what is in them', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    expect(textIn(t)).toContain('Data export');
+    expect(buttonLabels(t)).toEqual(expect.arrayContaining(['Export as CSV', 'Export as JSON']));
+    const text = textIn(t).join(' ');
+    // What is in it, and which of the two a diver wants — the two questions the section
+    // answers, and the reason the caption is one block under the pair rather than one under
+    // each row.
+    expect(text).toContain('sites and centres you added');
+    expect(text).toContain('one row per dive for a spreadsheet, in your units');
+    expect(text).toContain('JSON is everything, exactly as stored');
+  });
+
+  it('hands the share sheet the CSV the export module built', async () => {
+    stubSettings();
+    mockReadExportSource.mockImplementation(() =>
+      Promise.resolve(exportSource({ dives: [dive({ date: '2026-08-16', maxDepthM: 24.6 })] })),
+    );
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(mockShareTextFile).toHaveBeenCalledTimes(1);
+    const [name, body] = mockShareTextFile.mock.calls[0] as [string, string];
+    expect(name).toBe('ponor-dives-2026-09-06.csv');
+    // Literal, and the row as well as the header — a control that shared a header row with no
+    // dives under it would pass any check that only looked at the file name.
+    expect(String(body).slice(1).split('\r\n')[0]?.startsWith('computed_dive_number,status,date,')).toBe(true);
+    expect(String(body).slice(1).split('\r\n')[1]).toBe(
+      '1,logged,2026-08-16,,,,,,,,,,24.6,,,,,,,,,,,,,,,,,,,,,,,,,,,',
+    );
+  });
+
+  it('hands the share sheet the JSON file for the other row', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as JSON'));
+    });
+
+    const [name, body] = mockShareTextFile.mock.calls[0] as [string, string];
+    expect(name).toBe('ponor-logbook-2026-09-06.json');
+    expect(String(body)).toContain('"format": "ponor-logbook-export"');
+  });
+
+  it('writes the sheet in the diver’s own units', async () => {
+    // The screen decides which unit system and hands it over; §4.1 keeps the formatter from
+    // looking one up. Without that argument the file would be metric for every diver.
+    stubSettings({ units: 'imperial' });
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    const [, body] = mockShareTextFile.mock.calls[0] as [string, string];
+    expect(String(body)).toContain('max_depth_ft');
+    expect(String(body)).not.toContain('max_depth_m,');
+  });
+
+  it('tells the read who is signed in, so the diver’s own sites travel with it', async () => {
+    stubSettings();
+    mockCurrentUserId.mockImplementation(() => Promise.resolve('u1'));
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(mockReadExportSource).toHaveBeenCalledWith(db, 'u1');
+  });
+
+  it('says so where the platform cannot share a file, rather than doing nothing visible', async () => {
+    // §9 keeps the browser a testing target and `expo-sharing` there is `navigator.share`,
+    // which most desktop browsers do not have. A row that silently did nothing is the
+    // dead-control shape §0.6 has recorded three times over.
+    stubSettings();
+    mockShareTextFile.mockImplementation(() => Promise.resolve('unavailable'));
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(textIn(t).join(' ')).toContain('nowhere to send it');
+  });
+
+  it('says nothing was written when the read fails, and shares nothing', async () => {
+    // **A partial export that looks complete is the worst outcome available here.** The read
+    // fails as a whole (db/exportSource.ts), and this is the screen end of that: no file, and
+    // a sentence rather than a silence.
+    stubSettings();
+    mockReadExportSource.mockImplementation(() => Promise.reject(new Error('disk')));
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(textIn(t).join(' ')).toContain('nothing was written');
+    expect(mockShareTextFile).not.toHaveBeenCalled();
+  });
+
+  it('says nothing was written when the file could not be written', async () => {
+    stubSettings();
+    mockShareTextFile.mockImplementation(() => Promise.reject(new Error('disk full')));
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(textIn(t).join(' ')).toContain('nothing was written');
+  });
+
+  it('clears the last refusal when the next attempt starts', async () => {
+    // The location row's own rule: a sentence stands for as long as it is still true and no
+    // longer.
+    stubSettings();
+    mockShareTextFile.mockImplementation(() => Promise.resolve('unavailable'));
+    const t = await render(<SettingsScreen />);
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+    expect(textIn(t).join(' ')).toContain('nowhere to send it');
+
+    mockShareTextFile.mockImplementation(() => Promise.resolve('shared'));
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+
+    expect(textIn(t).join(' ')).not.toContain('nowhere to send it');
+  });
+
+  it('says which file it is preparing, and ignores a second press until it is done', async () => {
+    stubSettings();
+    let release: (() => void) | null = null;
+    mockShareTextFile.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve('shared');
+        }),
+    );
+    const t = await render(<SettingsScreen />);
+
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+    expect(textIn(t)).toContain('Preparing…');
+
+    // A second press — on either row — while one is in flight. Two exports at once is not a
+    // state this screen has: they read the same tables and would race each other's file.
+    await act(async () => {
+      fireEvent.press(findExportRow(t, 'Export as JSON'));
+      fireEvent.press(findExportRow(t, 'Export as CSV'));
+    });
+    expect(mockShareTextFile).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release?.();
+    });
+    expect(textIn(t)).not.toContain('Preparing…');
   });
 });

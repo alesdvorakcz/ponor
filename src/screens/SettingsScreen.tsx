@@ -6,7 +6,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
+import { currentUserId } from '../cloud/currentUser';
 import { db } from '../db/client';
+import { readExportSource } from '../db/exportSource';
 import { parseDiveCount, setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
@@ -14,6 +16,7 @@ import { useLanguagePreference } from '../db/useLanguage';
 import { useGearPresets } from '../db/useGearPresets';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { certificationExpiry } from '../domain/certifications';
+import { csvExport, jsonExport, type ExportFile, type ExportSource } from '../domain/dataExport';
 import { todayCalendarDate } from '../domain/datetime';
 import { isDiveCount } from '../domain/diveNumber';
 import { presetsUnreadable } from '../domain/presets';
@@ -35,6 +38,7 @@ import {
 } from '../i18n';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
+import { shareTextFile } from '../platform/shareFile';
 import { certificationsUnreadable } from './CertificationScreen';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -101,6 +105,29 @@ function locationUnread(): string {
 function settingsUnreachable(): string {
   return t('settings.locationUnreachable');
 }
+
+/**
+ * **Which of §8's two files a press asks for**, and everything that differs between them.
+ *
+ * A `Record` keyed by the union rather than a pair of handlers or an `if`, on
+ * `LOCATION_ROW_KEYS`' own reasoning one screen-section down: a third file added to
+ * `domain/dataExport.ts` cannot arrive here without a row label, because TypeScript requires
+ * every member. §4.1's "derive, or tie at compile time".
+ *
+ * The screen decides *which unit system* and hands it over — it never asks a formatter to look
+ * one up (`format/display.ts`'s own rule, kept here for the same reason). What it does not
+ * decide is anything about the files themselves: what goes in them, what the columns are called
+ * and which of the two carries the diver's units all belong to `domain/dataExport.ts`.
+ */
+type ExportKind = 'csv' | 'json';
+
+const EXPORT_KINDS: Record<
+  ExportKind,
+  { readonly label: TranslationKey; readonly build: (source: ExportSource, system: UnitSystem) => ExportFile }
+> = {
+  csv: { label: 'settings.exportCsv', build: csvExport },
+  json: { label: 'settings.exportJson', build: (source) => jsonExport(source) },
+};
 
 /** One state's two lines, as KEYS: what the row's value column says, and the sentence under
  * it. Keys rather than words for `unnamedSite`'s reason (format/display.ts) — this table is a
@@ -582,6 +609,58 @@ export default function SettingsScreen() {
   // not have.
   const locationText = permission === null ? null : locationRowText(permission);
 
+  /**
+   * §3's **data export** (M3i). Which file is being prepared, or `null` for none — one value
+   * rather than a boolean per row, because two exports at once is not a state this screen has:
+   * they read the same tables and would race each other's file names.
+   */
+  const [exporting, setExporting] = useState<ExportKind | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /**
+   * **Reads the logbook, builds one file, and hands it to the share sheet.**
+   *
+   * Three things about it are rules rather than plumbing.
+   *
+   * **Nothing is caught in the middle.** `readExportSource` fails as a whole (its own docblock
+   * says why), the build cannot half-succeed, and `shareTextFile` deletes what it wrote if the
+   * write failed — so every failure lands in the one `catch` below and the diver is told
+   * nothing was written. **A partial export that looks complete is the worst outcome available
+   * here**, because a diver keeps it and discards the original, and the way to not produce one
+   * is to have no path that reports success over less than everything.
+   *
+   * **Sharing being unavailable is not a failure**, and it gets its own sentence. §9 keeps the
+   * browser a testing target and `expo-sharing` there is `navigator.share`, which most desktop
+   * browsers do not have — a row that silently did nothing on that platform is the dead-control
+   * shape §0.6 has recorded three times over.
+   *
+   * **It never blocks the screen** (§1). The reads are asynchronous, the state change is what
+   * puts *Preparing…* in the row, and a second press while one is in flight is ignored rather
+   * than queued — an export is idempotent and re-pressing it buys nothing but two share sheets.
+   */
+  const runExport = (kind: ExportKind) => {
+    if (exporting !== null) return;
+    setExporting(kind);
+    // Cleared at the start of the attempt, exactly as the location row's refusal is, so the
+    // sentence stands for as long as it is still true and no longer.
+    setExportError(null);
+    void (async () => {
+      try {
+        // Asked once, here, rather than subscribed to — see `cloud/currentUser.ts` for why
+        // this screen still says nothing about who is signed in. It decides which community
+        // sites and centres are this diver's, and nothing else.
+        const source = await readExportSource(db, await currentUserId());
+        const file = EXPORT_KINDS[kind].build(source, units);
+        const outcome = await shareTextFile(file.name, file.text);
+        if (outcome === 'unavailable') setExportError(t('settings.exportUnavailable'));
+      } catch {
+        setExportError(t('settings.exportFailed'));
+      } finally {
+        setExporting(null);
+      }
+    })();
+  };
+
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's own ScrollView.
@@ -836,6 +915,55 @@ export default function SettingsScreen() {
             <Text style={styles.settingsAccountLabel}>{t('settings.account')}</Text>
           </View>
         </Pressable>
+
+        {/* §3's **data export**, in the place §3 lists it: after account & sync, and before
+            the delete-account row that is not built yet.
+
+            **It lands before account deletion deliberately** — an app must never be able to
+            destroy a diver's data before it can hand them a copy.
+
+            **A section of two rows and one caption**, which is the presets' and the wallet's
+            own shape (§0.6's cluster label over `formField` rows). Two rows because §8 names
+            two files with two different jobs and `expo-sharing` hands over one file per sheet;
+            a single *Export* row would have to open two sheets in a row, which reads as the
+            first one having failed. One caption for the pair rather than one under each,
+            because two captions between two adjacent rows read as two sections.
+
+            The rows announce what pressing them does, which is the shape every other pressable
+            row on this screen uses. */}
+        <View>
+          <Text style={styles.settingsSectionTitle}>{t('settings.exportSection')}</Text>
+          {(Object.keys(EXPORT_KINDS) as ExportKind[]).map((kind) => (
+            <Pressable
+              key={kind}
+              style={styles.formField}
+              onPress={() => runExport(kind)}
+              accessibilityRole="button"
+              accessibilityLabel={t(EXPORT_KINDS[kind].label)}
+              // The row is not a control while its own file is being prepared, and neither is
+              // the other one — `runExport` refuses a second press, and this is that refusal
+              // said to the screen reader as well as to the thumb.
+              accessibilityState={{ disabled: exporting !== null }}
+            >
+              <View style={styles.formFieldRow}>
+                <Text style={styles.settingsExportLabel}>{t(EXPORT_KINDS[kind].label)}</Text>
+                {/* Only the row that was pressed says so. A busy mark on both would claim the
+                    app is doing two things, and the one it is doing is the one that was
+                    asked for. */}
+                {exporting === kind && (
+                  <Text style={styles.settingsExportBusy}>{t('settings.exportBusy')}</Text>
+                )}
+              </View>
+            </Pressable>
+          ))}
+          <View style={styles.settingsCaption}>
+            <Text style={styles.settingsCaptionText}>{t('settings.exportContents')}</Text>
+            <Text style={styles.settingsCaptionText}>{t('settings.exportFiles')}</Text>
+            {exportError !== null && (
+              <Text style={styles.settingsCaptionText}>{exportError}</Text>
+            )}
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
