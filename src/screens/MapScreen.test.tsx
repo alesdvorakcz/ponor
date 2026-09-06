@@ -293,6 +293,22 @@ it('tells an empty logbook apart from a logbook with no pins in it', async () =>
   expect(unpinned).toContain('Use my location');
 });
 
+// **One dive is its own sentence, and it shipped as "None of your 1 logged dives" (M3i).** Every
+// new diver reaches this screen with exactly one dive, so the singular is the first form most
+// people ever see and was the only one nothing asserted — the test above seeds three, which is
+// the count that cannot tell a missing `_one` from a present one. The fix is not the plural with
+// its numeral swapped: with one dive there is no set to count, so the sentence names the dive
+// instead, and the instruction that follows needs no number at all.
+it('names the single dive rather than counting a set of one', async () => {
+  mockUseDives.mockReturnValue(divesState([dive()]));
+  const alone = textIn(await show()).join(' ');
+
+  expect(alone).toContain('Your only logged dive has no pin yet');
+  expect(alone).not.toContain('logged dives');
+  expect(alone).not.toContain(' 1 ');
+  expect(alone).toContain('Use my location');
+});
+
 // §1: the tab opens and says something true with no dives, no permission and no network. The
 // map itself is drawn only when there is somewhere to put it — `regionFor` answers null for no
 // marks rather than inventing a centre.

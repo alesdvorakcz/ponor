@@ -608,18 +608,25 @@ export const en = {
       closeSheet: 'Close {{name}}',
       noDives: 'No dives logged yet. A dive joins the map when you give it a pin.',
       /**
-       * **No plural in English, and that is not an oversight to fix here.** The sentence that
-       * shipped reads "None of your 1 logged dives has a pin yet" for a diver with one dive —
-       * a real wart, on a screen a new diver reaches early. Giving it an `_one` form would
-       * change English, which this milestone may not do; it is reported instead.
+       * **A diver with one dive was told "None of your 1 logged dives has a pin yet"** — a real
+       * wart on a screen every new diver reaches early, found while translating and left alone
+       * there because that pass could not change English (owner's call to fix it, M3i).
+       *
+       * The singular is not the plural with a number swapped: *your only logged dive* says the
+       * same thing without counting a set of one, and the instruction after it needs no count
+       * at all. Czech has carried all four forms since M3g and gains nothing here.
        */
-      noDivePins:
+      noDivePins_one:
+        'Your only logged dive has no pin yet. Open it, edit it, and tap “Use my location” at the site.',
+      noDivePins_other:
         'None of your {{count, figure}} logged dives has a pin yet. Open a dive, edit it, and tap “Use my location” at the site.',
       noSitesGuest: 'No community sites here yet. They arrive with an account, on your first sync.',
       noSitesMember:
         'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
-      /** The same English wart as `noDivePins`, from the same shape, reported rather than fixed. */
-      noSitePositions:
+      /** The same shape as `noDivePins` above, and fixed with it (M3i). */
+      noSitePositions_one:
+        'Your only community site has no position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.',
+      noSitePositions_other:
         'None of your {{count, figure}} community sites has a position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.',
       noCentresGuest: 'No dive centres here yet. They arrive with an account, on your first sync.',
       noCentresMember:
