@@ -348,3 +348,32 @@ it('shows a value it cannot read as it stands, rather than claiming the field is
   const picker = await openPicker(t, 'Date');
   expect(Number.isFinite(picker.props.date)).toBe(true);
 });
+
+/**
+ * M3m, from the owner using the form: the inline calendar stayed open after a date was
+ * chosen, so the tap that followed a pick landed on another day and silently re-dated the
+ * dive. Found by doing exactly that — picking the 7th, then reaching for the field below and
+ * hitting the 17th.
+ *
+ * A calendar tap is one complete choice, so the pick IS the dismissal. The spinner below is
+ * the reason this rule is written per mode rather than once.
+ */
+it('closes the calendar when a date is picked, so the next tap cannot re-date the dive', async () => {
+  const t = await render(<DateTimeField label="Date" value="2026-08-31" onChange={noop} mode="date" scheme="light" />);
+  const picker = await openPicker(t, 'Date');
+  await choose(picker, new Date(2026, 8, 1, 0, 0));
+  expect(pickerOf(t)).toBeUndefined();
+});
+
+/**
+ * The other half of the same rule, and the reason it could not simply be "close on change".
+ * `onValueChange` fires on every wheel movement of the iOS spinner, so closing on the first
+ * one would pull the control out from under a thumb still turning it. A time is chosen by
+ * coming to rest, not by a tap, so this picker stays up and the row's own trigger closes it.
+ */
+it('leaves the time spinner open while it is being turned', async () => {
+  const t = await render(<DateTimeField label="Time in" value={null} onChange={noop} mode="time" scheme="light" placeholder="Not set" />);
+  const picker = await openPicker(t, 'Time in');
+  await choose(picker, new Date(2026, 7, 31, 7, 5));
+  expect(pickerOf(t)).toBeDefined();
+});

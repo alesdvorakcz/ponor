@@ -138,12 +138,23 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
     // a different gesture with a different meaning, and closing a picker is not a request to
     // erase what was already recorded.
     if (next !== null) onChange(next);
-    // iOS renders the picker inline, under the field, and the diver closes it by tapping the
-    // field again — closing on the first change would pull a spinner out from under a thumb
-    // still turning it, since `onValueChange` fires on every wheel movement. Android's is a
-    // modal dialog that has already dismissed itself by the time this runs, so leaving it
-    // mounted would leave a dead dialog in the tree.
-    if (Platform.OS !== 'ios') setOpen(false);
+    // **Whether choosing also closes is a question about the CONTROL, not about the
+    // platform** (M3m, found by the owner using the form).
+    //
+    // Android's picker is a modal dialog that has already dismissed itself by the time this
+    // runs, so leaving it mounted would leave a dead dialog in the tree. That half never
+    // changed. What did is the iOS half, which used to be a flat "never close" and is really
+    // two different controls with two different ways of being finished with:
+    //
+    // A **spinner** (`mode="time"`) is finished with by coming to rest, and `onValueChange`
+    // fires on every wheel movement — so closing on the first one would pull the control out
+    // from under a thumb still turning it. It stays up, and the row's own trigger closes it.
+    //
+    // A **calendar** (`mode="date"`) is finished with by one tap on one day: the choice is
+    // complete the moment it arrives, so the pick IS the dismissal. Leaving it open cost the
+    // owner a silently re-dated dive — he picked the 7th, reached for the field below, and
+    // hit the 17th, because the calendar was still standing where that field had been.
+    if (Platform.OS !== 'ios' || mode === 'date') setOpen(false);
   };
 
   return (
