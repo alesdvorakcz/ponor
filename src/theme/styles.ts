@@ -1581,16 +1581,16 @@ function build(scheme: ColorScheme) {
     mapMarkBadgeLabelSelected: {
       color: theme.actionFg,
     },
-    // **A community site or centre: a dot, because there is no count to show.** §3 badges "your
-    // dives" per site, and a catalogue row the diver has never dived has none — a badge reading
-    // `0` would be a number about the wrong thing. Same two-state ink as the badge above, so a
-    // filter changes what a mark IS without changing the vocabulary it is drawn in.
+    // **A catalogue row: a disc, because there is no count to show.** §3 badges "your dives" per
+    // site, and a row the diver has never dived has none — a badge reading `0` would be a number
+    // about the wrong thing. Same two-state ink as the badge above, so a filter changes what a
+    // mark IS without changing the vocabulary it is drawn in.
     //
     // **26 across, which is the badge's own diameter, and it is a tap target rather than a
     // styling choice** (M3c): a map annotation is hit-tested over the mark it draws, so at 14 it
-    // was not pressable at all. All three marks share a size and a shape and differ only in what
-    // is inside — a count, a `storefront` glyph, or nothing — which is the whole vocabulary M3e
-    // had left after §0.1 spent the hue and M3c spent plain shape (`components/DiveMap.tsx`).
+    // was not pressable at all. All three marks share this size and this shape; what differs is
+    // the ink they are drawn in and what sits inside them (`components/DiveMap.tsx` carries the
+    // whole vocabulary and why it is the one §0.1 leaves).
     //
     // **It centres its children**, which is what makes it a container rather than a disc: the
     // centre's glyph sits in the middle of it exactly as the badge's numeral sits in the middle
@@ -1608,6 +1608,33 @@ function build(scheme: ColorScheme) {
     mapMarkDotSelected: {
       borderColor: theme.action,
       backgroundColor: theme.action,
+    },
+    // **The same disc with its ink and its ground swapped — a community site, and the swap is
+    // the whole of what tells it apart** (M3k, the owner: *"map markers are all same/similar and
+    // user have no idea, which one is dive log, site or center"*).
+    //
+    // Composed ONTO `mapMarkDot` rather than written out, so a mark cannot acquire a second
+    // diameter, a second radius or a second centring rule: this may only ever swap the two
+    // colours, which is what makes "one disc, two ink weights" a fact about the sheet rather than
+    // a claim in a comment. It overrides exactly `backgroundColor` and `borderColor` and is
+    // asserted in `styles.test.ts` to override nothing else.
+    //
+    // **The hairline survives the swap, in `surface` instead of `fg`, and it is load-bearing
+    // twice over.** A ring is what keeps a mark off the cartography it sits on — the reason the
+    // outlined disc's border is full `fg` rather than the `border` token — and it is also what
+    // keeps two of these apart: solid discs with no ring merge into one blob where a catalogue
+    // has several rows in a bay, which is M3c's "two overlapping squares read as one stacked
+    // card" arriving on the other side of the ink.
+    //
+    // **It carries no selected pair, and that is the reason it is the kind that gets the fill.**
+    // §0.1 leaves exactly one lever for "this one is chosen" and it is `selectedFill`'s inverted
+    // ink — but `action` IS `fg` in both themes (§0.2), so a mark already drawn at full ink has
+    // no ink left to say chosen. That is M2n's own finding about a coloured fill, one axis over.
+    // A community mark navigates to its page and is never selected (M3f), so it is the one kind
+    // that can spend the fill without spending the state; `DiveMap.tsx` carries the rest.
+    mapMarkDotFilled: {
+      backgroundColor: theme.fg,
+      borderColor: theme.surface,
     },
     // **The sheet a tapped mark opens** (§3: "tapping a site shows your dives there with a
     // depth/temp summary"), anchored over the bottom of the map.
@@ -2234,7 +2261,7 @@ function build(scheme: ColorScheme) {
     // its site name.
     // `paddingTop: 4`, not 16 (M1d): `detailBack` above it carries §0.5's 48 dp tap-target
     // floor around a 13 px label, which centres that label and leaves roughly 17 px of
-    // slack below it — the hero's own 16 then stacked on top, so the gap between "‹ Dives"
+    // slack below it — the hero's own 16 then stacked on top, so the gap between "‹ Back"
     // and the title read as about double the spec's figure. The 48 stays (it is a wet-hands
     // tap target, not spacing); this is the half that was actually redundant.
     detailHero: {
@@ -2328,6 +2355,35 @@ function build(scheme: ColorScheme) {
       justifyContent: 'space-between',
       alignItems: 'flex-start',
       gap: 12,
+    },
+    /**
+     * **A row you can press is a control and takes §0.5's floor; a row you only read is a fact
+     * and stays dense** (M3k, owner's call, closing §0.5's second recorded exception).
+     *
+     * M3c made the dive detail's *Site* and *Centre* rows navigate and gave them no target. The
+     * owner measured the result on the device: the row responds at y=351 and y=358 and **y=364
+     * does nothing** — two adjacent navigation rows about 21 pt tall with a ~9 pt dead band
+     * between them, where a press aimed at one is swallowed rather than landing on the other.
+     * §0.5 recorded that as an exemption "wanting deciding on a device", and this is the decision.
+     *
+     * **It is a rule rather than a number, and that is what makes it self-explaining.** The rows
+     * that take you somewhere become visibly taller than the facts around them, so the column
+     * says which of its lines are controls without a hue (§0.1), without a chevron (§0.6 spends
+     * that on in-place disclosure and "never on navigation") and without a word. And it closes
+     * the dead band **by construction**: the alternative M3c weighed was slop, and 13 pt of it
+     * either side overruns `detailCluster`'s 10 pt gap and hands presses aimed at the site to the
+     * centre — the failure this project rates worst of all.
+     *
+     * Composed ONTO `detailRow` rather than replacing it (`[detailRow, detailRowControl]`), so a
+     * pressable row and a fact row cannot drift apart on anything but the two properties here.
+     *
+     * `alignItems: 'center'` is the second of those and is not decoration: with `detailRow`'s
+     * `flex-start` a 21 pt line inside a 48 pt box would sit at the top of it with 27 pt of empty
+     * ink beneath, which reads as a row that failed to render rather than as a taller one.
+     */
+    detailRowControl: {
+      minHeight: 48,
+      alignItems: 'center',
     },
     detailLabel: rowLabel,
     // Data figures — depths, pressures, durations, timestamps (§0.2) — read through this

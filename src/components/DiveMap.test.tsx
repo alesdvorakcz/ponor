@@ -22,8 +22,9 @@ import { themeFor } from '../theme/resolve';
  * library, which is code this repo owns and can get wrong:
  *
  *  · one mark per place, at the coordinate the domain computed;
- *  · that each of the three kinds draws its own interior — a count, a `storefront` glyph, or
- *    nothing — and that the glyph is the filter's own symbol, through `symbolName`;
+ *  · that each of the three kinds draws its own **ink weight** — outlined, outlined, filled — and
+ *    its own interior — a count, a `storefront` glyph, or nothing — and that the glyph is the
+ *    filter's own symbol, through `symbolName`;
  *  · that pressing a mark reports that mark, kind and all;
  *  · that the selected mark inverts and no other, **including a mark of another kind carrying
  *    the same key**, which is a collision the key space allowed the day the layers became a
@@ -33,10 +34,11 @@ import { themeFor } from '../theme/resolve';
  *    this screen and the reason `unexpectedGraphics` is swept here at all.
  *
  * **What only the simulator can settle**, and what the report for this task therefore had to
- * cover by looking: whether the three interiors read as three kinds of thing at 26 pt over
- * Apple's cartography in both themes, whether a `storefront` at 14 pt is a shop or a smudge,
- * whether the region actually frames the pins, whether a mark is pressable at all, and whether
- * the map renders.
+ * cover by looking: whether the three marks read as three kinds of thing at 26 pt over Apple's
+ * cartography in both themes — which M3e claimed on exactly this evidence and the owner then
+ * disproved by using the app — whether a `storefront` at 14 pt is a shop or a smudge, whether the
+ * region actually frames the pins, whether a mark is pressable at all, and whether the map
+ * renders.
  *
  * The press below calls the `onPress` prop rather than going through `fireEvent`. That is
  * deliberate rather than a shortcut: on a device the press arrives from `MKMapView` selecting an
@@ -152,19 +154,28 @@ it('badges every mark with its own count, one included', async () => {
 });
 
 /**
- * **The three interiors, which are the whole mark vocabulary** (M3e).
+ * **The mark vocabulary, as a table over all three kinds at once** (M3k).
  *
- * §0.1 leaves no hue and M3c spent plain shape by building it and looking, so what tells the
- * three kinds apart is what is inside one identical 26 pt disc: a numeral, a `storefront` glyph,
- * or nothing. Asserted as a table over all three at once rather than one kind at a time, because
- * every one of these claims is really about the OTHERS — "a site draws no glyph" is only worth
- * anything beside "a centre does".
+ * §0.1 leaves no hue and M3c spent plain shape by building it and looking, so what is left is
+ * **ink weight** and **an interior**, inside one identical 26 pt disc. M3e spent the interior
+ * alone — a numeral, a `storefront`, or nothing — and the owner found by using the map that three
+ * interiors are not three marks. So the table now has two columns:
+ *
+ *  · a community site is the disc drawn **filled**, and carries nothing;
+ *  · a place of the diver's own and a dive centre are **outlined**, and are told apart by their
+ *    interiors — the pair the interior is left to separate, chosen because §3 says the confusion
+ *    this map may not create is a centre reading as a site.
+ *
+ * Written as one table rather than one test per kind because every claim in it is really about
+ * the OTHERS: "a site draws no glyph" is worth nothing beside "a centre does", and "a site is
+ * filled" is worth nothing unless the other two are not.
  */
 it.each([
-  ['a place of the diver’s own', MARKS[0]!, { text: ['4'], glyphs: 1 }],
-  ['a community site', SITE, { text: [], glyphs: 0 }],
-  ['a dive centre', CENTRE, { text: [], glyphs: 1 }],
-] as const)('draws %s in its own interior and no other kind’s', async (_label, mark, expected) => {
+  ['a place of the diver’s own', MARKS[0]!, { text: ['4'], glyphs: 1, filled: false }],
+  ['a community site', SITE, { text: [], glyphs: 0, filled: true }],
+  ['a dive centre', CENTRE, { text: [], glyphs: 1, filled: false }],
+] as const)('draws %s in its own ink and no other kind’s interior', async (_label, mark, expected) => {
+  const styles = makeStyles('light');
   const t = await draw({ marks: [mark] });
   const node = markers(t)[0];
   expect(node).toBeDefined();
@@ -175,13 +186,20 @@ it.each([
   // be wrong on its own.
   const glyphs = node!.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule'));
   expect(textIn(node!).length + glyphs.length).toBe(expected.glyphs);
+  // ...and the weight, which is the distinction a diver sees first and the one M3e did not have.
+  expect(node!.queryAll((n) => stylesOf(n).includes(styles.mapMarkDotFilled))).toHaveLength(
+    expected.filled ? 1 : 0,
+  );
 });
 
 /**
- * **A community site is drawn with the same disc a centre is, and the disc is the same one M3c
- * measured to be pressable at all.** Both catalogue kinds share `mapMarkDot`; what differs is
- * only what is inside it, which is what makes an overlap between them read as two marks rather
- * than as one stacked card (M3c's measurement of the shape alternative).
+ * **Both catalogue marks are the same disc, and only the ink differs.** They share `mapMarkDot`
+ * — the disc M3c grew to 26 pt to make pressable at all — so an overlap between them reads as two
+ * marks rather than as one stacked card (M3c's measurement of the shape alternative), and the
+ * filled one cannot acquire a diameter of its own.
+ *
+ * The place's badge is deliberately not in this table: it is a pill that grows with a three-digit
+ * count, so `styles.test.ts` ties its height and minimum width to this disc instead.
  */
 it.each([SITE, CENTRE] as const)('gives every catalogue mark the same disc', async (mark) => {
   const styles = makeStyles('light');
@@ -241,30 +259,59 @@ it('inverts the selected mark and leaves every other mark alone', async () => {
  * The three kinds draw together now, and their keys come from two different vocabularies: a
  * place key is `site:<id>` / `name:<fold>` / `dive:<id>`, a catalogue mark's key is the row's own
  * id, and `dive_sites` and `dive_centers` are two tables whose ids are drawn from one generator
- * but are not one namespace. A site and a centre carrying the same key is therefore reachable —
- * it is the fixture below — and a comparison on the key alone would open the wrong sheet.
+ * but are not one namespace. Two marks of different kinds carrying one key is therefore reachable
+ * — it is the fixture below — and a comparison on the key alone would invert the wrong one and
+ * open the wrong sheet.
+ *
+ * **Anchored on the two kinds that CAN be chosen** (M3k). It used to pit a community site against
+ * a centre; a community mark is drawn filled now and has no chosen form at all, so that pairing
+ * would have gone on passing whether the kind were compared or not. A place and a centre are the
+ * two marks with an inverted state, so this is the pairing where dropping `selected.kind ===
+ * mark.kind` is red — measured, not assumed.
  */
 it('inverts only the mark whose kind AND key were selected', async () => {
   const styles = makeStyles('light');
-  const t = await draw({ marks: [SITE, CENTRE], selected: { kind: 'centers', key: 'c1' } });
-  expect(SITE.key).toBe(CENTRE.key);
-  const inverted = markers(t).map((m) => m.queryAll((n) => stylesOf(n).includes(styles.mapMarkDotSelected)).length);
+  const place = MARKS[0]!;
+  const centre: MapMark = { ...CENTRE, key: place.key };
+  const t = await draw({ marks: [place, centre], selected: { kind: 'centers', key: place.key } });
+  expect(centre.key).toBe(place.key);
+  const inverted = markers(t).map(
+    (m) =>
+      m.queryAll((n) => stylesOf(n).includes(styles.mapMarkDotSelected)).length +
+      m.queryAll((n) => stylesOf(n).includes(styles.mapMarkBadgeSelected)).length,
+  );
   expect(inverted).toEqual([0, 1]);
 });
 
-// **The dot's own half of that rule, which the badge test above cannot carry** (measured: the
-// selected style was removed from the dot alone and every other assertion in this file stayed
-// green). A community mark selects exactly as a badged one does — one vocabulary across all
-// three kinds — and a selection a diver could not see would be a sheet with no visible source.
-it.each([
-  [null, 0],
-  [{ kind: 'community', key: 'c1' } as MapMarkRef, 1],
-] as const)('inverts a community dot when, and only when, it is the selected one', async (selected, expected) => {
-  const styles = makeStyles('light');
-  const t = await draw({ marks: [SITE], selected });
-  const mark = markers(t)[0];
-  expect(mark).toBeDefined();
-  expect(mark!.queryAll((n) => stylesOf(n).includes(styles.mapMarkDotSelected))).toHaveLength(expected);
+/**
+ * **A community site has no chosen form, and the reason is a fact about the tokens rather than an
+ * omission** (M3k).
+ *
+ * §0.1 leaves exactly one lever for "this one is chosen" and it is inverted ink — but `action`
+ * **is** `fg` in both themes (§0.2), so a mark already drawn at full ink has nowhere to invert to.
+ * That is why the kind that gets the fill is the kind that navigates: since M3f a catalogue row's
+ * mark goes to its page and is never selected, so it can spend the fill without spending the
+ * state.
+ *
+ * Both halves are asserted, because either alone would be satisfied by an accident: the premise
+ * (the mark IS drawn in the ink selection would move it to — which is what makes a chosen state
+ * impossible rather than merely absent) and the rendering (handed a selection naming it, the mark
+ * comes out byte-for-byte what it was). If `action` and `fg` ever part company, the first
+ * expectation fails and this assignment wants deciding again rather than quietly leaving a
+ * community mark unable to show a state it could now show.
+ */
+it.each(['light', 'dark'] as const)('draws a community site in the ink a selection would move it to (%s)', async (scheme) => {
+  const theme = themeFor(scheme);
+  const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+  expect(theme.action).toBe(theme.fg);
+  expect(styles.mapMarkDotFilled?.backgroundColor).toBe(theme.action);
+
+  const discs = async (selected: MapMarkRef | null) => {
+    const mark = markers(await draw({ scheme, marks: [SITE], selected }))[0];
+    expect(mark).toBeDefined();
+    return mark!.queryAll((n) => stylesOf(n).length > 0).map((n) => stylesOf(n));
+  };
+  expect(await discs({ kind: 'community', key: SITE.key })).toEqual(await discs(null));
 });
 
 /** And the glyph inside a selected centre inverts with its disc — a `storefront` left in `fg`

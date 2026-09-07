@@ -264,20 +264,25 @@ const BELOW_THE_FLOOR: Record<string, string> = {
     'reaches a 48 dp touch target via hitSlop"), the container that has to be big enough to ' +
     'DELIVER that slop is pinned by "the reorder arrows row" below, and the prop itself is ' +
     'required to still be there by the test that reads this list.',
-  detailRow:
-    "M3c made the dive detail's site and centre rows navigate — `Pressable`, no visual mark, " +
-    'and no floor either; this check is what found that. The row is a label/value line about ' +
-    '21 pt tall (15 pt label, 16 pt value, no vertical padding of its own) inside ' +
-    "`detailCluster`'s 10 pt rhythm, and BOTH ways out cost something a stylesheet cannot " +
-    'decide alone: a `minHeight` more than doubles two rows of a dense column of facts, and ' +
-    '13 pt of slop either side overruns that 10 pt gap — on the one screen where two of these ' +
-    'rows are adjacent (site above centre, `whereFields`), handing presses aimed at the site ' +
-    'to the centre, which is the failure "the reorder arrows row" below calls the worst one a ' +
-    "control can have. Recorded rather than quietly fixed, because which price the detail " +
-    "screen's rhythm should pay is the owner's call and wants a device. What keeps it from " +
-    'being a trapdoor meanwhile: neither destination is behind this row alone — the sites and ' +
-    'centres directories open both, and their rows are `formField`, which is in this sweep at 48.',
 };
+
+/**
+ * **`detailRow` was the second entry here and M3k removed it, which is what an exemption list is
+ * for.**
+ *
+ * It said the dive detail's *Site* and *Centre* rows navigate with no floor, that both ways out
+ * cost something a stylesheet cannot decide alone, and that the choice was the owner's and wanted
+ * a device. It got one: the row answered at y=351 and y=358 and not at y=364 — a ~9 pt dead band
+ * between two adjacent navigation targets — and the answer was the `minHeight`, not the slop,
+ * because slop deep enough to reach the floor overruns `detailCluster`'s 10 pt gap and hands
+ * presses aimed at the site to the centre.
+ *
+ * What it became is a rule rather than a number: **a row you can press is a control and takes the
+ * floor; a row you only read is a fact and stays dense** (`detailRowControl`, theme/styles.ts).
+ * The sweep below is what carries it now — the pressable row merges that style and clears 48,
+ * every fact row on the screen is a `View` and is not swept at all, and a navigation row that
+ * forgot the floor arrives here as a failure rather than as a new entry in this list.
+ */
 
 describe('every control the app can press', () => {
   // §0.5's floor, and the two ways a style can claim it: `minHeight` for a control that grows
@@ -333,6 +338,24 @@ describe('every control the app can press', () => {
     const arrows = PRESSABLES.filter((site) => site.styles[0] === 'reorderButton');
     expect(arrows.length).toBeGreaterThan(0);
     expect(arrows.filter((site) => !site.hitSlop).map((site) => site.where)).toEqual([]);
+  });
+});
+
+/**
+ * **The floor a navigating row takes, and the centring that has to come with it** (M3k).
+ *
+ * The `Pressable` sweep above says the row clears 48; it cannot say what the row looks like once
+ * it does. `detailRow` aligns to `flex-start` so a wrapped value lines up with its label, and a
+ * 21 pt line left at the top of a 48 pt box has 27 pt of empty ink under it — a row that reads as
+ * having failed to render rather than as a taller one. Pinned as a DIFFERENCE from `detailRow`
+ * rather than as the word alone, so dropping the override is red whichever way it is dropped.
+ */
+describe('the dive detail’s navigating row', () => {
+  it('centres its line inside the floor it claims, unlike the fact rows around it', () => {
+    const sheet = makeStyles('dark') as unknown as Record<string, Record<string, unknown>>;
+    expect(sheet.detailRowControl?.minHeight).toBe(48);
+    expect(sheet.detailRowControl?.alignItems).toBe('center');
+    expect(sheet.detailRow?.alignItems).not.toBe(sheet.detailRowControl?.alignItems);
   });
 });
 
@@ -393,6 +416,50 @@ describe('a map mark', () => {
       expect(sheet.mapMarkDot?.[axis]).toBe('center');
       expect(sheet.mapMarkDot?.[axis]).toBe(sheet.mapMarkBadge?.[axis]);
     }
+  });
+
+  /**
+   * **The second ink weight is an inversion of the first and nothing else** (M3k).
+   *
+   * A community site is the same disc with its ink and its ground swapped — that is the whole of
+   * what tells it apart from a centre, and §3 names centre-read-as-site as the one confusion this
+   * map may not create, so it is worth being a fact about the sheet rather than a claim in a
+   * comment. Asserted as the swap itself (each colour is the other style's other colour), so a
+   * `mapMarkDotFilled` that quietly stopped inverting — a `border`-token hairline, say, or a fill
+   * that is not full ink — fails here.
+   */
+  it.each(['dark', 'light'] as const)('draws the filled mark as the outlined one inverted (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    expect(sheet.mapMarkDotFilled?.backgroundColor).toBe(sheet.mapMarkDot?.borderColor);
+    expect(sheet.mapMarkDotFilled?.borderColor).toBe(sheet.mapMarkDot?.backgroundColor);
+    // ...and the two really are two, or the assertions above are satisfied by one flat colour.
+    expect(sheet.mapMarkDot?.backgroundColor).not.toBe(sheet.mapMarkDot?.borderColor);
+  });
+
+  /**
+   * **...and it may swap ONLY those two.** It is composed onto `mapMarkDot` at the call site
+   * (`[mapMarkDot, mapMarkDotFilled]`, DiveMap.tsx), so any other property written here silently
+   * overrides the disc for one kind of mark — a second diameter, a second radius, a lost centring
+   * rule. §3's whole mechanism is that the shape never varies; this is what keeps that true when
+   * the ink does.
+   */
+  it('lets the filled mark override the ink and nothing else', () => {
+    const sheet = makeStyles('dark') as unknown as Record<string, Record<string, unknown>>;
+    expect(Object.keys(sheet.mapMarkDotFilled ?? {}).sort()).toEqual(['backgroundColor', 'borderColor']);
+  });
+
+  /**
+   * **A ring survives the swap, and it is load-bearing on both weights.** The outlined disc's
+   * hairline is full `fg` rather than the `border` token because a seam tuned to separate two of
+   * the app's own surfaces disappears over Apple's cartography; the filled disc's is `surface` for
+   * the same reason from the other side, and it is additionally what keeps two solid marks in one
+   * bay from merging into a single blob — M3c's "two overlapping squares read as one stacked card"
+   * arriving on the other side of the ink.
+   */
+  it.each(['dark', 'light'] as const)('keeps a hairline on both weights (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    expect(sheet.mapMarkDot?.borderWidth).toBeGreaterThan(0);
+    expect(sheet.mapMarkBadge?.borderWidth).toBe(sheet.mapMarkDot?.borderWidth);
   });
 });
 

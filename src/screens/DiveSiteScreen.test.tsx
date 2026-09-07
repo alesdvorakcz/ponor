@@ -313,7 +313,7 @@ it('opens a dive from its row', async () => {
  */
 it('states nothing about a catalogue it has not read yet', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([], { resolved: false }));
-  expect(textIn(await show())).toEqual(['‹ Sites']);
+  expect(textIn(await show())).toEqual(['‹ Back']);
 });
 
 it('says the site is not here once it has looked', async () => {
@@ -350,9 +350,9 @@ it('reports a failed catalogue read rather than a missing site', async () => {
 // The way out is on both branches, for `DiveDetailScreen`'s stated reason: a page reached by an
 // unknown id is more of a dead end than a real one, not less.
 it('offers the way out whether or not the site is here', async () => {
-  expect(textIn(await show())).toContain('‹ Sites');
+  expect(textIn(await show())).toContain('‹ Back');
   mockUseDiveSites.mockReturnValue(catalogueState([]));
-  expect(textIn(await show())).toContain('‹ Sites');
+  expect(textIn(await show())).toContain('‹ Back');
 });
 
 /**
@@ -365,7 +365,7 @@ it('offers the way out whether or not the site is here', async () => {
 it('leaves for the sites directory rather than for the map', async () => {
   (router.canGoBack as jest.Mock).mockReturnValueOnce(false);
   const t = await show();
-  const back = allNodes(t).find((n) => n.props?.accessibilityLabel === 'Back to sites');
+  const back = allNodes(t).find((n) => n.props?.accessibilityLabel === 'Go back');
   expect(back).toBeDefined();
   await fireEvent.press(back!);
   expect(router.replace).toHaveBeenCalledWith('/sites');
@@ -465,7 +465,7 @@ describe('in Czech', () => {
     expect(said).toContain('Vstup');
     expect(said).toContain('Slanost');
     expect(said).toContain('Vodní plocha');
-    expect(said).toContain('‹ Lokality');
+    expect(said).toContain('‹ Zpět');
     expect(said.join(' ')).toContain('Když tuto lokalitu vyberete u nového ponoru');
     expect(said).not.toContain('Site depth');
   });

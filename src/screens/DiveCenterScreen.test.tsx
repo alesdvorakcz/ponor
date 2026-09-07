@@ -242,7 +242,7 @@ it('opens a dive from its row', async () => {
  */
 it('states nothing about a catalogue it has not read yet', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([], { resolved: false }));
-  expect(textIn(await show())).toEqual(['‹ Centres']);
+  expect(textIn(await show())).toEqual(['‹ Back']);
 });
 
 it('says the centre is not here once it has looked', async () => {
@@ -262,9 +262,9 @@ it('reports a failed catalogue read rather than a missing centre', async () => {
 // The way out is on both branches, for `DiveDetailScreen`'s stated reason: a page reached by an
 // unknown id is more of a dead end than a real one, not less.
 it('offers the way out whether or not the centre is here', async () => {
-  expect(textIn(await show())).toContain('‹ Centres');
+  expect(textIn(await show())).toContain('‹ Back');
   mockUseDiveCenters.mockReturnValue(catalogueState([]));
-  expect(textIn(await show())).toContain('‹ Centres');
+  expect(textIn(await show())).toContain('‹ Back');
 });
 
 // --- The logbook underneath it --------------------------------------------------------------
@@ -344,7 +344,7 @@ describe('in Czech', () => {
     expect(said).toContain('Centrum');
     expect(said).toContain('Země');
     expect(said).toContain('Web');
-    expect(said).toContain('‹ Centra');
+    expect(said).toContain('‹ Zpět');
     expect(said).not.toContain('Website');
   });
 

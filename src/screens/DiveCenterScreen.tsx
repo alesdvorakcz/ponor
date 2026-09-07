@@ -85,6 +85,14 @@ function centerLabel(center: { name: string | null }): string {
  * Rendered on **every** branch, the not-found one included, for `DiveDetailScreen`'s own stated
  * reason: a page reached by an unknown id is more of a dead end than a real one, not less.
  * `backToCenters` (navigation/leaveScreen.ts) owns where it lands.
+ *
+ * **It says *Back*, not *‹ Centres*** (M3k). M3c's own report noticed that this label names the
+ * fallback however the page was reached, and filed it as consistent with the dive detail rather
+ * than as a defect — so the same wrong claim was made on a second page, and then on a third when
+ * M3f built the site's. **A way out names a destination only when the screen has exactly one way
+ * in**; this page has three (the directory, a mark on the Map's centres layer, and a dive's own
+ * *Centre* row), and the directory in `backToCenters` is a fallback for a cold deep link rather
+ * than a promise the control may make.
  */
 function BackButton({ styles }: { styles: Styles }) {
   return (
@@ -92,9 +100,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToCenters}
       accessibilityRole="button"
-      accessibilityLabel={t('back.centresLabel')}
+      accessibilityLabel={t('back.anyLabel')}
     >
-      <Text style={styles.detailBackLabel}>{t('back.centres')}</Text>
+      <Text style={styles.detailBackLabel}>{t('back.any')}</Text>
     </Pressable>
   );
 }

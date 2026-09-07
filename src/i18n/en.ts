@@ -441,20 +441,27 @@ export const en = {
     },
 
     /**
-     * §0.6's one treatment for leaving, as words. Five destinations, each a visible chevroned
-     * label and the fuller thing a screen reader is told — *"says what leaving does, which is
-     * the half a diver cannot see from the chevron"*.
+     * §0.6's one treatment for leaving, as words: a visible chevroned label and the fuller thing
+     * a screen reader is told — *"says what leaving does, which is the half a diver cannot see
+     * from the chevron"*.
      *
-     * `cancel`/`cancelLabel` are shared by the three editors (the dive form, the preset editor,
-     * the certification editor), which already spelled them identically.
+     * **A way out names a destination only when the screen has exactly one way in** (M3k, the
+     * owner: a site's page said *‹ Sites* and returned to the dive he came from). There were five
+     * destinations here and three of them were on pages reached from several places at once — a
+     * page from its directory, from a mark on the Map, and from a dive's own row — where
+     * `leaveTo` (navigation/leaveScreen.ts) pops the stack and lands wherever the diver actually
+     * came from. The route was always right; the word was the claim that was wrong, and it was
+     * wrong on the two entrances out of three that were not the fallback.
+     *
+     * So the three that could not keep their promise are one pair — `any`, which names the act
+     * instead, exactly as `cancel` already does for the three editors (the dive form, the preset
+     * editor, the certification editor). `settings` stays a destination because the account screen
+     * is reached from Settings and from nowhere else, which is the condition rather than an
+     * exception to it.
      */
     back: {
-      dives: '‹ Dives',
-      divesLabel: 'Back to dives',
-      sites: '‹ Sites',
-      sitesLabel: 'Back to sites',
-      centres: '‹ Centres',
-      centresLabel: 'Back to centres',
+      any: '‹ Back',
+      anyLabel: 'Go back',
       settings: '‹ Settings',
       settingsLabel: 'Back to Settings',
       cancel: '‹ Cancel',

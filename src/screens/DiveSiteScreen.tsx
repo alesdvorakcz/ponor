@@ -127,6 +127,15 @@ const SITE_DEFAULT_ROWS: Record<
  * Rendered on **every** branch, the not-found one included, for `DiveDetailScreen`'s own stated
  * reason: a page reached by an unknown id is more of a dead end than a real one, not less.
  * `backToSites` (navigation/leaveScreen.ts) owns where it lands.
+ *
+ * **It says *Back*, not *‹ Sites*, and that is the owner's own finding** (M3k): this page is
+ * reached from the sites directory, from a mark on the Map's community layer, and from a dive's
+ * own *Site* row, and `leaveTo` pops the stack — so on two of those three entrances the label was
+ * naming somewhere the diver had not been. The navigation was right the whole time. **A way out
+ * names a destination only when the screen has exactly one way in**, and this one has three; the
+ * directory in `backToSites` is a fallback for a cold deep link, not a promise the control may
+ * make. M3c recorded the same thing about the centre page and read it as a precedent rather than
+ * as a defect (*"consistent rather than new"*), which is how it reached a second page.
  */
 function BackButton({ styles }: { styles: Styles }) {
   return (
@@ -134,9 +143,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToSites}
       accessibilityRole="button"
-      accessibilityLabel={t('back.sitesLabel')}
+      accessibilityLabel={t('back.anyLabel')}
     >
-      <Text style={styles.detailBackLabel}>{t('back.sites')}</Text>
+      <Text style={styles.detailBackLabel}>{t('back.any')}</Text>
     </Pressable>
   );
 }

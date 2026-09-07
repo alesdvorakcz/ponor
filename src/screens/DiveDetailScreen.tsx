@@ -221,16 +221,24 @@ function Row({ label, value, mono, computed, opens, styles }: Field & { styles: 
       </View>
     </>
   );
-  // **A row that goes somewhere is a Pressable and looks identical** (M3c). §0.1 rules out a hue,
-  // and §0.6 spends the chevron on in-place disclosure alone — "the mark is never spent on
-  // navigation" — so a navigation row on this screen has no visual mark available and is not
-  // given an invented one. The announcement is where the difference lives, and it says what
-  // pressing it does rather than merely what the row is called, which is Settings' own rule for
-  // every row that opens something.
+  // **A row that goes somewhere is a Pressable, and since M3k it is also visibly taller.**
+  //
+  // M3c shipped it looking identical, on the reasoning that §0.1 rules out a hue and §0.6 spends
+  // the chevron on in-place disclosure alone ("the mark is never spent on navigation"), so a
+  // navigation row here had no visual mark available and was not given an invented one. That was
+  // right about marks and wrong about size: the row also had no tap target, and the owner
+  // measured the consequence on the device — the *Site* row answers at y=351 and y=358 and not at
+  // y=364, a ~9 pt band between two adjacent navigation rows where a press is silently swallowed.
+  //
+  // `detailRowControl` (theme/styles.ts) is §0.5's floor, and the rule it carries is *a row you
+  // can press is a control; a row you only read is a fact* — so the height difference is not
+  // decoration either, it is the one thing on this screen that says which lines take you
+  // somewhere. The announcement still says what pressing it DOES rather than what the row is
+  // called, which is Settings' own rule for every row that opens something.
   if (opens === undefined) return <View style={styles.detailRow}>{contents}</View>;
   return (
     <Pressable
-      style={styles.detailRow}
+      style={[styles.detailRow, styles.detailRowControl]}
       onPress={() => router.push(opens)}
       accessibilityRole="button"
       accessibilityLabel={t('common.open', { name: value })}
@@ -284,6 +292,15 @@ function Cluster({
  * this component. DiveFormScreen needs the identical rule on a successful save and used to
  * hold a character-for-character copy of it, under its own paragraph of the same reasoning;
  * that copy is gone and both screens call the one owner.
+ *
+ * **It says *Back* rather than *‹ Dives*, and this screen is where that mistake started** (M3k).
+ * It read *‹ Dives* from M1c, when the list was the only way in; there are five now — the list,
+ * full-screen search, the Map's own sheet, a site's page and a centre's page — and `leaveTo` pops
+ * the stack, so on four of them the label was naming a screen the diver had not just been on. M3c
+ * then cited it as the precedent for the centre page's *‹ Centres* and M3f for the site's, which
+ * is how one screen's stale label became three. **A way out names a destination only when the
+ * screen has exactly one way in**; `/` inside `backToDives` is the cold-deep-link fallback, not a
+ * promise this control may make. The account screen keeps *‹ Settings* on exactly that test.
  */
 function BackButton({ styles }: { styles: Styles }) {
   return (
@@ -291,9 +308,9 @@ function BackButton({ styles }: { styles: Styles }) {
       style={styles.detailBack}
       onPress={backToDives}
       accessibilityRole="button"
-      accessibilityLabel={t('back.divesLabel')}
+      accessibilityLabel={t('back.anyLabel')}
     >
-      <Text style={styles.detailBackLabel}>{t('back.dives')}</Text>
+      <Text style={styles.detailBackLabel}>{t('back.any')}</Text>
     </Pressable>
   );
 }

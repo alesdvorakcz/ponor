@@ -1775,7 +1775,7 @@ it("does not render the detail screen's own back control when embedded beside th
   });
   const t = await render(<DivesScreen />);
   await fireEvent.press(findRow(t, 1));
-  const backButtons = t.root ? t.root.queryAll((n) => n.props.accessibilityLabel === 'Back to dives') : [];
+  const backButtons = t.root ? t.root.queryAll((n) => n.props.accessibilityLabel === 'Go back') : [];
   expect(backButtons).toHaveLength(0);
   // ...and the dive's own action is still there. `EditButton` sits OUTSIDE the
   // `showBackButton` guard in DiveDetailScreen.tsx, which nothing checked: pulled inside it,

@@ -197,7 +197,7 @@ afterEach(() => {
  * query, not at a confusing downstream fireEvent error. */
 function findBackButton(t: RenderResult) {
   const [button] = t.root
-    ? t.root.queryAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Back to dives')
+    ? t.root.queryAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Go back')
     : [];
   if (!button) throw new Error('DiveDetailScreen did not render a back control');
   return button;
@@ -1111,7 +1111,7 @@ it('renders the back control mono and muted, distinctly from the hero heading', 
   stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  const back = textNode(t, '‹ Dives');
+  const back = textNode(t, '‹ Back');
   const heading = textNode(t, 'Blue Hole');
   expect(back).toBeDefined();
   expect(heading).toBeDefined();
@@ -1240,7 +1240,7 @@ it('keeps Edit when the back control is hidden — the tablet pane still edits i
   const t = await render(<DiveDetailScreen id="target" showBackButton={false} />);
 
   // The flag really took effect, so the line below is not passing because nothing was hidden.
-  expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Back to dives')).toHaveLength(0);
+  expect(t.root?.queryAll((n) => n.props?.accessibilityLabel === 'Go back')).toHaveLength(0);
   expect(findControl(t, 'Edit')).toBeDefined();
 
   await pressControl(t, 'Edit');
@@ -1759,6 +1759,38 @@ it('makes the two paired rows destinations and no others', async () => {
   expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/center/c-p');
 });
 
+/**
+ * **A row you can press is a control and takes §0.5's floor; a row you only read is a fact and
+ * stays dense** (M3k, the owner's call, closing §0.5's second recorded exception).
+ *
+ * M3c made these two rows navigate and gave them no target: measured on the device, the *Site*
+ * row answers at y=351 and y=358 and **not at y=364**, a ~9 pt band between two adjacent
+ * navigation rows where a press is swallowed rather than landing on either. `styles.test.ts`'s
+ * sweep is what says the pressable row now clears 48; what it cannot see is the other half of
+ * the rule — that the floor is on the rows that go somewhere and **only** on those, which is the
+ * whole of what makes the height difference legible instead of arbitrary.
+ *
+ * Asserted in both directions over one render holding both populations, because either direction
+ * alone is satisfied by an accident: give every row the floor and the second expectation fails;
+ * give none of them the floor and the first does.
+ */
+it('gives a row that navigates the floor, and a row that only reads none', async () => {
+  const styles = makeStyles('light');
+  const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
+  const t = await renderDetailTree(d);
+  const entries = (n: { props?: { style?: unknown } }) => [n.props?.style].flat(3).filter(Boolean);
+  const rows = t.root?.queryAll((n) => entries(n).includes(styles.detailRow)) ?? [];
+  const opens = (n: { props?: { accessibilityLabel?: unknown } }) =>
+    typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('Open ');
+
+  // Both populations are on this tree, or one of the two claims below is about an empty set.
+  expect(rows.filter(opens).length).toBe(2);
+  expect(rows.filter((n) => !opens(n)).length).toBeGreaterThan(0);
+
+  expect(rows.filter((n) => opens(n) && !entries(n).includes(styles.detailRowControl))).toEqual([]);
+  expect(rows.filter((n) => !opens(n) && entries(n).includes(styles.detailRowControl))).toEqual([]);
+});
+
 
 // ---------------------------------------------------------------------------------------
 // Czech (M3h) — §4.1's "one deliberate exception, until i18next", discharged
@@ -1882,7 +1914,7 @@ describe('in Czech', () => {
   /** The screen's own chrome: the way out, the two actions, and the one destructive dialog. */
   it('names its way out and its three actions in Czech', async () => {
     const t = await renderDetailTree(dive({ status: 'planned' }));
-    expect(textIn(t)).toContain('‹ Ponory');
+    expect(textIn(t)).toContain('‹ Zpět');
     expect(textIn(t)).toContain('Upravit');
     expect(textIn(t)).toContain('Dokončit ponor');
     expect(textIn(t)).toContain('Smazat ponor');

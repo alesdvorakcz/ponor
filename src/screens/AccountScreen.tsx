@@ -585,14 +585,18 @@ export default function AccountScreen() {
 
 /**
  * The way out (§0.6: "Leaving a screen has one treatment everywhere") — `formBack`, the
- * definition the dive form's `‹ Cancel` and the dive detail's `‹ Dives` already share, so this
+ * definition the dive form's `‹ Cancel` and the dive detail's `‹ Back` already share, so this
  * cannot invent a second treatment for the same kind of object. Rendered in **every** state,
  * including the two that have nothing else on them: a screen with no backend, and one waiting
  * on a session read, are exactly the ones a diver most needs to leave.
  *
- * It says `‹ Settings` rather than `‹ Cancel`, which is the dive detail's form of the same
- * control. Nothing on this screen is a draft: there is no save, so there is nothing to cancel,
- * and naming the destination is what `‹ Dives` already does one screen over.
+ * **It says `‹ Settings`, and it is the one page in the app still allowed to name where it
+ * goes** (M3k). Nothing on this screen is a draft — there is no save, so there is nothing to
+ * cancel — and the rule the other pages now follow is *a way out names a destination only when
+ * the screen has exactly one way in*. This screen has exactly one: `/account` is pushed from
+ * Settings and from nowhere else, so `backToSettings`' pop and its cold-deep-link fallback land
+ * in the same place and the label is true on every entrance. That used to be justified by
+ * pointing at the dive detail's `‹ Dives`, which was itself wrong on four of its five entrances.
  *
  * It writes NOTHING. `backToSettings` (navigation/leaveScreen.ts) pops the stack, or replaces
  * to Settings for a cold deep link — never to the dives list, which is not the screen this one

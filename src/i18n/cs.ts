@@ -388,13 +388,13 @@ export const cs = {
       open: 'Otevřít {{name}}',
     },
 
+    /** **A way out names a destination only when the screen has exactly one way in** (M3k) — see
+     * `en.ts` for why three of the five destinations here became one act. Czech gains something
+     * English does not from the change: *Zpět na lokality* declines the noun, so each of the three
+     * carried a case as well as a claim, and the bare *Zpět* carries neither. */
     back: {
-      dives: '‹ Ponory',
-      divesLabel: 'Zpět na ponory',
-      sites: '‹ Lokality',
-      sitesLabel: 'Zpět na lokality',
-      centres: '‹ Centra',
-      centresLabel: 'Zpět na centra',
+      any: '‹ Zpět',
+      anyLabel: 'Zpět',
       settings: '‹ Nastavení',
       settingsLabel: 'Zpět do Nastavení',
       cancel: '‹ Zrušit',

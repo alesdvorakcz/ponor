@@ -417,7 +417,7 @@ export default function CertificationScreen({ mode, certificationId }: Certifica
 
 /**
  * The way out (§0.6: "leaving a screen has one treatment everywhere") — `formBack`, the
- * definition the dive form's `‹ Cancel`, the dive detail's `‹ Dives` and the preset editor all
+ * definition the dive form's `‹ Cancel`, the dive detail's `‹ Back` and the preset editor all
  * share. Pinned above the scroll rather than scrolling with it, and rendered in the not-found
  * state too.
  *

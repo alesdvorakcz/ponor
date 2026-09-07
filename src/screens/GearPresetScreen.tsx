@@ -572,7 +572,7 @@ export default function GearPresetScreen({ presetId }: GearPresetScreenProps) {
 
 /**
  * The way out (§0.6: "Leaving a screen has one treatment everywhere") — `formBack`, the
- * definition the dive form's own `‹ Cancel` and the dive detail's `‹ Dives` already share, so
+ * definition the dive form's own `‹ Cancel` and the dive detail's `‹ Back` already share, so
  * this cannot invent a second treatment for the same kind of object. Pinned above the scroll
  * rather than scrolling with it, and rendered in the not-found state too: a screen that could
  * not find its preset is exactly the one a diver most needs to leave.

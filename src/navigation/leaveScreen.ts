@@ -24,6 +24,17 @@ import { router, type Href } from 'expo-router';
  * Not a hook and not a component: it reads nothing from React and renders nothing, so a
  * screen can call it from an event handler or from the tail of an async save alike.
  *
+ * **A fallback is not a destination, and a way out may only name one it always reaches** (M3k,
+ * the owner: a site's page said *‹ Sites* and returned him to the dive he came from). Every exit
+ * here pops the stack when there is one, so the `fallback` is consulted **only on a cold deep
+ * link** — which means a control labelled with it is telling the truth on exactly one entrance
+ * and guessing on the rest. Three screens were doing that (the dive detail, a site's page, a
+ * centre's page, each reachable three ways or more), and their labels are `back.any` now — *‹
+ * Back*, which names the act. The account screen still says *‹ Settings*, and that is the rule
+ * holding rather than an exception to it: Settings is its only way in, so the pop and the
+ * fallback land in the same place. **Nothing in this module changed**; the routes were right all
+ * along and it was the words that were wrong.
+ *
  * **`fallback` is the screen this one sits on top of, and it is the only thing the two exits
  * below differ in.** It was `/` outright while every stacked screen sat on the dives list;
  * §3's preset editor sits on Settings, and sending a diver who deep-linked into it back to

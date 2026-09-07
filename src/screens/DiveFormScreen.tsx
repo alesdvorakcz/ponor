@@ -4273,7 +4273,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
 /**
  * The way out (M1d task 7, amendment D — found by using the app: this screen had none at all).
  * iOS's edge-swipe and Android's system back both worked, but nothing on screen said so, while
- * DiveDetailScreen next door has offered a visible `‹ Dives` since M1c. Same treatment as that
+ * DiveDetailScreen next door has offered a visible way out since M1c. Same treatment as that
  * control — mono, muted, small, at §0.5's 48 dp floor, pinned above the scroll rather than
  * scrolling with it (`backControl` in theme/styles.ts is the one definition all three screens
  * share) — because it is the same kind of thing: a way out, not an action, and nothing here may

@@ -130,9 +130,10 @@ export interface DiveMapProps {
  *
  * **So the depth palette is on this screen exactly where it is on every other one: beside a
  * number.** Tap a site and its dives are `DiveRow`s, each with its own depth in its own band.
- * The marks are the app's existing two-state ink — `surface` behind an unselected mark, `action`
- * ink behind the selected one, which is §0.6's own option-chip rule ("the chosen thing is the
- * inverted thing") applied to a map. Nothing new was invented for this screen.
+ * The marks are drawn in the app's own two inks and in nothing else — `surface` and `fg`, one way
+ * round or the other — and a mark that can be chosen takes §0.6's own option-chip treatment for
+ * saying so ("the chosen thing is the inverted thing") applied to a map. No colour was invented
+ * for this screen.
  *
  * ── What this component's tests can and cannot claim ──────────────────────────────────────
  *
@@ -162,7 +163,7 @@ export interface DiveMapProps {
  * 26 pt (`mapMarkBadge`/`mapMarkDot`), and the size of the mark IS the target. A mocked map could
  * never have said so: it measures no view and produces no gesture.
  *
- * ── Three kinds on one map, and the one lever left to tell them apart (M3e) ────────────────
+ * ── Three kinds on one map, and the one lever left to tell them apart ──────────────────────
  *
  * §3's layers became a filter, so a diver can have their dives, the community's sites and the
  * community's centres drawn at once. **§0.1 leaves no hue to separate them and M3c has already
@@ -170,30 +171,53 @@ export interface DiveMapProps {
  * map scale a square reads as the same mark drawn slightly wrong, and that two overlapping
  * squares read as one stacked card. What §3 leaves is *ink weight or an inner glyph*.
  *
- * **So: one disc, one ink, three interiors.** The shape never varies, which turns M3c's second
- * finding into an asset — with a single shape an overlap is self-evidently two marks — and the
- * interior says what the mark is:
+ * **M3e spent the inner glyph alone — one disc, one ink, three interiors — and the owner found
+ * it did not work by using it** (M3k): *"map markers are all same/similar and user have no idea,
+ * which one is dive log, site or center."* §3 now carries the diagnosis and it is worth keeping
+ * here, because it is the reason this file's design is what it is:
  *
- *  · **your dives** carry a NUMERAL, which they already did (§3's "badge = count per site"), and
- *    a figure is not a symbol needing a legend: it is the count itself;
- *  · **a dive centre** carries the `storefront` glyph, **the same glyph the filter control uses
- *    to switch centres on** — which is §0.6's "a symbol that needs a legend has already failed"
- *    answered rather than dodged: the legend is the control, one press away, in the same 19 pt
- *    ink, and turning the filter off makes every mark carrying that glyph disappear;
- *  · **a community site** carries NOTHING, and stays exactly the dot M2n drew and M3c measured.
+ *  · **a community site was distinguished by having no interior at all**, and an absence is not
+ *    a mark — the weakest signal available, on the most common row in the catalogue;
+ *  · **§0.6's "a symbol that needs a legend has already failed" was answered by putting the
+ *    legend one press away**, inside the filter control. That is a legend.
  *
- * The empty interior is the one that had to be argued for, because §0.6 has twice ruled that a
- * mark whose meaning is an absence is a legend — M2n refused a bare mark for a single dive for
- * precisely that reason. It is admitted here on a different ground: a **dive site is what this
- * map is of**. A shop is the exception (§3: a centre is not a place you get into the water) and a
- * count is the diver's own, so the unmarked mark is the subject rather than a third code — and
- * the alternative, a third glyph, spends a symbol at 13 pt on the most common mark on the screen.
- * The other arrangement was drawn and looked at; the report for this task says what it showed.
+ * **So: one disc, TWO ink weights, and the interior left carrying one distinction instead of
+ * three.** The shape still never varies, which is the half of M3e that held — with a single
+ * shape an overlap is self-evidently two marks (M3c's second finding turned into an asset):
+ *
+ *  · **a community site** is the disc drawn SOLID — `fg` behind a `surface` hairline, the
+ *    outlined disc with its ink and its ground swapped (`mapMarkDotFilled`, theme/styles.ts).
+ *    It carries nothing inside, and now it does not have to: **the fill is the mark**, not the
+ *    absence. A filled disc against an outlined one is visible before anything inside either of
+ *    them is, which is the property no interior can have at 26 pt over cartography;
+ *  · **your dives** carry a NUMERAL in the outlined disc, which they already did (§3's "badge =
+ *    count per site"), and a figure is not a symbol needing a legend: it is the count itself;
+ *  · **a dive centre** carries the `storefront` glyph in the outlined disc.
+ *
+ * **Which pair the interior is left to separate was chosen, not left over.** §3 names one
+ * confusion this map may not create — *a centre reading as a site*, because a shop is not a place
+ * you get into the water — so that pair gets the strongest lever there is and is told apart
+ * before either interior is read at all. What the interior separates is **your own dives from a
+ * centre**, where the two marks are a digit and a shop, both of them drawn things, and where
+ * being wrong costs a diver a page instead of a rock. The glyph is still the filter control's own
+ * symbol (`MAP_KIND_GLYPH`), which is worth keeping for the reason M3e gave — turn centres off
+ * and every mark carrying it disappears — but it is no longer being asked to be the legend, and
+ * this vocabulary does not need one.
+ *
+ * **The filled mark has no selected form, and that is why IT is the kind that is filled.** §0.1
+ * leaves exactly one lever for "this one is chosen" and it is inverted ink, but `action` **is**
+ * `fg` in both themes (§0.2) — so a mark already at full ink has nothing left to invert into.
+ * M2n measured the identical thing one axis over ("a coloured fill has no ink left to say
+ * selected"). Since M3f a catalogue row's mark **navigates to its page** and is never selected,
+ * so a community mark can spend the fill without spending the state; the two marks that can be
+ * chosen — a place of the diver's own, and a centre, which keeps its outlined disc for exactly
+ * this reason — keep `selectedFill`'s inversion intact.
  *
  * **A tap does not mean the same thing on all three**, and since M3e the MARK has to carry that
- * rather than the layer: a centre goes to its page and the other two open a sheet. M3c gave the
- * asymmetry to the layer on the grounds that "a diver never has to work out which kind of thing
- * they are about to press"; the glyph is what pays for that now, which is the second job it does.
+ * rather than the layer: a catalogue row goes to its page and the diver's own dives open a sheet.
+ * M3c gave the asymmetry to the layer on the grounds that "a diver never has to work out which
+ * kind of thing they are about to press"; the numeral is what pays for that now — the mark that
+ * opens a sheet is the one wearing a count.
  */
 
 /** A mark sits on its coordinate by its middle — see the `anchor` prop below. Hoisted out of
@@ -217,11 +241,18 @@ const MARK_GLYPH_SIZE = 14;
  * disappeared completely and the place read as somewhere the diver had never been. A mocked map
  * has no z-order and would never have said so.
  *
- * Ordered by how much each interior carries. A place's badge holds a figure that exists nowhere
- * else on the screen. A centre's glyph says which catalogue it is from, and a centre hidden under
- * a plain dot is worse than the reverse, because it then reads as a *site* — the one confusion §3
- * says this map may not create. A community site's dot means "a catalogue row is here", which any
- * visible ring already says, so it is the one that can afford to be behind.
+ * Ordered by how much each mark carries. A place's badge holds a figure that exists nowhere else
+ * on the screen. A centre's glyph says which catalogue it is from. A community site says "a
+ * catalogue row is here", which its own visible crescent still says under anything drawn over it,
+ * so it is the one that can afford to be behind.
+ *
+ * **M3k moved one word of this and left the order alone.** The reason the centre was above the
+ * site was that "a centre hidden under a plain dot reads as a *site*" — the one confusion §3 says
+ * this map may not create. That failure is now impossible in that direction: a site is drawn
+ * SOLID and a centre OUTLINED, so a partly covered centre shows a hollow crescent, which is not
+ * what a site looks like. The order still holds on its own terms — the mark that says the most is
+ * on top — and it now also fixes the case M3e recorded and could not fix, where three shops in one
+ * bay drew as a stack and the two behind read as plain rings.
  *
  * **`zIndex` rather than the order of the children**, because `MKMapView` reorders annotations as
  * it pleases — the library maps this onto `zPriority` and `layer.zPosition` (AIRMapMarker.m), and
@@ -310,7 +341,7 @@ export function DiveMap({ scheme, region, marks, selected, onSelect, showsUserLo
             {/* No wrapper: the mark is the annotation, and the annotation is the tap target —
                 see this file's own note above for the measurement that settled it.
 
-                One disc, three interiors, and the switch is on the mark's own `kind` rather than
+                One disc, two ink weights, and the switch is on the mark's own `kind` rather than
                 on whether some field happens to be null — which is what the union above buys:
                 a community site cannot acquire a badge and a place cannot lose one. */}
             {mark.kind === 'mine' ? (
@@ -319,23 +350,27 @@ export function DiveMap({ scheme, region, marks, selected, onSelect, showsUserLo
                   {mark.badge}
                 </Text>
               </View>
-            ) : (
+            ) : mark.kind === 'centers' ? (
               // **A catalogue row has no number to show, so it shows none.** §3 badges a count
               // "per site" of *your* dives; a row the diver has never been to has no count, and
               // a badge reading `0` — or worse, a mark carrying the row's name at map scale —
-              // would be saying something the catalogue does not know.
+              // would be saying something the catalogue does not know. A centre says which kind
+              // of row it is with the filter's own glyph instead, in the outlined disc it keeps
+              // so that `selectedFill` still has somewhere to invert into.
               <View style={[styles.mapMarkDot, chosen && styles.mapMarkDotSelected]}>
-                {/* And a centre says which kind of row it is, in the filter's own glyph. A
-                    community site draws nothing here — see this file's note above for why the
-                    unmarked mark is the site rather than a third symbol. */}
-                {mark.kind === 'centers' && (
-                  <SymbolView
-                    name={symbolName(CENTERS_GLYPH)}
-                    size={MARK_GLYPH_SIZE}
-                    tintColor={chosen ? theme.actionFg : theme.fg}
-                  />
-                )}
+                <SymbolView
+                  name={symbolName(CENTERS_GLYPH)}
+                  size={MARK_GLYPH_SIZE}
+                  tintColor={chosen ? theme.actionFg : theme.fg}
+                />
               </View>
+            ) : (
+              // **A community site: the same disc, drawn solid, and nothing inside it** (M3k).
+              // The fill is what says which kind this is — see this file's note above for why an
+              // empty interior could not, and why the kind that navigates is the kind that can
+              // afford to be drawn at full ink. `chosen` is deliberately not read here: there is
+              // no darker ink to move to, and no press on this map can produce the state.
+              <View style={[styles.mapMarkDot, styles.mapMarkDotFilled]} />
             )}
           </Marker>
         );
