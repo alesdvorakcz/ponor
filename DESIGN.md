@@ -534,6 +534,20 @@ The first real bill would be Supabase Pro ($25/mo) when the database nears 500 M
   **Apple and Google moved to M3** (owner's call). This line asked for three sign-in methods; one shipped. They are release requirements rather than functional gaps — email works, and the Apple Developer account they need is the one the store submission needs anyway.
 - **M3 · Surface — release** — stats screen, certification wallet, Czech + English, CSV + JSON export, **Sign in with Apple and Google** (§5: Apple is mandatory once Google is offered), store listings, Sentry wired, **branded auth email**, TestFlight and Play internal testing, then public.
 
+  **Built:** the Stats tab · the certification wallet · Czech and English throughout · CSV and JSON export · the three destructive acts (sign out, start over, delete account — §8's App Store requirement). **Also landed in this stretch though not in the line above**, because using the app kept finding them: dive centres had no surface at all, the map's layers became a filter with three marks, dive sites had no detail page, and RMV gained a sparkline.
+
+  **Left, and every one of these needs the owner** — that is the milestone's actual shape now, not a coincidence:
+  - **Sign in with Apple and Google** — an Apple Developer account and a Google Cloud project. Neither needs Pro; both are additional providers on the existing session, so nothing built is redone.
+  - **Sentry** — a DSN.
+  - **The branded auth email** — an SMTP provider on `ponor.app`, which is the same change that lifts the free tier's few-per-hour limit.
+  - **Store listings, TestFlight and Play internal testing.**
+
+  **Unproven rather than unbuilt, and both need a second pair of hands:**
+  - **M2's own done-when** — a site created offline reaching a second signed-in device. Every piece is tested and the seam between them is not, which is where this project's real defects have consistently been.
+  - **`delete_account`'s grant.** The function is written and the privilege was never demonstrated; §8's requirement rests on it. One throwaway account settles it.
+
+  **Owed design work, on §9's shelf below:** the drawn icon set, and the equipment row's missing carry-over marks.
+
   **On the auth email** (owner's, M2): Supabase's built-in mailer sends fixed templates and is rate-limited to a few messages an hour project-wide — fine for one diver, not for a store release, and unbranded either way. **Configuring an SMTP provider is what unlocks the template editor**, and it is the same change that removes the rate limit, so the two arrive together. `ponor.app` is the domain to send from; the provider's free tier is well above what a logbook needs. Not M2's problem — the default mail works, it is only ugly — but it is a **release** requirement rather than a nicety, because the confirmation mail is the first thing a new diver ever sees from Ponor and §0 has opinions about everything else they see.
   *Done when: strangers can install it from both stores for free.*
 
