@@ -20,7 +20,12 @@ import {
   pendingCertifications,
   tombstoneAllCertifications,
 } from '../db/certifications';
-import type { PushableTable, PushedRow } from '../db/dirty';
+import {
+  stampLocalWrite,
+  type LocalWriteStamp,
+  type PushableTable,
+  type PushedRow,
+} from '../db/dirty';
 import {
   applyPulledDives,
   clearDiveDirtyFlags,
@@ -123,8 +128,11 @@ interface SyncedTable {
    * which of the two it is — §4.1's "derive, or tie at compile time", in the form
    * `schemaParity.test.ts` already uses for the server's own cascade/set-null classification.
    * Left optional, a personal table added later would silently survive a start over.
+   *
+   * **It is handed the act's own moment** (`LocalWriteStamp`, db/dirty.ts) rather than reading
+   * a clock, so the whole sweep carries one instant — see `tombstonePersonalRows` below.
    */
-  readonly tombstoneAll: ((db: Db) => Promise<string[]>) | null;
+  readonly tombstoneAll: ((db: Db, stamp: LocalWriteStamp) => Promise<string[]>) | null;
 }
 
 /**
@@ -147,7 +155,7 @@ function synced<Pending extends object, Pulled extends object>(spec: {
   readonly clear: (db: Db, pushed: readonly PushedRow[]) => Promise<string[]>;
   readonly apply: (db: Db, rows: readonly Pulled[]) => Promise<string[]>;
   readonly countPending: (db: Db) => Promise<number>;
-  readonly tombstoneAll: ((db: Db) => Promise<string[]>) | null;
+  readonly tombstoneAll: ((db: Db, stamp: LocalWriteStamp) => Promise<string[]>) | null;
 }): SyncedTable {
   return {
     table: spec.table,
@@ -632,13 +640,33 @@ export async function countUnsyncedRows(db: Db): Promise<number> {
  * is a required field on `SyncedTable` precisely so the two cannot come apart: a table added to
  * the protocol has to say which kind it is before it compiles.
  *
+ * **One act, one moment: the stamp is taken here, once, and handed to every table.** M3j read
+ * the clock inside each sweep instead, which is one read per *table* against a docblock
+ * promising one per *act* — so the tombstones of a single tap could carry instants a
+ * millisecond apart. Nothing downstream can currently see the difference (`deleted_at` is only
+ * ever tested for null, `updated_at` is compared per row and §7.1 has the server restamp it on
+ * push anyway), which is precisely why it had to be closed here rather than left: the promise
+ * was already written down, the test already asserted it, and a defect that no reader can
+ * observe is one no reader can report.
+ *
+ * **And it is not a clock of this module's own** — the sibling case in `sync.test.ts` bars
+ * `new Date` from this file and still should. That rule is about the *protocol's* two
+ * timestamps, `updated_at` and `last_pulled_at`, both of which are the server's; this is a
+ * local write's stamp, produced by `db/dirty.ts`, which is the one owner of local write stamps
+ * and the only thing in the app that reads a clock for a row. Taking it here says which act
+ * the deletion belongs to, which is a fact only this function knows.
+ *
+ * It is also the one announcement (§7.5's debounced trigger, made by `stampLocalWrite`): one
+ * tap, one stamp, one "this device wrote something" — where three sweeps meant three.
+ *
  * Returns how many rows it tombstoned, which is what it did rather than what it intended.
  */
 export async function tombstonePersonalRows(db: Db): Promise<number> {
+  const stamp = stampLocalWrite();
   let tombstoned = 0;
   for (const synced of SYNCED_TABLES) {
     if (synced.tombstoneAll === null) continue;
-    tombstoned += (await synced.tombstoneAll(db)).length;
+    tombstoned += (await synced.tombstoneAll(db, stamp)).length;
   }
   return tombstoned;
 }

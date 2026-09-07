@@ -28,7 +28,7 @@ import {
   wipeDiveCenters,
   wipeDiveSites,
 } from './catalogue';
-import { clearDirtyFlags, onLocalWrite, type PushableTable } from './dirty';
+import { clearDirtyFlags, onLocalWrite, stampLocalWrite, type PushableTable } from './dirty';
 import * as divesModule from './dives';
 import {
   adoptDives,
@@ -260,7 +260,7 @@ const DIVES: Record<keyof typeof divesModule, WritePath> = {
     given: aDive,
     when: async (database, given) => {
       const subject = required(given);
-      await tombstoneAllDives(database);
+      await tombstoneAllDives(database, stampLocalWrite());
       return subject;
     },
   },
@@ -358,7 +358,7 @@ const PRESETS: Record<keyof typeof presetsModule, WritePath> = {
     given: aPreset,
     when: async (database, given) => {
       const subject = required(given);
-      await tombstoneAllGearPresets(database);
+      await tombstoneAllGearPresets(database, stampLocalWrite());
       return subject;
     },
   },
@@ -442,7 +442,7 @@ const CERTIFICATIONS: Record<keyof typeof certificationsModule, WritePath> = {
     given: aCard,
     when: async (database, given) => {
       const subject = required(given);
-      await tombstoneAllCertifications(database);
+      await tombstoneAllCertifications(database, stampLocalWrite());
       return subject;
     },
   },

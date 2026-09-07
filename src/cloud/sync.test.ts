@@ -783,23 +783,122 @@ describe('§7.4’s start over: which rows are the diver’s (M3j)', () => {
     expect((await db.select().from(dives).where(eqId(dives, kept.id)))[0]?.deletedAt).not.toBeNull();
   });
 
-  /** One act, one instant: every row a start over tombstones carries the same stamp, because
-   * that is what it is. */
-  it('stamps every row it takes with the one moment', async () => {
-    await createDive(db, { date: '2026-08-16' });
-    await createDive(db, { date: '2026-08-17' });
-    await createGearPreset(db, { name: 'alu 80' });
+  /**
+   * **One act, one instant: every row a start over tombstones carries the same stamp, because
+   * that is what it is** — and the version of this case that shipped with M3j could not tell.
+   *
+   * It asserted exactly this and passed against code that read the clock **once per table**,
+   * because three reads a few microseconds apart nearly always land in the same millisecond.
+   * It failed once, under full-suite load, and looked like flakiness. It was not: a start over
+   * really could write the dive, preset and certification tombstones of one tap at three
+   * different instants.
+   *
+   * **So the clock is replaced by one that never repeats itself**, and under it "all equal" is
+   * only reachable by reading it once. Not `jest.useFakeTimers`, for two separate reasons: a
+   * frozen clock makes the *broken* code pass too, which is the failure being fixed rather than
+   * a test of it; and §10 records a fake-timer test in this repo that **hung** rather than
+   * failed when mutated, because the fake clock also faked the runner's own timeout. This
+   * double touches `new Date()` and nothing else — no timers, so nothing to hang on.
+   *
+   * **Two positive controls, and the first of them is the one that matters.** A harness that
+   * silently failed to install would hand this case the real clock back and it would pass by
+   * luck again, exactly as its predecessor did — so every stamp is checked to *begin with the
+   * double's own fixed second*, which no real clock can produce and no lucky run can fake.
+   * (Mutation-checked: deleting the install line leaves the "one moment" assertion green and is
+   * caught by this one alone.) The second control is that the four rows created inside the same
+   * window carry four *different* `created_at` values, which is what proves the double moves
+   * rather than freezing — the failure mode `jest.setSystemTime` would have had.
+   *
+   * Which tables a start over sweeps is the sibling case's question, not this one's; this one
+   * needs all three personal tables present so that a wrapper stamping itself instead of using
+   * the act's stamp shows up as a second instant.
+   */
+  it('stamps every row it takes with the one moment, on a clock that never repeats', async () => {
+    const clock = neverRepeatingClock();
+    try {
+      await createDive(db, { date: '2026-08-16' });
+      await createDive(db, { date: '2026-08-17' });
+      await createGearPreset(db, { name: 'alu 80' });
+      await createCertification(db, { agency: 'PADI' });
 
-    await tombstonePersonalRows(db);
+      await tombstonePersonalRows(db);
+    } finally {
+      clock.restore();
+    }
 
-    const stamps = [
-      ...(await db.select({ deletedAt: dives.deletedAt }).from(dives)),
-      ...(await db.select({ deletedAt: gearPresets.deletedAt }).from(gearPresets)),
-    ].map((row) => row.deletedAt);
-    expect(stamps.length).toBe(3);
-    expect(new Set(stamps).size).toBe(1);
+    // Read past every repository: `listDives` and its siblings hide a tombstoned row, and the
+    // row IS the deletion here.
+    const clockColumns = (table: typeof dives | typeof gearPresets | typeof certifications) =>
+      db.select({ born: table.createdAt, at: table.updatedAt, gone: table.deletedAt }).from(table);
+    const rows = [
+      ...(await clockColumns(dives)),
+      ...(await clockColumns(gearPresets)),
+      ...(await clockColumns(certifications)),
+    ];
+
+    // Floored: four rows across the three personal tables, or the sets below are sets of
+    // nothing and agree with anything.
+    expect(rows.length).toBe(4);
+    // Control 1 — every stamp came from the double. The real clock cannot produce this second,
+    // so a harness that failed to install fails here rather than passing the case below.
+    for (const row of rows) {
+      for (const stamp of [row.born, row.at, row.gone]) {
+        expect(stamp).toEqual(expect.stringContaining(clock.second));
+      }
+    }
+    // Control 2 — and the double moves. Four separate writes, four separate instants; a frozen
+    // clock would make the assertion below true for the wrong reason.
+    expect(new Set(rows.map((row) => row.born)).size).toBe(4);
+    // The property. Both columns the tombstone stamps, across all three tables: one instant.
+    expect(new Set(rows.flatMap((row) => [row.at, row.gone])).size).toBe(1);
   });
 });
+
+/**
+ * A clock whose every reading is later than the last, installed over `new Date()`.
+ *
+ * The one thing a test of "these writes are one act" needs and cannot get from the real clock:
+ * two reads of that one usually agree, so a test built on it passes whether the code reads it
+ * once or five times. Here they never agree, so equal stamps mean one read and nothing else.
+ *
+ * Deliberately narrow. It subclasses the real `Date`, so every other use of it — a date parsed
+ * from a string, `Date.now`, anything better-sqlite3 or Drizzle does — behaves exactly as
+ * before; only the no-argument constructor, which is the app's single way of asking what time
+ * it is (`stampLocalWrite`, db/dirty.ts), is answered from the counter. Nothing else is faked,
+ * and no timer is touched.
+ *
+ * `second` is the caller's proof that the double is the thing that answered: every reading
+ * falls inside one fixed second, and it is a second **long past** rather than a plausible one
+ * so that no real clock can ever spell it. A test that only checked "the stamps agree with
+ * each other" would go green again the day this helper stopped being installed, which is the
+ * exact failure the case above exists because of.
+ */
+function neverRepeatingClock(): { readonly restore: () => void; readonly second: string } {
+  const RealDate = global.Date;
+  const start = RealDate.UTC(1994, 6, 3, 9, 0, 0);
+  let reading = 0;
+
+  class NeverRepeatingDate extends RealDate {
+    constructor(...args: readonly unknown[]) {
+      if (args.length === 0) {
+        super(start + reading);
+        reading += 1;
+      } else {
+        super(...(args as ConstructorParameters<typeof RealDate>));
+      }
+    }
+  }
+
+  global.Date = NeverRepeatingDate as unknown as DateConstructor;
+  return {
+    restore: () => {
+      global.Date = RealDate;
+    },
+    // Every reading is `start` plus a few milliseconds, so they share this prefix — and the
+    // readings would have to number a thousand before that stopped being true.
+    second: new RealDate(start).toISOString().slice(0, 'YYYY-MM-DDTHH:MM:SS.'.length - 1),
+  };
+}
 
 describe('the module has no clock of its own', () => {
   /**
@@ -808,6 +907,13 @@ describe('the module has no clock of its own', () => {
    * server stamps it) and `last_pulled_at` (§7.3, "never the phone's clock — divers change
    * time zones constantly") — so a `new Date()` in this file is either a watermark the client
    * invented or a timestamp it respelled, and both are silent.
+   *
+   * **`tombstonePersonalRows`' `stampLocalWrite()` is not an exception to that and the
+   * distinction is the whole rule.** It is not a protocol timestamp at all — it is a *local
+   * write's* stamp, of the kind every save in the app takes, and it comes from `db/dirty.ts`,
+   * which owns reading a clock for a row and is the only thing in the app that does. What this
+   * file must never do is invent or respell one of the two timestamps above, and calling the
+   * single owner is the opposite of both.
    */
   it('contains no Date, no now(), and no toISOString anywhere in it', () => {
     const source = fs.readFileSync(path.join(__dirname, 'sync.ts'), 'utf8');

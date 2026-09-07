@@ -13,6 +13,7 @@ import {
   pendingRows,
   stampLocalWrite,
   tombstoneAllRows,
+  type LocalWriteStamp,
   type PushedRow,
 } from './dirty';
 import { gearPresets } from './schema';
@@ -359,12 +360,15 @@ export async function adoptGearPresets(db: Db): Promise<void> {
 }
 
 /**
- * §7.4's **start over**, for presets — `tombstoneAllRows` (db/dirty.ts) is the rule, and
- * `tombstoneAllDives` (db/dives.ts) carries why a tombstone and not the hard delete two
- * functions down.
+ * §7.4's **start over**, for presets — `tombstoneAllRows` (db/dirty.ts) is the rule, including
+ * why the act's moment is handed in, and `tombstoneAllDives` (db/dives.ts) carries why a
+ * tombstone and not the hard delete two functions down.
  */
-export async function tombstoneAllGearPresets(db: Db): Promise<string[]> {
-  return tombstoneAllRows(db, gearPresets);
+export async function tombstoneAllGearPresets(
+  db: Db,
+  stamp: LocalWriteStamp,
+): Promise<string[]> {
+  return tombstoneAllRows(db, gearPresets, stamp);
 }
 
 /** §7.4's sign-out erase, for presets — `wipeDives` (db/dives.ts) carries the reasoning,

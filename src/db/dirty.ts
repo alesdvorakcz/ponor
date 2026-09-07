@@ -64,6 +64,14 @@ const DIRTY_KEY = 'dirty' satisfies keyof PushableTable;
  * soft delete's `deleted_at` — take it from the returned `updatedAt` rather than calling
  * `new Date()` again, so the row's stamps cannot disagree by a millisecond.
  *
+ * **It promises *a* moment, not *the* moment, and the difference is the caller's to close.**
+ * Each call reads the clock afresh, so an act that writes more than one row through more than
+ * one call gets more than one instant — which is right for two separate saves and wrong for
+ * one act. An act spanning several tables therefore takes the stamp *once, at the act*, and
+ * hands it down; §7.4's start over is the only such act in the app and does exactly that
+ * (`tombstonePersonalRows`, cloud/sync.ts). M3j's first version did not: it let each table's
+ * sweep stamp itself, and three tombstones written by one tap could land a millisecond apart.
+ *
  * **A write that changes nothing must not call this.** §6 states that rule for `updated_at`
  * ("a device that did nothing must not win against one that did") and the flag inherits it
  * whole: a no-op write that flagged the row would push an unchanged row and let the server
@@ -75,10 +83,21 @@ const DIRTY_KEY = 'dirty' satisfies keyof PushableTable;
  * because here is the one place in the app where a row becomes something the server has not
  * seen.
  */
-export function stampLocalWrite(): { readonly updatedAt: string; readonly dirty: true } {
+export function stampLocalWrite(): LocalWriteStamp {
   const stamp = { updatedAt: new Date().toISOString(), dirty: true } as const;
   announceLocalWrite();
   return stamp;
+}
+
+/**
+ * One instant and the flag that goes with it — what `stampLocalWrite` produces, named so it
+ * can be *passed*. A caller that takes one stamp and hands it to several writes is saying
+ * those writes are one act; there is no other way to say that, since a second call to
+ * `stampLocalWrite` is by definition a second act.
+ */
+export interface LocalWriteStamp {
+  readonly updatedAt: string;
+  readonly dirty: true;
 }
 
 /** Told that this device has just made a change the server has not seen. Takes no argument:
@@ -255,11 +274,17 @@ export type TombstonableTable = PushableTable & { readonly deletedAt: SQLiteColu
  *
  * Three things it does deliberately:
  *
- * · **The stamp is `stampLocalWrite`'s**, so `deleted_at`, `updated_at` and the flag are the
+ * · **The stamp is a `LocalWriteStamp`**, so `deleted_at`, `updated_at` and the flag are the
  *   one fact this file exists to keep together. A tombstone written without the flag never
  *   leaves the phone, and start over would then be a local hide that the next pull undoes.
- * · **One stamp for the whole table**, taken once: every row of one start over carries the
- *   same instant, which is what it is — one act.
+ * · **The stamp is handed in rather than taken here, and that is a required argument.** A
+ *   start over sweeps three tables and is *one act*, so its rows carry one instant — which is
+ *   only true if the clock is read once, above all three. Taking it here read it three times:
+ *   the tombstones of one tap could disagree by a millisecond, and the docblock that used to
+ *   sit on this line claimed they could not. The parameter is what makes the claim structural
+ *   — a fourth personal table cannot join the sweep without being handed the act's own moment,
+ *   because it will not compile otherwise. `tombstonePersonalRows` (cloud/sync.ts) is the act;
+ *   a lone caller passes `stampLocalWrite()` at the call site, which is the act being one row.
  * · **Only live rows** (`liveRows`, db/tombstone.ts). A row that is already tombstoned is
  *   already deleted, and re-stamping it would advance `updated_at` on a row nothing changed —
  *   which §6 forbids and §7's last-write-wins punishes, here by letting a start over beat the
@@ -267,13 +292,18 @@ export type TombstonableTable = PushableTable & { readonly deletedAt: SQLiteColu
  *
  * Returns the ids it tombstoned, so a caller can report what it did rather than assume.
  *
- * It announces the write (`stampLocalWrite`) whether or not there turned out to be a row to
- * take, which costs at most one sync cycle that finds nothing — and the alternative, a read
+ * The write is announced by whoever took the stamp, whether or not there turns out to be a row
+ * to take — which costs at most one sync cycle that finds nothing, and the alternative, a read
  * before the write to decide whether to announce, is a second answer to "are there live rows"
- * standing beside the `where` that already asks it.
+ * standing beside the `where` that already asks it. One act announcing once rather than once
+ * per table is the same correction as the stamp, and §7.5's window is ten seconds wide either
+ * way.
  */
-export async function tombstoneAllRows(db: Db, table: TombstonableTable): Promise<string[]> {
-  const stamp = stampLocalWrite();
+export async function tombstoneAllRows(
+  db: Db,
+  table: TombstonableTable,
+  stamp: LocalWriteStamp,
+): Promise<string[]> {
   const tombstoned = await db
     .update(table)
     .set({ deletedAt: stamp.updatedAt, ...stamp } as Record<string, unknown>)

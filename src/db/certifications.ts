@@ -12,6 +12,7 @@ import {
   pendingRows,
   stampLocalWrite,
   tombstoneAllRows,
+  type LocalWriteStamp,
   type PushedRow,
 } from './dirty';
 import { certifications } from './schema';
@@ -355,14 +356,17 @@ export async function adoptCertifications(db: Db): Promise<void> {
 }
 
 /**
- * §7.4's **start over**, for certifications — `tombstoneAllRows` (db/dirty.ts) is the rule, and
- * `tombstoneAllDives` (db/dives.ts) carries why a tombstone and not the hard delete two
- * functions down. A card is one person's and it syncs (§8 counts its number as personal data),
- * so a start over that left the wallet alone would leave the diver's most identifying rows
- * standing in the account they just emptied.
+ * §7.4's **start over**, for certifications — `tombstoneAllRows` (db/dirty.ts) is the rule,
+ * including why the act's moment is handed in, and `tombstoneAllDives` (db/dives.ts) carries
+ * why a tombstone and not the hard delete two functions down. A card is one person's and it
+ * syncs (§8 counts its number as personal data), so a start over that left the wallet alone
+ * would leave the diver's most identifying rows standing in the account they just emptied.
  */
-export async function tombstoneAllCertifications(db: Db): Promise<string[]> {
-  return tombstoneAllRows(db, certifications);
+export async function tombstoneAllCertifications(
+  db: Db,
+  stamp: LocalWriteStamp,
+): Promise<string[]> {
+  return tombstoneAllRows(db, certifications, stamp);
 }
 
 /**

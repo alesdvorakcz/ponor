@@ -11,6 +11,7 @@ import {
   pendingRows,
   stampLocalWrite,
   tombstoneAllRows,
+  type LocalWriteStamp,
   type PushedRow,
 } from './dirty';
 import { dives } from './schema';
@@ -718,15 +719,16 @@ export async function adoptDives(db: Db): Promise<number> {
 /**
  * §7.4's **start over**, for dives: tombstones every dive the diver still has, flagged, so the
  * deletion goes up and reaches their other devices. `tombstoneAllRows` (db/dirty.ts) is the
- * rule and carries the reasoning.
+ * rule and carries the reasoning, including why the act's moment arrives as an argument
+ * instead of being read here.
  *
  * **This is the opposite of `wipeDives` below and they are not interchangeable**, which is the
  * whole of §7.4's implementation note. A hard delete here would throw away the very rows that
  * carry the deletion, so the account would keep every dive and the diver's other phone would
  * push them all back. The hard delete is what happens *after* these have been acknowledged.
  */
-export async function tombstoneAllDives(db: Db): Promise<string[]> {
-  return tombstoneAllRows(db, dives);
+export async function tombstoneAllDives(db: Db, stamp: LocalWriteStamp): Promise<string[]> {
+  return tombstoneAllRows(db, dives, stamp);
 }
 
 /**
