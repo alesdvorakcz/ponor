@@ -1113,6 +1113,34 @@ it('keeps a pin taken before carry-over landed, which is when a diver on a boat 
   expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
 });
 
+/**
+ * **The other half of the same flag, and the half nothing reached.** `ControlledPositionField`
+ * writes `null` into both columns with `{ shouldDirty: true }` when the pin is cleared, for
+ * exactly the reason the test above covers for taking one — but an emptied field is invisible,
+ * so a re-synced blank looks like a blank until the pin walks back onto the row by itself.
+ *
+ * Edit mode and the unit preference, because those are the reseed a *stored* pin can actually
+ * meet: `useUnitSystem()` resolves a beat after the first render like every other read here, and
+ * a diver correcting a dive can easily clear the pin inside that beat. The depth assertion is
+ * what proves the reseed ran at all — without it this would pass against a screen that had
+ * stopped reseeding, which keeps a cleared pin for the wrong reason.
+ */
+it('keeps a cleared pin when the unit preference arrives afterwards', async () => {
+  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', latitude: 28.51234, longitude: 34.51234, maxDepthM: 24.6 }));
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Water & entry');
+  const clear = findClearGps(t);
+  expect(clear).toBeDefined();
+  await fireEvent.press(clear!);
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
+
+  expect(findTextInput(t, 'Max depth')?.props?.value).toBe('81');
+  expect(shownIn(t, 'GPS')).toBe('Use my location');
+});
+
 it('empties both columns to a real blank when the pin is cleared, never to a zero', async () => {
   // §1 and §10's coercion contract, on the one field where a zero is not merely wrong but
   // *plausible*: latitude 0, longitude 0 is a real place in the Gulf of Guinea, and a row
@@ -5764,6 +5792,12 @@ async function addPresetNamed(t: RenderResult, name: string) {
  * sweeping `siteId` in whether or not `setPairedId` flagged it. Deleting `shouldDirty` from
  * `setPairedId` alone therefore leaves this test green; deleting it from the fill as well
  * turns it red. The cylinder test below is unaffected and still fails on its own flag.
+ *
+ * The flag itself is pinned again, and elsewhere: *keeps the pair when a newer dive lands while
+ * the row is still being written* (the M2o catalogue block) reaches it through a diver who has
+ * already answered the three water rows, which leaves `applySiteDefaults` with nothing to write
+ * and no dirty set to re-derive. This test keeps the shape it has — it is about a PICK, and a
+ * pick fills — rather than being rewritten to dodge the masking it documents.
  */
 
 it('keeps a picked paired id when carry-over resolves again afterwards', async () => {
@@ -6771,6 +6805,138 @@ it('pairs the dive with the row it just created, on both halves', async () => {
   expect(writtenInput().centerId).toBe('new-centre');
 });
 
+/**
+ * **§6's pair has to cross a reseed whole, and the half `shouldDirty` can keep is not the half
+ * at risk.**
+ *
+ * The diver never types here: the name in the row is carry-over's, they tap it and publish it.
+ * That makes the write that puts the trimmed spelling back EQUAL to the seed's value, and a
+ * pristine write records nothing however it is flagged — while the id beside it differs from
+ * the seed and is recorded like any other. So a newer dive landing afterwards kept the id and
+ * re-synced the name, and the dive was saved as this row's id under the newer source's name:
+ * verbatim §10's autocomplete defect, reached through a race instead of a keystroke, and
+ * invisible — `siteId` has no row, so the form showed *Silfra* and meant *Kotelna*.
+ *
+ * `SeedState.pairedNames` is what closes it, by putting the paired name back into the seed the
+ * form resets to rather than by trying to defend a value from that reset. Asserted on both the
+ * field and the write, because those are two different failures: a form that showed the right
+ * name and saved the wrong one would be the worse of the two.
+ *
+ * **The mark is asserted on both sides of the reseed, and it changes.** Publishing a carried
+ * name leaves §0.6's mark standing — nothing was overwritten, and the name really is the one
+ * the last dive had. The reseed is where that stops being true: the source is a different dive
+ * now, and a mark saying *carried from dive #N* over a name dive #N never held is the caption
+ * `SeedState.fromSite` exists to prevent, one field over.
+ */
+it('keeps both halves of the pair when a newer dive lands on a published name', async () => {
+  signedIn();
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  // Carry-over's own name, in a row nobody has typed in — which is the whole setup.
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+  await focusField(t, 'Site');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+  expect(findClearCarried(t, 'Site')).toBeDefined();
+
+  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Silfra', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  // The re-sync really ran: a field nothing here touched took the new source's value.
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+  expect(findClearCarried(t, 'Site')).toBeUndefined();
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Kotelna');
+  expect(writtenInput().siteId).toBe('new-site');
+});
+
+// The other side of that mark, and the reason the pin reports which names it actually
+// replaced rather than which names it holds: a newer dive at the SAME site re-seeds the row
+// with the very spelling the pin would put there, so nothing was overruled and §0.6's mark goes
+// on telling the truth. A pin that stripped the mark whenever it was set would take a caption
+// off a value that really did come from the last dive — the mirror of the mistake
+// `takes the carried mark off a row the site replaced…` guards for the site defaults.
+it('leaves the mark standing when the newer dive is at the same site', async () => {
+  signedIn();
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
+
+  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Kotelna', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+  expect(findClearCarried(t, 'Site')).toBeDefined();
+});
+
+/**
+ * **The same pair, with the reseed landing in the middle of the write** — the race the
+ * spelling's own `{ shouldDirty: true }` used to exist for, and the reason it no longer does.
+ *
+ * `createDiveSite` is awaited, so a newer dive can arrive between the press and the id coming
+ * back: the reseed re-syncs the untyped name to the new source's, and the write that follows
+ * puts the published spelling back over it. That write is no longer the thing that has to
+ * survive the NEXT reseed — the pin it sets in the same breath is — so the flag it used to
+ * carry was one no mutation could kill, and §10's remedy for a guard nothing can falsify is to
+ * remove it rather than to defend it.
+ *
+ * Three sources, because two would not separate the mechanisms: the middle one is what makes
+ * the write land on a re-synced field, and the third is the reseed the pin has to survive.
+ *
+ * **The three water chips are not scenery, and this test is worthless without them.** They put
+ * those rows in `SeedState.typed`, which is what makes `applySiteDefaults` write nothing on
+ * this tap — and a fill that writes a value EQUAL to the seed's makes react-hook-form re-derive
+ * the whole dirty set from the values/seed diff, sweeping in every other field that differs,
+ * this name included. With the fill left free to run, deleting the pin outright leaves this
+ * test green: it would be passing on a neighbouring feature's side effect, which is the exact
+ * trap the paired-id test above documents falling into.
+ */
+it('keeps the pair when a newer dive lands while the row is still being written', async () => {
+  signedIn();
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  let finish: (row: { id: string }) => void = () => {};
+  mockCreateSite.mockReturnValue(new Promise<{ id: string }>((resolve) => { finish = resolve; }));
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Entry', 0);
+  await pressChip(t, 'Salinity', 0);
+  await pressChip(t, 'Water body', 0);
+
+  await focusField(t, 'Site');
+  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+
+  // Mid-flight: the name the diver published is re-synced away under them, which is exactly
+  // what makes the write below land on a field the seed has already re-decided.
+  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Blue Hole', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+
+  await act(async () => {
+    finish({ id: 'new-site' });
+  });
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+
+  stubDives({ dives: [dive({ date: '2026-08-22', siteName: 'Silfra', buddy: 'Jana' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Jana');
+
+  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Kotelna');
+  expect(writtenInput().siteId).toBe('new-site');
+});
+
 // Success is silent and the offer simply stops being offered — `PresetCapture` on this same
 // screen behaves identically (the naming row closes, and *Save as preset* disappears once the
 // cylinders match a preset), and §0.6 says accepting costs nothing. What would be wrong is a
@@ -7442,6 +7608,49 @@ it('does not put a value back into a row the diver cleared', async () => {
   expect(clearedRowLabels(t)).toEqual(['Water body']);
 });
 
+/**
+ * **The site's answers have to outlive the next reseed, and nothing here reached that.**
+ *
+ * `applySiteDefaults` writes its three rows with `{ shouldDirty: true }` for the same reason
+ * `setPairedId` and `applyPreset` do — `resetOptions.keepDirtyValues` keeps only what
+ * react-hook-form has RECORDED — but every test above this one stops at the fill. Delete that
+ * flag and they all stay green while a newer dive landing a second later re-syncs all three
+ * rows back to carry-over's answers, which is §2.1's rule undone by a race rather than by a
+ * gesture: the diver is looking at the site they picked and the water of the site they left.
+ *
+ * The second source repeats the first's three answers, so what is being watched is the RE-SYNC
+ * and not a second opinion — and it differs in `buddy`, which is what makes the reset actually
+ * run (react-hook-form skips a `values` reset that is deep-equal to the last) and what proves
+ * here that it did.
+ */
+it('keeps the site’s answers when carry-over resolves again afterwards', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+  await pickSite(t, 'Blue Hole');
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+
+  stubDives({
+    dives: [
+      dive({
+        date: '2026-08-21',
+        siteName: 'Silfra', siteId: 'site-silfra',
+        entry: 'shore', salinity: 'fresh', waterBody: 'lake',
+        buddy: 'Ondra',
+      }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+    ],
+  });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+});
+
 // --- What §0.6's return mark says, and where it stops being true ---
 
 /**
@@ -7898,3 +8107,4 @@ async function openCylinderIn(t: RenderResult, label: string) {
   if (row.props?.accessibilityState?.expanded === true) return;
   await fireEvent.press(row);
 }
+

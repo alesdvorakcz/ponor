@@ -465,6 +465,70 @@ interface SeedState {
    * record of the water it was dived in.
    */
   fromSite: ReadonlySet<string>;
+  /**
+   * **The name each standing pair was made with** — DESIGN.md §6's `site_name` beside the
+   * `site_id` the diver's own gesture set — and the fourth thing that **survives a reseed**.
+   *
+   * This one protects a VALUE, which none of the three above does, and it is the only thing
+   * here that has to: `resetOptions.keepDirtyValues` protects everything else the diver moved,
+   * and it cannot protect this. It keeps a field react-hook-form has RECORDED as dirty, and a
+   * write whose value equals the current seed's records nothing at all (`setPairedId`, for the
+   * mechanism read out of 7.87). So the one write that can never be recorded is the one that
+   * spells a name the seed already holds — publishing a carried site name the diver never
+   * typed, or answering §2.3's *Did you mean …?* with a row spelled exactly as the field
+   * already reads, which is the same write through the other door.
+   *
+   * The id half of the pair IS recorded (`setPairedId` flags it), so without this the reseed
+   * kept the id and re-synced the name, and the dive was saved holding one site's id under
+   * another site's name — §10's own autocomplete defect, arriving through a race instead of
+   * through a keystroke. §6's snapshot is a pair or it is nothing, so the two halves have to
+   * cross a reseed together or not at all.
+   *
+   * **Substituted into the seed rather than written over the form**, which is what makes it a
+   * member of this state and not an effect: `seedStateFor` puts the pinned name into the
+   * values react-hook-form resets to, so the field is simply seeded with it and no repair has
+   * to race the reset that caused the problem. §0.6's mark goes with it — but only where the
+   * substitution actually replaced something, since a seed that says the same name is still a
+   * seed the mark tells the truth about.
+   *
+   * **Revisable, like `fromSite` and unlike `typed`**: every gesture that unsets an id
+   * (typing over the name, clearing it, picking again) rewrites this in the same breath, so it
+   * can only ever hold the name of a pair the form is actually holding. `buddy` and `guide`
+   * never appear — they have no id column to pair with (`pairedIdField`).
+   */
+  pairedNames: ReadonlyMap<SuggestedField, string>;
+}
+
+/**
+ * **§6's snapshot names, put back into the seed the form is about to be reset to** — the
+ * `SeedState.pairedNames` half of a reseed, and the only place a seed is overruled by
+ * something the diver did rather than by something the seed said.
+ *
+ * It answers two questions at once, which is why it hands back both halves: what the field is
+ * seeded WITH, and whether §0.6's mark still tells the truth about it. A seed that already
+ * spells the pinned name has not been overruled at all — a diver whose last two dives are at
+ * the same site — and its mark stays, because the value really did come from that dive. A seed
+ * that spelled a different name has been, and the mark would then be a caption naming a dive
+ * this value has never been near, which is `SeedState.fromSite`'s own complaint one field up.
+ *
+ * `values` is returned unchanged when nothing is pinned, so the ordinary reseed allocates
+ * nothing and `useForm`'s `values` reference is exactly what `seedStateFor` built.
+ */
+function pinPairedNames(
+  values: DiveFormInput,
+  pairedNames: ReadonlyMap<SuggestedField, string>,
+): { values: DiveFormInput; replaced: ReadonlySet<string> } {
+  const replaced = new Set<string>();
+  if (pairedNames.size === 0) return { values, replaced };
+  // The same keyed-write `Record` `applyPreset` uses, and for the same reason: these four
+  // fields are named by a value rather than written literally, and `DiveFormInput` has no
+  // index signature to write them through.
+  const pinned = { ...values } as Record<string, unknown>;
+  for (const [field, name] of pairedNames) {
+    if (toInputString(pinned[field]) !== name) replaced.add(field);
+    pinned[field] = name;
+  }
+  return { values: pinned as DiveFormInput, replaced };
 }
 
 /**
@@ -491,6 +555,12 @@ interface SeedState {
  * `SeedState.cleared` for why the third state has to outlive a reseed too, and
  * `SeedState.fromSite` for the row the catalogue is answering for. A reseed re-derives
  * everything the SEED decides and nothing the DIVER or the SITE decided.
+ *
+ * `pairedNames` is the one of the four that changes a VALUE rather than a mark, and it is the
+ * same sentence said about §6's snapshot pair: the name a diver's own gesture paired to an id
+ * is not the seed's to re-decide either. `pinPairedNames` below owns what it does; see
+ * `SeedState.pairedNames` for why it cannot be a `shouldDirty` flag like everything else the
+ * diver moves.
  */
 function seedStateFor(
   mode: 'create' | 'edit',
@@ -500,6 +570,7 @@ function seedStateFor(
   typed: ReadonlySet<string> = new Set<string>(),
   cleared: ReadonlySet<string> = new Set<string>(),
   fromSite: ReadonlySet<string> = new Set<string>(),
+  pairedNames: ReadonlyMap<SuggestedField, string> = new Map<SuggestedField, string>(),
 ): SeedState {
   const sourceId = seed?.id ?? null;
   // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
@@ -523,7 +594,15 @@ function seedStateFor(
       // real dive for the renders before `useDives()` answered. That case no longer reaches
       // this branch: the screen holds a frame instead until `resolved` (M1f, see the render
       // body), so a blank form is now only ever the answer to a dive that is genuinely gone.
-      values: seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
+      // Pinned here too, and it is not a formality: edit mode reseeds whenever the dive object
+      // or the unit preference changes underneath it, so a diver who corrects a site name on a
+      // stored dive and pairs it to a catalogue row can have that pair split by the same race
+      // create mode can. Nothing else in this branch reads `pairedNames` — edit mode marks
+      // nothing, so there is no mark for a substitution to have to drop.
+      values: pinPairedNames(
+        seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
+        pairedNames,
+      ).values,
       paths: new Set<string>(),
       // **Both diver-side sets pass straight through here, and `cleared` is empty in edit mode
       // by consequence rather than by decree.** It could only gain a member from a clear
@@ -535,16 +614,22 @@ function seedStateFor(
       cleared,
       typed,
       fromSite,
+      pairedNames,
     };
   }
-  const values = seedValues(initialFormValues(seed));
-  const marked = seed === null ? new Set<string>() : computeCarriedPaths(values);
+  const seeded = seedValues(initialFormValues(seed));
+  const marked = seed === null ? new Set<string>() : computeCarriedPaths(seeded);
   for (const field of typed) marked.delete(field);
   // The site's three columns outrank carry-over's (§2.1), so a row the site is answering for
   // is not a row that came from the diver's last dive — whatever the seed values still say
   // about it. Second, and after `typed`, because the two can never name the same field.
   for (const field of fromSite) marked.delete(field);
-  return { sourceId, units, values, paths: marked, cleared, typed, fromSite };
+  // §6's pair outranks carry-over's name for the same reason, and the marks are read off the
+  // seed BEFORE the substitution so this can be the narrow claim it should be: only a name the
+  // pin actually replaced stops being a name the last dive gave.
+  const { values, replaced } = pinPairedNames(seeded, pairedNames);
+  for (const field of replaced) marked.delete(field);
+  return { sourceId, units, values, paths: marked, cleared, typed, fromSite, pairedNames };
 }
 
 /**
@@ -1138,8 +1223,16 @@ interface ControlledTextFieldProps {
    * one rule: the id belongs to whatever gesture last set the name. A no-op for `buddy` and
    * `guide`, which have no id column (`pairedIdField` returns `null`), so this row does not
    * have to know which of the four it is.
+   *
+   * **`name` is the whole pair, not a convenience.** Every gesture here hands over the
+   * spelling it is leaving in the field beside the id it is setting, so the screen holds §6's
+   * two halves as one fact rather than reading one of them back out of the form a moment
+   * later — which, for the two gestures that write the name and the id in different orders,
+   * would read back a name belonging to the gesture before. `SeedState.pairedNames` is what
+   * it feeds and what it is for. On the two clearing paths the id is `null` and this is simply
+   * the text the field now holds; nothing is pinned to a pair that no longer exists.
    */
-  onPairedId?: (field: SuggestedField, id: string | null) => void;
+  onPairedId?: (field: SuggestedField, id: string | null, name: string) => void;
   /**
    * §2.3's *add this to the catalogue* offer, asked of this row's own field and its own live
    * text — `undefined` back when there is nothing to offer, which is most of the time and for
@@ -1343,7 +1436,7 @@ function ControlledTextField({
               // being reconciled later.
               onChange={(newText) => {
                 carryOver?.onDrop(name);
-                if (suggested !== null) onPairedId?.(suggested, null);
+                if (suggested !== null) onPairedId?.(suggested, null, newText);
                 // A refusal — and, since M2p, a question — described the name that was in the
                 // box, and either one about a name the diver has already changed is a stale
                 // sentence: `PresetCapture` clears its own note on the same keystroke and for
@@ -1372,7 +1465,7 @@ function ControlledTextField({
               // clears it.
               onClear={(emptied) => {
                 carryOver?.onClear(name);
-                if (suggested !== null) onPairedId?.(suggested, null);
+                if (suggested !== null) onPairedId?.(suggested, null, emptied);
                 // An emptied field names nothing, so a standing question about what it used to
                 // name goes with it — the same rule the keystroke above follows.
                 forgetOffer();
@@ -1394,7 +1487,7 @@ function ControlledTextField({
                   ? undefined
                   : (suggestion) => {
                       carryOver?.onDrop(name);
-                      onPairedId?.(suggested, suggestion.id);
+                      onPairedId?.(suggested, suggestion.id, suggestion.value);
                       forgetOffer();
                       field.onChange(suggestion.value);
                     }
@@ -2710,16 +2803,23 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   //
   // `carried.typed` and `carried.cleared` go back in on every reseed: the seed decides the
   // VALUES and the marks, and the diver's own history of having touched or emptied a field
-  // outlives any of them — see `SeedState.typed` and `SeedState.cleared`.
+  // outlives any of them — see `SeedState.typed` and `SeedState.cleared`. `carried.fromSite`
+  // and `carried.pairedNames` go back in for the same reason, one for the site and one for
+  // §6's pair.
   //
   // **The gate still compares two scalars and must go on doing so** (§10): `sourceId` is a
   // string or null and `units` is a string, so both settle by value on the render after they
-  // change. Neither of the two sets is in it, and adding one would be the object-identity
+  // change. None of the four collections is in it, and adding one would be the object-identity
   // comparison this gate was rewritten to stop being — a fresh `Set` every render, never equal
   // to the last, and "Too many re-renders." on mount.
   const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, units, initialStatus));
   if (carried.sourceId !== sourceId || carried.units !== units) {
-    setCarried(seedStateFor(mode, seedDive, units, initialStatus, carried.typed, carried.cleared, carried.fromSite));
+    setCarried(
+      seedStateFor(
+        mode, seedDive, units, initialStatus,
+        carried.typed, carried.cleared, carried.fromSite, carried.pairedNames,
+      ),
+    );
   }
 
   /**
@@ -3000,14 +3100,26 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // no `Controller` of its own to record one — a flagged `setValue` is the only thing that
   // ever can.
   //
-  // **Dropping the flag leaves the suite green, and that is a coincidence rather than
-  // redundancy.** `applySiteDefaults` runs on this same tap, and a flagged write whose value
-  // happens to EQUAL the seed's makes react-hook-form re-derive the whole dirty set from the
+  // **One test in this suite used to answer for the flag, and it was answering for the wrong
+  // thing.** `applySiteDefaults` runs on this same tap, and a flagged write whose value happens
+  // to EQUAL the seed's makes react-hook-form re-derive the whole dirty set from the
   // values/seed diff instead of recording the one field — which sweeps this id in behind it.
-  // A site that answers for none of its three columns writes exactly such values, so today
-  // the fill rescues the id. Drop `shouldDirty` on the fill as well and *keeps a picked
-  // paired id when carry-over resolves again afterwards* fails, which is the flag this one
-  // is really standing on.
+  // A site that answers for none of its three columns writes exactly such values, so *keeps a
+  // picked paired id when carry-over resolves again afterwards* is rescued by the fill and
+  // stays green with this flag deleted; it takes the fill's flag as well to turn it red. What
+  // does pin this one alone is *keeps the pair when a newer dive lands while the row is still
+  // being written*, whose diver has answered the three water rows — so the fill writes nothing
+  // on that tap, nothing re-derives, and this flag is the only thing holding the id.
+  //
+  // **The name half cannot be kept by a flag at all, and that is what `name` is here for.**
+  // A gesture that spells the name the seed already holds records nothing — the write is
+  // pristine, and the branch above is exactly what makes it so — while the id beside it is
+  // recorded like any other differing value. A reseed then kept the id and re-synced the name,
+  // and the dive was saved holding one site's id under another site's name (§10). So the name
+  // this gesture pairs the id with goes into `SeedState.pairedNames`, which puts it back into
+  // the seed instead of trying to defend it from one; `pinPairedNames` owns the substitution.
+  // Clearing an id clears the pin in the same call, because a pair is what is being recorded
+  // and half of one is nothing.
   //
   // `dropCarried` goes with it so the id leaves the carried set with its name. Nothing draws
   // a chip for an id today (`computeCarriedPaths` marks it, nothing reads that mark), but a
@@ -3125,14 +3237,17 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // the gesture's, not the seed's, so `resetOptions.keepDirtyValues` must keep it when
       // `useDives()` or `useUnitSystem()` resolves underneath it.
       //
-      // **The mutation that drops it still stays green, and that is a hole in the suite
-      // rather than a flag doing nothing** — the correction to what this comment used to say.
-      // Nothing here reseeds after a site fill; do it by hand (pick a site whose salinity
-      // differs from the carried one, then let a newer dive land) and without the flag all
-      // three rows are re-synced back to carry-over's answers. `keepDirtyValues` does NOT
-      // preserve the union of the fields it was told are dirty and the fields whose value
-      // merely differs from the defaults: 7.87 keeps what is recorded in `dirtyFields` and
-      // nothing else. `setPairedId` above names the one side effect that reading was seeing.
+      // **The mutation that drops it left the suite green until this milestone, and that was a
+      // hole in the suite rather than a flag doing nothing.** *keeps the site's answers when
+      // carry-over resolves again afterwards* is the reseed nothing here used to perform: pick
+      // a site whose entry and salinity differ from the carried ones, let a newer dive land,
+      // and without the flag all three rows go back to carry-over's answers while the diver is
+      // looking at the site they picked. `keepDirtyValues` does NOT preserve the union of the
+      // fields it was told are dirty and the fields whose value merely differs from the
+      // defaults: 7.87 keeps what is recorded in `dirtyFields` and nothing else. `setPairedId`
+      // above names the one side effect that reading was seeing — and this loop is where that
+      // side effect comes from, since a site with nothing to say writes carry-over's own values
+      // straight back.
       for (const fill of fills) setValue(fill.field, fill.value, { shouldDirty: true });
       setCarried((prev) => {
         const paths = new Set(prev.paths);
@@ -3158,13 +3273,32 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   );
 
   const setPairedId = useCallback(
-    (field: SuggestedField, id: string | null) => {
+    (field: SuggestedField, id: string | null, name: string) => {
       const idField = pairedIdField(field);
       // `buddy` and `guide` have no id column at all (§2.3: "they stay private text, not
       // user accounts"), so there is nothing to pair and nothing to clear.
       if (idField === null) return;
       setValue(idField, id, { shouldDirty: true });
       dropCarried(idField);
+      setCarried((prev) => {
+        const pairedNames = new Map(prev.pairedNames);
+        // The name is the caller's rather than `getValues(field)`, because the two gestures
+        // that set a pair write the name at different moments — a pick sets the id first and
+        // lets the `Controller` deliver the spelling after, an add writes the spelling first
+        // and pairs it after — so reading the form here would capture the previous name for
+        // one of them. It is also the trimmed spelling in the `add` case, which is the string
+        // §6's snapshot actually stores.
+        //
+        // **The unpairing half is honesty rather than a guard, and no test can falsify it.**
+        // Every gesture that reaches here with a `null` id is the diver typing over the name
+        // or emptying it, and both go through the `Controller` — which records the field, so
+        // `keepDirtyValues` keeps what they left there and a stale pin could never win a
+        // reseed anyway. It is deleted because a map that still claimed a pair the form no
+        // longer holds would be wrong in the quiet way `dropCarried` above is deleted for.
+        if (id === null) pairedNames.delete(field);
+        else pairedNames.set(field, name);
+        return { ...prev, pairedNames };
+      });
       // **Only the site half**, and the asymmetry is `centerFactsFrom`'s own, read backwards:
       // a dive knows a great deal about the site it happened at and nothing about the shop on
       // shore, so §2.3 gives a new centre its name alone and a centre has nothing to give back.
@@ -3266,28 +3400,31 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           // points at are the same string — the same thing picking a suggestion does when it
           // writes the catalogue's own spelling.
           //
-          // **`shouldDirty` earns its place on one path, and it is not the common one.** A
-          // name the diver typed is already recorded dirty by its own `Controller`, so the
-          // flag changes nothing there. What it covers is this write landing after an await:
-          // a carried name the diver never typed, published while `useDives()` hands the form
-          // a newer source, is written back over a field that reseed has already re-synced —
-          // and only a recorded field survives the NEXT one (`setPairedId` above, for what
-          // `keepDirtyValues` actually keeps). Without it, and without the fill's flag that
-          // masks it today, the dive ends up holding this row's id under the newer source's
-          // site name, which is §10's own autocomplete defect.
+          // **This write carried `{ shouldDirty: true }` until the pin below existed, and it
+          // does not any more.** The flag was for one path — this write landing after an
+          // await, onto a field a reseed has already re-synced — where a recorded value is
+          // what survives the NEXT reseed (`setPairedId` above, for what `keepDirtyValues`
+          // actually keeps). It could never cover the path beside it: a spelling equal to the
+          // one the seed already holds records nothing at all, so publishing a *carried* name
+          // left the id behind under the next source's name, which is §10's own autocomplete
+          // defect arriving through a race.
           //
-          // It cannot help when the spelling written is the one the seed already holds:
-          // nothing is recorded then, and a diver who publishes a carried name and is handed
-          // a new source afterwards keeps the id under that source's name. Stated rather
-          // than argued away — the fix is not a flag.
+          // `setPairedId` below now pins the name into the seed (`SeedState.pairedNames`), and
+          // it pins it on both paths, in the same call that sets the id — so the flag guarded
+          // nothing the pin does not already guard, and no mutation could tell it from a
+          // no-op. §10's remedy for a guard nothing can falsify is to remove it rather than to
+          // defend it. *keeps the pair when a newer dive lands while the row is still being
+          // written* is the mid-flight path, tested against the pin instead.
           //
           // The carried mark is deliberately NOT dropped here. §0.6 drops it on
           // *overwriting*, and nothing was overwritten: a carried site name that the diver has
-          // now published is still the name their last dive had. Clearing the row afterwards
-          // still unsets the id, because `onClear` routes through `onPairedId` like any other
-          // gesture that empties a name.
-          setValue(field, name, { shouldDirty: true });
-          setPairedId(field, id);
+          // now published is still the name their last dive had. The pin does not change that
+          // — it drops the mark only on a reseed that would have replaced the name, which is
+          // the moment the mark stops being true. Clearing the row afterwards still unsets the
+          // id, because `onClear` routes through `onPairedId` like any other gesture that
+          // empties a name.
+          setValue(field, name);
+          setPairedId(field, id, name);
           return null;
         } catch {
           // §1: the dive is the thing being logged and the row is a by-product. Nothing here
