@@ -5756,6 +5756,14 @@ async function addPresetNamed(t: RenderResult, name: string) {
  * frame or more later), except that those all exercise TYPING, which a `Controller` marks
  * dirty on its own — so the two gestures that bypass the `Controller` are exactly the two the
  * suite never reached.
+ *
+ * **Since M2s the first of the two no longer pins its flag on its own**, and saying so here is
+ * cheaper than the next reader discovering it: picking a site also runs `applySiteDefaults`,
+ * whose fill can write a value equal to the seed's, and such a write makes react-hook-form
+ * re-derive the whole dirty set from the values/seed diff rather than record one field —
+ * sweeping `siteId` in whether or not `setPairedId` flagged it. Deleting `shouldDirty` from
+ * `setPairedId` alone therefore leaves this test green; deleting it from the fill as well
+ * turns it red. The cylinder test below is unaffected and still fails on its own flag.
  */
 
 it('keeps a picked paired id when carry-over resolves again afterwards', async () => {

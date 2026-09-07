@@ -2993,9 +2993,21 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // **`siteId` and `centerId` gain no visible row from this.** They are not fields a diver
   // types — §6 stores them as the app's half of a snapshot — so they are written straight
   // into the form through `setValue`, exactly as `blankFormValues` already seeds them.
-  // `shouldDirty` is what keeps a picked id through a reseed: `useDives()` can resolve after
-  // this gesture, and `resetOptions.keepDirtyValues` only protects a field react-hook-form
-  // knows the diver moved.
+  // `shouldDirty` is what keeps a picked id through a reseed, and the mechanism is narrower
+  // than "the value differs from the seed": `resetOptions.keepDirtyValues` re-syncs every
+  // field react-hook-form has not RECORDED in `dirtyFields`, so a value that merely differs
+  // is overwritten like any other. `useDives()` can resolve after this gesture, and an id has
+  // no `Controller` of its own to record one — a flagged `setValue` is the only thing that
+  // ever can.
+  //
+  // **Dropping the flag leaves the suite green, and that is a coincidence rather than
+  // redundancy.** `applySiteDefaults` runs on this same tap, and a flagged write whose value
+  // happens to EQUAL the seed's makes react-hook-form re-derive the whole dirty set from the
+  // values/seed diff instead of recording the one field — which sweeps this id in behind it.
+  // A site that answers for none of its three columns writes exactly such values, so today
+  // the fill rescues the id. Drop `shouldDirty` on the fill as well and *keeps a picked
+  // paired id when carry-over resolves again afterwards* fails, which is the flag this one
+  // is really standing on.
   //
   // `dropCarried` goes with it so the id leaves the carried set with its name. Nothing draws
   // a chip for an id today (`computeCarriedPaths` marks it, nothing reads that mark), but a
@@ -3113,12 +3125,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // the gesture's, not the seed's, so `resetOptions.keepDirtyValues` must keep it when
       // `useDives()` or `useUnitSystem()` resolves underneath it.
       //
-      // **It is belt and braces on this path and the mutation that drops it stays green**,
-      // recorded so nobody reads it as load-bearing and then relies on it being so elsewhere:
-      // react-hook-form's `keepDirtyValues` preserves the union of the fields it was TOLD are
-      // dirty and the fields whose value simply differs from the current defaults — and a fill
-      // only ever writes something that differs. The option is the documented way to say it and
-      // the undocumented union is not, which is why it stays.
+      // **The mutation that drops it still stays green, and that is a hole in the suite
+      // rather than a flag doing nothing** — the correction to what this comment used to say.
+      // Nothing here reseeds after a site fill; do it by hand (pick a site whose salinity
+      // differs from the carried one, then let a newer dive land) and without the flag all
+      // three rows are re-synced back to carry-over's answers. `keepDirtyValues` does NOT
+      // preserve the union of the fields it was told are dirty and the fields whose value
+      // merely differs from the defaults: 7.87 keeps what is recorded in `dirtyFields` and
+      // nothing else. `setPairedId` above names the one side effect that reading was seeing.
       for (const fill of fills) setValue(fill.field, fill.value, { shouldDirty: true });
       setCarried((prev) => {
         const paths = new Set(prev.paths);
@@ -3250,8 +3264,22 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           const id = await kind.create(name, getValues());
           // The trimmed spelling goes back into the field, so §6's snapshot and the row it
           // points at are the same string — the same thing picking a suggestion does when it
-          // writes the catalogue's own spelling. `shouldDirty` keeps it through a reseed
-          // (`resetOptions.keepDirtyValues`), exactly as `setPairedId` needs it to.
+          // writes the catalogue's own spelling.
+          //
+          // **`shouldDirty` earns its place on one path, and it is not the common one.** A
+          // name the diver typed is already recorded dirty by its own `Controller`, so the
+          // flag changes nothing there. What it covers is this write landing after an await:
+          // a carried name the diver never typed, published while `useDives()` hands the form
+          // a newer source, is written back over a field that reseed has already re-synced —
+          // and only a recorded field survives the NEXT one (`setPairedId` above, for what
+          // `keepDirtyValues` actually keeps). Without it, and without the fill's flag that
+          // masks it today, the dive ends up holding this row's id under the newer source's
+          // site name, which is §10's own autocomplete defect.
+          //
+          // It cannot help when the spelling written is the one the seed already holds:
+          // nothing is recorded then, and a diver who publishes a carried name and is handed
+          // a new source afterwards keeps the id under that source's name. Stated rather
+          // than argued away — the fix is not a flag.
           //
           // The carried mark is deliberately NOT dropped here. §0.6 drops it on
           // *overwriting*, and nothing was overwritten: a carried site name that the diver has
@@ -3302,10 +3330,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * would lose gas the diver deliberately named. The dive-form UI catches up when that
    * control lands; nothing here has to change for it.
    *
-   * `shouldDirty` keeps the applied cylinders through a reseed, exactly as `setPairedId`
-   * above needs it to: `useDives()`/`useUnitSystem()` can resolve after this gesture, and
-   * `resetOptions.keepDirtyValues` only protects a field react-hook-form knows the diver
-   * moved.
+   * `shouldDirty` keeps the applied cylinders through a reseed, and unlike the two site
+   * writes above it needs nothing else: `useDives()`/`useUnitSystem()` can resolve
+   * after this tap, `tanks` is written whole through `setValue` rather than through the
+   * cylinder rows' own `Controller`s, and `resetOptions.keepDirtyValues` re-syncs every field
+   * react-hook-form has not recorded as dirty — a value that merely differs from the seed is
+   * not kept (`setPairedId` above). Drop the flag and *keeps applied preset cylinders when
+   * carry-over resolves again afterwards* goes red immediately, with no second write to mask
+   * it.
    */
   const applyPreset = useCallback(
     (preset: GearPreset) => {
