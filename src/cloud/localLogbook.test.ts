@@ -30,6 +30,7 @@ import {
 } from '../db/settings';
 import { createTestDb, type TestDb } from '../db/testDb';
 import { fakeSupabaseClient, FakeSyncServer } from '../testing/fakeSyncServer';
+import { deleteAccount, deleteAccountFailed } from './auth';
 import { createLocalLogbook, localLogbook, type LocalLogbook } from './localLogbook';
 import { countUnsyncedRows, pullChanges, pushPendingRows } from './sync';
 
@@ -374,6 +375,309 @@ describe('wipe — §7.4’s erase, and the rule that gates it', () => {
     expect(settled).toBe(false);
     expect(server.calls).toEqual([]);
     expect((await listDives(db)).length).toBe(1);
+  });
+});
+
+describe('startOver — §7.4’s "wipes this device AND the account’s data"', () => {
+  /**
+   * **The assertion this whole describe exists for, and the one an empty logbook could never
+   * make**: the account's copy of the dive comes back carrying a `deleted_at`.
+   *
+   * §7.4 decides the mechanism and states the failure it is avoiding — "a hard delete on the
+   * server leaves a second device holding rows it believes are unsynced, and its next push puts
+   * the whole logbook back. A tombstone is the only form of deletion §7 can carry to a device
+   * that was not there." So what has to be true is not "the phone is empty", which a local
+   * delete achieves on its own; it is that **the deletion reached the server as a row**.
+   *
+   * Read off the fake server rather than off the local database, deliberately. Everything local
+   * is erased by the last step, so a local assertion here can only ever say the erase ran.
+   */
+  it('sends a tombstone for every personal row before it erases anything', async () => {
+    await aSyncedLogbook();
+
+    expect(await wired(seam()).startOver()).toEqual({ done: true });
+
+    for (const table of ['dives', 'gear_presets', 'certifications'] as const) {
+      const rows = server.rows(table);
+      expect(`${table}: ${String(rows.length)}`).toBe(`${table}: 1`);
+      expect(`${table}: ${String(rows[0]?.deleted_at)}`).not.toBe(`${table}: null`);
+    }
+    // …and the device is empty afterwards, tombstones included: the hard delete is the last
+    // step and it runs over the rows the push has just had acknowledged.
+    for (const table of SYNCED) {
+      expect(`${getTableName(table)}: ${String((await db.select().from(table)).length)}`).toBe(
+        `${getTableName(table)}: 0`,
+      );
+    }
+  });
+
+  /**
+   * **§7.4 and §5: "community rows are not included."** A site or centre the diver contributed
+   * belongs to everyone who has dived it, and other divers' dives point at it — `delete_account`
+   * severs authorship for the same reason, and start over does the same by leaving the row alone.
+   *
+   * Asserted on the server's copy, which is the only place the distinction survives: the local
+   * catalogue is erased either way, so a device-side check would pass over a start over that had
+   * tombstoned the whole community catalogue and pushed it.
+   */
+  it('leaves the sites and centres this diver contributed standing on the server', async () => {
+    await aSyncedLogbook();
+
+    expect(await wired(seam()).startOver()).toEqual({ done: true });
+
+    for (const table of ['dive_sites', 'dive_centers'] as const) {
+      const rows = server.rows(table);
+      expect(`${table}: ${String(rows.length)}`).toBe(`${table}: 1`);
+      expect(`${table}: ${String(rows[0]?.deleted_at)}`).toBe(`${table}: null`);
+    }
+  });
+
+  /**
+   * **The wipe cannot come first, stated as the failure it produces.** A start over that erased
+   * locally before the tombstones had gone up would destroy the very rows that carry the
+   * deletion — so the account would keep a full logbook and the next pull would hand it back.
+   *
+   * The test is what the *account* holds afterwards, because that is where the two orders
+   * differ: both leave this device empty.
+   */
+  it('leaves nothing live in the account, which is what an erase-first order would have', async () => {
+    const { dive } = await aSyncedLogbook();
+    // A second device's view of the same account: everything the server would deliver to a
+    // phone that was not here when this happened.
+    expect(server.row('dives', dive.id)?.deleted_at).toBeNull();
+
+    await wired(seam()).startOver();
+
+    expect(server.row('dives', dive.id)?.deleted_at).not.toBeNull();
+  });
+
+  /**
+   * **The gate, in the case it exists for**, and it is the same gate sign-out takes: a diver
+   * whose tombstones cannot be sent. What is refused is the *hard delete* — and what stands is
+   * the deletion itself, written, flagged, and hidden from every read.
+   *
+   * That is not a half-finished erase, it is §7.2's own rule ("a tombstone is applied, not
+   * deleted — deleting it would throw away the fact of the deletion") applied to the one case
+   * where the fact has nowhere to go yet.
+   */
+  it('refuses the erase when the tombstones could not be sent, and keeps them', async () => {
+    const { dive } = await aSyncedLogbook();
+    server.refusal = { message: 'fetch failed' };
+
+    expect(await wired(seam()).startOver()).toEqual({ done: false, pending: 3 });
+
+    // The rows are still here — so the deletion can still be delivered.
+    expect((await db.select().from(dives)).length).toBe(1);
+    // …tombstoned, so the diver sees what they asked for…
+    expect(await listDives(db)).toEqual([]);
+    expect(await listGearPresets(db)).toEqual([]);
+    expect(await listCertifications(db)).toEqual([]);
+    // …and flagged, so the next cycle finishes the job.
+    expect(await flags(dives)).toEqual([true]);
+    expect(await countUnsyncedRows(db)).toBe(3);
+    // The account still holds the dive, live: nothing was delivered.
+    expect(server.row('dives', dive.id)?.deleted_at).toBeNull();
+    // And the community rows were never tombstoned in the first place.
+    expect((await listDiveSites(db)).length).toBe(1);
+    expect((await listDiveCenters(db)).length).toBe(1);
+  });
+
+  /**
+   * **The refusal is a check, not a promise** — `wipe`'s own case, repeated here because it is
+   * the one that catches a gate wired to the pusher's own report. This push *succeeds*: no
+   * error, no throw, and it stores nothing, which is what a server silently dropping a row looks
+   * like from here. A start over gated on "did the push say it worked" erases the logbook off
+   * this phone while the account keeps every dive.
+   */
+  it('refuses even when the push said it worked, because it counts the rows and not the answer', async () => {
+    await createDive(db, { date: '2026-08-16' });
+    const forgetful = {
+      rpc: async () => ({ data: { server_time: server.now(), changes: {} }, error: null }),
+    } as unknown as SupabaseClient;
+
+    expect(await wired(seam({ client: forgetful })).startOver()).toEqual({ done: false, pending: 1 });
+    expect((await db.select().from(dives)).length).toBe(1);
+  });
+
+  /** A build with no backend cannot deliver a tombstone to anybody, so the erase is refused for
+   * the same reason and by the same count. */
+  it('refuses on a build with no backend at all', async () => {
+    await createDive(db, { date: '2026-08-16' });
+
+    expect(await wired(seam({ client: null })).startOver()).toEqual({ done: false, pending: 1 });
+    expect((await db.select().from(dives)).length).toBe(1);
+  });
+
+  /**
+   * **A site the diver created on the boat blocks a start over**, exactly as it blocks a
+   * sign-out, and for the same reason: the erase is a hard delete and that row exists nowhere
+   * else. The exclusion above is about **tombstoning** a community row, never about erasing one
+   * the server has not seen.
+   */
+  it('refuses over an unsent community row, which it never tombstoned', async () => {
+    await createDiveSite(db, { name: 'Blue Hole' });
+    server.refusal = { message: 'fetch failed' };
+
+    expect(await wired(seam()).startOver()).toEqual({ done: false, pending: 1 });
+
+    // Still there, and still LIVE: the refusal is about sending it, not about deleting it.
+    expect((await listDiveSites(db)).length).toBe(1);
+  });
+
+  /**
+   * **The tombstones are inside the lock, not merely the push and the erase.** Held elsewhere,
+   * nothing happens at all — and "nothing" has to include the tombstones, because a cycle
+   * landing between them and the push would push them itself and clear their flags against a
+   * clock this call is about to compare, leaving the gate reading zero for work it never saw.
+   */
+  it('does nothing at all — not even the tombstones — while the lock is held elsewhere', async () => {
+    await createDive(db, { date: '2026-08-16' });
+
+    let settled = false;
+    void wired(seam({ hold: true }))
+      .startOver()
+      .then(() => {
+        settled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(settled).toBe(false);
+    expect(server.calls).toEqual([]);
+    expect((await listDives(db)).length).toBe(1);
+    expect((await db.select({ deletedAt: dives.deletedAt }).from(dives))[0]?.deletedAt).toBeNull();
+  });
+
+  it('takes the sync engine’s lock, once, around the whole of itself', async () => {
+    await createDive(db, { date: '2026-08-16' });
+
+    expect(lockedRuns).toBe(0);
+    expect(await wired(seam()).startOver()).toEqual({ done: true });
+    expect(lockedRuns).toBe(1);
+  });
+
+  /**
+   * **Written down as the weak test it is.** A start over on an empty device says `done` and
+   * proves nothing whatever about tombstones reaching a server — there were none to send. It is
+   * here because the state is real (a diver who starts over twice) and must not throw, and it is
+   * labelled so nobody reads it as evidence for the case above it.
+   */
+  it('is happy to start over on a device with nothing on it, which proves nothing else', async () => {
+    expect(await wired(seam()).startOver()).toEqual({ done: true });
+    expect(server.rows('dives')).toEqual([]);
+  });
+});
+
+describe('erase — the ungated one, for §8’s account deletion (M3j)', () => {
+  /**
+   * **It does not push, and that is the point of it existing.** The rows it is about have just
+   * been deleted server-side; a push would upload a logbook to a server that has already
+   * destroyed it, fail, and — through the gate — leave the whole thing on a phone whose account
+   * no longer exists. `server.calls` being empty is the assertion.
+   */
+  it('erases without pushing, counting or refusing', async () => {
+    await createDive(db, { date: '2026-08-16', notes: 'never sent' });
+    await createGearPreset(db, { name: 'alu 80' });
+    expect(await countUnsyncedRows(db)).toBe(2);
+
+    await wired(seam()).erase();
+
+    expect(server.calls).toEqual([]);
+    for (const table of SYNCED) {
+      expect(`${getTableName(table)}: ${String((await db.select().from(table)).length)}`).toBe(
+        `${getTableName(table)}: 0`,
+      );
+    }
+  });
+
+  /** The same erase §7.4 describes, so the same things stay: units and the form-group memory
+   * are this diver's, and `dives_before` goes because it is a fact about the person. */
+  it('leaves the settings the diver set on this device, and takes dives_before', async () => {
+    await aSyncedLogbook();
+
+    await wired(seam()).erase();
+
+    expect(readUnitSystem(await unitSystemQuery(db))).toBe('imperial');
+    expect(readOpenFormGroups(await openFormGroupsQuery(db))).toEqual({ conditions: true });
+    expect(readDivesBefore(await divesBeforeQuery(db))).toBeNull();
+    expect(await getLastPulledAt(db)).toBeNull();
+  });
+
+  it('takes the sync engine’s lock, so no cycle can land inside it', async () => {
+    expect(lockedRuns).toBe(0);
+    await wired(seam()).erase();
+    expect(lockedRuns).toBe(1);
+  });
+});
+
+/**
+ * **§8's account deletion, end to end against the fake — and no account has ever been deleted
+ * from this repository.**
+ *
+ * There are no credentials for the owner's project here and his own logbook is on it. What runs
+ * below is `cloud/auth.ts`'s sequence over a real SQLite database and
+ * `src/testing/fakeSyncServer.ts`, which models `delete_account` as **its foreign keys** rather
+ * than as its body — which is what the migration itself says the policy is. What that proves is
+ * exactly and only that the client does the right thing against a server behaving as the SQL
+ * describes. Whether Postgres will let the function delete from `auth.users` at all is the one
+ * statement the migration names as unverifiable from here.
+ */
+describe('deleteAccount against the fake server (§8, M3j)', () => {
+  it('takes the diver’s own rows and leaves the community’s, unowned', async () => {
+    const { site, centre } = await aSyncedLogbook();
+
+    await expect(deleteAccount(client, seam())).resolves.toEqual({
+      kind: 'deleted',
+      sitesKept: 1,
+      centresKept: 1,
+    });
+
+    // Gone from the account: the four tables whose foreign keys cascade.
+    for (const table of ['dives', 'gear_presets', 'certifications'] as const) {
+      expect(`${table}: ${String(server.rows(table).length)}`).toBe(`${table}: 0`);
+    }
+    // Standing in the account, with authorship severed — §5's "editable by nobody through the
+    // app, including the same person signing up again".
+    expect(server.row('dive_sites', site.id)?.created_by).toBeNull();
+    expect(server.row('dive_centers', centre.id)?.created_by).toBeNull();
+    // And gone from the device, tombstones and catalogue included.
+    for (const table of SYNCED) {
+      expect(`${getTableName(table)}: ${String((await db.select().from(table)).length)}`).toBe(
+        `${getTableName(table)}: 0`,
+      );
+    }
+  });
+
+  /**
+   * **Nothing is pushed on the way out.** The only call the server sees is the deletion itself —
+   * so a diver's whole logbook is not uploaded to a server that is about to destroy it, and the
+   * gate that would have refused the erase over a failed push never runs.
+   */
+  it('makes one call and it is the deletion', async () => {
+    await aSyncedLogbook();
+    await createDive(db, { date: '2026-08-19', notes: 'never sent' });
+    // From here on, because `aSyncedLogbook` pushes its own set up.
+    const before = server.calls.length;
+
+    await deleteAccount(client, seam());
+
+    expect(server.calls.slice(before).map((call) => call.rpc)).toEqual(['delete_account']);
+    // No arguments at all (M2c): "there is no parameter through which another diver's account
+    // could be named".
+    expect(server.calls.slice(before)[0]?.args).toEqual({});
+  });
+
+  /** The offline case: the account is untouched and so is the device. */
+  it('leaves everything alone when the call cannot be made', async () => {
+    const { dive } = await aSyncedLogbook();
+    server.refusal = { message: 'fetch failed' };
+
+    await expect(deleteAccount(client, seam())).resolves.toEqual({
+      kind: 'failed',
+      message: deleteAccountFailed(),
+    });
+
+    expect((await listDives(db)).map((row) => row.id)).toEqual([dive.id]);
+    expect(server.rows('dives').length).toBe(1);
   });
 });
 

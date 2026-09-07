@@ -8,6 +8,7 @@ import {
   applyPulledDiveSites,
   createDiveCenter,
   createDiveSite,
+  listDiveCenters,
   listDiveSites,
   pendingDiveSites,
 } from '../db/catalogue';
@@ -42,6 +43,7 @@ import {
   SYNCED_TABLES,
   syncNow,
   toWireRow,
+  tombstonePersonalRows,
   wireTableName,
 } from './sync';
 
@@ -686,6 +688,116 @@ describe('what this device still owes (§7.4’s gate)', () => {
     await softDeleteDive(db, dive.id);
 
     expect(await countUnsyncedRows(db)).toBe(1);
+  });
+});
+
+describe('§7.4’s start over: which rows are the diver’s (M3j)', () => {
+  /**
+   * **The exclusion, read off the protocol's own list rather than off a list here.**
+   *
+   * §7.4: "Community rows are not included in either start-over or deletion: a site or centre
+   * the diver contributed belongs to everyone who has dived it." That is a fact about *which
+   * tables*, and the way to get it wrong quietly is to keep it somewhere other than where the
+   * tables are named — a sixth synced table would then simply not appear in either list and
+   * every count would agree with itself.
+   *
+   * `tombstoneAll` is a **required** field on each entry, so a table joining the protocol has
+   * to say which kind it is before it compiles; this is the other half, asserting that the two
+   * community tables are the only ones excused and that the list is not empty.
+   */
+  it('excuses the two community tables and no others', () => {
+    const excused = SYNCED_TABLES.filter((synced) => synced.tombstoneAll === null).map((synced) =>
+      wireTableName(synced.table),
+    );
+    const swept = SYNCED_TABLES.filter((synced) => synced.tombstoneAll !== null).map((synced) =>
+      wireTableName(synced.table),
+    );
+
+    expect(excused.sort()).toEqual(['dive_centers', 'dive_sites']);
+    expect(swept.sort()).toEqual(['certifications', 'dives', 'gear_presets']);
+    // Floored, because two empty lists are equal — the failure this file already records once.
+    expect(SYNCED_TABLES.length).toBe(5);
+  });
+
+  it('tombstones every personal row and no community one', async () => {
+    const dive = await createDive(db, { date: '2026-08-16' });
+    await createGearPreset(db, { name: 'alu 80' });
+    await createCertification(db, { agency: 'PADI' });
+    const site = await createDiveSite(db, { name: 'Blue Hole' });
+    const centre = await createDiveCenter(db, { name: 'Emperor' });
+
+    expect(await tombstonePersonalRows(db)).toBe(3);
+
+    expect(await listDives(db)).toEqual([]);
+    expect(await listGearPresets(db)).toEqual([]);
+    expect(await listCertifications(db)).toEqual([]);
+    // The row is still there, carrying the deletion — this is a tombstone, not a delete, and
+    // the row IS the deletion (§7.2). Read past the repository, which hides it.
+    expect(await getDive(db, dive.id)).toBeNull();
+    expect((await db.select().from(dives)).length).toBe(1);
+    expect((await db.select().from(dives))[0]?.deletedAt).not.toBeNull();
+    // And the two the community owns are untouched, live and unstamped.
+    expect((await listDiveSites(db)).map((row) => row.id)).toEqual([site.id]);
+    expect((await listDiveCenters(db)).map((row) => row.id)).toEqual([centre.id]);
+    expect((await db.select().from(diveSites))[0]?.deletedAt).toBeNull();
+    expect((await db.select().from(diveCenters))[0]?.deletedAt).toBeNull();
+  });
+
+  /**
+   * **The tombstones are dirty, or the deletion never leaves the phone** — which would make
+   * start over a local hide that the next pull silently undoes, on every device including this
+   * one.
+   */
+  it('leaves every tombstone it writes owed to the server', async () => {
+    await createDive(db, { date: '2026-08-16' });
+    await createGearPreset(db, { name: 'alu 80' });
+    await createCertification(db, { agency: 'PADI' });
+    await pushPendingRows(db, client);
+    expect(await countUnsyncedRows(db)).toBe(0);
+
+    await tombstonePersonalRows(db);
+
+    expect(await countUnsyncedRows(db)).toBe(3);
+  });
+
+  /**
+   * **A row that is already tombstoned is left exactly as it was.** Re-stamping it would advance
+   * `updated_at` on a row nothing changed — which §6 forbids and §7's last-write-wins punishes:
+   * this device would then win the conflict against a genuine edit made on the diver's other
+   * phone, purely by having started over.
+   *
+   * The `liveRows` filter is the whole of that, and this is the case that fails without it.
+   */
+  it('does not re-stamp a dive the diver had already deleted', async () => {
+    const kept = await createDive(db, { date: '2026-08-16' });
+    const already = await createDive(db, { date: '2026-08-17' });
+    await softDeleteDive(db, already.id);
+    const before = (await db.select().from(dives).where(eqId(dives, already.id)))[0];
+
+    expect(await tombstonePersonalRows(db)).toBe(1);
+
+    const after = (await db.select().from(dives).where(eqId(dives, already.id)))[0];
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+    expect(after?.deletedAt).toBe(before?.deletedAt);
+    // …and the live one really was taken, so the count above is not passing by doing nothing.
+    expect((await db.select().from(dives).where(eqId(dives, kept.id)))[0]?.deletedAt).not.toBeNull();
+  });
+
+  /** One act, one instant: every row a start over tombstones carries the same stamp, because
+   * that is what it is. */
+  it('stamps every row it takes with the one moment', async () => {
+    await createDive(db, { date: '2026-08-16' });
+    await createDive(db, { date: '2026-08-17' });
+    await createGearPreset(db, { name: 'alu 80' });
+
+    await tombstonePersonalRows(db);
+
+    const stamps = [
+      ...(await db.select({ deletedAt: dives.deletedAt }).from(dives)),
+      ...(await db.select({ deletedAt: gearPresets.deletedAt }).from(gearPresets)),
+    ].map((row) => row.deletedAt);
+    expect(stamps.length).toBe(3);
+    expect(new Set(stamps).size).toBe(1);
   });
 });
 

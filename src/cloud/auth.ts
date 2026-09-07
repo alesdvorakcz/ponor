@@ -4,13 +4,18 @@ import { t } from '../i18n';
 import { type LocalLogbook, type WipeOutcome } from './localLogbook';
 
 /**
- * **Signing in, signing up and signing out — the three acts, and every sentence a diver reads
- * about them.**
+ * **Every act on an account, and every sentence a diver reads about one.**
  *
  * DESIGN.md §5 fixes the method: "email and password first", chosen by the owner in M2 after a
  * one-time code and a magic link were each ruled out by the free tier. §7.4 fixes what
  * signing in and signing out do to the device. This module is those rules as functions, with
  * no React in it, so both halves can be tested without a screen.
+ *
+ * **M3j added the other two of §7.4's three destructive acts** — `startOver` and
+ * `deleteAccount`. They are here rather than on a screen for this module's whole reason: each
+ * is a sequence whose *order* is the safety argument, and a sequence a screen composes is a
+ * sequence a second screen can compose differently. `cloud/localLogbook.ts` owns what each step
+ * does to the device; this owns which steps, in which order, and what is said when one refuses.
  *
  * ## The password is the one secret this app handles
  *
@@ -102,6 +107,27 @@ export type AuthOutcome =
 
 /** How signing out ended. No count: sign-out has nothing to report but its own success. */
 export type SignOutOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
+/** How §7.4's *start over* ended. The same two arms sign-out has, and for the same reason: the
+ * refusals are sentences a diver reads, not classes a caller switches on. */
+export type StartOverOutcome = SignOutOutcome;
+
+/**
+ * How §8's account deletion ended.
+ *
+ * **The success arm carries the two counts `delete_account` returns**, and it carries them
+ * because the function goes out of its way to compute them before the delete — "so the app can
+ * tell a departing diver what it is leaving behind", in its own words. §5 makes that a fact
+ * worth stating rather than a nicety: a departed diver's sites stay and become editable by
+ * nobody, "including the same person signing up again".
+ *
+ * Both default to `0` for a server that answers in a shape this build does not recognise, which
+ * is the same direction §7's wire mapping takes for anything it cannot read: an account really
+ * was deleted, and a sentence about how many sites survived is the part that may go missing.
+ */
+export type DeleteAccountOutcome =
+  | { readonly kind: 'deleted'; readonly sitesKept: number; readonly centresKept: number }
+  | { readonly kind: 'failed'; readonly message: string };
 
 /*
  * ── What the diver reads ──────────────────────────────────────────────────────────────────
@@ -248,6 +274,71 @@ export function unpushedChanges(): string {
  * looking at an empty logbook and is owed the reason. */
 export function signOutFailed(): string {
   return t('auth.signOutFailed');
+}
+
+/*
+ * ── §7.4's other two destructive acts (M3j) ───────────────────────────────────────────────
+ *
+ * Four sentences, and none of them is a reworded copy of a sign-out one, because each names a
+ * state sign-out cannot be in. The temptation was `unpushedChanges` for all three refusals; it
+ * says "nothing was cleared, and you're still signed in", which is true of sign-out and false
+ * of a start over that has already written its tombstones.
+ */
+
+/** The build cannot erase the local logbook, so a start over would delete the account's copy
+ * and leave this device's — `signOutUnavailable`'s shape, on the act where the asymmetry is
+ * worse: the deletion would reach every device except the one the diver is holding. */
+export function startOverUnavailable(): string {
+  return t('auth.startOverUnavailable');
+}
+/**
+ * **The tombstones are written and the account has not received them yet.**
+ *
+ * The one refusal in this app that reports a *partial* act, and it is partial by design
+ * (`localLogbook.ts`'s `startOver`): what stopped is the hard delete, and what stands is the
+ * deletion itself, flagged and waiting for a signal. So this says what is true on this device,
+ * what is not true yet in the account, and what will finish it — rather than `unpushedChanges`'
+ * "nothing was cleared", which would be a plain lie about a logbook the diver can already see
+ * is empty.
+ */
+export function startOverUnpushed(): string {
+  return t('auth.startOverUnpushed');
+}
+/** The erase itself rejected, after the tombstones went up. The account is empty and this
+ * device is not; a diver told nothing here would be looking at dives that no longer exist
+ * anywhere else. */
+export function startOverFailed(): string {
+  return t('auth.startOverFailed');
+}
+/** The build cannot erase the local logbook, so the account was not deleted either — the
+ * deliberate order (`deleteAccount` below): nothing irreversible happens until the reversible
+ * half is known to be possible. */
+export function deleteAccountUnavailable(): string {
+  return t('auth.deleteAccountUnavailable');
+}
+/**
+ * `delete_account` did not run, so **nothing at all happened**.
+ *
+ * **One sentence for every way the call can fail, deliberately.** The two a diver could act on
+ * differently — offline, and a server that refused — are not distinguishable from here:
+ * `.rpc()` reports a fetch failure and a Postgres exception through the same `error` object, and
+ * this module never reads a server's own text (see the module docblock). So it says the two
+ * things that are true of both: the account is untouched, and trying again is the answer.
+ */
+export function deleteAccountFailed(): string {
+  return t('auth.deleteAccountFailed');
+}
+/**
+ * **The account is gone and this device's copy is not** — the one state in this file that
+ * cannot be repaired by trying again.
+ *
+ * It is why the erase is attempted at all rather than left to the sign-out that follows: after
+ * `delete_account` there is no account to sign back into, so a device holding the logbook holds
+ * it for ever. The sentence therefore names the only remaining remedy, which is the diver's and
+ * not the app's.
+ */
+export function accountDeletedDeviceKept(): string {
+  return t('auth.accountDeletedDeviceKept');
 }
 
 /**
@@ -462,4 +553,149 @@ export async function endSession(
   }
 
   return { ok: true };
+}
+
+/**
+ * **§7.4's *start over*: the account survives and everything in it goes.**
+ *
+ * | | |
+ * |---|---|
+ * | Sign out | wipes this device, the account keeps everything |
+ * | **Start over** | **wipes this device and the account's data, and the account survives** |
+ * | Delete account | wipes both and the account with them |
+ *
+ * **Every step of it is `localLogbook.startOver`'s**, and that is where the ordering argument
+ * lives — tombstone, push, confirm nothing is still owed, erase. This function is the session's
+ * side of the same act, and the session's side is *nothing*: no sign-out, no token, no call.
+ * That is the whole distinction between this and the two acts either side of it, and it is why
+ * this takes no client.
+ *
+ * **It is here, beside them, rather than called straight from the screen.** Two reasons, and
+ * neither is tidiness. The refusal has to be turned into one of a fixed set of sentences, and
+ * this module is where that set lives and where the rule that it is *fixed* is stated. And a
+ * screen calling the seam directly would be the second place in the app that decides what a
+ * `WipeOutcome` means — which is exactly how sign-out's own refusal would come to be worded two
+ * ways.
+ */
+export async function startOver(logbook: LocalLogbook): Promise<StartOverOutcome> {
+  if (!logbook.wired) return { ok: false, message: startOverUnavailable() };
+
+  let outcome: WipeOutcome;
+  try {
+    outcome = await logbook.startOver();
+  } catch {
+    return { ok: false, message: startOverFailed() };
+  }
+  // Told apart by the value rather than by a thrown class, for `endSession`'s stated reason:
+  // a refusal is the correct answer for a diver at sea and reads differently from an erase
+  // that was attempted and could not be done.
+  if (!outcome.done) return { ok: false, message: startOverUnpushed() };
+
+  return { ok: true };
+}
+
+/** The RPC §5 lists and §8 requires, named once — `PUSH_RPC`'s own reason (cloud/sync.ts). */
+export const DELETE_ACCOUNT_RPC = 'delete_account';
+
+/** One of `delete_account`'s two counts, read out of a `jsonb` this process has never been able
+ * to check. Anything that is not a non-negative number is `0`, which is the app saying nothing
+ * about that half rather than rendering `NaN sites` at a diver who has just left. */
+function keptCount(payload: unknown, key: string): number {
+  if (typeof payload !== 'object' || payload === null) return 0;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/**
+ * **§8's in-app account deletion — "a hard App Store requirement" — and the only act in this
+ * app with no way back at all.**
+ *
+ * ── The order, which is the whole of it ───────────────────────────────────────────────────
+ *
+ * **The RPC first, then the device, then the session.** `delete_account`'s own migration says
+ * so from the other side: *"It does not touch the device. §7.4 already says signing out wipes
+ * the local logbook; the same erase has to **follow** a deletion, on every device, or the dives
+ * are still on a phone."*
+ *
+ * Erasing first was considered and is wrong on M2e's rule — *a destructive action may not be
+ * wired before the thing that makes it safe*. If the deletion does not happen, nothing about
+ * the device should change; an erase that ran first would destroy a logbook for an act that did
+ * not occur, and the call is the step that fails for ordinary reasons (a diver on a boat), not
+ * the local delete.
+ *
+ * ── Why the push-first gate is absent, and why that is not a shortcut ─────────────────────
+ *
+ * `localLogbook.erase` carries the argument at length. In one line: the gate exists to keep the
+ * promise that the logbook comes back on the next sign-in, and this is the one act after which
+ * there is no next sign-in — so pushing would upload a logbook to a server that has already
+ * destroyed it, and the gate would then *refuse the erase* and leave the whole thing on a phone
+ * whose account no longer exists.
+ *
+ * ── Three smaller decisions ───────────────────────────────────────────────────────────────
+ *
+ * **The call takes no arguments and this passes none.** M2c made it so deliberately, "so there
+ * is no parameter through which another diver's account could be named" — the account deleted
+ * is `auth.uid()` and can be nothing else. A caller that invented an argument would be handing
+ * the server something to ignore, and the next reader something to wonder about.
+ *
+ * **A failed sign-out afterwards is not reported.** Everywhere else in this file that would be
+ * a state a diver can act on; here the account it authenticated has been deleted, so the token
+ * is worthless whether or not the call to revoke it succeeded, and `scope: 'local'` removes the
+ * session from the keychain regardless of what the server said. A sentence about it would be
+ * alarming, unactionable, and about nothing.
+ *
+ * **Nothing here has ever run against the real function.** No credentials exist in this
+ * repository (`supabase/README.md`) and the owner's project holds his own logbook; the tests
+ * drive `src/testing/fakeSyncServer.ts`, which models the FK policy the migration describes.
+ * **No account has ever been deleted from this tree.**
+ */
+export async function deleteAccount(
+  client: SupabaseClient,
+  logbook: LocalLogbook,
+): Promise<DeleteAccountOutcome> {
+  // Checked before the call, not after: this is the one refusal that can still be made while
+  // the account exists, and making it later would mean an account deleted by a build that
+  // cannot then clear the phone it was deleted from.
+  if (!logbook.wired) return { kind: 'failed', message: deleteAccountUnavailable() };
+
+  let payload: unknown;
+  try {
+    const { data, error } = await client.rpc(DELETE_ACCOUNT_RPC);
+    if (error !== null && error !== undefined) {
+      return { kind: 'failed', message: deleteAccountFailed() };
+    }
+    payload = data;
+  } catch {
+    return { kind: 'failed', message: deleteAccountFailed() };
+  }
+
+  const sitesKept = keptCount(payload, 'dive_sites_kept');
+  const centresKept = keptCount(payload, 'dive_centers_kept');
+
+  try {
+    await logbook.erase();
+  } catch {
+    // The account is gone; this is the one failure here that cannot be retried into success,
+    // so it is named rather than folded into the general refusal. The session is deliberately
+    // still ended below — leaving a dead session in place would add a device that goes on
+    // trying to sync to a logbook nobody can reach.
+    await endDeadSession(client);
+    return { kind: 'failed', message: accountDeletedDeviceKept() };
+  }
+
+  await endDeadSession(client);
+  return { kind: 'deleted', sitesKept, centresKept };
+}
+
+/** Drops the session for an account that no longer exists. Never reports: see `deleteAccount`'s
+ * third decision. `scope: 'local'` for `endSession`'s stated reason, which survives the account
+ * — a global sign-out is a request about other devices, and there is no account left to make
+ * it about. */
+async function endDeadSession(client: SupabaseClient): Promise<void> {
+  try {
+    await client.auth.signOut({ scope: 'local' });
+  } catch {
+    // Deliberately silent, and deliberately not `console` — this module's docblock says why
+    // nothing here writes one on a path a diver's own credentials travel.
+  }
 }

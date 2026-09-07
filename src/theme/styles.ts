@@ -3481,6 +3481,28 @@ function build(scheme: ColorScheme) {
     // (`detailBack`/`formBack`, `presetHeading`/`settingsHeading`): both are a row's value
     // column saying it does not have an answer yet, and they must not drift apart.
     settingsExportBusy: rowValueSansMuted,
+    // §7.4's other two destructive acts (M3j) — *Start over* and *Delete account*, at the end
+    // of the content where §0.6 puts a deliberate act, "where it takes a reach".
+    //
+    // **`mutedControl`, exactly as *Delete dive* and *Delete preset* are**, and §10 is why
+    // rather than taste: "a destructive confirmation is OS chrome; the app's own control stays
+    // muted". §0.1 leaves no colour to make a control look dangerous, so the weight goes into
+    // a dialog this app does not draw (`platform/confirmDestructive.ts`) and the control itself
+    // stays the quietest thing on the screen — which is the right treatment for something you
+    // should not hit by accident. Two keys from the one definition, named for where they are
+    // placed, on `detailDelete`/`presetDelete`'s own precedent.
+    //
+    // **A row, not a centred control**, which is the one place these differ from *Delete dive*
+    // and *Delete preset*. Those sit at the end of a screen whose content is not a list; this
+    // screen is a column of §0.6 rows and §3 names this one as a row ("delete account", in the
+    // same breath as the export it follows), so it is `formField` at the call site like every
+    // other row here — hairline, inset and the 48 dp floor included — and only the ink is the
+    // muted one. §0.6's "a pill in a left-aligned card is left-aligned" is the same complaint
+    // from the other direction, and it has been fixed three times already.
+    settingsDestructiveLabel: mutedControlLabel,
+    // The trailing word while one of them is running — the export row's own busy slot, from
+    // the one definition, for that key's stated reason.
+    settingsDestructiveBusy: rowValueSansMuted,
     // ------------------------------------------------------------------------------------
     // The account screen (DESIGN.md §5's auth bullet and §7.4, M2e) — `AccountScreen`
     // ------------------------------------------------------------------------------------

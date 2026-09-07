@@ -388,6 +388,46 @@ export const en = {
       exportBusy: 'Preparing…',
       exportFailed: 'Couldn’t prepare that export, so nothing was written. Try again.',
       exportUnavailable: 'This device can’t share a file, so there’s nowhere to send it.',
+
+      /**
+       * §7.4's other two destructive acts (M3j), in the place §3 lists the second of them:
+       * straight after data export, which is §8 pairing Art. 20 with Art. 17 in one sentence.
+       *
+       * **Each dialog body says what goes, what stays, and that there is no way back — in that
+       * order.** `account.signOutBody`'s rule is loss first and reassurance second, "because a
+       * diver who reads only the first sentence must not be reassured out of noticing it", and
+       * these two have less reassurance to offer: the account survives a start over and nothing
+       * survives a deletion.
+       *
+       * **The deletion body states §5's permanence rather than implying it** — "those sites
+       * become editable by nobody through the app, including the same person signing up again".
+       * It is surprising, it cannot be undone by anybody, and after the fact there is nobody
+       * left to tell.
+       */
+      destructiveSection: 'Delete',
+      destructiveNote:
+        'Export your logbook first — the two rows above hand you a copy. Neither of these can be undone.',
+      startOver: 'Start over',
+      startOverTitle: 'Start over?',
+      startOverBody:
+        'Every dive, cylinder preset and certification is deleted — here, in your account, and on your other devices. Your account stays, and so do the dive sites and centres you added. This can’t be undone.',
+      startOverDone: 'Your logbook is empty, here and in your account.',
+      deleteAccount: 'Delete account',
+      deleteAccountTitle: 'Delete your account?',
+      deleteAccountBody:
+        'Your account and everything in it — dives, cylinder presets, certifications — is deleted for good, on every device. The dive sites and centres you added stay in the community catalogue, and nobody can edit them again, including you if you sign up afresh. This can’t be undone.',
+      /** Said afterwards, to someone who no longer has an account — §7.4's adoption sentence's
+       * own shape: a statement about what already happened, with nothing to dismiss. */
+      accountDeleted: 'Your account is deleted, and its logbook with it.',
+      accountDeletedSites_one:
+        '{{count, figure}} dive site you added stays in the community catalogue.',
+      accountDeletedSites_other:
+        '{{count, figure}} dive sites you added stay in the community catalogue.',
+      accountDeletedCentres_one:
+        '{{count, figure}} dive centre you added stays in the community catalogue.',
+      accountDeletedCentres_other:
+        '{{count, figure}} dive centres you added stay in the community catalogue.',
+      destructiveBusy: 'Deleting…',
     },
 
     /** Words the whole app shares because they name one act, not one screen's version of it —
@@ -759,6 +799,19 @@ export const en = {
       unpushedChanges:
         'This phone has dives your account hasn’t received yet. Connect and try again — nothing was cleared, and you’re still signed in.',
       signOutFailed: 'This device’s logbook was cleared, but signing out didn’t finish. Try again.',
+      /* §7.4's other two destructive acts (M3j). Each names a state sign-out cannot be in —
+       * see the functions in `cloud/auth.ts` for why none of them reuses a sentence above. */
+      startOverUnavailable: 'This build can’t clear the device, so nothing was deleted.',
+      startOverUnpushed:
+        'Deleted on this device. Your account hasn’t received the deletion yet — connect, and it goes up on the next sync.',
+      startOverFailed:
+        'Your account is empty, but this device’s logbook couldn’t be cleared. Try again.',
+      deleteAccountUnavailable:
+        'This build can’t clear the device, so your account wasn’t deleted either.',
+      deleteAccountFailed:
+        'Couldn’t reach your account, so nothing was deleted. Try again when you’re online.',
+      accountDeletedDeviceKept:
+        'Your account is deleted, but this device’s logbook couldn’t be cleared. Deleting the app removes it.',
     },
   },
 };

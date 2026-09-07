@@ -11,6 +11,7 @@ import {
   clearCertificationDirtyFlags,
   createCertification,
   softDeleteCertification,
+  tombstoneAllCertifications,
   updateCertification,
   wipeCertifications,
 } from './certifications';
@@ -39,6 +40,7 @@ import {
   reorderDivesForDate,
   repointDivesToSurvivors,
   softDeleteDive,
+  tombstoneAllDives,
   updateDive,
   wipeDives,
 } from './dives';
@@ -50,6 +52,7 @@ import {
   createGearPreset,
   pendingGearPresets,
   softDeleteGearPreset,
+  tombstoneAllGearPresets,
   updateGearPreset,
   wipeGearPresets,
 } from './gearPresets';
@@ -249,6 +252,18 @@ const DIVES: Record<keyof typeof divesModule, WritePath> = {
       return subject;
     },
   },
+  tombstoneAllDives: {
+    // §7.4's start over. It is a soft delete of every live dive at once, so it leaves the row
+    // exactly where `softDeleteDive` leaves one — dirty, because the deletion has to reach the
+    // account or the next pull hands the logbook straight back.
+    leaves: 'dirty',
+    given: aDive,
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneAllDives(database);
+      return subject;
+    },
+  },
   adoptDives: {
     leaves: 'dirty',
     given: aDive,
@@ -337,6 +352,16 @@ const PRESETS: Record<keyof typeof presetsModule, WritePath> = {
       return subject;
     },
   },
+  tombstoneAllGearPresets: {
+    // §7.4's start over, for presets — `tombstoneAllDives` above carries the reasoning.
+    leaves: 'dirty',
+    given: aPreset,
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneAllGearPresets(database);
+      return subject;
+    },
+  },
   adoptGearPresets: {
     leaves: 'dirty',
     given: aPreset,
@@ -408,6 +433,16 @@ const CERTIFICATIONS: Record<keyof typeof certificationsModule, WritePath> = {
       await clearCertificationDirtyFlags(database, [
         { id: subject.id, updatedAt: subject.updatedAt ?? '' },
       ]);
+      return subject;
+    },
+  },
+  tombstoneAllCertifications: {
+    // §7.4's start over, for the wallet — `tombstoneAllDives` above carries the reasoning.
+    leaves: 'dirty',
+    given: aCard,
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneAllCertifications(database);
       return subject;
     },
   },
@@ -613,12 +648,13 @@ describe('every write path is classified, and the classification is exhaustive (
     // never be exercised, which is a green suite that has stopped checking the thing it is
     // named after. These are today's counts, and they go UP by a deliberate edit.
     const FLOORS: Record<string, number> = {
-      // create · update · reorder · soft-delete · clear · adopt · apply-pulled · repoint
-      'db/dives.ts': 8,
-      // create · update · soft-delete · clear · adopt · apply-pulled
-      'db/gearPresets.ts': 6,
-      // create · update · soft-delete · clear · adopt · apply-pulled (M3b)
-      'db/certifications.ts': 6,
+      // create · update · reorder · soft-delete · clear · adopt · apply-pulled · repoint ·
+      // tombstone-all (M3j)
+      'db/dives.ts': 9,
+      // create · update · soft-delete · clear · adopt · apply-pulled · tombstone-all
+      'db/gearPresets.ts': 7,
+      // create · update · soft-delete · clear · adopt · apply-pulled (M3b) · tombstone-all
+      'db/certifications.ts': 7,
       // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
       'db/catalogue.ts': 8,
     };
@@ -628,7 +664,7 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(28);
+    expect(writePaths.length).toBe(31);
 
     // §7.4's erases, counted the same way and for the same reason: one filed as a read would
     // never be run, and a sign-out that quietly left a table behind is a device holding one

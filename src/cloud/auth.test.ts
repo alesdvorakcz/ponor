@@ -6,11 +6,16 @@ import {
 } from '@supabase/supabase-js';
 
 import {
+  accountDeletedDeviceKept,
   authenticate,
   credentialRefusal,
   CONFIRMATION_REDIRECT,
   confirmationRequired,
   credentialsRejected,
+  deleteAccount,
+  deleteAccountFailed,
+  deleteAccountUnavailable,
+  DELETE_ACCOUNT_RPC,
   emailMalformed,
   emailRequired,
   emailTaken,
@@ -24,6 +29,10 @@ import {
   signOutUnavailable,
   signUpFailed,
   signupDisabled,
+  startOver,
+  startOverFailed,
+  startOverUnavailable,
+  startOverUnpushed,
   tooManyTries,
   unpushedChanges,
   wipeFailed,
@@ -56,24 +65,32 @@ interface FakeAuth {
   signOut: jest.Mock;
 }
 
-/** A client with the three calls this module makes and nothing else. Cast at this one
- * boundary so no test below has to. */
-function fakeClient(): { client: SupabaseClient; auth: FakeAuth } {
+/** A client with the calls this module makes and nothing else — the three `auth` ones, and
+ * since M3j the one RPC (`delete_account`). Cast at this one boundary so no test below has
+ * to. */
+function fakeClient(): { client: SupabaseClient; auth: FakeAuth; rpc: jest.Mock } {
   const auth: FakeAuth = {
     signInWithPassword: jest.fn().mockResolvedValue({ data: { session: SESSION, user: USER }, error: null }),
     signUp: jest.fn().mockResolvedValue({ data: { session: null, user: USER }, error: null }),
     signOut: jest.fn().mockResolvedValue({ error: null }),
   };
-  return { client: { auth } as unknown as SupabaseClient, auth };
+  const rpc = jest
+    .fn()
+    .mockResolvedValue({ data: { deleted: true, dive_sites_kept: 0, dive_centers_kept: 0 }, error: null });
+  return { client: { auth, rpc } as unknown as SupabaseClient, auth, rpc };
 }
 
-/** A wired seam whose two ports are spies, so the order and the fact of each call can be
- * asserted rather than inferred from a result. */
-function wiredLogbook(over: { adopt?: jest.Mock; wipe?: jest.Mock } = {}) {
+/** A wired seam whose ports are spies, so the order and the fact of each call can be asserted
+ * rather than inferred from a result. */
+function wiredLogbook(
+  over: { adopt?: jest.Mock; wipe?: jest.Mock; startOver?: jest.Mock; erase?: jest.Mock } = {},
+) {
   const adopt = over.adopt ?? jest.fn().mockResolvedValue(0);
   const wipe = over.wipe ?? jest.fn().mockResolvedValue({ done: true });
-  const logbook: LocalLogbook = { wired: true, adopt, wipe };
-  return { logbook, adopt, wipe };
+  const startOver = over.startOver ?? jest.fn().mockResolvedValue({ done: true });
+  const erase = over.erase ?? jest.fn().mockResolvedValue(undefined);
+  const logbook: LocalLogbook = { wired: true, adopt, wipe, startOver, erase };
+  return { logbook, adopt, wipe, startOver, erase };
 }
 
 const UNWIRED: LocalLogbook = { wired: false };
@@ -544,6 +561,284 @@ describe('endSession', () => {
     expect(unpushedChanges()).not.toBe(wipeFailed());
     expect(unpushedChanges()).not.toBe(signOutFailed());
     expect(unpushedChanges()).not.toBe(signOutUnavailable());
+  });
+});
+
+describe('startOver — §7.4’s second destructive act (M3j)', () => {
+  /**
+   * **The session's side of a start over is nothing at all**, which is the whole distinction
+   * between this act and the two either side of it: §7.4's table says the account survives. A
+   * start over that signed the diver out would leave them looking at a sign-in form after asking
+   * to empty a logbook they are still the owner of.
+   */
+  it('empties the logbook and leaves the diver signed in', async () => {
+    const { client, auth, rpc } = fakeClient();
+    const { logbook, startOver: sweep } = wiredLogbook();
+
+    await expect(startOver(logbook)).resolves.toEqual({ ok: true });
+
+    expect(sweep).toHaveBeenCalledTimes(1);
+    expect(auth.signOut).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+    // Named so the unused client cannot be read as an oversight: this function takes none.
+    expect(client).toBeDefined();
+  });
+
+  /** It is the start-over sequence it runs, not the sign-out one — those differ by the
+   * tombstones, which are the only thing that makes the deletion reach a second device. */
+  it('runs the start-over sequence and never the plain wipe', async () => {
+    const { logbook, wipe, startOver: sweep } = wiredLogbook();
+
+    await startOver(logbook);
+
+    expect(sweep).toHaveBeenCalledTimes(1);
+    expect(wipe).not.toHaveBeenCalled();
+  });
+
+  /**
+   * **The refusal is its own sentence, and this is the assertion that keeps it one.** Sign-out's
+   * `unpushedChanges` says "nothing was cleared, and you're still signed in" — true there, and a
+   * plain lie here, where the tombstones are written and the diver's logbook is already empty on
+   * screen. Reusing it would be the app telling a diver nothing happened while they look at the
+   * evidence that something did.
+   */
+  it('says what is true of a start over that could not be delivered', async () => {
+    const { logbook } = wiredLogbook({
+      startOver: jest.fn().mockResolvedValue({ done: false, pending: 3 }),
+    });
+
+    await expect(startOver(logbook)).resolves.toEqual({
+      ok: false,
+      message: startOverUnpushed(),
+    });
+    expect(startOverUnpushed()).not.toBe(unpushedChanges());
+  });
+
+  it('tells a refusal apart from an erase that rejected', async () => {
+    const { logbook } = wiredLogbook({
+      startOver: jest.fn().mockRejectedValue(new Error('database is locked')),
+    });
+
+    await expect(startOver(logbook)).resolves.toEqual({ ok: false, message: startOverFailed() });
+    expect(startOverFailed()).not.toBe(startOverUnpushed());
+  });
+
+  it('refuses on a build whose seam is not wired', async () => {
+    await expect(startOver(UNWIRED)).resolves.toEqual({
+      ok: false,
+      message: startOverUnavailable(),
+    });
+  });
+});
+
+describe('deleteAccount — §8’s App Store requirement (M3j)', () => {
+  /**
+   * ── **No account has ever been deleted from this repository.** ────────────────────────────
+   *
+   * There are no credentials for the owner's project here, none were sought, and his own
+   * logbook is on it. Everything below drives a `rpc` spy; `cloud/localLogbook.test.ts` drives
+   * `src/testing/fakeSyncServer.ts`, which models the foreign-key policy the migration
+   * describes. Neither is Postgres, and the migration itself names the one statement nobody
+   * here can verify — whether the role that runs it may delete from `auth.users` at all.
+   */
+
+  /**
+   * **The call takes no arguments, and that is a security property rather than a signature.**
+   * M2c: "it takes NO ARGUMENTS AT ALL, so there is no parameter through which another diver's
+   * account could be named. The account it deletes is `auth.uid()` and can be nothing else."
+   * Asserted on the argument list, because a caller passing an object the server ignores is how
+   * a future one comes to pass an object it does not.
+   */
+  it('calls delete_account by name and hands it nothing', async () => {
+    const { client, rpc } = fakeClient();
+    const { logbook } = wiredLogbook();
+
+    await deleteAccount(client, logbook);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls[0]).toEqual([DELETE_ACCOUNT_RPC]);
+    expect(DELETE_ACCOUNT_RPC).toBe('delete_account');
+  });
+
+  /**
+   * **The order, and it is M2e's rule rather than a preference**: a destructive action may not
+   * run before the thing that makes it safe. If the deletion does not happen, nothing about the
+   * device may change — and the call is the step that fails for ordinary reasons, where the
+   * local delete is not.
+   */
+  it('deletes the account, then the device, then the session', async () => {
+    const order: string[] = [];
+    const { client, auth, rpc } = fakeClient();
+    rpc.mockImplementation(async () => {
+      order.push('rpc');
+      return { data: { deleted: true, dive_sites_kept: 0, dive_centers_kept: 0 }, error: null };
+    });
+    auth.signOut.mockImplementation(async () => {
+      order.push('signOut');
+      return { error: null };
+    });
+    const { logbook } = wiredLogbook({
+      erase: jest.fn().mockImplementation(async () => {
+        order.push('erase');
+      }),
+    });
+
+    await deleteAccount(client, logbook);
+
+    expect(order).toEqual(['rpc', 'erase', 'signOut']);
+  });
+
+  /**
+   * **The push-first gate is deliberately absent here, and this is what says so.**
+   * `localLogbook.erase` carries the argument; the short of it is that the gate keeps the
+   * promise that the logbook comes back on the next sign-in, and there is no next sign-in — so
+   * `wipe` would push a whole logbook to a server that has already destroyed it, then refuse the
+   * erase because the push failed, and leave the logbook on the phone.
+   */
+  it('erases without the gate, and never through the gated wipe', async () => {
+    const { client } = fakeClient();
+    const { logbook, erase, wipe } = wiredLogbook();
+
+    await deleteAccount(client, logbook);
+
+    expect(erase).toHaveBeenCalledTimes(1);
+    expect(wipe).not.toHaveBeenCalled();
+  });
+
+  /**
+   * §5, and `delete_account` computes these counts before the delete for exactly this: "so the
+   * app can tell a departing diver what it is leaving behind".
+   */
+  it('reports what the account left behind in the community catalogue', async () => {
+    const { client, rpc } = fakeClient();
+    rpc.mockResolvedValue({
+      data: { deleted: true, dive_sites_kept: 3, dive_centers_kept: 1 },
+      error: null,
+    });
+    const { logbook } = wiredLogbook();
+
+    await expect(deleteAccount(client, logbook)).resolves.toEqual({
+      kind: 'deleted',
+      sitesKept: 3,
+      centresKept: 1,
+    });
+  });
+
+  /** A server answering in a shape this build does not know still deleted an account. The
+   * counts are the part that may go missing, never the outcome. */
+  it('still reports the deletion when the counts are unreadable', async () => {
+    const { client, rpc } = fakeClient();
+    const { logbook } = wiredLogbook();
+
+    for (const data of [null, 'true', { deleted: true }, { dive_sites_kept: 'lots' }, { dive_sites_kept: -2 }]) {
+      rpc.mockResolvedValue({ data, error: null });
+      await expect(deleteAccount(client, logbook)).resolves.toEqual({
+        kind: 'deleted',
+        sitesKept: 0,
+        centresKept: 0,
+      });
+    }
+  });
+
+  /**
+   * **The offline case, and nothing at all may have happened.** A diver on a boat presses
+   * *Delete account*; the call never lands. The device must be untouched and the session must
+   * survive — a wipe here would destroy a logbook for an act that did not occur.
+   */
+  it('touches neither the device nor the session when the call is refused', async () => {
+    const { client, auth, rpc } = fakeClient();
+    rpc.mockResolvedValue({ data: null, error: { message: 'fetch failed', code: '08006' } });
+    const { logbook, erase } = wiredLogbook();
+
+    await expect(deleteAccount(client, logbook)).resolves.toEqual({
+      kind: 'failed',
+      message: deleteAccountFailed(),
+    });
+    expect(erase).not.toHaveBeenCalled();
+    expect(auth.signOut).not.toHaveBeenCalled();
+  });
+
+  it('reports a throw from the client the same way it reports a returned error', async () => {
+    const { client, rpc } = fakeClient();
+    rpc.mockRejectedValue(new Error('storage exploded'));
+    const { logbook, erase } = wiredLogbook();
+
+    await expect(deleteAccount(client, logbook)).resolves.toEqual({
+      kind: 'failed',
+      message: deleteAccountFailed(),
+    });
+    expect(erase).not.toHaveBeenCalled();
+  });
+
+  /**
+   * **This module never builds a message out of what a server wrote**, and the RPC is a new way
+   * for one to arrive. The same check `messageFor` gets, with a password planted in the error:
+   * a `.rpc()` failure can echo whatever was in the request, and §9 wires Sentry in M3.
+   */
+  it('never puts the server’s own words in front of a diver', async () => {
+    const { client, rpc } = fakeClient();
+    rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'failed for user with password correct-horse-battery-staple', code: 'P0001' },
+    });
+    const { logbook } = wiredLogbook();
+
+    const outcome = await deleteAccount(client, logbook);
+
+    expect(outcome).toEqual({ kind: 'failed', message: deleteAccountFailed() });
+    expect(JSON.stringify(outcome)).not.toContain('correct-horse-battery-staple');
+  });
+
+  /**
+   * **The one unrepairable state gets its own sentence.** The account is gone and this device
+   * still holds a copy, and no amount of trying again brings back an account to re-sync it
+   * against — so the message names the only remedy left, which is the diver's.
+   */
+  it('says so when the account went and the device could not be cleared', async () => {
+    const { client, auth } = fakeClient();
+    const { logbook } = wiredLogbook({
+      erase: jest.fn().mockRejectedValue(new Error('database is locked')),
+    });
+
+    await expect(deleteAccount(client, logbook)).resolves.toEqual({
+      kind: 'failed',
+      message: accountDeletedDeviceKept(),
+    });
+    // The session still goes: leaving one in place adds a device that goes on trying to sync
+    // to a logbook nobody can reach.
+    expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(accountDeletedDeviceKept()).not.toBe(deleteAccountFailed());
+  });
+
+  /**
+   * **Refused before the account is touched**, which is the same ordering rule the whole
+   * function is built on: a build that cannot clear the phone must not be able to delete the
+   * account it would then be holding a logbook for.
+   */
+  it('does not call the RPC at all on a build whose seam is not wired', async () => {
+    const { client, rpc } = fakeClient();
+
+    await expect(deleteAccount(client, UNWIRED)).resolves.toEqual({
+      kind: 'failed',
+      message: deleteAccountUnavailable(),
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  /** `scope: 'local'`, and a sign-out that fails afterwards does not turn a deletion that
+   * happened into one that did not — the token authenticates an account that no longer
+   * exists, so there is nothing for a sentence about it to be about. */
+  it('ends the session locally, and a failure to do so is not reported', async () => {
+    const { client, auth } = fakeClient();
+    auth.signOut.mockRejectedValue(new Error('keychain refused'));
+    const { logbook } = wiredLogbook();
+
+    await expect(deleteAccount(client, logbook)).resolves.toEqual({
+      kind: 'deleted',
+      sitesKept: 0,
+      centresKept: 0,
+    });
+    expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 });
 

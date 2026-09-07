@@ -1,5 +1,6 @@
 import { and, eq, getTableColumns, or, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { liveRows } from './tombstone';
 import type { Db } from './types';
 
 /**
@@ -15,9 +16,11 @@ import type { Db } from './types';
  * M2g added the three other ways the flag legitimately moves, each of them §7 as well:
  * `flagAllRows` is §7.4's adoption ("every local row is marked dirty and pushed"),
  * `applyPulledRows` is §7.2's upsert (a row that came down is a row that does not have to go
- * up), and `countPendingRows` is what §7.4's wipe is gated on. They are here rather than
- * copied into three repositories for this file's whole reason: the rules are identical on all
- * four synced tables, and the copy that got one wrong would be the one nobody looked at.
+ * up), and `countPendingRows` is what §7.4's wipe is gated on. M3j added a fourth,
+ * `tombstoneAllRows` — §7.4's *start over*, which is a deletion that has to travel and is
+ * therefore a stamp and a flag like any other write. They are here rather than copied into
+ * three repositories for this file's whole reason: the rules are identical on all four synced
+ * tables, and the copy that got one wrong would be the one nobody looked at.
  *
  * **Every failure this file exists to prevent is silent.** A write that forgets the flag is a
  * row that never reaches the server and raises nothing, on one device, possibly for months. A
@@ -226,6 +229,57 @@ export async function flagAllRows(db: Db, table: PushableTable): Promise<string[
     .set({ dirty: true } as Record<string, unknown>)
     .returning({ id: table.id });
   return flagged.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
+}
+
+/**
+ * A synced table that also carries a tombstone — everything `PushableTable` is, plus the
+ * `deleted_at` §6 gives every synced table. Structural for `PushableTable`'s own reason: the
+ * one table this app has *without* a tombstone (`settings`, §6) is a compile error here rather
+ * than a sweep that silently matched nothing.
+ */
+export type TombstonableTable = PushableTable & { readonly deletedAt: SQLiteColumn };
+
+/**
+ * **Tombstones every live row of a table — DESIGN.md §7.4's *start over*, on one table.**
+ *
+ * §7.4: *"Start over must go through tombstones, not a server-side purge… A hard delete on the
+ * server leaves a second device holding rows it believes are unsynced — and its next push puts
+ * the whole logbook back. A tombstone is the only form of deletion §7 can carry to a device
+ * that was not there when it happened."* This is that deletion being written down; getting it
+ * to the server is `cloud/sync.ts`'s push and `cloud/localLogbook.ts`'s ordering.
+ *
+ * **It is `softDeleteDive` applied to a whole table, not a new rule**, and it is here beside
+ * `flagAllRows` for this file's stated reason: the three personal tables need exactly this and
+ * the copy that got one wrong would be the one nobody looked at. Each of the three keeps its
+ * own named wrapper, so `db/dives.ts` stays the only writer to dives (§4.1).
+ *
+ * Three things it does deliberately:
+ *
+ * · **The stamp is `stampLocalWrite`'s**, so `deleted_at`, `updated_at` and the flag are the
+ *   one fact this file exists to keep together. A tombstone written without the flag never
+ *   leaves the phone, and start over would then be a local hide that the next pull undoes.
+ * · **One stamp for the whole table**, taken once: every row of one start over carries the
+ *   same instant, which is what it is — one act.
+ * · **Only live rows** (`liveRows`, db/tombstone.ts). A row that is already tombstoned is
+ *   already deleted, and re-stamping it would advance `updated_at` on a row nothing changed —
+ *   which §6 forbids and §7's last-write-wins punishes, here by letting a start over beat the
+ *   diver's other phone's genuine edit of a dive they had both already deleted.
+ *
+ * Returns the ids it tombstoned, so a caller can report what it did rather than assume.
+ *
+ * It announces the write (`stampLocalWrite`) whether or not there turned out to be a row to
+ * take, which costs at most one sync cycle that finds nothing — and the alternative, a read
+ * before the write to decide whether to announce, is a second answer to "are there live rows"
+ * standing beside the `where` that already asks it.
+ */
+export async function tombstoneAllRows(db: Db, table: TombstonableTable): Promise<string[]> {
+  const stamp = stampLocalWrite();
+  const tombstoned = await db
+    .update(table)
+    .set({ deletedAt: stamp.updatedAt, ...stamp } as Record<string, unknown>)
+    .where(liveRows(table))
+    .returning({ id: table.id });
+  return tombstoned.flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
 }
 
 /**

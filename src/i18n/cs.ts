@@ -345,6 +345,40 @@ export const cs = {
       exportBusy: 'Připravuji…',
       exportFailed: 'Export se nepodařilo připravit, takže se nic nezapsalo. Zkuste to znovu.',
       exportUnavailable: 'Toto zařízení neumí sdílet soubor, takže není kam ho poslat.',
+
+      destructiveSection: 'Mazání',
+      destructiveNote:
+        'Nejdřív si deník vyexportujte — dva řádky nad tímto vám ho vydají. Ani jedno z toho nejde vzít zpět.',
+      startOver: 'Začít znovu',
+      startOverTitle: 'Začít znovu?',
+      startOverBody:
+        'Každý ponor, předvolba lahví i certifikace se smažou — tady, ve vašem účtu i ve vašich dalších zařízeních. Účet vám zůstane a zůstanou i lokality a centra, která jste přidali. Nejde to vzít zpět.',
+      startOverDone: 'Váš deník je prázdný — tady i ve vašem účtu.',
+      deleteAccount: 'Smazat účet',
+      deleteAccountTitle: 'Smazat váš účet?',
+      deleteAccountBody:
+        'Váš účet a všechno v něm — ponory, předvolby lahví, certifikace — se nenávratně smaže, ve všech zařízeních. Lokality a centra, která jste přidali, zůstanou v komunitním katalogu a nikdo je už nebude moct upravit, ani vy, pokud si založíte účet znovu. Nejde to vzít zpět.',
+      accountDeleted: 'Váš účet je smazaný a s ním i jeho deník.',
+      /** All four forms. *Lokalita* is feminine, so the verb and the relative pronoun move
+       * with the count as well as the noun — `account.adopted`'s own rule. */
+      accountDeletedSites_one:
+        'V komunitním katalogu zůstává {{count, figure}} lokalita, kterou jste přidali.',
+      accountDeletedSites_few:
+        'V komunitním katalogu zůstávají {{count, figure}} lokality, které jste přidali.',
+      accountDeletedSites_many:
+        'V komunitním katalogu zůstává {{count, figure}} lokality, které jste přidali.',
+      accountDeletedSites_other:
+        'V komunitním katalogu zůstává {{count, figure}} lokalit, které jste přidali.',
+      /** *Centrum* is neuter, and declines differently again. */
+      accountDeletedCentres_one:
+        'V komunitním katalogu zůstává {{count, figure}} centrum, které jste přidali.',
+      accountDeletedCentres_few:
+        'V komunitním katalogu zůstávají {{count, figure}} centra, která jste přidali.',
+      accountDeletedCentres_many:
+        'V komunitním katalogu zůstává {{count, figure}} centra, která jste přidali.',
+      accountDeletedCentres_other:
+        'V komunitním katalogu zůstává {{count, figure}} center, která jste přidali.',
+      destructiveBusy: 'Mažu…',
     },
 
     common: {
@@ -687,6 +721,17 @@ export const cs = {
       unpushedChanges:
         'Tento telefon má ponory, které váš účet ještě nedostal. Připojte se a zkuste to znovu — nic se nevymazalo a jste stále přihlášeni.',
       signOutFailed: 'Deník tohoto zařízení byl vymazán, ale odhlášení se nedokončilo. Zkuste to znovu.',
+      startOverUnavailable: 'Tento build neumí vyčistit zařízení, takže se nic nesmazalo.',
+      startOverUnpushed:
+        'V tomto zařízení smazáno. Váš účet zatím smazání nedostal — připojte se a odejde při příští synchronizaci.',
+      startOverFailed:
+        'Váš účet je prázdný, ale deník v tomto zařízení se nepodařilo vymazat. Zkuste to znovu.',
+      deleteAccountUnavailable:
+        'Tento build neumí vyčistit zařízení, takže se nesmazal ani váš účet.',
+      deleteAccountFailed:
+        'Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu, až budete online.',
+      accountDeletedDeviceKept:
+        'Váš účet je smazaný, ale deník v tomto zařízení se nepodařilo vymazat. Odstraněním aplikace ho smažete.',
     },
   },
 };

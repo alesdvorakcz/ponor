@@ -8,15 +8,15 @@ import { adoptGearPresets, wipeGearPresets } from '../db/gearPresets';
 import { forgetDivesBefore } from '../db/settings';
 import { forgetLastPulledAt } from '../db/syncState';
 import type { Db } from '../db/types';
-import { countUnsyncedRows, pushPendingRows } from './sync';
+import { countUnsyncedRows, pushPendingRows, tombstonePersonalRows } from './sync';
 import { cloud } from './supabase';
 import { syncEngine } from './syncEngine';
 
 /**
- * **The two things signing in and signing out do to the local database.**
+ * **What an account arriving and an account leaving do to the local database.**
  *
- * DESIGN.md §7.4 gives an account exactly two effects on the device, and this module is the
- * seam both reach the local logbook through:
+ * DESIGN.md §7.4 gives an account its effects on the device, and this module is the seam all of
+ * them reach the local logbook through:
  *
  * - **Adoption.** "On first sign-in, every local row is marked dirty and pushed... Nothing on
  *   the client changes at sign-in but the dirty flags." `adopt` is that flagging, and it
@@ -24,6 +24,14 @@ import { syncEngine } from './syncEngine';
  *   app say out loud afterwards ("4 dives from this phone were added to your logbook").
  * - **The wipe.** "Signing out wipes the local logbook... it is the one destructive action in
  *   v1." `wipe` is that erase, and it refuses to run on a device that still owes the server.
+ * - **Start over** (M3j). §7.4's second destructive act: "wipes this device **and the account's
+ *   data**, and the account survives". `startOver` is the tombstone-first sequence that makes
+ *   that reach a device which was not there — see its own docblock, where the ordering is the
+ *   whole of the design.
+ * - **The unconditional erase.** `erase` is the wipe with the gate taken off, and it exists for
+ *   exactly one caller: `deleteAccount` (cloud/auth.ts), where the rows the gate protects have
+ *   just been deleted server-side. Its docblock argues that the gate would be not merely
+ *   useless there but wrong.
  *
  * ## What this file is and is not allowed to do
  *
@@ -138,6 +146,17 @@ export type LocalLogbook =
        * is deliberately not ended either.
        */
       readonly wipe: () => Promise<WipeOutcome>;
+      /**
+       * §7.4's **start over**: tombstones this diver's own rows, sends the tombstones, checks
+       * that they arrived, and only then erases the device. Refuses in exactly the same shape
+       * the wipe does, and for a reason of its own — see the implementation.
+       */
+      readonly startOver: () => Promise<WipeOutcome>;
+      /**
+       * The erase with no gate on it, for the one caller whose rows are already gone from the
+       * server — `deleteAccount` (cloud/auth.ts). Rejects if the erase could not run.
+       */
+      readonly erase: () => Promise<void>;
     }
   | { readonly wired: false };
 
@@ -182,6 +201,63 @@ export interface LocalLogbookDeps {
  * the owner's project and **no round trip has ever been performed from this repository**.
  */
 export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
+  /**
+   * **The erase itself: every table §7.4 names, in one place, with no decision in it.**
+   *
+   * Extracted in M3j because three acts now end with it — sign-out, start over and account
+   * deletion — and it is the last step of all three. What differs between them is entirely
+   * *what has to be true before it runs*, and that is where each of the three keeps its own
+   * argument; a second copy of this list is a table that one act erases and another leaves on
+   * a phone, which is §4.1's defining defect on the one operation that destroys a logbook.
+   *
+   * §7.4's own account of what "the local logbook" is: "everything that came from an account
+   * goes, everything the diver set on this device stays" — `settings` survives except
+   * `dives_before`, and the module docblock above carries the reasoning for each table.
+   */
+  const eraseEverything = async (): Promise<void> => {
+    await wipeDives(deps.db);
+    await wipeGearPresets(deps.db);
+    await wipeCertifications(deps.db);
+    await wipeDiveSites(deps.db);
+    await wipeDiveCenters(deps.db);
+    await forgetLastPulledAt(deps.db);
+    await forgetDivesBefore(deps.db);
+  };
+
+  /**
+   * **Push, then look, then erase** — the sequence §7.4 gates the wipe with, shared by
+   * sign-out and by start over because it is one rule and the difference between them happens
+   * *before* it.
+   *
+   * The push is attempted and its failure is *ignored on purpose* — not swallowed, ignored,
+   * and the difference is that nothing is decided by it. What decides is the count that
+   * follows, read from the flags themselves: a push that threw leaves them set and the erase
+   * refuses; a push that was never possible (no backend, no signal) leaves them set and the
+   * erase refuses; a device with nothing pending answers zero however the push went, and there
+   * is nothing to lose. That is why a failed push is not an error here — treating it as one
+   * would refuse an erase that is provably safe.
+   *
+   * **Nothing is deleted before the count is taken**, which is the ordering that makes the
+   * rule mean anything: the check is only a check while there is still something to refuse.
+   */
+  const pushAndEraseIfNothingIsOwed = async (): Promise<WipeOutcome> => {
+    const client = deps.client();
+    if (client !== null) {
+      try {
+        await pushPendingRows(deps.db, client);
+      } catch {
+        // Deliberately not reported: the count below is what decides, and it is unaffected
+        // by why the push did not happen.
+      }
+    }
+
+    const pending = await countUnsyncedRows(deps.db);
+    if (pending > 0) return { done: false, pending };
+
+    await eraseEverything();
+    return { done: true };
+  };
+
   return {
     wired: true,
 
@@ -207,47 +283,107 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
     },
 
     /**
-     * §7.4's erase, gated on the rule this module's docblock states.
-     *
-     * **Push, then look, then erase.** The push is attempted and its failure is *ignored on
-     * purpose* — not swallowed, ignored, and the difference is that nothing is decided by it.
-     * What decides is the count that follows, read from the flags themselves: a push that
-     * threw leaves them set and the wipe refuses; a push that was never possible (no backend,
-     * no signal) leaves them set and the wipe refuses; a device with nothing pending answers
-     * zero however the push went, and there is nothing to lose. That is why a failed push is
-     * not an error here — treating it as one would refuse a wipe that is provably safe.
-     *
-     * **Nothing is deleted before the count is taken**, which is the ordering that makes the
-     * rule mean anything: the check is only a check while there is still something to refuse.
+     * §7.4's sign-out erase, gated on the rule this module's docblock states —
+     * `pushAndEraseIfNothingIsOwed` above is that rule and carries its reasoning.
      */
     wipe: () =>
       // Held for the whole of it — push, count and erase — rather than around the erase alone.
       // A cycle overlapping the *push* is the double-push `syncEngine.ts` exists to prevent,
       // and one overlapping the *count* would have the gate read flags a concurrent push was
       // in the middle of clearing. See `LocalLogbookDeps.exclusive`.
+      deps.exclusive(pushAndEraseIfNothingIsOwed),
+
+    /**
+     * **§7.4's start over, and the order of these four steps is the whole design.**
+     *
+     * > "**Start over must go through tombstones, not a server-side purge**… A hard delete on
+     * > the server leaves a second device holding rows it believes are unsynced — and its next
+     * > push **puts the whole logbook back**. A tombstone is the only form of deletion §7 can
+     * > carry to a device that was not there when it happened."
+     *
+     * So: **tombstone, push, confirm nothing is still owed, erase.**
+     *
+     * **The erase cannot come first, and that is not a preference.** It is a hard delete
+     * (`db/wipe.ts`), so running it before the tombstones have gone up destroys the very rows
+     * that carry the deletion — leaving the account holding a full logbook that the next pull
+     * hands straight back to this phone, and to every other one. The diver would have watched
+     * their logbook be deleted and then return.
+     *
+     * **The gate is `wipe`'s own, unchanged, and it means something different here.** For
+     * sign-out it asks *has the account received everything, because the dialog promised it
+     * comes back*. Here it asks *has the account received the deletions*, which is the same
+     * question about the same flags — the tombstones are ordinary dirty rows, and
+     * `countUnsyncedRows` counts them for free. That is why this is one shared step and not a
+     * second check written to look like the first.
+     *
+     * **What a refusal leaves behind is deliberate.** The tombstones stay: written, flagged,
+     * and invisible to every read (`liveRows`, §4.1). That is not a half-finished erase, it is
+     * the deletion recorded durably and waiting for a signal — §7.2's "a tombstone is applied,
+     * not deleted… deleting it would throw away the fact of the deletion". A diver who starts
+     * over on a boat gets exactly what they asked for on this device and the account catches up
+     * on the next cycle; undoing the tombstones instead would be the app second-guessing an act
+     * it had already asked them to confirm. What is deferred is the *hard* delete, which is the
+     * only step that could lose the deletion.
+     *
+     * **Community rows are not tombstoned** (§7.4, §5) — `tombstonePersonalRows` (cloud/sync.ts)
+     * owns that exclusion and is required to state it per table. They are still *pushed* by the
+     * step below and still counted by the gate, which is right: a site created on the boat and
+     * never sent is a row the erase would destroy, exactly as it is for sign-out.
+     *
+     * **It does not touch the session**, because §7.4's table says the account survives. The
+     * device is left signed in and empty, which is what a second device that had never logged
+     * anything looks like — and the next pull refills its catalogue.
+     *
+     * ── Two consequences, stated rather than left to be discovered ────────────────────────
+     *
+     * **The tombstones come back on the next pull, and that is correct rather than a leak.**
+     * The erase clears the watermark, so the next cycle asks for everything and the server
+     * returns the rows this act has just deleted — as tombstones, clean, hidden by `liveRows`
+     * from every read, and never pushed again. It is exactly what a second device that was not
+     * here receives (§7.2: "a tombstone is applied, not deleted"), so the device that *did* the
+     * start over ends up in the same state as the ones that only heard about it. The only cost
+     * is rows.
+     *
+     * **`dives_before` goes and the account's `profiles` row does not.** The erase takes the
+     * local count with everything else, which is right for an act that empties a logbook — §2.5
+     * numbers dives from it. The server's copy is untouched, and nothing in §7 pushes or pulls
+     * `profiles` at all (`SYNCED_TABLES`, cloud/sync.ts), so there is nothing here that could
+     * have gone stale against it. If a profile ever joins the protocol, this act joins the list
+     * of things that has to have an opinion about it.
+     */
+    startOver: () =>
+      // The same lock, for the same reasons, and one more: a cycle landing between the
+      // tombstones and the push would push them itself and clear their flags against a clock
+      // this call is about to compare — the gate would then read zero for work it did not
+      // watch happen.
       deps.exclusive(async () => {
-        const client = deps.client();
-        if (client !== null) {
-          try {
-            await pushPendingRows(deps.db, client);
-          } catch {
-            // Deliberately not reported: the count below is what decides, and it is unaffected
-            // by why the push did not happen.
-          }
-        }
-
-        const pending = await countUnsyncedRows(deps.db);
-        if (pending > 0) return { done: false, pending };
-
-        await wipeDives(deps.db);
-        await wipeGearPresets(deps.db);
-        await wipeCertifications(deps.db);
-        await wipeDiveSites(deps.db);
-        await wipeDiveCenters(deps.db);
-        await forgetLastPulledAt(deps.db);
-        await forgetDivesBefore(deps.db);
-        return { done: true };
+        await tombstonePersonalRows(deps.db);
+        return pushAndEraseIfNothingIsOwed();
       }),
+
+    /**
+     * **The erase with the gate taken off, for the one act where the gate would be wrong.**
+     *
+     * `deleteAccount` (cloud/auth.ts) calls this after `delete_account` has returned. Every
+     * argument the gate rests on has been inverted by that call:
+     *
+     * · **There is nothing to push to.** The rows the push would send belong to a `user_id`
+     *   that no longer exists, and the JWT in hand outlives the account only until it expires.
+     *   The push would fail; the count would then be non-zero; the erase would refuse — and a
+     *   deleted account would leave a full logbook sitting on the phone, which is the one
+     *   outcome §7.4 calls "the only way a second account could ever see them".
+     * · **The promise the gate protects is not being made.** Sign-out's dialog says the logbook
+     *   comes back on the next sign-in, and the gate is what makes that true. Deletion's dialog
+     *   says the opposite, out loud: there is no next sign-in.
+     * · **Pushing first would be worse than useless.** It would upload a diver's whole logbook
+     *   to a server that has already destroyed it, on the one screen where a delay stands in
+     *   front of an act with no way back.
+     *
+     * It is not a shortcut around the rule; it is the rule not applying. Kept as its own name
+     * rather than as a flag on `wipe`, so a caller cannot reach the ungated erase by passing an
+     * argument and no caller can acquire it by accident.
+     */
+    erase: () => deps.exclusive(eraseEverything),
   };
 }
 

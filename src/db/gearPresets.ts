@@ -12,6 +12,7 @@ import {
   flagAllRows,
   pendingRows,
   stampLocalWrite,
+  tombstoneAllRows,
   type PushedRow,
 } from './dirty';
 import { gearPresets } from './schema';
@@ -355,6 +356,15 @@ export async function applyPulledGearPresets(
  */
 export async function adoptGearPresets(db: Db): Promise<void> {
   await flagAllRows(db, gearPresets);
+}
+
+/**
+ * §7.4's **start over**, for presets — `tombstoneAllRows` (db/dirty.ts) is the rule, and
+ * `tombstoneAllDives` (db/dives.ts) carries why a tombstone and not the hard delete two
+ * functions down.
+ */
+export async function tombstoneAllGearPresets(db: Db): Promise<string[]> {
+  return tombstoneAllRows(db, gearPresets);
 }
 
 /** §7.4's sign-out erase, for presets — `wipeDives` (db/dives.ts) carries the reasoning,

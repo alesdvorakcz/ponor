@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
@@ -6,7 +6,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
+import {
+  deleteAccount,
+  startOver,
+  type DeleteAccountOutcome,
+  type StartOverOutcome,
+} from '../cloud/auth';
 import { currentUserId } from '../cloud/currentUser';
+import { localLogbook } from '../cloud/localLogbook';
+import { cloud } from '../cloud/supabase';
+import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
 import { parseDiveCount, setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
@@ -37,6 +46,7 @@ import {
   type TranslationKey,
 } from '../i18n';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
+import { confirmDestructive } from '../platform/confirmDestructive';
 import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
 import { shareTextFile } from '../platform/shareFile';
 import { certificationsUnreadable } from './CertificationScreen';
@@ -49,6 +59,61 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
 function saveFailed(): string {
   return t('settings.saveFailed');
 }
+
+/**
+ * **What a diver reads before §7.4's other two destructive acts** — held as functions rather
+ * than inline for `signOutTitle`/`signOutBody`'s own reason (AccountScreen.tsx): a test asserts
+ * on the same strings the diver reads, rather than on a substring somebody retyped.
+ *
+ * Each body says **what goes, what stays, and that there is no way back**, in that order.
+ * `account.signOutBody` established the shape and the reason — loss first, reassurance second,
+ * "because a diver who reads only the first sentence must not be reassured out of noticing it"
+ * — and these two have less to reassure with: a start over keeps the account and nothing else,
+ * and a deletion keeps nothing at all.
+ *
+ * **The deletion body states §5's permanence out loud**: the sites a departed diver contributed
+ * "become editable by nobody through the app — including the same person signing up again". It
+ * is the surprising half, it is irreversible by anyone, and afterwards there is no account left
+ * to be told it in.
+ */
+export function startOverTitle(): string {
+  return t('settings.startOverTitle');
+}
+export function startOverBody(): string {
+  return t('settings.startOverBody');
+}
+export function deleteAccountTitle(): string {
+  return t('settings.deleteAccountTitle');
+}
+export function deleteAccountBody(): string {
+  return t('settings.deleteAccountBody');
+}
+
+/**
+ * **What is said to a diver who no longer has an account**, from the two counts
+ * `delete_account` returns.
+ *
+ * §7.4's adoption sentence is the shape: a statement about what already happened, in the past
+ * tense, with nothing to dismiss and nothing gated behind it. And it is the same rule about
+ * nought — a count of zero is a true sentence about nothing, so the line is **absent** rather
+ * than reading "0 dive sites you added stay in the community catalogue".
+ *
+ * **Three sentences rather than one**, because Czech governs both nouns from their own counts
+ * (§0.5, and `account.adopted`'s note): *lokalita* is feminine and *centrum* is neuter, so one
+ * interpolated sentence would need one plural rule to serve two declensions. i18next picks each
+ * form, so nothing here compares a count with 1.
+ */
+export function accountDeletedSentences(sitesKept: number, centresKept: number): string[] {
+  const said = [t('settings.accountDeleted')];
+  if (sitesKept > 0) said.push(t('settings.accountDeletedSites', { count: sitesKept }));
+  if (centresKept > 0) said.push(t('settings.accountDeletedCentres', { count: centresKept }));
+  return said;
+}
+
+/** Which of the two acts is running, or `null` for neither — one value rather than a boolean
+ * each, for `ExportKind`'s own reason one section up: two of these at once is not a state this
+ * screen has, and they touch the same rows. */
+type DestructiveAct = 'startOver' | 'deleteAccount';
 
 /**
  * The two things that stand where the preset rows would be, and they are different sentences
@@ -310,8 +375,10 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * bundled into the app.
  *
  * **Two settings, one list, one report and one destination, and §3 lists more on purpose.**
- * The certification wallet, data export and delete-account all belong to M3. §3's **account &
- * sync** arrived in M2e as the last item below — a row that opens `/account` and writes
+ * The certification wallet, data export and delete-account all belong to M3, and all three have
+ * now landed — the last of them bringing §7.4's *start over* with it, since the two acts are
+ * one decision and §3's own ordering (export, then deletion) is what makes offering them here
+ * right. §3's **account & sync** arrived in M2e as the last item below — a row that opens `/account` and writes
  * nothing itself, which is this screen's second navigation row and the only route into the
  * account screen at all. §3's **location access** arrived in M2m, between the two: it writes
  * nothing either, and what it opens is not a screen of ours but the device's own Settings app,
@@ -638,6 +705,119 @@ export default function SettingsScreen() {
    * puts *Preparing…* in the row, and a second press while one is in flight is ignored rather
    * than queued — an export is idempotent and re-pressing it buys nothing but two share sheets.
    */
+  /**
+   * §7.4's other two destructive acts (M3j), and **the whole block is gated on there being an
+   * account** — see the JSX below for why "nothing" is the answer for a guest.
+   *
+   * **This screen now reads the session, which reverses a decision it recorded** (M2e: "it says
+   * nothing about who is signed in, which is a decision and not a gap"). That decision was
+   * about a *row displaying* who is signed in, and its cost argument — a second live read on a
+   * screen opened at every launch — is what this weighs against: `useAuthSession` is still the
+   * one owner of the answer (§4.1 is about a second *implementation*, not a second caller), and
+   * the alternative is drawing *Delete account* to a diver who has none, which is the dead
+   * affordance §10 has an entry about. §7.5's pending indicator is the precedent: it "appears
+   * only when signed in", for the same shape of reason.
+   */
+  const { session, resolved: sessionResolved } = useAuthSession();
+  // Narrowed once here rather than inside each handler, exactly as `AccountScreen` does with
+  // the same union: `cloud` is a module constant and the discriminated union is what makes
+  // `client` reachable at all (cloud/supabase.ts).
+  const destructiveClient = cloud.configured ? cloud.client : null;
+  const [destructiveAct, setDestructiveAct] = useState<DestructiveAct | null>(null);
+  /**
+   * What the last one of them did, as the lines a diver reads — **held outside the signed-in
+   * branch on purpose**.
+   *
+   * A successful deletion ends the session, which unmounts the controls; a notice rendered
+   * beside them would vanish in the same frame that produced it. It is the mirror of the bug
+   * `AccountScreen` records about §7.4's adoption sentence, where the count had to survive the
+   * re-render the arriving session caused.
+   */
+  const [destructiveNotice, setDestructiveNotice] = useState<string[] | null>(null);
+  /**
+   * §10's in-flight guard, in the half that enforces anything (`AccountScreen`, and
+   * `GearPresetScreen` before it): the ref is written and read synchronously, so the second
+   * call of a double-confirm is turned away before it reaches the network, where
+   * `destructiveAct` is a render flag that by definition lags a render behind. It matters more
+   * here than anywhere else in the app — the second call of a doubled *Delete account* is a
+   * second `delete_account` against an account that no longer exists.
+   */
+  const destructiveRef = useRef(false);
+
+  /**
+   * Runs one of the two acts, and **reports its own outcome in every case**.
+   *
+   * §1: "never block", and every one of these has an offline case — a start over whose
+   * tombstones could not be sent, a deletion that could not reach the server at all. **Refusing
+   * is correct and silence is not** (M2e's sign-out refusal is the precedent), so both arms of
+   * both outcomes end in a sentence on this screen and neither ends in a dialog: §0.6 puts what
+   * went wrong in text, under the rows it belongs to.
+   *
+   * Neither act is retried, queued or hidden behind a spinner that outlives it. The one thing
+   * this function decides is the *sentence*; the sequences themselves are `cloud/auth.ts`'s,
+   * which is where their ordering arguments live.
+   */
+  const runDestructive = (act: DestructiveAct, run: () => Promise<string[]>) => {
+    if (destructiveRef.current) return;
+    destructiveRef.current = true;
+    setDestructiveAct(act);
+    // Cleared at the START of the attempt, never on a timer — the rule the location row and
+    // the export rows above both follow, so a sentence reads as "still true" for exactly as
+    // long as it still is.
+    setDestructiveNotice(null);
+    void (async () => {
+      try {
+        setDestructiveNotice(await run());
+      } finally {
+        // Released on both paths, so a refusal leaves controls a diver can press again rather
+        // than ones that silently stopped working.
+        destructiveRef.current = false;
+        setDestructiveAct(null);
+      }
+    })();
+  };
+
+  const runStartOver = () =>
+    runDestructive('startOver', async () => {
+      const outcome: StartOverOutcome = await startOver(localLogbook);
+      return [outcome.ok ? t('settings.startOverDone') : outcome.message];
+    });
+
+  const runDeleteAccount = (client: NonNullable<typeof destructiveClient>) =>
+    runDestructive('deleteAccount', async () => {
+      const outcome: DeleteAccountOutcome = await deleteAccount(client, localLogbook);
+      return outcome.kind === 'deleted'
+        ? accountDeletedSentences(outcome.sitesKept, outcome.centresKept)
+        : [outcome.message];
+    });
+
+  /**
+   * The two confirmations, drawn by the platform and not by this app (§10: "a destructive
+   * confirmation is OS chrome; the app's own control stays muted"). §0.1 reserves colour for
+   * depth, so there is nothing here to make a destructive control look destructive — the weight
+   * goes into a dialog this app does not draw, and `platform/confirmDestructive.ts` owns which
+   * one, native and browser alike.
+   */
+  const confirmStartOver = () => {
+    confirmDestructive({
+      title: startOverTitle(),
+      body: startOverBody(),
+      confirmLabel: t('settings.startOver'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: runStartOver,
+    });
+  };
+
+  const confirmDeleteAccount = (client: NonNullable<typeof destructiveClient>) => {
+    confirmDestructive({
+      title: deleteAccountTitle(),
+      body: deleteAccountBody(),
+      confirmLabel: t('settings.deleteAccount'),
+      cancelLabel: t('common.cancel'),
+      onConfirm: () => runDeleteAccount(client),
+    });
+  };
+
   const runExport = (kind: ExportKind) => {
     if (exporting !== null) return;
     setExporting(kind);
@@ -917,7 +1097,7 @@ export default function SettingsScreen() {
         </Pressable>
 
         {/* §3's **data export**, in the place §3 lists it: after account & sync, and before
-            the delete-account row that is not built yet.
+            the two destructive acts below (M3j).
 
             **It lands before account deletion deliberately** — an app must never be able to
             destroy a diver's data before it can hand them a copy.
@@ -964,6 +1144,92 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+
+        {/* §7.4's other two destructive acts (M3j), in the place §3 lists the second of them:
+            "account & sync, data export (CSV + JSON), **delete account**", in that order. The
+            adjacency is the point rather than the layout — §8 pairs Art. 20 with Art. 17 in one
+            sentence, and this is the app never being able to destroy a diver's logbook on a
+            screen that cannot also hand them a copy. The two export rows are the section
+            directly above, which is what makes *"export your logbook first"* a thing a diver
+            can act on rather than a reference to somewhere else.
+
+            **This is the end of the content, where §0.6 puts a deliberate act** — "where it
+            takes a reach". Nothing follows it.
+
+            ── A guest gets nothing here, and that is the answer rather than a gap ───────────
+
+            Neither act exists without an account: there is no account to start over on, and
+            none to delete. What a guest *could* have been offered is a bulk erase of the local
+            logbook, and it is refused on three grounds. §7.4 has already ruled out the third
+            act for a diver who has one — "a local-only clear that keeps the account is a no-op
+            with extra steps" — and for a guest the same control is the opposite extreme: the
+            logbook exists **nowhere else**, so it would be the one act in this app with no undo
+            of any kind. §7.4's whole gate is built to never destroy rows the server has not
+            got, and for a guest *every* row is such a row, so the rule applied honestly refuses
+            always — a control that can only ever refuse is the dead affordance §10 has an entry
+            about. And the diver is not without a way: dives delete one at a time already, and
+            since M3i they can take a copy first from the rows above.
+
+            **The rows wait for the session read** (`sessionResolved`), which is M1f's rule as
+            `AccountScreen` and `DiveDetailScreen` both apply it: a screen must not answer "you
+            are not signed in" before anything has looked. Here the cost of getting it wrong is
+            a section that appears a frame late rather than one that lies, and it is still the
+            same rule.
+
+            **The notice outlives the rows deliberately** — a successful deletion ends the
+            session, so the block that reported it would otherwise unmount in the same frame. */}
+        {(destructiveNotice !== null ||
+          (sessionResolved && session !== null && destructiveClient !== null)) && (
+          <View>
+            <Text style={styles.settingsSectionTitle}>{t('settings.destructiveSection')}</Text>
+            {sessionResolved && session !== null && destructiveClient !== null && (
+              <>
+                <Pressable
+                  style={styles.formField}
+                  onPress={confirmStartOver}
+                  disabled={destructiveAct !== null}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('settings.startOver')}
+                  accessibilityState={{ disabled: destructiveAct !== null }}
+                >
+                  <View style={styles.formFieldRow}>
+                    <Text style={styles.settingsDestructiveLabel}>{t('settings.startOver')}</Text>
+                    {/* Only the act that is running says so — the export rows' own rule: a busy
+                        mark on both would claim the app is doing two things. */}
+                    {destructiveAct === 'startOver' && (
+                      <Text style={styles.settingsDestructiveBusy}>{t('settings.destructiveBusy')}</Text>
+                    )}
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={styles.formField}
+                  onPress={() => confirmDeleteAccount(destructiveClient)}
+                  disabled={destructiveAct !== null}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('settings.deleteAccount')}
+                  accessibilityState={{ disabled: destructiveAct !== null }}
+                >
+                  <View style={styles.formFieldRow}>
+                    <Text style={styles.settingsDestructiveLabel}>{t('settings.deleteAccount')}</Text>
+                    {destructiveAct === 'deleteAccount' && (
+                      <Text style={styles.settingsDestructiveBusy}>{t('settings.destructiveBusy')}</Text>
+                    )}
+                  </View>
+                </Pressable>
+              </>
+            )}
+            <View style={styles.settingsCaption}>
+              {sessionResolved && session !== null && destructiveClient !== null && (
+                <Text style={styles.settingsCaptionText}>{t('settings.destructiveNote')}</Text>
+              )}
+              {destructiveNotice?.map((line) => (
+                <Text key={line} style={styles.settingsCaptionText}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );

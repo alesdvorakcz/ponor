@@ -194,8 +194,15 @@ function noBackendMessage(): string {
  * mandatory once Google is offered). No password reset — it needs the `ponor://` deep link
  * handled, which is its own task, and this screen says nothing about recovery in either
  * direction: a link that cannot work is the dead affordance §10 has an entry about, and a line
- * claiming recovery is impossible would be false. No `delete_account` (§8 requires in-app
- * deletion and it is a later task).
+ * claiming recovery is impossible would be false.
+ *
+ * **And no *start over* and no *delete account*, which is a placement rather than a gap**
+ * (M3j). §7.4 groups all three destructive acts in one table and this screen holds only the
+ * first of them, because §3 puts the other two on Settings — "account & sync, data export
+ * (CSV + JSON), delete account", in that order, and that adjacency is §8 pairing Art. 20 with
+ * Art. 17. A screen that can erase a diver's logbook should be the screen that can hand them a
+ * copy of it, and the export rows are M3i's, on Settings. Sign-out stays here because it is
+ * the session's own control and it destroys nothing that is not on the server.
  */
 export default function AccountScreen() {
   // The subscription that repaints this screen when the diver changes the language (src/i18n) —

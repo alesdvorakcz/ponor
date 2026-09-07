@@ -13,10 +13,20 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
-import { AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import {
+  accountDeletedDeviceKept,
+  deleteAccount,
+  startOver,
+  startOverUnpushed,
+  type DeleteAccountOutcome,
+  type StartOverOutcome,
+} from '../cloud/auth';
 import { currentUserId } from '../cloud/currentUser';
+import { localLogbook } from '../cloud/localLogbook';
+import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
 import { setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
@@ -41,7 +51,12 @@ import {
 import { shareTextFile } from '../platform/shareFile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset } from '../theme/styles';
-import SettingsScreen from './SettingsScreen';
+import SettingsScreen, {
+  deleteAccountBody,
+  deleteAccountTitle,
+  startOverBody,
+  startOverTitle,
+} from './SettingsScreen';
 
 // The two live reads, mocked per module exactly as DivesScreen.test.tsx mocks `useDives` and
 // `useUnitSystem`, and for the same reason: they are database reads, and this screen must be
@@ -118,6 +133,25 @@ jest.mock('expo-linking', () => ({ ...jest.requireActual('expo-linking'), openSe
 jest.mock('../db/exportSource', () => ({ readExportSource: jest.fn() }));
 jest.mock('../cloud/currentUser', () => ({ currentUserId: jest.fn() }));
 jest.mock('../platform/shareFile', () => ({ shareTextFile: jest.fn() }));
+/**
+ * §7.4's other two destructive acts (M3j).
+ *
+ * **The two sequences are faked and every sentence is real** — `jest.requireActual` keeps the
+ * module, so what is asserted below are the strings a diver reads rather than substrings
+ * somebody retyped, and only the two functions that would reach a network (and, in one case,
+ * really delete an account) are replaced. `AccountScreen.test.tsx` states the rule; here it is
+ * load-bearing rather than tidy, because the real `deleteAccount` erases a database.
+ *
+ * **No account has ever been deleted from this repository.** There are no credentials for the
+ * owner's project in this tree and none were sought; what the real sequences do is
+ * `cloud/auth.test.ts`'s and `cloud/localLogbook.test.ts`'s question, against a fake server.
+ */
+jest.mock('../cloud/auth', () => ({
+  ...jest.requireActual('../cloud/auth'),
+  startOver: jest.fn(),
+  deleteAccount: jest.fn(),
+}));
+jest.mock('../cloud/useAuthSession', () => ({ useAuthSession: jest.fn() }));
 
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
 const mockUseDivesBefore = useDivesBefore as jest.Mock;
@@ -134,6 +168,60 @@ const mockOpenSettings = Linking.openSettings as jest.Mock;
 const mockReadExportSource = readExportSource as jest.Mock;
 const mockCurrentUserId = currentUserId as jest.Mock;
 const mockShareTextFile = shareTextFile as jest.Mock;
+const mockStartOver = startOver as unknown as jest.Mock;
+const mockDeleteAccount = deleteAccount as unknown as jest.Mock;
+const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
+
+/**
+ * `../cloud/supabase` behind a getter, so each test decides what this build's one `cloud` looks
+ * like — `AccountScreen.test.tsx`'s own shape, and for its stated reason: a plain object in the
+ * factory is read once at import and pins every test to one branch.
+ */
+let mockCloud: unknown = { configured: true, client: { itIsTheFakeClient: true } };
+jest.mock('../cloud/supabase', () => ({
+  get cloud() {
+    return mockCloud;
+  },
+}));
+
+const CLIENT = { itIsTheFakeClient: true };
+const SESSION = { access_token: 'fake', user: { id: 'u1', email: 'ales@example.com' } };
+
+/**
+ * The platform's own destructive dialog, spied rather than mocked away — the same check
+ * `AccountScreen.test.tsx` and `DiveDetailScreen.test.tsx` make, and what keeps
+ * `platform/confirmDestructive.ts` in the path instead of being replaced by a stub that would
+ * agree with the screen by construction.
+ *
+ * **Re-installed per test rather than once at module scope**, because this file's `afterEach`
+ * calls `jest.restoreAllMocks()` — a module-scope spy would be restored after the first case
+ * and every later one would read an empty call list off a spy that was no longer installed,
+ * which is a green assertion about nothing.
+ */
+let alertSpy: jest.SpyInstance;
+
+/** The one live session read this screen makes. `mockImplementation`, never
+ * `mockReturnValue` — this file's own discipline, and the session genuinely arrives late. */
+function stubSession({
+  session = SESSION as unknown,
+  resolved = true,
+}: { session?: unknown; resolved?: boolean } = {}) {
+  mockUseAuthSession.mockImplementation(() => ({ session, resolved }));
+}
+
+/** The buttons the platform Alert was actually asked to show — read off the spy, exactly as
+ * `AccountScreen.test.tsx` reads its own. */
+function alertButtons(): { text?: string; style?: string; onPress?: () => void }[] {
+  return (alertSpy.mock.calls[0]?.[2] ?? []) as { text?: string; style?: string; onPress?: () => void }[];
+}
+
+/** Answers the dialog the way a diver does. */
+async function confirmTheDialog() {
+  const destructive = alertButtons().find((button) => button.style === 'destructive');
+  await act(async () => {
+    destructive?.onPress?.();
+  });
+}
 
 let presetSeq = 0;
 /** A `GearPreset` with only the fields a case cares about. Ids come from a counter for the
@@ -268,6 +356,15 @@ beforeEach(() => {
   mockCurrentUserId.mockImplementation(() => Promise.resolve(null));
   mockReadExportSource.mockImplementation(() => Promise.resolve(exportSource()));
   mockShareTextFile.mockImplementation(() => Promise.resolve('shared'));
+  alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  mockCloud = { configured: true, client: CLIENT };
+  // Signed out by default, which is the state most of this file is about — the destructive
+  // section is the only thing on this screen that depends on there being an account.
+  stubSession({ session: null });
+  mockStartOver.mockImplementation(async (): Promise<StartOverOutcome> => ({ ok: true }));
+  mockDeleteAccount.mockImplementation(
+    async (): Promise<DeleteAccountOutcome> => ({ kind: 'deleted', sitesKept: 0, centresKept: 0 }),
+  );
   appStateHandlers = [];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((event, handler) => {
     if (event === 'change') appStateHandlers.push(handler as (state: AppStateStatus) => void);
@@ -291,6 +388,9 @@ afterEach(() => {
   mockCurrentUserId.mockReset();
   mockReadExportSource.mockReset();
   mockShareTextFile.mockReset();
+  mockStartOver.mockReset();
+  mockDeleteAccount.mockReset();
+  mockUseAuthSession.mockReset();
   // Spies only — `jest.spyOn`'s `AppState` stub above. The module mocks are not spies and are
   // reset by name, as this file has always done.
   jest.restoreAllMocks();
@@ -1759,5 +1859,419 @@ describe('data export', () => {
       release?.();
     });
     expect(textIn(t)).not.toContain('Preparing…');
+  });
+});
+
+
+// ---------------------------------------------------------------------------------------
+// §7.4's other two destructive acts (M3j)
+// ---------------------------------------------------------------------------------------
+
+/** Every control on the screen, in the order it draws them — which is what the placement
+ * claims below are about, and the only part of a layout that lives in a Jest tree. */
+function controlLabels(t: RenderResult): string[] {
+  return (t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : []).map((n) =>
+    String(n.props?.accessibilityLabel ?? ''),
+  );
+}
+
+function findRow(t: RenderResult, label: string) {
+  const [node] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === label) : [];
+  return node;
+}
+
+async function pressRow(t: RenderResult, label: string) {
+  const node = findRow(t, label);
+  if (!node) throw new Error(`SettingsScreen rendered no "${label}" row (has: ${controlLabels(t).join(', ')})`);
+  await act(async () => {
+    fireEvent.press(node);
+  });
+}
+
+describe('start over and delete account', () => {
+  describe('who sees them', () => {
+    /**
+     * **§5 of the brief, decided: a guest gets nothing.**
+     *
+     * Neither act exists without an account — there is none to start over on and none to
+     * delete. The one thing a guest *could* have been offered is a bulk erase of the local
+     * logbook, and §7.4 has already ruled the same control out for a diver who has an account
+     * ("a no-op with extra steps"); for a guest it is the opposite extreme, the one act in this
+     * app with no undo of any kind, because the logbook exists nowhere else. §7.4's gate is
+     * built never to destroy rows the server has not got, and for a guest *every* row is one,
+     * so the rule applied honestly refuses always — a control that can only ever refuse is the
+     * dead affordance §10 has an entry about.
+     */
+    it('offers a guest neither of them', async () => {
+      stubSettings();
+      stubSession({ session: null });
+
+      const t = await render(<SettingsScreen />);
+
+      expect(controlLabels(t)).not.toContain('Start over');
+      expect(controlLabels(t)).not.toContain('Delete account');
+      // …and the section itself is absent, not an empty heading.
+      expect(textIn(t)).not.toContain('Delete');
+    });
+
+    /** M1f's rule, which `AccountScreen` and `DiveDetailScreen` both keep: a screen must not
+     * answer before anything has looked. */
+    it('draws nothing before the session read has answered', async () => {
+      stubSettings();
+      stubSession({ session: null, resolved: false });
+
+      const t = await render(<SettingsScreen />);
+
+      expect(controlLabels(t)).not.toContain('Delete account');
+    });
+
+    it('offers both to a diver who has an account', async () => {
+      stubSettings();
+      stubSession();
+
+      const t = await render(<SettingsScreen />);
+
+      expect(controlLabels(t)).toContain('Start over');
+      expect(controlLabels(t)).toContain('Delete account');
+    });
+
+    /**
+     * **The export rows come first, and that is §8 rather than layout** — "full data export any
+     * time (GDPR Art. 20)" and "in-app account deletion" are one sentence in that section, and
+     * this app must never be able to destroy a diver's logbook on a screen that cannot also
+     * hand them a copy of it. §3 lists them in this order for the same reason.
+     *
+     * Asserted on the order of the controls, because that order IS the claim.
+     */
+    it('draws them after the two export rows, never before', async () => {
+      stubSettings();
+      stubSession();
+
+      const t = await render(<SettingsScreen />);
+      const labels = controlLabels(t);
+
+      expect(labels.indexOf('Start over')).toBeGreaterThan(labels.indexOf('Export as JSON'));
+      expect(labels.indexOf('Delete account')).toBeGreaterThan(labels.indexOf('Export as JSON'));
+      expect(labels.indexOf('Delete account')).toBeGreaterThan(labels.indexOf('Start over'));
+      // Floored: an extractor that found nothing would satisfy every comparison above with -1.
+      expect(labels.indexOf('Export as JSON')).toBeGreaterThan(-1);
+      // And the sentence that makes the adjacency usable rather than incidental.
+      expect(textIn(t).join(' ')).toContain('Export your logbook first');
+    });
+
+    /** §10: "a destructive confirmation is OS chrome; the app's own control stays muted." §0.1
+     * reserves colour for depth, so both rows wear the same muted label *Delete dive* does, and
+     * neither is the screen's primary treatment. */
+    it('keeps both rows muted controls rather than anything louder', async () => {
+      stubSettings();
+      stubSession();
+
+      const t = await render(<SettingsScreen />);
+
+      const styles = makeStyles('light');
+      for (const label of ['Start over', 'Delete account']) {
+        const [text] = findRow(t, label)?.queryAll((n) => n.type === 'Text') ?? [];
+        expect(`${label}: ${String(text?.props?.style === styles.settingsDestructiveLabel)}`).toBe(
+          `${label}: true`,
+        );
+      }
+    });
+  });
+
+  describe('starting over', () => {
+    /** §10's rule, and §7.4's requirement that the app say what it is about to do. */
+    it('asks through the platform’s own dialog, and says what goes, what stays and that there is no way back', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Start over');
+
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(alertSpy.mock.calls[0]?.[0]).toBe(startOverTitle());
+      expect(alertSpy.mock.calls[0]?.[1]).toBe(startOverBody());
+      // The three claims separately, because a rewording that kept the words and dropped one of
+      // them is exactly the drift this is for.
+      expect(startOverBody()).toContain('in your account');
+      expect(startOverBody()).toContain('Your account stays');
+      expect(startOverBody()).toContain('dive sites and centres you added');
+      expect(startOverBody()).toContain('can’t be undone');
+      expect(alertButtons().map((button) => button.style)).toEqual(['cancel', 'destructive']);
+    });
+
+    it('does nothing at all until the diver answers the dialog', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Start over');
+
+      expect(mockStartOver).not.toHaveBeenCalled();
+    });
+
+    /** By identity on the seam, for the reason `AccountScreen.test.tsx` records at length: a
+     * structural comparison is satisfied by a copy of the seam, and a copy is precisely the
+     * defect `cloud/localLogbook.ts` exists to name. */
+    it('runs the act through the app’s own seam once confirmed', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Start over');
+
+      await confirmTheDialog();
+
+      expect(mockStartOver).toHaveBeenCalledTimes(1);
+      expect(mockStartOver.mock.calls[0]?.[0]).toBe(localLogbook);
+      expect(mockDeleteAccount).not.toHaveBeenCalled();
+    });
+
+    it('says so afterwards', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Start over');
+
+      await confirmTheDialog();
+
+      expect(textIn(t)).toContain('Your logbook is empty, here and in your account.');
+    });
+
+    /**
+     * §1's "never block" has an offline case here, and **refusing is correct while silence is
+     * not** (M2e's sign-out refusal is the precedent). The sentence is the module's own, so
+     * this cannot drift into asserting the screen's idea of it.
+     */
+    it('says why when the tombstones could not be delivered', async () => {
+      stubSettings();
+      stubSession();
+      mockStartOver.mockImplementation(
+        async (): Promise<StartOverOutcome> => ({ ok: false, message: startOverUnpushed() }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Start over');
+
+      await confirmTheDialog();
+
+      expect(textIn(t)).toContain(startOverUnpushed());
+    });
+
+    /**
+     * §10's in-flight guard, in the half that enforces anything. Written as two calls to the
+     * dialog's own callback rather than as two presses, because a press cannot reach it — the
+     * dialog is gone and the row is disabled by then, which makes this the only way the ref on
+     * this path is defended at all (`AccountScreen.test.tsx` records the same shape).
+     */
+    it('starts over once even if the confirmation fires twice', async () => {
+      stubSettings();
+      stubSession();
+      let settle: ((outcome: StartOverOutcome) => void) | undefined;
+      mockStartOver.mockImplementation(
+        () =>
+          new Promise<StartOverOutcome>((resolve) => {
+            settle = resolve;
+          }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Start over');
+      const destructive = alertButtons().find((button) => button.style === 'destructive');
+
+      await act(async () => {
+        destructive?.onPress?.();
+        destructive?.onPress?.();
+      });
+
+      expect(mockStartOver).toHaveBeenCalledTimes(1);
+      expect(textIn(t)).toContain('Deleting…');
+      await act(async () => {
+        settle?.({ ok: true });
+      });
+      expect(textIn(t)).not.toContain('Deleting…');
+    });
+  });
+
+  describe('deleting the account', () => {
+    /**
+     * **§5's permanence, stated before rather than after** — "those sites become editable by
+     * nobody through the app, including the same person signing up again". It is the surprising
+     * half of what deletion does, it cannot be undone by anybody, and afterwards there is no
+     * account left to be told it in.
+     */
+    it('says what is destroyed, what survives it, and that nobody can edit it again', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Delete account');
+
+      expect(alertSpy.mock.calls[0]?.[0]).toBe(deleteAccountTitle());
+      expect(alertSpy.mock.calls[0]?.[1]).toBe(deleteAccountBody());
+      expect(deleteAccountBody()).toContain('deleted for good');
+      expect(deleteAccountBody()).toContain('stay in the community catalogue');
+      expect(deleteAccountBody()).toContain('nobody can edit them again');
+      expect(deleteAccountBody()).toContain('if you sign up afresh');
+      expect(alertButtons().map((button) => button.style)).toEqual(['cancel', 'destructive']);
+    });
+
+    it('does nothing at all until the diver answers the dialog', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Delete account');
+
+      expect(mockDeleteAccount).not.toHaveBeenCalled();
+    });
+
+    it('deletes through the app’s own client and seam once confirmed', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Delete account');
+
+      await confirmTheDialog();
+
+      expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+      const [client, seam] = mockDeleteAccount.mock.calls[0] as unknown[];
+      expect(client).toBe(CLIENT);
+      expect(seam).toBe(localLogbook);
+      expect(mockStartOver).not.toHaveBeenCalled();
+    });
+
+    /**
+     * **The farewell has to survive the session ending, which is what deleting an account
+     * does.** The controls unmount in the same frame that produces this sentence, so a notice
+     * rendered beside them would be gone before it was drawn — the mirror of the bug
+     * `AccountScreen` records about §7.4's adoption count.
+     */
+    it('states what happened, and goes on saying it after the account is gone', async () => {
+      stubSettings();
+      stubSession();
+      mockDeleteAccount.mockImplementation(
+        async (): Promise<DeleteAccountOutcome> => ({ kind: 'deleted', sitesKept: 3, centresKept: 1 }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Delete account');
+
+      await confirmTheDialog();
+
+      // The session goes, exactly as it does in the app.
+      stubSession({ session: null });
+      await act(async () => {
+        await t.rerender(<SettingsScreen />);
+      });
+
+      expect(controlLabels(t)).not.toContain('Delete account');
+      expect(textIn(t)).toContain('Your account is deleted, and its logbook with it.');
+      expect(textIn(t)).toContain('3 dive sites you added stay in the community catalogue.');
+      expect(textIn(t)).toContain('1 dive centre you added stays in the community catalogue.');
+    });
+
+    /** A count of nought is a true sentence about nothing — §7.4's own rule for the adoption
+     * sentence, applied to the two counts the server hands back. */
+    it('says nothing about a catalogue it left nothing in', async () => {
+      stubSettings();
+      stubSession();
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Delete account');
+
+      await confirmTheDialog();
+
+      expect(textIn(t)).toContain('Your account is deleted, and its logbook with it.');
+      expect(textIn(t).join(' ')).not.toContain('stay in the community catalogue');
+    });
+
+    /** The one state that cannot be retried into success gets its own sentence, and the diver
+     * reads it rather than a dialog (§0.6). */
+    it('says so when the account went and this device could not be cleared', async () => {
+      stubSettings();
+      stubSession();
+      mockDeleteAccount.mockImplementation(
+        async (): Promise<DeleteAccountOutcome> => ({
+          kind: 'failed',
+          message: accountDeletedDeviceKept(),
+        }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Delete account');
+
+      await confirmTheDialog();
+
+      expect(textIn(t)).toContain(accountDeletedDeviceKept());
+    });
+
+    it('deletes once even if the confirmation fires twice', async () => {
+      stubSettings();
+      stubSession();
+      let settle: ((outcome: DeleteAccountOutcome) => void) | undefined;
+      mockDeleteAccount.mockImplementation(
+        () =>
+          new Promise<DeleteAccountOutcome>((resolve) => {
+            settle = resolve;
+          }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Delete account');
+      const destructive = alertButtons().find((button) => button.style === 'destructive');
+
+      await act(async () => {
+        destructive?.onPress?.();
+        destructive?.onPress?.();
+      });
+
+      expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        settle?.({ kind: 'deleted', sitesKept: 0, centresKept: 0 });
+      });
+    });
+
+    /** Two of these at once is not a state this screen has — they touch the same rows, and the
+     * second would run against a database the first is in the middle of emptying. */
+    it('turns away the other act while one is running', async () => {
+      stubSettings();
+      stubSession();
+      mockStartOver.mockImplementation(() => new Promise<StartOverOutcome>(() => {}));
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Start over');
+      await confirmTheDialog();
+
+      await pressRow(t, 'Delete account');
+
+      expect(mockDeleteAccount).not.toHaveBeenCalled();
+      // The second row is announced as unavailable too, not merely inert to a thumb.
+      expect(findRow(t, 'Delete account')?.props.accessibilityState).toEqual({ disabled: true });
+    });
+  });
+
+  describe('in Czech', () => {
+    beforeEach(() => {
+      setActiveLanguage('cs');
+    });
+    afterEach(async () => {
+      await cleanup();
+      setActiveLanguage('en');
+    });
+
+    /**
+     * **The farewell reaches Czech's third plural form**, which English's own two-form rule
+     * would hide: a test at 1 and 2 is satisfied by `_one`/`_other`, and it takes a count of 5
+     * to tell the rules apart. Both nouns, because they decline differently — *lokalita* is
+     * feminine and *centrum* is neuter, which is why they are two sentences and not one.
+     */
+    it('declines both counts, and the verb with them', async () => {
+      stubSettings();
+      stubSession();
+      mockDeleteAccount.mockImplementation(
+        async (): Promise<DeleteAccountOutcome> => ({ kind: 'deleted', sitesKept: 5, centresKept: 2 }),
+      );
+      const t = await render(<SettingsScreen />);
+      await pressRow(t, 'Smazat účet');
+
+      await confirmTheDialog();
+
+      const said = textIn(t).join(' ');
+      expect(said).toContain('Váš účet je smazaný');
+      expect(said).toContain('zůstává 5 lokalit');
+      expect(said).toContain('zůstávají 2 centra');
+    });
   });
 });

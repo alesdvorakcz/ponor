@@ -18,6 +18,7 @@ import {
   clearCertificationDirtyFlags,
   countPendingCertifications,
   pendingCertifications,
+  tombstoneAllCertifications,
 } from '../db/certifications';
 import type { PushableTable, PushedRow } from '../db/dirty';
 import {
@@ -26,12 +27,14 @@ import {
   countPendingDives,
   pendingDives,
   repointDivesToSurvivors,
+  tombstoneAllDives,
 } from '../db/dives';
 import {
   applyPulledGearPresets,
   clearGearPresetDirtyFlags,
   countPendingGearPresets,
   pendingGearPresets,
+  tombstoneAllGearPresets,
 } from '../db/gearPresets';
 import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
@@ -109,6 +112,19 @@ interface SyncedTable {
   readonly clear: (db: Db, pushed: readonly PushedRow[]) => Promise<string[]>;
   readonly apply: (db: Db, rows: readonly Record<string, unknown>[]) => Promise<string[]>;
   readonly countPending: (db: Db) => Promise<number>;
+  /**
+   * **How this table answers §7.4's *start over*, and `null` is the answer for a community
+   * one** — the repository's own tombstone sweep, or nothing at all.
+   *
+   * §7.4: *"Community rows are not included in either start-over or deletion: a site or centre
+   * the diver contributed belongs to everyone who has dived it, and §5 has never allowed
+   * hard-deleting one."* That exclusion is **required rather than optional** on this interface
+   * on purpose, so a sixth synced table cannot join the protocol without somebody deciding
+   * which of the two it is — §4.1's "derive, or tie at compile time", in the form
+   * `schemaParity.test.ts` already uses for the server's own cascade/set-null classification.
+   * Left optional, a personal table added later would silently survive a start over.
+   */
+  readonly tombstoneAll: ((db: Db) => Promise<string[]>) | null;
 }
 
 /**
@@ -131,6 +147,7 @@ function synced<Pending extends object, Pulled extends object>(spec: {
   readonly clear: (db: Db, pushed: readonly PushedRow[]) => Promise<string[]>;
   readonly apply: (db: Db, rows: readonly Pulled[]) => Promise<string[]>;
   readonly countPending: (db: Db) => Promise<number>;
+  readonly tombstoneAll: ((db: Db) => Promise<string[]>) | null;
 }): SyncedTable {
   return {
     table: spec.table,
@@ -138,6 +155,7 @@ function synced<Pending extends object, Pulled extends object>(spec: {
     clear: spec.clear,
     apply: (db, rows) => spec.apply(db, rows as readonly Pulled[]),
     countPending: spec.countPending,
+    tombstoneAll: spec.tombstoneAll,
   };
 }
 
@@ -163,6 +181,7 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearDiveDirtyFlags,
     apply: applyPulledDives,
     countPending: countPendingDives,
+    tombstoneAll: tombstoneAllDives,
   }),
   synced({
     table: gearPresets,
@@ -170,6 +189,7 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearGearPresetDirtyFlags,
     apply: applyPulledGearPresets,
     countPending: countPendingGearPresets,
+    tombstoneAll: tombstoneAllGearPresets,
   }),
   synced({
     table: certifications,
@@ -177,6 +197,7 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearCertificationDirtyFlags,
     apply: applyPulledCertifications,
     countPending: countPendingCertifications,
+    tombstoneAll: tombstoneAllCertifications,
   }),
   synced({
     table: diveSites,
@@ -184,6 +205,10 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearDiveSiteDirtyFlags,
     apply: applyPulledDiveSites,
     countPending: countPendingDiveSites,
+    // §7.4 and §5: a site the diver contributed belongs to everyone who has dived it, and
+    // other divers' dives point at it. `delete_account` severs authorship on the server for
+    // the same reason; start over does the same by leaving the row alone.
+    tombstoneAll: null,
   }),
   synced({
     table: diveCenters,
@@ -191,6 +216,7 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     clear: clearDiveCenterDirtyFlags,
     apply: applyPulledDiveCenters,
     countPending: countPendingDiveCenters,
+    tombstoneAll: null,
   }),
 ];
 
@@ -587,4 +613,32 @@ export async function countUnsyncedRows(db: Db): Promise<number> {
   let pending = 0;
   for (const synced of SYNCED_TABLES) pending += await synced.countPending(db);
   return pending;
+}
+
+/**
+ * **§7.4's *start over*, written down: a tombstone on every row of this device that is the
+ * diver's own, and none on any row that is the community's.**
+ *
+ * §7.4 decides the mechanism and this is the half of it that happens on the device: *"Start
+ * over must go through tombstones, not a server-side purge… A hard delete on the server leaves
+ * a second device holding rows it believes are unsynced — and its next push puts the whole
+ * logbook back."* Getting these up is the ordinary push; the ordering that makes the pair safe
+ * is `cloud/localLogbook.ts`'s.
+ *
+ * **The exclusion is the reason this lives here rather than in the seam that calls it.** It has
+ * to be taken from the same list a cycle pushes and counts, or "which tables does start over
+ * touch" becomes a second copy of "which tables does the protocol carry" — §4.1's defining
+ * defect, on the one operation in the app that deletes a diver's whole logbook. `tombstoneAll`
+ * is a required field on `SyncedTable` precisely so the two cannot come apart: a table added to
+ * the protocol has to say which kind it is before it compiles.
+ *
+ * Returns how many rows it tombstoned, which is what it did rather than what it intended.
+ */
+export async function tombstonePersonalRows(db: Db): Promise<number> {
+  let tombstoned = 0;
+  for (const synced of SYNCED_TABLES) {
+    if (synced.tombstoneAll === null) continue;
+    tombstoned += (await synced.tombstoneAll(db)).length;
+  }
+  return tombstoned;
 }

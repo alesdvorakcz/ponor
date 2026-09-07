@@ -164,8 +164,10 @@ export class FakeSyncServer {
     return this.table(table).get(id);
   }
 
-  /** The RPC surface, shaped like `supabase-js`'s `.rpc()` answer. */
-  async call(rpc: string, args: Record<string, unknown>): Promise<RpcResult> {
+  /** The RPC surface, shaped like `supabase-js`'s `.rpc()` answer. `args` defaults to `{}`
+   * because that is what the client sends for a function that takes none — `delete_account`
+   * is called as `rpc('delete_account')` and PostgREST receives an empty body. */
+  async call(rpc: string, args: Record<string, unknown> = {}): Promise<RpcResult> {
     this.calls.push({ rpc, args: { ...args } });
     if (this.refusal !== null) {
       const error = this.refusal;
@@ -175,6 +177,7 @@ export class FakeSyncServer {
     this.tick();
     if (rpc === 'push_changes') return { data: this.push(args.changes), error: null };
     if (rpc === 'pull_changes') return { data: this.pull(args.last_pulled_at), error: null };
+    if (rpc === 'delete_account') return this.deleteAccount(args);
     return { data: null, error: { message: `no function ${rpc}`, code: '42883' } };
   }
 
@@ -226,6 +229,70 @@ export class FakeSyncServer {
     }
 
     return { server_time: now, changes: out };
+  }
+
+  /**
+   * **`delete_account`, modelled as its foreign keys rather than as its body** — which is the
+   * only honest way to model it, because the function itself is one `delete from auth.users`
+   * and *"what happens to the other seven tables is decided by their foreign keys in file 2,
+   * not by a list here"* (20260902090500_catalogue_rpcs.sql).
+   *
+   * So this is that table, executed:
+   *
+   *     dives · gear_presets · certifications · profiles   on delete CASCADE   → the rows go
+   *     dive_sites · dive_centers                          on delete SET NULL  → the rows stay,
+   *                                                                              `created_by` null
+   *
+   * **It answers with the two counts taken BEFORE the delete**, as the SQL does — they are the
+   * sentence a departing diver reads, and counted afterwards they would both be whatever a
+   * severed `created_by` counts as.
+   *
+   * **What it does not model, and neither does anything else here:** whether Postgres will
+   * allow the delete at all. `auth.users` is owned by `supabase_auth_admin`, and the migration
+   * names that as "the one statement nobody here can verify". This fake cannot answer it and is
+   * not evidence about it. **No account has ever been deleted from this repository.**
+   *
+   * `no_account` is how a test asks for the `28000` the real function raises when `auth.uid()`
+   * is null — a call with no session behind it. Set on the server rather than passed as an
+   * argument, because the real function **takes no arguments at all** (M2c, deliberately, "so
+   * there is no parameter through which another diver's account could be named"), and a fake
+   * that accepted one would let a caller drift into passing one.
+   */
+  noAccount = false;
+
+  private deleteAccount(args: Record<string, unknown>): RpcResult {
+    // The real function's own guarantee, asserted rather than assumed: a caller that invented
+    // an argument would be handing the server a parameter it does not have.
+    if (Object.keys(args).length > 0) {
+      throw new Error(`fakeSyncServer: delete_account takes no arguments, got ${Object.keys(args).join(', ')}`);
+    }
+    // Reported the way PostgREST reports a raised exception — `{ data: null, error }` — and
+    // not as a rejected promise: `supabase-js` turns a Postgres error into that shape, and a
+    // client tested against a rejection would be tested against the wrong branch of its own
+    // error handling.
+    if (this.noAccount) {
+      return { data: null, error: { message: 'delete_account: no authenticated user', code: '28000' } };
+    }
+
+    const mine = (table: ServerTable, owner: string) =>
+      this.rows(table).filter((row) => row[owner] === this.uid);
+
+    const sitesKept = mine('dive_sites', 'created_by').length;
+    const centersKept = mine('dive_centers', 'created_by').length;
+
+    for (const table of ['dives', 'gear_presets', 'certifications', 'profiles'] as const) {
+      for (const row of mine(table, table === 'profiles' ? 'id' : 'user_id')) {
+        this.table(table).delete(String(row.id));
+      }
+    }
+    for (const table of ['dive_sites', 'dive_centers'] as const) {
+      for (const row of mine(table, 'created_by')) row.created_by = null;
+    }
+
+    return {
+      data: { deleted: true, dive_sites_kept: sitesKept, dive_centers_kept: centersKept },
+      error: null,
+    };
   }
 
   private pull(lastPulledAt: unknown): unknown {
