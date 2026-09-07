@@ -1,6 +1,7 @@
 import { View } from 'react-native';
 
 import { formatRmv } from '../format/display';
+import { type UnitSystem } from '../format/units';
 import { t } from '../i18n';
 import { makeStyles, RMV_SPARK_STEPS } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -57,11 +58,14 @@ function cellsFor(value: number, max: number): number {
  *
  * The values keep their unit each, which is repetitive to read and correct to hear: the unit
  * has one spelling in this app and it is `formatRmv`'s, and a series that said "l/min" once at
- * the end would be a second one.
+ * the end would be a second one. **Which unit that is follows the diver** (M3): this label is
+ * the only place the per-dive figures appear at all, so a screen reader hearing litres on a
+ * screen whose visible RMV row reads cubic feet per minute would be the one reader in the app
+ * given a different number from everyone else.
  */
-function seriesLabel(values: readonly number[]): string {
+function seriesLabel(values: readonly number[], system: UnitSystem): string {
   const spoken = values
-    .map((value) => formatRmv(value))
+    .map((value) => formatRmv(value, system))
     .filter((text): text is string => text !== null)
     .join(', ');
   return t('stats.rmvSeries', { values: spoken });
@@ -75,6 +79,15 @@ export interface RmvSparklineProps {
    */
   values: readonly number[];
   scheme: ColorScheme;
+  /**
+   * The diver's units, for the spoken label and for nothing else — **the bars themselves are
+   * unitless.** Each is its share of the tallest value in the series, and a ratio of two
+   * litres-per-minute is the same ratio in cubic feet per minute, so switching systems must
+   * redraw nothing. Taken as a prop rather than read from `useUnitSystem` here, on this
+   * codebase's standing rule: a screen decides once, a component is a pure function of its
+   * props (see that hook's own docblock, and `scheme` beside this).
+   */
+  system: UnitSystem;
 }
 
 /**
@@ -118,7 +131,7 @@ export interface RmvSparklineProps {
  * the deepest-dive figure one group up, which at least *is* a depth and still takes no band
  * (§10, twice), there is not even a band to argue about. `rmvSparkCell` is `fgMuted`.
  */
-export function RmvSparkline({ values, scheme }: RmvSparklineProps) {
+export function RmvSparkline({ values, scheme, system }: RmvSparklineProps) {
   const styles = makeStyles(scheme);
   // The same refusal `rmv` already makes, restated where a shape is drawn rather than trusted
   // to arrive: a NaN in the series makes `max` NaN and every bar zero cells — a row that says
@@ -130,7 +143,7 @@ export function RmvSparkline({ values, scheme }: RmvSparklineProps) {
   const max = Math.max(...series);
 
   return (
-    <View style={styles.rmvSparkline} accessible accessibilityLabel={seriesLabel(series)}>
+    <View style={styles.rmvSparkline} accessible accessibilityLabel={seriesLabel(series, system)}>
       {series.map((value, index) => (
         // Keyed by position, which is the one thing a value cannot supply here: two dives that
         // breathed the same 14.6 l/min are two bars, and this list is rebuilt whole from a

@@ -70,9 +70,13 @@ import {
  *
  * A formatter with no `system` parameter has no pair, and that is a
  * decision rather than an omission: duration is minutes in both systems,
- * and litres/l-per-min have no imperial counterpart that is the same
- * quantity — see `format/units.ts`'s top docblock, which states why §3
- * lists exactly four pairs.
+ * a suit's thickness is millimetres in both, and a cylinder's water
+ * capacity is litres in both — see `format/units.ts`'s top docblock,
+ * which states what each of the three is not a conversion of. **Gas used
+ * and RMV were on that list until M3 and should not have been**: both are
+ * free gas at surface pressure, which is exactly what a cubic foot
+ * measures, so both take `system` like every other convertible figure.
+ * That docblock carries the correction and its one caveat.
  *
  * **The language is not a parameter, and that is the one asymmetry with the unit system.**
  * Every word below is looked up (`t`, src/i18n) rather than spelled here; the unit system is
@@ -405,8 +409,13 @@ export function formatWeight(kg: number | null, system: UnitSystem): string | nu
  * cylinder unit is the cubic foot, which measures the *free gas* a cylinder holds at its
  * working pressure — an "80 cf" cylinder is an 11.1 L one — so l → cf is a different
  * quantity, not a conversion, and it needs a working pressure this app never insists a
- * diver record. §3 lists four pairs and this is one of the reasons it lists four. The same
- * holds for `formatGasUsed` and `formatRmv` below, which are litres of that same gas.
+ * diver record.
+ *
+ * **`formatGasUsed` and `formatRmv` below no longer share that decision** (M3), and the split
+ * is the point rather than an inconsistency: this figure is a cylinder's *water capacity*, and
+ * those two are the *free gas* `derived.ts` computes from it — the very quantity a cubic foot
+ * measures. So one takes a `system` and one does not, one file apart, and `format/units.ts`
+ * classifies `sizeL` as `null` beside a `gasVolume` pair to keep them from being confused.
  */
 export function formatVolume(litres: number | null): string | null {
   if (!isFiniteNumber(litres)) return null;
@@ -414,22 +423,42 @@ export function formatVolume(litres: number | null): string | null {
 }
 
 /**
- * Total gas used across every cylinder (derived.ts's `gasUsedLitres`), to the whole litre —
- * unlike `formatVolume` above, this is a computed aggregate rather than a diver-recorded
- * spec, so it gets the same whole-unit treatment `formatPressure` gives an aggregate
- * reading. `gasUsedLitres` itself already guards its own `Number.isFinite`, so this guard
- * is a second, independent line of defence rather than the only one — the same belt-and-
- * braces stance every other formatter in this file takes toward its input.
+ * Total gas used across every cylinder (derived.ts's `gasUsedLitres`), to the whole unit —
+ * `"2382 l"`, `"84 cu ft"`. Unlike `formatVolume` above, this is a computed aggregate rather
+ * than a diver-recorded spec, so it gets the same whole-unit treatment `formatPressure` gives
+ * an aggregate reading, and unlike `formatVolume` it **converts**: `gasUsedLitres` is
+ * `Δbar × sizeL × count`, litres of free gas at surface pressure, which is the quantity a
+ * cubic foot measures rather than the water capacity it is computed from.
+ *
+ * `gasUsedLitres` itself already guards its own `Number.isFinite`, so this guard is a second,
+ * independent line of defence rather than the only one — the same belt-and-braces stance every
+ * other formatter in this file takes toward its input.
  */
-export function formatGasUsed(litres: number | null): string | null {
+export function formatGasUsed(litres: number | null, system: UnitSystem): string | null {
   if (!isFiniteNumber(litres)) return null;
-  return `${Math.round(litres)} l`;
+  const parts = displayFigure('gasVolume', litres, system);
+  return `${parts.value} ${parts.unit}`;
 }
 
-/** Respiratory minute volume, e.g. "18.4 l/min". */
-export function formatRmv(litresPerMin: number | null): string | null {
+/**
+ * Respiratory minute volume — `"18.4 l/min"`, `"0.65 cu ft/min"`.
+ *
+ * **The figure that was still reading `l/min` to a diver who had asked for feet and pounds**,
+ * found in M3 and pre-existing since the Stats screen first drew it. §3 promises units follow
+ * the diver and §4.1 gives this module the question *what does a diver see*; RMV escaped both
+ * because `format/units.ts` had grouped it with a cylinder's size, whose imperial counterpart
+ * genuinely is a different quantity. It is not one here: an RMV is free gas at surface pressure
+ * per minute, so `l/min → cu ft/min` is one exact factor, and an imperial diver's own name for
+ * this number is a surface air consumption in cubic feet per minute.
+ *
+ * Two decimals in imperial against one in metric, because a cubic foot is 28 litres and a
+ * single decimal would draw the whole 12–22 l/min band real divers occupy as `0.6`; the pair's
+ * own spec (`SPECS`, format/units.ts) carries the argument and both precisions.
+ */
+export function formatRmv(litresPerMin: number | null, system: UnitSystem): string | null {
   if (!isFiniteNumber(litresPerMin)) return null;
-  return `${figureText(litresPerMin, 1)} l/min`;
+  const parts = displayFigure('gasRate', litresPerMin, system);
+  return `${parts.value} ${parts.unit}`;
 }
 
 /**
@@ -449,6 +478,14 @@ export function formatRmv(litresPerMin: number | null): string | null {
  * a direction only when the app can show the difference", and it cannot contradict the row
  * above it however that formatter's precision changes.
  *
+ * **That is why `system` is threaded here rather than a metric comparison being reused** (M3).
+ * The two pairs read to different precisions — one decimal of a litre, two of a cubic foot —
+ * so the boundary at which a difference becomes visible genuinely sits in a different place in
+ * each system, and a pair that says "steady" to a metric diver may say "down from 0.61 cu ft/min"
+ * to an imperial one. `formatTemperatureRange` above already settled that shape for the °C/°F
+ * pair: the figures a diver *reads* are the ones that may or may not differ, and this row must
+ * agree with the row above it in the system it is actually drawn in, not in the stored one.
+ *
  * **The words are neutral on purpose.** A lower RMV is the one every diver is working toward,
  * and this deliberately does not say "better": §1's never-shame-the-form stance is about not
  * grading a diver's data, and a dive that was cold, over-weighted or spent towing a student is
@@ -460,10 +497,13 @@ export function formatRmv(litresPerMin: number | null): string | null {
  * `Pick` this file's own callers already take, and what keeps a fixture in its test from
  * having to invent five dives to format one word.
  */
-export function formatRmvTrend(trend: Pick<RmvTrend, 'recent' | 'previous'>): string | null {
+export function formatRmvTrend(
+  trend: Pick<RmvTrend, 'recent' | 'previous'>,
+  system: UnitSystem,
+): string | null {
   if (trend.previous === null) return null;
-  const before = formatRmv(trend.previous);
-  const now = formatRmv(trend.recent);
+  const before = formatRmv(trend.previous, system);
+  const now = formatRmv(trend.recent, system);
   if (before === null || now === null) return null;
   if (before === now) return t('trend.steady');
   return trend.recent < trend.previous

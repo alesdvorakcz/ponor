@@ -804,8 +804,14 @@ export default function DiveDetailScreen({
   const conditions = conditionsFields(dive, units);
   const equipment = equipmentFields(dive, units);
 
-  const gasUsed = formatGasUsed(gasUsedLitres(dive.tanks));
-  const rmvValue = formatRmv(rmv(dive));
+  // Both take `units` since M3, and this screen is the reason the fix could not stop at the
+  // Stats tab: these two rows sit one above the other, so converting the RMV alone would have
+  // put `2382 l` directly above a `0.65 cu ft/min` — one cluster reporting the same gas in two
+  // systems, which is worse than the defect it half-fixed. `format/units.ts` carries why free
+  // gas converts where a cylinder's water capacity (`formatVolume`, in `tankFields` below)
+  // does not.
+  const gasUsed = formatGasUsed(gasUsedLitres(dive.tanks), units);
+  const rmvValue = formatRmv(rmv(dive), units);
   // No dive-level MOD here — DESIGN.md §10: "MOD is per cylinder, and there is no single
   // 'dive MOD'." Each tank computes its own inside tankFields below, from that tank's own
   // o2Pct; a multi-gas dive has as many MODs as it has distinct mixes, and picking one

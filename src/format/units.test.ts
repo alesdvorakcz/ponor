@@ -24,6 +24,16 @@ describe('unitLabel', () => {
     expect(unitLabel('weight', 'metric')).toBe('kg');
     expect(unitLabel('weight', 'imperial')).toBe('lb');
   });
+
+  // The fifth and sixth, added in M3 for the two figures `domain/derived.ts` computes. The rate
+  // is the volume's own word with `/min` after it in both systems, which is what stops `l` and
+  // `cu ft` from being spelled one way in a gas total and another in an RMV.
+  it('names the gas pair, and spells the rate as the volume per minute', () => {
+    expect(unitLabel('gasVolume', 'metric')).toBe('l');
+    expect(unitLabel('gasVolume', 'imperial')).toBe('cu ft');
+    expect(unitLabel('gasRate', 'metric')).toBe(`${unitLabel('gasVolume', 'metric')}/min`);
+    expect(unitLabel('gasRate', 'imperial')).toBe(`${unitLabel('gasVolume', 'imperial')}/min`);
+  });
 });
 
 describe('displayFigure', () => {
@@ -42,6 +52,19 @@ describe('displayFigure', () => {
     expect(displayFigure('pressure', 232, 'imperial')).toEqual({ value: '3365', unit: 'psi' });
     expect(displayFigure('temperature', 25, 'imperial')).toEqual({ value: '77', unit: '°F' });
     expect(displayFigure('weight', 6.5, 'imperial')).toEqual({ value: '14', unit: 'lb' });
+    // The gas pair, against the defining constant like the four above it: a cubic foot is
+    // 0.3048³ m³ = 28.316846592 l exactly, so 2381.7 l is 84.11 cu ft and 18.42 l/min is
+    // 0.6505 cu ft/min. Both figures also read differently from their stored value, which is
+    // what makes them assertions rather than relabelled litres.
+    expect(displayFigure('gasVolume', 2381.7, 'imperial')).toEqual({ value: '84', unit: 'cu ft' });
+    expect(displayFigure('gasRate', 18.42, 'imperial')).toEqual({ value: '0.65', unit: 'cu ft/min' });
+  });
+
+  // Metric is the stored form for the gas pair too, so both halves are the identity — an RMV a
+  // metric diver reads is the number `rmv` returned, rounded and nothing else.
+  it('leaves the gas pair untouched in the system it is stored in', () => {
+    expect(displayFigure('gasVolume', 2381.7, 'metric')).toEqual({ value: '2382', unit: 'l' });
+    expect(displayFigure('gasRate', 18.42, 'metric')).toEqual({ value: '18.4', unit: 'l/min' });
   });
 
   // The precision decisions in SPECS, each pinned at the boundary where the rule actually
@@ -75,6 +98,29 @@ describe('displayFigure', () => {
       expect(displayFigure('weight', 6.5, 'metric').value).toBe('6.5');
       expect(displayFigure('weight', 6.25, 'imperial').value).toBe('14');
       expect(displayFigure('weight', 6.8, 'imperial').value).toBe('15');
+    });
+
+    /**
+     * **The one pair whose two sides do not share a decimal count**, and the reason is the size
+     * of the unit: a cubic foot is 28 litres, so one decimal of `cu ft/min` is a step of 0.28
+     * l/min across a range (12–22 l/min) that every real diver sits inside. These three — a very
+     * good, an ordinary and a heavy-breathing dive — must stay three figures rather than
+     * collapsing into two, which is what a `decimals: 1` copied over from the metric side does.
+     */
+    it('reads an imperial gas rate to two decimals, where one would merge real divers', () => {
+      const rates = [12, 17, 22].map((rate) => displayFigure('gasRate', rate, 'imperial').value);
+      expect(rates).toEqual(['0.42', '0.60', '0.78']);
+      expect(new Set(rates).size).toBe(3);
+      // And metric keeps its own single decimal — 18.42 l/min is `18.4`, never `18.42`.
+      expect(displayFigure('gasRate', 18.42, 'metric').value).toBe('18.4');
+    });
+
+    // A gas total is read to the whole unit on both sides. Imperial is substantially coarser
+    // here — a whole cubic foot is 28 litres — and that is the granularity a diver actually
+    // states a dive's gas in; the metric whole litre is already finer than the gauge behind it.
+    it('reads a gas total to the whole unit in both systems', () => {
+      expect(displayFigure('gasVolume', 2381.7, 'metric').value).toBe('2382');
+      expect(displayFigure('gasVolume', 2381.7, 'imperial').value).toBe('84');
     });
   });
 
@@ -198,6 +244,21 @@ describe('tankFieldQuantity', () => {
     expect(tankFieldQuantity('configuration')).toBeNull();
     expect(tankFieldQuantity('o2Pct')).toBeNull();
     expect(tankFieldQuantity('hePct')).toBeNull();
+  });
+
+  /**
+   * **And `sizeL` stays `null` now that a `gasVolume` pair exists** — the one line in that table
+   * a later reader is most likely to "fix". A cylinder is described by its water capacity and a
+   * cubic foot measures free gas at working pressure: `'gasVolume'` here would render an 11.1 l
+   * cylinder as `0.4 cu ft` on the form, the detail and every preset chip. The pair added in M3
+   * is for what `domain/derived.ts` computes, which really is free gas.
+   *
+   * Asserted against the label rather than against `null` alone, because the failure being
+   * guarded is a plausible-looking wrong classification, not an absent one.
+   */
+  it('keeps a cylinder’s water capacity out of the gas pair it is easily mistaken for', () => {
+    expect(tankFieldQuantity('sizeL')).not.toBe('gasVolume');
+    expect(unitLabel('gasVolume', 'imperial')).toBe('cu ft');
   });
 });
 

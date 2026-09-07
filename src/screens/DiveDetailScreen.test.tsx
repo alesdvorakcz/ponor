@@ -1629,10 +1629,24 @@ describe('the unit setting', () => {
     expect(text).toContain('2176 psi'); // used = 150 bar, from derived.ts
     expect(text).toContain('111 ft'); // MOD for 32 % at 1.4 ata, 33.75 m
 
-    // And nothing at all left in the other system. The three metric unit words must not
-    // appear anywhere on the screen — this is what a half-converted screen fails on.
+    // The two gas figures (M3). 150 bar x 12 l = 1800 l of free gas = 63.6 cu ft; over
+    // 18 m avg (2.8 ata) and 47 min that is 13.68 l/min = 0.48 cu ft/min. These are the two
+    // this sweep used to miss — it banned `m`, `bar` and `kg` and never named litres, so an
+    // imperial diver read `1800 l` and `13.7 l/min` under a screen of feet and psi.
+    expect(text).toContain('64 cu ft');
+    expect(text).toContain('0.48 cu ft/min');
+
+    // And nothing at all left in the other system. The metric unit words must not appear
+    // anywhere on the screen — this is what a half-converted screen fails on.
     expect(text).not.toMatch(/\d\s(m|bar|kg)\b/);
     expect(text).not.toContain('°C');
+    // `l/min` is unambiguous — nothing else on this screen is a rate — so it can be swept for
+    // directly. A bare `\d l` cannot be: a cylinder's SIZE is litres in both systems on
+    // purpose (its imperial counterpart is free gas at working pressure, a different
+    // quantity), so `12 l` below is correct here and the metric gas total is named instead.
+    expect(text).not.toMatch(/l\/min/);
+    expect(text).not.toContain('1800 l');
+    expect(text).toContain('12 l'); // the cylinder itself, deliberately unconverted
 
     // Duration stays minutes in both systems, so it must still be here.
     expect(text).toContain('47 min');
@@ -1644,6 +1658,10 @@ describe('the unit setting', () => {
     expect(text).toContain('25 °C');
     expect(text).toContain('232 bar');
     expect(text).toContain('6.5 kg');
+    // The same two gas figures, in the units they are stored in — the metric half of the pair
+    // is the identity, so a metric diver reads exactly what `derived.ts` returned.
+    expect(text).toContain('1800 l');
+    expect(text).toContain('13.7 l/min');
     expect(text).not.toContain('ft');
     expect(text).not.toContain('psi');
   });

@@ -54,7 +54,7 @@ it('draws one bar per dive, oldest at the leading edge, measured from zero', asy
   // than as four numbers, because what is being asserted is that a bar is its share of the
   // biggest one. Of the biggest one, not of the spread: two nearly equal dives draw as two
   // nearly equal bars and so cannot contradict a Trend row reading "steady".
-  const t = await render(<RmvSparkline values={[18, 9, 3, 18]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[18, 9, 3, 18]} scheme="dark" system="metric" />);
   expect(barsIn(t, 'dark')).toEqual([RMV_SPARK_STEPS, RMV_SPARK_STEPS / 2, RMV_SPARK_STEPS / 6, RMV_SPARK_STEPS]);
 });
 
@@ -62,7 +62,7 @@ it('draws one bar per dive, oldest at the leading edge, measured from zero', asy
 // rather than getting worse — so the order the caller hands over is the order drawn, and
 // nothing here sorts.
 it('draws the series in the order it was given, not sorted', async () => {
-  const t = await render(<RmvSparkline values={[3, 9, 18]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[3, 9, 18]} scheme="dark" system="metric" />);
   expect(barsIn(t, 'dark')).toEqual([RMV_SPARK_STEPS / 6, RMV_SPARK_STEPS / 2, RMV_SPARK_STEPS]);
 });
 
@@ -73,7 +73,7 @@ it('draws the series in the order it was given, not sorted', async () => {
  * happened. One cell is the floor — present, and visibly the shortest.
  */
 it('never draws a dive as a bar of no height, however small beside the rest', async () => {
-  const t = await render(<RmvSparkline values={[0.1, 40]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[0.1, 40]} scheme="dark" system="metric" />);
   expect(barsIn(t, 'dark')).toEqual([1, RMV_SPARK_STEPS]);
 });
 
@@ -84,7 +84,7 @@ it('never draws a dive as a bar of no height, however small beside the rest', as
  * cell. The row it lives in says the same thing in words, with an em dash.
  */
 it('draws nothing at all when no dive has an RMV', async () => {
-  const t = await render(<RmvSparkline values={[]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[]} scheme="dark" system="metric" />);
   expect(barsIn(t, 'dark')).toEqual([]);
   expect(nodesIn(t).some((n) => hasStyle(n, makeStyles('dark').rmvSparkline))).toBe(false);
 });
@@ -93,7 +93,7 @@ it('draws nothing at all when no dive has an RMV', async () => {
 // "as high as it gets" about a logbook with one gas dive in it — §0.4's rule that the app never
 // draws a shape it does not have, one step further in. The figure beside it still shows.
 it('draws nothing from a single dive, which has no shape to show', async () => {
-  const t = await render(<RmvSparkline values={[14.6]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[14.6]} scheme="dark" system="metric" />);
   expect(barsIn(t, 'dark')).toEqual([]);
 });
 
@@ -106,15 +106,17 @@ it('draws nothing from a single dive, which has no shape to show', async () => {
  * line a diver would read as five identical dives.
  */
 it('drops a value that is not a real RMV instead of drawing the whole row wrong', async () => {
-  const nan = await render(<RmvSparkline values={[9, Number.NaN, 18]} scheme="dark" />);
+  const nan = await render(<RmvSparkline values={[9, Number.NaN, 18]} scheme="dark" system="metric" />);
   expect(barsIn(nan, 'dark')).toEqual([RMV_SPARK_STEPS / 2, RMV_SPARK_STEPS]);
 
-  const infinite = await render(<RmvSparkline values={[9, Number.POSITIVE_INFINITY, 18]} scheme="dark" />);
+  const infinite = await render(
+    <RmvSparkline values={[9, Number.POSITIVE_INFINITY, 18]} scheme="dark" system="metric" />,
+  );
   expect(barsIn(infinite, 'dark')).toEqual([RMV_SPARK_STEPS / 2, RMV_SPARK_STEPS]);
 
   // A breathing diver cannot have an RMV of zero or less — `rmv`'s own words — and a zero
   // would be the one value that draws as nothing at all.
-  const zero = await render(<RmvSparkline values={[0, -3, 9, 18]} scheme="dark" />);
+  const zero = await render(<RmvSparkline values={[0, -3, 9, 18]} scheme="dark" system="metric" />);
   expect(barsIn(zero, 'dark')).toEqual([RMV_SPARK_STEPS / 2, RMV_SPARK_STEPS]);
 });
 
@@ -125,8 +127,41 @@ it('drops a value that is not a real RMV instead of drawing the whole row wrong'
  * in the unit `formatRmv` spells.
  */
 it('says its series aloud, oldest to newest, for a diver who cannot see it', async () => {
-  const t = await render(<RmvSparkline values={[18.24, 14.6]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[18.24, 14.6]} scheme="dark" system="metric" />);
   expect(labelIn(t, 'dark')).toBe('Each dive, oldest to newest: 18.2 l/min, 14.6 l/min');
+});
+
+/**
+ * **And it says it in the diver's own units** (M3). This label is the only place the per-dive
+ * figures appear at all, so a diver who has chosen feet and pounds and hears litres is the one
+ * reader in the app being given a different number from everyone else — the RMV row directly
+ * beside these bars reads `0.64 cu ft/min`.
+ *
+ * The two expectations cannot both be met by one series: 18.24 and 14.6 l/min are 0.64 and 0.52
+ * cu ft/min, so a conversion deleted from `SPECS` leaves the metric numerals under an imperial
+ * unit word and this reddens.
+ */
+it('speaks the series in the units the diver chose, not the ones it is stored in', async () => {
+  const t = await render(<RmvSparkline values={[18.24, 14.6]} scheme="dark" system="imperial" />);
+  expect(labelIn(t, 'dark')).toBe('Each dive, oldest to newest: 0.64 cu ft/min, 0.52 cu ft/min');
+});
+
+/**
+ * **The bars are unitless, and this is the assertion that keeps them so.** A bar is its share of
+ * the tallest value in the window, and a ratio of two rates is the same ratio whichever unit
+ * both are in — so switching systems must move the spoken label and not one cell of the drawing.
+ * A future `cellsFor` that reached for a converted figure, or a per-system floor, would show up
+ * here as two different shapes for one logbook.
+ */
+it('draws exactly the same shape in both systems', async () => {
+  const values = [18.24, 9.1, 14.6, 22];
+  const metric = await render(<RmvSparkline values={values} scheme="dark" system="metric" />);
+  const imperial = await render(<RmvSparkline values={values} scheme="dark" system="imperial" />);
+  expect(barsIn(imperial, 'dark')).toEqual(barsIn(metric, 'dark'));
+  expect(barsIn(metric, 'dark')).toHaveLength(values.length);
+  // ...and the label did move, so the equality above is a fact about the bars rather than about
+  // a component that ignored its new prop entirely.
+  expect(labelIn(imperial, 'dark')).not.toBe(labelIn(metric, 'dark'));
 });
 
 /**
@@ -136,7 +171,7 @@ it('says its series aloud, oldest to newest, for a diver who cannot see it', asy
  * floor is about things a wet thumb has to hit, and this is a figure being read.
  */
 it('is a figure to read rather than a control to press', async () => {
-  const t = await render(<RmvSparkline values={[20, 10]} scheme="dark" />);
+  const t = await render(<RmvSparkline values={[20, 10]} scheme="dark" system="metric" />);
   for (const node of nodesIn(t)) {
     expect(node.props?.onPress).toBeUndefined();
     expect(node.props?.accessibilityRole).toBeUndefined();
@@ -152,7 +187,7 @@ it('is a figure to read rather than a control to press', async () => {
  */
 it('paints nothing from the depth scale and nothing the sheet did not hand out', async () => {
   for (const scheme of ['dark', 'light'] as const) {
-    const t = await render(<RmvSparkline values={[20, 14, 12, 18, 11]} scheme={scheme} />);
+    const t = await render(<RmvSparkline values={[20, 14, 12, 18, 11]} scheme={scheme} system="metric" />);
     expect(unexpectedGraphics(t, scheme)).toEqual([]);
     const painted = nodesIn(t)
       .flatMap((n) => [n.props?.style].flat(5))

@@ -377,21 +377,33 @@ export default function StatsScreen() {
             drawn whether or not there is a figure, exactly as the logbook's three are — an RMV
             needs an average depth, a duration and a cylinder size together (§2.2 asks for none
             of them), so a dash here is the ordinary state of a perfectly good logbook rather
-            than a fault. */}
+            than a fault.
+
+            Both figures take `units`, exactly as `Deepest` above does — §3's promise that units
+            follow the diver had one hole in it and this was it, an RMV reading `l/min` on a
+            screen where every other figure had already converted (M3). The sparkline does not:
+            its bars are proportions of the tallest, and a proportion is the same number in both
+            systems. */}
         <Group title={t('stats.groupGas')} styles={styles}>
           <Counter
             label={t('stats.rmv')}
-            value={trend === null ? null : formatRmv(trend.recent)}
+            value={trend === null ? null : formatRmv(trend.recent, units)}
             // **The one drawn figure on the screen** (M3d), and the dives it draws are the
             // dives the number beside it is averaged over — `rmvTrend`'s own window, handed
             // over whole rather than re-selected here. A window of its own would have been a
             // drawing and a figure computed from two populations under one caption, which is
             // §4.1's defining defect with a picture attached; `RmvSparkline` carries the rest
             // of the reasoning, including why a dive with no RMV is not a bar of no height.
-            shape={trend === null ? null : <RmvSparkline values={trend.recentValues} scheme={scheme} />}
+            shape={
+              trend === null ? null : <RmvSparkline values={trend.recentValues} scheme={scheme} system={units} />
+            }
             styles={styles}
           />
-          <Counter label={t('stats.trend')} value={trend === null ? null : formatRmvTrend(trend)} styles={styles} />
+          <Counter
+            label={t('stats.trend')}
+            value={trend === null ? null : formatRmvTrend(trend, units)}
+            styles={styles}
+          />
           {/* Only when there is a figure to qualify. An unstated window makes an RMV
               unreadable — five dives and fifty answer different questions — and a caption
               explaining the window of a dash would be explaining nothing. It counts the same

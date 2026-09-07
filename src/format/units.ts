@@ -22,17 +22,35 @@ import { decimalSeparator } from '../i18n';
  * the same band as the `24.7 m` it is; computing the band from a converted number would
  * put every imperial dive in band 6.
  *
- * **Four quantities the app displays have no pair here, deliberately.** Duration stays
- * minutes in both systems (a dive is 47 minutes long wherever you dive it). A cylinder's
- * size stays litres, and gas used and RMV stay litres and l/min with it: the imperial
- * cylinder unit is the *cubic foot*, which measures the free gas a cylinder holds at its
- * working pressure rather than the water capacity litres measure — an 80 cf cylinder is
- * an 11.1 L one — so "l → cf" is not a unit conversion at all but a different quantity
- * needing a pressure this app does not require anyone to record. And a **suit's thickness
- * stays millimetres**: a 5 mm suit is a 5 mm suit wherever it is sold, dived or talked
- * about, because that is the number printed on it — every manufacturer, including every
- * American one, states neoprene thickness in mm, so converting it to inches would render a
- * figure no diver has ever read on a label. §3 lists four pairs; this is why it lists four.
+ * **Three quantities the app displays have no pair here, deliberately.** Duration stays
+ * minutes in both systems (a dive is 47 minutes long wherever you dive it). A **cylinder's
+ * size stays litres**: the imperial cylinder unit is the *cubic foot*, which measures the free
+ * gas a cylinder holds at its working pressure rather than the water capacity litres measure —
+ * an 80 cf cylinder is an 11.1 L one — so "l → cf" is not a unit conversion at all but a
+ * different quantity needing a pressure this app does not require anyone to record. And a
+ * **suit's thickness stays millimetres**: a 5 mm suit is a 5 mm suit wherever it is sold,
+ * dived or talked about, because that is the number printed on it — every manufacturer,
+ * including every American one, states neoprene thickness in mm, so converting it to inches
+ * would render a figure no diver has ever read on a label.
+ *
+ * **`gasVolume` and `gasRate` used to be listed among them, and that was an error** (M3, found
+ * with RMV rendering `l/min` to a diver who had asked for feet and pounds). The cylinder
+ * argument above is sound about `sizeL` and was extended one step too far: it says a cubic foot
+ * measures *free gas at surface pressure* rather than water capacity, which is exactly right —
+ * and gas used and RMV **are already free gas at surface pressure**. `gasUsedLitres`
+ * (domain/derived.ts) is `Δbar × sizeL × count`, litres of gas measured at 1 bar, and `rmv` is
+ * that divided by an average ambient pressure and a duration. The convention difference lives
+ * on the *input* side, in how a cylinder is described, and the app has already settled it by
+ * asking every diver for water capacity in litres; it does not reach the derived figure, which
+ * is a volume of gas and converts by one exact factor like any other volume. So there are six
+ * pairs and §3's list of four wants amending, not defending.
+ *
+ * The one honest caveat, stated rather than corrected: a litre of free gas here is referenced
+ * to **1 bar** and an imperial cubic foot conventionally to **1 atm** (1.01325 bar), so the
+ * figure is 1.3 % high against a US table computed the other way. That is smaller than the
+ * approximation already sitting under every figure this app derives — `METRES_PER_BAR = 10`
+ * against seawater's ~10.06 — and correcting only here would leave an imperial figure that no
+ * longer converts back to the metric one a diver sees on the same dive.
  */
 
 /**
@@ -62,8 +80,18 @@ export const DEFAULT_UNIT_SYSTEM: UnitSystem = 'metric';
  */
 const SI_SYSTEM: UnitSystem = 'metric';
 
-/** A physical quantity one of §3's four pairs measures. */
-export type Quantity = 'depth' | 'pressure' | 'temperature' | 'weight';
+/**
+ * A physical quantity one of this module's pairs measures.
+ *
+ * The first four are §3's own list and are the ones a *stored column* can carry — see
+ * `DIVE_FIELD_QUANTITY` and `TANK_FIELD_QUANTITY` below, which classify every field of a `Dive`
+ * and a `Tank`. The last two are **derived-only**: no column holds a gas volume or a gas rate,
+ * because `gasUsedLitres` and `rmv` (domain/derived.ts) compute both from pressures, a water
+ * capacity and a duration. Nothing maps to them, and nothing should — a `sizeL` classified as
+ * `gasVolume` would render an 11.1 L cylinder as a 0.4 cu ft one, which is the exact confusion
+ * this module's top docblock spends a paragraph keeping apart.
+ */
+export type Quantity = 'depth' | 'pressure' | 'temperature' | 'weight' | 'gasVolume' | 'gasRate';
 
 /**
  * Exact defining constants, not rounded factors, so the arithmetic is as good as the
@@ -77,6 +105,13 @@ const METRES_PER_FOOT = 0.3048;
 const KILOGRAMS_PER_POUND = 0.45359237;
 const PASCALS_PER_PSI = 4.4482216152605 / 0.00064516;
 const PASCALS_PER_BAR = 100000;
+/**
+ * 28.316846592 litres, and written as the foot cubed rather than as that decimal for the same
+ * reason `PASCALS_PER_PSI` is written as its own division: the international foot is *defined*
+ * as 0.3048 m, so this is exact by construction rather than a number a later reader has to
+ * trust a copy of. (`* 1000` because a cubic metre is a thousand litres.)
+ */
+const LITRES_PER_CUBIC_FOOT = METRES_PER_FOOT ** 3 * 1000;
 
 /**
  * One half of one pair: the word, the precision, and the arithmetic both ways.
@@ -128,6 +163,28 @@ const identity = (value: number): number => value;
  * Imperial gets whole pounds: a pound is 0.45 kg, finer than the half-kilo the metric side
  * works in, and weights are cast, sold and stated in whole pounds. Half a pound would be
  * finer than any belt is actually assembled.
+ *
+ * *Gas used — `2382 l` / `84 cu ft`.* Whole units both sides. This is the one pair where
+ * imperial is **substantially coarser** — a cubic foot is 28 litres — and it is still the right
+ * figure: a dive uses 40–90 cu ft, so a whole one is about 1 % of the total, the same relative
+ * step the whole-foot depth ruling already accepts, and it is the only granularity in which a
+ * diver ever says how much gas a dive took. The metric side's whole litre is itself finer than
+ * the data behind it (one bar on an 11 L cylinder is 11 litres), so nothing real is lost.
+ *
+ * *RMV — `18.4 l/min` / `0.65 cu ft/min`.* One decimal metric, **two imperial**, and the count
+ * differs because the figures differ by a factor of 28: `0.6 cu ft/min` would be a step of
+ * 2.8 l/min across a range real divers occupy the whole of (12–22 l/min), which would draw
+ * three different divers as the same number. Two decimals is also simply how the figure is
+ * written wherever it is written — every SAC table and every imperial diver quotes `0.55`,
+ * `0.62`, `0.75`. It is still marginally coarser than the metric side (0.01 cu ft/min is
+ * 0.28 l/min against metric's 0.1), which is the same trade the depth pair makes and for the
+ * same reason: the precision a figure is *read* to beats the precision it could be printed to.
+ *
+ * `cu ft` rather than `ft³` or `cf`, in both halves of the gas pair. It is what a cylinder is
+ * called out loud and on its own label ("an 80 cu ft"), it needs no superscript to survive a
+ * mono column, and `cf` is an abbreviation a diver has to already know. The rate is the volume
+ * word with `/min` after it in both systems, which is what makes `l/min` and `cu ft/min`
+ * unable to disagree about what a cubic foot is called.
  */
 const SPECS: Record<Quantity, Record<UnitSystem, UnitSpec>> = {
   depth: {
@@ -164,6 +221,28 @@ const SPECS: Record<Quantity, Record<UnitSystem, UnitSpec>> = {
       decimals: 0,
       fromSi: (kg) => kg / KILOGRAMS_PER_POUND,
       toSi: (lb) => lb * KILOGRAMS_PER_POUND,
+    },
+  },
+  gasVolume: {
+    metric: { unit: 'l', decimals: 0, fromSi: identity, toSi: identity },
+    imperial: {
+      unit: 'cu ft',
+      decimals: 0,
+      fromSi: (litres) => litres / LITRES_PER_CUBIC_FOOT,
+      toSi: (cuft) => cuft * LITRES_PER_CUBIC_FOOT,
+    },
+  },
+  // The same factor, deliberately restated rather than derived from the row above: a rate is
+  // its own pair because it reads to its own precision, and a `gasRate` that borrowed
+  // `gasVolume`'s spec would have to borrow its `decimals: 0` with it and print every RMV in
+  // the app as `1 cu ft/min`.
+  gasRate: {
+    metric: { unit: 'l/min', decimals: 1, fromSi: identity, toSi: identity },
+    imperial: {
+      unit: 'cu ft/min',
+      decimals: 2,
+      fromSi: (litresPerMin) => litresPerMin / LITRES_PER_CUBIC_FOOT,
+      toSi: (cuftPerMin) => cuftPerMin * LITRES_PER_CUBIC_FOOT,
     },
   },
 };
@@ -417,9 +496,14 @@ const DIVE_FIELD_QUANTITY: { readonly [K in keyof Dive]: Quantity | null } = {
 /**
  * The same map for one cylinder, and exhaustive over `Tank` for the same reason.
  *
- * `sizeL` is `null` — see this module's own top docblock for why a cylinder's size has no
- * imperial counterpart here rather than being an oversight. `o2Pct`/`hePct` are percentages
- * and `configuration` names a rig; none of the three is a measurement in any system.
+ * **`sizeL` is `null`, and stays `null` now that `gasVolume` exists** — which is the one line in
+ * this file a later reader is most likely to want to "fix". A cylinder's size is its *water
+ * capacity*; a cubic foot is *free gas at working pressure*. They are different quantities about
+ * the same steel, and `'gasVolume'` here would render an 11.1 L cylinder as `0.4 cu ft` on the
+ * form, the detail and every preset chip. The pair added in M3 is for the two figures
+ * `domain/derived.ts` computes, which really are free gas; see this module's top docblock, which
+ * states both halves together for exactly this reason. `o2Pct`/`hePct` are percentages and
+ * `configuration` names a rig; none of the three is a measurement in any system.
  */
 const TANK_FIELD_QUANTITY: { readonly [K in keyof Tank]: Quantity | null } = {
   material: null,

@@ -192,6 +192,18 @@ function rmvBars(t: RenderResult): number[] {
     );
 }
 
+/**
+ * **What a screen reader hears where the bars are** — the sparkline's own label, read off the
+ * sheet's `rmvSparkline` style for the same reason `rmvBars` above walks the row rather than the
+ * screen: it is the shape's voice, not the row's, and it is the only place the per-dive figures
+ * appear at all.
+ */
+function rmvSeriesLabel(t: RenderResult): string | undefined {
+  const styles = makeStyles('light');
+  const row = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.rmvSparkline));
+  return row?.props?.accessibilityLabel as string | undefined;
+}
+
 /** Every `color` any style on the screen sets — the sweep §0.1 needs on `Text`, which
  * `unexpectedGraphics` deliberately never inspects (it guards painted `View`s). */
 function inkColours(t: RenderResult): string[] {
@@ -491,6 +503,62 @@ it('draws the window the figure is averaged over, and not the whole logbook', as
   // at render is the "dropped-in chart" `unexpectedGraphics` exists to report, and the sweep two
   // tests below runs on a logbook with no gas in it, where there is nothing drawn to sweep.
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+/**
+ * **A trip whose RMV is worth reading in either system**, and the fixture the two tests below
+ * share. Six gas dives oldest-first, so `rmvTrend` has a window and a window before it: the
+ * earliest dive alone is `previous` (20 l/min), and the five after it average to exactly 14.
+ */
+const gasTrip = () => [20, 12, 16, 14, 14, 14].map((value, index) => gasDive(value, { date: daysAgo(20 - index) }));
+
+/**
+ * **§3 promises units follow the diver, and until M3 this was the one figure that escaped it.**
+ * RMV was rendered as `l/min` whatever Settings said — on a screen whose `Deepest` row directly
+ * above it had already converted to feet — because `format/units.ts` had grouped it with a
+ * cylinder's SIZE, whose imperial counterpart genuinely is a different quantity. An RMV is not:
+ * it is free gas at surface pressure per minute, which is exactly what a cubic foot measures.
+ *
+ * All three places the figure reaches a diver are asserted together, because they are three
+ * renderings of one number and the failure worth catching is two of them agreeing: the row, the
+ * trend caption that names where it moved from, and the sparkline's spoken series — the only
+ * place the per-dive values appear at all, so a screen reader left in litres would be the one
+ * reader here given a different number from everyone else.
+ *
+ * 14 l/min is 0.49 cu ft/min and 20 is 0.71, so no expectation below can be satisfied by the
+ * metric figure wearing an imperial word.
+ */
+it('reads the whole RMV group in the diver’s own units, caption and spoken series included', async () => {
+  mockUseDives.mockReturnValue(divesState(gasTrip()));
+  mockUseUnitSystem.mockReturnValue('imperial');
+  const t = await show();
+
+  expect(counters(t)).toMatchObject({
+    RMV: '0.49 cu ft/min',
+    Trend: 'down from 0.71 cu ft/min',
+  });
+  expect(rmvSeriesLabel(t)).toBe(
+    'Each dive, oldest to newest: 0.42 cu ft/min, 0.57 cu ft/min, 0.49 cu ft/min, 0.49 cu ft/min, 0.49 cu ft/min',
+  );
+  // Nothing left in the other system anywhere on the screen — the half-converted state this
+  // screen actually shipped in.
+  expect(textIn(t).join(' ')).not.toContain('l/min');
+  expect(rmvSeriesLabel(t)).not.toContain('l/min');
+
+  // The bars are unitless and must not move: each is its share of the tallest in the window,
+  // and a ratio of two rates is the same ratio in either unit.
+  expect(rmvBars(t)).toHaveLength(5);
+});
+
+/** The metric half of the pair above, on the same six dives — the identity, so a metric diver
+ * reads exactly the number `rmv` returned and this cannot pass by converting both ways. */
+it('reads the same trip in litres per minute for a metric diver', async () => {
+  mockUseDives.mockReturnValue(divesState(gasTrip()));
+  const t = await show();
+  expect(counters(t)).toMatchObject({ RMV: '14.0 l/min', Trend: 'down from 20.0 l/min' });
+  expect(rmvSeriesLabel(t)).toBe(
+    'Each dive, oldest to newest: 12.0 l/min, 16.0 l/min, 14.0 l/min, 14.0 l/min, 14.0 l/min',
+  );
 });
 
 // --- Currency, and the difference between a dive and a booking ---

@@ -494,25 +494,67 @@ describe('formatVolume', () => {
 
 describe('formatGasUsed', () => {
   it('rounds a computed total to the whole litre, unlike formatVolume', () => {
-    expect(formatGasUsed(2381.7)).toBe('2382 l');
+    expect(formatGasUsed(2381.7, 'metric')).toBe('2382 l');
   });
+
+  // **The half a cylinder's size does NOT get** (M3). `formatVolume` above stays litres in both
+  // systems because a cylinder is described by its water capacity; this figure is the free gas
+  // `gasUsedLitres` computes from it, which is the quantity a cubic foot measures. 2381.7 l is
+  // 2381.7 / 28.316846592 = 84.11 cu ft, so the two systems cannot both be satisfied by one
+  // number — deleting the conversion leaves `2382 cu ft`, which fails here rather than passing
+  // as a relabelled litre.
+  it('converts the same total into the free-gas unit an imperial diver reads', () => {
+    expect(formatGasUsed(2381.7, 'imperial')).toBe('84 cu ft');
+    expect(formatGasUsed(2381.7, 'imperial')).not.toContain('2382');
+  });
+
   it('returns null when the total could not be computed', () => {
-    expect(formatGasUsed(null)).toBeNull();
+    expect(formatGasUsed(null, 'metric')).toBeNull();
+    expect(formatGasUsed(null, 'imperial')).toBeNull();
   });
   it('returns null rather than rendering NaN', () => {
-    expect(formatGasUsed(Number.NaN)).toBeNull();
+    expect(formatGasUsed(Number.NaN, 'metric')).toBeNull();
+    expect(formatGasUsed(Number.NaN, 'imperial')).toBeNull();
   });
 });
 
 describe('formatRmv', () => {
   it('renders to one decimal place', () => {
-    expect(formatRmv(18.42)).toBe('18.4 l/min');
+    expect(formatRmv(18.42, 'metric')).toBe('18.4 l/min');
   });
+
+  /**
+   * **The defect this pair was added for**: §3 promises units follow the diver, and this was the
+   * one figure in the app that did not — an imperial diver's Stats screen read `18.4 l/min`
+   * beside a `Deepest` that had already converted to feet.
+   *
+   * 18.42 / 28.316846592 = 0.6505 cu ft/min, so the two expectations below cannot both be met
+   * by any single number: a conversion deleted from `SPECS` renders `18.42` here, and a
+   * precision copied across from the metric side renders `0.7`. The second assertion is the one
+   * that matters most — a rate reading the same in both units would make this whole test
+   * vacuous.
+   */
+  it('converts a rate into the cubic feet per minute an imperial diver reads', () => {
+    expect(formatRmv(18.42, 'imperial')).toBe('0.65 cu ft/min');
+    expect(formatRmv(18.42, 'metric')).not.toBe(formatRmv(18.42, 'imperial'));
+  });
+
+  // Two decimals imperial against one metric, because a cubic foot is 28 litres: at one decimal
+  // the whole band real divers occupy would draw as `0.5` or `0.6`, and these three dives — a
+  // very good, an ordinary and a heavy-breathing one — would be two numbers instead of three.
+  it('keeps three real divers three different figures in imperial', () => {
+    const spoken = [12, 17, 22].map((rate) => formatRmv(rate, 'imperial'));
+    expect(spoken).toEqual(['0.42 cu ft/min', '0.60 cu ft/min', '0.78 cu ft/min']);
+    expect(new Set(spoken).size).toBe(3);
+  });
+
   it('returns null when RMV could not be computed', () => {
-    expect(formatRmv(null)).toBeNull();
+    expect(formatRmv(null, 'metric')).toBeNull();
+    expect(formatRmv(null, 'imperial')).toBeNull();
   });
   it('returns null rather than rendering NaN', () => {
-    expect(formatRmv(Number.NaN)).toBeNull();
+    expect(formatRmv(Number.NaN, 'metric')).toBeNull();
+    expect(formatRmv(Number.NaN, 'imperial')).toBeNull();
   });
 });
 
@@ -523,8 +565,16 @@ describe('formatRmv', () => {
  */
 describe('formatRmvTrend', () => {
   it('names the direction and the figure it moved from', () => {
-    expect(formatRmvTrend({ recent: 14.8, previous: 16.1 })).toBe('down from 16.1 l/min');
-    expect(formatRmvTrend({ recent: 16.1, previous: 14.8 })).toBe('up from 14.8 l/min');
+    expect(formatRmvTrend({ recent: 14.8, previous: 16.1 }, 'metric')).toBe('down from 16.1 l/min');
+    expect(formatRmvTrend({ recent: 16.1, previous: 14.8 }, 'metric')).toBe('up from 14.8 l/min');
+  });
+
+  // The figure inside the sentence is the diver's own, not a stored litre wearing the word
+  // "from": 16.1 l/min is 0.57 cu ft/min, and an imperial diver comparing this caption with the
+  // RMV row above it has to be reading one scale.
+  it('states the figure it moved from in the diver’s own units', () => {
+    expect(formatRmvTrend({ recent: 14.8, previous: 16.1 }, 'imperial')).toBe('down from 0.57 cu ft/min');
+    expect(formatRmvTrend({ recent: 14.8, previous: 16.1 }, 'imperial')).not.toContain('16.1');
   });
 
   // **Decided on the formatted figures, not the raw ones.** These two means differ by four
@@ -532,26 +582,47 @@ describe('formatRmvTrend', () => {
   // contradict the row above it is "steady". Asserted from both sides, because a comparison
   // written the other way round would call one of them a direction.
   it('calls a difference the app cannot show steady', () => {
-    expect(formatRmvTrend({ recent: 14.82, previous: 14.78 })).toBe('steady');
-    expect(formatRmvTrend({ recent: 14.78, previous: 14.82 })).toBe('steady');
-    expect(formatRmvTrend({ recent: 14.8, previous: 14.8 })).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.82, previous: 14.78 }, 'metric')).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.78, previous: 14.82 }, 'metric')).toBe('steady');
+    expect(formatRmvTrend({ recent: 14.8, previous: 14.8 }, 'metric')).toBe('steady');
   });
 
   // ...and a difference it CAN show is never called steady, or the rule above would have
   // swallowed the whole feature.
   it('still names a direction the app can draw', () => {
-    expect(formatRmvTrend({ recent: 14.74, previous: 14.91 })).toBe('down from 14.9 l/min');
+    expect(formatRmvTrend({ recent: 14.74, previous: 14.91 }, 'metric')).toBe('down from 14.9 l/min');
+  });
+
+  /**
+   * **Where "steady" falls is a question about the figures a diver READS, so it moves with the
+   * system** — which is why `system` is threaded through this function rather than the
+   * comparison being made once in metric.
+   *
+   * 14.6 and 14.8 l/min are two different numbers on a metric screen and one number on an
+   * imperial one: both are 0.52 cu ft/min, because a hundredth of a cubic foot is 0.28 of a
+   * litre. So the same pair of means is honestly a direction in one system and honestly steady
+   * in the other, and either row agrees with the RMV figure printed above it. A comparison made
+   * in stored litres would print "down from 0.52 cu ft/min" over a current figure also reading
+   * `0.52 cu ft/min` — the self-contradicting line this whole block exists to prevent, arriving
+   * through the other system.
+   */
+  it('draws the steady boundary where the diver’s own system draws it', () => {
+    expect(formatRmvTrend({ recent: 14.6, previous: 14.8 }, 'metric')).toBe('down from 14.8 l/min');
+    expect(formatRmvTrend({ recent: 14.6, previous: 14.8 }, 'imperial')).toBe('steady');
+    expect(formatRmv(14.6, 'imperial')).toBe(formatRmv(14.8, 'imperial'));
   });
 
   // No earlier window, no direction — the caller draws the recent figure alone rather than a
   // trend stated from one dive.
   it('says nothing at all when there is no earlier window', () => {
-    expect(formatRmvTrend({ recent: 14.8, previous: null })).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, previous: null }, 'metric')).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, previous: null }, 'imperial')).toBeNull();
   });
 
   it('returns null rather than rendering NaN', () => {
-    expect(formatRmvTrend({ recent: Number.NaN, previous: 16.1 })).toBeNull();
-    expect(formatRmvTrend({ recent: 14.8, previous: Number.NaN })).toBeNull();
+    expect(formatRmvTrend({ recent: Number.NaN, previous: 16.1 }, 'metric')).toBeNull();
+    expect(formatRmvTrend({ recent: 14.8, previous: Number.NaN }, 'metric')).toBeNull();
+    expect(formatRmvTrend({ recent: Number.NaN, previous: 16.1 }, 'imperial')).toBeNull();
   });
 });
 
@@ -1699,7 +1770,11 @@ describe('in Czech', () => {
     expect(formatDuration(72)).toBe('72 min');
     expect(formatVolume(11.1)).toBe('11,1 l');
     expect(formatSuitThickness(2.5)).toBe('2,5 mm');
-    expect(formatRmv(18.4)).toBe('18,4 l/min');
+    expect(formatRmv(18.4, 'metric')).toBe('18,4 l/min');
+    // The gas pair added in M3 goes through `figureText` like every other convertible figure,
+    // so a Czech imperial diver gets the comma and the same unit word — `cu ft` is a mark, not
+    // a word, exactly as `ft` and `psi` are.
+    expect(formatRmv(18.4, 'imperial')).toBe('0,65 cu ft/min');
     expect(formatDepth(41.2, 'metric')).toBe('41,2 m');
     expect(formatDepth(41.2, 'imperial')).toBe('135 ft');
   });
