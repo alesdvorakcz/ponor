@@ -7,13 +7,16 @@ import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
 import { DiveRow } from '../components/DiveRow';
 import { SearchCapsule } from '../components/SearchCapsule';
 import { useDives } from '../db/useDives';
+// M3m: whether the keyboard is covering the bottom edge, which is what decides whether the
+// dock below still has a home indicator to clear (`liftedBottomInset`).
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { logbookUnreadable } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { searchDives } from '../domain/search';
 import { t, useT } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset } from '../theme/styles';
+import { liftedBottomInset, makeStyles, screenTopInset } from '../theme/styles';
 
 /** The way out, in the same slot the Dives screen's magnifier occupies at the other end of
  * the app — one glyph, monochrome, in a capsule. `symbolName` (components/symbolName.ts)
@@ -62,6 +65,9 @@ export default function SearchScreen() {
   const units = useUnitSystem();
   const { dives, numbers, error } = useDives();
   const insets = useSafeAreaInsets();
+  // M3m — read here rather than inside the dock's style, so the one screen that knows about
+  // the keyboard is the one that owns the layout it changes.
+  const keyboardShown = useKeyboardShown();
   const [query, setQuery] = useState('');
 
   // Trimmed only to decide whether anything was actually typed — `searchDives` owns what a
@@ -131,10 +137,16 @@ export default function SearchScreen() {
         />
       )}
       {/* Bottom-anchored, and in flow rather than absolutely positioned: that is what lets
-          KeyboardAvoidingView above lift it with the keyboard. `insets.bottom` clears the
-          home indicator when the keyboard is down — the same composition, for the same
-          reason, that DiveFormScreen's footer makes. */}
-      <View style={[styles.searchDock, { paddingBottom: insets.bottom + 12 }]}>
+          KeyboardAvoidingView above lift it with the keyboard.
+
+          **`insets.bottom` is spent only while there is an indicator left to clear** (M3m).
+          It used to be added unconditionally, and on this screen the keyboard is up from the
+          moment it opens — the field autofocuses — so the whole inset went on clearing a home
+          indicator the keys were already covering, and the dock rode that much higher than it
+          belonged. `liftedBottomInset` (theme/styles.ts) is the one owner of that rule now,
+          shared with DiveFormScreen's footer, which made the same composition for the same
+          reason and had the same fault. */}
+      <View style={[styles.searchDock, { paddingBottom: liftedBottomInset(insets.bottom, 12, keyboardShown) }]}>
         <SearchCapsule scheme={scheme} value={query} onChangeText={setQuery} autoFocus />
         <ActionCapsule scheme={scheme} actions={close} />
       </View>

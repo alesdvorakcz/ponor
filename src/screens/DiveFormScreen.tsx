@@ -23,6 +23,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // navigation object; `leaveScreen.ts` still owns where a save GOES, and this owns whether a
 // departure happens at all — two different questions about the same act.
 import { useNavigation } from 'expo-router';
+// M3m: whether the keyboard is covering the bottom edge, which is what decides whether the
+// save footer still has a home indicator to clear (`liftedBottomInset`).
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
@@ -125,7 +128,7 @@ import { confirmDestructive } from '../platform/confirmDestructive';
 import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
+import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 const EMPTY_TANK: TankFormInput = {
@@ -2766,6 +2769,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
+  // M3m — read at the screen, beside the inset it qualifies, rather than inside the footer's
+  // style: the sheet is scheme-only and can know neither of these two numbers.
+  const keyboardShown = useKeyboardShown();
 
   // The one read this screen needs for carry-over (useDives.ts's own "the one read every
   // screen uses") — never a second query, per this task's own brief. See
@@ -4366,11 +4372,20 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
 
       {/* §0.5: the primary action sits in the bottom third — a fixed footer outside
           `formScroll` above, not the scrolling content, so it never needs to be scrolled
-          into view. `insets.bottom` (device home-indicator clearance) is the one value
-          here that cannot live in `makeStyles(scheme)`, the same reasoning
-          DivesScreen.tsx's own floating row gives for composing it in locally rather
-          than guessing it in a scheme-only stylesheet. */}
-      <View style={[styles.formFooter, { paddingBottom: insets.bottom + 24 }]}>
+          into view. The device's home-indicator clearance is the one value here that cannot
+          live in `makeStyles(scheme)`, the same reasoning DivesScreen.tsx's own floating row
+          gives for composing it in locally rather than guessing it in a scheme-only sheet.
+
+          **And it is spent only while there is an indicator left to clear** (M3m). It used to
+          be a flat `insets.bottom + 24`, which is right with the keyboard down and wrong with
+          it up: the keys are drawn over the indicator, so 34 pt on an island phone went on
+          clearing something nothing could reach and this button floated that far above the
+          keyboard it had just been lifted onto. Named as an accepted cost when the lift
+          landed, and closed here rather than left — because `SearchScreen`'s dock had the
+          identical padding for the identical reason, and two call sites with one rule between
+          them is the shape §4.1 exists for. `liftedBottomInset` (theme/styles.ts) is the
+          owner; both ask it. */}
+      <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
         {/* `disabled`/`accessibilityState` from `saving`, never from form validity (§1;
             see this screen's own docblock above). Both are set, not just one: `disabled`
             is what stops the press, `accessibilityState.disabled` is what tells a screen

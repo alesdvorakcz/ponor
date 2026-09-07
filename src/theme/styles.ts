@@ -154,6 +154,35 @@ export function screenBottomInset(safeAreaBottom: number): number {
 }
 
 /**
+ * **The bottom clearance for a control the keyboard lifts** (M3m) — `SearchScreen`'s dock and
+ * `DiveFormScreen`'s save footer, which are the same object seen twice: anchored to the bottom
+ * of the screen, in flow, under a `KeyboardAvoidingView` that raises them with the keys.
+ *
+ * Both wrote `insets.bottom + <their own gap>` inline, and that is right with the keyboard
+ * down and wrong with it up. **The device inset exists to clear a home indicator; while the
+ * keyboard is up the keyboard is covering the indicator**, so the inset buys nothing and the
+ * control floats a whole inset above where it belongs — 34 pt of dead air between a button and
+ * the keys, measured on an island phone, and named as an accepted cost in §9 before it was
+ * closed. So the inset is spent only when there is something to clear, and the gap always is.
+ *
+ * **A deliberate near-duplicate of `screenBottomInset` above, and §4.1 asks it to name its
+ * sibling.** That one answers for a control sitting over a **tab bar** — `EmptyState` is its
+ * only caller — where the caller composes its gap into the argument and a floor
+ * (`MIN_SCREEN_BOTTOM_INSET`) supplies breathing room on the platforms that report no inset at
+ * all. This one cannot take a composed argument, because the whole question is which HALF of
+ * that sum survives, and it carries no floor: a control the keyboard is about to sit under has
+ * its gap as its breathing room, and a floor here would be a second opinion about a number the
+ * call site has already decided.
+ *
+ * `keyboardShown` rather than a measured keyboard height: how far the control moves is
+ * `KeyboardAvoidingView`'s answer and this has no business restating it. All this decides is
+ * whether the indicator still needs clearing.
+ */
+export function liftedBottomInset(safeAreaBottom: number, gap: number, keyboardShown: boolean): number {
+  return keyboardShown ? gap : safeAreaBottom + gap;
+}
+
+/**
  * **How many units tall the tallest bar of the RMV sparkline is** (M3d — `RmvSparkline`,
  * components/RmvSparkline.tsx), and the reason a bar is drawn in units at all.
  *

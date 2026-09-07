@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 
 import { fonts } from './fonts';
 import { themeFor } from './resolve';
-import { makeStyles, screenBottomInset, screenTopInset } from './styles';
+import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset } from './styles';
 import { depthScale } from './tokens';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
@@ -1460,5 +1460,44 @@ describe('the account screen', () => {
     // The contrast is the rule: a row taking the label's own muted ink would be
     // indistinguishable from `Units` with its value missing.
     expect((styles.formFieldLabel as Record<string, unknown>).color).toBe(theme.fgMuted);
+  });
+});
+
+/**
+ * M3m's second wave, and the rule it replaces was written twice before it was written once.
+ *
+ * `SearchScreen`'s dock and `DiveFormScreen`'s save footer are the same object — a control
+ * anchored to the bottom of the screen that a `KeyboardAvoidingView` lifts — and both composed
+ * `insets.bottom + <gap>` inline. That is right with the keyboard down and wrong with it up:
+ * the inset exists to clear a home indicator, and while the keyboard is up the keyboard is
+ * covering the indicator, so the control floats a whole inset above where it belongs. On an
+ * island phone that is 34 pt of nothing between a button and the keys under it.
+ */
+describe('liftedBottomInset', () => {
+  it('spends the device inset only while the keyboard is not covering it', () => {
+    // Keyboard down on an island phone: the indicator is real and has to be cleared, and the
+    // control's own gap sits on top of it. This is what both call sites already computed.
+    expect(liftedBottomInset(34, 24, false)).toBe(58);
+    // Keyboard up: the keys are drawn over the indicator, so clearing it is 34 pt spent on
+    // something nothing can reach. Only the control's own gap survives.
+    expect(liftedBottomInset(34, 24, true)).toBe(24);
+  });
+
+  it('leaves a device with no inset exactly as it was, either way', () => {
+    // A phone with a home button, and the browser: there is no indicator to clear, so the
+    // keyboard changes nothing and the gap is the whole answer. Worth pinning because the
+    // obvious wrong implementation — dropping the gap instead of the inset — reads the same
+    // on the case above and differs here.
+    expect(liftedBottomInset(0, 12, false)).toBe(12);
+    expect(liftedBottomInset(0, 12, true)).toBe(12);
+  });
+
+  it('never returns less than the gap its caller asked for', () => {
+    // No floor of its own, unlike `screenBottomInset`: that one answers for a control over a
+    // tab bar and needs breathing room the device may not report. This one is asked by a
+    // control the keyboard is about to sit under, where the gap IS the breathing room and a
+    // floor would be a second opinion about it.
+    expect(liftedBottomInset(0, 0, true)).toBe(0);
+    expect(liftedBottomInset(120, 24, false)).toBe(144);
   });
 });

@@ -11,6 +11,7 @@ import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useDives, type DiveListState } from '../db/useDives';
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { dive } from '../domain/diveFixture';
 import { makeStyles } from '../theme/styles';
 import { logbookUnreadable } from '../domain/logbook';
@@ -19,12 +20,17 @@ import SearchScreen from './SearchScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// M3m: this screen's dock now asks whether a keyboard is covering the bottom edge. Mocked so
+// a test can raise one without a device — the hook's own behaviour is pinned in
+// `useKeyboardShown.test.ts`, and what this file is about is what the dock does with the answer.
+jest.mock('../hooks/useKeyboardShown', () => ({ useKeyboardShown: jest.fn(() => false) }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn() },
 }));
 
 const mockUseDives = useDives as jest.Mock;
+const mockKeyboardShown = useKeyboardShown as jest.Mock;
 const mockRouterPush = router.push as jest.Mock;
 const mockRouterBack = router.back as jest.Mock;
 const mockCanGoBack = router.canGoBack as jest.Mock;
@@ -46,6 +52,10 @@ function stubDives(state: Partial<DiveListState>) {
 
 beforeEach(() => {
   mockCanGoBack.mockImplementation(() => true);
+  // Explicit rather than left to the factory's own default, for the reason this repo's other
+  // suites give: `clearAllMocks` clears calls but not return values, so one test raising a
+  // keyboard would otherwise leak it into every test declared after it.
+  mockKeyboardShown.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -311,4 +321,37 @@ describe('in Czech', () => {
     expect(textIn(t).join(' ')).toContain('Hledejte ve svých ponorech');
     expect(textIn(t).join(' ')).not.toContain('Search your dives by site');
   });
+});
+
+/**
+ * M3m's second wave. The dock cleared the home indicator whether or not anything was covering
+ * it, so with the keyboard up — which on this screen is *always*, the field takes focus on
+ * arrival — the whole inset was spent on an indicator behind the keys, and the dock rode that
+ * much higher than it should. `liftedBottomInset` (theme/styles.ts) is the rule now, shared
+ * with the dive form's footer, which had the same padding for the same reason.
+ */
+it('stops clearing the home indicator once the keyboard is covering it', async () => {
+  stubDives(TWO_DIVES);
+  const paddingWhileKeyboard = async (shown: boolean) => {
+    mockKeyboardShown.mockReturnValue(shown);
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 640 }, insets: { top: 0, left: 0, right: 0, bottom: 34 } }}
+      >
+        <SearchScreen />
+      </SafeAreaProvider>,
+    );
+    const style = [findDock(t).props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    return style.reduce(
+      (acc: number | undefined, s) => (typeof s.paddingBottom === 'number' ? s.paddingBottom : acc),
+      undefined,
+    );
+  };
+
+  const keyboardDown = await paddingWhileKeyboard(false);
+  const keyboardUp = await paddingWhileKeyboard(true);
+  // The dock's own gap survives either way — it is what keeps the field off the keys.
+  expect(keyboardUp).toBeGreaterThan(0);
+  // ...and the 34 pt of indicator clearance is exactly what stops being spent.
+  expect(keyboardDown).toBe(keyboardUp! + 34);
 });

@@ -1,6 +1,6 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Keyboard, Platform, Pressable, Text, View } from 'react-native';
 
 import {
   calendarDateToLocalDate,
@@ -171,7 +171,23 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
         <Text style={styles.formFieldLabel}>{label}</Text>
         <Pressable
           style={styles.formFieldPicker}
-          onPress={() => setOpen((wasOpen) => !wasOpen)}
+          onPress={() =>
+            setOpen((wasOpen) => {
+              // **Opening a picker is the diver saying they have finished typing** (M3m), and
+              // it became worth saying out loud when the dive form's root gained a
+              // `KeyboardAvoidingView`: an open keyboard used to be drawn OVER this row's
+              // picker, and now compresses the scroll it opens inside, so a calendar reached
+              // from a focused number field was clipped at the third week.
+              //
+              // Dismissed here rather than by the form, because this row is the only thing
+              // that knows a picker is about to be shown — and it holds on any layout, since
+              // no field can see whether the screen above it lifts. Only on the way IN: the
+              // keyboard is already gone by the time it closes, and asking again would be a
+              // second call with nothing to answer.
+              if (!wasOpen) Keyboard.dismiss();
+              return !wasOpen;
+            })
+          }
           accessibilityRole="button"
           // Same `label: value` shape `OptionChips` already uses on this form, so a screen
           // reader announces what the field currently holds rather than only what it is for.

@@ -20,6 +20,7 @@ import { createDiveCenter, createDiveSite, getDiveSite, listDiveSites } from '..
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { useDives } from '../db/useDives';
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { useGearPresets } from '../db/useGearPresets';
 import { useOpenFormGroups } from '../db/useOpenFormGroups';
 import { setOpenFormGroups } from '../db/settings';
@@ -82,6 +83,10 @@ jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 // Task 7 gives updateDive a real caller: mode="edit" writes a patch of changed fields
 // through it, and completing a planned dive (§2.4) is that same write plus `status`.
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// M3m: the save footer now asks whether a keyboard is covering the bottom edge. Mocked so a
+// test can raise one without a device — the hook's own behaviour is pinned in
+// `useKeyboardShown.test.ts`, and this file is about what the footer does with the answer.
+jest.mock('../hooks/useKeyboardShown', () => ({ useKeyboardShown: jest.fn(() => false) }));
 // The unit preference (§3), mocked per module exactly as `useDives` is above and for the
 // same reason: it is a live database read, and this screen must be renderable in either
 // system without one. Left on its own default, `metric`, by every test that does not care
@@ -222,6 +227,7 @@ function discardButton(): { text?: string; style?: string; onPress?: () => void 
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 
 const mockUseDives = useDives as jest.Mock;
+const mockKeyboardShown = useKeyboardShown as jest.Mock;
 const mockCreate = createDive as jest.Mock;
 const mockUpdate = updateDive as jest.Mock;
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
@@ -340,6 +346,9 @@ const PIN_TEXT = '28.51234, 34.51234';
 beforeEach(() => {
   jest.clearAllMocks();
   alertSpy.mockClear();
+  // Explicit for the reason `canGoBack` below is: `clearAllMocks` clears calls but not return
+  // values, so one test raising a keyboard would leak it into every test after it.
+  mockKeyboardShown.mockReturnValue(false);
   // A fresh listener table per test, and a navigation object that really registers into it:
   // the screen's `addListener` call is the thing under test, so a stub that swallowed it would
   // make every discard assertion below vacuously true.
@@ -8324,4 +8333,37 @@ describe('the swipe-back gesture on a form with unsaved work', () => {
 
     expect(mockSetOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
   });
+});
+
+/**
+ * M3m's second wave, and the named cost of its first. The footer cleared the home indicator
+ * whether or not anything was covering it, so with the keyboard up — which is most of the time
+ * a diver spends on this form — the whole inset went on an indicator behind the keys and
+ * `Save dive` floated that much above them. `liftedBottomInset` (theme/styles.ts) is the shared
+ * owner now; `SearchScreen`'s dock, which had the same padding for the same reason, asks it too.
+ */
+it('stops clearing the home indicator under Save once the keyboard is covering it', async () => {
+  const paddingWhileKeyboard = async (shown: boolean) => {
+    mockKeyboardShown.mockReturnValue(shown);
+    const t = await render(
+      <SafeAreaProvider
+        initialMetrics={{ frame: { x: 0, y: 0, width: 320, height: 640 }, insets: { top: 0, left: 0, right: 0, bottom: 34 } }}
+      >
+        <DiveFormScreen mode="create" />
+      </SafeAreaProvider>,
+    );
+    const save = findSaveControl(t);
+    if (!save) throw new Error('no Save control found');
+    const style = [save.parent?.props.style].flat(5).filter(Boolean) as Record<string, unknown>[];
+    return style.reduce(
+      (acc: number | undefined, s) => (typeof s.paddingBottom === 'number' ? s.paddingBottom : acc),
+      undefined,
+    );
+  };
+
+  const keyboardDown = await paddingWhileKeyboard(false);
+  const keyboardUp = await paddingWhileKeyboard(true);
+  // The footer's own 24 pt survives — it is what keeps the button off the keys.
+  expect(keyboardUp).toBeGreaterThan(0);
+  expect(keyboardDown).toBe(keyboardUp! + 34);
 });

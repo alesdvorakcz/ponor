@@ -4,6 +4,7 @@
  */
 
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { Keyboard } from 'react-native';
 
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -376,4 +377,47 @@ it('leaves the time spinner open while it is being turned', async () => {
   const picker = await openPicker(t, 'Time in');
   await choose(picker, new Date(2026, 7, 31, 7, 5));
   expect(pickerOf(t)).toBeDefined();
+});
+
+/**
+ * M3m's second wave, and it is a consequence of M3m's own first: once the dive form's root
+ * became a `KeyboardAvoidingView`, an open keyboard stopped covering this picker and started
+ * **compressing the scroll it opens inside**, so a calendar opened from a focused number field
+ * was clipped at the third week. It was invisible before only because the keyboard was drawn
+ * over the whole thing.
+ *
+ * Opening a picker is the diver saying they are finished typing, so the keyboard goes. That is
+ * true on any layout — this row cannot see whether the screen above it lifts, and does not
+ * need to.
+ */
+it('puts the keyboard away when the picker opens, rather than opening under one', async () => {
+  const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+  try {
+    const t = await render(<DateTimeField label="Date" value="2026-08-31" onChange={noop} mode="date" scheme="light" />);
+    const trigger = triggerOf(t, 'Date');
+    if (!trigger) throw new Error('no Date field found');
+
+    await fireEvent.press(trigger);
+
+    expect(dismiss).toHaveBeenCalled();
+  } finally {
+    dismiss.mockRestore();
+  }
+});
+
+/** Closing it again is not a request to type: the keyboard was already gone when it opened,
+ * and dismissing on the way out would be a second call with nothing to dismiss. */
+it('says nothing about the keyboard when the picker is closed again', async () => {
+  const t = await render(<DateTimeField label="Date" value="2026-08-31" onChange={noop} mode="date" scheme="light" />);
+  const trigger = triggerOf(t, 'Date');
+  if (!trigger) throw new Error('no Date field found');
+  await fireEvent.press(trigger);
+
+  const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+  try {
+    await fireEvent.press(trigger);
+    expect(dismiss).not.toHaveBeenCalled();
+  } finally {
+    dismiss.mockRestore();
+  }
 });
