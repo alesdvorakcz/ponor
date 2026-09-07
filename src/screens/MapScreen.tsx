@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, type Href } from 'expo-router';
 import {
   FlatList,
@@ -16,6 +16,7 @@ import {
   DiveMap,
   MAP_KIND_GLYPH,
   MAP_MARK_KINDS,
+  type DiveMapHandle,
   type MapMark,
   type MapMarkKind,
   type MapMarkRef,
@@ -30,11 +31,13 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
 import {
   groupDivesByPlace,
+  refitRegion,
   regionFor,
   sitesWithoutYourMark,
   waterTempRange,
   withPoints,
   type MapPoint,
+  type MapRegion,
   type MapSite,
 } from '../domain/mapSites';
 import { catalogueSiteIdentity } from '../domain/siteIdentity';
@@ -308,55 +311,128 @@ export default function MapScreen() {
    * switches centres on loses the sheet and taps the mark again. A selection that survived would
    * have to prove, for every combination, that it was still drawn — and "it is still drawn" is
    * exactly what could not be proved cheaply enough to be worth the risk of re-opening one.
+   *
+   * **And it may move the camera** — `refit` below, M3l's answer to a kind switched on landing
+   * off-frame. The next filter is built here rather than inside a `setShown` updater precisely
+   * because the refit needs it: the decision is about what this press is going to draw, and an
+   * updater's answer is not available to the code that asked for it. One press is one event, so
+   * there is no batching for the functional form to protect against.
    */
   const toggleKind = (kind: MapMarkKind) => {
-    setShown((current) => {
-      const next = new Set(current);
-      if (!next.delete(kind)) next.add(kind);
-      return next;
-    });
+    const next = new Set(shown);
+    if (!next.delete(kind)) next.add(kind);
+    setShown(next);
     setSelected(null);
+    refit(kind, next);
   };
 
   /**
-   * **The three populations, each of them empty when its filter is off**, so everything below —
-   * the marks, the region, the summary's figures and the selection lookup — is computed from what
-   * is actually on the map rather than from what the device happens to hold.
+   * **The three populations for a given filter, each of them empty when its kind is off** — so
+   * everything below (the marks, the region, the summary's figures and the selection lookup) is
+   * computed from what is actually on the map rather than from what the device happens to hold.
+   *
+   * **A function of the filter rather than three `const`s, because it is asked twice** (M3l): once
+   * for what to draw now, and once inside `toggleKind` for what a press is about to produce. The
+   * alternative was an effect comparing the filter to its own previous value after the render had
+   * already happened, and the linter is right to refuse the shape it needs — but the deeper reason
+   * is §4.1: a second derivation of "which marks does this filter draw" is a second answer waiting
+   * to disagree with the first.
    */
-  const places: MapSite[] = shown.has('mine') ? groupDivesByPlace(dives) : [];
-  // **The catalogue sites that are not already standing under one of the diver's own marks.**
-  // A dive and the site it was logged at are not near each other, they are the same coordinate:
-  // §2.3's *Add "…" as a new site* copies the dive's own pin into the new row and pairs the dive
-  // to it by id. `sitesWithoutYourMark` (domain/mapSites.ts) settles it by that identity rather
-  // than by distance, and the place's sheet below carries the row's facts so nothing is lost
-  // with the dot.
-  const communitySites = shown.has('community')
-    ? sitesWithoutYourMark(withPoints(catalogue.sites), places)
-    : [];
-  const placedCentres = shown.has('centers') ? withPoints(centres.centers) : [];
+  const drawnFor = (kinds: ReadonlySet<MapMarkKind>) => {
+    const places: MapSite[] = kinds.has('mine') ? groupDivesByPlace(dives) : [];
+    // **The catalogue sites that are not already standing under one of the diver's own marks.**
+    // A dive and the site it was logged at are not near each other, they are the same coordinate:
+    // §2.3's *Add "…" as a new site* copies the dive's own pin into the new row and pairs the dive
+    // to it by id. `sitesWithoutYourMark` (domain/mapSites.ts) settles it by that identity rather
+    // than by distance, and the place's sheet below carries the row's facts so nothing is lost
+    // with the dot.
+    const communitySites = kinds.has('community')
+      ? sitesWithoutYourMark(withPoints(catalogue.sites), places)
+      : [];
+    const placedCentres = kinds.has('centers') ? withPoints(centres.centers) : [];
 
-  const marks: MapMark[] = [
-    ...places.map((place): MapMark => ({
-      kind: 'mine',
-      key: place.key,
-      // The mark's spoken name says the kind as well as the place, because three kinds are on
-      // one map and the numeral that tells this one apart is invisible to a screen reader
-      // (`format/display.ts`).
-      label: formatDiveMarkLabel(place.label, place.dives.length),
-      point: place.point,
-      // §3's "badge = count per site". Always drawn, including `1` — see `mapMarkBadge`
-      // (theme/styles.ts) for why a bare mark for a single dive would be a legend.
-      badge: String(place.dives.length),
-    })),
-    // `unnamedSite`/`unnamedCenter` rather than a literal, so a catalogue row with no name is
-    // called on this map exactly what the rest of the app calls one (§4.1). §5 asks a new row
-    // only for a name, so this is an edge rather than the norm — but a mark with no label at all
-    // is a mark a screen reader cannot announce.
-    ...catalogueMarks(communitySites, 'community', (row) => formatSiteMarkLabel(siteLabel(row))),
-    ...catalogueMarks(placedCentres, 'centers', (row) => formatCenterMarkLabel(centreLabel(row))),
-  ];
+    const marks: MapMark[] = [
+      ...places.map((place): MapMark => ({
+        kind: 'mine',
+        key: place.key,
+        // The mark's spoken name says the kind as well as the place, because three kinds are on
+        // one map and the numeral that tells this one apart is invisible to a screen reader
+        // (`format/display.ts`).
+        label: formatDiveMarkLabel(place.label, place.dives.length),
+        point: place.point,
+        // §3's "badge = count per site". Always drawn, including `1` — see `mapMarkBadge`
+        // (theme/styles.ts) for why a bare mark for a single dive would be a legend.
+        badge: String(place.dives.length),
+      })),
+      // `unnamedSite`/`unnamedCenter` rather than a literal, so a catalogue row with no name is
+      // called on this map exactly what the rest of the app calls one (§4.1). §5 asks a new row
+      // only for a name, so this is an edge rather than the norm — but a mark with no label at all
+      // is a mark a screen reader cannot announce.
+      ...catalogueMarks(communitySites, 'community', (row) => formatSiteMarkLabel(siteLabel(row))),
+      ...catalogueMarks(placedCentres, 'centers', (row) => formatCenterMarkLabel(centreLabel(row))),
+    ];
+    return { places, communitySites, placedCentres, marks };
+  };
+
+  const { places, communitySites, placedCentres, marks } = drawnFor(shown);
 
   const region = regionFor(marks.map((mark) => mark.point));
+
+  /**
+   * ── Switching a kind on must not leave it off-frame (M3l) ──────────────────────────────────
+   *
+   * **The defect this answers, in the state it was found in:** switching sites and centres on made
+   * the header read `1 dive · 2 sites · 1 centre` while the map went on showing only the dive.
+   * `region` above is handed to `initialRegion`, which a `MapView` reads once — so it frames the
+   * marks that existed at MOUNT and every later value of it is ignored. That was written down as a
+   * deliberate property ("switching a kind on adds its marks without moving the camera off what
+   * the diver was looking at"), and it is right about the case it describes and wrong about the
+   * case that actually arrives: the community catalogue comes down from a sync and is nowhere near
+   * wherever the map happens to be sitting, so the ordinary first use of this filter is a header
+   * counting rows over a map showing none of them.
+   *
+   * **The rule and the judgement in it belong to `refitRegion`** (domain/mapSites.ts) — refit only
+   * for a kind that has just arrived and has nothing in view; never for one switched off, never
+   * for one that arrived with no marks, never to a frame that leaves anything else behind. What
+   * lives HERE is the only part that is about this screen: which kind was just pressed and which
+   * way, what that press is about to draw, and where the camera is.
+   *
+   * **Decided in the press rather than in an effect.** An effect would have to notice the filter
+   * changing by comparing it with its own previous value *after* the fact and then set state from
+   * inside itself, which is the cascading-render shape the linter refuses — and the press already
+   * knows everything the decision needs, so the effect would have been reconstructing it.
+   *
+   * **A ref rather than state, for both of these.** `map` is a command channel, not a value to
+   * render; `camera` changes at the end of every pan the diver makes and nothing on this screen
+   * draws it, so as state it would repaint the whole tab for a fact nobody can see. `camera` has
+   * exactly one writer — `onRegionSettled`, which `DiveMap` calls when it opens and whenever the
+   * camera comes to rest — so it is never about a map other than the one on screen.
+   */
+  const map = useRef<DiveMapHandle | null>(null);
+  const camera = useRef<MapRegion | null>(null);
+  const rememberCamera = useCallback((settled: MapRegion) => {
+    camera.current = settled;
+  }, []);
+  const refit = (kind: MapMarkKind, next: ReadonlySet<MapMarkKind>) => {
+    const drawn = drawnFor(next).marks;
+    // **What has just arrived, and there is deliberately no branch on which way the switch went.**
+    // Switching a kind OFF makes this empty by construction — `drawnFor(next)` draws none of a kind
+    // that is not in `next` — and `refitRegion` is what turns no arrivals into no move. A
+    // `switchedOn ? … : []` was written here first and taken out again: it is a second statement of
+    // a rule the line above already enforces, and the mutation pass confirmed nothing could ever
+    // catch it being wrong (§10 declines a guard that cannot fail).
+    //
+    // The whole of what is drawn goes with it either way, because a refit frames everything on the
+    // map rather than only the kind that asked for one.
+    const arriving = drawn.filter((mark) => mark.kind === kind);
+    const target = refitRegion(
+      camera.current,
+      arriving.map((mark) => mark.point),
+      drawn.map((mark) => mark.point),
+    );
+    if (target === null) return;
+    map.current?.moveTo(target);
+  };
 
   const root = [styles.screen, { paddingTop: screenTopInset(insets.top) }];
 
@@ -649,14 +725,19 @@ export default function MapScreen() {
             for no marks, and §1 would rather open a tab that says something true than centre a
             map on a place the diver has never been.
 
-            **The region is computed at mount and does not follow the filter** (`initialRegion`,
-            M2n's own choice against a ref and `fitToCoordinates`), so switching a kind on adds
-            its marks without moving the camera off what the diver was looking at — which is right
-            for a filter, and does mean a lone centre a hundred miles away is added off-screen. */}
+            **`region` frames the map when it opens; a `moveTo` on the handle is the only thing
+            that moves it afterwards** (M3l). `initialRegion` is read once, which is why a filter
+            switched on after mount needed a channel of its own rather than a recomputed prop —
+            see `refit` above for the defect that cost, and `refitRegion` for when the camera may
+            move and when it may not. Switching a kind on still adds its marks without moving the
+            camera *when the diver can see some of them*, which is the half of M2n's choice that
+            was always right. */}
         {region !== null && (
           <DiveMap
+            ref={map}
             scheme={scheme}
             region={region}
+            onRegionSettled={rememberCamera}
             marks={marks}
             selected={selected}
             onSelect={pressMark}

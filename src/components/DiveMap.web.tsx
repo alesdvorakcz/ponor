@@ -1,8 +1,9 @@
+import { forwardRef, useImperativeHandle } from 'react';
 import { Text, View } from 'react-native';
 
 import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
-import type { DiveMap as NativeDiveMap, DiveMapProps } from './DiveMap';
+import type { DiveMap as NativeDiveMap, DiveMapHandle, DiveMapProps } from './DiveMap';
 
 /**
  * **The browser's half of the map, and it is a sentence rather than a map** — DESIGN.md §9,
@@ -35,9 +36,17 @@ import type { DiveMap as NativeDiveMap, DiveMapProps } from './DiveMap';
  * `marks` is the one prop this reads, because how many places *would* have been drawn is the
  * only thing this message can honestly add — a browser reviewing the screen should be able to
  * see that the grouping ran and what it produced.
+ *
+ * **The camera is therefore inert here, and inert is the honest answer** (M3l): a refit moves a
+ * camera, this file has no camera, and there is no region for one to settle at. `MapScreen` is one
+ * file for both platforms and asks the same questions either way — but because `onRegionSettled`
+ * never fires, the screen never learns of a camera to move, `refitRegion` answers null on every
+ * switch, and `moveTo` is never called. The no-op below is what the parity assertion needs rather
+ * than a branch anything reaches.
  */
-export function DiveMap({ scheme, marks }: DiveMapProps) {
+export const DiveMap = forwardRef<DiveMapHandle, DiveMapProps>(function DiveMap({ scheme, marks }, handle) {
   const styles = makeStyles(scheme);
+  useImperativeHandle(handle, () => ({ moveTo: () => {} }), []);
   return (
     <View style={styles.centerFill}>
       <Text style={styles.messageText}>{t('map.webUnavailable')}</Text>
@@ -46,7 +55,7 @@ export function DiveMap({ scheme, marks }: DiveMapProps) {
       <Text style={styles.messageText}>{t('map.webPlaces', { count: marks.length })}</Text>
     </View>
   );
-}
+});
 
 type Assert<T extends true> = T;
 

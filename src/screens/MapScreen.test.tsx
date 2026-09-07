@@ -18,6 +18,7 @@ import { dive } from '../domain/diveFixture';
 import { unnamedCenter, unnamedSite } from '../format/display';
 import { type Dive, type DiveCenter, type DiveSite } from '../domain/types';
 import { locationPermission, requestLocationPermission } from '../platform/locationPermission';
+import { regionContains, type MapRegion } from '../domain/mapSites';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthBandColor } from '../theme/depth';
 import { makeStyles } from '../theme/styles';
@@ -1066,6 +1067,167 @@ it('keeps the community sites drawable when the centres read has failed', async 
   await press(t, 'Show dive centres');
   expect(markLabels(t)).toEqual(['Vis, dive site']);
   expect(summaryLine(t)).toBe('0 dives · 1 site');
+});
+
+// ---------------------------------------------------------------------------------------
+// The refit (M3l) — a switched-on kind may not land off-frame with nothing saying so
+// ---------------------------------------------------------------------------------------
+//
+// **The defect, in the state it was found in on the device:** one pinned dive, a catalogue two
+// islands away, and switching sites and centres on made the header read `1 dive · 2 sites ·
+// 1 centre` while the map went on showing only the dive. `initialRegion` is read once, so a
+// filter switched on after mount could add marks and never move the camera to them.
+//
+// **Every claim below is read through `cameraOf`, and none of them is "the refit was called".**
+// The mutation pass on this very screen found a subject covered three times by checks that each
+// read a different representation of it, all green while the defect was live — so where the
+// camera IS has exactly one accessor here, and the assertions are about which marks that
+// rectangle holds.
+//
+// **What a mocked map still cannot say**, and what the simulator pass therefore had to: that the
+// flight reads as a movement rather than a teleport, that the refitted frame is legible at the
+// zoom it lands on, and that a mark inside the rectangle is a mark a diver can actually see.
+
+/** The region the map is showing — `initialRegion` until something moves it, then whatever the
+ * screen commanded or the map reported (`__mocks__/react-native-maps.js`, which models the camera
+ * and nothing else about a map). */
+function cameraOf(t: RenderResult): MapRegion {
+  const map = allNodes(t).find((n) => n.props?.initialRegion !== undefined);
+  if (map === undefined) throw new Error('MapScreen rendered no map');
+  return map.props.__camera as MapRegion;
+}
+
+/** The diver moving the map with their own hands, which is the only reason the refit rule needs
+ * to consult the camera at all — a `MapView` reports where a gesture left it. */
+async function pan(t: RenderResult, region: MapRegion) {
+  const map = allNodes(t).find((n) => n.props?.initialRegion !== undefined);
+  if (map === undefined) throw new Error('MapScreen rendered no map');
+  await act(async () => {
+    (map.props.onRegionChangeComplete as (region: MapRegion, details: unknown) => void)(region, {});
+  });
+}
+
+/** Split, where the diver's own pinned dive is. */
+const HERE = { latitude: 43.5081, longitude: 16.4402 };
+/** Two islands and a shop, far enough away that a frame around one dive holds none of them —
+ * the seeding that reproduced the defect on the simulator. */
+const VIS = { latitude: 43.06, longitude: 16.18 };
+const HVAR = { latitude: 43.17, longitude: 16.44 };
+const DUBROVNIK = { latitude: 42.65, longitude: 18.09 };
+
+function acrossTheAdriatic() {
+  mockUseDives.mockReturnValue(divesState([pinned({ latitude: HERE.latitude, longitude: HERE.longitude })]));
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([
+      site({ name: 'Vis', latitude: VIS.latitude, longitude: VIS.longitude }),
+      site({ name: 'Hvar', latitude: HVAR.latitude, longitude: HVAR.longitude }),
+    ]),
+  );
+  mockUseDiveCenters.mockReturnValue(
+    centresState([centre({ name: 'Ponorka', latitude: DUBROVNIK.latitude, longitude: DUBROVNIK.longitude })]),
+  );
+}
+
+it('brings a switched-on kind into frame instead of counting it off-screen', async () => {
+  acrossTheAdriatic();
+  const t = await show();
+  // The state the bug was reported from: a map framing one dive, and a catalogue nowhere near it.
+  expect(regionContains(cameraOf(t), HERE)).toBe(true);
+  expect(regionContains(cameraOf(t), VIS)).toBe(false);
+  expect(regionContains(cameraOf(t), HVAR)).toBe(false);
+
+  await press(t, 'Show community sites');
+  expect(summaryLine(t)).toBe('1 dive · 2 sites');
+  // ...and the map now shows what that line is counting — every mark of both kinds, the diver's
+  // own included, because a refit that abandoned their dives would be a different defect.
+  for (const point of [HERE, VIS, HVAR]) {
+    expect(regionContains(cameraOf(t), point)).toBe(true);
+  }
+});
+
+// The second switch is judged against where the first one left the camera, not against where the
+// map opened — otherwise the centre would be "already in view" of a frame that no longer exists.
+it('brings a second switched-on kind into frame after the first has moved the camera', async () => {
+  acrossTheAdriatic();
+  const t = await show();
+  await press(t, 'Show community sites');
+  expect(regionContains(cameraOf(t), DUBROVNIK)).toBe(false);
+
+  await press(t, 'Show dive centres');
+  expect(summaryLine(t)).toBe('1 dive · 2 sites · 1 centre');
+  for (const point of [HERE, VIS, HVAR, DUBROVNIK]) {
+    expect(regionContains(cameraOf(t), point)).toBe(true);
+  }
+});
+
+/**
+ * **Half the judgement in the rule: not on every switch** (`refitRegion`, domain/mapSites.ts). A
+ * diver who has panned somewhere deliberately and can already see some of what they just turned
+ * on keeps the camera they placed.
+ */
+it('leaves a hand-placed camera alone when the arriving kind is already on it', async () => {
+  acrossTheAdriatic();
+  const t = await show();
+  const headland = { latitude: 43.1, longitude: 16.3, latitudeDelta: 0.4, longitudeDelta: 0.4 };
+  await pan(t, headland);
+  expect(regionContains(headland, VIS)).toBe(true);
+
+  await press(t, 'Show community sites');
+  expect(cameraOf(t)).toBe(headland);
+});
+
+// **Switching a kind OFF refits nothing.** There is nothing new to bring into view, and moving the
+// map because something disappeared would be gratuitous — including in the case that tempts a
+// naive rule most, where what is left behind is off-screen.
+it('never moves the map for a kind that has just been switched off', async () => {
+  acrossTheAdriatic();
+  const t = await show();
+  await press(t, 'Show community sites');
+  const framed = cameraOf(t);
+
+  await press(t, 'Hide community sites');
+  expect(summaryLine(t)).toBe('1 dive');
+  expect(cameraOf(t)).toBe(framed);
+});
+
+/**
+ * **§1: never block.** A kind switched on with no rows, or with rows carrying no pins, has its own
+ * sentence already; refitting there would be a camera framing nothing, which is the degenerate
+ * region `regionFor` exists to refuse.
+ */
+it.each([
+  ['a catalogue with nothing in it', () => catalogueState([])],
+  ['a catalogue whose rows have no pins', () => catalogueState([site({ name: 'Vis' }), site({ name: 'Hvar' })])],
+] as const)('never moves the map for %s', async (_what, rows) => {
+  mockUseDives.mockReturnValue(divesState([pinned({ latitude: HERE.latitude, longitude: HERE.longitude })]));
+  mockUseDiveSites.mockReturnValue(rows());
+  const t = await show();
+  const opened = cameraOf(t);
+
+  await press(t, 'Show community sites');
+  expect(cameraOf(t)).toBe(opened);
+  expect(regionContains(cameraOf(t), HERE)).toBe(true);
+});
+
+/**
+ * **A map that has just been drawn opened on `regionFor` already**, so it is framing everything
+ * there is and must not then fly somewhere on the strength of a refit worked out for a map that no
+ * longer exists. The whole map is torn down whenever the last mark goes away, which is one press
+ * from every state this screen has.
+ */
+it('opens a rebuilt map on its own frame rather than on a refit from before it', async () => {
+  acrossTheAdriatic();
+  const t = await show();
+  await press(t, 'Show community sites');
+  expect(regionContains(cameraOf(t), HVAR)).toBe(true);
+
+  await press(t, 'Hide community sites');
+  await press(t, 'Hide your dives');
+  expect(hasMap(t)).toBe(false);
+
+  await press(t, 'Show your dives');
+  expect(regionContains(cameraOf(t), HERE)).toBe(true);
+  expect(regionContains(cameraOf(t), HVAR)).toBe(false);
 });
 
 // --- Location (§5 of the brief: a map needs no permission, and must not ask for one) ---

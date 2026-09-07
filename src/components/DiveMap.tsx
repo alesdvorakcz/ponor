@@ -1,3 +1,4 @@
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { SymbolView } from 'expo-symbols';
 import MapView, { Marker } from 'react-native-maps';
 import { Text, View } from 'react-native';
@@ -75,6 +76,21 @@ export interface DiveMapProps {
    * themselves, never guessed here — see that function for why it is a region and not a
    * `fitToCoordinates` call on a ref. */
   region: MapRegion;
+  /**
+   * **Where the camera is, reported whenever that changes** — when the map opens, when the diver's
+   * pan or pinch comes to rest, and when a `moveTo` has finished flying.
+   *
+   * The screen needs this and cannot derive it: the refit rule (`refitRegion`, domain/mapSites.ts)
+   * turns on whether a newly switched-on kind is *in view*, and after a pan the only thing that
+   * knows what is in view is the map. It is reported at mount as well as after a gesture, so the
+   * screen's idea of the camera is never older than the map itself — the map is torn down and
+   * rebuilt whenever the last mark goes away, and the one that comes back is somewhere else.
+   *
+   * Wired to `onRegionChangeComplete` rather than `onRegionChange`: the latter fires continuously
+   * through a gesture, which would be an update per frame of every drag for an answer that is only
+   * ever read when a switch is pressed.
+   */
+  onRegionSettled: (region: MapRegion) => void;
   marks: readonly MapMark[];
   selected: MapMarkRef | null;
   onSelect: (mark: MapMark) => void;
@@ -89,6 +105,28 @@ export interface DiveMapProps {
    * Showing the blue dot is a nicety, and a nicety never gets to ask.
    */
   showsUserLocation: boolean;
+}
+
+/**
+ * **What a caller may ask this map to DO, as opposed to what it may ask it to show** — one verb,
+ * and it exists because a camera move is an event rather than a state (M3l).
+ *
+ * The alternative was tried first and is worth recording: a `moveTo: MapRegion | null` prop, with
+ * an effect in here reacting to it changing. It reads more like the rest of this file and it is
+ * wrong on two counts. The screen would have to hold a *command* in `useState` and therefore set
+ * that state from an effect, which is the cascading-render shape the linter refuses outright; and
+ * a standing value survives the map that earned it, so a `MapView` rebuilt after the last mark
+ * went away would mount holding a refit computed for a map that no longer exists and fly off the
+ * region it had just opened on. A call happens once, to whatever map exists at the time, and is
+ * dropped on the floor when there is none — which is exactly the right behaviour in that case,
+ * since a map that is about to mount opens on `regionFor` already.
+ */
+export interface DiveMapHandle {
+  /**
+   * Fly the camera to a region. **The screen decides whether and where** (`refitRegion`,
+   * domain/mapSites.ts, which owns the rule and the judgement in it); this carries it out.
+   */
+  moveTo: (region: MapRegion) => void;
 }
 
 /**
@@ -144,6 +182,14 @@ export interface DiveMapProps {
  * reaches a `View`. What it cannot carry, and what the simulator pass is for: that the marks are
  * legible over water and terrain in both themes, that the region actually frames the pins, that
  * a mark's 48 dp target (§0.5) is really 48 dp on a device, and that the map renders at all.
+ *
+ * **The camera is the one place that split had to be drawn again** (M3l). The mock models where
+ * the camera IS — `initialRegion` until an `animateToRegion` or a settled region moves it — which
+ * is bookkeeping of this app's own commands rather than a layout answer, so the suite can say that
+ * a `moveTo` puts the map somewhere else and that a recomputed `region` does not. What it cannot
+ * say is anything about the flight: that `REFIT_MS` reads as a movement rather than a teleport,
+ * that the frame it lands on is legible at that zoom, or that a mark inside the rectangle is a
+ * mark a diver can actually see. Those were looked at.
  *
  * **The browser gets `DiveMap.web.tsx` instead**, and that is not a nicety either: importing
  * this module in a web bundle is a hard crash. `react-native-maps`' `index.ts` pulls in
@@ -270,13 +316,68 @@ const MARK_GLYPH_SIZE = 14;
  */
 const MARK_Z: Record<MapMarkKind, number> = { community: 1, centers: 2, mine: 3 };
 
-export function DiveMap({ scheme, region, marks, selected, onSelect, showsUserLocation }: DiveMapProps) {
+/**
+ * How long a refit takes, in milliseconds.
+ *
+ * **Animated rather than instant, and that is the whole point of using `animateToRegion` over
+ * `setRegion`.** A camera that teleports leaves a diver holding a map of somewhere else with no
+ * account of how they got there; a camera that flies says *the map moved, and this is where from*.
+ * The move is one a diver did not ask for in so many words — they pressed a switch, not a
+ * coordinate — so it has to be legible as a move.
+ */
+const REFIT_MS = 400;
+
+export const DiveMap = forwardRef<DiveMapHandle, DiveMapProps>(function DiveMap(
+  { scheme, region, onRegionSettled, marks, selected, onSelect, showsUserLocation },
+  handle,
+) {
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
+  /**
+   * **The one ref on the map itself, and it is here rather than on the screen** (M3l).
+   *
+   * M2n chose a computed `initialRegion` over `fitToCoordinates` precisely so that the Map screen
+   * would need no ref — *"an imperative call on a ref after layout means a frame of some other
+   * region first"*. That reasoning is untouched and is why `region` is still what the map OPENS
+   * on: a pure function of the pins, applied before the first frame. What it never covered is a
+   * camera move **after** mount, which `initialRegion` cannot express at all — the prop is read
+   * once and every later value of it is ignored, which is exactly how the header came to count
+   * marks the map was not showing.
+   *
+   * So the ref buys the one thing a prop cannot, and buys nothing else: no reading of the camera,
+   * no `fitToCoordinates`, no measurement. Where to move is still computed purely, off this
+   * component, by `refitRegion`.
+   */
+  const map = useRef<MapView | null>(null);
+  useImperativeHandle(handle, () => ({ moveTo: (to) => map.current?.animateToRegion(to, REFIT_MS) }), []);
+  /**
+   * **Where the map opened, handed to the caller once.**
+   *
+   * A real `MKMapView` reports its region for itself once it has laid out, so this is not a fact
+   * being invented — it is the same fact, delivered a frame earlier and without depending on the
+   * platform to volunteer it. It matters because the map is **rebuilt** whenever the last mark
+   * goes away, and a caller left holding the region of a map that no longer exists would judge the
+   * next switch against a rectangle from a different place.
+   *
+   * One ref does both halves — it holds the region to report, and being emptied is what records
+   * that it has been — so an unstable `onRegionSettled` cannot make this fire twice and stamp a
+   * stale opening region over a camera the diver has since moved.
+   */
+  const opened = useRef<MapRegion | null>(region);
+  useEffect(() => {
+    const at = opened.current;
+    if (at === null) return;
+    opened.current = null;
+    onRegionSettled(at);
+  }, [onRegionSettled]);
   return (
     <MapView
+      ref={map}
       style={styles.mapSurface}
       initialRegion={region}
+      // Where the camera came to rest, handed back to the screen — `…Complete`, so it is one
+      // update at the end of a gesture rather than one per frame of it (see the prop's docblock).
+      onRegionChangeComplete={onRegionSettled}
       // **The map follows the theme the app resolved, not the one it would resolve itself.**
       // Left unset this defaults to `'system'`, which reads the OS directly — the same answer
       // today, and one that would drift the moment anything in Ponor lets a diver pick a scheme.
@@ -377,4 +478,4 @@ export function DiveMap({ scheme, region, marks, selected, onSelect, showsUserLo
       })}
     </MapView>
   );
-}
+});

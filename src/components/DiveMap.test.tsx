@@ -1,6 +1,9 @@
-import { render, type RenderResult } from '@testing-library/react-native';
+import { createRef } from 'react';
 
-import { type MapMark, type MapMarkRef } from './DiveMap';
+import { act, render, type RenderResult } from '@testing-library/react-native';
+
+import { type MapRegion } from '../domain/mapSites';
+import { type DiveMapHandle, type MapMark, type MapMarkRef } from './DiveMap';
 import { CENTERS_GLYPH, DiveMap, MAP_KIND_GLYPH, MAP_MARK_KINDS } from './DiveMap';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthScale } from '../theme/tokens';
@@ -73,6 +76,7 @@ function draw(over: Partial<Parameters<typeof DiveMap>[0]> = {}) {
     <DiveMap
       scheme="light"
       region={REGION}
+      onRegionSettled={() => {}}
       marks={MARKS}
       selected={null}
       onSelect={() => {}}
@@ -460,4 +464,140 @@ it.each(['light', 'dark'] as const)('paints the marks from the sheet, and never 
   // ...and there really was a glyph on this tree to have been mis-tinted, or the line above is
   // a sweep over nothing.
   expect(findSymbols(t)).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------------------
+// The camera (M3l) — what opens the map, what moves it afterwards, and what it reports back
+// ---------------------------------------------------------------------------------------
+
+/**
+ * **Where the map is now**, which under Jest is the one thing `__mocks__/react-native-maps.js`
+ * models rather than passes through: `initialRegion` until something moves it, then whatever the
+ * app commanded through `animateToRegion` or the map reported through `onRegionChangeComplete`.
+ *
+ * **One accessor, deliberately.** The mutation pass on this screen found a subject covered three
+ * times by checks that each read a different representation of it, all green while the defect was
+ * live — so every claim below about the camera is read from here, and *"the refit function was
+ * called"* is not one of them.
+ */
+function cameraOf(t: RenderResult) {
+  return mapView(t).props.__camera as MapRegion;
+}
+
+const ELSEWHERE: MapRegion = { latitude: 43.06, longitude: 16.18, latitudeDelta: 0.6, longitudeDelta: 0.6 };
+
+/**
+ * **The fact the M3l defect was made of, pinned so it cannot be forgotten again.** `initialRegion`
+ * is read once: recomputing `region` on a later render does NOT move the camera, which is why a
+ * filter switched on after mount needed a channel of its own. If this ever starts moving the map,
+ * the refit is being done twice and by two mechanisms.
+ */
+it('opens on the region it was given, and a later region does not move it', async () => {
+  const t = await draw();
+  expect(cameraOf(t)).toBe(REGION);
+  await act(async () => {
+    t.rerender(
+      <DiveMap
+        scheme="light"
+        region={ELSEWHERE}
+        onRegionSettled={() => {}}
+        marks={MARKS}
+        selected={null}
+        onSelect={() => {}}
+        showsUserLocation={false}
+      />,
+    );
+  });
+  expect(cameraOf(t)).toBe(REGION);
+});
+
+// The one channel that does move it. The claim is about the region the map ends up showing, not
+// about a call having happened.
+it('flies the camera to the region it is told to move to', async () => {
+  const handle = createRef<DiveMapHandle>();
+  const t = await render(
+    <DiveMap
+      ref={handle}
+      scheme="light"
+      region={REGION}
+      onRegionSettled={() => {}}
+      marks={MARKS}
+      selected={null}
+      onSelect={() => {}}
+      showsUserLocation={false}
+    />,
+  );
+  expect(cameraOf(t)).toBe(REGION);
+  await act(async () => {
+    handle.current?.moveTo(ELSEWHERE);
+  });
+  expect(cameraOf(t)).toBe(ELSEWHERE);
+});
+
+/**
+ * **Where the map opened, reported without waiting for the platform to volunteer it.** The screen
+ * decides a refit against where the camera IS, and the map is rebuilt whenever the last mark goes
+ * away — so a caller left holding the region of a map that no longer exists would judge the next
+ * switch against a rectangle from somewhere else entirely.
+ *
+ * **And exactly once, which is a claim about a camera rather than about a call count.** The
+ * handler is passed as a fresh closure on every render here, on purpose: that is what a caller
+ * writing an inline arrow does, and under it a mount report with no guard of its own fires again
+ * on every render — stamping the region the map OPENED on over one the diver has since panned to.
+ * So the assertion is where the map says it is after all of that, and the answer must be where
+ * the diver left it.
+ */
+it('reports the region it opened on, and never re-reports it over a camera that has moved', async () => {
+  const settled = jest.fn();
+  const report = (region: MapRegion) => settled(region);
+  const t = await render(
+    <DiveMap
+      scheme="light"
+      region={REGION}
+      onRegionSettled={(region) => report(region)}
+      marks={MARKS}
+      selected={null}
+      onSelect={() => {}}
+      showsUserLocation={false}
+    />,
+  );
+  expect(settled.mock.calls).toEqual([[REGION]]);
+
+  await act(async () => {
+    (mapView(t).props.onRegionChangeComplete as (region: MapRegion, details: unknown) => void)(ELSEWHERE, {});
+  });
+  await act(async () => {
+    t.rerender(
+      <DiveMap
+        scheme="light"
+        region={REGION}
+        onRegionSettled={(region) => report(region)}
+        marks={[...MARKS, SITE]}
+        selected={null}
+        onSelect={() => {}}
+        showsUserLocation={false}
+      />,
+    );
+  });
+  expect(settled.mock.calls.at(-1)).toEqual([ELSEWHERE]);
+});
+
+/**
+ * **Where the camera came to rest, handed back** — the half the refit rule cannot work without,
+ * since after a pan the only thing that knows what is in view is the map.
+ *
+ * `onRegionChangeComplete` specifically: the mock only reports through the prop the app actually
+ * wired, so a `DiveMap` that listened on `onRegionChange` instead leaves this spy untouched. And
+ * `onRegionChange` is asserted absent, because it fires continuously through a gesture — a state
+ * update per frame of every drag, for an answer read only when a switch is pressed.
+ */
+it('reports where the camera settled, once per gesture rather than once per frame', async () => {
+  const settled = jest.fn();
+  const t = await draw({ onRegionSettled: settled });
+  expect(mapView(t).props.onRegionChange).toBeUndefined();
+  await act(async () => {
+    (mapView(t).props.onRegionChangeComplete as (region: MapRegion, details: unknown) => void)(ELSEWHERE, {});
+  });
+  expect(settled).toHaveBeenLastCalledWith(ELSEWHERE, {});
+  expect(cameraOf(t)).toBe(ELSEWHERE);
 });

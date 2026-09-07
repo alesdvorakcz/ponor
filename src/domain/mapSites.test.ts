@@ -2,11 +2,14 @@ import { dive } from './diveFixture';
 import {
   groupDivesByPlace,
   pointOf,
+  refitRegion,
+  regionContains,
   regionFor,
   sitesWithoutYourMark,
   withPoints,
   waterTempRange,
   type MapPoint,
+  type MapRegion,
 } from './mapSites';
 import { type DiveSite } from './types';
 import { unnamedSite } from '../format/display';
@@ -456,5 +459,127 @@ describe('regionFor', () => {
     const region = regionFor(points);
     expect(region?.latitudeDelta).toBeLessThanOrEqual(180);
     expect(region?.longitudeDelta).toBeLessThanOrEqual(360);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The refit (M3l) — switching a kind on must not leave it off-frame
+// ---------------------------------------------------------------------------------------
+
+/** A frame around Split, about 2 km on a side — the region `regionFor` gives one pin, which is
+ * the state the reported defect happened in. */
+const SPLIT: MapRegion = { latitude: 43.5081, longitude: 16.4402, latitudeDelta: 0.02, longitudeDelta: 0.02 };
+
+describe('regionContains', () => {
+  it('holds a point inside the rectangle and refuses one outside it', () => {
+    expect(regionContains(SPLIT, { latitude: 43.5081, longitude: 16.4402 })).toBe(true);
+    // Hvar, 37 km south: the seeded case that reproduced the defect on the device.
+    expect(regionContains(SPLIT, { latitude: 43.17, longitude: 16.44 })).toBe(false);
+  });
+
+  // **Both axes, each on its own.** A containment test written on latitude alone — or on a
+  // distance that mixed the two — would call a pin due east of the frame visible, and a map is
+  // wider than it is tall exactly where that matters.
+  it.each([
+    ['north of it', { latitude: 43.53, longitude: 16.4402 }],
+    ['south of it', { latitude: 43.48, longitude: 16.4402 }],
+    ['east of it', { latitude: 43.5081, longitude: 16.47 }],
+    ['west of it', { latitude: 43.5081, longitude: 16.41 }],
+  ] as const)('refuses a point %s', (_where, point) => {
+    expect(regionContains(SPLIT, point)).toBe(false);
+  });
+
+  /**
+   * **The edge, taken exactly and inclusively — the decision `regionContains` is written to
+   * make.** A `MapView` reports the region it is showing, so the rectangle is the screen; a
+   * generous version would call the mark one pixel outside it visible, which is the defect
+   * restated as a tolerance, and a stingy one would move a camera the diver placed to show them
+   * something already on it.
+   *
+   * Inclusive rather than exclusive, because `regionFor` frames a single pin with a region
+   * centred on it: an exclusive edge is a rectangle disagreeing with the function that drew it.
+   */
+  it.each([
+    ['top', { latitude: 0.5, longitude: 0 }, { latitude: 0.5 + 1e-9, longitude: 0 }],
+    ['right-hand', { latitude: 0, longitude: 0.5 }, { latitude: 0, longitude: 0.5 + 1e-9 }],
+  ] as const)('counts the frame’s own %s edge as inside it, and a hair past it as outside', (_edge, on, past) => {
+    // **A frame whose edge is exactly representable, and that is the whole reason it is not
+    // `SPLIT`.** Written against a real coordinate this test was green with the comparison mutated
+    // to exclusive, because `43.5081 + 0.02 / 2 − 43.5081` is 0.00999999999999801 rather than
+    // 0.01 — the "edge" point lands a hair INSIDE the frame and the inclusivity it claims to pin
+    // is never exercised. At the origin with a delta of 1 the arithmetic is exact in binary on
+    // both axes, so the point really is on the boundary.
+    const frame: MapRegion = { latitude: 0, longitude: 0, latitudeDelta: 1, longitudeDelta: 1 };
+    expect(regionContains(frame, on)).toBe(true);
+    expect(regionContains(frame, past)).toBe(false);
+  });
+
+  /**
+   * **The antimeridian, the same wrap `regionFor` is built around and for the same reason.** A
+   * region centred on 179.5°E reaches past the line; a pin at 179.9°W is 0.6° away the short way
+   * and 359.4° away the way arithmetic takes if nobody wraps the difference. Read naively, every
+   * pin around the dateline is "off-frame" and the map refits on every switch forever.
+   */
+  it('measures longitude the short way round the antimeridian', () => {
+    const region: MapRegion = { latitude: -18, longitude: 179.5, latitudeDelta: 2, longitudeDelta: 2 };
+    expect(regionContains(region, { latitude: -18, longitude: -179.9 })).toBe(true);
+    expect(regionContains(region, { latitude: -18, longitude: 178 })).toBe(false);
+  });
+});
+
+describe('refitRegion', () => {
+  const dive: MapPoint = { latitude: 43.5081, longitude: 16.4402 };
+  const hvar: MapPoint = { latitude: 43.17, longitude: 16.44 };
+  const vis: MapPoint = { latitude: 43.06, longitude: 16.18 };
+
+  /**
+   * **The reported defect, as an assertion about a rectangle** — and it is stated as containment
+   * rather than as equality to some expected region, because what was broken is that the arriving
+   * marks were not on screen, not that any particular numbers were computed.
+   */
+  it('frames everything drawn when the arriving kind is nowhere in view', () => {
+    const target = refitRegion(SPLIT, [hvar, vis], [dive, hvar, vis]);
+    expect(target).not.toBeNull();
+    for (const point of [dive, hvar, vis]) {
+      expect(regionContains(target as MapRegion, point)).toBe(true);
+    }
+    // And it really moved: the frame it came from held none of the arrivals.
+    expect(regionContains(SPLIT, hvar)).toBe(false);
+  });
+
+  // **Half of §1's judgement: not on every switch.** A diver who has panned somewhere and can
+  // already see part of what they just turned on keeps their camera — the arrival is doing its
+  // job without help.
+  it('leaves the camera alone when the arriving kind is already in view', () => {
+    const nearby: MapPoint = { latitude: 43.51, longitude: 16.441 };
+    expect(refitRegion(SPLIT, [nearby, hvar], [dive, nearby, hvar])).toBeNull();
+  });
+
+  // **The other half: not only on "empty".** The map was full of the diver's own dives the whole
+  // time the defect was happening, so a rule that waited for an empty map would never have fired.
+  it('refits even though the map is full of another kind’s marks', () => {
+    const target = refitRegion(SPLIT, [hvar], [dive, hvar]);
+    expect(target).not.toBeNull();
+    expect(regionContains(target as MapRegion, hvar)).toBe(true);
+  });
+
+  // **Switching a kind OFF refits nothing**, which the caller says by handing no arrivals: there
+  // is nothing new to bring into view, and moving the map because something disappeared would be
+  // gratuitous. Note the drawn set has changed and the camera still must not.
+  it('never moves for a kind that has just been switched off', () => {
+    expect(refitRegion(SPLIT, [], [dive])).toBeNull();
+    expect(refitRegion(SPLIT, [], [hvar, vis])).toBeNull();
+  });
+
+  // §1's never-block: a kind switched on with no rows, or with rows that carry no pins, has its
+  // own sentence on the screen. Refitting there would be a camera framing nothing.
+  it('never moves for a kind that arrived with no marks at all', () => {
+    expect(refitRegion(SPLIT, [], [dive])).toBeNull();
+  });
+
+  // A map that has not reported a region yet has just opened on `regionFor`, so it is already
+  // framing everything there is to frame.
+  it('never moves a map that has not said where it is', () => {
+    expect(refitRegion(null, [hvar], [dive, hvar])).toBeNull();
   });
 });

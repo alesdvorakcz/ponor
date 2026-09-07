@@ -28,8 +28,41 @@ const { View } = require('react-native');
 // `testID`/`accessibilityLabel` and children pass straight through, so the rendered tree carries
 // whatever the app put on them. The map itself is a plain container; each marker is a plain view
 // wrapping whatever the app drew inside it, with `onPress` left exactly as handed in.
+//
+// **The one thing this stand-in models rather than passes through is WHERE THE CAMERA IS**, added
+// in M3l for the refit and deliberately kept to bookkeeping. It is not a layout answer and could
+// not become one: the camera is wherever the app last put it (`animateToRegion`) or wherever the
+// map last reported it settled (`onRegionChangeComplete`), and both of those are the app's own
+// side of the boundary — one is a command this repo issues, the other a callback this repo wires.
+// It is exposed as `__camera` on the rendered view, spelled so that nobody mistakes it for a prop
+// of the real `MapView`, and it starts at `initialRegion`, which is exactly what the real map
+// opens on.
+//
+// **What it still refuses to be:** a map. It does not animate, so a test sees the destination the
+// instant it is asked for rather than 400 ms of flight; it does not fire `onRegionChangeComplete`
+// after a programmatic move, which a real `MKMapView` does; and it knows nothing about pixels, so
+// "is this mark visible" remains a question only the simulator can answer. `MapScreen` does not
+// lean on the callback a real map would send after its own move — it records the destination when
+// it issues the command — which is why leaving that out costs nothing here.
 const MapView = React.forwardRef(function MapView(props, ref) {
-  return React.createElement(View, { ...props, ref });
+  // **`initialRegion` is read once and every later value of it is ignored** — the real prop's
+  // whole nature, and the fact the M3l defect was made of, so a stand-in that re-read it on every
+  // render would quietly make a broken screen look fixed.
+  const opened = React.useRef(props.initialRegion);
+  const [camera, setCamera] = React.useState(null);
+  // The duration is dropped rather than forwarded to `setCamera`: nothing here animates, and a
+  // React setter reads a second argument as nothing at all — so passing it on would be a line
+  // that looks like it does something.
+  React.useImperativeHandle(ref, () => ({ animateToRegion: (region) => setCamera(region) }), []);
+  const settled = (region, details) => {
+    setCamera(region);
+    if (props.onRegionChangeComplete) props.onRegionChangeComplete(region, details);
+  };
+  return React.createElement(View, {
+    ...props,
+    onRegionChangeComplete: settled,
+    __camera: camera ?? opened.current,
+  });
 });
 
 function Marker(props) {

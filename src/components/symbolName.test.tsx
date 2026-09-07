@@ -202,6 +202,7 @@ it('gives a centre’s map mark an Android and a web name, not just an iOS one',
     <DiveMap
       scheme="dark"
       region={{ latitude: 43, longitude: 16, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+      onRegionSettled={() => {}}
       marks={[{ kind: 'centers', key: 'c1', label: 'Ponorka, dive centre', point: { latitude: 43, longitude: 16 } }]}
       selected={null}
       onSelect={() => {}}

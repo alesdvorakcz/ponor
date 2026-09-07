@@ -418,3 +418,99 @@ function longitudeArc(longitudes: readonly number[]): { center: number; span: nu
 function normaliseLongitude(longitude: number): number {
   return (((longitude + 180) % 360) + 360) % 360 - 180;
 }
+
+/**
+ * **Whether a point is inside a region** — the second question this module answers about a
+ * rectangle, and the one the refit rule is decided by.
+ *
+ * **The region is taken exactly, with no margin in either direction, and the choice is real
+ * rather than an omission** (M3l). A `MapView` reports the region it is *showing*, so "inside the
+ * region" is "on the screen", and the two temptations both make it worse:
+ *
+ *  · **Generous** — inflate the rectangle before testing — calls a mark just off the screen
+ *    *visible*, which is precisely the defect the refit exists to fix, reintroduced as a
+ *    tolerance.
+ *  · **Stingy** — shrink it — moves a camera the diver placed by hand in order to show them
+ *    something they can already see, which is the other half of §1 of the rule.
+ *
+ * The residue is half a mark's width and it falls the safe way. A mark is a 26 pt disc drawn
+ * around its coordinate, so a coordinate a hair OUTSIDE the frame still shows a sliver; this
+ * calls that invisible and refits, which costs a camera move that brings it fully into view. A
+ * coordinate a hair INSIDE is a mark whose middle is on screen, which is a mark on screen.
+ * Converting 13 pt into degrees would need the map's pixel size, which nothing here has — so the
+ * exact rectangle is also the only version of this that can be computed from a `Region` alone.
+ *
+ * **Longitude wraps and latitude does not**, the same asymmetry `regionFor` is built on: a region
+ * centred on 179.5° spans past the antimeridian, and a naive `|point − centre|` reads a pin at
+ * −179.5° as 359° away rather than 1°. `normaliseLongitude` on the DIFFERENCE is what makes the
+ * comparison the short way round. Latitude has no wrap — the poles are not adjacent.
+ *
+ * Inclusive of the edge, so a point exactly on the boundary is in view; the alternative would make
+ * a region built by `regionFor` from a single pin fail to contain that pin at `MIN_REGION_DELTA`
+ * of zero, which is a rectangle disagreeing with the function that drew it.
+ */
+export function regionContains(region: MapRegion, point: MapPoint): boolean {
+  const halfLatitude = region.latitudeDelta / 2;
+  if (Math.abs(point.latitude - region.latitude) > halfLatitude) return false;
+  const halfLongitude = region.longitudeDelta / 2;
+  return Math.abs(normaliseLongitude(point.longitude - region.longitude)) <= halfLongitude;
+}
+
+/**
+ * **Where the camera must go when a filter has just been switched ON, or `null` to leave it
+ * exactly where it is** (M3l, DESIGN.md §3).
+ *
+ * ── The defect ────────────────────────────────────────────────────────────────────────────
+ *
+ * Switching sites and centres on made the header read `1 dive · 2 sites · 1 centre` while the map
+ * went on showing only the dive: the four new marks were off-frame and nothing said so. That is
+ * the *common first experience* of this filter rather than an edge case — the catalogue arrives
+ * from a sync and will be nowhere near wherever the map happens to be sitting, so a diver who
+ * turns sites on sees a header claiming rows and a map with none.
+ *
+ * ── The rule, and the judgement inside it ─────────────────────────────────────────────────
+ *
+ * **Refit when the kind that has just arrived has nothing in view.** Both halves are load-bearing
+ * and each rules out an easier rule:
+ *
+ *  · **Not on every switch.** A diver who has panned to a headland and then turns a layer on must
+ *    not be yanked elsewhere when they can already see some of what they just asked for. That is
+ *    what `arriving.some(...)` buys, and it is why the CURRENT camera is an argument rather than
+ *    something this function could derive.
+ *  · **Not only when the map is empty.** The failure is *nothing of the NEW kind in view*, which
+ *    is a different state from *no marks at all in view* — the reported case had the diver's own
+ *    mark filling the screen the whole time.
+ *
+ * **Switching a kind OFF refits nothing**, which the caller expresses by handing an empty
+ * `arriving`: there is nothing new to bring into view, and moving the map because something
+ * disappeared would be gratuitous.
+ *
+ * **A kind that arrives with no marks refits nothing either, and that is §1 rather than an
+ * optimisation.** A catalogue with no rows, or rows with no pins, already has a sentence of its
+ * own on this screen (M3e wrote one and corrected a false one) — refitting there would be the
+ * camera moving to frame nothing, which is the degenerate region `regionFor` refuses to invent.
+ *
+ * ── Where it moves to ─────────────────────────────────────────────────────────────────────
+ *
+ * **`regionFor` over everything drawn — the same rule that framed the map on first load**, not a
+ * new one and not a frame around the arriving kind alone. Framing only the arrival would carry the
+ * diver away from their own dives to somewhere they did not ask to be; framing the lot is the one
+ * answer under which *nothing that is drawn is off-frame*, which is the property the defect broke.
+ * The cost is stated rather than hidden: a catalogue row on the other side of the world zooms the
+ * map out until every mark is a speck. That is still strictly more than the screen said before,
+ * and the alternative is a header counting rows the map refuses to show.
+ *
+ * `camera` may be `null` — a map that has not reported a region yet, which includes the frame
+ * where one is drawn for the first time. Nothing is refitted then, and nothing needs to be: a map
+ * that has just mounted opened on `regionFor` already.
+ */
+export function refitRegion(
+  camera: MapRegion | null,
+  arriving: readonly MapPoint[],
+  drawn: readonly MapPoint[],
+): MapRegion | null {
+  if (camera === null) return null;
+  if (arriving.length === 0) return null;
+  if (arriving.some((point) => regionContains(camera, point))) return null;
+  return regionFor(drawn);
+}
