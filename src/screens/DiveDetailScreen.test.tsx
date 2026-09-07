@@ -11,7 +11,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
 import { formatCurrent, formatSurge, formatWaves, HE_LABEL, N2_LABEL, O2_LABEL } from '../format/display';
@@ -1789,6 +1789,43 @@ it('gives a row that navigates the floor, and a row that only reads none', async
 
   expect(rows.filter((n) => opens(n) && !entries(n).includes(styles.detailRowControl))).toEqual([]);
   expect(rows.filter((n) => !opens(n) && entries(n).includes(styles.detailRowControl))).toEqual([]);
+});
+
+/**
+ * **…and what the row RESOLVES to, which is the half neither of the other two checks reads.**
+ *
+ * `styles.test.ts` pins `detailRowControl`'s own `alignItems: 'center'`, and the test above pins
+ * that the style reaches the rows that navigate and only those. Both read the pieces; neither
+ * reads the row. A style array merges left to right, so `[detailRowControl, detailRow]` — which
+ * is what tidying the call site into alphabetical or "base last" order produces — hands
+ * `alignItems` back to `detailRow`'s `flex-start` and leaves a 21 pt line at the top of a 48 pt
+ * box with 27 pt of empty ink under it: exactly the row that reads as having failed to render
+ * rather than as a taller one, which is the defect the centring exists to prevent
+ * (`detailRowControl`, theme/styles.ts). **Measured, not assumed:** that swap left every other
+ * test in this file and every test in `styles.test.ts` green.
+ *
+ * `StyleSheet.flatten` is the merge React Native itself performs on the way to the view, so this
+ * asks the row what it IS rather than what it was composed from.
+ */
+it('resolves that floor into a centred line, not one pinned to the top of the box', async () => {
+  const styles = makeStyles('light');
+  const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka' });
+  const t = await renderDetailTree(d);
+  const rows =
+    t.root?.queryAll(
+      (n) =>
+        typeof n.props?.accessibilityLabel === 'string' &&
+        n.props.accessibilityLabel.startsWith('Open ') &&
+        [n.props?.style].flat(3).filter(Boolean).includes(styles.detailRow),
+    ) ?? [];
+
+  // Both navigating rows are on this tree, or the loop below is over an empty set.
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    const resolved = StyleSheet.flatten(row.props.style) as Record<string, unknown>;
+    expect(resolved.minHeight).toBe(48);
+    expect(resolved.alignItems).toBe('center');
+  }
 });
 
 

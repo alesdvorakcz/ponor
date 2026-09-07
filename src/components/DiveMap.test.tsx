@@ -299,6 +299,12 @@ it('inverts only the mark whose kind AND key were selected', async () => {
  * comes out byte-for-byte what it was). If `action` and `fg` ever part company, the first
  * expectation fails and this assignment wants deciding again rather than quietly leaving a
  * community mark unable to show a state it could now show.
+ *
+ * **And the comparison is made to be about something** (M3k mutation pass). Two renders of a mark
+ * that drew nothing styled at all are two empty lists, and equal — measured: replacing the whole
+ * branch with a bare `<View />` left this test green while it went on claiming the mark comes out
+ * the same either way. The line below is what makes that a failure here rather than only two
+ * files away.
  */
 it.each(['light', 'dark'] as const)('draws a community site in the ink a selection would move it to (%s)', async (scheme) => {
   const theme = themeFor(scheme);
@@ -311,7 +317,9 @@ it.each(['light', 'dark'] as const)('draws a community site in the ink a selecti
     expect(mark).toBeDefined();
     return mark!.queryAll((n) => stylesOf(n).length > 0).map((n) => stylesOf(n));
   };
-  expect(await discs({ kind: 'community', key: SITE.key })).toEqual(await discs(null));
+  const unselected = await discs(null);
+  expect(unselected.flat()).toContain(styles.mapMarkDotFilled);
+  expect(await discs({ kind: 'community', key: SITE.key })).toEqual(unselected);
 });
 
 /** And the glyph inside a selected centre inverts with its disc — a `storefront` left in `fg`
