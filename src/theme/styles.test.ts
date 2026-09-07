@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
 import { fonts } from './fonts';
 import { themeFor } from './resolve';
 import { makeStyles, screenBottomInset, screenTopInset } from './styles';
@@ -75,13 +78,272 @@ describe('the 48 dp floor a style claims is a floor it keeps', () => {
   });
 });
 
+// ──────────────────────────────────────────────────────────────────────────────────────
+// **What a tap target IS, read off the app rather than listed here** (found in M2f).
+// ──────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * **Neither sweep above can fail in the direction that matters.**
+ *
+ * The first one sweeps *the styles that already claim 48*. Delete `minHeight: 48` from
+ * `mutedControl` and it does not fail — the four keys built from that definition simply leave
+ * the swept set, every remaining member still keeps its own claim, and the
+ * `claiming48.length > 3` vacuity floor survives one fewer member. The second is a real check
+ * and a narrow one: it knows about pills, because a pill is the one shape it can recognise by
+ * name. Between them, a control that stops claiming §0.5's floor is invisible to this file —
+ * which is that section's whole guarantee going unguarded, by a check that guards drift while
+ * being itself a hand-maintained list of what to look at. This project's signature defect,
+ * inside the test written to prevent it.
+ *
+ * So the subject set is read from the app instead: **every `<Pressable>` in a shipped `.tsx`,
+ * and the sheet styles its own `style` prop names**. `Pressable` is the only touchable
+ * primitive Ponor uses — there is no `TouchableOpacity`, `TouchableHighlight` or bare
+ * `onPress` anywhere in `src/` — so *being one* is the definition of a tap target, this file
+ * decides nothing, and a control added to a screen tomorrow is in the set before anybody
+ * thinks to put it there. A hand-written list of "the styles that are tap targets" would be
+ * the same defect one level up, which is what M2c's account-deletion check was caught doing.
+ *
+ * `src/db/schemaParity.test.ts` is the shape being copied, at the other end of the app:
+ * enumerate the subjects from a source that is not this test, require every one of them to be
+ * CLASSIFIED, and keep the departures as data with a reason attached rather than as a loosened
+ * comparison. Compared as a set in both directions, so an exemption that goes stale — a style
+ * that has since gained its floor, or stopped being pressed at all — fails here too.
+ *
+ * ── What this cannot see, stated plainly ──────────────────────────────────────────────
+ *
+ * **Width.** Most of these are rows as wide as the screen, about which a stylesheet has no
+ * opinion to check. The pill sweep above is what holds the deliberately-small controls to
+ * 48 x 48, and that is the half of §0.5 it owns.
+ *
+ * **`hitSlop`.** A prop, not a style. One control still reaches the floor that way; it is
+ * named below and has to keep declaring the prop for its exemption to hold.
+ *
+ * **A style handed in by a caller.** `DirectoryLink` (MapScreen.tsx) takes `style` from its
+ * call site and falls back to `mapDirectoryAction`, so the fallback is what is read here. Its
+ * one override is `mapSheetAction`, which is a pill and is held to 48 x 48 by the sweep above.
+ *
+ * **Whether a floor that IS claimed survives.** A negative margin taking it back is the first
+ * sweep's business, and the two together are what §0.5 needs: this one says the claim is made,
+ * that one says it is kept.
+ */
+
+/** `src/`, which is both the scan root and what failure messages are made relative to. */
+const APP_SOURCE_ROOT = join(__dirname, '..');
+
+/**
+ * Every `.tsx` the app ships. Test files are excluded because a test may render a `Pressable`
+ * of its own as a fixture, and a fixture is not a control a diver can reach.
+ */
+const appSources = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return appSources(path);
+    return path.endsWith('.tsx') && !path.endsWith('.test.tsx') ? [path] : [];
+  });
+
+/**
+ * The source with its comments and its string/template literals blanked to spaces, newlines
+ * kept so the line numbers below still point at the file.
+ *
+ * Both halves earn their place. This repo's prose is long enough that a `<Pressable>` written
+ * inside a docblock is a real possibility (`DiveRow.test.tsx` has one today), and it would
+ * arrive here as a subject with no style prop and no way to acquire one. A `>` or a stray
+ * brace inside a string would end an opening tag early and truncate the very prop being read.
+ *
+ * The one construct this cannot tell from a string is a regex literal, of which the app's
+ * `.tsx` sources contain none. If one arrives, the tag it corrupts fails "names a style this
+ * sheet defines" below rather than quietly leaving the set — the direction that matters.
+ */
+const codeOnly = (source: string): string => {
+  const out = source.split('');
+  const blank = (at: number) => {
+    if (source[at] !== '\n') out[at] = ' ';
+  };
+  let i = 0;
+  while (i < source.length) {
+    const here = source[i];
+    if (here === '/' && source[i + 1] === '/') {
+      while (i < source.length && source[i] !== '\n') blank(i++);
+    } else if (here === '/' && source[i + 1] === '*') {
+      const closes = source.indexOf('*/', i + 2);
+      const stop = closes === -1 ? source.length : closes + 2;
+      while (i < stop) blank(i++);
+    } else if (here === '"' || here === "'" || here === '`') {
+      // A quote ends at its line's end unless it is a template literal, which is the one that
+      // may span lines. That bound is the whole safety of this: JSX text is not a string, so an
+      // apostrophe in a rendered word would otherwise open one that runs to the next quote
+      // anywhere in the file — and a `Pressable` swallowed by it would leave the subject set
+      // without failing anything, which is the failure this whole section exists to end.
+      const spansLines = here === '`';
+      i += 1;
+      while (i < source.length && source[i] !== here && (spansLines || source[i] !== '\n')) {
+        if (source[i] === '\\' && i + 1 < source.length) blank(i++);
+        blank(i++);
+      }
+      if (source[i] === here) i += 1;
+    } else {
+      i += 1;
+    }
+  }
+  return out.join('');
+};
+
+/**
+ * An element's opening tag, from `<Name` to the `>` that closes it — brace depth, not the
+ * first `>`, because every interesting prop on these is a JSX expression and several of them
+ * contain a `>` (an arrow function, a comparison). Self-closing tags end at the same `>`.
+ */
+const openingTag = (source: string, from: number): string => {
+  let depth = 0;
+  for (let at = from; at < source.length; at += 1) {
+    const here = source[at];
+    if (here === '{') depth += 1;
+    else if (here === '}') depth -= 1;
+    else if (here === '>' && depth === 0) return source.slice(from, at);
+  }
+  return source.slice(from);
+};
+
+/** The `style={…}` prop's own expression, or `null` for a `Pressable` that declares none. */
+const stylePropOf = (tag: string): string | null => {
+  const opens = tag.search(/(?:^|\s)style=\{/);
+  if (opens === -1) return null;
+  const from = tag.indexOf('{', opens);
+  let depth = 0;
+  for (let at = from; at < tag.length; at += 1) {
+    if (tag[at] === '{') depth += 1;
+    else if (tag[at] === '}') {
+      depth -= 1;
+      if (depth === 0) return tag.slice(from, at + 1);
+    }
+  }
+  return tag.slice(from);
+};
+
+interface PressSite {
+  /** `screens/DiveDetailScreen.tsx:232`, so a failure says where to go and look. */
+  readonly where: string;
+  /** The sheet styles the `style` prop names, in the order a style array merges them. */
+  readonly styles: readonly string[];
+  /** Whether the site declares the one prop that can reach the floor without the sheet. */
+  readonly hitSlop: boolean;
+}
+
+/** Every pressable control the app draws, found once. */
+const PRESSABLES: readonly PressSite[] = appSources(APP_SOURCE_ROOT).flatMap((file) => {
+  const source = codeOnly(readFileSync(file, 'utf8'));
+  const sites: PressSite[] = [];
+  const tags = /<Pressable\b/g;
+  let found: RegExpExecArray | null = tags.exec(source);
+  while (found !== null) {
+    const tag = openingTag(source, found.index);
+    const styleProp = stylePropOf(tag) ?? '';
+    sites.push({
+      where: `${relative(APP_SOURCE_ROOT, file)}:${source.slice(0, found.index).split('\n').length}`,
+      styles: [...styleProp.matchAll(/\bstyles\.([A-Za-z0-9_]+)/g)].flatMap((name) =>
+        name[1] === undefined ? [] : [name[1]],
+      ),
+      hitSlop: /(?:^|\s)hitSlop=/.test(tag),
+    });
+    found = tags.exec(source);
+  }
+  return sites;
+});
+
+/**
+ * **The pressable styles that do NOT meet the floor in the sheet, and why.** Data with a
+ * reason attached, in `schemaParity.test.ts`'s sense: an exemption is a deliberate edit, it is
+ * compared as a set in both directions, and each of these two carries a mechanism or a
+ * measurement rather than a shrug.
+ */
+const BELOW_THE_FLOOR: Record<string, string> = {
+  reorderButton:
+    'A 34 x 26 visible box that reaches 48 x 48 through `ARROW_HIT_SLOP` (ReorderControls.tsx), ' +
+    'which is a prop and not a style — §0.6 wanted the arrows narrower than the row they sit ' +
+    'beside. The arithmetic is proven on the rendered node in ReorderControls.test.tsx ("still ' +
+    'reaches a 48 dp touch target via hitSlop"), the container that has to be big enough to ' +
+    'DELIVER that slop is pinned by "the reorder arrows row" below, and the prop itself is ' +
+    'required to still be there by the test that reads this list.',
+  detailRow:
+    "M3c made the dive detail's site and centre rows navigate — `Pressable`, no visual mark, " +
+    'and no floor either; this check is what found that. The row is a label/value line about ' +
+    '21 pt tall (15 pt label, 16 pt value, no vertical padding of its own) inside ' +
+    "`detailCluster`'s 10 pt rhythm, and BOTH ways out cost something a stylesheet cannot " +
+    'decide alone: a `minHeight` more than doubles two rows of a dense column of facts, and ' +
+    '13 pt of slop either side overruns that 10 pt gap — on the one screen where two of these ' +
+    'rows are adjacent (site above centre, `whereFields`), handing presses aimed at the site ' +
+    'to the centre, which is the failure "the reorder arrows row" below calls the worst one a ' +
+    "control can have. Recorded rather than quietly fixed, because which price the detail " +
+    "screen's rhythm should pay is the owner's call and wants a device. What keeps it from " +
+    'being a trapdoor meanwhile: neither destination is behind this row alone — the sites and ' +
+    'centres directories open both, and their rows are `formField`, which is in this sweep at 48.',
+};
+
+describe('every control the app can press', () => {
+  // §0.5's floor, and the two ways a style can claim it: `minHeight` for a control that grows
+  // with its label, a fixed `height` for one drawn at exactly the target's size (`capsuleGlyph`,
+  // `ratingTarget`). Reading only `minHeight` would put those two in the exemption list for no
+  // reason, which is how an exemption list stops meaning anything.
+  const claimedHeight = (style: Record<string, unknown>) =>
+    Math.max(
+      ...[style.minHeight, style.height]
+        .filter((value): value is number => typeof value === 'number')
+        .concat(0),
+    );
+
+  it('finds all of them, and every one names a style this sheet defines', () => {
+    // The sweep is worth nothing if it sweeps nothing, and this one is a file walk: a wrong
+    // root, a rename of `src/screens`, or a tag reader that stops matching would otherwise
+    // leave every assertion below passing over an empty list. 57 sites today.
+    expect(PRESSABLES.length).toBeGreaterThan(40);
+
+    // **No subject may silently drop out** — the property the swept-set version lacked, and the
+    // reason this is a check of its own rather than a `filter` upstream of the floor. A
+    // `Pressable` with no `style` prop at all, or one styled from somewhere this file cannot
+    // read, is not a control that passes: it is a control nothing here can speak for.
+    const sheet = makeStyles('dark') as unknown as Record<string, Record<string, unknown>>;
+    const unreadable = PRESSABLES.filter(
+      (site) => !site.styles.some((name) => sheet[name] !== undefined),
+    ).map((site) => site.where);
+    expect(unreadable).toEqual([]);
+  });
+
+  it.each(['dark', 'light'] as const)('gives every one of them §0.5’s 48 dp floor, or says why not (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    const short = PRESSABLES.filter((site) => {
+      const merged = site.styles.reduce(
+        (box, name) => ({ ...box, ...(sheet[name] ?? {}) }),
+        {} as Record<string, unknown>,
+      );
+      return claimedHeight(merged) < 48;
+    }).map((site) => site.styles[0]);
+
+    // A set, in both directions. A control that loses its floor arrives here and fails; an
+    // exemption for a control that has since gained one, or been deleted, fails just as loudly
+    // — which is the half that keeps this list from becoming the hand-maintained thing it
+    // replaces.
+    expect([...new Set(short)].sort()).toEqual(Object.keys(BELOW_THE_FLOOR).sort());
+  });
+
+  // **The one exemption whose mechanism this file CAN see, required to still be there.** An
+  // exemption that only says words is a comment; this one names `hitSlop`, so deleting the prop
+  // from ReorderControls.tsx has to fail something — and the sheet cannot notice, because the
+  // arrows' own style is 34 x 26 either way.
+  it('keeps the slop the one hitSlop exemption is granted for', () => {
+    const arrows = PRESSABLES.filter((site) => site.styles[0] === 'reorderButton');
+    expect(arrows.length).toBeGreaterThan(0);
+    expect(arrows.filter((site) => !site.hitSlop).map((site) => site.where)).toEqual([]);
+  });
+});
+
 // Every field on the dive form (FormField.tsx, DateTimeField.tsx, OptionChips /
 // EquipmentTokenField in DiveFormScreen.tsx) is one CONTROL row: §0.6's clear control, a
-// picker field's `×`, one accessory's Yes/No chip and the field's own input all land in it. The two `×`
-// controls reach §0.5's floor through `hitSlop`, and hitSlop is delivered only inside the
-// ancestors — so the row's own height is what decides whether those targets exist at all.
-// Pinned here rather than left implicit: this is the value both components' hitSlop
-// comments depend on, and it was 24 dp while they claimed 48.
+// picker field's `×`, one accessory's Yes/No chip and the field's own input all land in it. The
+// two `×` controls reached §0.5's floor through `hitSlop` when this was written and are one real
+// 48 dp box now (`ClearFieldControl`, whose callers' tests assert it carries no slop at all) —
+// either way the row has to be at least as tall as the tallest thing that sits in it, and it was
+// 24 dp while its contents claimed 48. Pinned here rather than left implicit: a row that is only
+// as tall as its label is what put those targets outside their own row in the first place.
 //
 // The floor moved from `formFieldHeader` (the label row above a bordered input) to
 // `formField` itself when §0.6's design pass collapsed the two into one row — same floor,
