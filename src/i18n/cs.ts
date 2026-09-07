@@ -505,6 +505,17 @@ export const cs = {
       headingEditPlan: 'Upravit plán',
       saveDive: 'Uložit ponor',
       savePlan: 'Uložit plán',
+      /** M3m. *Zahodit* rather than *Smazat*: nothing is being removed from the logbook — this
+       * dive was never in it — and the delete dialogs one namespace over say *Smazat* about
+       * rows that really are. The cancel slot says *Pokračovat v úpravách* rather than
+       * *Zrušit*, for the reason the English pair records: this dialog is reached by pressing
+       * something already called *Zrušit*. */
+      discardTitle: 'Zahodit tento ponor?',
+      discardBody: 'Co jste vyplnili, se neuloží.',
+      discardEditTitle: 'Zahodit změny?',
+      discardEditBody: 'Ponor zůstane tak, jak byl.',
+      discardConfirm: 'Zahodit',
+      discardCancel: 'Pokračovat v úpravách',
       plannedDive: 'Plánovaný ponor',
       /** `{{from}}` is either `#6` or `form.lastDive` below, and both stand in the genitive
        * after *z* — which is why the fallback is written *posledního ponoru* rather than as a

@@ -10,7 +10,8 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
-import { router } from 'expo-router';
+import { Alert } from 'react-native';
+import { router, useNavigation } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { similarSites } from '../cloud/similarSites';
@@ -161,7 +162,64 @@ jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({})),
+  // M3m's discard guard reads this. Left bare here and given its navigation object in
+  // `beforeEach` below rather than in this factory, for the hoisting reason this file's own
+  // preamble documents: a `jest.mock` factory runs when `expo-router` is first required, which
+  // is before any `const` in this module has initialised, so an object built here and
+  // referenced there would be read in its temporal dead zone.
+  useNavigation: jest.fn(),
 }));
+
+/**
+ * **The navigation event every exit from this form goes through** (M3m).
+ *
+ * `‹ Cancel`, iOS' edge-swipe and Android's hardware back all dispatch an action that removes
+ * this route, and React Navigation emits `beforeRemove` — cancellable — before any of them
+ * take effect. That is why the discard guard is one listener rather than a handler bolted to
+ * each control, and it is why this harness captures the listener the screen registers rather
+ * than pressing anything: pressing Cancel would only ever exercise one of the three doors.
+ */
+const registeredListeners: Record<string, ((event: LeaveEvent) => void) | undefined> = {};
+const mockDispatch = jest.fn();
+const mockSetOptions = jest.fn();
+
+/** The shape React Navigation hands a `beforeRemove` listener, modelled rather than stubbed:
+ * `preventDefault()` really does set `defaultPrevented`, so a test can read back whether the
+ * screen actually stopped the exit instead of merely whether it called a spy. */
+interface LeaveEvent {
+  data: { action: { type: string } };
+  defaultPrevented: boolean;
+  preventDefault: () => void;
+}
+
+function leaveEvent(): LeaveEvent {
+  return {
+    data: { action: { type: 'POP' } },
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+}
+
+/** Fires the navigation event a diver's exit produces, and hands back the event so the test
+ * can read whether the screen let it through. */
+async function tryToLeave(): Promise<LeaveEvent> {
+  const event = leaveEvent();
+  await act(async () => {
+    registeredListeners.beforeRemove?.(event);
+  });
+  return event;
+}
+
+/** The discard dialog's own destructive button, out of the real `confirmDestructive` —
+ * spied at the `Alert` exactly as `DiveDetailScreen.test.tsx` spies on its delete. */
+function discardButton(): { text?: string; style?: string; onPress?: () => void } | undefined {
+  const buttons = (alertSpy.mock.calls[0]?.[2] ?? []) as { text?: string; style?: string; onPress?: () => void }[];
+  return buttons.find((b) => b.style === 'destructive');
+}
+
+const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 
 const mockUseDives = useDives as jest.Mock;
 const mockCreate = createDive as jest.Mock;
@@ -281,6 +339,19 @@ const PIN_TEXT = '28.51234, 34.51234';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  alertSpy.mockClear();
+  // A fresh listener table per test, and a navigation object that really registers into it:
+  // the screen's `addListener` call is the thing under test, so a stub that swallowed it would
+  // make every discard assertion below vacuously true.
+  for (const key of Object.keys(registeredListeners)) delete registeredListeners[key];
+  (useNavigation as jest.Mock).mockReturnValue({
+    addListener: (event: string, callback: (e: LeaveEvent) => void) => {
+      registeredListeners[event] = callback;
+      return () => delete registeredListeners[event];
+    },
+    dispatch: mockDispatch,
+    setOptions: mockSetOptions,
+  });
   stubDives();
   stubPresets();
   stubOpenGroups();
@@ -8108,3 +8179,149 @@ async function openCylinderIn(t: RenderResult, label: string) {
   await fireEvent.press(row);
 }
 
+
+/**
+ * **The precondition the keyboard lift stands on** (M3m).
+ *
+ * The form's root is a `KeyboardAvoidingView`, and what it lifts is whatever sits in flow
+ * below the scroll — so the save footer riding above the keyboard depends entirely on the
+ * footer still being a real sibling AFTER `formScroll`, not nested inside it and not
+ * absolutely positioned. That is exactly the shape `searchDock` records for the same reason
+ * one screen over, and `SearchScreen.test.tsx` pins it there with the same two assertions.
+ *
+ * **This is a guard, not the proof.** `KeyboardAvoidingView` consumes its own `behavior` prop
+ * and renders a plain `View`, forwarding nothing a host-tree query can read — SearchScreen's
+ * suite found that by writing the query first and watching it come back empty against a
+ * correct screen. So no test here can see the lift itself; it was verified by using the app,
+ * on the simulator, with the decimal pad up. What this test CAN do is redden the day someone
+ * moves the footer inside the scroll or pins it absolutely, which is the one edit that would
+ * silently switch the lift off again and leave `Save dive` back under the keyboard.
+ */
+it('keeps the save control in flow below the scroll, which is what the keyboard lifts', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  const save = findSaveControl(t);
+  expect(save).toBeDefined();
+  // The footer is the root's LAST child: nothing is drawn over or after it, so the lift
+  // moves the bottom of the screen rather than something with a sibling still under it.
+  const footer = save!.parent;
+  const siblings = footer?.parent?.children ?? [];
+  expect(siblings[siblings.length - 1]).toBe(footer);
+  // ...and it genuinely has the scroll above it rather than being the only thing there.
+  expect(siblings.length).toBeGreaterThan(1);
+});
+
+/**
+ * M3m, found by the owner using the form: `‹ Cancel` threw away a half-filled dive without
+ * asking, and so did the edge-swipe beside it. Deleting a dive has been confirmed since M1d;
+ * abandoning one being written was not, which is the same loss arriving through a quieter
+ * door — and on a boat, with one thumb, that door is easy to lean on.
+ */
+describe('leaving a form with unsaved work', () => {
+  it('asks before throwing away a dive the diver has started', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await typeInto(t, 'Max depth', '18');
+
+    const event = await tryToLeave();
+
+    // The exit is actually stopped, not merely reported: `preventDefault` is what keeps the
+    // dive on screen while the question is answered.
+    expect(event.defaultPrevented).toBe(true);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an untouched form go without asking', async () => {
+    // The commonest exit there is: a diver opens `+`, changes their mind, and leaves. Nothing
+    // has been typed, so there is nothing to lose and nothing to ask about.
+    await render(<DiveFormScreen mode="create" />);
+
+    const event = await tryToLeave();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  /**
+   * **The one that decides whether this guard is usable at all** (§2.1).
+   *
+   * Carry-over fills a new dive from the last one before the diver touches anything, and
+   * `useDives()` resolves AFTER the first render — so the form is re-seeded through
+   * react-hook-form's `values` while it is already on screen. If that counted as the diver's
+   * own work, every dive after the first would be asked "discard this?" on the way out having
+   * had nothing typed into it, and the guard would train them to dismiss it.
+   */
+  it('does not count carry-over as work the diver did', async () => {
+    stubDives({
+      dives: [dive({ id: 'previous', siteName: 'Kotelna', buddy: 'Jana', date: '2026-09-06' })],
+      numbers: new Map([['previous', 12]]),
+    });
+    const t = await render(<DiveFormScreen mode="create" />);
+    // The carried value really is on screen — otherwise this test would pass against a form
+    // that simply never received the carry-over.
+    await waitFor(() => expect(findTextInput(t, 'Site')?.props.value).toBe('Kotelna'));
+
+    const event = await tryToLeave();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+
+  it('goes through with the exit the diver was making when they confirm', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await typeInto(t, 'Max depth', '18');
+    const event = await tryToLeave();
+
+    await act(async () => {
+      discardButton()?.onPress?.();
+    });
+
+    // The SAME action that was blocked, re-dispatched — so confirming a swipe-back swipes
+    // back and confirming a Cancel cancels, rather than every exit collapsing into one
+    // hard-coded route.
+    expect(mockDispatch).toHaveBeenCalledWith(event.data.action);
+  });
+
+  it('does not ask on the way out after a save', async () => {
+    // A successful save leaves through `router.back()`, which removes this route exactly as
+    // Cancel does — and the form is at its dirtiest at that moment. Asking a diver whether to
+    // discard the dive they just saved is the guard firing on its own success.
+    mockCreate.mockResolvedValue(undefined);
+    const t = await render(<DiveFormScreen mode="create" />);
+    await typeInto(t, 'Max depth', '18');
+    await pressSave(t);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+
+    const event = await tryToLeave();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(alertSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * **The half of M3m's guard that `beforeRemove` cannot do**, found on the device rather than
+ * here: swiping back from a dirty form showed the discard question *and left anyway*, with
+ * React Navigation's own error underneath it — *"the screen was removed natively but didn't
+ * get removed from JS state… not fully supported in native-stack"*. The native stack pops on
+ * the gesture before JS is asked, so `preventDefault` has nothing left to prevent.
+ *
+ * So the gesture is switched off exactly while there is something to lose, which is React
+ * Navigation's own documented answer for native-stack. `‹ Cancel` is then the one way out and
+ * it is guarded, and no exit discards a dive silently — the same promise, kept by a different
+ * mechanism than the listener alone could keep.
+ */
+describe('the swipe-back gesture on a form with unsaved work', () => {
+  it('is switched off while there is work to lose', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await typeInto(t, 'Max depth', '18');
+
+    expect(mockSetOptions).toHaveBeenLastCalledWith({ gestureEnabled: false });
+  });
+
+  it('is left alone on a form with nothing in it', async () => {
+    // A diver who opened `+` and changed their mind keeps every way out they normally have —
+    // the gesture is disabled for the dive's sake, not for the screen's.
+    await render(<DiveFormScreen mode="create" />);
+
+    expect(mockSetOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
+  });
+});

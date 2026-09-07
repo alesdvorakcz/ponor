@@ -14,10 +14,16 @@ export interface DestructiveConfirmation {
 }
 
 /**
- * **The one owner of "ask before something is destroyed."** Deleting a dive is the only
- * action in the app that removes anything, so today it has exactly one caller
- * (`DiveDetailScreen.tsx`); it is its own module anyway because *where the confirmation is
- * drawn* is a platform question and the screen must not have to know the answer.
+ * **The one owner of "ask before something is destroyed."** It is its own module because
+ * *where the confirmation is drawn* is a platform question and no screen should have to know
+ * the answer.
+ *
+ * **Two callers, and the second is why "destroyed" is the right word rather than "deleted"**
+ * (M3m). `DiveDetailScreen.tsx` confirms *Delete dive*, which removes a row. `DiveFormScreen`
+ * confirms leaving a half-written dive, which removes nothing — there is no row yet — and
+ * loses exactly as much: the dive the diver has been filling in, which exists nowhere else.
+ * That second door was open and silent until M3m, and it is the easier of the two to lean on
+ * by accident, since `‹ Cancel` and iOS' edge-swipe both go through it.
  *
  * DESIGN.md §10, unchanged and the whole reason this shape exists: "**A destructive
  * confirmation is OS chrome; the app's own control stays muted.**" §0.1 reserves colour for

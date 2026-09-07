@@ -37,6 +37,11 @@ jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn(() => ({ pres
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({})),
+  // M3m's discard guard registers a `beforeRemove` listener on mount, so this screen cannot
+  // render at all without a navigation object. This file's subject is the date default rather
+  // than the guard — `DiveFormScreen.test.tsx` owns that — so the listener is accepted and
+  // dropped, and the unsubscribe it returns is real enough to run on unmount.
+  useNavigation: jest.fn(() => ({ addListener: () => () => {}, dispatch: jest.fn(), setOptions: jest.fn() })),
 }));
 
 /**

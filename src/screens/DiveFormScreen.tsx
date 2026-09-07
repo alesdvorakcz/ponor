@@ -8,8 +8,21 @@ import {
   type UseFormSetValue,
 } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useColorScheme,
+  type ColorValue,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// M3m's discard guard. `useNavigation` is expo-router's own public re-export of the
+// navigation object; `leaveScreen.ts` still owns where a save GOES, and this owns whether a
+// departure happens at all — two different questions about the same act.
+import { useNavigation } from 'expo-router';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
@@ -108,6 +121,7 @@ import {
 import { unitLabel, type UnitSystem } from '../format/units';
 import { t, useT, type TranslationKey } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
+import { confirmDestructive } from '../platform/confirmDestructive';
 import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
@@ -2869,7 +2883,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // docblock describes. §3's Settings list is where the error is worth showing.
   const { presets } = useGearPresets();
 
-  const { control, handleSubmit, setValue, getValues } = useForm<DiveFormInput, unknown, DiveFormValues>({
+  const { control, handleSubmit, setValue, getValues, formState } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
     defaultValues: carried.values,
     // `values`, not a second `defaultValues`: react-hook-form only ever reads
@@ -2892,6 +2906,91 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     // nothing has touched yet is safe to re-sync.
     resetOptions: { keepDirtyValues: true },
   });
+
+  /**
+   * **Asking before a half-written dive is thrown away** (M3m, the owner: `‹ Cancel` and the
+   * edge-swipe beside it both discarded a filled-in form without a word).
+   *
+   * *Delete dive* has been confirmed since M1d because it destroys something; abandoning a
+   * dive being written destroys the same thing through a quieter door, and on a boat, one
+   * thumb, that door is the easier one to lean on.
+   *
+   * **One listener, not one handler per control, because there is not one door.** `‹ Cancel`,
+   * iOS' edge-swipe and Android's hardware back are three gestures that all end in a
+   * navigation action removing this route, and `beforeRemove` is emitted — cancellably —
+   * ahead of every one of them. A press handler bolted to `CancelControl` would have guarded
+   * exactly the door a diver is least likely to hit by accident. So `CancelControl` is
+   * untouched and `leaveScreen.ts` keeps owning *where* a departure lands; this owns *whether*
+   * one happens.
+   *
+   * **`formState.isDirty`, and it has to be react-hook-form's own.** The form is re-seeded
+   * from carry-over through `values` after `useDives()` resolves (see `useForm` above), which
+   * is why `resetOptions: { keepDirtyValues: true }` is set: a hand-rolled "is this different
+   * from the previous dive" comparison would count §2.1's prefill as the diver's work and ask
+   * every dive after the first to be discarded on the way out, having had nothing typed into
+   * it. That is the failure that would make the guard worse than its absence — a question
+   * asked so often it is answered without reading — and it has its own test.
+   *
+   * **`leavingRef` is what stops the guard firing on its own success.** A saved dive leaves
+   * through `backToDives()` at the exact moment the form is dirtiest, and asking whether to
+   * discard the dive that was just written is the guard misreading a completed act as an
+   * abandoned one. A ref rather than state, and read inside the listener: this is the event
+   * handler case `onValid`'s own `savingRef` records, where `current` is the only value that
+   * means anything.
+   *
+   * The confirmation itself goes to `confirmDestructive` (platform/confirmDestructive.ts) —
+   * §10's rule that the destructive weight belongs to chrome the app does not draw, which is
+   * why this screen shows no in-app modal and `‹ Cancel` stays the muted label it is.
+   */
+  const leavingRef = useRef(false);
+  const navigation = useNavigation();
+  const canDiscard = formState.isDirty;
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      // Nothing to lose, or a departure this screen already decided on — let it through
+      // untouched rather than asking a question with one honest answer.
+      if (!canDiscard || leavingRef.current) return;
+      event.preventDefault();
+      confirmDestructive({
+        title: mode === 'edit' ? t('form.discardEditTitle') : t('form.discardTitle'),
+        body: mode === 'edit' ? t('form.discardEditBody') : t('form.discardBody'),
+        confirmLabel: t('form.discardConfirm'),
+        cancelLabel: t('form.discardCancel'),
+        // The SAME action that was stopped, re-dispatched — so confirming a swipe-back swipes
+        // back and confirming a Cancel cancels. Re-dispatching a hard-coded `backToDives()`
+        // instead would collapse three gestures into one destination and send a diver who
+        // deep-linked into the form somewhere they never asked to go.
+        onConfirm: () => {
+          leavingRef.current = true;
+          navigation.dispatch(event.data.action);
+        },
+      });
+    });
+    return unsubscribe;
+  }, [navigation, canDiscard, mode]);
+
+  /**
+   * **The half the listener above cannot do, and it took the device to find it.**
+   *
+   * `beforeRemove` guards every exit that goes through JS — `‹ Cancel` and Android's hardware
+   * back — and iOS' edge-swipe is not one of them. The native stack pops the screen on the
+   * gesture *before* JS is consulted, so `preventDefault` has nothing left to prevent: the
+   * form asked "discard this dive?" and left anyway, the question hanging over the list it had
+   * already returned to, with React Navigation's own error underneath — *"removed natively but
+   * didn't get removed from JS state… not fully supported in native-stack."*
+   *
+   * So the gesture is switched off for exactly as long as there is something to lose, which is
+   * React Navigation's documented answer for this stack. It is not a lesser fix: the promise
+   * was that no exit discards a dive silently, and a gesture that does not fire discards
+   * nothing. `‹ Cancel` remains, in the same place it has always been, and it asks.
+   *
+   * Off only while dirty, never for the screen's whole life: a diver who opened `+` and
+   * changed their mind keeps every way out they normally have, because they have nothing to
+   * lose by taking one.
+   */
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !canDiscard });
+  }, [navigation, canDiscard]);
 
   // The live value of §2.4's control, which the heading and the save's own label are the
   // other two views of. `useWatch` rather than `formState`/`getValues`: it subscribes this
@@ -3617,6 +3716,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       } else {
         await createDive(db, toNewDiveInput(values, units));
       }
+      // Set before leaving, and this is the whole of what M3m's discard guard needs from the
+      // save: the form is at its dirtiest right now, and without this the guard would meet a
+      // dirty form on the way out and ask whether to throw away the dive it has just written.
+      // See the guard's own docblock for why the flag is a ref.
+      leavingRef.current = true;
       // `backToDives` (navigation/leaveScreen.ts), not a private copy of its guard: this
       // screen is reachable directly by URL exactly as DiveDetailScreen is, and a diver who
       // deep-linked into the form and saved must land on the list rather than sitting on a
@@ -3696,7 +3800,34 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     // clearance below. `‹ Cancel` beneath this moves down ~14 pt on an island phone as a
     // result — the correction, not a regression: this container used to start INSIDE the
     // safe area, and the control's own 48 dp tap floor (§0.5) disguised most of it.
-    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+    //
+    // **A `KeyboardAvoidingView`, and the footer below is what it exists to lift** (M3m,
+    // found by the owner using the form). §0.5 puts the primary action in the bottom third,
+    // and every number on this form takes a `decimal-pad` — which on iOS has no return key at
+    // all — so with the keyboard up *Save dive* was not merely low, it was **behind the
+    // keyboard**, and there was no key on that keyboard to put it away. The diver's only exit
+    // was to find a blank strip of form to tap.
+    //
+    // Nothing else had to move, and that is the point: `formFooter` is already an in-flow
+    // sibling BELOW `formScroll` rather than an absolutely positioned overlay, which is
+    // exactly the shape a lift needs — `searchDock` (theme/styles.ts) records that
+    // arrangement one screen over and names this footer as making "the same composition, for
+    // the same reason". This is the wrapper that comment was assuming.
+    //
+    // `padding` on iOS and `height` on Android is RN's own documented pairing and the same
+    // pair `SearchScreen.tsx` passes: on Android the window itself resizes, so `padding`
+    // would count the keyboard twice.
+    //
+    // **Known cost, inherited deliberately rather than solved twice**: the footer's
+    // `insets.bottom + 24` clears a home indicator, and while the keyboard is up that
+    // indicator is behind the keyboard — so the button floats ~34 pt higher off the keyboard
+    // than it needs to on an island phone. `searchDock` already spends the same padding for
+    // the same reason, and one answer that is slightly generous beats two answers that
+    // disagree (§4.1).
+    <KeyboardAvoidingView
+      style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <CancelControl styles={styles} />
       <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
         {/* The header row (§2.4): what this form is, and the control that decides it. The
@@ -4266,7 +4397,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <Text style={styles.actionLabel}>{saveLabelFor(chosenStatus)}</Text>
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

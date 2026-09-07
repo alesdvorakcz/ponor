@@ -587,6 +587,27 @@ export const en = {
       headingEditPlan: 'Edit plan',
       saveDive: 'Save dive',
       savePlan: 'Save plan',
+      /**
+       * M3m's discard confirmation, in the shape every other destructive dialog in this app
+       * uses (`detail.deleteTitle`/`deleteBody`, `preset.*`, `certification.*`): the question
+       * in the title, what is about to happen underneath.
+       *
+       * **Two pairs, because the true sentence is not the same one.** Leaving a new dive
+       * loses a dive that has never existed anywhere; leaving an edit loses the changes and
+       * the dive stays as it was. One pair covering both would have to be vague enough to be
+       * true of each, and a diver deciding whether to lose work is exactly who cannot afford
+       * a vague sentence.
+       *
+       * *Keep editing* rather than *Cancel* for the cancel slot: this dialog is itself
+       * reached by pressing something called Cancel, and two Cancels in one gesture is a
+       * question a diver has to re-read to answer.
+       */
+      discardTitle: 'Discard this dive?',
+      discardBody: "What you've filled in won't be saved.",
+      discardEditTitle: 'Discard your changes?',
+      discardEditBody: 'This dive will stay as it was.',
+      discardConfirm: 'Discard',
+      discardCancel: 'Keep editing',
       /** §2.4's control names the QUESTION, and `accessibilityState` carries the answer. */
       plannedDive: 'Planned dive',
       carriedFrom: 'Carried from {{from}} — clear any of them',
