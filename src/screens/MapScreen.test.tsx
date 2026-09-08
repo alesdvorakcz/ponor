@@ -375,6 +375,27 @@ it('opens a sheet naming the site, its depth and its water', async () => {
   expect(lines).toContain('2 dives · deepest 18.2 m · 18–24 °C');
 });
 
+/**
+ * **M3n.** The sheet's heading is the site, and its rows used to be the site again — the same
+ * name three times over two dives — while the one fact a diver opens it for, *when was I here*,
+ * appeared nowhere. `DiveRow` withheld a logged dive's date for a reason that belonged to the
+ * Dives list's trip headers; this sheet groups by place, so nothing above a row says the day.
+ */
+it('dates the dives in the sheet, since its heading names the place and not the day', async () => {
+  mockUseDives.mockReturnValue(
+    divesState([
+      pinned({ date: '2026-06-12', maxDepthM: 18.2, waterTempC: 24, durationMin: 45 }),
+      pinned({ date: '2026-08-20', maxDepthM: 12, waterTempC: 18, durationMin: 40 }),
+    ]),
+  );
+  const t = await show();
+  await tapMark(t, 'Blue Hole, 2 dives');
+
+  const text = textIn(t).join(' ');
+  expect(text).toContain('12 Jun 2026');
+  expect(text).toContain('20 Aug 2026');
+});
+
 // The sheet lists every dive at the place, including the one carrying no fix of its own — §3
 // says "your dives there", and the badge already promised two.
 it('lists every dive at the site, not only the ones that were pinned', async () => {

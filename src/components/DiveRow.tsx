@@ -49,6 +49,23 @@ interface DiveRowProps {
    * already gives for why colour lives there and nowhere else.
    */
   depthSlot?: ReactNode;
+  /**
+   * **Whether something above this row already states the day** (M3n). Default `false` — the
+   * row states its own date — because that is true of every caller but one.
+   *
+   * This row used to withhold a logged dive's date outright, keyed on status, for a reason
+   * that belongs to a single screen: `DivesScreen` puts a `TripHeader` above its rows
+   * ("BLUE HOLE · 16–18 Aug 2026"), so a date on each row beneath is the same fact twice. But
+   * `SearchScreen`, the map's site sheet, `DiveSiteScreen` and `DiveCenterScreen` render this
+   * component with no such header, and inherited the silence: searching a site dived twice
+   * returned two identical rows differing only by number and time of day, with the one fact
+   * that tells them apart missing from the screen entirely.
+   *
+   * So the assumption became a prop, and the DEFAULT is the safe answer rather than the
+   * convenient one — a caller that says nothing gets a date, and the next screen to reuse this
+   * row cannot inherit the fault by omission. `DivesScreen` is the only caller that passes it.
+   */
+  datedByContext?: boolean;
 }
 
 /**
@@ -73,9 +90,9 @@ function accessibilityLabelFor(
   number: number | undefined,
   site: string,
   depth: string | null,
-  plannedDate: string | null,
+  dateChip: string | null,
 ): string {
-  return [number !== undefined ? t('dives.diveNumber', { number }) : null, site, depth, plannedDate]
+  return [number !== undefined ? t('dives.diveNumber', { number }) : null, site, depth, dateChip]
     .filter((part): part is string => part !== null)
     .join(', ');
 }
@@ -96,7 +113,7 @@ function accessibilityLabelFor(
  * one), so it carries `accessibilityRole="button"` and a composed `accessibilityLabel`
  * (see `accessibilityLabelFor` above) rather than relying on `Pressable`'s default.
  */
-function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: DiveRowProps) {
+function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot, datedByContext = false }: DiveRowProps) {
   // **This component is `memo`'d, which is why the subscription matters here more than
   // anywhere else** (src/i18n). Its words come from `format/display.ts` and from `t` below,
   // neither of which is a prop, so without a hook of its own a row would keep drawing the old
@@ -113,16 +130,19 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
   const depth = formatDepth(dive.maxDepthM, units);
   const timeRange = formatTimeRange(dive.timeIn, dive.durationMin);
   const duration = formatDuration(dive.durationMin);
-  // §3: "Up next" pins planned dives "with their date" — the one fact that section exists
-  // to show. Scoped to `status === 'planned'` rather than to `number === undefined` (the
-  // two happen to coincide, per diveNumber.ts's `assignDiveNumbers`, which numbers only
-  // `status: 'logged'` dives) because it is the dive's status, not the presence of a
-  // number, that decides whether the date belongs here. A logged dive never gets one: its
-  // trip header (TripHeader.tsx) already states the day — "BLUE HOLE · 16–18 Aug 2026" —
-  // so repeating it on every row beneath would be redundant noise in the common case.
-  // `dive.date` is required (never null, §6), so this is never itself the reason a planned
-  // row renders with no metadata line at all.
-  const plannedDate = dive.status === 'planned' ? formatDiveDate(dive.date) : null;
+  // **When a dive happened, shown unless something above the row already said so** (M3n —
+  // see `datedByContext`, which is the whole of that condition).
+  //
+  // This used to read `dive.status === 'planned'`, and the status was standing in for a fact
+  // about the SCREEN: §3 pins planned dives under "Up next" "with their date", while a logged
+  // dive sat under a trip header that stated the day. Both halves were true on `DivesScreen`
+  // and the second was false everywhere else this row is rendered, so four screens showed a
+  // dive with no date at all — most visibly search, where two results at one site are told
+  // apart by nothing else.
+  //
+  // `dive.date` is required (never null, §6), so this is never itself the reason a row renders
+  // with no metadata line at all.
+  const dateChip = datedByContext ? null : formatDiveDate(dive.date);
   // M1c closing fixes, Important #4: DESIGN.md §0.6 specifies this line as "Time · duration
   // · rating, middot-separated" — the same joined form `heroSubline` (DiveDetailScreen.tsx)
   // already uses for its own number/date/centre sub-line — but the row used to space its
@@ -133,7 +153,7 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
   // beside a chip that isn't actually there. `dive.rating` stays out of this join: §0.6
   // draws rating as circles, not text (task 7's `RatingDots`), so it is added as a fourth,
   // separately middot-joined element below rather than folded into one string.
-  const metaText = [plannedDate, timeRange, duration].filter((part): part is string => part !== null).join(METADATA_SEPARATOR);
+  const metaText = [dateChip, timeRange, duration].filter((part): part is string => part !== null).join(METADATA_SEPARATOR);
   const hasMetaText = metaText !== '';
   const hasMeta = hasMetaText || dive.rating !== null;
 
@@ -142,7 +162,7 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot }: D
       style={styles.diveRow}
       onPress={() => onPress(dive.id)}
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabelFor(number, site, depth, plannedDate)}
+      accessibilityLabel={accessibilityLabelFor(number, site, depth, dateChip)}
     >
       <View style={styles.diveRowTop}>
         <View style={styles.diveRowMain}>

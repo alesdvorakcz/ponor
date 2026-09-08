@@ -355,3 +355,31 @@ it('stops clearing the home indicator once the keyboard is covering it', async (
   // ...and the 34 pt of indicator clearance is exactly what stops being spent.
   expect(keyboardDown).toBe(keyboardUp! + 34);
 });
+
+/**
+ * **M3n, and this screen is where the fault was worst.** `DiveRow` used to withhold a logged
+ * dive's date because "its trip header already states the day" — a reason belonging to
+ * `DivesScreen` alone. Search has no headers at all, so two dives at one site came back as two
+ * identical rows differing only by number and time of day, with the one fact that tells them
+ * apart missing from the screen entirely. That is the case a diver searches in.
+ */
+it('dates each result, since nothing on this screen says when a dive was', async () => {
+  stubDives({
+    dives: [
+      dive({ id: 'a', status: 'logged', date: '2026-06-12', siteName: 'Marsa Shona', timeIn: '09:15' }),
+      dive({ id: 'b', status: 'logged', date: '2026-08-20', siteName: 'Marsa Shona', timeIn: '13:40' }),
+    ],
+    numbers: new Map([
+      ['a', 7],
+      ['b', 8],
+    ]),
+    error: undefined,
+  });
+  const t = await render(<SearchScreen />);
+  await fireEvent.changeText(findField(t), 'marsa');
+
+  const text = textIn(t).join(' ');
+  // Both, and different: the two dates are what separate two results at one site.
+  expect(text).toContain('12 Jun 2026');
+  expect(text).toContain('20 Aug 2026');
+});

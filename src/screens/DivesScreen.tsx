@@ -624,7 +624,25 @@ export default function DivesScreen() {
     // unaffected as they were before this task.
     return (
       <View style={activeReorderDate !== null ? styles.reorderDimmed : undefined}>
-        <DiveRow dive={item.dive} number={numbers.get(item.dive.id)} scheme={scheme} units={units} onPress={openDive} />
+        {/* **`datedByContext` is this screen's own fact about itself** (M3n). A `TripHeader`
+            states the day for every row beneath it — "DIVING CENTER KRK · 20–21 Aug 2026" — so
+            a date on each row would be that fact twice, two lines apart. `DiveRow` defaults to
+            stating its date precisely because no other caller can say this: the map's site
+            sheet, search, and the site and centre pages all render it with no header above it.
+
+            Keyed on the dive's own status rather than on which section rendered it, the same
+            discipline the *Complete dive* control below already follows — and the two halves
+            are true for the same reason. A logged row sits under a trip header, which names a
+            day; a planned row sits under "Up next", whose trailing slot is a dive COUNT, so
+            nothing above it has said when. */}
+        <DiveRow
+          dive={item.dive}
+          number={numbers.get(item.dive.id)}
+          scheme={scheme}
+          units={units}
+          onPress={openDive}
+          datedByContext={item.dive.status === 'logged'}
+        />
         {/* §2.4: a planned dive is one still to be dived, so it gets the one action a
             logged dive has no use for. Keyed on the dive's own `status` — never on which
             section it was rendered in, and never on the section's title, which is an

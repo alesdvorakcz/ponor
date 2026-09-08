@@ -589,3 +589,27 @@ describe('ReorderControls', () => {
     });
   });
 });
+
+/**
+ * **M3n.** `DiveRow` now states its own date by default, for the four screens that render it
+ * with no header above. These rows are not one of them: hand-ordering only ever happens inside
+ * `DivesScreen`, on a run of same-date dives, under a `DayStrip` that opens with exactly that
+ * date ("5 Sep 2026 · 2 dives, no times"). Unconditional here, unlike the Dives list's own
+ * rows, because a reorder group has no other shape — it is same-date by construction
+ * (`sameDateGroups`, domain/trips.ts) and always has that strip above it.
+ */
+it('leaves the date to the day strip above it, rather than repeating it on every row', async () => {
+  const a = dive({ id: 'a', date: '2026-09-05', siteName: 'Site A' });
+  const b = dive({ id: 'b', date: '2026-09-05', siteName: 'Site B' });
+  const t = await render(
+    <ReorderControls
+      dives={[a, b]}
+      numbers={new Map([['a', 1], ['b', 2]])}
+      scheme="light"
+      units="metric"
+      onPress={() => {}}
+      onReorder={() => {}}
+    />,
+  );
+  expect(textIn(t).join(' ')).not.toContain('5 Sep 2026');
+});

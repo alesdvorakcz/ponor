@@ -350,6 +350,12 @@ export function ReorderControls({
             units={units}
             onPress={onPress}
             depthSlot={arrows}
+            // M3n: hand-ordering only ever runs inside `DivesScreen`, on a same-date run
+            // (`sameDateGroups`), under a `DayStrip` that opens with exactly that date. So the
+            // day is already stated and a row repeating it would be the third copy on screen.
+            // Unconditional, unlike the Dives list's own rows: a reorder group has no other
+            // shape — it is same-date by construction and never appears without that strip.
+            datedByContext
           />
         );
       })}

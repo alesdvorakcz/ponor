@@ -90,7 +90,10 @@ it('announces itself as a button, with a label composed from number, site and de
   // onPress" test below fires directly on `t.root` rather than searching for it.
   if (!t.root) throw new Error('DiveRow did not render a root element');
   expect(t.root.props.accessibilityRole).toBe('button');
-  expect(t.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 32.4 m');
+  // The date joined this composition in M3n, when the row stopped withholding it from
+  // logged dives — see `datedByContext`. Asserted here rather than in a test of its own so the
+  // label's full default shape is pinned in one place.
+  expect(t.root.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 32.4 m, 16 Aug 2026');
 });
 
 // The number is omitted for a planned dive (§2.4: no number until completed) and depth is
@@ -145,7 +148,7 @@ it('falls back to the dive centre when no site name was recorded', async () => {
 // are recorded, which is the ordinary case for a diver who books through a centre.
 it('names the site, not the centre, when the dive records both', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', centerName: 'Aqua' })} number={7} scheme="dark" units="metric" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', centerName: 'Aqua' })} number={7} scheme="dark" units="metric" onPress={() => {}} datedByContext />,
   );
   expect(textIn(t)).toContain('Blue Hole');
   expect(textIn(t)).not.toContain('Aqua');
@@ -170,7 +173,7 @@ it('names a dive with neither a site nor a centre, rather than leaving a blank l
 // other unrecorded field, rather than naming a number nobody can see on screen.
 it('omits a negative depth from the label, since the row never actually draws one', async () => {
   const t = await render(
-    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: -5 })} number={3} scheme="dark" units="metric" onPress={() => {}} />,
+    <DiveRow dive={dive({ siteName: 'Blue Hole', maxDepthM: -5 })} number={3} scheme="dark" units="metric" onPress={() => {}} datedByContext />,
   );
   if (!t.root) throw new Error('DiveRow did not render a root element');
   expect(t.root.props.accessibilityLabel).toBe('Dive 3, Blue Hole');
@@ -274,15 +277,35 @@ it('shows a planned dive its date, since "Up next" is about when', async () => {
   expect(text).not.toMatch(/#\d/);
 });
 
-// The more important half of this task: a logged dive's trip header already states the day
-// ("BLUE HOLE · 16–18 Aug 2026", TripHeader.tsx) — repeating it on every row beneath would
-// be redundant noise in the common case, the one this screen shows most often.
-it('does not put the date on a logged dive row, where the trip header carries it', async () => {
+// The other half, and M3n moved which question it answers. It used to be "a logged dive shows
+// no date", keyed on status; a trip header states the day, so repeating it on every row beneath
+// would be noise. That reason is the Dives list's and belongs to the CALLER — see the default
+// above, and this screen's own docblock for the four screens the old rule left dateless.
+it('omits the date when the caller says something above the row already states the day', async () => {
   const d = dive({ status: 'logged', date: '2026-09-05', siteName: 'Silfra', timeIn: '09:00' });
-  const t = await render(<DiveRow dive={d} number={7} scheme="dark" units="metric" onPress={() => {}} />);
+  const t = await render(
+    <DiveRow dive={d} number={7} scheme="dark" units="metric" onPress={() => {}} datedByContext />,
+  );
   const text = textIn(t).join(' ');
   expect(text).not.toContain('5 Sep 2026');
 });
+
+/**
+ * **M3n, and the default is the whole fix.** This row withheld a logged dive's date because
+ * "its trip header already states the day" — true of `DivesScreen` and of nothing else, while
+ * `SearchScreen`, the map's site sheet, `DiveSiteScreen` and `DiveCenterScreen` all render this
+ * same component with no header above it. Searching a site you have dived twice returned two
+ * identical rows differing only by number and time of day, with no date anywhere on screen.
+ *
+ * So the safe answer is the default: a row states its own date unless a caller says otherwise,
+ * and the next screen to reuse it gets a date rather than silence.
+ */
+it('carries the date by default, since most screens showing a dive row have no trip header', async () => {
+  const d = dive({ status: 'logged', date: '2026-09-05', siteName: 'Silfra', timeIn: '09:00' });
+  const t = await render(<DiveRow dive={d} number={7} scheme="dark" units="metric" onPress={() => {}} />);
+  expect(textIn(t).join(' ')).toContain('5 Sep 2026');
+});
+
 
 // M1c closing fixes, Important #4: DESIGN.md §0.6 specifies the metadata line as "Time ·
 // duration · rating, middot-separated", but the row used to space its chips with a bare
@@ -291,7 +314,7 @@ it('does not put the date on a logged dive row, where the trip header carries it
 // whatever `formatTimeRange`/`formatDuration` actually produce.
 it('middot-separates the time and duration chips, per §0.6', async () => {
   const d = dive({ timeIn: '09:30', durationMin: 44 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} datedByContext />);
   const expected = `${formatTimeRange(d.timeIn, d.durationMin)} · ${formatDuration(d.durationMin)}`;
   expect(textIn(t)).toContain(expected);
 });
@@ -301,7 +324,7 @@ it('middot-separates the time and duration chips, per §0.6', async () => {
 // between the joined chips and the dots, rendered only when both sides actually exist.
 it('middot-separates the text chips from the rating dots, since dots are drawn rather than typed', async () => {
   const d = dive({ durationMin: 44, rating: 3 });
-  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} />);
+  const t = await render(<DiveRow dive={d} number={1} scheme="dark" units="metric" onPress={() => {}} datedByContext />);
   const text = textIn(t);
   expect(text).toContain(formatDuration(d.durationMin));
   expect(text).toContain(' · ');
@@ -452,8 +475,8 @@ describe('rating, drawn as circles rather than typed glyphs', () => {
 // would be the same defect as a mislabelled figure, just only audible.
 it('reads and announces the depth in the system it is given', async () => {
   const d = dive({ siteName: 'Blue Hole', maxDepthM: 24.6 });
-  const metric = await render(<DiveRow dive={d} number={248} scheme="dark" units="metric" onPress={() => {}} />);
-  const imperial = await render(<DiveRow dive={d} number={248} scheme="dark" units="imperial" onPress={() => {}} />);
+  const metric = await render(<DiveRow dive={d} number={248} scheme="dark" units="metric" onPress={() => {}} datedByContext />);
+  const imperial = await render(<DiveRow dive={d} number={248} scheme="dark" units="imperial" onPress={() => {}} datedByContext />);
 
   expect(textIn(metric).join('')).toContain('24.6 m');
   expect(metric.root?.props.accessibilityLabel).toBe('Dive 248, Blue Hole, 24.6 m');
@@ -522,7 +545,7 @@ it('speaks a dive number in Czech to a screen reader', async () => {
   setActiveLanguage('cs');
   try {
     const t = await render(
-      <DiveRow dive={dive({ id: 'a', siteName: 'Blue Hole', maxDepthM: 18 })} number={12} scheme="dark" units="metric" onPress={() => {}} />,
+      <DiveRow dive={dive({ id: 'a', siteName: 'Blue Hole', maxDepthM: 18 })} number={12} scheme="dark" units="metric" onPress={() => {}} datedByContext />,
     );
     // Narrowed the way this file's own first assertion does — a null root must fail as a
     // missing render rather than as a mismatched string.

@@ -2315,3 +2315,47 @@ describe('in Czech', () => {
     expect(textIn(t).join(' ')).not.toContain('Couldn');
   });
 });
+
+/**
+ * **M3n's other half, and the one this screen owns.** `DiveRow` now states a dive's date by
+ * default, because four of its five callers have no header above the row and were showing
+ * dives with no date at all. This screen is the fifth: a `TripHeader` states the day for every
+ * row beneath it ("DIVING CENTER KRK · 20–21 Aug 2026"), so a date on each row would be the
+ * same fact twice, two lines apart.
+ *
+ * Pinned here because nothing else can catch it. The rule lives in a prop this screen passes,
+ * so forgetting to pass it is invisible to `DiveRow`'s own suite — which would go on proving
+ * the default it was given.
+ */
+it('does not repeat the trip header’s day on the rows beneath it', async () => {
+  stubDives({
+    dives: [
+      dive({ id: 'a', status: 'logged', date: '2026-08-20', siteName: 'Plavnik', centerName: 'Krk', timeIn: '10:30' }),
+      dive({ id: 'b', status: 'logged', date: '2026-08-20', siteName: 'Tunolovac', centerName: 'Krk', timeIn: '13:30' }),
+    ],
+    numbers: new Map([
+      ['a', 1],
+      ['b', 2],
+    ]),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  const text = textIn(t).join(' ');
+
+  // Once, in the header — not three times.
+  expect(text.match(/20 Aug 2026/g) ?? []).toHaveLength(1);
+});
+
+/** The planned queue is the exception on this same screen, and it is not an exception to the
+ * rule: "Up next" heads its section with a dive COUNT, never a date (TripHeader's `trailing`),
+ * so nothing above a planned row states the day and the row states it itself. §3 asks for
+ * exactly that — planned dives pinned on top "with their date". */
+it('still dates a planned dive, whose section header counts dives rather than naming a day', async () => {
+  stubDives({
+    dives: [dive({ id: 'p', status: 'planned', date: '2026-09-12', siteName: 'Kotelna' })],
+    numbers: new Map(),
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(textIn(t).join(' ')).toContain('12 Sep 2026');
+});
