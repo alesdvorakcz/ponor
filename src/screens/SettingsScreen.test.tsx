@@ -1339,7 +1339,7 @@ function findLocationRow(t: RenderResult) {
  * exactly the failure worth catching. Distinct literals cannot be.
  */
 const LOCATION_LINES: [LocationPermissionState, string, string][] = [
-  ['granted', 'Allowed', 'Ponor can pin a dive where you are. Open Settings to change that.'],
+  ['granted', 'Allowed', 'Ponor can pin a dive where you are. Open the device’s Settings to change that.'],
   [
     'denied',
     'Not allowed',
@@ -1424,7 +1424,7 @@ it('re-reads the permission when the diver comes back from Settings', async () =
   await returnToForeground();
 
   expect(locationStatus(t)).toBe('Allowed');
-  expect(textIn(t)).toContain('Ponor can pin a dive where you are. Open Settings to change that.');
+  expect(textIn(t)).toContain('Ponor can pin a dive where you are. Open the device’s Settings to change that.');
   // Twice: once on arrival, once on the return. Whether a given `AppState` event counts as a
   // return is `hooks/useForegroundReturn.ts`'s rule and is tested there rather than restated
   // here.
@@ -1633,10 +1633,12 @@ describe('in Czech', () => {
     expect(text).toContain('Nastavení');
     expect(text).toContain('Jednotky');
     expect(text).toContain('Jazyk');
-    expect(text).toContain('Ponory před Ponorem');
+    expect(text).toContain('Dřívější ponory');
     expect(text).toContain('Předvolby lahví');
+    expect(text).toContain('Poloha');
     expect(text).toContain('Přístup k poloze');
     expect(text).toContain('Certifikace');
+    expect(text).toContain('Účet');
     expect(text).toContain('Účet a synchronizace');
     // A preset's summary is `format/display.ts`'s, not this screen's, and it moves with it:
     // *Jedna láhev* is not in this file's vocabulary at all.
@@ -2273,5 +2275,46 @@ describe('start over and delete account', () => {
       expect(said).toContain('zůstává 5 lokalit');
       expect(said).toContain('zůstávají 2 centra');
     });
+  });
+});
+
+/**
+ * **M3n — two rows that were reading as part of the section above them.**
+ *
+ * The treatments here are right and §0.6 owns them: `clusterLabel` at 11.5 muted is the one
+ * group-header treatment everywhere in the app, and the chip rows correctly reuse the form's
+ * field row. What was wrong is structural. *Location access* rendered after the cylinder
+ * presets' own caption with no header of its own, so a diver reading down met
+ * `CYLINDER PRESETS` → "Save one from a dive's Gas & cylinders group…" → *Location access*, and
+ * the location row read as something to do with presets. *Account & sync* sat under
+ * `CERTIFICATIONS` the same way.
+ *
+ * Asserted by ORDER rather than by presence: a header that exists but renders after the row it
+ * heads is the same defect with an extra line, and only the sequence can tell those apart.
+ */
+describe('the sections a row belongs to', () => {
+  /** Where each line sits in the rendered order. `indexOf` returns -1 for a line the screen
+   * never drew, which fails the comparisons below rather than passing them vacuously — so a
+   * heading that is missing entirely reads as the same failure as one in the wrong place. */
+  const orderOf = (lines: string[], ...needles: string[]): number[] => needles.map((n) => lines.indexOf(n));
+
+  it('heads the location row with its own section rather than leaving it under the presets', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const lines = textIn(t);
+
+    const [presets = -1, location = -1, locationRow = -1] = orderOf(lines, 'Cylinder presets', 'Location', 'Location access');
+    expect(location).toBeGreaterThan(presets);
+    expect(locationRow).toBeGreaterThan(location);
+  });
+
+  it('heads the account row with its own section rather than leaving it under the certifications', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const lines = textIn(t);
+
+    const [certifications = -1, account = -1, accountRow = -1] = orderOf(lines, 'Certifications', 'Account', 'Account & sync');
+    expect(account).toBeGreaterThan(certifications);
+    expect(accountRow).toBeGreaterThan(account);
   });
 });

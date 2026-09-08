@@ -690,7 +690,7 @@ describe('in Czech', () => {
   it('explains the missing countries in Czech', async () => {
     mockUseDives.mockReturnValue(divesState([gasDive(18.4)]));
     const t = await show();
-    expect(textIn(t).join(' ')).toContain('Země pocházejí z lokalit na mapě.');
+    expect(textIn(t).join(' ')).toContain('Země pocházejí z lokalit ve sdíleném katalogu.');
   });
 
   /**

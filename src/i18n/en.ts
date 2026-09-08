@@ -270,8 +270,21 @@ export const en = {
       nothingLogged: 'Nothing to count yet. Log a dive and this fills itself in.',
       onlyPlanned:
         'Nothing to count yet. A planned dive isn’t one you’ve done — complete it after surfacing and it lands here.',
+      /**
+       * **What would fill this counter, said as an instruction rather than as a diagnosis**
+       * (M3n). It read "None of your dives names one that knows its country yet", which is
+       * accurate and tells a diver nothing they can act on — and it fires for every diver who
+       * has not signed in, which is the app's default state (§5), with dives pinned in three
+       * countries on the map one tab over.
+       *
+       * A country belongs to a catalogue site (`countriesVisited`, domain/logbookStats.ts), and
+       * a site gets one from its pin when it is published — so picking or adding a site is the
+       * act, and this says so. Deriving a country from the DIVE's own pin instead would need a
+       * reverse-geocode per dive (`platform/geocode.ts` is a network call), which a stats screen
+       * cannot do on read and a boat cannot do at all; it is on §9's shelf.
+       */
       countriesUnknown:
-        'Countries come from the map’s own sites. None of your dives names one that knows its country yet.',
+        'Countries come from sites in the shared catalogue. Pick or add a site on a dive and its country counts here.',
       refresher: 'Over six months since your last dive. A refresher is worth booking before the next one.',
       /** What a screen reader hears instead of the RMV bars (`RmvSparkline`). */
       rmvSeries: 'Each dive, oldest to newest: {{values}}',
@@ -347,12 +360,20 @@ export const en = {
       presetsSection: 'Cylinder presets',
       noPresets: 'Save one from a dive’s Gas & cylinders group and it will show up here.',
       editPreset: 'Edit preset {{name}}',
+      /** M3n: its own section. This row used to render under `presetsSection`'s heading with
+       * nothing of its own, so a diver reading down met a cylinder-preset heading, a sentence
+       * about cylinder presets, and then a location control that looked like part of both. */
+      locationSection: 'Location',
       locationLabel: 'Location access',
       locationUnread: 'Checking…',
       locationUnreachable: 'Couldn’t open Settings from here — open it yourself and find Ponor.',
       locationRow: '{{label}}: {{status}}',
       locationGranted: 'Allowed',
-      locationGrantedNote: 'Ponor can pin a dive where you are. Open Settings to change that.',
+      /** **"the device's Settings", never bare "Settings"** (M3n): this sentence sits on a
+       * screen whose own title is Settings, so the bare word names the wrong place. `field.
+       * positionDenied` already said "the device's Settings" for the same act — one of the two
+       * was wrong and it was this one. */
+      locationGrantedNote: 'Ponor can pin a dive where you are. Open the device’s Settings to change that.',
       locationDenied: 'Not allowed',
       locationDeniedNote:
         'Ponor may not use your location. iOS asks once and never again, so Settings is the only place this can change.',
@@ -365,6 +386,11 @@ export const en = {
       locationUnknown: 'Unknown',
       locationUnknownNote: 'Ponor couldn’t check where this stands. Settings will show it.',
       certificationsSection: 'Certifications',
+      /** M3n, on `locationSection`'s reasoning: *Account & sync* was rendering under the
+       * certifications heading. The section is named for what it holds rather than for the one
+       * row in it today — §3 puts sync's own state here, and the destructive acts already sit
+       * a section further down. */
+      accountSection: 'Account',
       addCertification: 'Add a certification',
       editCertification: 'Edit certification {{name}}',
       account: 'Account & sync',

@@ -986,7 +986,15 @@ export default function SettingsScreen() {
             this screen's pressable rows use. The difference is what a diver needs from it:
             the account row has nothing to say but where it goes, and this row's whole reason
             to exist is the answer it carries. The caption below says what a press does, in
-            the diver's own words rather than in a control's. */}
+            the diver's own words rather than in a control's.
+
+            **A section of its own** (M3n). This row used to follow the cylinder presets' empty
+            caption with no heading between them, so reading down gave `CYLINDER PRESETS` → "Save
+            one from a dive's Gas & cylinders group…" → *Location access*, and the location
+            control read as a third thing about presets. The treatment is unchanged — §0.6's
+            `clusterLabel`, the same one every section on every screen uses — this only gives the
+            row a heading to belong to. */}
+        <Text style={styles.settingsSectionTitle}>{t('settings.locationSection')}</Text>
         <View>
           <Pressable
             style={styles.formField}
@@ -1079,7 +1087,12 @@ export default function SettingsScreen() {
             would need a second live read of the session on a screen that is opened on every
             app launch, and §4.1's whole subject is a second reader that is free to disagree
             with the first — `useAuthSession` is the one owner of that answer, and the account
-            screen is where it is asked. */}
+            screen is where it is asked.
+
+            **And a section of its own** (M3n), on `locationSection`'s reasoning one row-type
+            above: this row was rendering under the certifications heading, so the way into a
+            diver's account read as part of their card wallet. */}
+        <Text style={styles.settingsSectionTitle}>{t('settings.accountSection')}</Text>
         <Pressable
           style={styles.formField}
           // Absolute and interpolated for `PresetRow`'s own recorded reason: expo-router's

@@ -246,7 +246,7 @@ export const cs = {
       onlyPlanned:
         'Zatím není co počítat. Plánovaný ponor není ponor, který jste odpotápěli — dokončete ho po vynoření a objeví se tady.',
       countriesUnknown:
-        'Země pocházejí z lokalit na mapě. Žádný z vašich ponorů zatím nejmenuje lokalitu, která zná svoji zemi.',
+        'Země pocházejí z lokalit ve sdíleném katalogu. Vyberte nebo přidejte lokalitu u ponoru a její země se sem započítá.',
       refresher: 'Od posledního ponoru uplynulo přes půl roku. Před dalším se vyplatí objednat opakovací kurz.',
       rmvSeries: 'Každý ponor, od nejstaršího po nejnovější: {{values}}',
     },
@@ -306,19 +306,28 @@ export const cs = {
       units: 'Jednotky',
       language: 'Jazyk',
       languageDevice: 'Zařízení',
-      divesBefore: 'Ponory před Ponorem',
-      divesBeforeNote: 'Ponory, které jste zaznamenali před Ponorem. Čísla ponorů začínají za nimi.',
+      /** `Ponory před Ponorem` read as "dives before the dive" — see `locationGrantedNote`
+       * for the collision. The label carries the noun and the caption carries the brand, once,
+       * where "začali používat Ponor" can only mean the app. */
+      divesBefore: 'Dřívější ponory',
+      divesBeforeNote: 'Počet ponorů, než jste začali používat Ponor. Čísla ponorů začínají za nimi.',
       divesBeforeUnreadable: 'Uložený počet se nepodařilo přečíst. Napište ho znovu.',
       divesBeforeInvalid: 'Jen celé ponory, 0 a více — nic se neuložilo.',
       presetsSection: 'Předvolby lahví',
       noPresets: 'Uložte si ji u ponoru ve skupině Plyn a láhve a objeví se tady.',
       editPreset: 'Upravit předvolbu {{name}}',
+      locationSection: 'Poloha',
       locationLabel: 'Přístup k poloze',
       locationUnread: 'Zjišťuji…',
       locationUnreachable: 'Nastavení se odsud nepodařilo otevřít — otevřete je sami a najděte Ponor.',
       locationRow: '{{label}}: {{status}}',
       locationGranted: 'Povoleno',
-      locationGrantedNote: 'Ponor může připnout ponor tam, kde jste. V Nastavení to jde změnit.',
+      /** **`Aplikace`, not `Ponor`** (M3n, owner's call): *ponor* is the common noun for a dive
+       * as well as the app's name, so "Ponor může připnout ponor" reads as "the dive can pin a
+       * dive". The brand steps aside in the one sentence where it collides with its own
+       * subject. And `Nastavení systému` rather than bare `Nastavení`, for the reason the
+       * English twin records — this sentence sits on a screen called *Nastavení*. */
+      locationGrantedNote: 'Aplikace může připnout ponor tam, kde jste. Změníte to v Nastavení systému.',
       locationDenied: 'Nepovoleno',
       locationDeniedNote:
         'Ponor nesmí používat vaši polohu. iOS se zeptá jednou a nikdy víc, takže Nastavení je jediné místo, kde to jde změnit.',
@@ -331,6 +340,7 @@ export const cs = {
       locationUnknown: 'Neznámo',
       locationUnknownNote: 'Ponor nedokázal zjistit, jak na tom jste. Nastavení to ukáže.',
       certificationsSection: 'Certifikace',
+      accountSection: 'Účet',
       addCertification: 'Přidat certifikaci',
       editCertification: 'Upravit certifikaci {{name}}',
       account: 'Účet a synchronizace',
