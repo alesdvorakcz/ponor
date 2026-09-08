@@ -75,10 +75,21 @@ export interface FormFieldProps {
    * Omitted everywhere else, which leaves React Native's own defaults exactly as they were
    * before this prop existed.
    */
-  autoCapitalize?: 'none' | 'sentences';
+  autoCapitalize?: 'none' | 'sentences' | 'words';
   /** The other half of the pair above. An e-mail address run through autocorrect is a
-   * different address, and the diver does not see it happen. */
+   * different address, and the diver does not see it happen — and M3n found the same sentence
+   * true of a **place name**: `Divoka Sarka` came back from iOS as `Divoká sarka`, an accent
+   * added and a capital taken, on a word bound for a shared catalogue under the diver's name. */
   autoCorrect?: boolean;
+  /**
+   * Whether the platform draws its dictionary's opinion under the text (M3n).
+   *
+   * A third question rather than a restatement of `autoCorrect`, and they come apart in the
+   * direction that matters: `autoCorrect={false}` stops the keyboard REWRITING a word, and
+   * leaves the red squiggle underneath it. On a form of Czech place names that is a row of
+   * misspelling marks under text that is spelled correctly.
+   */
+  spellCheck?: boolean;
   placeholder?: string;
   /**
    * DESIGN.md §0.6: "**Figures in mono, names in sans.** A depth, duration, pressure or
@@ -295,7 +306,7 @@ export interface FieldMatch {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion, addition },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion, addition },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -369,6 +380,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       secureTextEntry={secureTextEntry}
       autoCapitalize={autoCapitalize}
       autoCorrect={autoCorrect}
+      spellCheck={spellCheck}
       // §0.6: an empty numeric field shows its unit as the placeholder, "so the row still
       // says what belongs in it". `placeholder` covers the fields whose hint is not a unit —
       // a conditions scale's `0-3`, a rating's `1-5`.

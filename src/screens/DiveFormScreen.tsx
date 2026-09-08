@@ -1209,6 +1209,17 @@ interface ControlledTextFieldProps {
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
   multiline?: boolean;
   placeholder?: string;
+  /**
+   * **The keyboard's opinion about a word, switched off for the fields that hold names** (M3n).
+   *
+   * Forwarded straight to `FormField`, and set explicitly at the four call sites that need it
+   * rather than inferred from `history` — that prop says a field autocompletes, which is a
+   * different question, and `FormFieldProps.autoCapitalize` already records why these look
+   * joined and are not.
+   */
+  autoCapitalize?: 'none' | 'sentences' | 'words';
+  autoCorrect?: boolean;
+  spellCheck?: boolean;
   /** §0.6's "figures in mono, names in sans" — set explicitly per field, never inferred.
    * See `FormFieldProps.mono` for why `keyboardType` is not the same question. */
   mono?: boolean;
@@ -1283,6 +1294,9 @@ function ControlledTextField({
   keyboardType,
   multiline,
   placeholder,
+  autoCapitalize,
+  autoCorrect,
+  spellCheck,
   mono,
   unit,
   carryOver,
@@ -1467,6 +1481,9 @@ function ControlledTextField({
               keyboardType={keyboardType}
               multiline={multiline}
               placeholder={placeholder}
+              autoCapitalize={autoCapitalize}
+              autoCorrect={autoCorrect}
+              spellCheck={spellCheck}
               mono={mono}
               unit={unit}
               carried={carryOver?.paths.has(name)}
@@ -3909,6 +3926,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             history={history}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
+            autoCapitalize="words"
+            autoCorrect={false}
+            spellCheck={false}
           />
           <ControlledTextField
             control={control}
@@ -3919,6 +3939,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             history={history}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
+            autoCapitalize="words"
+            autoCorrect={false}
+            spellCheck={false}
           />
         </View>
 
@@ -4339,6 +4362,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             history={history}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
+            autoCapitalize="words"
+            autoCorrect={false}
+            spellCheck={false}
           />
           <ControlledTextField
             control={control}
@@ -4349,6 +4375,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             history={history}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
+            autoCapitalize="words"
+            autoCorrect={false}
+            spellCheck={false}
           />
         </FormGroup>
 

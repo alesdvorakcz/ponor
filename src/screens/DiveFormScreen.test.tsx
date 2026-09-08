@@ -8367,3 +8367,49 @@ it('stops clearing the home indicator under Save once the keyboard is covering i
   expect(keyboardUp).toBeGreaterThan(0);
   expect(keyboardDown).toBe(keyboardUp! + 34);
 });
+
+/**
+ * **M3n, and it was found by typing a site name into the running app.** `Divoka Sarka - hlavni
+ * lom` came out as `Divoká sarka - hlavni lom`: iOS' autocorrect added an accent to one word
+ * and took the capital off the next, with nothing on screen to say it had happened.
+ *
+ * These four are §2.3's autocompleting fields, and two of them go into a **shared catalogue**
+ * under the diver's name — so a keyboard rewriting them is not a typo, it is publishing
+ * somebody else's spelling of a place. `FormField`'s own docblock argued the other way ("a site
+ * name, a buddy and a dive centre — every other text field in this app — must" be corrected);
+ * using it says otherwise, and a proper noun is exactly the kind of word a dictionary has no
+ * business having an opinion about.
+ *
+ * Set explicitly per field rather than inferred from `history` — that prop means "this field
+ * autocompletes", which is a different question, and `FormField` already records why the two
+ * are not joined.
+ */
+describe('the four name fields', () => {
+  const NAME_FIELDS = ['Site', 'Centre', 'Buddy', 'Guide'];
+
+  it('lets no keyboard rewrite a name the diver typed', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'People');
+
+    for (const label of NAME_FIELDS) {
+      const input = findTextInput(t, label);
+      expect(input).toBeDefined();
+      expect(input?.props.autoCorrect).toBe(false);
+      // The red squiggle is the same dictionary having the same opinion, drawn rather than
+      // applied — noise under every Czech place name a diver enters.
+      expect(input?.props.spellCheck).toBe(false);
+    }
+  });
+
+  it('still capitalises them as names, since that is what they are', async () => {
+    const t = await render(<DiveFormScreen mode="create" />);
+    await openGroup(t, 'People');
+
+    for (const label of NAME_FIELDS) {
+      // `words`, not `sentences`: "blue hole" is a place called Blue Hole, and §2.3's folding
+      // already makes case irrelevant to whether it MATCHES the catalogue — so this is
+      // cosmetic, and in the diver's favour rather than the dictionary's.
+      expect(findTextInput(t, label)?.props.autoCapitalize).toBe('words');
+    }
+  });
+});
