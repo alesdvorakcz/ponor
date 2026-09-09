@@ -14,6 +14,7 @@ import {
   type LocalWriteStamp,
   type PushedRow,
 } from './dirty';
+import { tombstoneDiveSamples } from './diveSamples';
 import { dives } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -595,6 +596,14 @@ export async function softDeleteDive(db: Db, id: string): Promise<void> {
     .where(and(eq(dives.id, id), liveDives))
     .returning({ id: dives.id });
   if (result.length === 0) throw new Error(`softDeleteDive: dive not found: ${id}`);
+
+  // **A dive's profile goes with the dive** (import spec §3.5). Tombstoned rather than
+  // deleted, for the same reason the dive itself is: §7 carries a deletion by writing
+  // `deleted_at`, and a row removed outright would simply reappear on the next pull.
+  //
+  // After the dive's own update and only on success: a delete that did not find a live dive
+  // has not deleted anything, and must not orphan-tombstone a profile.
+  await tombstoneDiveSamples(db, id);
 }
 
 /**

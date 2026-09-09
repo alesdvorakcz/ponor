@@ -15,6 +15,7 @@ import {
   toDives,
   updateDive,
 } from './dives';
+import { getDiveSamples, putDiveSamples } from './diveSamples';
 import { dives } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
@@ -1000,6 +1001,17 @@ describe('softDeleteDive', () => {
     expect(after.get(first.id)).toBe(1);
     expect(after.get(last.id)).toBe(2);
     expect(after.has(middle.id)).toBe(false);
+  });
+
+  it("takes a dive's depth profile with it when the dive is deleted", async () => {
+    const dive = await createDive(db, { date: '2026-02-19' });
+    await putDiveSamples(db, dive.id, [[0, 1.27, 27.7, 188.9]]);
+
+    await softDeleteDive(db, dive.id);
+
+    // Not merely hidden: the series is tombstoned, so §7 carries the deletion to every other
+    // device rather than leaving a profile behind for a dive that no longer exists.
+    expect(await getDiveSamples(db, dive.id)).toBeNull();
   });
 });
 
