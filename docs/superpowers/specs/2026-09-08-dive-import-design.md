@@ -209,7 +209,7 @@ uniform** (verified 2026-09-09 against a second real export, same device, no pod
 
 So the mapping must treat a missing key and a null value as the same answer, in two different
 places. **And `TransmitterID` is not the signal**: it is still present on the pod-less dive
-(`"000000000000"`), so a check keyed on it would conclude the dive has pressures and read
+(`"0000000000"`), so a check keyed on it would conclude the dive has pressures and read
 `undefined` as a number. The test is `StartPressure`/`EndPressure` themselves.
 
 The consequence is correct and worth stating: a pod-less dive imports with `startBar` and

@@ -83,7 +83,7 @@
             "State": "Primary",
             "TankFillPressure": 20000000,
             "TankSize": 0.012,
-            "TransmitterID": "000000000000"
+            "TransmitterID": "0000000000"
           }
         ],
         "LastDecoStopDepth": 6,
