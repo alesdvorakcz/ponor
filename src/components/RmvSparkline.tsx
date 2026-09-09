@@ -94,14 +94,20 @@ export interface RmvSparklineProps {
  * **§3's RMV, drawn** — one bar per dive in the window the figure beside it is averaged over,
  * oldest at the leading edge.
  *
- * §3 says *"charts later, counters first"* and the deeper reason is that this app has no
- * drawing primitive: `react-native-svg` is deliberately absent (`EmptyState`'s mark records
- * the same absence, and §10 has shaped the icon work around it twice). So this is `View`s,
- * exactly as the first-run depth legend's six bars and §0.6's rating dots already are, and it
- * adds no dependency. What it does need that those do not is a height that depends on data,
- * and that lives in the sheet as a **count of cells** rather than as a computed inline style —
- * see `RMV_SPARK_STEPS` (theme/styles.ts) for why that is §4.1 and the graphics guard rather
- * than a stylistic preference.
+ * §3 says *"charts later, counters first"* and the deeper reason was that this app had no
+ * drawing primitive at all: `react-native-svg` was deliberately absent (§10, which shaped the
+ * icon work around it twice). So this is `View`s, exactly as the first-run depth legend's six
+ * bars and §0.6's rating dots already are. What it does need that those do not is a height
+ * that depends on data, and that lives in the sheet as a **count of cells** rather than as a
+ * computed inline style — see `RMV_SPARK_STEPS` (theme/styles.ts) for why that is §4.1 and the
+ * graphics guard rather than a stylistic preference.
+ *
+ * **The dependency has since arrived, and this row is deliberately not converted with it.**
+ * The profile spec's §2 amendment reopened §10 with new information — a depth profile is ~420
+ * rotated `View`s where it is a handful of `Path`s, and the Dives list would carry forty views
+ * per row for its sparkline — and it names this component as the one that stays: *"`RmvSparkline`
+ * is not converted. It genuinely is a bar row, so §10's original reasoning still holds for it
+ * exactly as written. Converting it would be change for symmetry's sake."*
  *
  * ── Which dives, and the ones that are not here ───────────────────────────────────────────
  *

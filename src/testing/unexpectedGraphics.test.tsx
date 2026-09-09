@@ -68,10 +68,12 @@ it('does not let a geometry key smuggle a colour in beside it', async () => {
 });
 
 it('catches an element that names what it draws, whatever it is styled with', async () => {
-  // The guard's other half: react-native-svg is not a dependency, so nothing under `src/`
-  // can render one today — which is exactly why this arm needs a test that does not depend
-  // on the app happening to contain one. A component simply named for the thing it draws is
-  // the realistic case (Chart, Sparkline, Profile).
+  // The guard's other half. It was written when react-native-svg was not a dependency and
+  // nothing under `src/` could render one at all — which is exactly why this arm needs a test
+  // that does not depend on the app happening to contain one, and why the stand-in below is a
+  // component simply named for the thing it draws (Chart, Sparkline, Profile) rather than a
+  // real SVG element. That is still the right test now that `DepthProfile` renders real
+  // `RNSVG*` nodes: this asserts the arm's rule, not one library's node names.
   const Sparkline = 'Sparkline' as unknown as typeof View;
   const t = await render(<Sparkline />);
   expect(unexpectedGraphics(t, 'light')).toHaveLength(1);

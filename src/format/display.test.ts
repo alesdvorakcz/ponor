@@ -34,6 +34,8 @@ import {
   formatMapSummary,
   formatSiteMarkLabel,
   formatPendingChanges,
+  formatSampleCount,
+  formatSampleInterval,
   formatSiteCount,
   formatSiteFacts,
   formatSiteRow,
@@ -234,6 +236,36 @@ describe('formatDuration', () => {
   });
   it('returns null for no duration', () => {
     expect(formatDuration(null)).toBeNull();
+  });
+});
+
+/**
+ * The profile card's caption (profile spec §3), in two pieces the card joins with the app's
+ * middot. Both are what keep §0.4's curve honest about its own resolution: a diver reading a
+ * line drawn from five points should be told there were five.
+ */
+describe('formatSampleInterval', () => {
+  it('states the cadence the device recorded at', () => {
+    expect(formatSampleInterval(10)).toBe('10 s');
+  });
+  // `medianIntervalS` already rounds to the whole second, so this must not pad the way a
+  // depth does — "10.0 s" would claim a resolution a median of integer deltas cannot have.
+  it('does not pad a whole number of seconds', () => {
+    expect(formatSampleInterval(120)).toBe('120 s');
+  });
+  // What `medianIntervalS` returns when a series has no deltas to take a median of. A caption
+  // reading "0 s" would state a cadence no device has, so the caller drops the half it cannot
+  // state instead.
+  it('returns null rather than claim a cadence of nothing', () => {
+    expect(formatSampleInterval(0)).toBeNull();
+    expect(formatSampleInterval(null)).toBeNull();
+  });
+});
+
+describe('formatSampleCount', () => {
+  it('pluralises the readings the curve was drawn from', () => {
+    expect(formatSampleCount(1)).toBe('1 sample');
+    expect(formatSampleCount(222)).toBe('222 samples');
   });
 });
 

@@ -186,13 +186,17 @@ export function liftedBottomInset(safeAreaBottom: number, gap: number, keyboardS
  * **How many units tall the tallest bar of the RMV sparkline is** (M3d — `RmvSparkline`,
  * components/RmvSparkline.tsx), and the reason a bar is drawn in units at all.
  *
- * This app has no drawing primitive: `react-native-svg` is deliberately absent (§10, and
- * `EmptyState`'s mark records the same absence), so a sparkline is `View`s — which is how the
- * depth legend's six bars and §0.6's rating dots are already drawn. What those two do not
- * have is a **height that depends on data**, and this sheet is §4.1's owner of every place a
- * token meets a style property: a `{ height: value / max * 18 }` composed in a component
- * would put the app's drawing outside its one styling owner, and `unexpectedGraphics` — the
- * guard that keeps §0.1 and §0.4 honest — reports exactly that shape and should keep doing so.
+ * When this was written the app had no drawing primitive at all: `react-native-svg` was
+ * deliberately absent (§10), so a sparkline was `View`s — which is how the depth legend's six
+ * bars and §0.6's rating dots are already drawn. **The dependency has since arrived** for the
+ * dive profile's dense curve (the profile spec's §2 amendment, and `PROFILE_PLOT_HEIGHT`
+ * below), and this row is deliberately not converted with it: a bar row is a bar row, so §10's
+ * original reasoning still holds here exactly as written and converting it would be change for
+ * symmetry's sake. What a bar row does not have is a **height that depends on data**, and this
+ * sheet is §4.1's owner of every place a token meets a style property: a `{ height: value /
+ * max * 18 }` composed in a component would put the app's drawing outside its one styling
+ * owner, and `unexpectedGraphics` — the guard that keeps §0.1 and §0.4 honest — reports
+ * exactly that shape and should keep doing so.
  *
  * So a bar's height is its **count** of one sheet-defined cell (`rmvSparkCell` below), and
  * this is how many cells the tallest can be. The quantisation is not a workaround being
@@ -202,6 +206,31 @@ export function liftedBottomInset(safeAreaBottom: number, gap: number, keyboardS
  * sheet sizes the track they stack in (`rmvSparkBar`), and those two are one fact.
  */
 export const RMV_SPARK_STEPS = 6;
+
+/**
+ * **How tall the dive profile's plot is, in points** (`DepthProfile`,
+ * components/DepthProfile.tsx) — the one number the sheet and the drawing both have to agree
+ * on, and `RMV_SPARK_STEPS` above is exported for exactly the same reason.
+ *
+ * The `<Svg>` is this many points high and every depth is scaled into that range; the depth
+ * axis's own column is sized against it (`profileDepthAxis` below) so that each label lands on
+ * the gridline it names. Written twice, the labels would drift off the lines the moment either
+ * copy changed — one fact, two readers, one constant.
+ *
+ * The plot's **width** is deliberately not here: it is whatever the content column gives it,
+ * and the drawing stretches to fill (see `PLOT_WIDTH` in the component, which is the viewBox's
+ * nominal x-extent rather than a size anything is laid out at).
+ */
+export const PROFILE_PLOT_HEIGHT = 140;
+
+/**
+ * The exact line box of a profile axis label, which is what makes `profileDepthAxis`'s
+ * alignment arithmetic work rather than approximately work: the column is one line taller than
+ * the plot and pulled up by half a line, so `space-between` puts each label's CENTRE on its
+ * gridline instead of its top edge. Both halves of that read this number, so it is a constant
+ * rather than a `lineHeight` and two hand-matched literals.
+ */
+const PROFILE_AXIS_LINE_HEIGHT = 13;
 
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
@@ -2378,6 +2407,98 @@ function build(scheme: ColorScheme) {
     detailClusterTitle: {
       ...clusterLabel,
       marginBottom: 8,
+    },
+    // ------------------------------------------------------------------------------------
+    // §0.4's depth profile (`DepthProfile`, components/DepthProfile.tsx)
+    // ------------------------------------------------------------------------------------
+    // The card is a cluster of the same family as the seven above — a label, then content —
+    // but its content is a drawing rather than rows, so it carries the gap and none of
+    // `detailCluster`'s rule: the spec puts it directly under the hero, which draws its own
+    // bottom border, and a second hairline there would land as a double line exactly as
+    // `detailClusterFirst` exists to prevent.
+    profileCard: {
+      gap: 10,
+    },
+    // The label with the sample count and interval trailing it (spec §3). `baseline`, not
+    // `center`: two different type sizes reading as one line only line up on the type's own
+    // baseline, and the count is the smaller of the two.
+    profileHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+    },
+    // `clusterLabel` itself, carrying no margin of its own — this header is a flex row and
+    // `profileCard`'s gap is what separates it from the plot, which is the same reason
+    // `clusterLabel` above deliberately carries none and `detailClusterTitle` adds one.
+    profileTitle: clusterLabel,
+    // "222 samples · 10 s" — mono, muted and a shade smaller than the label it trails, so it
+    // reads as the label's footnote rather than as a second heading. `flexShrink` because
+    // Czech's own words for these are longer (§0.5) and the count must give way before the
+    // name of the thing does.
+    profileMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
+      color: theme.fgMuted,
+      flexShrink: 1,
+    },
+    // The axis column, the plot and the gas axis, side by side. `flex-start` so the two axis
+    // columns hang from the plot's top edge rather than stretching to the taller child (the
+    // plot column, which also carries the time axis under it).
+    profilePlotRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 6,
+    },
+    // The plot takes whatever the content column has left — the drawing stretches to fill it
+    // (see `PLOT_WIDTH` in the component), so this is the only place the chart's real width
+    // is decided and it is decided by the layout rather than by a number.
+    profilePlot: {
+      flex: 1,
+    },
+    /**
+     * The depth axis's labels, spread over the plot's own height so each sits on its gridline.
+     *
+     * **One line taller than the plot, pulled up by half a line**, which is what turns
+     * `space-between` from approximately right into exactly right: with N labels of height
+     * `lh` in a container of `H + lh`, the gaps come to `(H − (N−1)·lh) / (N−1)`, so label i's
+     * centre lands at `i · H / (N−1)` once the half-line offset is applied — precisely where
+     * `depthAxis`'s i-th tick is drawn. Without it every label sits half a line below its own
+     * line, which at this type size is a third of the gap between two of them.
+     *
+     * `flex-end` so the figures align on their right edge against the plot, the way a chart's
+     * axis reads; `marginTop` is one of the keys `unexpectedGraphics` permits, but this one is
+     * in the sheet regardless, because it is composition rather than device geometry.
+     */
+    profileDepthAxis: {
+      height: PROFILE_PLOT_HEIGHT + PROFILE_AXIS_LINE_HEIGHT,
+      marginTop: -PROFILE_AXIS_LINE_HEIGHT / 2,
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+    },
+    profileAxisLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
+      color: theme.fgMuted,
+    },
+    // The consumption axis: one label, at the top, carrying the maximum and the unit (spec
+    // §4.5). The same half-line pull as the depth column, so the two sides of the plot state
+    // their top values on one line rather than 6 pt apart.
+    profileGasAxisLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
+      marginTop: -PROFILE_AXIS_LINE_HEIGHT / 2,
+      color: theme.fgMuted,
+    },
+    // Start, midpoint and end (spec §3). The two ends align to the plot's own edges rather
+    // than centring on them — a centred "0 min" would hang off the left of the chart — and the
+    // midpoint centres, which is what `space-between` gives for exactly three children.
+    profileTimeAxis: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: 4,
     },
     detailRow: {
       flexDirection: 'row',

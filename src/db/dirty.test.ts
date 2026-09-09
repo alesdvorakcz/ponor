@@ -571,6 +571,11 @@ const DIVE_SAMPLES: Record<keyof typeof diveSamplesModule, WritePath> = {
     seed: aSeries,
     erase: (database) => wipeDiveSamples(database),
   },
+  diveSampleRowsQuery: { reads: 'A query builder for useLiveQuery.' },
+  toDiveSamples: {
+    reads: 'Rows to a drawable series \u2014 no database at all, and the rule that an absent row '
+      + 'and an empty series are one answer.',
+  },
   getDiveSamples: { reads: 'A read.' },
   listDiveSamples: { reads: 'A read \u2014 every live series at once, for \u00a78\u2019s JSON export.' },
   pendingDiveSamples: { reads: 'The push set \u2014 reads the flag, never moves it.' },

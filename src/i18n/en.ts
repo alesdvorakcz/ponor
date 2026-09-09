@@ -123,6 +123,10 @@ export const en = {
       sites_other: '{{count, figure}} sites',
       centres_one: '{{count, figure}} centre',
       centres_other: '{{count, figure}} centres',
+      /** How many readings the depth profile was drawn from (`formatSampleCount`) — the
+       * caption under §0.4's chart, beside the interval the device actually used. */
+      samples_one: '{{count, figure}} sample',
+      samples_other: '{{count, figure}} samples',
       changesWaiting_one: '{{count, figure}} change waiting to sync',
       changesWaiting_other: '{{count, figure}} changes waiting to sync',
     },
@@ -641,6 +645,11 @@ export const en = {
       people: 'People',
       notes: 'Notes',
       notesRating: 'Notes & rating',
+      /** §0.4's chart on the dive detail (`DepthProfile`). A cluster label like the rest of
+       * this namespace, even though nothing on the form types it in: it names a block on the
+       * detail exactly as *Conditions* does, and a second namespace for the one cluster the
+       * diver reads but cannot enter would be a distinction without a difference. */
+      profile: 'Depth profile',
     },
 
     /** §2.2's dive form — its own chrome, its refusals, and §2.3's catalogue offers. Every field

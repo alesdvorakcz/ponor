@@ -19,16 +19,38 @@ export type ProfilePoint = { t: number; v: number };
  */
 export type ColourRun = { colour: string; points: ProfilePoint[] };
 
-const AXIS_STEP_M = 10;
+const AXIS_STEP = 10;
+
+/**
+ * **How far an axis runs: up to the next multiple of ten, and never less than one step.**
+ *
+ * One function because the chart has two axes and the profile spec asks for exactly one
+ * convention: §3 gives the depth axis `ceil(maxDepthM / 10) * 10`, and §4.5 gives the
+ * consumption axis `ceil(max / 10) * 10` explicitly so that "the two sides of the plot are
+ * scaled by one convention rather than two". Written twice, they would be one rule in two
+ * places — §4.1's defining defect — and the first tuning of either would silently leave the
+ * plot's two edges rounding differently.
+ *
+ * The floor of one step is what keeps a degenerate axis drawable: a dive that never left the
+ * surface, or a gas trace whose every window reads near zero, would otherwise scale against a
+ * maximum of 0 and divide every point by nothing.
+ *
+ * Deliberately unitless. It is handed metres by `depthAxis` below and litres per minute by
+ * the chart, and it must not learn the difference — the moment it does, the two axes stop
+ * being one rule.
+ */
+export function axisMax(value: number): number {
+  return Math.max(AXIS_STEP, Math.ceil(value / AXIS_STEP) * AXIS_STEP);
+}
 
 /** The vertical scale, rounded up to the next 10 m so the gridlines are round numbers a
  * diver reads without arithmetic. Driven by the dive's stored `maxDepthM` rather than the
  * deepest sample: the import spec (§4.2) records that the device's own maximum is finer
  * than the series and the samples can be shallower. */
 export function depthAxis(maxDepthM: number): { max: number; ticks: number[] } {
-  const max = Math.max(AXIS_STEP_M, Math.ceil(maxDepthM / AXIS_STEP_M) * AXIS_STEP_M);
+  const max = axisMax(maxDepthM);
   const ticks: number[] = [];
-  for (let m = 0; m <= max; m += AXIS_STEP_M) ticks.push(m);
+  for (let m = 0; m <= max; m += AXIS_STEP) ticks.push(m);
   return { max, ticks };
 }
 

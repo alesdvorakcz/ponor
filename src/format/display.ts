@@ -239,6 +239,29 @@ export function formatDuration(minutes: number | null): string | null {
   return `${Math.round(minutes)} min`;
 }
 
+/**
+ * **How often the dive computer took a reading, e.g. "10 s"** — the second half of the profile
+ * card's caption (profile spec §3), beside `formatSampleCount` below.
+ *
+ * `formatDuration`'s sibling in every sense: seconds are seconds in both systems, so it takes
+ * no `system` and the symbol is written here rather than in `format/units.ts`, which owns the
+ * four *converted* pairs alone (§3's depth, temperature, pressure and weight).
+ *
+ * **The number is the one `medianIntervalS` produced, and it is already whole** (domain/
+ * profile.ts rounds the median before returning it), so this neither rounds again nor pads —
+ * an interval of "10.0 s" would claim a resolution a median of integer-second deltas does not
+ * have, which is `formatDepthBoundary`'s own argument one figure over.
+ *
+ * `null` for an interval that is not a positive number, which is what `medianIntervalS`
+ * returns when there are no deltas to take a median of: a caption reading "0 s" would state a
+ * cadence no device has, and the caller drops the half it cannot state rather than printing
+ * one.
+ */
+export function formatSampleInterval(seconds: number | null): string | null {
+  if (!isFiniteNumber(seconds) || seconds <= 0) return null;
+  return `${figureText(seconds)} s`;
+}
+
 /** Water or air temperature, e.g. "-1 °C" or "30 °F" — whole degrees in both systems, sign
  * kept for sub-zero water. */
 export function formatTemperature(celsius: number | null, system: UnitSystem): string | null {
@@ -1192,6 +1215,23 @@ export function formatDiveCount(count: number): string {
  */
 export function formatSiteCount(count: number): string {
   return t('count.sites', { count });
+}
+
+/**
+ * **How many readings the profile was drawn from**, as a phrase: "1 sample", "222 samples" —
+ * `formatDiveCount`'s and `formatSiteCount`'s sibling above, and the first half of the profile
+ * card's caption (profile spec §3), joined to `formatSampleInterval` by the caller.
+ *
+ * It is a caption on a chart rather than a decoration: §0.4 lets the app draw a curve only
+ * from real recorded samples, and how many there were is what tells a diver whether the line
+ * they are reading is a dense minute-by-minute record or five points joined up. Stating it is
+ * what keeps the drawing honest about its own resolution.
+ *
+ * Non-null in and out, like the two counts above: this is the length of an array the app is
+ * already holding, never a nullable field read back out of the database.
+ */
+export function formatSampleCount(count: number): string {
+  return t('count.samples', { count });
 }
 
 /**

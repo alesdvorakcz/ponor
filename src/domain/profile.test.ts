@@ -1,7 +1,27 @@
 import type { DiveSample } from '../db/schema';
-import { colourRuns, depthAxis, medianIntervalS, sparklinePoints } from './profile';
+import { axisMax, colourRuns, depthAxis, medianIntervalS, sparklinePoints } from './profile';
 
 const s = (t: number, d: number): DiveSample => [t, d, null, null];
+
+describe('axisMax', () => {
+  // The chart has two axes and the spec gives them one rounding rule on purpose (§3 for
+  // depth, §4.5 for consumption: "matching the depth axis's own rounding rule so the two
+  // sides of the plot are scaled by one convention rather than two"). Asserted directly and
+  // not only through `depthAxis`, because the consumption axis is this function's other
+  // caller and takes litres per minute — the number that would drift if the rule were copied.
+  it('runs to the next multiple of ten, whatever it is measuring', () => {
+    expect(axisMax(24.33)).toBe(30);
+    expect(axisMax(30)).toBe(30);
+    expect(axisMax(36.93)).toBe(40);
+  });
+
+  // A dive that never left the surface, or a gas trace whose every window reads near zero,
+  // would otherwise scale against a maximum of nothing and divide every point by it.
+  it('never collapses to a zero-height axis', () => {
+    expect(axisMax(0)).toBe(10);
+    expect(axisMax(4.2)).toBe(10);
+  });
+});
 
 describe('depthAxis', () => {
   it('rounds the depth axis up to the next ten metres, so the scale is readable', () => {

@@ -13,10 +13,14 @@ import { DepthLegend } from './DepthLegend';
  * The mark, monochrome and on a transparent ground — `scripts/build-icons.mjs` builds it from
  * the same `assets/mark.svg` the app icons come from, so the shape cannot drift from the icon.
  *
- * **A bitmap, and deliberately not a rendered SVG.** `react-native-svg` is not a dependency of
- * this project and adding one for a single drawing would buy a native rebuild and a permanent
- * runtime renderer to draw seven line segments that never change. `src/testing/
- * unexpectedGraphics.ts` guards the absence.
+ * **A bitmap, and deliberately still not a rendered SVG.** When this was written
+ * `react-native-svg` was not a dependency at all, and adding one for a single drawing would
+ * have bought a native rebuild and a permanent runtime renderer to draw seven line segments
+ * that never change. The dive profile has since brought the dependency in (the profile spec's
+ * §2 amendment to §10), which removes the cost half of that argument and none of the rest: the
+ * mark is a fixed shape built from the same `assets/mark.svg` the app icons come from, so
+ * rendering it at runtime would buy nothing and would let the mark on screen drift from the
+ * mark on the home screen. `src/testing/unexpectedGraphics.ts` still counts the images.
  *
  * Required at module scope, not inside the component: Metro resolves the asset at bundle time
  * either way, and a `require` in a render body reads as if it might not be. Annotated rather

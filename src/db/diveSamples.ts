@@ -53,15 +53,54 @@ export async function listDiveSamples(db: Db): Promise<DiveSampleRow[]> {
   return db.select().from(diveSamples).where(liveSeries);
 }
 
-/** A dive's profile, or `null` where there is none — which is most dives, and is not an error
- * (§0.4: no curve is drawn for a dive without a real sample series). */
-export async function getDiveSamples(db: Db, diveId: string): Promise<DiveSample[] | null> {
-  const [row] = await db
-    .select()
-    .from(diveSamples)
-    .where(and(eq(diveSamples.id, diveId), liveSeries));
-  if (!row) return null;
+/**
+ * One dive's series, tombstone-filtered — `gearPresetRowsQuery`'s shape (db/gearPresets.ts),
+ * and the same split for the same reason: `getDiveSamples` below awaits it, and
+ * `useDiveSamples` hands it to drizzle's `useLiveQuery`, which needs a synchronous query it
+ * can re-run on every database change.
+ *
+ * It lives **here**, beside the table's other reads, rather than inside that hook: §4.1 gives
+ * one owner to one rule, and "which rows of `dive_samples` may be read" is this file's rule —
+ * the `liveSeries` filter above is part of it, and a second `isNull` written in a hook is
+ * exactly the drift `liveRows` (db/tombstone.ts) exists to prevent.
+ *
+ * Unlike its sibling this one is parameterised, because a profile is only ever read one dive
+ * at a time: `listDiveSamples` above is the whole-table read and it belongs to §8's export.
+ */
+export function diveSampleRowsQuery(db: Db, diveId: string) {
+  return db.select().from(diveSamples).where(and(eq(diveSamples.id, diveId), liveSeries));
+}
+
+/**
+ * Raw rows to a drawable series — `toGearPresets`' counterpart, and the half of the pipeline
+ * that carries the rule.
+ *
+ * **A missing row and a stored-but-empty series are the same answer, `null`.** `[]` would
+ * reach a chart as "draw nothing here", which is a different instruction from "there is
+ * nothing to draw" — §0.4 forbids the second being rendered as the first, and
+ * `diveSamples.test.ts` pins the equivalence at the repository.
+ *
+ * Takes `unknown[]` rather than the row type for the reason `toGearPresets` records:
+ * `useLiveQuery`'s `.data` is typed that loosely, and this function existing is what stops
+ * every caller writing its own `.at(0)`. The cast is sound because both callers only ever
+ * hand it rows `diveSampleRowsQuery` itself produced — which is also why the id filter is not
+ * restated here.
+ */
+export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
+  // `.at(0)` plus an explicit undefined check rather than a destructure: `getGearPreset`
+  // (db/gearPresets.ts) records why — TypeScript cannot narrow an element type from a length
+  // check, and provable is what `noUncheckedIndexedAccess` is on for.
+  const row = (rows as DiveSampleRow[]).at(0);
+  if (row === undefined) return null;
   return row.series.length > 0 ? row.series : null;
+}
+
+/** A dive's profile, or `null` where there is none — which is most dives, and is not an error
+ * (§0.4: no curve is drawn for a dive without a real sample series). A thin wrapper over the
+ * two parts above, so that this async read and `useDiveSamples`' reactive one are built from
+ * the same query and the same rule and cannot diverge. */
+export async function getDiveSamples(db: Db, diveId: string): Promise<DiveSample[] | null> {
+  return toDiveSamples(await diveSampleRowsQuery(db, diveId));
 }
 
 /**

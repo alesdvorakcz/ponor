@@ -118,6 +118,14 @@ export const cs = {
       centres_few: '{{count, figure}} centra',
       centres_many: '{{count, figure}} centra',
       centres_other: '{{count, figure}} center',
+      /** *Vzorek* is the reading a dive computer takes, the word Czech diving software uses
+       * for it. Four forms like every count here; the `many` (fractional) one is unreachable
+       * from the app, since this counts an array's length, and is written because the rule
+       * has four branches. */
+      samples_one: '{{count, figure}} vzorek',
+      samples_few: '{{count, figure}} vzorky',
+      samples_many: '{{count, figure}} vzorku',
+      samples_other: '{{count, figure}} vzorků',
       changesWaiting_one: '{{count, figure}} změna čeká na synchronizaci',
       changesWaiting_few: '{{count, figure}} změny čekají na synchronizaci',
       changesWaiting_many: '{{count, figure}} změny čeká na synchronizaci',
@@ -525,6 +533,12 @@ export const cs = {
       people: 'Lidé',
       notes: 'Poznámky',
       notesRating: 'Poznámky a hodnocení',
+      /** *Hloubkový profil* is what Czech dive computers and their software call this curve,
+       * so it is the term a diver already reads it under. Deliberately not *Průběh ponoru*,
+       * the natural prose phrase: it is a description rather than a name, and it would put
+       * *ponor* — which is also the app's own name — into a label about a dive, the collision
+       * M3n went through this file removing. */
+      profile: 'Hloubkový profil',
     },
 
     form: {

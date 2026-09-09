@@ -174,9 +174,19 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
       const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
       return style.length === 0 || !style.every((entry) => entry === mark);
     }
-    // An element whose own type NAME says what it draws: an SVG primitive if
-    // react-native-svg is ever added, an `Image` used as a rendered sprite, or a component
+    // An element whose own type NAME says what it draws: an SVG primitive (react-native-svg
+    // arrived with the dive profile — `RNSVGPath`, `RNSVGCircle`, `RNSVGLine`, all of which
+    // this pattern already matches), an `Image` used as a rendered sprite, or a component
     // simply named for the thing it draws (Chart, Sparkline, Profile).
+    //
+    // **`DepthProfile` is the first thing in the app this arm will genuinely fire on, and it
+    // is not exempted here.** The screen that puts the card on the dive detail is what has to
+    // decide what a legitimate SVG node looks like — §0.1's rule for one is that its `stroke`
+    // is a depth colour or a theme token, which is a different question from the one the
+    // `View` arm below answers about styles, and this guard cannot answer it until there is a
+    // component whose answer it can be written against. Until then the arm stands as written:
+    // any SVG on a screen reports, which is the right default for a rule that exists to make
+    // a new graphic cost a deliberate edit here.
     if (typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type)) return true;
     if (n.type !== 'View') return false;
     const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
