@@ -199,10 +199,27 @@ Two deliberate departures from the owner's mock, both from rules already in the 
 
 - **No chevron.** §0.6: the chevron marks in-place disclosure and *"is never spent on
   navigation"* — and there is nowhere to navigate to. It is a plain value row.
-- **It reads `Suunto`, not `Suunto D5`.** The device name is in the export but Spec A never
-  stored it; `import_source` is what the dive carries, and the registry's `label()` already turns
-  that into a display name. Showing the device model would need a new column. **Open decision,
-  deliberately not taken here** — it is a schema change and belongs with whoever wants that line.
+- **It names the device where the dive carries one** (owner's call, 2026-09-09). Spec A stored
+  `import_source` but not the device model, so this spec adds a sibling column, `import_device`,
+  populated by the importer from the export's own `DeviceLog.Device.Name` — `Suunto D5`.
+
+  **It falls back to the importer's label when that column is null**, so the row reads
+  `Imported from · Suunto` rather than going blank. The fallback is not defensive tidiness; it is
+  the state every dive imported before this change is permanently in — see below.
+
+**The two dives already imported cannot be backfilled, and that is a consequence of a rule we
+chose deliberately.** Dedupe skips a dive it already has, so re-running the same files writes
+nothing; and a dive the diver deletes *stays* deleted on re-import (Spec A §6), so deleting them
+first does not help either — the tombstoned rows still match. Short of *Start over*, those dives
+keep `import_device = null` for ever and display the fallback. That is the correct outcome for a
+rule that exists to protect a diver's edits from a re-import, and it is named here so nobody
+reads the fallback as dead code.
+
+**What the column costs.** `push_changes` enumerates the `dives` columns explicitly in three
+places — the insert list, the values list, and the `on conflict do update set` — so the column
+lands in `src/db/schema.ts`, a client migration, `supabase/migrations/`'s table, and those three
+RPC sites. `schemaParity` and `syncRpcParity` fail loudly if any is missed, which is what makes
+the change mechanical rather than risky.
 
 ## 8. Modules
 
@@ -214,6 +231,9 @@ src/components/DepthProfile.tsx     the detail card, its axes, scrub gesture and
 src/components/ProfileSparkline.tsx the row sparkline
 src/db/useDiveSamples.ts     the read
 ```
+
+Plus, for §7's column: `src/db/schema.ts`, a client migration, `supabase/migrations/`'s `dives`
+table and the three `push_changes` sites, and `src/domain/import/suunto.ts` to populate it.
 
 Touched: `DiveDetailScreen` (insert the card; its docblock currently asserts *"No profile chart,
 sparkline, or other graphic is drawn"*, which becomes false), `DiveRow` (sparkline slot),
@@ -231,6 +251,8 @@ the committed fixture from Spec A:
 - no point is emitted from an incomplete window — the specific regression that produced the 36 l/min spike
 - no point is emitted above 1.5 m, and a gap wider than two windows is not bridged
 - a dive with samples but no pressure yields a depth curve and no consumption series at all
+- the `Imported from` row names the device when `import_device` is set, and falls back to the
+  importer's label when it is null — the state every previously-imported dive is in
 - scrubbing to a position inside a gap yields no gas value
 
 Rendering tests assert what is drawn rather than how it looks: a samples-free dive renders no
