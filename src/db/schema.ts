@@ -69,6 +69,18 @@ const tanksJson = jsonArray<Tank>();
 const equipmentJson = jsonArray<Equipment>();
 
 /**
+ * One sample: `[seconds from dive start, depth m, °C or null, bar or null]`.
+ *
+ * A tuple rather than an object, and that is the encoding decision: ~12 bytes a point against
+ * ~45 for `{t, d, temp, p}`, which is the difference between 2.7 KB and 10 KB for a 222-point
+ * dive, on a row that syncs. Temperature and pressure are nullable because a dive logged
+ * without a tank transmitter has no pressure at all (import spec §4.2).
+ */
+export type DiveSample = readonly [number, number, number | null, number | null];
+
+const seriesJson = jsonArray<DiveSample>();
+
+/**
  * The name of the flag below, for the checks that have to say "this column never leaves the
  * device" without spelling it a second time.
  */
@@ -279,6 +291,30 @@ export const certifications = sqliteTable('certifications', {
   cardNumber: text('card_number'),
   issuedOn: text('issued_on'),
   expiresOn: text('expires_on'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+  dirty: dirtyFlag(),
+});
+
+/**
+ * A dive's depth profile — **one row per dive, not one per sample** (§6, and the import spec).
+ *
+ * §10 settled this shape once already, for `tanks`: "a JSON array on the dive row, not a child
+ * table: never queried independently; keeps sync whole-row." A profile is never queried
+ * independently either — one dive's series is read to draw one dive's chart.
+ *
+ * **`id` IS the dive's id.** There is exactly one series per dive, so this is a 1:1 extension
+ * rather than a child collection: sharing the id makes "does this dive have a profile" a
+ * primary-key lookup and makes re-import a plain upsert, with no join key and no unique index.
+ *
+ * Not a column on `dives`, deliberately: every screen reads dives and almost none reads
+ * profiles, so a `series` column would make the app's most-travelled query carry ~3 KB of
+ * profile per row for a chart that is not on screen.
+ */
+export const diveSamples = sqliteTable('dive_samples', {
+  id: text('id').primaryKey(),
+  series: seriesJson('series').notNull().default(sql`'[]'`),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
