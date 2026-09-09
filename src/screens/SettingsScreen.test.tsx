@@ -29,6 +29,7 @@ import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
+import { importFiles, type ImportOutcome } from '../db/importDives';
 import { setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
@@ -38,6 +39,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { type ExportSource } from '../domain/dataExport';
 import { todayCalendarDate } from '../domain/datetime';
 import { dive } from '../domain/diveFixture';
+import { importerLabels } from '../domain/import/registry';
 import { type Certification, type GearPreset, type Tank } from '../domain/types';
 import { formatCylinders } from '../format/display';
 import { UNIT_SYSTEMS } from '../format/units';
@@ -48,6 +50,7 @@ import {
   requestLocationPermission,
   type LocationPermissionState,
 } from '../platform/locationPermission';
+import { pickImportFiles } from '../platform/pickImportFiles';
 import { shareTextFile } from '../platform/shareFile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, screenBottomInset } from '../theme/styles';
@@ -134,6 +137,15 @@ jest.mock('../db/exportSource', () => ({ readExportSource: jest.fn() }));
 jest.mock('../cloud/currentUser', () => ({ currentUserId: jest.fn() }));
 jest.mock('../platform/shareFile', () => ({ shareTextFile: jest.fn() }));
 /**
+ * §9's import (M3o — Task 7). Two seams faked for `shareTextFile`'s own reason above: the
+ * native picker cannot run under Jest, and the write is a database call this screen hands off
+ * rather than performs. `domain/import/registry.ts` is left REAL and unmocked on purpose — the
+ * "names every format it can read" test below asserts the caption against the actual registry,
+ * which is the whole point of generating it rather than typing a list.
+ */
+jest.mock('../platform/pickImportFiles', () => ({ pickImportFiles: jest.fn() }));
+jest.mock('../db/importDives', () => ({ importFiles: jest.fn() }));
+/**
  * §7.4's other two destructive acts (M3j).
  *
  * **The two sequences are faked and every sentence is real** — `jest.requireActual` keeps the
@@ -168,6 +180,8 @@ const mockOpenSettings = Linking.openSettings as jest.Mock;
 const mockReadExportSource = readExportSource as jest.Mock;
 const mockCurrentUserId = currentUserId as jest.Mock;
 const mockShareTextFile = shareTextFile as jest.Mock;
+const mockPick = pickImportFiles as jest.Mock;
+const mockImportFiles = importFiles as jest.Mock;
 const mockStartOver = startOver as unknown as jest.Mock;
 const mockDeleteAccount = deleteAccount as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
@@ -356,6 +370,13 @@ beforeEach(() => {
   mockCurrentUserId.mockImplementation(() => Promise.resolve(null));
   mockReadExportSource.mockImplementation(() => Promise.resolve(exportSource()));
   mockShareTextFile.mockImplementation(() => Promise.resolve('shared'));
+  // Defaults to backing out of the picker and to an import that did nothing — the state most
+  // tests in this file are in, exactly as `mockShareTextFile`'s own default answers a question
+  // most of them never ask.
+  mockPick.mockImplementation(() => Promise.resolve('cancelled'));
+  mockImportFiles.mockImplementation(() =>
+    Promise.resolve({ imported: 0, alreadyThere: 0, failed: [] } satisfies ImportOutcome),
+  );
   alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   mockCloud = { configured: true, client: CLIENT };
   // Signed out by default, which is the state most of this file is about — the destructive
@@ -388,6 +409,8 @@ afterEach(() => {
   mockCurrentUserId.mockReset();
   mockReadExportSource.mockReset();
   mockShareTextFile.mockReset();
+  mockPick.mockReset();
+  mockImportFiles.mockReset();
   mockStartOver.mockReset();
   mockDeleteAccount.mockReset();
   mockUseAuthSession.mockReset();
@@ -818,7 +841,9 @@ it('opens the editor for the preset whose row was tapped', async () => {
 // **The list grows by §3's entries arriving and never by being loosened**, which is the same
 // discipline the labelled-settings assertion below keeps. M3b added two: a card's own row, and
 // the *Add a certification* row the preset list has no counterpart for (§10 puts preset
-// creation in the dive form; a card has nowhere else to come from).
+// creation in the dive form; a card has nowhere else to come from). Task 7 added the last one
+// below, *Import dives* — an action with nothing to delete, on the same reasoning as the export
+// rows beside it.
 it('carries no delete of its own, so the list stays a list', async () => {
   stubSettings({
     presets: [preset({ name: 'twin 12 steel' })],
@@ -842,6 +867,7 @@ it('carries no delete of its own, so the list stays a list', async () => {
       'Open account & sync',
       'Export as CSV',
       'Export as JSON',
+      'Import dives',
     ]);
   });
 });
@@ -1149,11 +1175,11 @@ it('carries §3’s four labelled settings and no more', async () => {
 // "The form is the dive detail you can type into", and Settings is that same grammar asking
 // about the app. Both rows must be the form's own `formField` row — a screen that drew its
 // own boxes would look right in a screenshot and be a third vocabulary in the code.
-// Ten rows with one preset and one card: Units, §3's language, Dives before Ponor, the
+// Eleven rows with one preset and one card: Units, §3's language, Dives before Ponor, the
 // preset's own, §3's location access, the card's own, *Add a certification*, §3's account &
-// sync and M3i's two export rows — every one of them the same `formField` row, so a preset, a
-// card, a report, an action and a destination are rows of this screen rather than new kinds of
-// object drawn beside them.
+// sync, M3i's two export rows and Task 7's *Import dives* — every one of them the same
+// `formField` row, so a preset, a card, a report, an action and a destination are rows of this
+// screen rather than new kinds of object drawn beside them.
 it('uses the form’s own row grammar rather than inventing a third one', async () => {
   stubSettings({
     presets: [preset({ name: 'twin 12 steel' })],
@@ -1161,7 +1187,7 @@ it('uses the form’s own row grammar rather than inventing a third one', async 
   });
   const t = await render(<SettingsScreen />);
   const rows = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(makeStyles('light').formField)) : [];
-  expect(rows).toHaveLength(10);
+  expect(rows).toHaveLength(11);
 });
 
 // §0.6: "Figures in mono, names in sans." A dive count is a figure, and the keypad it asks
@@ -2278,6 +2304,202 @@ describe('start over and delete account', () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------
+// Data import (DESIGN.md §9 — Task 7)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * **The mirror of `describe('data export', ...)` above**, and the same reason it lands before
+ * the two destructive acts in the source file: a diver takes a copy out before this app ever
+ * brings dives in.
+ *
+ * `domain/import/registry.ts` is real here (see this file's mock block), so the formats test
+ * below asserts the caption against the actual registry rather than against this file's own
+ * idea of what it contains — the whole point of `importerLabels()` existing.
+ *
+ * **Three failure reasons, asserted as three distinct sentences, is this suite's own reason
+ * for being** — `db/importDives.ts`'s `ImportOutcome` gives a failed file one of three, and a
+ * screen that collapsed them into one "failed" would turn a diver's own fixable mistake
+ * (`unrecognised`) into something as final-looking as a damaged file (`unreadable`) or a save
+ * this device failed to make (`unwritable`). `runImport`'s own docblock (`SettingsScreen.tsx`)
+ * is the implementation this holds to that.
+ */
+describe('data import', () => {
+  it('names every format it can read, from the registry rather than a typed list', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const said = textIn(t).join(' ');
+    for (const label of importerLabels()) {
+      expect(said).toContain(label);
+    }
+  });
+
+  it('says nothing at all when the diver backs out of the picker', async () => {
+    stubSettings();
+    mockPick.mockResolvedValue('cancelled');
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    expect(mockImportFiles).not.toHaveBeenCalled();
+    expect(textIn(t).join(' ')).not.toContain('imported');
+  });
+
+  it('says the picker is not available, rather than doing nothing visible', async () => {
+    // `platform/pickImportFiles.ts`'s own reasoning for the sentinel: a row that silently did
+    // nothing is the dead-control shape §0.6 has recorded three times over, the same argument
+    // `exportUnavailable`'s own test makes one section up.
+    stubSettings();
+    mockPick.mockResolvedValue('unavailable');
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    expect(textIn(t).join(' ')).toContain('No file picker is available on this device.');
+    expect(mockImportFiles).not.toHaveBeenCalled();
+  });
+
+  it('hands the write everything the picker returned, unchanged', async () => {
+    stubSettings();
+    const picked = [{ name: 'a.json', bytes: new Uint8Array([1, 2, 3]) }];
+    mockPick.mockResolvedValue(picked);
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    expect(mockImportFiles).toHaveBeenCalledWith(db, picked);
+  });
+
+  it('reports all three counts, since a diver needs to know which happened', async () => {
+    stubSettings();
+    mockPick.mockResolvedValue([{ name: 'a.json', bytes: new Uint8Array() }]);
+    mockImportFiles.mockResolvedValue({
+      imported: 12,
+      alreadyThere: 2,
+      failed: [{ name: 'junk.json', reason: 'unrecognised' }],
+    } satisfies ImportOutcome);
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    const said = textIn(t).join(' ');
+    expect(said).toContain('12');
+    expect(said).toContain('2');
+    expect(said).toContain('junk.json');
+  });
+
+  it('tells a fixable mistake apart from a damaged file and a failed save', async () => {
+    stubSettings();
+    mockPick.mockResolvedValue([{ name: 'a', bytes: new Uint8Array() }]);
+    mockImportFiles.mockResolvedValue({
+      imported: 0,
+      alreadyThere: 0,
+      failed: [
+        { name: 'wrong-format.gpx', reason: 'unrecognised' },
+        { name: 'corrupt.json', reason: 'unreadable' },
+        { name: 'no-space.json', reason: 'unwritable' },
+      ],
+    } satisfies ImportOutcome);
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    const said = textIn(t).join(' ');
+    expect(said).toContain("Couldn't recognise: wrong-format.gpx");
+    expect(said).toContain("Couldn't read: corrupt.json");
+    expect(said).toContain("Couldn't save: no-space.json");
+  });
+
+  it('clears the last message as soon as the next attempt starts', async () => {
+    // The location row's own rule: a sentence stands for as long as it is still true and no
+    // longer.
+    stubSettings();
+    mockPick.mockResolvedValue('unavailable');
+    const t = await render(<SettingsScreen />);
+    await pressRow(t, 'Import dives');
+    expect(textIn(t).join(' ')).toContain('No file picker is available on this device.');
+
+    let release: ((value: 'cancelled') => void) | null = null;
+    mockPick.mockImplementation(() => new Promise((resolve) => {
+      release = resolve;
+    }));
+    await pressRow(t, 'Import dives');
+
+    expect(textIn(t).join(' ')).not.toContain('No file picker is available on this device.');
+
+    await act(async () => {
+      release?.('cancelled');
+    });
+  });
+
+  it('says it is importing, and ignores a second press until it is done', async () => {
+    stubSettings();
+    let release: ((value: 'cancelled') => void) | null = null;
+    mockPick.mockImplementation(() => new Promise((resolve) => {
+      release = resolve;
+    }));
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+    expect(textIn(t)).toContain('Importing…');
+
+    // A second press while one is in flight — the system picker is not a state this screen
+    // can have two of open at once, `runExport`'s own guard one section up.
+    await pressRow(t, 'Import dives');
+    expect(mockPick).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release?.('cancelled');
+    });
+    expect(textIn(t)).not.toContain('Importing…');
+  });
+
+  describe('in Czech', () => {
+    beforeEach(() => {
+      setActiveLanguage('cs');
+    });
+    afterEach(async () => {
+      await cleanup();
+      setActiveLanguage('en');
+    });
+
+    it('names the section, the row and every format in Czech, without writing Ponor next to ponory', async () => {
+      stubSettings();
+      const t = await render(<SettingsScreen />);
+      const text = textIn(t).join(' ');
+      expect(text).toContain('Import dat');
+      expect(text).toContain('Importovat ponory');
+      expect(text).toContain('Aplikace umí přečíst');
+      // M3n's rule, checked rather than assumed — `locationGrantedNote`'s own collision, one
+      // word narrower: this section's row already says "ponory", so the caption must not say
+      // "Ponor umí přečíst" beside it.
+      expect(text).not.toContain('Ponor umí přečíst');
+    });
+
+    it('tells the three failure reasons apart in Czech too', async () => {
+      stubSettings();
+      mockPick.mockResolvedValue([{ name: 'a', bytes: new Uint8Array() }]);
+      mockImportFiles.mockResolvedValue({
+        imported: 0,
+        alreadyThere: 0,
+        failed: [
+          { name: 'wrong-format.gpx', reason: 'unrecognised' },
+          { name: 'corrupt.json', reason: 'unreadable' },
+          { name: 'no-space.json', reason: 'unwritable' },
+        ],
+      } satisfies ImportOutcome);
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Importovat ponory');
+
+      const said = textIn(t).join(' ');
+      expect(said).toContain('Nepodařilo se rozpoznat: wrong-format.gpx');
+      expect(said).toContain('Nepodařilo se přečíst: corrupt.json');
+      expect(said).toContain('Nepodařilo se uložit: no-space.json');
+    });
+  });
+});
+
 /**
  * **M3n — two rows that were reading as part of the section above them.**
  *
@@ -2316,5 +2538,24 @@ describe('the sections a row belongs to', () => {
     const [certifications = -1, account = -1, accountRow = -1] = orderOf(lines, 'Certifications', 'Account', 'Account & sync');
     expect(account).toBeGreaterThan(certifications);
     expect(accountRow).toBeGreaterThan(account);
+  });
+
+  // Task 7's import row (M3o) follows this pattern from the day it shipped rather than being
+  // fixed into it afterwards, the way the two rows above were — the assertion is the same one:
+  // a section only reads as its own if the row it heads renders after it, not under the one
+  // before.
+  it('heads the import row with its own section rather than leaving it under data export', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const lines = textIn(t);
+
+    const [dataExport = -1, dataImport = -1, importRow = -1] = orderOf(
+      lines,
+      'Data export',
+      'Data import',
+      'Import dives',
+    );
+    expect(dataImport).toBeGreaterThan(dataExport);
+    expect(importRow).toBeGreaterThan(dataImport);
   });
 });

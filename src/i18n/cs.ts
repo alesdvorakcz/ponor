@@ -356,6 +356,18 @@ export const cs = {
       exportFailed: 'Export se nepodařilo připravit, takže se nic nezapsalo. Zkuste to znovu.',
       exportUnavailable: 'Toto zařízení neumí sdílet soubor, takže není kam ho poslat.',
 
+      importSection: 'Import dat',
+      importLabel: 'Importovat ponory',
+      /** `Aplikace`, not `Ponor` — `locationGrantedNote`'s reason, applied here because this
+       * section's own row label already says *ponory*. */
+      importFormats: 'Aplikace umí přečíst: {{formats}}.',
+      importing: 'Importuji…',
+      importDone: 'Naimportováno {{imported}}, {{alreadyThere}} už v deníku bylo.',
+      importUnrecognised: 'Nepodařilo se rozpoznat: {{files}}. Zkontrolujte, že jste vybrali správné soubory.',
+      importFailed: 'Nepodařilo se přečíst: {{files}}.',
+      importUnwritable: 'Nepodařilo se uložit: {{files}}. Zkuste to znovu.',
+      importUnavailable: 'Na tomto zařízení není k dispozici výběr souborů.',
+
       destructiveSection: 'Mazání',
       destructiveNote:
         'Nejdřív si deník vyexportujte — dva řádky nad tímto vám ho vydají. Ani jedno z toho nejde vzít zpět.',

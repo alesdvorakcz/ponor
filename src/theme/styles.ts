@@ -3566,6 +3566,11 @@ function build(scheme: ColorScheme) {
     // (`detailBack`/`formBack`, `presetHeading`/`settingsHeading`): both are a row's value
     // column saying it does not have an answer yet, and they must not drift apart.
     settingsExportBusy: rowValueSansMuted,
+    // §9's import (M3o — Task 7), on `settingsExportLabel`'s own reasoning one key up: the row
+    // is `formField` like every other on this screen, and the label takes full ink rather than
+    // the muted label a setting wears, because it is a row that *does* something rather than
+    // one that holds a value. One definition, two keys, this file's rule for a shared treatment.
+    settingsImportLabel: settingsRowInk,
     // §7.4's other two destructive acts (M3j) — *Start over* and *Delete account*, at the end
     // of the content where §0.6 puts a deliberate act, "where it takes a reach".
     //

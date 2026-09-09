@@ -18,6 +18,7 @@ import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
+import { importFiles, type ImportOutcome } from '../db/importDives';
 import { parseDiveCount, setDivesBefore, setLanguage, setUnitSystem } from '../db/settings';
 import { useCertifications } from '../db/useCertifications';
 import { useDivesBefore } from '../db/useDivesBefore';
@@ -28,6 +29,7 @@ import { certificationExpiry } from '../domain/certifications';
 import { csvExport, jsonExport, type ExportFile, type ExportSource } from '../domain/dataExport';
 import { todayCalendarDate } from '../domain/datetime';
 import { isDiveCount } from '../domain/diveNumber';
+import { importerLabels } from '../domain/import/registry';
 import { presetsUnreadable } from '../domain/presets';
 import { type Certification, type GearPreset } from '../domain/types';
 import {
@@ -48,6 +50,7 @@ import {
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { locationPermission, type LocationPermissionState } from '../platform/locationPermission';
+import { pickImportFiles } from '../platform/pickImportFiles';
 import { shareTextFile } from '../platform/shareFile';
 import { certificationsUnreadable } from './CertificationScreen';
 import { resolveScheme } from '../theme/resolve';
@@ -192,6 +195,28 @@ const EXPORT_KINDS: Record<
 > = {
   csv: { label: 'settings.exportCsv', build: csvExport },
   json: { label: 'settings.exportJson', build: (source) => jsonExport(source) },
+};
+
+/** One failed *file*'s reason, read off `ImportOutcome` rather than retyped here — `EXPORT_KINDS`
+ * above ties a UI table to a domain union the same way, for the same reason: a fourth reason
+ * added to `db/importDives.ts` cannot leave this `Record` incomplete without TypeScript saying
+ * so. */
+type ImportFailureReason = ImportOutcome['failed'][number]['reason'];
+
+/**
+ * **Which sentence each import failure reason gets.** `db/importDives.ts`'s own docblock on
+ * `ImportOutcome['failed']` is the reason there are three rather than one: an unrecognised file
+ * is a diver's fixable mistake, an unreadable one is the file's own fault, and an unwritable one
+ * is this device's — three different things to read, not one failure with a footnote.
+ *
+ * Ordered below from the diver's own mistake to this device's, which `runImport` reports them
+ * in for the same reason `db/importDives.ts` lists them in that order: it is also the order a
+ * diver can act on them in, from "pick a different file" down to "nothing to do but retry".
+ */
+const IMPORT_FAILURE_KEYS: Record<ImportFailureReason, TranslationKey> = {
+  unrecognised: 'settings.importUnrecognised',
+  unreadable: 'settings.importFailed',
+  unwritable: 'settings.importUnwritable',
 };
 
 /** One state's two lines, as KEYS: what the row's value column says, and the sentence under
@@ -841,6 +866,66 @@ export default function SettingsScreen() {
     })();
   };
 
+  /**
+   * §9's import (M3o — Task 7). Which file is being prepared has no equivalent here — a diver
+   * hands over a whole folder at once, not one of two named files — so `importing` is a plain
+   * flag and `importMessage` is the one line reporting what came of the last attempt, on
+   * `exportError`'s own shape one section above.
+   */
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
+  /**
+   * **Picks, reads and writes, and says what happened — never a merge screen, a preview or an
+   * undo** (this task's own boundary). §9's UDDF and the rest arrive by adding an importer to
+   * the registry, not by this screen learning a new shape.
+   *
+   * **Guarded against a second press the way `runExport` is** (`exporting !== null`, just
+   * above): a diver's own device is not going to hand this two folders to import at once, but
+   * the system file picker is, and a second one on top of the first is not a state this screen
+   * has anywhere else either.
+   *
+   * **Nothing here can reject.** `pickImportFiles` resolves `'cancelled'` or `'unavailable'`
+   * for its own ordinary outcomes (`platform/pickImportFiles.ts`'s docblock), and `importFiles`
+   * resolves an `ImportOutcome` whatever went wrong file by file or dive by dive
+   * (`db/importDives.ts`'s own docblock) — so there is no failure left here for a `catch` to
+   * report, only three questions already answered for it to read.
+   */
+  const runImport = async () => {
+    if (importing) return;
+    setImporting(true);
+    setImportMessage(t('settings.importing'));
+    try {
+      const picked = await pickImportFiles();
+      // A cancelled picker is not a failure and says nothing at all — the diver already knows
+      // they backed out; the location row's own `Preparing…` rule, applied to being told
+      // nothing rather than something.
+      if (picked === 'cancelled') return setImportMessage(null);
+      if (picked === 'unavailable') return setImportMessage(t('settings.importUnavailable'));
+
+      const outcome = await importFiles(db, picked);
+      // The two counts only — `t()` takes a flat `{{key}}` dictionary, and `outcome.failed` is
+      // read below instead, grouped by reason rather than interpolated as a list.
+      const said = [t('settings.importDone', { imported: outcome.imported, alreadyThere: outcome.alreadyThere })];
+      // Grouped by reason and reported in `IMPORT_FAILURE_KEYS`' own order, never joined into
+      // one list: folding "picked the wrong file" in with "this file is damaged" would turn a
+      // fixable mistake into something as final-looking as one that is not. The order comes
+      // from that object itself rather than a second list beside it, the same `Object.keys`
+      // idiom the JSX below uses for `EXPORT_KINDS` — a fourth reason added there gets a
+      // required entry in `IMPORT_FAILURE_KEYS` (its `Record` type demands one) and is iterated
+      // here automatically, rather than silently never being reported.
+      for (const reason of Object.keys(IMPORT_FAILURE_KEYS) as ImportFailureReason[]) {
+        const files = outcome.failed.filter((file) => file.reason === reason).map((file) => file.name);
+        if (files.length > 0) said.push(t(IMPORT_FAILURE_KEYS[reason], { files: files.join(', ') }));
+      }
+      setImportMessage(said.join(' '));
+    } finally {
+      // Released on both paths, for the reason every busy flag in this app is: a control that
+      // silently stopped working is the failure, not the failure it was reporting.
+      setImporting(false);
+    }
+  };
+
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's own ScrollView.
@@ -1154,6 +1239,50 @@ export default function SettingsScreen() {
             <Text style={styles.settingsCaptionText}>{t('settings.exportFiles')}</Text>
             {exportError !== null && (
               <Text style={styles.settingsCaptionText}>{exportError}</Text>
+            )}
+          </View>
+        </View>
+
+        {/* §9's import (M3o — Task 7), below data export: the diver takes a copy out before
+            this app ever brings one in, and the section name leaves room for UDDF and the rest
+            without renaming anything.
+
+            **The caption's format list is generated, not typed out** — `importerLabels()` reads
+            `domain/import/registry.ts`, so a format added there without a label cannot leave
+            this sentence quietly out of date, `EXPORT_KINDS`' own reasoning one section up.
+
+            **One row, not two** — unlike export's CSV/JSON pair, a diver hands over a folder of
+            files in one picker press, and `db/importDives.ts` works out what each one is.
+
+            **The label takes `settingsImportLabel`, not `formFieldLabel`** (theme/styles.ts) —
+            the same distinction `settingsExportLabel` draws one section up: this row *does*
+            something rather than holding a value, and `formFieldLabel` is reserved for §3's
+            four settings that report one. Reusing it here would have quietly counted this row
+            among them.
+
+            **`importMessage` already carries all three failure sentences when it needs to**
+            (`runImport`, above) — this row draws whatever it is handed rather than choosing
+            among them, so the JSX here does not repeat the reasoning for why there are three. */}
+        <View>
+          <Text style={styles.settingsSectionTitle}>{t('settings.importSection')}</Text>
+          <Pressable
+            style={styles.formField}
+            onPress={runImport}
+            disabled={importing}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: importing }}
+            accessibilityLabel={t('settings.importLabel')}
+          >
+            <View style={styles.formFieldRow}>
+              <Text style={styles.settingsImportLabel}>{t('settings.importLabel')}</Text>
+            </View>
+          </Pressable>
+          <View style={styles.settingsCaption}>
+            <Text style={styles.settingsCaptionText}>
+              {t('settings.importFormats', { formats: importerLabels().join(', ') })}
+            </Text>
+            {importMessage !== null && (
+              <Text style={styles.settingsCaptionText}>{importMessage}</Text>
             )}
           </View>
         </View>

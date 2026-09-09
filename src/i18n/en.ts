@@ -416,6 +416,38 @@ export const en = {
       exportUnavailable: 'This device can’t share a file, so there’s nowhere to send it.',
 
       /**
+       * §9's import (M3o — Task 7), in the place §3 lists it: after data export, so the section
+       * name leaves room for UDDF and the rest without renaming anything.
+       *
+       * **The formats line is generated, not typed out** — `importFormats` is filled from
+       * `importerLabels()` (`domain/import/registry.ts`), so a format added there without a
+       * label cannot leave this sentence quietly out of date, the exact failure mode a literal
+       * list here would invite.
+       *
+       * **Three failure sentences, not one.** `db/importDives.ts`'s own `ImportOutcome` gives a
+       * failed *file* one of three reasons, and they are three different things for a diver, not
+       * one failure with a footnote:
+       *
+       * - `importUnrecognised` — nothing in the registry claimed the file. A fixable mistake:
+       *   the diver picked the wrong thing, and the sentence says so rather than "failed".
+       * - `importFailed` — an importer claimed the file and still could not read it. Not
+       *   fixable from here; the file itself is damaged, so the sentence stops at naming it
+       *   rather than offering an action that would not help.
+       * - `importUnwritable` — the file was read in full and its dives were fine; *saving* one
+       *   to this device failed. Kept out of `importFailed` deliberately: that sentence would
+       *   send a diver to re-export a file that was never the problem.
+       */
+      importSection: 'Data import',
+      importLabel: 'Import dives',
+      importFormats: 'Ponor can read: {{formats}}.',
+      importing: 'Importing…',
+      importDone: '{{imported}} imported, {{alreadyThere}} already in your logbook.',
+      importUnrecognised: "Couldn't recognise: {{files}}. Check you picked the right files.",
+      importFailed: "Couldn't read: {{files}}.",
+      importUnwritable: "Couldn't save: {{files}}. Try again.",
+      importUnavailable: 'No file picker is available on this device.',
+
+      /**
        * §7.4's other two destructive acts (M3j), in the place §3 lists the second of them:
        * straight after data export, which is §8 pairing Art. 20 with Art. 17 in one sentence.
        *
