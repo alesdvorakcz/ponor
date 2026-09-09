@@ -93,6 +93,64 @@ it('recomputes ata per window when depth changes between them', () => {
   expect(last.v).toBeCloseTo(12);
 });
 
+it('skips a window once its mean depth drops below PROFILE_RMV_MIN_DEPTH_M', () => {
+  // A descent (t=0..20) into a 20 m bottom phase (t=20..80), then a return to
+  // near-surface that levels off at 1 m — below PROFILE_RMV_MIN_DEPTH_M (1.5 m) — for the
+  // rest of the dive (t=110..170). Pressure keeps falling by exactly 1 bar/sample
+  // throughout and 10 s spacing means every complete window spans exactly 6 steps (60 s,
+  // same as the two tests above), so litres and minutes never change shape near the
+  // surface — only mean depth does. That is exactly why this rule is needed: rmvFrom
+  // itself does not reject a shallow-but-positive depth (ata approaches 1, not 0 or
+  // negative), so a window sitting entirely in the 1 m tail would still produce a valid,
+  // inflated value if this check didn't exist — the "emits no point above 1.5 m" fixture
+  // test above names that failure mode, but its own assertion (every point.v > 0) can't
+  // detect a missing rule, since rmvFrom's other guards already make that true regardless.
+  //
+  // Window means (mean of the 7 depths at indices i..i+6, summed from the array below):
+  //  i=9  -> 12,4,1,1,1,1,1 -> 21/7 = 3.0            -> kept, the series' last point
+  //  i=10 ->  4,1,1,1,1,1,1 -> 10/7 ≈ 1.4286 (<1.5)  -> skipped
+  //  i=11 ->  1,1,1,1,1,1,1 ->  7/7 = 1.0    (<1.5)  -> skipped
+  // i=12 would need a sample past t=170 to complete a window, and there isn't one, so the
+  // loop stops there regardless (the same "stops entirely" rule the first test in this
+  // file exercises) — i=10 and i=11 are excluded by the depth rule specifically, before
+  // that end-of-series rule ever gets a chance to.
+  const depths = [4, 12, 20, 20, 20, 20, 20, 20, 20, 12, 4, 1, 1, 1, 1, 1, 1, 1];
+  const series: DiveSample[] = depths.map((depth, i) => [i * 10, depth, null, 200 - i]);
+  const points = consumptionSeries(series, syntheticTank());
+
+  // Every kept window's t, i=0..9 -> t = 10*i + 30. If i=10 or i=11 leaked through, this
+  // would carry an extra 130 or 140 at the end instead of stopping at 120.
+  expect(points.map((p) => p.t)).toEqual([30, 40, 50, 60, 70, 80, 90, 100, 110, 120]);
+  // The last kept window (i=9, mean depth 3.0): ata = 3/10 + 1 = 1.3, litres is still
+  // 6 bar * 10 L * 1 cylinder = 60 (the pressure rate never changed), so
+  // rmvFrom(60, 3, 1) = 60 / 1.3 ≈ 46.15 l/min — still a real, positive value, confirming
+  // i=9 survives on its own merits and isn't merely the last thing before an accident.
+  expect(points[points.length - 1]!.v).toBeCloseTo(46.15);
+});
+
+it('falls back to one cylinder when configuration was never recorded', () => {
+  // The same series as "computes an exact RMV at constant depth" above — 7 samples, 10 s
+  // apart, all at 10 m, pressure falling 1 bar/sample, a 10 L tank — except configuration
+  // is null instead of 'single'. That one input decides which branch of consumption.ts's
+  // `cylinderCount(tank.configuration) ?? 1` runs: cylinderCount('single') already
+  // returns 1 on its own, so the test above's `single` tank never reaches the `?? 1`
+  // fallback at all, and a changed fallback couldn't have moved its number. A `null`
+  // configuration is what actually exercises that line — and it is the normal case, not
+  // an edge one: the Suunto importer sets `configuration: null` unconditionally
+  // (src/domain/import/suunto.ts), so every imported dive's chart is drawn through this
+  // exact fallback. It also has to agree with derived.ts's gasUsedLitres, which falls
+  // back to 1 the same way for the Stats screen's own figure on the same dive.
+  //
+  // ata = 10/10 + 1 = 2 (as in the constant-depth test). Litres = 6 bar * 10 L *
+  // 1 cylinder (the fallback) = 60. rmvFrom(60, 10, 1) = 60 / 2 / 1 = 30 l/min. If the
+  // fallback ever became `?? 2`, litres would double to 120 and this would read 60.
+  const series: DiveSample[] = [];
+  for (let i = 0; i <= 6; i++) series.push([i * 10, 10, null, 200 - i]);
+  const points = consumptionSeries(series, syntheticTank({ configuration: null }));
+  expect(points).toHaveLength(1);
+  expect(points[0]!.v).toBeCloseTo(30);
+});
+
 it('yields nothing for a dive logged without a tank transmitter', () => {
   const { series, tank } = fixtureSeries('suunto-d5-no-transmitter');
   expect(consumptionSeries(series, tank)).toEqual([]);
