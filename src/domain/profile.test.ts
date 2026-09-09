@@ -1,5 +1,5 @@
 import type { DiveSample } from '../db/schema';
-import { axisMax, colourRuns, depthAxis, medianIntervalS, sparklinePoints } from './profile';
+import { axisMax, colourRuns, depthAxis, medianIntervalS, scrubbedIndexAt, sparklinePoints } from './profile';
 
 const s = (t: number, d: number): DiveSample => [t, d, null, null];
 
@@ -80,6 +80,69 @@ describe('sparklinePoints', () => {
     const points = sparklinePoints(many, 10);
     expect(points.length).toBeLessThanOrEqual(10);
     expect(Math.max(...points.map((p) => p.v))).toBe(42);
+  });
+});
+
+// This function is `DepthProfile`'s `Gesture.Pan()` wrapped only far enough to be called
+// directly — extracted so the cases a simulated gesture stages awkwardly (an unmeasured plot,
+// a finger dragged past either edge) are testable as arithmetic rather than as plumbing.
+describe('scrubbedIndexAt', () => {
+  /** Four samples over ten minutes, three of them bunched at the end: the shape that tells
+   * "nearest by time" apart from "nearest by position in the array". */
+  const UNEVEN: DiveSample[] = [
+    [0, 4, null, null],
+    [500, 22, null, null],
+    [590, 18, null, null],
+    [600, 2, null, null],
+  ];
+
+  it('maps a touch to the nearest sample by time, not to its position in the array', () => {
+    // Halfway across a plot whose series runs 0→600 s is t = 300 s. The nearest sample by TIME
+    // is the one at 500 s, 200 s away; the sample halfway along the ARRAY is the one at 590 s,
+    // which is 290 s away. Indexing by position would land on the wrong one.
+    expect(scrubbedIndexAt(150, 300, UNEVEN)).toBe(1);
+  });
+
+  it('clamps a finger dragged past either edge of the plot to the ends of the series', () => {
+    expect(scrubbedIndexAt(-40, 300, UNEVEN)).toBe(0);
+    expect(scrubbedIndexAt(900, 300, UNEVEN)).toBe(UNEVEN.length - 1);
+  });
+
+  it('maps nothing at all until the plot has reported a width', () => {
+    expect(scrubbedIndexAt(150, null, UNEVEN)).toBeNull();
+    expect(scrubbedIndexAt(150, 0, UNEVEN)).toBeNull();
+  });
+
+  // Review round 2, Finding 2: every case above is built on UNEVEN, which starts at t = 0 — so
+  // none of them can tell `startS + fraction * (endS - startS)` apart from a mapping that
+  // forgot the `startS +` term, since with startS = 0 the two are the same number. The one case
+  // that touches a non-zero offset (the clamp test's `900`) lands on fraction 1.0, where the
+  // offset cancels out of the subtraction either way.
+  it('maps the touch onto the series’ own start offset, not onto zero', () => {
+    // A series starting well after zero, scrubbed to the middle of the plot: fraction 0.5 of a
+    // 300 pt plot is t = 500 + 0.5 * (900 − 500) = 700 s exactly — sample index 1. Dropping the
+    // `startS +` term would instead compute 0.5 * (900 − 500) = 200 s, nearest to sample index
+    // 0 (300 s away) rather than index 1 (0 s away).
+    const OFFSET: DiveSample[] = [
+      [500, 10, null, null],
+      [700, 20, null, null],
+      [900, 30, null, null],
+    ];
+    expect(scrubbedIndexAt(150, 300, OFFSET)).toBe(1);
+  });
+
+  // Review round 2, Finding 4: `scrubbedIndexAt`'s own docblock documents "ties keep the
+  // earlier sample", implemented with a strict `<` — but nothing in this file pinned it, and
+  // UNEVEN never produces an exact tie for any of the touches above.
+  it('keeps the earlier sample on an exact tie in time, not the later one', () => {
+    // Two samples equidistant from the mapped instant: t = 0 and t = 200, touched at the exact
+    // midpoint (t = 100 on a 300 pt plot at x = 150). Both are 100 s away — a `<=` in place of
+    // `scrubbedIndexAt`'s `<` would keep the later sample instead.
+    const TIE: DiveSample[] = [
+      [0, 5, null, null],
+      [200, 9, null, null],
+    ];
+    expect(scrubbedIndexAt(150, 300, TIE)).toBe(0);
   });
 });
 

@@ -4,8 +4,18 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import { type DiveSample } from '../db/schema';
-import { PROFILE_RMV_WINDOW_S, consumptionSeries } from '../domain/consumption';
-import { axisMax, colourRuns, depthAxis, medianIntervalS, type ProfilePoint } from '../domain/profile';
+import { consumptionSeries } from '../domain/consumption';
+import {
+  axisMax,
+  colourRuns,
+  deepestSampleIndex,
+  depthAxis,
+  gasAt,
+  gasSegments,
+  medianIntervalS,
+  type ProfilePoint,
+  scrubbedIndexAt,
+} from '../domain/profile';
 import { type Dive } from '../domain/types';
 import {
   formatDepth,
@@ -38,10 +48,11 @@ import { type ColorScheme } from '../theme/tokens';
  *
  * **The column IS measured now, and this constant is deliberately not what it measures.** The
  * scrub (spec §5) maps a touch's x back to a time, which needs the real width, so the plot
- * reports its own through `onLayout` — see `scrubbedIndexAt`. That measurement is the *touch*
- * scale and never the drawing's: the path data below stays in these units, the SVG goes on
- * stretching to whatever the column gives it, and nothing has to be redrawn when the
- * measurement arrives (or fails to, which is why the pan is inert until it does). Two scales,
+ * reports its own through `onLayout` — see `scrubbedIndexAt` (domain/profile.ts). That
+ * measurement is the *touch* scale and never the drawing's: the path data below stays in these
+ * units, the SVG goes on stretching to whatever the column gives it, and nothing has to be
+ * redrawn when the measurement arrives (or fails to, which is why the pan is inert until it
+ * does). Two scales,
  * one for what is drawn and one for what is touched, is what keeps every test in this file able
  * to render the real card without a layout pass Jest never performs.
  */
@@ -131,24 +142,6 @@ const PLOT_INSET_Y = Math.max(DEPTH_STROKE_WIDTH / 2, DEEPEST_MARK_RADIUS);
  */
 const PLOT_INSET_X = HAIRLINE_STROKE_WIDTH / 2;
 
-/**
- * **How far apart two consumption points may be before the trace breaks** — two windows, from
- * spec §4.3: *"where consecutive points are more than two windows apart — the diver was above
- * 1.5 m in between — the trace breaks rather than bridging the interval with a straight line
- * it did not measure."*
- *
- * Derived from `PROFILE_RMV_WINDOW_S` rather than written as its own number, so tuning the
- * window (which the owner asked to be able to do) moves this with it. One window apart is
- * ordinary — consecutive windows overlap heavily — so the threshold has to be wider than the
- * window itself to mean anything.
- *
- * **The rule lives here and not in `consumptionSeries`**, and that is not an accident of
- * layering: that function returns a flat array of points, which has nowhere to say "and here
- * the diver surfaced". A gap is a fact about the *drawing*, so the drawing is what has to
- * respect it.
- */
-const GAS_GAP_S = PROFILE_RMV_WINDOW_S * 2;
-
 /** A point in the plot's own coordinates. */
 type Plotted = { x: number; y: number };
 
@@ -159,8 +152,8 @@ function round(value: number): number {
 }
 
 /** One `M`, then an `L` per point after it. A run of fewer than two points draws nothing at
- * all, so callers never hand one over — see `gasSegments` and `colourRuns`, both of which
- * refuse to produce one. */
+ * all, so callers never hand one over — see `domain/profile.ts`'s `gasSegments` and
+ * `colourRuns`, both of which refuse to produce one. */
 function pathOf(points: readonly Plotted[]): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
 }
@@ -176,156 +169,6 @@ function pathOf(points: readonly Plotted[]): string {
  */
 function multiPathOf(segments: readonly (readonly Plotted[])[]): string {
   return segments.map(pathOf).join(' ');
-}
-
-/**
- * The consumption series split where it must not be joined up — see `GAS_GAP_S`.
- *
- * A segment left holding a single point is dropped rather than emitted: one point draws no
- * stroke, so keeping it would put a stray `M` in the path data that nothing renders, and the
- * chart would claim a fragment it does not actually show. §0.4's rule reaching one step
- * further in, exactly as `RmvSparkline`'s own `MIN_SERIES` does for a row of bars.
- */
-function gasSegments(points: readonly ProfilePoint[]): ProfilePoint[][] {
-  const segments: ProfilePoint[][] = [];
-  let current: ProfilePoint[] = [];
-  let previous: ProfilePoint | undefined;
-
-  for (const point of points) {
-    if (previous !== undefined && point.t - previous.t > GAS_GAP_S) {
-      segments.push(current);
-      current = [];
-    }
-    current.push(point);
-    previous = point;
-  }
-  segments.push(current);
-
-  return segments.filter((segment) => segment.length > 1);
-}
-
-/**
- * **The whole of what a touch means: which recorded sample the finger is on** — or `null` when
- * the question cannot be answered yet.
- *
- * Exported and pure because this, not the gesture wiring, is the part that can be wrong.
- * `Gesture.Pan()` is a thin wrapper over it: the pan reads an `x` and calls this, and everything
- * a scrub could get wrong — the direction of the mapping, the clamp at either end, what
- * "nearest" is measured in — is decided here where a test can state it as arithmetic.
- *
- * **Two different widths are in play and this is where they meet.** The drawing is written in
- * viewBox units (`PLOT_WIDTH`) and stretched to the column; a touch arrives in the column's own
- * points. So the mapping goes through the *measured* width — the fraction across the plot is
- * what the two scales share — and never through `PLOT_WIDTH`, which is not a size anything is
- * laid out at.
- *
- * **`null` until the plot has been measured, rather than a guess.** `onLayout` has not fired
- * before the first layout pass (and never fires at all under Jest), and an unmeasured plot
- * mapped through a fallback width would put every touch somewhere it is not — at `x / 320` of a
- * dive, which for a narrow column is the wrong sample and for the first touch of all is sample
- * zero. A readout that jumps to the start of the dive when a diver touches its middle is worse
- * than one that does nothing for a frame, so this does nothing.
- *
- * **Nearest by TIME, not by position in the array.** The x axis is the series' time extent
- * (both series share it — see the component), and a device that dropped samples, or one whose
- * series carries a surface interval in the middle, has stretches where index and instant have
- * nothing to do with each other. Ties keep the earlier sample, matching `deepestSampleIndex`
- * below and `sparklinePoints`' own `deepestOf`.
- *
- * A finger past either edge clamps to that end of the dive: a pan continues to report positions
- * outside the view it started in, and the sample nearest a touch 40 pt to the left of the plot
- * is the first one.
- */
-export function scrubbedIndexAt(
-  x: number,
-  width: number | null,
-  samples: readonly DiveSample[],
-): number | null {
-  if (width === null || !(width > 0)) return null;
-
-  const first = samples.at(0);
-  const last = samples.at(-1);
-  if (first === undefined || last === undefined) return null;
-  const startS = first[0];
-  const endS = last[0];
-  // The same refusal the component makes: a series whose first and last sample share one
-  // instant has no time axis to map onto, and dividing by its extent would produce NaN.
-  if (!(endS > startS)) return null;
-
-  const at = startS + Math.min(1, Math.max(0, x / width)) * (endS - startS);
-
-  let nearest = 0;
-  let gap = Math.abs(startS - at);
-  for (let i = 1; i < samples.length; i++) {
-    const sample = samples[i];
-    if (sample === undefined) continue;
-    const distance = Math.abs(sample[0] - at);
-    if (distance < gap) {
-      nearest = i;
-      gap = distance;
-    }
-  }
-  return nearest;
-}
-
-/**
- * **Where the deepest sample is in the series** — the one fact the marked dot and the untouched
- * readout are both about (spec §5: the readout before any touch "explains what the dot is").
- *
- * An index rather than a point, because the scrub's state is an index into this same array and
- * the default has to be a value of that same kind — otherwise the card would hold two different
- * notions of "which sample is being described" and they could drift.
- *
- * Filtered by `isDisplayableDepth`, which is what `colourRuns` filters by (`hasBandableDepth`,
- * domain/profile.ts, delegates to it), so the sample this finds is always one the curve actually
- * strokes. Ties keep the earliest, exactly as `sparklinePoints`' `deepestOf` does: the mark
- * lands as early in the dive as the data allows rather than on whichever equal sample came last.
- *
- * `null` for a series holding no displayable depth at all — which the component has already
- * refused to draw by the time it asks, but the function answers for itself rather than relying
- * on that.
- */
-function deepestSampleIndex(samples: readonly DiveSample[]): number | null {
-  let deepest: number | null = null;
-  let depth = -Infinity;
-  for (let i = 0; i < samples.length; i++) {
-    const metres = samples[i]?.[1];
-    if (!isDisplayableDepth(metres) || !(metres > depth)) continue;
-    deepest = i;
-    depth = metres;
-  }
-  return deepest;
-}
-
-/**
- * **The consumption reading at one instant, or `null` where there is not one** — spec §5's
- * *"an em dash where there is no gas value — inside the surface break, or on a dive with no
- * transmitter"*.
- *
- * **The segments decide, so the readout and the trace can never disagree.** It takes the
- * already-split segments (`gasSegments` above), not the flat series, and answers only for an
- * instant that falls *within* one of them — so the figure appears exactly where the trace has a
- * stroke under the hairline, and the slot holds a dash exactly where the pen was lifted. Before
- * the first window and after the last are the same case as a gap in the middle: no complete
- * window covered that instant, so there is nothing measured to report.
- *
- * Inside a segment it returns the nearest point's value and **never interpolates between two**
- * (§0.4). Ties keep the earlier point, as everything else here does.
- */
-function gasAt(segments: readonly (readonly ProfilePoint[])[], seconds: number): number | null {
-  for (const segment of segments) {
-    const opens = segment.at(0);
-    const closes = segment.at(-1);
-    if (opens === undefined || closes === undefined) continue;
-    if (seconds < opens.t || seconds > closes.t) continue;
-
-    let nearest = opens;
-    for (const point of segment) {
-      if (Math.abs(point.t - seconds) < Math.abs(nearest.t - seconds)) nearest = point;
-    }
-    return nearest.v;
-  }
-  return null;
 }
 
 export interface DepthProfileProps {
@@ -415,14 +258,15 @@ export interface DepthProfileProps {
  * **Before any touch it reads the deepest SAMPLE**, which is the point already marked with a
  * dot — not `dive.maxDepthM`, which is a figure with nothing on the curve to sit on, and which
  * for the reference dive is genuinely a different number (24.33 m against a deepest sample of
- * 24.29). One `deepestSampleIndex` answers for both the dot and the readout, so the row cannot
- * describe a point other than the one marked.
+ * 24.29). One `deepestSampleIndex` (domain/profile.ts) answers for both the dot and the
+ * readout, so the row cannot describe a point other than the one marked.
  *
  * **Both halves answer for ONE instant** — the scrubbed sample's — so the hairline, the depth
  * and the gas figure are three statements about the same moment rather than three near-misses.
- * The gas half shows an em dash wherever the trace itself is not drawn (`gasAt`), which is
- * §0.4 reaching the readout: no complete window covered that instant, so there is no reading,
- * and interpolating one across a surface break would invent a measurement.
+ * The gas half shows an em dash wherever the trace itself is not drawn (`gasAt`,
+ * domain/profile.ts), which is §0.4 reaching the readout: no complete window covered that
+ * instant, so there is no reading, and interpolating one across a surface break would invent a
+ * measurement.
  *
  * **The pan runs its callbacks on the JS thread (`runOnJS(true)`), and that is required rather
  * than a preference.** Reanimated's Babel plugin turns a gesture callback into a worklet, and a
@@ -512,7 +356,8 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
 
   // The deepest sample, as an INDEX into the recorded series, because the mark and the
   // untouched readout are one fact and the scrub's own state is an index (`deepestSampleIndex`,
-  // above, which is where the tie rule and the `isDisplayableDepth` filter are stated).
+  // domain/profile.ts, which is where the tie rule and the `isDisplayableDepth` filter are
+  // stated).
   const deepestIndex = deepestSampleIndex(samples);
   const deepestSample = deepestIndex === null ? undefined : samples[deepestIndex];
   // `first`/`last` being defined means `colourRuns` accepted at least two samples' depths, and
