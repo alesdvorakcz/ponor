@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getDiveSamples } from './diveSamples';
-import { listDives, updateDive } from './dives';
+import { listDives, softDeleteDive, updateDive } from './dives';
 import { importFiles, type ImportFile } from './importDives';
 import { createTestDb, type TestDb } from './testDb';
 
@@ -68,4 +68,28 @@ it('tells an unrecognised file apart from one it recognised and could not read',
     { name: 'junk.json', reason: 'unrecognised' },
     { name: 'broken.json', reason: 'unreadable' },
   ]);
+});
+
+it('leaves a previously-imported dive deleted when re-importing after the diver has soft-deleted it', async () => {
+  // A dive the importer read is immutable — it happens at a fixed depth on a date, not again.
+  // But the diver's copy is not: they add the site, buddy, notes. Deleting an imported dive is
+  // that work. Re-importing the same file must not resurrect it — the file's immutability is
+  // not a reason to overwrite a deletion that is the diver's own.
+  const { imported: beforeCount } = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+  expect(beforeCount).toBe(1);
+
+  const [imported] = await listDives(db);
+  expect(imported).toBeDefined();
+
+  // Delete the dive.
+  await softDeleteDive(db, imported!.id);
+  expect(await listDives(db)).toEqual([]);
+
+  // Re-import the same file.
+  const out = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+
+  // The dive stays deleted. It still exists in the database — tombstoned, for sync — but the
+  // importer found it when scanning for duplicates and skipped it rather than restoring it.
+  expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(await listDives(db)).toEqual([]);
 });

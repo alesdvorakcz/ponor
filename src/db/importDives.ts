@@ -54,6 +54,14 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
       // **Skipped, never overwritten.** The file is immutable — a dive that happened in
       // February does not change — but the diver's copy does: they may have added the site, a
       // buddy or notes since. Re-running the same folder must not destroy that.
+      //
+      // The SELECT is **deliberately not scoped to live dives** — it finds a dive even if the
+      // diver has since soft-deleted it. Deleting an imported dive *is* the diver's work; a
+      // re-import that silently resurrected it would be the overwrite this skip exists to
+      // prevent (and would contradict §1's "the file is immutable, the diver's copy is not").
+      // A skipped dive never reaches putDiveSamples, so the inconsistency with that function's
+      // un-tombstoning does not bite: deleted-then-re-imported stays deleted; only a dive
+      // whose *series* is deleted has the curve restored on re-import.
       const [existing] = await db
         .select({ id: dives.id })
         .from(dives)
