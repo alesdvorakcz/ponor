@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getDiveSamples } from './diveSamples';
+import * as divesModule from './dives';
 import { listDives, softDeleteDive, updateDive } from './dives';
 import { importFiles, type ImportFile } from './importDives';
 import { createTestDb, type TestDb } from './testDb';
@@ -24,6 +25,12 @@ const file = (name: string, bytes: Uint8Array): ImportFile => ({ name, bytes });
 let db: TestDb;
 beforeEach(() => {
   db = createTestDb();
+});
+
+// Only the write-failure test below spies on `./dives`; restored here rather than inline so a
+// failed assertion can never skip the restore and leak a rejecting mock into the next test.
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 it('imports a dive and its profile together', async () => {
@@ -59,15 +66,39 @@ it('keeps going past a bad file and names the one that failed', async () => {
   expect(await listDives(db)).toHaveLength(2);
 });
 
-it('tells an unrecognised file apart from one it recognised and could not read', async () => {
+it('tells an unrecognised file apart from one it recognised and could not read, alongside a successful import', async () => {
   const out = await importFiles(db, [
+    file('good.json', fixtureBytes('suunto-d5')),
     file('junk.json', new TextEncoder().encode('{"hello":"world"}')),
     file('broken.json', new TextEncoder().encode('{"DeviceLog":{"Header":{"DateTime":')),
   ]);
+  expect(out.imported).toBe(1);
   expect(out.failed).toEqual([
     { name: 'junk.json', reason: 'unrecognised' },
     { name: 'broken.json', reason: 'unreadable' },
   ]);
+});
+
+it('keeps going past a dive that fails to write, and still imports the files after it', async () => {
+  // The SELECT/createDive/putDiveSamples sequence, not importer.parse: this file was read
+  // fine, the save is what throws — a full disk, a SQLite error, a bug in createDive itself.
+  // Spied rather than injected, for the reason `db/dirty.test.ts` imports `* as divesModule`
+  // from this same directory: `createDive` is a named import in importDives.ts, and a real
+  // test database underneath is what the other tests here already use, so the seam is the
+  // one function call, not the whole module.
+  jest.spyOn(divesModule, 'createDive').mockRejectedValueOnce(new Error('disk full'));
+
+  const out = await importFiles(db, [
+    file('bad.json', fixtureBytes('suunto-d5')),
+    file('good.json', fixtureBytes('suunto-d5-no-transmitter')),
+  ]);
+
+  expect(out).toMatchObject({
+    imported: 1,
+    alreadyThere: 0,
+    failed: [{ name: 'bad.json', reason: 'unwritable' }],
+  });
+  expect(await listDives(db)).toHaveLength(1);
 });
 
 it('leaves a previously-imported dive deleted when re-importing after the diver has soft-deleted it', async () => {

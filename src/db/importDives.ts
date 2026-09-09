@@ -1,7 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
 import { importerFor } from '../domain/import/registry';
-import { ImportRefusal } from '../domain/import/types';
 import { putDiveSamples } from './diveSamples';
 import { createDive } from './dives';
 import { dives } from './schema';
@@ -17,8 +16,19 @@ export interface ImportOutcome {
   imported: number;
   /** Dives already present under the same (source, id) and left untouched. */
   alreadyThere: number;
-  /** **Files**, not dives — a file that failed yielded none to count. */
-  failed: { name: string; reason: 'unrecognised' | 'unreadable' }[];
+  /**
+   * **Files**, not dives — a file that failed yielded none to count. Three reasons, and they
+   * are three different sentences for the diver, not one failure with a footnote:
+   *
+   * - `unrecognised` — no importer claimed the file. The diver picked the wrong one: a
+   *   fixable mistake.
+   * - `unreadable` — an importer claimed the file and still could not read it. The file
+   *   itself is damaged or malformed.
+   * - `unwritable` — the file was read in full and the dives it held were fine; *saving* one
+   *   to this device failed. Not folded into `unreadable`: that reason means the diver's
+   *   file was the problem, and here it was not — this device's save was.
+   */
+  failed: { name: string; reason: 'unrecognised' | 'unreadable' | 'unwritable' }[];
 }
 
 /**
@@ -42,39 +52,65 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
     let parsed;
     try {
       parsed = importer.parse(file.bytes);
-    } catch (error) {
-      // ImportRefusal is expected; anything else is a bug in an importer and must still not
-      // take the batch down — §1's "a failure never blocks the rest", one door over.
+    } catch {
+      // ImportRefusal is expected; anything else is a bug in an importer, and either way it
+      // must not take the batch down — §1's "a failure never blocks the rest", one door over.
+      //
+      // Deliberately silent, and deliberately not `console`: §9 wires Sentry in M3 and turns
+      // console output into breadcrumbs, and `cloud/auth.ts` records why nothing in this app
+      // writes one on a path a diver's own data travels — an imported file is exactly such a
+      // path. `outcome.failed.push` below already carries the failure to the diver, which is
+      // what "must not swallow the failure" actually requires.
       outcome.failed.push({ name: file.name, reason: 'unreadable' });
-      if (!(error instanceof ImportRefusal)) console.warn('importer threw', error);
       continue;
     }
 
+    let fileFailed = false;
     for (const { importId, dive, series } of parsed) {
-      // **Skipped, never overwritten.** The file is immutable — a dive that happened in
-      // February does not change — but the diver's copy does: they may have added the site, a
-      // buddy or notes since. Re-running the same folder must not destroy that.
-      //
-      // The SELECT is **deliberately not scoped to live dives** — it finds a dive even if the
-      // diver has since soft-deleted it. Deleting an imported dive *is* the diver's work; a
-      // re-import that silently resurrected it would be the overwrite this skip exists to
-      // prevent (and would contradict §1's "the file is immutable, the diver's copy is not").
-      // A skipped dive never reaches putDiveSamples, so the inconsistency with that function's
-      // un-tombstoning does not bite: deleted-then-re-imported stays deleted; only a dive
-      // whose *series* is deleted has the curve restored on re-import.
-      const [existing] = await db
-        .select({ id: dives.id })
-        .from(dives)
-        .where(and(eq(dives.importSource, importer.source), eq(dives.importId, importId)));
-      if (existing) {
-        outcome.alreadyThere += 1;
-        continue;
-      }
+      try {
+        // **Skipped, never overwritten.** The file is immutable — a dive that happened in
+        // February does not change — but the diver's copy does: they may have added the site, a
+        // buddy or notes since. Re-running the same folder must not destroy that.
+        //
+        // The SELECT is **deliberately not scoped to live dives** — it finds a dive even if the
+        // diver has since soft-deleted it. Deleting an imported dive *is* the diver's work; a
+        // re-import that silently resurrected it would be the overwrite this skip exists to
+        // prevent (and would contradict §6's "the file is immutable, the diver's copy is not").
+        // A skipped dive never reaches putDiveSamples, so the inconsistency with that function's
+        // un-tombstoning does not bite: deleted-then-re-imported stays deleted; only a dive
+        // whose *series* is deleted has the curve restored on re-import.
+        const [existing] = await db
+          .select({ id: dives.id })
+          .from(dives)
+          .where(and(eq(dives.importSource, importer.source), eq(dives.importId, importId)));
+        if (existing) {
+          outcome.alreadyThere += 1;
+          continue;
+        }
 
-      // Per dive, not per batch: one malformed file must not roll back the fourteen before it.
-      const written = await createDive(db, dive);
-      if (series) await putDiveSamples(db, written.id, series);
-      outcome.imported += 1;
+        // Per dive, not per batch: one malformed file must not roll back the fourteen before it.
+        const written = await createDive(db, dive);
+        if (series) await putDiveSamples(db, written.id, series);
+        outcome.imported += 1;
+      } catch {
+        // **A throw here is a save failure, not a read failure** — the file was parsed in
+        // full; the SELECT, createDive or putDiveSamples that followed it did not complete (a
+        // full disk, a SQLite error, a bug in one of them). §6 promises the batch never aborts
+        // on a failure, and that promise runs one dive deep, not one file deep: a dive whose
+        // write throws must not stop the dives beside it, in this file or the next — the same
+        // "per dive, not per batch" reasoning just above, one level up.
+        //
+        // **Recorded once per file, not once per failing dive**, and the dives already written
+        // are kept rather than rolled back. A file yielding five dives that fails writing the
+        // third still names that one file, once, in `failed` — the diver sees "this file had a
+        // problem" alongside the two real, saved dives that came before it. Undoing those to
+        // make the file all-or-nothing would destroy work that already succeeded, to buy a
+        // consistency no diver asked for and this app's own per-dive writes never promised.
+        if (!fileFailed) {
+          fileFailed = true;
+          outcome.failed.push({ name: file.name, reason: 'unwritable' });
+        }
+      }
     }
   }
 
