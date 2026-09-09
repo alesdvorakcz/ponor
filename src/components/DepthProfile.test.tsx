@@ -12,7 +12,7 @@ import type { Dive, Tank } from '../domain/types';
 import { formatDepth, formatRmv, NO_FIGURE } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
-import { PROFILE_PLOT_HEIGHT } from '../theme/styles';
+import { makeStyles, PROFILE_PLOT_HEIGHT } from '../theme/styles';
 import { DepthProfile, PLOT_WIDTH, PROFILE_PLOT_TEST_ID, scrubbedIndexAt } from './DepthProfile';
 
 // Adapted from the brief's react-test-renderer-shaped examples to the API the installed
@@ -324,6 +324,30 @@ it('drops a one-point gas segment rather than leaving a stray subpath for it', a
 
 // ── §5's scrub readout ─────────────────────────────────────────────────────────────────────
 
+// Review round 2, Finding 1: the readout row has no overflow guard against its own worst
+// content — Czech's longer words beside an imperial reading. `flexShrink` on the row's styles
+// is what lets either figure give way, and `numberOfLines={1}` on each `Text` is what turns
+// that shrink into a truncation instead of a second line, which would otherwise grow the row
+// exactly when a diver drags from the em dash to a figure (`profileReadout`'s own docblock,
+// theme/styles.ts). Asserted on the sheet and on the rendered props directly, the same way
+// `DiveRow.test.tsx`'s own `numberOfLines` case pins its guarantee.
+it('lets each readout figure give way rather than overflow or wrap the row', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  const styles = makeStyles('light');
+  const labels = textNodesOf(t).filter((n) => [n.props.style].flat(3).includes(styles.profileReadoutLabel));
+  const values = textNodesOf(t).filter((n) => [n.props.style].flat(3).includes(styles.profileReadoutValue));
+  expect(labels).toHaveLength(2);
+  expect(values).toHaveLength(2);
+  for (const node of [...labels, ...values]) {
+    expect(node.props.numberOfLines).toBe(1);
+  }
+  expect(styles.profileReadoutFigure.flexShrink).toBe(1);
+  expect(styles.profileReadoutLabel.flexShrink).toBe(1);
+  expect(styles.profileReadoutValue.flexShrink).toBe(1);
+});
+
 /**
  * The deepest sample the fixture actually holds — 24.29 m — computed rather than typed, so it
  * cannot drift from the file every other test here reads. Deliberately NOT the 24.33 m the
@@ -414,6 +438,38 @@ it('reads the consumption at the scrubbed sample, and an em dash where the trace
   expect(text).toContain(formatDepth(10, 'metric'));
 });
 
+// Review round 2, Finding 3: the test above only covers a scrub BEFORE the first gas segment.
+// The requirement's headline case — a scrub landing BETWEEN two segments — had no test at all.
+// `gasAt` takes the same `continue` path for both (it refuses any instant outside every
+// segment's own [opens, closes] span), so the behaviour is right by construction; this is the
+// coverage that was missing.
+it('shows an em dash for a scrub landing between two gas segments, not just before the first one', async () => {
+  // Two clusters shaped exactly like the one above (60 s then 70 s apart, so each yields two
+  // complete RMV windows), 870 s apart in the middle — comfortably more than GAS_GAP_S (120 s)
+  // — so `gasSegments` breaks the trace into two: roughly [30, 95] and [1030, 1095].
+  const series: DiveSample[] = [
+    [0, 10, null, 200],
+    [60, 10, null, 196],
+    [130, 10, null, 190],
+    [1000, 10, null, 180],
+    [1060, 10, null, 176],
+    [1130, 10, null, 170],
+  ];
+  const t = await render(
+    <DepthProfile dive={dive({ tanks: [tank()] })} samples={series} scheme="light" units="metric" />,
+  );
+  await measure(t, 1130);
+
+  // t = 130 s: the sample the finger actually lands nearest to at this touch (300 of 1130) —
+  // well after the first segment closes (95 s) and well before the second opens (1030 s), the
+  // gap in the middle of the dive rather than before its first reading.
+  await scrubTo(300);
+  const text = textIn(t).join(' ');
+  expect(text).toContain(NO_FIGURE);
+  expect(text).not.toContain(formatRmv(20, 'metric'));
+  expect(text).toContain(formatDepth(10, 'metric'));
+});
+
 // The hairline marks where the finger is, so before there has been a finger there is nothing
 // to mark — and the dot §0.4 already draws is what the untouched readout is describing.
 it('draws no hairline until the diver has actually scrubbed', async () => {
@@ -460,4 +516,36 @@ it('clamps a finger dragged past either edge of the plot to the ends of the seri
 it('maps nothing at all until the plot has reported a width', () => {
   expect(scrubbedIndexAt(150, null, UNEVEN)).toBeNull();
   expect(scrubbedIndexAt(150, 0, UNEVEN)).toBeNull();
+});
+
+// Review round 2, Finding 2: every case above is built on UNEVEN, which starts at t = 0 — so
+// none of them can tell `startS + fraction * (endS - startS)` apart from a mapping that forgot
+// the `startS +` term, since with startS = 0 the two are the same number. The one case that
+// touches a non-zero offset (the clamp test's `900`) lands on fraction 1.0, where the offset
+// cancels out of the subtraction either way.
+it('maps the touch onto the series’ own start offset, not onto zero', () => {
+  // A series starting well after zero, scrubbed to the middle of the plot: fraction 0.5 of a
+  // 300 pt plot is t = 500 + 0.5 * (900 − 500) = 700 s exactly — sample index 1. Dropping the
+  // `startS +` term would instead compute 0.5 * (900 − 500) = 200 s, nearest to sample index 0
+  // (300 s away) rather than index 1 (0 s away).
+  const OFFSET: DiveSample[] = [
+    [500, 10, null, null],
+    [700, 20, null, null],
+    [900, 30, null, null],
+  ];
+  expect(scrubbedIndexAt(150, 300, OFFSET)).toBe(1);
+});
+
+// Review round 2, Finding 4: `scrubbedIndexAt`'s own docblock documents "ties keep the earlier
+// sample", implemented with a strict `<` — but nothing in this file pins it, and UNEVEN never
+// produces an exact tie for any of the touches above.
+it('keeps the earlier sample on an exact tie in time, not the later one', () => {
+  // Two samples equidistant from the mapped instant: t = 0 and t = 200, touched at the exact
+  // midpoint (t = 100 on a 300 pt plot at x = 150). Both are 100 s away — a `<=` in place of
+  // `scrubbedIndexAt`'s `<` would keep the later sample instead.
+  const TIE: DiveSample[] = [
+    [0, 5, null, null],
+    [200, 9, null, null],
+  ];
+  expect(scrubbedIndexAt(150, 300, TIE)).toBe(0);
 });

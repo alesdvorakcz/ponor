@@ -547,12 +547,19 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
     round(PROFILE_PLOT_HEIGHT - PLOT_INSET_Y - (rate / gasMax) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
 
   // ── The readout, and the pan that moves it ──────────────────────────────────────────────
-  // A scrubbed index is only ever produced from THIS series, but the component survives its
-  // `samples` prop changing under it, so an index that no longer addresses a sample falls back
-  // to the default rather than reading off the end of a shorter series. `scrubbedSample` is
-  // also what says whether a finger has been on the plot at all: the hairline is drawn for it
-  // and not for the default, because before a touch there is no touch point to mark and §0.4's
-  // dot already marks what the row is describing.
+  // Review round 2, Finding 5: `samples[scrubbed] ?? deepestSample` only HALF survives
+  // `samples` changing under a mounted instance. A replacement series shorter than `scrubbed`
+  // makes `samples[scrubbed]` `undefined` and the `??` recovers to the default — but a
+  // same-length-or-longer replacement finds a real sample sitting at that index and reads it
+  // as the diver's own scrub, hairline included, though no finger ever touched it. That gap is
+  // real, and left open deliberately rather than closed by storing the scrubbed TIME instead of
+  // its index (which would recover either way): `app/dive/[id].tsx` mounts the dive detail on
+  // the dive's own id, so moving from one dive to another is a fresh push and a fresh component
+  // instance — a fresh `useState`, `scrubbed` back at `null` — never this same instance's
+  // `samples` prop changing under it. `scrubbedSample` is also what says whether a finger has
+  // been on the plot at all: the hairline is drawn for it and not for the default, because
+  // before a touch there is no touch point to mark and §0.4's dot already marks what the row
+  // is describing.
   const scrubbedSample = scrubbed === null ? undefined : samples[scrubbed];
   const reading = scrubbedSample ?? deepestSample;
   // Both figures go through `format/display.ts` like every other figure in the app, so the
@@ -619,12 +626,12 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
           moving its neighbour. */}
       <View style={styles.profileReadout}>
         <View style={styles.profileReadoutFigure}>
-          <Text style={styles.profileReadoutLabel}>{t('profile.depth')}</Text>
-          <Text style={styles.profileReadoutValue}>{readingDepth}</Text>
+          <Text style={styles.profileReadoutLabel} numberOfLines={1}>{t('profile.depth')}</Text>
+          <Text style={styles.profileReadoutValue} numberOfLines={1}>{readingDepth}</Text>
         </View>
         <View style={styles.profileReadoutFigure}>
-          <Text style={styles.profileReadoutLabel}>{t('profile.gas')}</Text>
-          <Text style={styles.profileReadoutValue}>{readingGas}</Text>
+          <Text style={styles.profileReadoutLabel} numberOfLines={1}>{t('profile.gas')}</Text>
+          <Text style={styles.profileReadoutValue} numberOfLines={1}>{readingGas}</Text>
         </View>
       </View>
       <View style={styles.profilePlotRow}>

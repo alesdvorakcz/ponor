@@ -2452,6 +2452,19 @@ function build(scheme: ColorScheme) {
      * row of two intrinsically-sized items does exactly that: `0.1 m` and `24.3 m` are not the
      * same width even in mono, so the gas figure beside them would slide left and right under a
      * dragging finger. Fixed slots mean only the glyphs inside them ever change.
+     *
+     * **Review round 2, Finding 1: a fixed slot still has to survive its OWN worst content.**
+     * RN's default `flexShrink` is 0, not web's 1 (`profileMeta`, one block above, is where
+     * this file first says so) — so without it, Czech's `Spotřeba` beside an imperial `0.71 cu
+     * ft/min` overflows this half of the row and collides with its neighbour: two "fixed"
+     * figures can still fight each other for space neither was given. `flexShrink: 1` on the
+     * figure and on each of its two `Text`s below — the one property `profileMeta` already
+     * leans on, not a new mechanism — lets that content give way instead. Shrinking alone only
+     * trades one defect for another: a `Text` with nowhere to grow WRAPS rather than overflows,
+     * which grows the row exactly when a diver drags from the em dash to a figure — so the
+     * component also pins `numberOfLines={1}` on both `Text`s, turning that wrap into a
+     * mid-line truncation. Either guard alone still shifts the layout; only both together keep
+     * the promise the paragraph above makes.
      */
     profileReadout: {
       flexDirection: 'row',
@@ -2460,6 +2473,7 @@ function build(scheme: ColorScheme) {
     },
     profileReadoutFigure: {
       flex: 1,
+      flexShrink: 1,
       flexDirection: 'row',
       alignItems: 'baseline',
       gap: 6,
@@ -2467,20 +2481,30 @@ function build(scheme: ColorScheme) {
     // The label reads as the figure's footnote, exactly as the card's own caption does beside
     // its title — same face, same size, same muted ink, so the readout sits inside the card's
     // typography instead of introducing a third voice.
+    //
+    // `flexShrink: 1` — see this card's own `profileReadout` docblock, above (Review round 2,
+    // Finding 1). Paired with `numberOfLines={1}` on the component's `Text`, or shrinking alone
+    // would just wrap this onto a second line rather than overflow.
     profileReadoutLabel: {
       fontFamily: fonts.mono,
       fontSize: 10,
       lineHeight: PROFILE_AXIS_LINE_HEIGHT,
       color: theme.fgMuted,
+      flexShrink: 1,
     },
     // The figure itself is the one thing on this card a diver is reading rather than looking
     // at, so it carries full ink and the medium weight §0.2 gives a data figure — a step up
     // from the axis labels, which are furniture.
+    //
+    // `flexShrink: 1`, same reason and the same `numberOfLines={1}` pairing as the label above
+    // — this is the half whose content actually changes as a diver drags, so it is the half
+    // that would visibly grow the row without both guards in place together.
     profileReadoutValue: {
       fontFamily: fonts['mono-medium'],
       fontSize: 13,
       lineHeight: PROFILE_AXIS_LINE_HEIGHT,
       color: theme.fg,
+      flexShrink: 1,
     },
     // The axis column, the plot and the gas axis, side by side. `flex-start` so the two axis
     // columns hang from the plot's top edge rather than stretching to the taller child (the
