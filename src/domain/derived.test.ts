@@ -1,5 +1,5 @@
 import type { Configuration, Tank } from './types';
-import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from './derived';
+import { gasUsedLitres, mod, nitrogenPct, rmv, rmvFrom, surfaceIntervalMin, timeOut, usedBar } from './derived';
 
 const tank = (over: Partial<Tank> = {}): Tank => ({
   material: 'steel', configuration: 'single', sizeL: 12, workingBar: 232,
@@ -224,6 +224,16 @@ describe('rmv', () => {
     // which is the same unreal-RMV shape the litres <= 0 guard above rejects.
     const denormal = tank({ startBar: Number.MIN_VALUE, endBar: 0, sizeL: 1, configuration: 'single' });
     expect(rmv({ tanks: [denormal], avgDepthM: 0, durationMin: 2 })).toBeNull();
+  });
+
+  it('is what rmvFrom returns for the same litres/depth/duration, the extraction this suite guards', () => {
+    // rmv's own arithmetic was inlined here before domain/consumption.ts needed to share it.
+    // Pinning both against the same known dive is what makes the extraction behaviour-preserving
+    // rather than merely "still passes the tests that happened to exist" — if rmv ever drifted
+    // from rmvFrom, this is the test that would catch it, not the one above that predates the split.
+    const dive = { tanks: [tank()], avgDepthM: 20, durationMin: 45 };
+    expect(rmv(dive)).toBe(rmvFrom(1800, 20, 45));
+    expect(rmv(dive)).toBeCloseTo(13.33, 2);
   });
 });
 

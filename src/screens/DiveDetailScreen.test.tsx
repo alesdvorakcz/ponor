@@ -517,19 +517,28 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // is the other half: `derived.ts`'s own export list, read at runtime rather than retyped
 // here, so a value added to that module is counted automatically too.
 //
-// The fixture below is built so all seven of today's exports return non-null and each renders
-// as exactly one row — the default cylinder's blank helium is read as none (`nitrogenPct`),
-// so N2 is present without the fixture having to state a fraction no diver writes for air:
-// one tank (not two) keeps MOD, N2 and Used from doubling up the way task
+// The fixture below is built so all seven screen-facing exports return non-null and each
+// renders as exactly one row — the default cylinder's blank helium is read as none
+// (`nitrogenPct`), so N2 is present without the fixture having to state a fraction no diver
+// writes for air: one tank (not two) keeps MOD, N2 and Used from doubling up the way task
 // 4's "shows every cylinder its own MOD" test deliberately exercises elsewhere, and the
 // earlier/target pair is the same shape "marks the surface interval..." above already
-// proves resolves to a non-null interval. Marked-count and export-count coincide at 7 today
-// only because every current export is both non-null for this fixture AND wired into this
-// screen; a derived value added for some other screen entirely (not rendered here at all)
+// proves resolves to a non-null interval. Marked-count and export-count coincide at 7 only
+// because every screen-facing export is both non-null for this fixture AND wired into this
+// screen; a derived value added for some other consumer entirely (not rendered here at all)
 // would desync the two sides without this screen having done anything wrong — a limit worth
 // naming rather than a defect this test can see around, since nothing short of re-deriving
 // each value from its own inputs (i.e. hardcoding the six again, just as function calls
 // instead of as strings) could rule it out.
+//
+// `rmvFrom` (profile work, M3o) is exactly that scenario arriving rather than staying
+// hypothetical: it is the shared litres/ata/minutes arithmetic `rmv` below and
+// `domain/consumption.ts`'s windowed figure both call, not a fact this screen shows about one
+// dive in its own right — nothing here renders a bare "litres ÷ ata ÷ minutes" row, so it can
+// never be the value behind a mark on this screen. Excluded by name, which is the cheaper
+// half of the "no defect, no rule-out" trade-off named above: re-deriving a screen-facing list
+// from scratch (the other half) would mean hardcoding the seven names this test exists to
+// avoid hardcoding.
 it('marks every value this screen reads from derived.ts as computed, not just six of seven', async () => {
   const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
   const target = dive({
@@ -545,7 +554,8 @@ it('marks every value this screen reads from derived.ts as computed, not just si
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
   const markCount = textNodesOf(t).filter((n) => n.children[0] === '=').length;
-  expect(markCount).toBe(Object.keys(derived).length);
+  const screenFacing = Object.keys(derived).filter((name) => name !== 'rmvFrom');
+  expect(markCount).toBe(screenFacing.length);
 });
 
 // The `=` mark proves a row is computed; this proves the OTHER half of §0.6's rule ("...and

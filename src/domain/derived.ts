@@ -183,6 +183,30 @@ export function gasUsedLitres(tanks: Tank[]): number | null {
 }
 
 /**
+ * **The one place surface-equivalent consumption is computed** (§4.1 of the profile spec).
+ *
+ * `rmv` below answers it for a whole dive; `domain/consumption.ts` answers it for a 60-second
+ * window, and both call this. A second copy would let the dive detail's chart and the Stats
+ * screen's figure tell a diver two different numbers about the same dive, which is §4.1's
+ * defining defect — and they currently agree, which should be structural rather than lucky.
+ */
+export function rmvFrom(litres: number, avgDepthM: number, minutes: number): number | null {
+  if (!isNumber(litres) || litres <= 0) return null;
+  if (!isNumber(avgDepthM) || avgDepthM < 0) return null;
+  if (!isNumber(minutes) || minutes <= 0) return null;
+  const value = litres / (avgDepthM / METRES_PER_BAR + 1) / minutes;
+  // Number.isFinite(0) is true, so finiteness alone doesn't reject a zero
+  // RMV here any more than it did before litres <= 0 was guarded above: a
+  // denormal litres divided by a large enough durationMin can underflow all
+  // the way down to exactly 0, the same unreal-RMV shape as that guard, just
+  // reached by underflow instead of a literal zero going in. value > 0
+  // catches that; Number.isFinite is kept alongside it, not replaced by it —
+  // value > 0 alone would accept Infinity too (Infinity > 0 is true), which
+  // is the overflow this file already rejects a few lines up.
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
  * Respiratory minute volume: how much gas the diver would breathe per minute at
  * the surface. Dividing by the average ambient pressure is what makes dives at
  * different depths comparable.
@@ -195,21 +219,11 @@ export function rmv(
   // A breathing diver cannot have an RMV of zero. gasUsedLitres legitimately
   // returns 0 for a stage bottle that was carried but never opened, but that
   // is not a real RMV — and understating RMV is the unsafe direction for gas
-  // planning, so this is null, not 0.
+  // planning, so this is null, not 0. rmvFrom's own litres <= 0 guard covers
+  // it structurally; this check stays so a 0 does not reach isNumber(avgDepthM)
+  // and beyond only to be rejected one line later for the same reason.
   if (litres === null || litres <= 0) return null;
-  if (!isNumber(dive.avgDepthM) || dive.avgDepthM < 0) return null;
-  if (!isNumber(dive.durationMin) || dive.durationMin <= 0) return null;
-  const ata = dive.avgDepthM / METRES_PER_BAR + 1;
-  const value = litres / ata / dive.durationMin;
-  // Number.isFinite(0) is true, so finiteness alone doesn't reject a zero
-  // RMV here any more than it did before litres <= 0 was guarded above: a
-  // denormal litres divided by a large enough durationMin can underflow all
-  // the way down to exactly 0, the same unreal-RMV shape as that guard, just
-  // reached by underflow instead of a literal zero going in. value > 0
-  // catches that; Number.isFinite is kept alongside it, not replaced by it —
-  // value > 0 alone would accept Infinity too (Infinity > 0 is true), which
-  // is the overflow this file already rejects a few lines up.
-  return Number.isFinite(value) && value > 0 ? value : null;
+  return rmvFrom(litres, dive.avgDepthM ?? NaN, dive.durationMin ?? NaN);
 }
 
 /** A gas fraction is a percentage of the mix, so it lives in [0, 100]. */
