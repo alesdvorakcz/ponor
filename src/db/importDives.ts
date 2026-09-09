@@ -54,7 +54,8 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
       parsed = importer.parse(file.bytes);
     } catch {
       // ImportRefusal is expected; anything else is a bug in an importer, and either way it
-      // must not take the batch down — §1's "a failure never blocks the rest", one door over.
+      // must not take the batch down — DESIGN.md §7's "sync failures never block logging",
+      // one door over.
       //
       // Deliberately silent, and deliberately not `console`: §9 wires Sentry in M3 and turns
       // console output into breadcrumbs, and `cloud/auth.ts` records why nothing in this app
@@ -75,7 +76,8 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
         // The SELECT is **deliberately not scoped to live dives** — it finds a dive even if the
         // diver has since soft-deleted it. Deleting an imported dive *is* the diver's work; a
         // re-import that silently resurrected it would be the overwrite this skip exists to
-        // prevent (and would contradict §6's "the file is immutable, the diver's copy is not").
+        // prevent (and would contradict the import spec's §6, "the file is immutable, the
+        // diver's copy is not").
         // A skipped dive never reaches putDiveSamples, so the inconsistency with that function's
         // un-tombstoning does not bite: deleted-then-re-imported stays deleted; only a dive
         // whose *series* is deleted has the curve restored on re-import.
@@ -89,14 +91,24 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
         }
 
         // Per dive, not per batch: one malformed file must not roll back the fourteen before it.
-        const written = await createDive(db, dive);
+        //
+        // **This writer stamps `importSource` and `importId` itself, overriding whatever `dive`
+        // carries**, rather than trusting an importer to have set them correctly (DESIGN.md
+        // §4.1 — one owner per rule). `ImportedDive.dive`'s own type no longer even offers an
+        // importer those two keys, but the override stays explicit here too: this is the one
+        // line where a silent `undefined` on either key would otherwise reach `createDive` and,
+        // through its own `withoutUndefinedFields`, become a `null` column — which the SELECT
+        // two lines up can never match again, so every future re-import of that dive would
+        // duplicate it rather than skip it.
+        const written = await createDive(db, { ...dive, importSource: importer.source, importId });
         if (series) await putDiveSamples(db, written.id, series);
         outcome.imported += 1;
       } catch {
         // **A throw here is a save failure, not a read failure** — the file was parsed in
         // full; the SELECT, createDive or putDiveSamples that followed it did not complete (a
-        // full disk, a SQLite error, a bug in one of them). §6 promises the batch never aborts
-        // on a failure, and that promise runs one dive deep, not one file deep: a dive whose
+        // full disk, a SQLite error, a bug in one of them). The import spec's §6 promises the
+        // batch never aborts on a failure, and that promise runs one dive deep, not one file
+        // deep: a dive whose
         // write throws must not stop the dives beside it, in this file or the next — the same
         // "per dive, not per batch" reasoning just above, one level up.
         //

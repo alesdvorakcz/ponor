@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import * as registryModule from '../domain/import/registry';
+import { type DiveImporter } from '../domain/import/types';
 import { getDiveSamples } from './diveSamples';
 import * as divesModule from './dives';
 import { listDives, softDeleteDive, updateDive } from './dives';
@@ -99,6 +101,31 @@ it('keeps going past a dive that fails to write, and still imports the files aft
     failed: [{ name: 'bad.json', reason: 'unwritable' }],
   });
   expect(await listDives(db)).toHaveLength(1);
+});
+
+it('dedupes correctly even when an importer’s dive omits importSource and importId', async () => {
+  // The writer must own both halves of the dedupe key (DESIGN.md §4.1). This fake importer
+  // stands in for a second importer whose author sets `source` and forgets to also put
+  // `importSource`/`importId` on the dive it returns — which is exactly the case the SELECT
+  // above cannot protect against by itself: it queries `importer.source`, but the write used
+  // to trust whatever `dive.importSource`/`dive.importId` happened to hold, `undefined` here.
+  const fakeImporter: DiveImporter = {
+    source: 'fake-format',
+    label: () => 'Fake',
+    recognises: () => true,
+    parse: () => [{ importId: 'fixed-id-1', series: null, dive: { date: '2026-01-01' } }],
+  };
+  jest.spyOn(registryModule, 'importerFor').mockReturnValue(fakeImporter);
+
+  const first = await importFiles(db, [file('fake.bin', new Uint8Array())]);
+  expect(first).toMatchObject({ imported: 1, alreadyThere: 0, failed: [] });
+
+  const second = await importFiles(db, [file('fake.bin', new Uint8Array())]);
+  expect(second).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+
+  const [dive] = await listDives(db);
+  expect(dive?.importSource).toBe('fake-format');
+  expect(dive?.importId).toBe('fixed-id-1');
 });
 
 it('leaves a previously-imported dive deleted when re-importing after the diver has soft-deleted it', async () => {

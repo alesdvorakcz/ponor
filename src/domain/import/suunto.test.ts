@@ -78,6 +78,51 @@ it('drops samples carrying no depth, which are the event-only records', () => {
   expect(series?.every((s) => typeof s[1] === 'number')).toBe(true);
 });
 
+it('drops a sample whose own timestamp cannot be read, exactly as one with no depth', () => {
+  // `+08` is not a valid ISO-8601 offset on its own — `Date.parse` returns NaN for it, where
+  // every other numeric read in this file already guards through `num()`/`scaled()`/`celsius()`
+  // rather than trusting the input. Built inline, like the Temperature case below: no real
+  // Suunto export truncates an offset this way, so this is adversarial input, not a device
+  // shape — but a firmware that ever did write a malformed offset must not have it silently
+  // become a `null` time on every point while the dive itself imports looking perfect.
+  const poisoned = new TextEncoder().encode(
+    JSON.stringify({
+      DeviceLog: {
+        Header: { DateTime: '2026-01-01T10:00:00.000+00:00', Depth: { Max: 5, Avg: 5 } },
+        Samples: [
+          { Depth: 4, Temperature: 20, TimeISO8601: '2026-01-01T10:00:05.000+00:00' },
+          { Depth: 5, Temperature: 20, TimeISO8601: '2026-01-01T10:00:10.000+08' },
+        ],
+      },
+    }),
+  );
+  const [imported] = suuntoJsonImporter.parse(poisoned);
+  if (!imported) throw new Error('no dive parsed');
+  expect(imported.series).toHaveLength(1);
+  expect(imported.series?.[0]?.[1]).toBe(4);
+});
+
+it('produces no series when the dive’s own start time cannot be resolved, though the dive still imports', () => {
+  // The header's own `DateTime` opens with the same malformed `+08` offset. `localPartsOf`
+  // still reads a local date and time off it — that regex only reads the digits before the
+  // offset and never looks at the offset itself — so the dive imports looking perfect. But
+  // every sample's series time is computed by subtracting *this* instant, so when it cannot
+  // be read as one, no sample in the file can produce a time, and the whole series is dropped
+  // rather than written as a real-looking dive with every point's time silently null.
+  const poisoned = new TextEncoder().encode(
+    JSON.stringify({
+      DeviceLog: {
+        Header: { DateTime: '2026-01-01T10:00:00.000+08', Depth: { Max: 5, Avg: 5 } },
+        Samples: [{ Depth: 4, Temperature: 20, TimeISO8601: '2026-01-01T10:00:05.000+08:00' }],
+      },
+    }),
+  );
+  const [imported] = suuntoJsonImporter.parse(poisoned);
+  if (!imported) throw new Error('no dive parsed');
+  expect(imported.dive.date).toBe('2026-01-01');
+  expect(imported.series).toBeNull();
+});
+
 it('keys a dive on its computer and its local start, to the second', () => {
   const { importId } = only('suunto-d5');
   expect(importId).toBe('000000000000:2026-02-19T11:22:08');
@@ -103,9 +148,16 @@ it('invents nothing the file does not carry', () => {
   }
 });
 
-it('marks where the dive came from, so a re-import can find it again', () => {
+it('leaves importSource and importId for the writer to stamp, not for this importer to guess', () => {
+  // db/importDives.ts is the one writer and stamps both fields itself on every dive this
+  // importer yields — `importSource` from `DiveImporter.source`, `importId` from the field
+  // beside `dive` — regardless of what `dive` carries (DESIGN.md §4.1, one owner per rule).
+  // `dive`'s own type (domain/import/types.ts) no longer offers these two keys at all, so
+  // this checks the runtime object rather than a property TypeScript would now refuse to
+  // compile against.
   const { dive } = only('suunto-d5');
-  expect(dive.importSource).toBe('suunto-app-json');
+  expect(Object.keys(dive)).not.toContain('importSource');
+  expect(Object.keys(dive)).not.toContain('importId');
   expect(dive.status).toBe('logged');
 });
 

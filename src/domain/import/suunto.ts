@@ -26,6 +26,19 @@ const celsius = (v: unknown): number | null => {
   return k === null ? null : Number((k - KELVIN_AT_ZERO_C).toFixed(1));
 };
 
+/** Seconds from the dive's start, or null if either timestamp cannot be read as a real
+ * instant. `Date.parse` returns `NaN` for a malformed string — an offset a firmware wrote
+ * wrong is enough — and every other numeric read in this file already guards against exactly
+ * that (`num()`, `scaled()`, `celsius()`) rather than trusting `JSON.stringify` to turn the
+ * `NaN` into a `null` further down and hoping nobody notices every point in the series got
+ * one. `startMs` is checked here too, not only by its one caller: a dive whose own start time
+ * cannot be resolved makes every sample's time equally unresolvable. */
+const secondsFromStart = (iso: string, startMs: number): number | null => {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms) || !Number.isFinite(startMs)) return null;
+  return Number(((ms - startMs) / 1000).toFixed(2));
+};
+
 interface SuuntoSample {
   Depth?: number | null;
   Temperature?: number | null;
@@ -65,21 +78,34 @@ export const suuntoJsonImporter: DiveImporter = {
     const localKey = `${local.date}T${local.time}:${local.second}`;
 
     const serial = String(log?.Device?.SerialNumber ?? header?.Device?.SerialNumber ?? 'unknown');
+    // Built once and read twice below (the top-level field, and nowhere else — `dive` itself
+    // no longer carries a copy; see `ImportedDive.dive`'s own docblock in ./types for why).
+    const importId = `${serial}:${localKey}`;
     const startMs = Date.parse(startedAt);
 
     const samples: SuuntoSample[] = Array.isArray(log?.Samples) ? log.Samples : [];
     // Event-only records carry no depth and are not part of the profile.
     const dived = samples.filter((s) => num(s?.Depth) !== null && typeof s?.TimeISO8601 === 'string');
 
-    const series: DiveSample[] = dived.map((s) => [
+    // A sample whose own time cannot be resolved — or every sample, if the dive's own start
+    // time cannot be — is dropped exactly as one with no depth already is above, rather than
+    // written with a computed time that has quietly become `null` (`flatMap` over a
+    // one-or-zero-element array, so an unresolvable sample contributes nothing rather than a
+    // hole the array index would still count).
+    const series: DiveSample[] = dived.flatMap((s): DiveSample[] => {
       // From the sample's own timestamp, never index × SampleInterval: the file declares 10 s
       // and its real deltas run 9.74–10.10, so an index-derived series would drift against the
       // timestamps it claims to represent.
-      Number(((Date.parse(s.TimeISO8601!) - startMs) / 1000).toFixed(2)),
-      num(s.Depth)!,
-      celsius(s.Temperature),
-      scaled(s.Cylinders?.[0]?.Pressure, PASCALS_PER_BAR, 1),
-    ]);
+      const time = secondsFromStart(s.TimeISO8601!, startMs);
+      if (time === null) return [];
+      const sample: DiveSample = [
+        time,
+        num(s.Depth)!,
+        celsius(s.Temperature),
+        scaled(s.Cylinders?.[0]?.Pressure, PASCALS_PER_BAR, 1),
+      ];
+      return [sample];
+    });
 
     // The deepest sample that carries a temperature; ties resolve to the first. Owner's call
     // (2026-09-09): the temperature at depth, not the coldest of the dive.
@@ -105,7 +131,7 @@ export const suuntoJsonImporter: DiveImporter = {
 
     const duration = num(header?.Duration);
     const dive: ImportedDive = {
-      importId: `${serial}:${localKey}`,
+      importId,
       series: series.length > 0 ? series : null,
       dive: {
         date: local.date,
@@ -121,8 +147,6 @@ export const suuntoJsonImporter: DiveImporter = {
         waterTempC: celsius(deepest?.Temperature),
         tanks,
         status: 'logged',
-        importSource: 'suunto-app-json',
-        importId: `${serial}:${localKey}`,
       },
     };
     return [dive];
