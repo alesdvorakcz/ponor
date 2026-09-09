@@ -15,7 +15,8 @@ import { createTestDb, type TestDb } from './testDb';
  *
  * One row per dive, keyed on the dive's own id (see that table's docblock in `schema.ts` for
  * why it is a 1:1 extension rather than a child table). What matters here is not the columns
- * — there are only five — but four things a review cannot see:
+ * — there are only six (`id`, `series`, `created_at`, `updated_at`, `deleted_at`, `dirty`) —
+ * but four things a review cannot see:
  *
  * · **A round trip is exact.** The series is opaque tuples to this layer; nothing here may
  *   reorder, coerce or drop a sample, because §0.4 draws a profile from exactly what a dive

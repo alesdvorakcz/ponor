@@ -427,6 +427,7 @@ afterEach(() => {
 function exportSource(over: Partial<ExportSource> = {}): ExportSource {
   return {
     dives: [],
+    diveSamples: [],
     gearPresets: [],
     certifications: [],
     diveSites: [],

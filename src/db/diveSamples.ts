@@ -16,8 +16,8 @@ import { liveRows } from './tombstone';
 import type { Db } from './types';
 import { EVERY_ROW } from './wipe';
 
-/** A `dive_samples` row exactly as Drizzle returns it — the shape the five sync functions
- * below move around, none of which reach into it. */
+/** A `dive_samples` row exactly as Drizzle returns it — the shape the seven functions below
+ * move around, none of which reach into it. */
 type DiveSampleRow = typeof diveSamples.$inferSelect;
 
 /** Live rows only — a tombstoned series is gone as far as anything that draws is concerned,
@@ -44,6 +44,15 @@ export async function putDiveSamples(db: Db, diveId: string, series: readonly Di
     });
 }
 
+/** Every live series this device holds, for §8's JSON export alone (`db/exportSource.ts`) —
+ * the CSV has no shape for a profile (`domain/dataExport.ts`'s own split) and nothing else
+ * needs every series at once. Filtered through `liveSeries` like every other export read, so
+ * a dive the diver deleted does not leave its profile in a file that is supposed to mirror
+ * what they see. */
+export async function listDiveSamples(db: Db): Promise<DiveSampleRow[]> {
+  return db.select().from(diveSamples).where(liveSeries);
+}
+
 /** A dive's profile, or `null` where there is none — which is most dives, and is not an error
  * (§0.4: no curve is drawn for a dive without a real sample series). */
 export async function getDiveSamples(db: Db, diveId: string): Promise<DiveSample[] | null> {
@@ -55,7 +64,17 @@ export async function getDiveSamples(db: Db, diveId: string): Promise<DiveSample
   return row.series.length > 0 ? row.series : null;
 }
 
-/** Marks a dive's series deleted without removing the row, so §7 carries the deletion. */
+/**
+ * Marks a dive's series deleted without removing the row, so §7 carries the deletion.
+ *
+ * **A no-op when nothing live matches, unlike its sibling soft-deletes.** `softDeleteCertification`
+ * and `softDeleteDive` both throw when their own UPDATE touches no row, because their caller
+ * handed them an id nobody asked to delete. This function's caller is different: `softDeleteDive`
+ * calls it on **every** dive it deletes, and most dives have no profile at all, so "no live row
+ * matched" is the ordinary case here, not a caller's mistake. Throwing would turn deleting an
+ * unprofiled dive into a crash on the save path deletion itself is part of, over a series that
+ * was correctly never written in the first place.
+ */
 export async function tombstoneDiveSamples(db: Db, diveId: string): Promise<void> {
   const stamp = stampLocalWrite();
   await db
@@ -65,12 +84,14 @@ export async function tombstoneDiveSamples(db: Db, diveId: string): Promise<void
 }
 
 /**
- * **The sixth synced table (§7), and the five functions below are thin wrappers over
- * `db/dirty.ts` alone** — copied from `db/certifications.ts`'s own five, which is the shape
- * every synced table's sync surface takes and must not grow logic of its own. `cloud/sync.ts`'s
- * `SYNCED_TABLES` is the caller; see that file for how a series joins the push/pull loop with
- * no protocol change, because a series is one row keyed by its dive's own id, carried exactly
- * as a dive is by §7's whole-row last-write-wins.
+ * **The sixth synced table (§7), and the seven functions below are its sync surface** —
+ * copied from `db/certifications.ts`'s own seven, which is the shape every synced table's
+ * sync surface takes and must not grow logic of its own. **Six of the seven are thin wrappers
+ * over `db/dirty.ts` alone**; `wipeDiveSamples` at the end is the one exception, wrapping
+ * `db/wipe.ts`'s `EVERY_ROW` instead, because a sign-out erase is not part of push/pull.
+ * `cloud/sync.ts`'s `SYNCED_TABLES` is the caller; see that file for how a series joins the
+ * push/pull loop with no protocol change, because a series is one row keyed by its dive's own
+ * id, carried exactly as a dive is by §7's whole-row last-write-wins.
  */
 
 /** The series this device still owes the server — `pendingRows` (db/dirty.ts). */

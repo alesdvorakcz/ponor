@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { todayCalendarDate } from '../domain/datetime';
 import { applyPulledDiveCenters, applyPulledDiveSites, createDiveCenter, createDiveSite, type PulledCenter, type PulledSite } from './catalogue';
 import { createCertification } from './certifications';
+import { putDiveSamples } from './diveSamples';
 import { createDive, softDeleteDive } from './dives';
 import { readExportSource } from './exportSource';
 import { createGearPreset } from './gearPresets';
@@ -130,6 +131,28 @@ describe('readExportSource', () => {
 
     expect(source.diveSites.map((site) => site.id)).toEqual([local.id]);
     expect(source.diveCenters.map((center) => center.name)).toEqual(['Nový Klub']);
+  });
+
+  it('includes a dive’s profile alongside it, keyed by the dive’s own id', async () => {
+    const withProfile = await createDive(db, { date: '2026-08-16' });
+    await putDiveSamples(db, withProfile.id, [[0.57, 1.27, 27.7, 188.9]]);
+    await createDive(db, { date: '2026-08-17' }); // no profile — most dives have none
+
+    const source = await readExportSource(db, null);
+
+    expect(source.diveSamples.map((row) => row.id)).toEqual([withProfile.id]);
+    expect(source.diveSamples[0]?.series).toEqual([[0.57, 1.27, 27.7, 188.9]]);
+  });
+
+  it('leaves out a profile whose dive the diver deleted, along with the dive itself', async () => {
+    const deleted = await createDive(db, { date: '2026-08-16' });
+    await putDiveSamples(db, deleted.id, [[0, 1, null, null]]);
+    await softDeleteDive(db, deleted.id); // tombstones the dive and, through it, its series
+
+    const source = await readExportSource(db, null);
+
+    expect(source.dives).toEqual([]);
+    expect(source.diveSamples).toEqual([]);
   });
 
   it('reads the pre-Ponor count from settings', async () => {

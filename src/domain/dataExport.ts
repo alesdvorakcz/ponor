@@ -1,3 +1,4 @@
+import type { DiveSample } from '../db/schema';
 import { csvDocument } from '../format/csv';
 import { displayNumber, unitLabel, type Quantity, type UnitSystem } from '../format/units';
 import { assignDiveNumbers, compareDiveOrder, isDiveCount } from './diveNumber';
@@ -81,7 +82,35 @@ import type {
  *
  * Tombstoned rows are absent because every read this is built from applies §4.1's own
  * tombstone filter; a dive the diver deleted is a dive they deleted.
+ *
+ * **A dive's depth profile is in the JSON and nowhere near the CSV.** DESIGN.md §8 calls the
+ * JSON "the file that could rebuild the logbook" — a promise this file could not keep while
+ * `dive_samples` went unread, since a diver who imported dives, exported, and started over
+ * would find every profile gone from the copy they were told to trust. The CSV is one row per
+ * dive by construction (`diveColumns`'s own docblock), and a 200-point series has no cell to
+ * sit in; it stays exactly the shape it was before profiles existed.
  */
+
+/**
+ * One dive's profile, exactly as `db/schema.ts`'s `dive_samples` table stores it —
+ * `db/exportSource.ts` reads it straight off that repository and hands it over unmapped, so
+ * this describes that row rather than a copy of it. Kept as its **own** collection, keyed by
+ * `id` (the dive's own id, per that table's docblock), rather than nested onto the matching
+ * dive: `Dive` itself has no `series` field to begin with — the table exists so the app's
+ * most-travelled query never carries one — and inventing a shape here that the rest of the
+ * app does not have would be the export disagreeing with its own source about what a dive is.
+ *
+ * `dirty` rides along with every other collection in `ExportSource` and is stripped only at
+ * `jsonExport`'s own boundary, by the same `withoutDirtyFlag` the rest already use.
+ */
+export interface ExportedDiveSample {
+  readonly id: string;
+  readonly series: readonly DiveSample[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly deletedAt: string | null;
+  readonly dirty: boolean;
+}
 
 /**
  * Everything an export is made of, already read. `db/exportSource.ts` builds it.
@@ -93,6 +122,8 @@ import type {
  */
 export interface ExportSource {
   readonly dives: readonly Dive[];
+  /** A dive's profile, keyed by its own id — most dives have none (§0.4). */
+  readonly diveSamples: readonly ExportedDiveSample[];
   readonly gearPresets: readonly GearPreset[];
   readonly certifications: readonly Certification[];
   readonly diveSites: readonly DiveSite[];
@@ -409,6 +440,7 @@ export function jsonExport(source: ExportSource): ExportFile {
     units: 'si',
     divesBefore: isDiveCount(source.divesBefore) ? source.divesBefore : null,
     dives: orderedDives(source.dives).map(withoutDirtyFlag),
+    diveSamples: source.diveSamples.map(withoutDirtyFlag),
     gearPresets: source.gearPresets.map(withoutDirtyFlag),
     certifications: source.certifications.map(withoutDirtyFlag),
     diveSites: source.diveSites.map(withoutDirtyFlag),

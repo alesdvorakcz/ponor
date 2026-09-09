@@ -2,6 +2,7 @@ import { isOwnCatalogueRow, type ExportSource } from '../domain/dataExport';
 import { todayCalendarDate } from '../domain/datetime';
 import { listDiveCenters, listDiveSites } from './catalogue';
 import { listCertifications } from './certifications';
+import { listDiveSamples } from './diveSamples';
 import { listDives } from './dives';
 import { listGearPresets } from './gearPresets';
 import { divesBeforeQuery, readDivesBefore } from './settings';
@@ -20,7 +21,7 @@ import type { Db } from './types';
  *
  * ── One rejection loses the whole export, deliberately ────────────────────────────────────
  *
- * The six reads go out together and **a single failure rejects all of them**. There is no
+ * The seven reads go out together and **a single failure rejects all of them**. There is no
  * per-table `catch`, no "export what we could", and no partial result: a file that is missing
  * a diver's certifications but looks like a complete logbook is worse than no file at all,
  * because they keep it and throw away the original. §1's "never block" binds on the *logging*
@@ -41,11 +42,19 @@ import type { Db } from './types';
  *   local calendar date (`todayCalendarDate`, §4.1's owner) for the two file names. Two
  *   values rather than one because slicing a date out of an ISO instant is UTC, and §4.1 bans
  *   exactly that outside `domain/datetime.ts`.
+ *
+ * **`diveSamples` rides beside `dives` rather than nested onto it** — `listDiveSamples`
+ * (db/diveSamples.ts) is its own repository read, exactly like every table above, and
+ * `domain/dataExport.ts`'s own docblock says why the shape stays a sibling collection rather
+ * than a field grafted onto a `Dive` that has never had one. Filtered through the same
+ * tombstone rule as everything else here: a dive the diver deleted took its profile with it
+ * (`softDeleteDive` tombstones both), so this needs no extra join to keep the two in step.
  */
 export async function readExportSource(db: Db, ownerId: string | null): Promise<ExportSource> {
-  const [dives, gearPresets, certifications, diveSites, diveCenters, divesBeforeRows] =
+  const [dives, diveSamples, gearPresets, certifications, diveSites, diveCenters, divesBeforeRows] =
     await Promise.all([
       listDives(db),
+      listDiveSamples(db),
       listGearPresets(db),
       listCertifications(db),
       listDiveSites(db),
@@ -54,6 +63,7 @@ export async function readExportSource(db: Db, ownerId: string | null): Promise<
     ]);
   return {
     dives,
+    diveSamples,
     gearPresets,
     certifications,
     diveSites: diveSites.filter((site) => isOwnCatalogueRow(site, ownerId)),

@@ -1,3 +1,4 @@
+import type { DiveSample } from '../db/schema';
 import { setActiveLanguage } from '../i18n';
 import { csvExport, isOwnCatalogueRow, jsonExport, type ExportSource } from './dataExport';
 import { dive } from './diveFixture';
@@ -39,6 +40,7 @@ const tank = (over: Partial<Tank> = {}): Tank => ({
 
 const source = (over: Partial<ExportSource> = {}): ExportSource => ({
   dives: [],
+  diveSamples: [],
   gearPresets: [],
   certifications: [],
   diveSites: [],
@@ -350,6 +352,34 @@ describe('jsonExport', () => {
     expect(text).toContain('"12345"');
     expect(text).toContain(`"name": "${CZECH_SITE}"`);
     expect(text).toContain('"diveCenters": []');
+  });
+
+  it('includes a dive’s profile, keyed by the dive’s own id — the CSV has no shape for one', () => {
+    // DESIGN.md §8 calls the JSON "the file that could rebuild the logbook"; a profile left
+    // out of it would make that sentence false the moment a diver imported dives and then
+    // exported.
+    const row = {
+      id: 'dive-1',
+      series: [[0.57, 1.27, 27.7, 188.9]] as DiveSample[],
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      deletedAt: null,
+      dirty: false,
+    };
+
+    const parsed = JSON.parse(jsonExport(source({ diveSamples: [row] })).text) as {
+      diveSamples: unknown[];
+    };
+
+    expect(parsed.diveSamples).toEqual([
+      {
+        id: row.id,
+        series: row.series,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        deletedAt: row.deletedAt,
+      },
+    ]);
   });
 
   it('keeps a diver’s awkward note exactly, escaped by JSON’s own rules', () => {
