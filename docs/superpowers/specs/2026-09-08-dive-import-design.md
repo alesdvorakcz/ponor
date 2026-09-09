@@ -178,11 +178,13 @@ safe here.
 `2026-02-19T11:22:08.290+08:00` — the dive's own local wall clock. Ponor stores `date` and
 `timeIn` as local strings (§10), so the correct read takes the local fields and **ignores** the
 offset. Converting through UTC is the exact trap §10 names for `toISOString()`: it would file an
-evening dive under the previous day. `domain/datetime.ts` remains the only owner of both string
+evening dive under the previous day. The two reference dives make this concrete — the same
+device wrote `+08:00` on one and `+02:00` on the other, so the offset genuinely varies within
+one diver's logbook and cannot be treated as a constant. `domain/datetime.ts` remains the only owner of both string
 forms; this importer calls it and never builds a date string itself.
 
-**Max depth comes from the header, not from the samples.** The deepest sample in the reference
-file reads 24.29 m where `Header.Depth.Max` reads 24.33 m — the device records its true maximum
+**Max depth comes from the header, not from the samples.** Confirmed on both reference dives:
+24.29 m sampled against 24.33 m stated, and 22.83 m against 22.96 m — the device records its true maximum
 at a finer resolution than the 10 s series. Deriving max depth from the samples would
 under-report every imported dive.
 
@@ -196,6 +198,23 @@ deepest sample, so neither branch is exercised by it.
 **`Duration` is the dive; `PauseDuration` is not part of it.** The depth samples span 2210.9 s
 against a stated `Duration` of 2211, so the two agree and the separate `PauseDuration: 163` is
 something else. It is not added, and it is not mapped anywhere.
+
+**A dive without a tank transmitter omits the pressures, and the shape of that absence is not
+uniform** (verified 2026-09-09 against a second real export, same device, no pod):
+
+- In the header, `Gases[0]` **omits the `StartPressure` and `EndPressure` keys entirely** — they
+  are absent, not null. `TankSize`, `TankFillPressure`, `Oxygen` and `Helium` are all still
+  present, so `sizeL`, `workingBar`, `o2Pct` and `hePct` import exactly as before.
+- In the samples, `Cylinders[0].Pressure` is present and **explicitly `null`**.
+
+So the mapping must treat a missing key and a null value as the same answer, in two different
+places. **And `TransmitterID` is not the signal**: it is still present on the pod-less dive
+(`"000000000000"`), so a check keyed on it would conclude the dive has pressures and read
+`undefined` as a number. The test is `StartPressure`/`EndPressure` themselves.
+
+The consequence is correct and worth stating: a pod-less dive imports with `startBar` and
+`endBar` null, so `gasUsedLitres` returns null and `rmv` (domain/derived.ts) returns null. That
+dive shows no RMV because no gas was measured — not because the import lost anything.
 
 **Every gas becomes a tank, and this is the weakest link.** Ponor's `tanks` is an array, so the
 mapping is natural. But Suunto lists gas *mixtures*, not cylinders: a diver carrying one cylinder
@@ -344,16 +363,16 @@ max depth deeper than any sample.
 
 Named rather than implied, in the spirit of §9's own M0 and M1 honesty notes.
 
-- **Multi-gas dives.** One `Gases` entry is all the reference file has. The "every gas becomes a
-  tank" rule would log a single cylinder with a deco mix as two cylinders. **Settled by:** one
-  exported nitrox-deco dive.
-- **Other Suunto devices and firmware.** The evidence is one dive from a Suunto D5 written by
-  `SuuntoFitExport1`. **Settled by:** an export from a second device.
-- **A dive with no tank transmitter.** The reference dive has one, which is why pressures are
-  present at all. A dive logged without one presumably omits `StartPressure`/`EndPressure`, and
-  the mapping must leave those null rather than write zeros. The code will handle absent fields;
-  the *shape* of their absence is unverified. **Settled by:** one dive logged without a
-  transmitter.
+- **Multi-gas dives — and this one cannot be settled here.** One `Gases` entry is all either
+  reference file has, and the owner does not dive multiple gases, so no example can be produced
+  (owner, 2026-09-09). The "every gas becomes a tank" rule would log a single cylinder carrying a
+  deco mix as two cylinders. It ships as the natural reading of the data, and the damage is
+  bounded: `configuration` is null on an imported tank anyway, and a diver can delete the spare.
+  **If it ever needs refining, `State` is the likely discriminator** — both reference files read
+  `"Primary"`, so a deco mix presumably reads something else. Unverified, and recorded as such
+  rather than coded against.
+- **Other Suunto devices and firmware.** The evidence is two dives from one **Suunto D5** written
+  by `SuuntoFitExport1`. **Settled by:** an export from a second device.
 - **Volume.** No import of hundreds of files has been run. Per-dive transactions and a single
   picker call are the design's answer, but the wall-clock cost is unmeasured.
 
