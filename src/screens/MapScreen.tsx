@@ -24,6 +24,7 @@ import {
 import { DiveRow } from '../components/DiveRow';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDives } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDiveSites } from '../db/useDiveSites';
@@ -247,6 +248,11 @@ export default function MapScreen() {
   const units = useUnitSystem();
   const insets = useSafeAreaInsets();
   const { dives, numbers, resolved, error } = useDives();
+  // Task 6's row sparkline map — its own hook (see that file's own docblock for why), read
+  // alongside `useDives()` and, deliberately, with neither of its own `resolved`/`error`
+  // consulted: a failed sample-series read must not blank this screen's sheet the way a
+  // failed DIVES read does.
+  const { shapes } = useDiveSampleShapes();
   const catalogue = useDiveSites();
   // The centres half of the catalogue (M3c) — its own hook rather than a field on
   // `useDiveSites()`, so a failed centres read cannot take the community sites off the map
@@ -789,6 +795,7 @@ export default function MapScreen() {
                 <DiveRow
                   dive={item}
                   number={numbers.get(item.id)}
+                  samples={shapes.get(item.id)}
                   scheme={scheme}
                   units={units}
                   onPress={(id) => router.push(`/dive/${id}`)}

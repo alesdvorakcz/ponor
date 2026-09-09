@@ -7,7 +7,9 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
@@ -24,6 +26,9 @@ import DiveSiteScreen from './DiveSiteScreen';
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// Task 6's row sparkline map — its own hook, mocked on its own for the same reason `useDives`
+// above is: a live database read this screen must be renderable without.
+jest.mock('../db/useDiveSampleShapes', () => ({ useDiveSampleShapes: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn() },
@@ -32,6 +37,7 @@ jest.mock('expo-router', () => ({
 
 const mockUseDiveSites = useDiveSites as jest.MockedFunction<typeof useDiveSites>;
 const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
+const mockUseDiveSampleShapes = useDiveSampleShapes as jest.MockedFunction<typeof useDiveSampleShapes>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const mockParams = useLocalSearchParams as jest.MockedFunction<typeof useLocalSearchParams>;
 
@@ -83,10 +89,19 @@ function divesState(dives: Dive[], over: Partial<DiveListState> = {}): DiveListS
 beforeEach(() => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock()]));
   mockUseDives.mockReturnValue(divesState([]));
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map(), resolved: true, error: undefined });
   mockUseUnitSystem.mockReturnValue('metric');
   mockParams.mockReturnValue({ id: 's1' });
   (router.push as jest.Mock).mockClear();
 });
+
+// Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
+// row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
+const SERIES: DiveSample[] = [
+  [0, 5, null, null],
+  [30, 12, null, null],
+  [60, 3, null, null],
+];
 
 function allNodes(t: RenderResult) {
   return t.root ? [t.root, ...t.root.queryAll(() => true)] : [];
@@ -283,6 +298,20 @@ it('lists the dives that were at this site and no others', async () => {
 it('counts a dive that named the site by hand', async () => {
   mockUseDives.mockReturnValue(divesState([dive({ siteName: 'kotelna', maxDepthM: 9.4 })]));
   expect(textIn(await show())).toContain('1 dive · deepest 9.4 m');
+});
+
+// Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
+// ever passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
+// actually reaches this page's own dive list.
+it("passes each dive its own series from useDiveSampleShapes() through to its row's sparkline", async () => {
+  mockUseDives.mockReturnValue(divesState([dive({ id: 'has-series', siteId: 's1' })]));
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await show();
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
 });
 
 // A page opened to ask "what have I done here" answers even when the answer is none — the one

@@ -9,8 +9,10 @@ import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@te
 import { router } from 'expo-router';
 
 import { useAuthSession } from '../cloud/useAuthSession';
+import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
@@ -32,6 +34,9 @@ jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
 // The centres half of the catalogue (M3c) — its own hook, mocked on its own, which is also what
 // makes "a failed centres read does not take the sites off the map" a thing this file can state.
 jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));
+// Task 6's row sparkline map — its own hook, mocked on its own for the same reason `useDives`
+// above is: a live database read this screen must be renderable without.
+jest.mock('../db/useDiveSampleShapes', () => ({ useDiveSampleShapes: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 jest.mock('../cloud/useAuthSession', () => ({
   useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
@@ -50,6 +55,7 @@ jest.mock('../platform/locationPermission', () => ({
 const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
 const mockUseDiveSites = useDiveSites as jest.MockedFunction<typeof useDiveSites>;
 const mockUseDiveCenters = useDiveCenters as jest.MockedFunction<typeof useDiveCenters>;
+const mockUseDiveSampleShapes = useDiveSampleShapes as jest.MockedFunction<typeof useDiveSampleShapes>;
 const mockUseAuthSession = useAuthSession as jest.MockedFunction<typeof useAuthSession>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const mockLocationPermission = locationPermission as jest.MockedFunction<typeof locationPermission>;
@@ -125,6 +131,7 @@ beforeEach(() => {
   mockUseDives.mockReturnValue(divesState([]));
   mockUseDiveSites.mockReturnValue(catalogueState([]));
   mockUseDiveCenters.mockReturnValue(centresState([]));
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map(), resolved: true, error: undefined });
   mockUseAuthSession.mockReturnValue({ session: null, resolved: true });
   mockUseUnitSystem.mockReturnValue('metric');
   mockLocationPermission.mockResolvedValue('denied');
@@ -243,6 +250,14 @@ async function tapMark(t: RenderResult, label: string) {
 /** A dive at a named site with a fix on it — the shape M2l's *use my location* produces. */
 const pinned = (over: Partial<Dive> = {}) =>
   dive({ siteId: 's1', siteName: 'Blue Hole', latitude: 43.5081, longitude: 16.4402, ...over });
+
+// Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
+// row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
+const SERIES: DiveSample[] = [
+  [0, 5, null, null],
+  [30, 12, null, null],
+  [60, 3, null, null],
+];
 
 // --- The screen names itself in every state (§0.6, and `DivesScreen`'s own four branches) ---
 
@@ -792,6 +807,21 @@ it('offers the site’s page from the sheet its own mark opens', async () => {
   // every control that opens something — "Site page" alone says nothing about where it lands.
   await press(t, 'Open Blue Hole');
   expect(String((router.push as jest.Mock).mock.calls.at(-1)?.[0])).toBe('/site/s1');
+});
+
+// Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing ever
+// passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
+// actually reaches this sheet's own `DiveRow` list, not just its number and depth.
+it("passes each dive its own series from useDiveSampleShapes() through to the sheet's row", async () => {
+  mockUseDives.mockReturnValue(divesState([pinned({ id: 'has-series' })]));
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await show();
+  await tapMark(t, 'Blue Hole, 1 dive');
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
 });
 
 // ...and a place the catalogue does not hold gets no line rather than an empty one — a dive at a

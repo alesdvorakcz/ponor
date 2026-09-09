@@ -13,7 +13,10 @@ import {
   gasAt,
   gasSegments,
   medianIntervalS,
+  pathOf,
+  type Plotted,
   type ProfilePoint,
+  round,
   scrubbedIndexAt,
 } from '../domain/profile';
 import { type Dive } from '../domain/types';
@@ -142,22 +145,6 @@ const PLOT_INSET_Y = Math.max(DEPTH_STROKE_WIDTH / 2, DEEPEST_MARK_RADIUS);
  */
 const PLOT_INSET_X = HAIRLINE_STROKE_WIDTH / 2;
 
-/** A point in the plot's own coordinates. */
-type Plotted = { x: number; y: number };
-
-/** Path data to two decimals — enough for a plot this size, and it keeps a 222-point `d`
- * string from carrying seventeen digits per coordinate. */
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-/** One `M`, then an `L` per point after it. A run of fewer than two points draws nothing at
- * all, so callers never hand one over — see `domain/profile.ts`'s `gasSegments` and
- * `colourRuns`, both of which refuse to produce one. */
-function pathOf(points: readonly Plotted[]): string {
-  return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
-}
-
 /**
  * Several stretches of one series as a single path — each begins with its own `M`, so the pen
  * lifts between them and nothing is drawn across the gap.
@@ -166,6 +153,10 @@ function pathOf(points: readonly Plotted[]): string {
  * dependency for: the whole argument for adopting `react-native-svg` was counted in native
  * views, and a surfacing diver can produce a handful of breaks in a dive. SVG's own subpath is
  * exactly this, so there is nothing to gain by spending an element on each.
+ *
+ * Built on `pathOf` (domain/profile.ts, moved there in Task 6 so `ProfileSparkline` can share
+ * it) rather than a second points-to-`d` builder of its own — this function's whole job is the
+ * multi-segment `M`-per-stretch behaviour `pathOf` alone does not have, nothing more.
  */
 function multiPathOf(segments: readonly (readonly Plotted[])[]): string {
   return segments.map(pathOf).join(' ');

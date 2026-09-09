@@ -1,9 +1,20 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
+import { type DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
 import { makeStyles } from '../theme/styles';
 import { DiveRow } from './DiveRow';
 import { applyReorder, createReorderGate, moveDown, moveUp, ReorderControls } from './ReorderControls';
+
+// A small hand-rolled series is enough here: this file is proving the PROP reaches DiveRow at
+// all (Task 6's whole reason for existing — "nothing would ever pass it, so the sparkline
+// would ship dead"), not exercising the shape-drawing rules `ProfileSparkline.test.tsx` and
+// `DiveRow.test.tsx` already own with the real fixture.
+const SERIES: DiveSample[] = [
+  [0, 5, null, null],
+  [30, 12, null, null],
+  [60, 3, null, null],
+];
 
 // Same adaptation DiveRow.test.tsx and DivesScreen.test.tsx already note: `render`
 // wraps its own `act()` and is async; its `root` is a `test-renderer` `TestInstance`
@@ -208,6 +219,33 @@ describe('ReorderControls', () => {
     expect(text).toContain('Site C');
     expect(text.indexOf('Site A')).toBeLessThan(text.indexOf('Site B'));
     expect(text.indexOf('Site B')).toBeLessThan(text.indexOf('Site C'));
+  });
+
+  // Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
+  // ever passes draws nothing, forever. This proves `shapes` actually reaches the row it names
+  // and leaves the ones it does not name alone.
+  it("passes each dive its own series from `shapes` through to its row's sparkline", async () => {
+    const t = await render(
+      <ReorderControls
+        dives={[a, b, c]}
+        numbers={new Map()}
+        shapes={new Map([['b', SERIES]])}
+        scheme="dark"
+        units="metric"
+        onPress={() => {}}
+        onReorder={() => {}}
+      />,
+    );
+    expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
+  });
+
+  // The default every pre-existing test in this file relies on: omitting `shapes` entirely
+  // must draw no sparkline anywhere, not throw on a missing map.
+  it('draws no sparkline for any row when `shapes` is not given at all', async () => {
+    const t = await render(
+      <ReorderControls dives={[a, b, c]} numbers={new Map()} scheme="dark" units="metric" onPress={() => {}} onReorder={() => {}} />,
+    );
+    expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(0);
   });
 
   it('disables move-up on the first row and move-down on the last, and nothing else', async () => {

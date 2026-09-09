@@ -14,6 +14,7 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { logbookUnreadable } from '../domain/logbook';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { logbookStats } from '../domain/logbookStats';
@@ -211,6 +212,12 @@ export default function DivesScreen() {
   // read yet — see the branch below the fatal one, and `DiveListState.resolved` for why the
   // signal is `updatedAt` rather than an empty `data`.
   const { dives, numbers, error, settingsError, resolved } = useDives();
+  // Task 6's row sparkline map — its own hook (`useDiveSampleShapes.ts`'s own docblock says
+  // why), read alongside `useDives()` exactly the way `useUnitSystem` is: `resolved`/`error`
+  // are deliberately not read here, because a failed sample-series read must not blank this
+  // screen the way a failed DIVES read does — a row with no entry in `shapes` renders exactly
+  // as it does for the (still ordinary) case of a dive nothing was ever imported for.
+  const { shapes } = useDiveSampleShapes();
   const wide = useWideLayout();
   /**
    * **Whether anyone is signed in, and it gates both of this screen's §7.5 additions.**
@@ -606,6 +613,7 @@ export default function DivesScreen() {
         <ReorderControls
           dives={item.dives}
           numbers={numbers}
+          shapes={shapes}
           scheme={scheme}
           units={units}
           onPress={openDive}
@@ -638,6 +646,7 @@ export default function DivesScreen() {
         <DiveRow
           dive={item.dive}
           number={numbers.get(item.dive.id)}
+          samples={shapes.get(item.dive.id)}
           scheme={scheme}
           units={units}
           onPress={openDive}

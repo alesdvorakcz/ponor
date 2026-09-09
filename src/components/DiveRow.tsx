@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { type DiveSample } from '../db/schema';
 import { type Dive } from '../domain/types';
 import { t, useT } from '../i18n';
 import {
@@ -22,6 +23,10 @@ import { DepthValue } from './DepthValue';
 // bothered to specify. `RatingDot` is the shared unit; `RATING_MAX` and `filledDotCount`
 // are the shared arithmetic.
 import { RatingDots } from './RatingDots';
+// Task 6's row sparkline. `ProfileSparkline` is the one owner of "does this series draw a
+// shape at all" (too short, or none) and of hiding itself from a screen reader — this row
+// decides only WHERE the shape goes, never whether one is drawn.
+import { ProfileSparkline } from './ProfileSparkline';
 
 interface DiveRowProps {
   dive: Dive;
@@ -66,6 +71,22 @@ interface DiveRowProps {
    * row cannot inherit the fault by omission. `DivesScreen` is the only caller that passes it.
    */
   datedByContext?: boolean;
+  /**
+   * **The dive's recorded depth profile, downsampled to a small shape beside the row's own
+   * metadata** (Task 6, spec §6) — `useDiveSampleShapes()`'s map, threaded exactly as `number`
+   * already is: a screen reads `numbers.get(dive.id)` for one prop and `shapes.get(dive.id)`
+   * for this one, and both simply come back `undefined` for the (still ordinary) case of a
+   * dive nothing was ever imported for. `ProfileSparkline` (below) is the one owner of turning
+   * this into an actual shape, or into nothing at all for a series too short to draw — this
+   * row does not repeat that judgement, it only decides WHERE the shape goes and hands the
+   * prop on unchanged (`?? null`, since `ProfileSparkline`'s own "no series" spelling is
+   * `null`, matching `DepthProfile`'s and `useDiveSamples`', not `undefined`).
+   *
+   * Optional, unlike `number`: every screen this row already had before Task 6 renders it with
+   * no opinion about samples at all, and making this required would have turned every one of
+   * those pre-existing renders into a type error for a prop they have nothing to pass.
+   */
+  samples?: DiveSample[];
 }
 
 /**
@@ -106,14 +127,27 @@ function accessibilityLabelFor(
  * site, and a planned one to `planned`, a site, and its date (§3 — see
  * `plannedDate` below).
  *
- * No sparkline, bar, or any other graphic (§0.4): no dive in this version carries a
- * real sample series, and an invented shape would read as recorded data.
+ * **A sparkline, beside the metadata, for the one case §0.4 always meant to allow**: a dive
+ * that carries a real recorded sample series (`samples`, Task 6) gets a small monochrome shape
+ * of it there; every other dive — still almost all of them — gets exactly the row this always
+ * drew. Nothing here decides that for itself: `ProfileSparkline` is the one owner of "does
+ * this series draw a shape at all", so this row cannot invent one from data that was never
+ * measured, which is the promise §0.4 always made.
  *
  * This is the only route into a dive (DivesScreen.tsx renders nothing else that opens
  * one), so it carries `accessibilityRole="button"` and a composed `accessibilityLabel`
  * (see `accessibilityLabelFor` above) rather than relying on `Pressable`'s default.
  */
-function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot, datedByContext = false }: DiveRowProps) {
+function DiveRowComponent({
+  dive,
+  number,
+  scheme,
+  units,
+  onPress,
+  depthSlot,
+  datedByContext = false,
+  samples,
+}: DiveRowProps) {
   // **This component is `memo`'d, which is why the subscription matters here more than
   // anywhere else** (src/i18n). Its words come from `format/display.ts` and from `t` below,
   // neither of which is a prop, so without a hook of its own a row would keep drawing the old
@@ -156,6 +190,15 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot, dat
   const metaText = [dateChip, timeRange, duration].filter((part): part is string => part !== null).join(METADATA_SEPARATOR);
   const hasMetaText = metaText !== '';
   const hasMeta = hasMetaText || dive.rating !== null;
+  // Task 6: the bottom row is where the sparkline lives too, so a dive whose ONLY metadata is
+  // a real sample series still gets a row to put it in — `samples !== undefined` on top of
+  // `hasMeta` rather than folded into it, since `hasMeta`'s own name and every existing reader
+  // of it are about the text/rating chips specifically. In practice this rarely changes
+  // anything: every dive that carries a series was imported from a dive computer, and every
+  // importer in this app fills in `timeIn` from the device's own log, which already makes
+  // `hasMeta` true on its own (`DiveRow.test.tsx`'s "still shows the sparkline..." test pins
+  // the one case it does change — a series with no other metadata at all).
+  const showBottomRow = hasMeta || samples !== undefined;
 
   return (
     <Pressable
@@ -178,7 +221,7 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot, dat
         </View>
         {depthSlot !== undefined ? depthSlot : <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />}
       </View>
-      {hasMeta && (
+      {showBottomRow && (
         <View style={styles.diveRowBottom}>
           {hasMetaText && <Text style={styles.diveChip}>{metaText}</Text>}
           {/* The one separator `.join(METADATA_SEPARATOR)` above can't supply: RatingDots is a row of
@@ -187,6 +230,11 @@ function DiveRowComponent({ dive, number, scheme, units, onPress, depthSlot, dat
               sides actually exist, so the line never opens or closes on a stray middot. */}
           {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{METADATA_SEPARATOR}</Text>}
           {dive.rating !== null && <RatingDots rating={dive.rating} scheme={scheme} />}
+          {/* Task 6: `undefined` (no screen has this dive's series, which is most dives) becomes
+              `null`, `ProfileSparkline`'s own "nothing to draw" spelling — the same conversion
+              `DepthProfile`'s own caller (`useDiveSamples`) never has to make, because that hook
+              already answers in `null`. A `Map.get` does not. */}
+          <ProfileSparkline samples={samples ?? null} scheme={scheme} />
         </View>
       )}
     </Pressable>

@@ -25,7 +25,9 @@ import { dive } from '../domain/diveFixture';
 // hand-wrote them would be asserting its own arithmetic rather than the app's.
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { reorderDivesForDate, softDeleteDive, type ReorderOutcome } from '../db/dives';
+import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { useWideLayout } from '../hooks/useWideLayout';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -42,6 +44,14 @@ import DivesScreen, { syncFailedMessage } from './DivesScreen';
 // where it sits textually, so it can live here without an import/first violation.
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// Task 6's row sparkline map, mocked per module exactly as `useUnitSystem` below is: a live
+// database read this screen must be renderable without, with a DEFAULT rather than a bare
+// `jest.fn()` — unlike `useDives` above, nothing before this task ever called this hook, so
+// every pre-existing test in this file renders with no opinion about it at all and must keep
+// getting back "nothing has a series" rather than `undefined` (which `.get()` cannot survive).
+jest.mock('../db/useDiveSampleShapes', () => ({
+  useDiveSampleShapes: jest.fn(() => ({ shapes: new Map(), resolved: true, error: undefined })),
+}));
 // The unit preference (§3), mocked per module exactly as `useDives` is above and for the
 // same reason: it is a live database read, and this screen must be renderable in either
 // system without one. Left on its own default, `metric`, by every test that does not care
@@ -266,6 +276,15 @@ function findRow(t: RenderResult, number: number) {
   return node;
 }
 
+// Task 6's row sparkline: a small hand-rolled series is enough to prove the wiring reaches the
+// row at all (below) — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real
+// fixture and the shape-drawing rules.
+const SERIES: DiveSample[] = [
+  [0, 5, null, null],
+  [30, 12, null, null],
+  [60, 3, null, null],
+];
+
 const mockUseDives = useDives as jest.Mock;
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation` rather
@@ -300,6 +319,7 @@ const mockSoftDelete = softDeleteDive as jest.Mock;
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 afterEach(() => alertSpy.mockClear());
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
+const mockUseDiveSampleShapes = useDiveSampleShapes as jest.Mock;
 // §7.5's three, with the same "put back, not reset" treatment `useUnitSystem` above records:
 // each of these has a *default* that every other test in this file depends on silently — a
 // signed-out device, nothing pending, an engine nobody calls — and `mockReset()` would leave
@@ -328,6 +348,11 @@ afterEach(() => {
   // ordering to decide which suites still read in metres. Caught by that test leaking into
   // "shows no arrows until the day strip is switched on", eleven tests later.
   mockUseUnitSystem.mockReturnValue('metric');
+  // Same "put back" treatment, and the same reason: nothing before Task 6 ever called this
+  // hook, so every pre-existing test in this file renders with no opinion about it and must
+  // keep getting back "nothing has a series" — `mockReset()` would leave it returning
+  // `undefined`, which `shapes.get(...)` at the render below cannot survive.
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map(), resolved: true, error: undefined });
   mockPendingChanges.mockReturnValue(0);
   mockSignedOut();
   mockSyncRequest.mockReset();
@@ -337,6 +362,23 @@ it('shows the empty state when there are no dives', async () => {
   stubDives({ dives: [], numbers: new Map(), error: undefined });
   const t = await render(<DivesScreen />);
   expect(textIn(t).join(' ')).toContain('Log your first dive');
+});
+
+// Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
+// ever passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
+// actually reaches the dive it names — the ordinary (single, not day-grouped) row path,
+// `renderListEntry`'s `item.kind === 'dive'` branch — and not just any row at all.
+it("passes each dive its own series from useDiveSampleShapes() through to its row's sparkline", async () => {
+  const withSeries = dive({ id: 'has-series', date: '2026-09-01', siteName: 'Blue Hole' });
+  const withoutSeries = dive({ id: 'no-series', date: '2026-08-01', siteName: 'Silfra' });
+  stubDives({ dives: [withSeries, withoutSeries], numbers: new Map([['has-series', 1], ['no-series', 2]]) });
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
 });
 
 /**

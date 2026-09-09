@@ -2,9 +2,12 @@ import {
   applyPulledDiveSamples,
   clearDiveSampleDirtyFlags,
   countPendingDiveSamples,
+  everyDiveSampleRowsQuery,
   getDiveSamples,
+  listDiveSamples,
   pendingDiveSamples,
   putDiveSamples,
+  toDiveSampleShapes,
   tombstoneDiveSamples,
 } from './diveSamples';
 import type { DiveSample } from './schema';
@@ -116,4 +119,61 @@ it('writes a series the server sent without flagging it to go straight back up',
   ]);
   expect(await getDiveSamples(db, 'dive-9')).toEqual([[0, 5.5, 21, 200]]);
   expect(await countPendingDiveSamples(db)).toBe(0);
+});
+
+/**
+ * **`everyDiveSampleRowsQuery`, Task 6's basis for `useDiveSampleShapes`** (the row
+ * sparkline's hook, db/useDiveSampleShapes.ts) — `gearPresetRowsQuery`'s shape
+ * (db/gearPresets.ts): a query builder for every LIVE row rather than one dive's, so
+ * `useLiveQuery` can subscribe to it directly. Named apart from `diveSampleRowsQuery` above,
+ * which already spent the obvious `diveSampleRowsQuery(db)` name on the one-dive read; see
+ * that function's own docblock.
+ *
+ * `listDiveSamples` is a thin wrapper over this same query — `listGearPresets`'s own
+ * relationship to `gearPresetRowsQuery` — so the async export path (§8) and this reactive one
+ * cannot read two different sets of rows.
+ */
+it('reads every live series across dives, and nothing a diver has deleted', async () => {
+  await putDiveSamples(db, 'dive-1', [[0, 1.27, 27.7, 188.9]]);
+  await putDiveSamples(db, 'dive-2', [[0, 5.5, 21, 200]]);
+  await putDiveSamples(db, 'dive-3', [[0, 9, null, null]]);
+  await tombstoneDiveSamples(db, 'dive-3');
+
+  const rows = await everyDiveSampleRowsQuery(db);
+  expect(rows.map((row) => row.id).sort()).toEqual(['dive-1', 'dive-2']);
+
+  // The same rows, through the wrapper §8's export actually calls — one query, not two.
+  expect((await listDiveSamples(db)).map((row) => row.id).sort()).toEqual(['dive-1', 'dive-2']);
+});
+
+/**
+ * **`toDiveSampleShapes`, the per-dive counterpart of `toDiveSamples`** — same "missing and
+ * empty are one answer" rule (this file's own top docblock), expressed as the Map idiom
+ * `useDives()`'s own `numbers` already uses: a dive with no entry has no number, and here a
+ * dive with no entry has no series. `.get(id)` on the result is `DiveRow`'s own `samples` prop
+ * exactly.
+ */
+describe('toDiveSampleShapes', () => {
+  it('maps each row to its own series, by the dive id', () => {
+    const rows = [
+      { id: 'dive-1', series: [[0, 1.27, 27.7, 188.9]] },
+      { id: 'dive-2', series: [[0, 5.5, 21, 200]] },
+    ];
+    const shapes = toDiveSampleShapes(rows);
+    expect(shapes.get('dive-1')).toEqual([[0, 1.27, 27.7, 188.9]]);
+    expect(shapes.get('dive-2')).toEqual([[0, 5.5, 21, 200]]);
+    expect(shapes.size).toBe(2);
+  });
+
+  // Not a `''` — a dive with an empty series simply gets no entry, the same equivalence
+  // `toDiveSamples` (above) draws for the single-dive read.
+  it('gives a stored-but-empty series no entry, rather than an empty array', () => {
+    const shapes = toDiveSampleShapes([{ id: 'dive-1', series: [] }]);
+    expect(shapes.has('dive-1')).toBe(false);
+    expect(shapes.get('dive-1')).toBeUndefined();
+  });
+
+  it('maps nothing at all for no rows', () => {
+    expect(toDiveSampleShapes([]).size).toBe(0);
+  });
 });

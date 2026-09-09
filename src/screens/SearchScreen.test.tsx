@@ -10,7 +10,9 @@ import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-lib
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { dive } from '../domain/diveFixture';
 import { makeStyles } from '../theme/styles';
@@ -20,6 +22,13 @@ import SearchScreen from './SearchScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
+// Task 6's row sparkline map, mocked per module exactly as `useUnitSystem` below is: a live
+// database read this screen must be renderable without, with a default so every pre-existing
+// test — none of which has any opinion about samples — keeps getting back "nothing has a
+// series" rather than `undefined`, which `shapes.get(...)` at the render cannot survive.
+jest.mock('../db/useDiveSampleShapes', () => ({
+  useDiveSampleShapes: jest.fn(() => ({ shapes: new Map(), resolved: true, error: undefined })),
+}));
 // M3m: this screen's dock now asks whether a keyboard is covering the bottom edge. Mocked so
 // a test can raise one without a device — the hook's own behaviour is pinned in
 // `useKeyboardShown.test.ts`, and what this file is about is what the dock does with the answer.
@@ -30,6 +39,7 @@ jest.mock('expo-router', () => ({
 }));
 
 const mockUseDives = useDives as jest.Mock;
+const mockUseDiveSampleShapes = useDiveSampleShapes as jest.Mock;
 const mockKeyboardShown = useKeyboardShown as jest.Mock;
 const mockRouterPush = router.push as jest.Mock;
 const mockRouterBack = router.back as jest.Mock;
@@ -60,6 +70,10 @@ beforeEach(() => {
 
 afterEach(() => {
   mockUseDives.mockReset();
+  // Put back, not reset, for the reason `DivesScreen.test.tsx` records for its own `useUnitSystem`
+  // mock: this one's default IS the answer every pre-existing test here depends on silently, and
+  // `mockReset()` would leave a later test's override leaking into whichever test runs next.
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map(), resolved: true, error: undefined });
   mockRouterPush.mockReset();
   mockRouterBack.mockReset();
   mockCanGoBack.mockReset();
@@ -92,6 +106,14 @@ function findDock(t: RenderResult) {
   if (!node) throw new Error('SearchScreen did not render the search dock');
   return node;
 }
+
+// Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
+// row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
+const SERIES: DiveSample[] = [
+  [0, 5, null, null],
+  [30, 12, null, null],
+  [60, 3, null, null],
+];
 
 const TWO_DIVES = {
   dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Shark Reef' })],
@@ -185,6 +207,17 @@ it('narrows to matching dives as the diver types', async () => {
   const text = textIn(t).join(' ');
   expect(text).toContain('Blue Hole');
   expect(text).not.toContain('Shark Reef');
+});
+
+// Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
+// ever passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
+// actually reaches the matching row.
+it("passes each dive its own series from useDiveSampleShapes() through to its row's sparkline", async () => {
+  stubDives(TWO_DIVES);
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map([['a', SERIES]]), resolved: true, error: undefined });
+  const t = await render(<SearchScreen />);
+  await fireEvent.changeText(findField(t), 'Blue');
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
 });
 
 // Three states that read the same unless kept apart — the same discipline DivesScreen keeps

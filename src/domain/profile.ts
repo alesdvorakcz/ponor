@@ -212,6 +212,44 @@ export function sparklinePoints(samples: DiveSample[], buckets: number): Profile
 }
 
 /**
+ * A point already placed in a drawing's own coordinates — `x`/`y` in whatever units the
+ * caller scaled to (viewBox units, for both `DepthProfile` and Task 6's `ProfileSparkline`) —
+ * as opposed to `ProfilePoint`'s `t`/`v`, which stay in the dive's own units (seconds, metres).
+ * Kept distinct from `ProfilePoint` for the reason that type's own docblock gives for staying
+ * generic: a caller must never mistake an unscaled domain point for one already laid out on
+ * the page.
+ */
+export type Plotted = { x: number; y: number };
+
+/** Path data to two decimals — enough for either drawing this module feeds, and it keeps a
+ * 222-point `d` string from carrying seventeen digits per coordinate. */
+export function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * One `M`, then an `L` per point after it — the whole of what turns a list of already-scaled
+ * points into SVG path data.
+ *
+ * **Task 6 moved this here from `DepthProfile.tsx`, and it is now this rule's one owner
+ * (§4.1).** `DepthProfile` draws the depth curve with it, and its own `multiPathOf` (several
+ * stretches as one path, each with its own `M`) is built on top of it for the gas trace;
+ * `ProfileSparkline` draws the row's downsampled silhouette with it too. A second, independent
+ * points-to-`d` builder in either component is exactly the recurring defect this file's other
+ * docblocks (`sparklinePoints`, `colourRuns`) keep naming, one layer down — from domain data to
+ * drawing data.
+ *
+ * A run of fewer than two points still draws *something*: a single point is a bare `M` with
+ * nothing to connect it to, and an empty list draws nothing at all (`''`, not a stray `M`). Real
+ * callers never hand this either shape — `gasSegments` and `colourRuns` both refuse to produce a
+ * one-point run, and `sparklinePoints` refuses to produce one at all below two samples — so both
+ * are this function's own floor rather than a case any caller relies on.
+ */
+export function pathOf(points: readonly Plotted[]): string {
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
+}
+
+/**
  * **How far apart two consumption points may be before the trace breaks** — two windows, from
  * spec §4.3: *"where consecutive points are more than two windows apart — the diver was above
  * 1.5 m in between — the trace breaks rather than bridging the interval with a straight line

@@ -2,6 +2,7 @@ import { Pressable, View } from 'react-native';
 
 import { db } from '../db/client';
 import { type ReorderOutcome } from '../db/dives';
+import { type DiveSample } from '../db/schema';
 import { type Db } from '../db/types';
 import { type Dive } from '../domain/types';
 import { t } from '../i18n';
@@ -211,6 +212,15 @@ interface ReorderControlsProps {
    * documents for its own `sameTrip`. */
   dives: Dive[];
   numbers: Map<string, number>;
+  /**
+   * The row sparkline's own map (Task 6), threaded to `DiveRow` exactly as `numbers` is —
+   * `samples={shapes.get(dive.id)}` beside `number={numbers.get(dive.id)}`, below. Optional,
+   * unlike `numbers`: this component predates Task 6, and every pre-existing caller and test
+   * renders it with no opinion about samples at all, so a default of "nothing" (`shapes?.get`
+   * below reads `undefined` off `undefined` itself) is what keeps every one of those renders
+   * compiling and behaving exactly as it did before this prop existed.
+   */
+  shapes?: Map<string, DiveSample[]>;
   scheme: ColorScheme;
   /**
    * The diver's unit system (§3), forwarded to `DiveRow` untouched.
@@ -299,6 +309,7 @@ const ARROW_HIT_SLOP = { top: 11, bottom: 11, left: 7, right: 7 };
 export function ReorderControls({
   dives,
   numbers,
+  shapes,
   scheme,
   units,
   onPress,
@@ -346,6 +357,7 @@ export function ReorderControls({
             key={dive.id}
             dive={dive}
             number={numbers.get(dive.id)}
+            samples={shapes?.get(dive.id)}
             scheme={scheme}
             units={units}
             onPress={onPress}

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DiveRow } from '../components/DiveRow';
 import { useDives } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
@@ -184,6 +185,10 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
 
   const catalogue = useDiveSites();
   const { dives, numbers, resolved: logbookResolved, error: logbookError } = useDives();
+  // Task 6's row sparkline map — its own hook, read alongside `useDives()` with neither of its
+  // own `resolved`/`error` consulted: a failed sample-series read must not blank this screen
+  // the way a failed DIVES read does.
+  const { shapes } = useDiveSampleShapes();
 
   const site = catalogue.sites.find((row) => row.id === id);
 
@@ -246,6 +251,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           <DiveRow
             dive={item}
             number={numbers.get(item.id)}
+            samples={shapes.get(item.id)}
             scheme={scheme}
             units={units}
             onPress={(diveId) => router.push(`/dive/${diveId}`)}

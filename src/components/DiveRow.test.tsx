@@ -1,7 +1,11 @@
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Text } from 'react-native';
 
+import { type DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
+import { suuntoJsonImporter } from '../domain/import/suunto';
 import { formatDuration, formatTimeRange } from '../format/display';
 import { setActiveLanguage } from '../i18n';
 import { depthColor } from '../theme/depth';
@@ -9,6 +13,24 @@ import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { DiveRow } from './DiveRow';
+
+/**
+ * **The plan's `FIXTURE`** — `DepthProfile.test.tsx`'s and `ProfileSparkline.test.tsx`'s own
+ * `fixture()`/`fixtureSeries()`, reused by the same approach rather than a second copy: the
+ * committed reference dive's trimmed five-sample series, run through the real importer, since
+ * a hand-rolled series would miss the exact shapes the real file has and this task's own
+ * testing facts forbid asserting a number from memory of a fuller dive.
+ */
+function fixtureSeries(): DiveSample[] {
+  const bytes = new Uint8Array(
+    readFileSync(join(__dirname, '..', 'domain', 'import', '__fixtures__', 'suunto-d5.json')),
+  );
+  const [imported] = suuntoJsonImporter.parse(bytes);
+  if (!imported) throw new Error('suunto-d5 fixture yielded no dive');
+  return imported.series ?? [];
+}
+
+const FIXTURE = fixtureSeries();
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
 // @testing-library/react-native@14 actually exposes:
@@ -218,6 +240,71 @@ it('draws no graphic for a dive, because no dive has a sample series', async () 
     <DiveRow dive={dive({ maxDepthM: 32.4, rating: 4 })} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
+});
+
+// ---------------------------------------------------------------------------------------
+// Task 6: the row sparkline
+// ---------------------------------------------------------------------------------------
+
+it('shows a sparkline only for a dive that has a series', async () => {
+  const withSamples = await render(
+    <DiveRow dive={dive({ id: 'a' })} samples={FIXTURE} number={1} scheme="light" units="metric" onPress={() => {}} />,
+  );
+  if (!withSamples.root) throw new Error('DiveRow did not render a root element');
+  expect(withSamples.root.queryAll((n) => n.type === 'RNSVGPath').length).toBeGreaterThan(0);
+
+  const without = await render(
+    <DiveRow dive={dive({ id: 'b' })} number={1} scheme="light" units="metric" onPress={() => {}} />,
+  );
+  if (!without.root) throw new Error('DiveRow did not render a root element');
+  expect(without.root.queryAll((n) => n.type === 'RNSVGPath')).toHaveLength(0);
+});
+
+// The global constraint this task is built on: a real series adds a shape beside the row's
+// existing metadata, and touches nothing else. Same assertion shape as "colours the depth by
+// its band, not by the theme" above, with a series on top of it this time.
+it('leaves the depth value and its colour untouched by a sample series', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ maxDepthM: 32.4 })} samples={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
+  );
+  const depthNode = textNodesOf(t).find((n) => String(n.children[0]).includes('32.4'));
+  expect(depthNode).toBeDefined();
+  expect(depthNode?.props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ color: depthColor(32.4, 'dark') })]),
+  );
+});
+
+// Task 6's own ruling: a 40-point downsampled curve cannot be spoken usefully, and this row's
+// own accessibility label (`accessibilityLabelFor` above) is already composed from
+// `formatDepth`'s output so a reader can never announce a depth the screen contradicts. A
+// second spoken description of the same dive would work against that rather than add to it —
+// `ProfileSparkline.test.tsx` pins the rule directly; this is the integration, through the row.
+it('hides the sparkline from a screen reader, so it does not speak a second description of the dive', async () => {
+  const t = await render(
+    <DiveRow dive={dive({ id: 'a' })} samples={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
+  );
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(t.root.queryAll((n) => n.props?.accessible === false).length).toBeGreaterThan(0);
+});
+
+// The one real gap the row's own `hasMeta` gate leaves (DiveRow.tsx's docblock on `samples`):
+// a dive whose only metadata is the date, hidden here by `datedByContext`, with no time,
+// duration or rating recorded either. Pinned so a later change to that gate cannot silently
+// drop the shape for a dive that has nothing else to show it beside.
+it('still shows the sparkline when a series is the only metadata the row has', async () => {
+  const t = await render(
+    <DiveRow
+      dive={dive({ id: 'a', timeIn: null, durationMin: null, rating: null })}
+      samples={FIXTURE}
+      number={1}
+      scheme="light"
+      units="metric"
+      onPress={() => {}}
+      datedByContext
+    />,
+  );
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(t.root.queryAll((n) => n.type === 'RNSVGPath').length).toBeGreaterThan(0);
 });
 
 it('passes the dive id to onPress', async () => {

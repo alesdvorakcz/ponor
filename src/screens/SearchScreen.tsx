@@ -7,6 +7,7 @@ import { ActionCapsule, type CapsuleAction } from '../components/ActionCapsule';
 import { DiveRow } from '../components/DiveRow';
 import { SearchCapsule } from '../components/SearchCapsule';
 import { useDives } from '../db/useDives';
+import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 // M3m: whether the keyboard is covering the bottom edge, which is what decides whether the
 // dock below still has a home indicator to clear (`liftedBottomInset`).
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
@@ -64,6 +65,10 @@ export default function SearchScreen() {
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
   const { dives, numbers, error } = useDives();
+  // Task 6's row sparkline map — its own hook, read alongside `useDives()` with neither of its
+  // own `resolved`/`error` consulted: a failed sample-series read must not blank this screen
+  // the way a failed DIVES read does.
+  const { shapes } = useDiveSampleShapes();
   const insets = useSafeAreaInsets();
   // M3m — read here rather than inside the dock's style, so the one screen that knows about
   // the keyboard is the one that owns the layout it changes.
@@ -121,6 +126,7 @@ export default function SearchScreen() {
             <DiveRow
               dive={item}
               number={numbers.get(item.id)}
+              samples={shapes.get(item.id)}
               scheme={scheme}
               units={units}
               onPress={(id) => router.push(`/dive/${id}`)}

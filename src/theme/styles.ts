@@ -232,6 +232,23 @@ export const PROFILE_PLOT_HEIGHT = 140;
  */
 const PROFILE_AXIS_LINE_HEIGHT = 13;
 
+/**
+ * **How tall the row sparkline is, in points** (`ProfileSparkline`,
+ * components/ProfileSparkline.tsx) — `PROFILE_PLOT_HEIGHT`'s own reason, one size down: the
+ * component's `<Svg>` is this many points high, and `diveSparkline` below sizes the row's own
+ * wrapper to match, so the two cannot drift apart into a shape that is clipped or a wrapper
+ * with dead space around it.
+ *
+ * Sized to sit inside the metadata row's own line height (`diveChip` is 11.5 pt type, whose
+ * line box already runs 14–16 pt) rather than to any figure the spec pins — spec §6 only says
+ * "the row is 46 px tall", about the row as a whole, not this shape's own share of it. Kept at
+ * or under that line's height on purpose: `diveRowBottom` sizes itself to its tallest child,
+ * so a sparkline taller than the text and rating dots beside it would grow the row for every
+ * dive that carries one — exactly what DESIGN.md §0.5's 48 dp floor and this task's own
+ * "the row's height must not change" rule forbid.
+ */
+export const PROFILE_SPARK_HEIGHT = 16;
+
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
@@ -2042,6 +2059,19 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.mono,
       fontSize: 11.5,
       color: theme.fgMuted,
+    },
+    // Task 6's row sparkline (`ProfileSparkline`, components/ProfileSparkline.tsx) — the shape
+    // sits AFTER whatever text/rating chips this row already has, at the trailing edge of
+    // `diveRowBottom`'s flex row. `flex: 1` (the same convention `profilePlot` above uses for
+    // the big card's own drawing) rather than a fixed width: the metadata chips it follows are
+    // short and variable, and taking whatever the row has left gives the shape more of the
+    // row's actual width to draw in than a guessed constant would. `marginStart` keeps it off
+    // the chip or the dots immediately before it; there is nothing to keep it off when it is
+    // the row's ONLY child (a dive with a series but no other metadata — see DiveRow.tsx).
+    diveSparkline: {
+      flex: 1,
+      height: PROFILE_SPARK_HEIGHT,
+      marginStart: 8,
     },
     // The row of rating dots (M1c task 7, §0.6: "Rating marks are drawn, not typed") — a
     // container now, not a Text style, since a rating is RATING_MAX small `View` circles

@@ -571,10 +571,18 @@ const DIVE_SAMPLES: Record<keyof typeof diveSamplesModule, WritePath> = {
     seed: aSeries,
     erase: (database) => wipeDiveSamples(database),
   },
-  diveSampleRowsQuery: { reads: 'A query builder for useLiveQuery.' },
+  diveSampleRowsQuery: { reads: 'A query builder for useLiveQuery \u2014 one dive\u2019s series.' },
+  everyDiveSampleRowsQuery: {
+    reads: 'A query builder for useLiveQuery \u2014 every live series, not one dive\u2019s '
+      + '(Task 6\u2019s row sparkline).',
+  },
   toDiveSamples: {
     reads: 'Rows to a drawable series \u2014 no database at all, and the rule that an absent row '
       + 'and an empty series are one answer.',
+  },
+  toDiveSampleShapes: {
+    reads: 'Rows to a per-dive map of drawable series \u2014 the same rule as toDiveSamples, as '
+      + 'the Map idiom (Task 6\u2019s row sparkline).',
   },
   getDiveSamples: { reads: 'A read.' },
   listDiveSamples: { reads: 'A read \u2014 every live series at once, for \u00a78\u2019s JSON export.' },

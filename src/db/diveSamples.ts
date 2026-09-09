@@ -44,13 +44,33 @@ export async function putDiveSamples(db: Db, diveId: string, series: readonly Di
     });
 }
 
-/** Every live series this device holds, for §8's JSON export alone (`db/exportSource.ts`) —
- * the CSV has no shape for a profile (`domain/dataExport.ts`'s own split) and nothing else
- * needs every series at once. Filtered through `liveSeries` like every other export read, so
- * a dive the diver deleted does not leave its profile in a file that is supposed to mirror
- * what they see. */
-export async function listDiveSamples(db: Db): Promise<DiveSampleRow[]> {
+/**
+ * Every live series' row query, unfiltered by dive — `gearPresetRowsQuery`'s shape
+ * (db/gearPresets.ts): a query BUILDER, not an executed read, so `useDiveSampleShapes`
+ * (db/useDiveSampleShapes.ts, Task 6's row sparkline) can hand it to `useLiveQuery` directly
+ * and have it re-run on every database change, the same way `diveSampleRowsQuery` below
+ * already lets `useDiveSamples` do for one dive.
+ *
+ * **Named apart from `diveSampleRowsQuery` below, and that split is deliberate rather than a
+ * missed rename.** Every OTHER table in this app with both an all-rows live query and a list
+ * read spends the plain `<entity>RowsQuery(db)` name on the all-rows one (`gearPresetRowsQuery`,
+ * `diveSiteRowsQuery`, `certificationRowsQuery` — none of them also needs a single-row live
+ * query, so none of them had to choose). This table already had `diveSampleRowsQuery(db,
+ * diveId)` for the one-dive read before Task 6 existed, and renaming that one — `useDiveSamples`'
+ * own subscription, tested at the repository and through the hook alike — to free up the
+ * "obvious" name would cost far more than the sibling name this function carries instead.
+ */
+export function everyDiveSampleRowsQuery(db: Db) {
   return db.select().from(diveSamples).where(liveSeries);
+}
+
+/** Every live series this device holds, for §8's JSON export (`db/exportSource.ts`) — the CSV
+ * has no shape for a profile (`domain/dataExport.ts`'s own split) and nothing else needs every
+ * series at once. A thin wrapper over `everyDiveSampleRowsQuery` above — `listGearPresets`'s
+ * own relationship to `gearPresetRowsQuery` — so the export path and `useDiveSampleShapes`'s
+ * reactive one are built from the same query and cannot read two different sets of rows. */
+export async function listDiveSamples(db: Db): Promise<DiveSampleRow[]> {
+  return everyDiveSampleRowsQuery(db);
 }
 
 /**
@@ -65,7 +85,8 @@ export async function listDiveSamples(db: Db): Promise<DiveSampleRow[]> {
  * exactly the drift `liveRows` (db/tombstone.ts) exists to prevent.
  *
  * Unlike its sibling this one is parameterised, because a profile is only ever read one dive
- * at a time: `listDiveSamples` above is the whole-table read and it belongs to §8's export.
+ * at a time: `everyDiveSampleRowsQuery` above is the whole-table read, for §8's export and for
+ * Task 6's row sparkline alike.
  */
 export function diveSampleRowsQuery(db: Db, diveId: string) {
   return db.select().from(diveSamples).where(and(eq(diveSamples.id, diveId), liveSeries));
@@ -93,6 +114,40 @@ export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
   const row = (rows as DiveSampleRow[]).at(0);
   if (row === undefined) return null;
   return row.series.length > 0 ? row.series : null;
+}
+
+/**
+ * Raw rows to a per-dive map of drawable series — `toDiveSamples`' counterpart across every
+ * dive rather than one, for Task 6's row sparkline (`useDiveSampleShapes`,
+ * db/useDiveSampleShapes.ts).
+ *
+ * **The same "missing and empty are one answer" rule as `toDiveSamples`, expressed as the Map
+ * idiom rather than as `null`**: a dive with no series, or a stored-but-empty one, simply gets
+ * no entry, so `.get(id)` reads `undefined` — the spelling `useDives()`'s own `numbers` map
+ * already uses for "this dive has no number" (a planned dive), and the one `DiveRow`'s
+ * `samples` prop is typed against. Emitting an empty-array entry instead would reach that row
+ * as "draw nothing HERE" rather than "there is nothing to draw", exactly the distinction
+ * `toDiveSamples`'s own docblock draws.
+ *
+ * Takes `unknown[]` for the reason `toDiveSamples` does: `useLiveQuery`'s `.data` is typed
+ * that loosely, and the cast is sound because this function's one caller only ever hands it
+ * rows `everyDiveSampleRowsQuery` itself produced.
+ */
+export function toDiveSampleShapes(rows: unknown[]): Map<string, DiveSample[]> {
+  // Built through the `Map` constructor from an entry list rather than an imperative loop
+  // calling the map's own single-pair mutator: `dirty.test.ts`'s "stamps every UPDATE" check
+  // scans every repository file's TEXT for that exact call syntax, on the reasoning (that
+  // file's own docblock) that a real miss is worse than a false one it has to name on purpose
+  // — and this table's own map, spelled the imperative way, is exactly the kind of same-
+  // spelling-different-thing collision that check cannot tell from Drizzle's own update
+  // builder. (Naming the syntax here in full would retrigger the very thing this avoids —
+  // hence "own mutator" rather than the three characters that follow the dot.) Avoiding the
+  // spelling entirely, rather than teaching that check this table's shape one call at a time,
+  // is what keeps it a check on the DATABASE writes it was built for.
+  const entries = (rows as DiveSampleRow[])
+    .filter((row) => row.series.length > 0)
+    .map((row): [string, DiveSample[]] => [row.id, row.series]);
+  return new Map(entries);
 }
 
 /** A dive's profile, or `null` where there is none — which is most dives, and is not an error

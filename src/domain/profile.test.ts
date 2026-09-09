@@ -1,5 +1,14 @@
 import type { DiveSample } from '../db/schema';
-import { axisMax, colourRuns, depthAxis, medianIntervalS, scrubbedIndexAt, sparklinePoints } from './profile';
+import {
+  axisMax,
+  colourRuns,
+  depthAxis,
+  medianIntervalS,
+  pathOf,
+  round,
+  scrubbedIndexAt,
+  sparklinePoints,
+} from './profile';
 
 const s = (t: number, d: number): DiveSample => [t, d, null, null];
 
@@ -150,5 +159,35 @@ describe('a series too short to draw', () => {
   it('returns nothing for a series too short to draw', () => {
     expect(colourRuns([s(0, 3)], 'light')).toEqual([]);
     expect(sparklinePoints([s(0, 3)], 10)).toEqual([]);
+  });
+});
+
+// Task 6: extracted out of DepthProfile.tsx so ProfileSparkline can draw from the same one
+// points→path-`d` builder rather than a second copy of it (§4.1) — `DepthProfile.test.tsx`'s
+// existing suite is what proves the move changed no behaviour there.
+describe('round', () => {
+  it('rounds to two decimals, so a long series does not carry seventeen digits per coordinate', () => {
+    expect(round(1 / 3)).toBe(0.33);
+    expect(round(10)).toBe(10);
+  });
+});
+
+describe('pathOf', () => {
+  it('opens with one M, then an L per point after it', () => {
+    expect(
+      pathOf([
+        { x: 0, y: 10 },
+        { x: 5, y: 20 },
+        { x: 10, y: 0 },
+      ]),
+    ).toBe('M0 10 L5 20 L10 0');
+  });
+
+  it('draws a single point as a bare M, with nothing to connect it to', () => {
+    expect(pathOf([{ x: 3, y: 4 }])).toBe('M3 4');
+  });
+
+  it('draws nothing at all for an empty list of points', () => {
+    expect(pathOf([])).toBe('');
   });
 });
