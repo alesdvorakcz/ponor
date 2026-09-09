@@ -515,7 +515,10 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // string — confirmed by grep — so counting Text nodes whose own child is exactly `'='`
 // counts marked rows with no list of field names to fall out of date. `Object.keys(derived)`
 // is the other half: `derived.ts`'s own export list, read at runtime rather than retyped
-// here, so a value added to that module is counted automatically too.
+// here, so a value added to that module is counted automatically too — narrowed to the
+// exports that are actually functions (a shared-arithmetic manifest like the one below is
+// data, not something a screen could ever render) and then to the ones that module itself
+// does not name as shared arithmetic (see `SHARED_ARITHMETIC_EXPORTS`, derived.ts).
 //
 // The fixture below is built so all seven screen-facing exports return non-null and each
 // renders as exactly one row — the default cylinder's blank helium is read as none
@@ -531,14 +534,17 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // each value from its own inputs (i.e. hardcoding the six again, just as function calls
 // instead of as strings) could rule it out.
 //
-// `rmvFrom` (profile work, M3o) is exactly that scenario arriving rather than staying
-// hypothetical: it is the shared litres/ata/minutes arithmetic `rmv` below and
-// `domain/consumption.ts`'s windowed figure both call, not a fact this screen shows about one
-// dive in its own right — nothing here renders a bare "litres ÷ ata ÷ minutes" row, so it can
-// never be the value behind a mark on this screen. Excluded by name, which is the cheaper
-// half of the "no defect, no rule-out" trade-off named above: re-deriving a screen-facing list
-// from scratch (the other half) would mean hardcoding the seven names this test exists to
-// avoid hardcoding.
+// `rmvFrom` (profile work, M3o) was exactly the *other* kind of new export arriving: not
+// screen-facing at all, but the shared litres/ata/minutes arithmetic `rmv` below and
+// `domain/consumption.ts`'s windowed figure both call — nothing here renders a bare
+// "litres ÷ ata ÷ minutes" row, so it can never be the value behind a mark on this screen.
+// The fix is not naming `rmvFrom` in this file: that would be this test accommodating a fact
+// about the implementation it does not own. Instead `derived.ts` names it —
+// `SHARED_ARITHMETIC_EXPORTS`, right beside `rmvFrom` itself — and `screenFacing` below reads
+// that list the same way it already reads `Object.keys(derived)`: as the module's own account
+// of its exports, not this test's guess at one. A future shared core is excluded from this
+// count by someone growing that array in derived.ts, in the same commit that adds it; this
+// test file does not change either way.
 it('marks every value this screen reads from derived.ts as computed, not just six of seven', async () => {
   const earlier = dive({ id: 'earlier', date: '2026-08-16', timeIn: '08:12', durationMin: 44 });
   const target = dive({
@@ -554,7 +560,11 @@ it('marks every value this screen reads from derived.ts as computed, not just si
   mockUseLocalSearchParams.mockReturnValue({ id: target.id });
   const t = await render(<DiveDetailScreen id={target.id} />);
   const markCount = textNodesOf(t).filter((n) => n.children[0] === '=').length;
-  const screenFacing = Object.keys(derived).filter((name) => name !== 'rmvFrom');
+  const screenFacing = Object.keys(derived).filter(
+    (name) =>
+      typeof (derived as Record<string, unknown>)[name] === 'function' &&
+      !derived.SHARED_ARITHMETIC_EXPORTS.includes(name),
+  );
   expect(markCount).toBe(screenFacing.length);
 });
 

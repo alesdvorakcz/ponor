@@ -207,6 +207,24 @@ export function rmvFrom(litres: number, avgDepthM: number, minutes: number): num
 }
 
 /**
+ * The subset of this module's exports that are shared arithmetic, not a fact about one dive
+ * a screen would render directly. `rmvFrom` above is the first member: `rmv` below and
+ * `domain/consumption.ts`'s windowed figure both call it, but nothing renders its own
+ * litres/ata/minutes inputs as a row in their own right — a screen shows an RMV, never a bare
+ * "litres ÷ ata ÷ minutes".
+ *
+ * `DiveDetailScreen.test.tsx`'s completeness check (`marks every value this screen reads from
+ * derived.ts as computed`) reads this array at runtime, the same way it reads
+ * `Object.keys(derived)` for the full export list, so the fact "this export is a shared core,
+ * not a screen value" is something this module says about itself rather than something that
+ * test had to work out and hardcode to keep passing. The next shared core extracted from a
+ * screen-facing value (the same move that turned part of `rmv` into `rmvFrom`) gets excluded
+ * from that count by growing this array in the same commit — that test file does not change
+ * either way.
+ */
+export const SHARED_ARITHMETIC_EXPORTS: readonly string[] = ['rmvFrom'];
+
+/**
  * Respiratory minute volume: how much gas the diver would breathe per minute at
  * the surface. Dividing by the average ambient pressure is what makes dives at
  * different depths comparable.
