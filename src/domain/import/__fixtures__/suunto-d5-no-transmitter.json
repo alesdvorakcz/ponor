@@ -1,0 +1,282 @@
+{
+  "DeviceLog": {
+    "Header": {
+      "Activity": "Air/Nitrox",
+      "ActivityType": 51,
+      "DateTime": "2026-02-27T09:04:39.170+02:00",
+      "Depth": {
+        "Avg": 15.95,
+        "Max": 22.96
+      },
+      "Device": {
+        "Info": {
+          "BSL": "3.0.2185",
+          "BatteryAtEnd": "Charge: 92%, Voltage: 4.236V",
+          "BatteryAtStart": "Charge: 97%, Voltage: 4.297V",
+          "HW": "68.8.0",
+          "SW": "3.0.2185"
+        },
+        "Name": "Suunto D5",
+        "SerialNumber": "000000000000"
+      },
+      "Diving": {
+        "Algorithm": "Suunto Fused2 RGBM",
+        "AlgorithmAscentTime": 140,
+        "AlgorithmBottomMixture": {
+          "Helium": 0,
+          "Oxygen": 0.21
+        },
+        "AlgorithmBottomTime": 1632,
+        "Altitude": 0,
+        "AscentMode": "Follow ceiling",
+        "Conservatism": 0,
+        "DaysInSeries": 0,
+        "DeepStopEnabled": false,
+        "DesaturationTime": 41512,
+        "DiveMode": "Air",
+        "EndTissue": {
+          "CNS": 0.037,
+          "Helium": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "Nitrogen": [
+            111367,
+            121566,
+            150687,
+            168574,
+            159977,
+            135466,
+            112649,
+            102810,
+            97400,
+            91654,
+            88636,
+            86782,
+            85523,
+            84610,
+            83387
+          ],
+          "OLF": 0.037,
+          "OTU": 8.129629135131836,
+          "RgbmHelium": 1,
+          "RgbmNitrogen": 1
+        },
+        "Gases": [
+          {
+            "Helium": 0,
+            "Oxygen": 0.21,
+            "PO2": 160000,
+            "State": "Primary",
+            "TankFillPressure": 20000000,
+            "TankSize": 0.012,
+            "TransmitterID": "000000000000"
+          }
+        ],
+        "LastDecoStopDepth": 6,
+        "MiniLock": false,
+        "NoFlyTime": 8903,
+        "NumberInSeries": 1,
+        "PreviousDiveDepth": 0,
+        "SafetyStopTime": 180,
+        "StartTissue": {
+          "CNS": 0,
+          "Helium": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "Nitrogen": [
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000,
+            79000
+          ],
+          "OLF": 0,
+          "OTU": 0,
+          "RgbmHelium": 1,
+          "RgbmNitrogen": 1
+        },
+        "SurfacePressure": 101200
+      },
+      "Duration": 2483,
+      "PauseDuration": 267,
+      "SampleInterval": 10
+    },
+    "Samples": [
+      {
+        "Events": [
+          {
+            "GasSwitch": {
+              "GasNumber": 1
+            }
+          },
+          {
+            "State": {
+              "Active": true,
+              "Type": "Dive Active"
+            }
+          },
+          {
+            "State": {
+              "Active": true,
+              "Type": "Wet Outside"
+            }
+          },
+          {
+            "State": {
+              "Active": true,
+              "Type": "Below Wet Activation Depth"
+            }
+          },
+          {
+            "State": {
+              "Active": true,
+              "Type": "Below Surface"
+            }
+          },
+          {
+            "State": {
+              "Active": true,
+              "Type": "Tank pressure available"
+            }
+          }
+        ],
+        "TimeISO8601": "2026-02-27T09:04:39.170+02:00"
+      },
+      {
+        "Ceiling": 0,
+        "Cylinders": [
+          {
+            "GasNumber": 1,
+            "Pressure": null
+          }
+        ],
+        "Depth": 1.25,
+        "DeviceInternalAbsPressure": null,
+        "GasTime": null,
+        "NoDecTime": 6000,
+        "Temperature": 303.65,
+        "TimeToSurface": 0,
+        "Ventilation": null,
+        "TimeISO8601": "2026-02-27T09:04:39.740+02:00"
+      },
+      {
+        "Ceiling": 0,
+        "Cylinders": [
+          {
+            "GasNumber": 1,
+            "Pressure": null
+          }
+        ],
+        "Depth": 3.26,
+        "DeviceInternalAbsPressure": 102600,
+        "GasTime": null,
+        "NoDecTime": 6000,
+        "Temperature": 303.45,
+        "TimeToSurface": 20,
+        "Ventilation": null,
+        "TimeISO8601": "2026-02-27T09:04:49.530+02:00"
+      },
+      {
+        "Ceiling": 0,
+        "Cylinders": [
+          {
+            "GasNumber": 1,
+            "Pressure": null
+          }
+        ],
+        "Depth": 4.84,
+        "DeviceInternalAbsPressure": 102700,
+        "GasTime": null,
+        "NoDecTime": 6000,
+        "Temperature": 303.25,
+        "TimeToSurface": 28,
+        "Ventilation": null,
+        "TimeISO8601": "2026-02-27T09:04:59.540+02:00"
+      },
+      {
+        "Ceiling": 0,
+        "Cylinders": [
+          {
+            "GasNumber": 1,
+            "Pressure": null
+          }
+        ],
+        "Depth": 22.83,
+        "DeviceInternalAbsPressure": 103600,
+        "GasTime": null,
+        "NoDecTime": 1560,
+        "Temperature": 301.45,
+        "TimeToSurface": 140,
+        "Ventilation": null,
+        "TimeISO8601": "2026-02-27T09:11:39.760+02:00"
+      },
+      {
+        "Ceiling": 0,
+        "Cylinders": [
+          {
+            "GasNumber": 1,
+            "Pressure": null
+          }
+        ],
+        "Depth": 0,
+        "DeviceInternalAbsPressure": 102200,
+        "GasTime": null,
+        "NoDecTime": 6000,
+        "Temperature": 302.35,
+        "TimeToSurface": 8,
+        "Ventilation": null,
+        "TimeISO8601": "2026-02-27T09:46:01.120+02:00"
+      }
+    ],
+    "Windows": [],
+    "Device": {
+      "Info": {
+        "BSL": "3.0.2185",
+        "BatteryAtEnd": "Charge: 92%, Voltage: 4.236V",
+        "BatteryAtStart": "Charge: 97%, Voltage: 4.297V",
+        "HW": "68.8.0",
+        "SW": "3.0.2185"
+      },
+      "Name": "Suunto D5",
+      "SerialNumber": "000000000000"
+    }
+  }
+}

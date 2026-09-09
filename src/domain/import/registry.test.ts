@@ -1,12 +1,20 @@
 // src/domain/import/registry.test.ts
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { importerFor, importerLabels, IMPORTERS } from './registry';
 
 const bytesOf = (text: string) => new TextEncoder().encode(text);
 
-// The case that matters most for this seam — that a real dive-computer export is recognised
-// by its *content*, never by its file name — has no importer to prove it against yet. Task 5
-// adds `suuntoJsonImporter`; that test belongs beside it, not stubbed here against an importer
-// that does not exist (see the controller ruling on this task).
+it('picks an importer by what a file contains, never by what it is called', () => {
+  // The case that matters most for this seam — a real dive-computer export, named however a
+  // diver's phone happened to name it, is recognised by its *content*. §9's PADI migration is
+  // also JSON, so two formats will one day share the extension and only this can tell them apart.
+  const suuntoBytes = new Uint8Array(
+    readFileSync(join(__dirname, '__fixtures__', 'suunto-d5.json')),
+  );
+  expect(importerFor(suuntoBytes)?.source).toBe('suunto-app-json');
+});
 
 it('recognises nothing in a JSON file that is simply not a dive export', async () => {
   // The case that makes extension-matching wrong: §9's PADI migration is also JSON, so the

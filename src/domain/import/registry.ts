@@ -1,3 +1,4 @@
+import { suuntoJsonImporter } from './suunto';
 import { type DiveImporter } from './types';
 
 /**
@@ -7,7 +8,7 @@ import { type DiveImporter } from './types';
  * Subsurface, FIT or PADI is a new file beside this one and a new entry here — and, because
  * detection is by content, no UI change at all.
  */
-export const IMPORTERS: readonly DiveImporter[] = [];
+export const IMPORTERS: readonly DiveImporter[] = [suuntoJsonImporter];
 
 /**
  * **Which importer owns this file, decided by its contents.**
