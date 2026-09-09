@@ -1,4 +1,5 @@
 import type { DiveSample } from '../db/schema';
+import { isDisplayableDepth } from '../format/display';
 import { depthBand, depthColor } from '../theme/depth';
 import type { ColorScheme } from '../theme/tokens';
 
@@ -48,10 +49,16 @@ function pointOf(sample: DiveSample): ProfilePoint {
  * "cannot throw mid-render" position `depthColorOrNull` exists for, one depth at a time — so
  * a sample this predicate rejects is dropped here rather than left to crash the whole chart
  * over one bad point.
+ *
+ * Delegates to `isDisplayableDepth` (format/display.ts), the one owner of "can this depth be
+ * shown". That module's docblock records the finiteness/sign check drifting apart once before
+ * (a dangling-label bug) and names deferring to it as the way to make the predicate a one owner
+ * "by construction rather than by two conditions that happen to currently agree". This wrapper
+ * exists to extract the depth from the sample tuple before checking — a tuple-specific detail
+ * that `depthBand` itself does not bundle.
  */
 function hasBandableDepth(sample: DiveSample): boolean {
-  const depthM = sample[1];
-  return Number.isFinite(depthM) && depthM >= 0;
+  return isDisplayableDepth(sample[1]);
 }
 
 /**
