@@ -172,7 +172,23 @@ it('leaves the device null when the export does not name one', () => {
   const bytes = new TextEncoder().encode(
     JSON.stringify({ DeviceLog: { Header: { DateTime: '2026-02-19T11:22:08.290+08:00' } } }),
   );
-  expect(suuntoJsonImporter.parse(bytes)[0]?.dive.importDevice ?? null).toBeNull();
+  const [dive] = suuntoJsonImporter.parse(bytes);
+  expect(dive).toBeDefined();
+  expect(dive?.dive.importDevice).toBeNull();
+});
+
+it('resolves a blank device name to null, the same as no name at all', () => {
+  // Some exports write `"Name": ""` explicitly rather than omitting the key, and `??` does not
+  // fall through an empty string the way it does `null`/`undefined` — so this has to be its
+  // own guard rather than assumed away by the fallback chain in the importer. Built from the
+  // real fixture rather than inline JSON: a blank name is a shape a genuine export can carry,
+  // not adversarial input.
+  const raw = JSON.parse(new TextDecoder().decode(fixture('suunto-d5')));
+  raw.DeviceLog.Device.Name = '';
+  const bytes = new TextEncoder().encode(JSON.stringify(raw));
+  const [dive] = suuntoJsonImporter.parse(bytes);
+  expect(dive).toBeDefined();
+  expect(dive?.dive.importDevice).toBeNull();
 });
 
 it('refuses a fabricated Temperature rather than turning it into a plausible-looking reading', () => {

@@ -82,12 +82,13 @@ export const suuntoJsonImporter: DiveImporter = {
     // no longer carries a copy; see `ImportedDive.dive`'s own docblock in ./types for why).
     const importId = `${serial}:${localKey}`;
     // `DeviceLog.Device.Name`, with `DeviceLog.Header.Device.Name` as the same fallback the
-    // serial number above reads through. Guarded like `startedAt` above rather than a bare
-    // `??`: a name that is not a string is treated the same as one that is not there at all,
-    // which is what `dives.importDevice`'s own docblock (schema.ts) promises every dive
-    // imported before this column existed — null, not a fabricated label.
+    // serial number above reads through. Guarded like `startedAt` above, blank included: a
+    // name that is not a string, or an explicit `"Name": ""`, is treated the same as one that
+    // is not there at all, which is what `dives.importDevice`'s own docblock (schema.ts)
+    // promises every dive imported before this column existed — null, not a fabricated label
+    // and not the empty string the export happened to write.
     const deviceName = log?.Device?.Name ?? header?.Device?.Name;
-    const importDevice = typeof deviceName === 'string' ? deviceName : null;
+    const importDevice = typeof deviceName === 'string' && deviceName.length > 0 ? deviceName : null;
     const startMs = Date.parse(startedAt);
 
     const samples: SuuntoSample[] = Array.isArray(log?.Samples) ? log.Samples : [];
