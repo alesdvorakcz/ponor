@@ -942,11 +942,11 @@ describe('the announcement a write makes (§7.5’s save trigger)', () => {
 
     await softDeleteDive(db, dive.id);
 
-    // A deletion announces the dive itself. Task 2 now also tombstones any associated
-    // profile row, and that is a second act (a second stampLocalWrite call).
-    // Only rows that actually exist are updated, so the profile announcement is heard
-    // only if the dive had a profile to tombstone.
-    expect(heard.length).toBeGreaterThanOrEqual(1);
+    // **A deletion now announces two writes**: the dive itself, then its profile tombstone
+    // via `tombstoneDiveSamples`. Each call to `stampLocalWrite` announces when the stamp
+    // is made, not when rows change, so the profile announcement is heard unconditionally
+    // even if the dive had no profile samples.
+    expect(heard.length).toBe(2);
     stop();
   });
 
