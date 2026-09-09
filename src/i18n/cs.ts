@@ -362,10 +362,17 @@ export const cs = {
        * section's own row label already says *ponory*. */
       importFormats: 'Aplikace umí přečíst: {{formats}}.',
       importing: 'Importuji…',
-      importDone: 'Naimportováno {{imported}}, {{alreadyThere}} už v deníku bylo.',
+      /** Not "…už v deníku bylo": "bylo" agrees only with 0 or 5+, and a partial re-import (a
+       * few dives already logged) is the mainline case, seen constantly with 1 ("byl") or 2–4
+       * ("byly") already there. The fix drops the finite verb rather than reaching for
+       * `_one`/`_few`/`_many` (`accountDeletedSites`' own machinery, further down in this
+       * file) — that machinery earns its keep where a sentence truly needs agreement; this one
+       * can simply avoid needing it. */
+      importDone: 'Naimportováno {{imported}}, {{alreadyThere}} už ve vašem deníku.',
       importUnrecognised: 'Nepodařilo se rozpoznat: {{files}}. Zkontrolujte, že jste vybrali správné soubory.',
       importFailed: 'Nepodařilo se přečíst: {{files}}.',
       importUnwritable: 'Nepodařilo se uložit: {{files}}. Zkuste to znovu.',
+      importUnexpected: 'Import se nepodařilo dokončit, takže se nic nezapsalo. Zkuste to znovu.',
       importUnavailable: 'Na tomto zařízení není k dispozici výběr souborů.',
 
       destructiveSection: 'Mazání',

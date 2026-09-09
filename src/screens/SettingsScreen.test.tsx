@@ -2359,6 +2359,26 @@ describe('data import', () => {
     expect(mockImportFiles).not.toHaveBeenCalled();
   });
 
+  it('says the import could not complete, rather than being stuck on "Importing…" forever', async () => {
+    // `platform/pickImportFiles.ts` deliberately REJECTS rather than resolving `'unavailable'`
+    // when a chosen file's bytes fail to read (an iCloud download stalling, a permissions
+    // problem) — its own docblock argues for that at length, and its own test file
+    // ("still rejects when a chosen file cannot be read...") locks it in. Before this test,
+    // `runImport` had no `catch`: `importing` still came back down through its `finally`, so
+    // the row looked pressable again, but `importMessage` was never written over, so the
+    // caption sat on `t('settings.importing')` forever and the diver was told nothing.
+    stubSettings();
+    mockPick.mockRejectedValue(new Error('disk full'));
+    const t = await render(<SettingsScreen />);
+
+    await pressRow(t, 'Import dives');
+
+    const said = textIn(t).join(' ');
+    expect(said).not.toContain('Importing…');
+    expect(said).toContain('Couldn’t complete the import, so nothing was written. Try again.');
+    expect(mockImportFiles).not.toHaveBeenCalled();
+  });
+
   it('hands the write everything the picker returned, unchanged', async () => {
     stubSettings();
     const picked = [{ name: 'a.json', bytes: new Uint8Array([1, 2, 3]) }];
@@ -2432,6 +2452,22 @@ describe('data import', () => {
     });
   });
 
+  /**
+   * **Documents the intended, visible behaviour — and does not prove `runImport`'s own
+   * `if (importing) return;` guard.** `pressRow` awaits each press through its own `act()`, so
+   * a render lands between the two: by the second one, `disabled={importing}` on the row has
+   * *already* refused the press before `runImport` is ever called, which is why `mockPick`
+   * below stays at one even with the guard deleted. Proving the guard itself needs the shape
+   * `AccountScreen.test.tsx`'s "sends one request for a double tap" spells out and uses: both
+   * presses fired inside ONE `act()`, no render between them, so the second reaches a control
+   * still reporting itself enabled — and even then, a `useState` guard (unlike that test's
+   * `busyRef`) would not turn it away, because `importing` inside `runImport` is read from the
+   * closure the last render captured, the same closure both presses would share, not a mutable
+   * cell one press's own call could update before the other reads it. This screen's guard is
+   * `runExport`'s own kind: defensive consistency with every other busy flag here, not a
+   * load-bearing lock — and this test is about the row a diver actually sees, not about which
+   * mechanism kept `mockPick` at one.
+   */
   it('says it is importing, and ignores a second press until it is done', async () => {
     stubSettings();
     let release: ((value: 'cancelled') => void) | null = null;
@@ -2443,8 +2479,8 @@ describe('data import', () => {
     await pressRow(t, 'Import dives');
     expect(textIn(t)).toContain('Importing…');
 
-    // A second press while one is in flight — the system picker is not a state this screen
-    // can have two of open at once, `runExport`'s own guard one section up.
+    // A second press while one is in flight, separately awaited so a render lands between the
+    // two — the shape a diver's own double-tap takes once the row has repainted as disabled.
     await pressRow(t, 'Import dives');
     expect(mockPick).toHaveBeenCalledTimes(1);
 
@@ -2496,6 +2532,26 @@ describe('data import', () => {
       expect(said).toContain('Nepodařilo se rozpoznat: wrong-format.gpx');
       expect(said).toContain('Nepodařilo se přečíst: corrupt.json');
       expect(said).toContain('Nepodařilo se uložit: no-space.json');
+    });
+
+    it('says how many were already logged without a verb that would need to agree with the count', async () => {
+      // §0.5: "bylo" agrees only with a count of 0 or 5+ — for 1 it would need "byl", for 2–4
+      // "byly". A partial re-import (a few dives already logged) is the mainline case this
+      // feature exists to handle gracefully, so 1 is the count most likely to be seen and the
+      // one the old finite verb got wrong. The fix drops the verb rather than picking one that
+      // depends on the count.
+      stubSettings();
+      mockPick.mockResolvedValue([{ name: 'a.json', bytes: new Uint8Array() }]);
+      mockImportFiles.mockResolvedValue({
+        imported: 4,
+        alreadyThere: 1,
+        failed: [],
+      } satisfies ImportOutcome);
+      const t = await render(<SettingsScreen />);
+
+      await pressRow(t, 'Importovat ponory');
+
+      expect(textIn(t).join(' ')).toContain('Naimportováno 4, 1 už ve vašem deníku.');
     });
   });
 });

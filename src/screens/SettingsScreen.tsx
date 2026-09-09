@@ -880,16 +880,29 @@ export default function SettingsScreen() {
    * undo** (this task's own boundary). §9's UDDF and the rest arrive by adding an importer to
    * the registry, not by this screen learning a new shape.
    *
-   * **Guarded against a second press the way `runExport` is** (`exporting !== null`, just
-   * above): a diver's own device is not going to hand this two folders to import at once, but
-   * the system file picker is, and a second one on top of the first is not a state this screen
-   * has anywhere else either.
+   * **Guarded the way `runExport` is** (`exporting !== null`, just above): a plain
+   * `if (importing) return;`, not a ref. Read what that actually protects against precisely —
+   * it turns away a second press once React has re-rendered with `importing: true`, and by
+   * that render `disabled={importing}` on the row below has *already* refused the press before
+   * this line is ever reached. It is not a barrier against two presses landing in the same
+   * synchronous tick with no render between them: `importing` here is read from the closure
+   * `runImport` was created with at the last render, so a truly simultaneous second call would
+   * see the same `false` the first one did. `AccountScreen.tsx`'s `busyRef` is what a real
+   * barrier against that looks like when a screen actually needs one (its own test explains why
+   * a `useState` guard cannot be that barrier). This row does not: a diver's thumb is not the
+   * system file picker, and this guard is `runExport`'s own kind — cheap consistency with every
+   * other busy flag here, not a load-bearing lock.
    *
-   * **Nothing here can reject.** `pickImportFiles` resolves `'cancelled'` or `'unavailable'`
-   * for its own ordinary outcomes (`platform/pickImportFiles.ts`'s docblock), and `importFiles`
-   * resolves an `ImportOutcome` whatever went wrong file by file or dive by dive
-   * (`db/importDives.ts`'s own docblock) — so there is no failure left here for a `catch` to
-   * report, only three questions already answered for it to read.
+   * **`pickImportFiles` can reject, and this `try` is where that is caught.** Its own docblock
+   * argues at length for rejecting — rather than resolving `'unavailable'` — when a chosen
+   * file's bytes fail to read: an iCloud download stalling, a permissions problem, a genuine
+   * and unexpected failure and not one of its two ordinary outcomes. `importFiles` does not
+   * reject on its own account (`db/importDives.ts`'s own docblock: every failure it meets, file
+   * by file and dive by dive, becomes an `ImportOutcome` entry instead), so in practice this
+   * `catch` exists for the picker's read failure alone — but it is written around both calls
+   * for the same reason `runExport`'s is around its own several awaits: the diver does not
+   * care which line threw, only that nothing was written and that trying again is the answer,
+   * which is exactly what `settings.importUnexpected` says and no more.
    */
   const runImport = async () => {
     if (importing) return;
@@ -919,6 +932,13 @@ export default function SettingsScreen() {
         if (files.length > 0) said.push(t(IMPORT_FAILURE_KEYS[reason], { files: files.join(', ') }));
       }
       setImportMessage(said.join(' '));
+    } catch {
+      // Before this `catch` existed, a rejection here (see above) left `importing` released by
+      // the `finally` below — the row looked pressable again — but `importMessage` was never
+      // written over, so the caption sat on `t('settings.importing')` forever and the diver was
+      // told nothing at all. `runExport`'s own `catch { setExportError(t('settings.exportFailed')); }`,
+      // the handler immediately above this one, is this one's exact shape.
+      setImportMessage(t('settings.importUnexpected'));
     } finally {
       // Released on both paths, for the reason every busy flag in this app is: a control that
       // silently stopped working is the failure, not the failure it was reporting.

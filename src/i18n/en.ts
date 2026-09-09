@@ -436,6 +436,12 @@ export const en = {
        * - `importUnwritable` — the file was read in full and its dives were fine; *saving* one
        *   to this device failed. Kept out of `importFailed` deliberately: that sentence would
        *   send a diver to re-export a file that was never the problem.
+       *
+       * **A fourth sentence, `importUnexpected`, is not one of those three.** It is `runImport`'s
+       * own `catch` (`SettingsScreen.tsx`) — `pickImportFiles` can reject rather than resolve
+       * when a chosen file's bytes fail to read (`platform/pickImportFiles.ts`'s own docblock),
+       * which is a failure of the *attempt*, before any file ever reached `importFiles` to be
+       * sorted into one of the three above. `exportFailed`'s own shape, one section up.
        */
       importSection: 'Data import',
       importLabel: 'Import dives',
@@ -445,6 +451,7 @@ export const en = {
       importUnrecognised: "Couldn't recognise: {{files}}. Check you picked the right files.",
       importFailed: "Couldn't read: {{files}}.",
       importUnwritable: "Couldn't save: {{files}}. Try again.",
+      importUnexpected: 'Couldn’t complete the import, so nothing was written. Try again.',
       importUnavailable: 'No file picker is available on this device.',
 
       /**
