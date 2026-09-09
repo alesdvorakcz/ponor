@@ -6,10 +6,11 @@ import { processColor } from 'react-native';
 import type { DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
 import { suuntoJsonImporter } from '../domain/import/suunto';
-import type { Dive } from '../domain/types';
+import type { Dive, Tank } from '../domain/types';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
-import { DepthProfile } from './DepthProfile';
+import { PROFILE_PLOT_HEIGHT } from '../theme/styles';
+import { DepthProfile, PLOT_WIDTH } from './DepthProfile';
 
 // Adapted from the brief's react-test-renderer-shaped examples to the API the installed
 // @testing-library/react-native@14 actually exposes, exactly as `DiveRow.test.tsx` records:
@@ -34,6 +35,19 @@ function textIn(t: RenderResult): string[] {
 
 function pathsIn(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : [];
+}
+
+function linesIn(t: RenderResult) {
+  return t.root ? t.root.queryAll((n) => n.type === 'RNSVGLine') : [];
+}
+
+/** A minimal, complete `Tank` for tests that need a cylinder but not the whole shape a
+ * diver would actually fill in — the fields `consumptionSeries` reads, and nothing else. */
+function tank(over: Partial<Tank> = {}): Tank {
+  return {
+    material: 'steel', configuration: 'single', sizeL: 10, workingBar: 232,
+    o2Pct: 21, hePct: null, startBar: null, endBar: null, ...over,
+  };
 }
 
 /**
@@ -190,4 +204,88 @@ it('marks the deepest sample in its own band colour', async () => {
   const marks = t.root ? t.root.queryAll((n) => n.type === 'RNSVGCircle') : [];
   expect(marks).toHaveLength(1);
   expect(paintOf(marks[0]!, 'fill')).toBe(paint(depthColor(24.29, 'light')));
+});
+
+// Review round 1, Finding A: the viewBox spans exactly 0…PROFILE_PLOT_HEIGHT, so anything
+// drawn at y = 0 or y = PROFILE_PLOT_HEIGHT is cut in half by the viewport. A dive whose
+// deepest sample sits exactly on a round `axis.max` puts the marker's centre on the bottom
+// edge, which is the case named in the finding: `maxDepthM` null so the axis is scaled from
+// the samples alone, and axisMax(30) is exactly 30.
+it('keeps the deepest-sample marker fully inside the viewBox when the deepest sample sits on axis.max', async () => {
+  const series: DiveSample[] = [
+    [0, 5, null, null],
+    [10, 30, null, null],
+  ];
+  const t = await render(<DepthProfile dive={dive()} samples={series} scheme="light" units="metric" />);
+  const marks = t.root ? t.root.queryAll((n) => n.type === 'RNSVGCircle') : [];
+  expect(marks).toHaveLength(1);
+  const mark = marks[0]!;
+  const cy = mark.props.cy as number;
+  const r = mark.props.r as number;
+  expect(cy - r).toBeGreaterThanOrEqual(0);
+  expect(cy + r).toBeLessThanOrEqual(PROFILE_PLOT_HEIGHT);
+});
+
+// Same finding, the gridlines' half: a 1 pt line stroked exactly at y = 0 or y =
+// PROFILE_PLOT_HEIGHT renders at half its apparent weight, because half of it falls outside
+// the viewport. None of the fixture's gridlines — including the first (0 m) and the last
+// (axis.max) — may sit exactly on either edge.
+it('keeps every gridline off the viewport edge', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  const lines = linesIn(t);
+  expect(lines.length).toBeGreaterThan(0);
+  for (const line of lines) {
+    expect(line.props.y1).not.toBe(0);
+    expect(line.props.y1).not.toBe(PROFILE_PLOT_HEIGHT);
+  }
+});
+
+// Review round 1, Finding B: the two series must be scaled off ONE x domain — the full
+// recorded series' time extent — not off `colourRuns`' drawn subset. Three samples 60 s
+// apart so each window is exactly two samples wide (the same hand-computable shape
+// `consumption.test.ts` uses); the last sample's depth is negative, which `isDisplayableDepth`
+// rejects, so `colourRuns` draws only the first two and the depth curve's own extent ends at
+// t = 60 — sixty seconds short of the series' real end at t = 120. `consumptionSeries` reads
+// every sample regardless of depth, so its second window (t = 60 to t = 120, midpoint 90)
+// still produces a point past that shorter extent.
+it('scales the gas trace against the full sample series, not the drawn depth curve', async () => {
+  const series: DiveSample[] = [
+    [0, 10, null, 200],
+    [60, 10, null, 194],
+    [120, -0.1, null, 188],
+  ];
+  const t = await render(
+    <DepthProfile dive={dive({ tanks: [tank()] })} samples={series} scheme="light" units="metric" />,
+  );
+  const gas = pathsIn(t).find((p) => paintOf(p, 'stroke') === paint(themeFor('light').fgMuted));
+  expect(gas).toBeDefined();
+  const xs = [...String(gas!.props.d).matchAll(/[ML](-?[\d.]+) -?[\d.]+/g)].map((m) => Number(m[1]));
+  expect(xs).toHaveLength(2);
+  // Against the full series' domain (0 to 120) the second window's midpoint (t = 90) lands at
+  // three quarters of the width; against the depth curve's own domain (0 to 60) it would
+  // compute to 480 viewBox units — past the 320-wide plot entirely.
+  expect(xs[1]).toBeLessThanOrEqual(PLOT_WIDTH);
+});
+
+// Review round 1, Finding C: `gasSegments` (DepthProfile.tsx) drops a segment left holding a
+// single point rather than emit a bare `M` nothing draws a line from. Five samples at a
+// constant, bandable 10 m: two isolated one-sample windows (t = 30, t = 530 — each more than
+// GAS_GAP_S from its neighbour) ahead of one real two-point segment (t = 1030, t = 1090).
+it('drops a one-point gas segment rather than leaving a stray subpath for it', async () => {
+  const series: DiveSample[] = [
+    [0, 10, null, 200],
+    [60, 10, null, 196],
+    [1000, 10, null, 150],
+    [1060, 10, null, 146],
+    [1120, 10, null, 142],
+  ];
+  const t = await render(
+    <DepthProfile dive={dive({ tanks: [tank()] })} samples={series} scheme="light" units="metric" />,
+  );
+  const gas = pathsIn(t).find((p) => paintOf(p, 'stroke') === paint(themeFor('light').fgMuted));
+  expect(gas).toBeDefined();
+  // One `M` only: the two stray one-point segments must not each contribute their own.
+  expect(String(gas!.props.d).match(/M/g)).toHaveLength(1);
 });

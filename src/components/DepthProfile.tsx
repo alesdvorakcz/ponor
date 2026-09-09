@@ -38,7 +38,7 @@ import { type ColorScheme } from '../theme/tokens';
  * today would render an empty plot in every test in this file. This constant is what that
  * measurement will fall back to before the first layout pass.
  */
-const PLOT_WIDTH = 320;
+export const PLOT_WIDTH = 320;
 
 /**
  * The three stroke weights and the marker's radius, in viewBox units.
@@ -54,6 +54,27 @@ const DEPTH_STROKE_WIDTH = 2;
 const GAS_STROKE_WIDTH = 1;
 const GRID_STROKE_WIDTH = 1;
 const DEEPEST_MARK_RADIUS = 3;
+
+/**
+ * **How far the plotted curve is pulled in from the viewBox's own top and bottom edge**, in
+ * viewBox units. Without it, a stroke or marker drawn at either extreme value sits exactly on
+ * `y = 0` or `y = PROFILE_PLOT_HEIGHT` and has the far half of its own width or radius clipped
+ * by the viewport: a round `axis.max` sample puts the deepest-sample marker's centre on the
+ * bottom edge with nothing beyond it to show the rest of its `r = 3`, and a near-surface
+ * sample thins the depth stroke the same way at the top.
+ *
+ * Derived from the two named constants that can actually poke past a point sitting on either
+ * edge, rather than a new magic number: half the widest stroke this plot draws, and the
+ * marker's own radius, whichever reaches further. The marker wins today (`3` beats
+ * `DEPTH_STROKE_WIDTH / 2`'s `1`), but writing it as a `max` of both means a stroke that ever
+ * grew past `2 * DEEPEST_MARK_RADIUS` could not silently reopen this clip.
+ *
+ * Applied to both vertical scales (`yDepth` and `yGas`) rather than the depth curve alone:
+ * the two share this one viewBox and its top and bottom edges, and a gas trace whose own
+ * extreme reading still touched `y = 0` or `y = PROFILE_PLOT_HEIGHT` would carry the identical
+ * clip this constant exists to remove, just on a thinner stroke.
+ */
+const PLOT_INSET_Y = Math.max(DEPTH_STROKE_WIDTH / 2, DEEPEST_MARK_RADIUS);
 
 /**
  * **How far apart two consumption points may be before the trace breaks** — two windows, from
@@ -237,13 +258,25 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   // full: no samples, one sample, or a series whose depths it had to reject.
   if (first === undefined || last === undefined) return null;
 
-  // The dive's clock, from zero to the last sample's own offset — not from the FIRST sample's
-  // offset, which is 0.57 s on the reference dive and is a real part of the record: the device
-  // began recording a moment after the dive began, and shifting the axis to hide that would
-  // redraw the descent as steeper than it was. A series whose points all share one instant has
-  // no time axis to draw at all and is refused rather than divided by zero.
-  const endS = last.t;
-  if (!(endS > 0)) return null;
+  // ONE x domain for both series — the full RECORDED series' time extent, its first sample's
+  // own offset to its last — not `drawn`'s (`colourRuns` may reject trailing samples over a
+  // bad depth) and not the depth curve's alone: `consumptionSeries` below reads every sample
+  // regardless of whether its depth could be banded, so a gas point can sit past whatever
+  // `drawn` alone would call the end of the dive. Both series are subsets of ONE recorded
+  // array, so reading the domain off that same array is what makes the axis mean one thing
+  // rather than two — a depth curve that stops short of this domain's own right edge because
+  // its trailing samples had no usable depth is the honest rendering of that, not a bug to
+  // paper over. A series whose first and last sample share one instant has no time axis to
+  // draw at all and is refused rather than divided by zero.
+  const firstSample = samples.at(0);
+  const lastSample = samples.at(-1);
+  // `first`/`last` above already being defined means `colourRuns` found at least two bandable
+  // samples IN `samples`, so both ends of the raw array exist too — `noUncheckedIndexedAccess`'s
+  // claim, not a real possibility, exactly as `consumption.ts`'s own `start`/`end` narrowing.
+  if (firstSample === undefined || lastSample === undefined) return null;
+  const startS = firstSample[0];
+  const endS = lastSample[0];
+  if (!(endS > startS)) return null;
 
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
@@ -258,8 +291,12 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   const storedMaxM = isDisplayableDepth(dive.maxDepthM) ? dive.maxDepthM : 0;
   const axis = depthAxis(Math.max(storedMaxM, deepest.v));
 
-  const x = (seconds: number): number => round((seconds / endS) * PLOT_WIDTH);
-  const yDepth = (metres: number): number => round((metres / axis.max) * PROFILE_PLOT_HEIGHT);
+  const x = (seconds: number): number => round(((seconds - startS) / (endS - startS)) * PLOT_WIDTH);
+  // Inset by `PLOT_INSET_Y` at both ends (see its own docblock) so a value at either extreme —
+  // 0 m, or a deepest sample sitting exactly on `axis.max` — has room for its own stroke width
+  // or marker radius inside the viewport instead of sitting on the edge.
+  const yDepth = (metres: number): number =>
+    round(PLOT_INSET_Y + (metres / axis.max) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
 
   // The main cylinder — see this component's docblock for why that is the first and why it is
   // not `derived.ts`'s whole-dive read. `consumptionSeries` decides for itself whether the
@@ -268,8 +305,10 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   const gas = tank === undefined ? [] : gasSegments(consumptionSeries(samples, tank));
   const gasDrawn = gas.flat();
   const gasMax = gasDrawn.length > 0 ? axisMax(Math.max(...gasDrawn.map((point) => point.v))) : 0;
+  // Inverted (rate 0 at the bottom, gasMax at the top) and inset exactly like `yDepth` above —
+  // the same edge either scale could sit on is the same viewBox, so it takes the same margin.
   const yGas = (rate: number): number =>
-    round(PROFILE_PLOT_HEIGHT - (rate / gasMax) * PROFILE_PLOT_HEIGHT);
+    round(PROFILE_PLOT_HEIGHT - PLOT_INSET_Y - (rate / gasMax) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
 
   // The caption describes the STORED series, not the subset that survived to be stroked: it
   // says what the device recorded and how often, and both halves have to be read off the same
@@ -278,9 +317,11 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
     .filter((part): part is string => part !== null)
     .join(METADATA_SEPARATOR);
 
-  // Start, midpoint, end (spec §3). `formatDuration` cannot fail for a finite positive span,
+  // Start, midpoint, end of the domain above (spec §3) — `startS`, not `0`: the axis now
+  // starts at the series' own first sample, so its start label has to read the same instant
+  // the curve's own left edge does. `formatDuration` cannot fail for a finite positive span,
   // but it is nullable by contract and this app does not assert past a contract.
-  const timeLabels = [0, endS / 2, endS]
+  const timeLabels = [startS, (startS + endS) / 2, endS]
     .map((seconds) => formatDuration(seconds / 60))
     .filter((label): label is string => label !== null);
 

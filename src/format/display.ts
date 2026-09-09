@@ -247,10 +247,13 @@ export function formatDuration(minutes: number | null): string | null {
  * no `system` and the symbol is written here rather than in `format/units.ts`, which owns the
  * four *converted* pairs alone (§3's depth, temperature, pressure and weight).
  *
- * **The number is the one `medianIntervalS` produced, and it is already whole** (domain/
- * profile.ts rounds the median before returning it), so this neither rounds again nor pads —
- * an interval of "10.0 s" would claim a resolution a median of integer-second deltas does not
- * have, which is `formatDepthBoundary`'s own argument one figure over.
+ * **Rounds to the whole second itself, rather than trust the caller already did.**
+ * `medianIntervalS` (domain/profile.ts) documents that its own return value is already whole,
+ * but a formatter whose correctness depends on another module's docblock staying true is one
+ * docblock away from silently printing "9.87 s" — rounding here too costs nothing while that
+ * promise holds, and stops mattering the day it might not. It still does not PAD: an interval
+ * of "10.0 s" would claim a resolution a whole-second reading does not have, which is
+ * `formatDepthBoundary`'s own argument one figure over.
  *
  * `null` for an interval that is not a positive number, which is what `medianIntervalS`
  * returns when there are no deltas to take a median of: a caption reading "0 s" would state a
@@ -259,7 +262,7 @@ export function formatDuration(minutes: number | null): string | null {
  */
 export function formatSampleInterval(seconds: number | null): string | null {
   if (!isFiniteNumber(seconds) || seconds <= 0) return null;
-  return `${figureText(seconds)} s`;
+  return `${figureText(Math.round(seconds))} s`;
 }
 
 /** Water or air temperature, e.g. "-1 °C" or "30 °F" — whole degrees in both systems, sign

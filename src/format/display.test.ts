@@ -253,6 +253,13 @@ describe('formatSampleInterval', () => {
   it('does not pad a whole number of seconds', () => {
     expect(formatSampleInterval(120)).toBe('120 s');
   });
+  // Finding D (dive-profile review round 1): the formatter must not depend on another
+  // module's promise that its input already arrived whole — `medianIntervalS`'s own docblock
+  // says it rounds before returning, but a fractional input must still print a whole second
+  // rather than repeat whatever `medianIntervalS` happens to hand it today.
+  it('rounds a fractional input itself rather than trust the caller already did', () => {
+    expect(formatSampleInterval(9.87)).toBe('10 s');
+  });
   // What `medianIntervalS` returns when a series has no deltas to take a median of. A caption
   // reading "0 s" would state a cadence no device has, so the caller drops the half it cannot
   // state instead.
