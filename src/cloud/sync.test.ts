@@ -475,7 +475,7 @@ describe('pull (§7.2, §7.3)', () => {
   });
 
   /**
-   * `pull_changes` returns six tables and this device has five. A server that grows a table
+   * `pull_changes` returns seven tables and this device has six. A server that grows a table
    * must not break a device that has not grown it.
    *
    * **`certifications` was on this list until M3b and has left it**, which is the whole of that

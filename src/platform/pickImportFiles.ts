@@ -8,12 +8,16 @@ import { type ImportFile } from '../db/importDives';
  * files going out. `db/importDives.ts` decides what to do with the bytes; this file's only job
  * is producing them, for whichever files a diver hands over.
  *
- * ── The same three-state shape `shareFile.ts` uses, and for the same reason ───────────────
+ * ── The same principle `shareFile.ts` follows, not the same shape ─────────────────────────
  *
  * `'cancelled'` and `'unavailable'` are answers, not failures — a screen that had to wrap this
  * call in a `try`/`catch` for a diver simply backing out of the picker would be handling an
- * exception for something ordinary, which is the shape `shareFile.ts`'s own docblock argues
- * against.
+ * exception for something ordinary, which is the same reasoning `shareFile.ts`'s own docblock
+ * argues from: a sentinel for an outcome that is genuinely ordinary, and a reject reserved for
+ * one that is not. **The shapes themselves are not equal.** `ShareOutcome` is `'shared' |
+ * 'unavailable'` — two named outcomes plus reject. This module's `PickImportFilesOutcome` adds
+ * a third, `'cancelled'`, because a picker can be backed out of and a share, once the sheet is
+ * open, cannot.
  *
  * **`'unavailable'` is reached differently here, because this library offers no
  * `isAvailableAsync` to ask first.** `expo-sharing` can be asked *before* doing anything; this

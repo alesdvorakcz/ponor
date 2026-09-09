@@ -412,7 +412,7 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
     // visible, and used here; two copies of the verification would be the drift §4.1 names.
   });
 
-  it('names the same six tables the schema does, in every list that names one', () => {
+  it('names the same seven tables the schema does, in every list that names one', () => {
     // Seven independent lists inside the RPC file, each compared against the schema migration
     // rather than against each other: a table missing from any one of them is a table whose
     // rows never sync, and nothing else in this repository would notice.
