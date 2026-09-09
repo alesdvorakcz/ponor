@@ -131,7 +131,7 @@ const seriesJson = jsonArray<DiveSample>();
 - [ ] **Step 4: Generate the migration**
 
 Run: `npm run db:generate`
-Expected: a new `src/db/migrations/0003_*.sql` creating `dive_samples`, plus an updated `meta/`. Read the generated SQL and confirm it creates exactly the five columns above.
+Expected: a new `src/db/migrations/0003_*.sql` creating `dive_samples`, plus an updated `meta/`. Read the generated SQL and confirm it creates exactly the six columns above.
 
 - [ ] **Step 5: Write `src/db/diveSamples.ts`**
 
