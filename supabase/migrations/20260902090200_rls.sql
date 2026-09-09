@@ -137,6 +137,28 @@ create policy certifications_update_own on public.certifications
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
 
+-- ─── dive_samples — private, identical model to dives ────────────────────────────────
+
+alter table public.dive_samples enable row level security;
+revoke all on table public.dive_samples from anon, authenticated;
+grant select, insert, update on table public.dive_samples to authenticated;
+
+drop policy if exists dive_samples_select_own on public.dive_samples;
+create policy dive_samples_select_own on public.dive_samples
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists dive_samples_insert_own on public.dive_samples;
+create policy dive_samples_insert_own on public.dive_samples
+  for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists dive_samples_update_own on public.dive_samples;
+create policy dive_samples_update_own on public.dive_samples
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
 -- ─── dive_sites — community ──────────────────────────────────────────────────────────
 -- SELECT is unfiltered for a signed-in reader, including `merged` and `hidden` rows and
 -- tombstoned ones: §7's pull has to deliver a merge and a deletion for the client to act

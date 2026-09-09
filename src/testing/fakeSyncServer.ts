@@ -34,8 +34,8 @@ import { readMigrations } from './migrationSql';
  *   un-shifted clock beside it.
  * · **Tombstones travel as rows.** Nothing filters `deleted_at`.
  * · **Every column is rendered, including the nulls**, because `to_jsonb(row)` does.
- * · **`certifications` and `profiles` come back too**, empty, because the real `pull_changes`
- *   returns six keys and the device has tables for four of them.
+ * · **`profiles` comes back too**, empty, because the real `pull_changes` returns seven keys
+ *   and the device has tables for six of them.
  *
  * What it does not model: RLS, transactions, the unknown-key refusal, PostGIS. Those are the
  * server's own correctness and are checked by reading the SQL (`src/db/syncRpcParity.test.ts`).
@@ -61,6 +61,7 @@ const OWNER_COLUMNS: Record<string, string> = {
   dives: 'user_id',
   gear_presets: 'user_id',
   certifications: 'user_id',
+  dive_samples: 'user_id',
   dive_sites: 'created_by',
   dive_centers: 'created_by',
 };
@@ -68,11 +69,12 @@ const OWNER_COLUMNS: Record<string, string> = {
 /** Columns §5 gives to the admin, which `push_changes` will not take from a device. */
 const ADMIN_COLUMNS = ['status', 'merged_into'];
 
-/** The six tables both RPCs name. */
+/** The seven tables both RPCs name. */
 export const SERVER_TABLES = [
   'dives',
   'gear_presets',
   'certifications',
+  'dive_samples',
   'profiles',
   'dive_sites',
   'dive_centers',
@@ -239,9 +241,11 @@ export class FakeSyncServer {
    *
    * So this is that table, executed:
    *
-   *     dives · gear_presets · certifications · profiles   on delete CASCADE   → the rows go
-   *     dive_sites · dive_centers                          on delete SET NULL  → the rows stay,
-   *                                                                              `created_by` null
+   *     dives · gear_presets · certifications · dive_samples · profiles   on delete CASCADE
+   *                                                                       → the rows go
+   *     dive_sites · dive_centers                                        on delete SET NULL
+   *                                                                       → the rows stay,
+   *                                                                         `created_by` null
    *
    * **It answers with the two counts taken BEFORE the delete**, as the SQL does — they are the
    * sentence a departing diver reads, and counted afterwards they would both be whatever a
@@ -280,7 +284,7 @@ export class FakeSyncServer {
     const sitesKept = mine('dive_sites', 'created_by').length;
     const centersKept = mine('dive_centers', 'created_by').length;
 
-    for (const table of ['dives', 'gear_presets', 'certifications', 'profiles'] as const) {
+    for (const table of ['dives', 'gear_presets', 'certifications', 'dive_samples', 'profiles'] as const) {
       for (const row of mine(table, table === 'profiles' ? 'id' : 'user_id')) {
         this.table(table).delete(String(row.id));
       }

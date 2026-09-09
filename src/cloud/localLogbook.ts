@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { adoptDiveCenters, adoptDiveSites, wipeDiveCenters, wipeDiveSites } from '../db/catalogue';
 import { adoptCertifications, wipeCertifications } from '../db/certifications';
 import { db } from '../db/client';
+import { adoptDiveSamples, wipeDiveSamples } from '../db/diveSamples';
 import { adoptDives, wipeDives } from '../db/dives';
 import { adoptGearPresets, wipeGearPresets } from '../db/gearPresets';
 import { forgetDivesBefore } from '../db/settings';
@@ -70,6 +71,7 @@ import { syncEngine } from './syncEngine';
  * account goes, everything the diver set on this device stays.* So `dives`, `gear_presets` and
  * `certifications` go — a card is one person's and it syncs, and a signed-out phone still
  * holding somebody's certification numbers is precisely what that sentence is about;
+ * `dive_samples` goes with it, because a profile is one dive's and has no life apart from it;
  * `sync_state` goes, because a stale watermark makes the next account's first pull skip
  * every row older than it, silently and unrepairably (§7.2 records that failure for
  * watermarks); `dive_sites` and `dive_centers` go, because they arrive by pull and a guest
@@ -218,6 +220,7 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
     await wipeDives(deps.db);
     await wipeGearPresets(deps.db);
     await wipeCertifications(deps.db);
+    await wipeDiveSamples(deps.db);
     await wipeDiveSites(deps.db);
     await wipeDiveCenters(deps.db);
     await forgetLastPulledAt(deps.db);
@@ -277,6 +280,7 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
       const dives = await adoptDives(deps.db);
       await adoptGearPresets(deps.db);
       await adoptCertifications(deps.db);
+      await adoptDiveSamples(deps.db);
       await adoptDiveSites(deps.db);
       await adoptDiveCenters(deps.db);
       return dives;

@@ -4,6 +4,7 @@ import { getTableName } from 'drizzle-orm';
 
 import { createDiveCenter, createDiveSite } from '../db/catalogue';
 import { createCertification } from '../db/certifications';
+import { putDiveSamples } from '../db/diveSamples';
 import { createDive, softDeleteDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
 import { createTestDb, type TestDb } from '../db/testDb';
@@ -101,8 +102,11 @@ describe('the count', () => {
     for (const course of ['Open Water', 'Advanced', 'Rescue', 'Nitrox', 'EFR']) {
       await createCertification(mockDb, { agency: 'PADI', course });
     }
+    for (const diveId of ['s1', 's2', 's3', 's4', 's5', 's6']) {
+      await putDiveSamples(mockDb, diveId, [[0, 1, null, null]]);
+    }
 
-    expect(await count()).toBe(15);
+    expect(await count()).toBe(21);
   });
 
   /**
@@ -146,12 +150,13 @@ describe('the tie to §7’s own list of synced tables', () => {
   });
 
   /** Floored, because two empty lists are equal. */
-  it('is five tables, not an empty agreement', () => {
-    expect(PENDING_TABLES.length).toBe(5);
+  it('is six tables, not an empty agreement', () => {
+    expect(PENDING_TABLES.length).toBe(6);
     expect(PENDING_TABLES.map(getTableName)).toEqual([
       'dives',
       'gear_presets',
       'certifications',
+      'dive_samples',
       'dive_sites',
       'dive_centers',
     ]);

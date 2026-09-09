@@ -29,6 +29,16 @@ import {
   wipeDiveSites,
 } from './catalogue';
 import { clearDirtyFlags, onLocalWrite, stampLocalWrite, type PushableTable } from './dirty';
+import * as diveSamplesModule from './diveSamples';
+import {
+  adoptDiveSamples,
+  applyPulledDiveSamples,
+  clearDiveSampleDirtyFlags,
+  putDiveSamples,
+  tombstoneAllDiveSamples,
+  tombstoneDiveSamples,
+  wipeDiveSamples,
+} from './diveSamples';
 import * as divesModule from './dives';
 import {
   adoptDives,
@@ -56,7 +66,7 @@ import {
   updateGearPreset,
   wipeGearPresets,
 } from './gearPresets';
-import { certifications, diveCenters, diveSites, dives, gearPresets } from './schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
 /**
@@ -476,6 +486,96 @@ const CERTIFICATIONS: Record<keyof typeof certificationsModule, WritePath> = {
   pendingCertifications: { reads: 'The push set \u2014 reads the flag, never moves it.' },
 };
 
+/** A live series, prepared past every rule under test \u2014 `aDive`/`aCard`'s counterpart for the
+ * sixth synced table. `putDiveSamples` does not return the row it wrote (unlike `createDive`
+ * and `createCertification`), so its `updatedAt` is read back rather than taken off a result. */
+const aSeries = async (database: TestDb): Promise<Subject> => {
+  await putDiveSamples(database, 'dive-a', [[0, 1.27, 27.7, 188.9]]);
+  const [row] = await database.select().from(diveSamples).where(eq(diveSamples.id, 'dive-a'));
+  if (row === undefined) throw new Error('putDiveSamples did not create a row');
+  return { table: diveSamples, id: row.id, updatedAt: row.updatedAt };
+};
+
+const DIVE_SAMPLES: Record<keyof typeof diveSamplesModule, WritePath> = {
+  // The one write path that is both a create and an update (\u00a76's docblock on `diveSamples`:
+  // "an upsert on the dive's own id \u2026 re-importing the same file must not produce a second
+  // series"), classified once rather than twice \u2014 there is no separate insert/update branch
+  // in the code for the flag to disagree between, and `diveSamples.test.ts` already exercises
+  // both the fresh-write and the re-import shapes of this one function.
+  putDiveSamples: {
+    leaves: 'dirty',
+    when: async (database) => {
+      await putDiveSamples(database, 'dive-1', [[0, 1.27, 27.7, 188.9]]);
+      return { table: diveSamples, id: 'dive-1' };
+    },
+  },
+  tombstoneDiveSamples: {
+    // \u00a77's tombstone for a profile \u2014 `softDeleteDive`'s shape, one row at a time by the dive's
+    // own id rather than by a generated one, since that id IS the dive's.
+    leaves: 'dirty',
+    given: aSeries,
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneDiveSamples(database, subject.id);
+      return subject;
+    },
+  },
+  clearDiveSampleDirtyFlags: {
+    leaves: 'clean',
+    given: aSeries,
+    when: async (database, given) => {
+      const subject = required(given);
+      await clearDiveSampleDirtyFlags(database, [{ id: subject.id, updatedAt: subject.updatedAt ?? '' }]);
+      return subject;
+    },
+  },
+  tombstoneAllDiveSamples: {
+    // \u00a77.4's start over, for series \u2014 `tombstoneAllDives` above carries the reasoning, and
+    // `cloud/sync.ts`'s `SYNCED_TABLES` entry is why a series is swept at all: it has no life
+    // apart from the dive it belongs to.
+    leaves: 'dirty',
+    given: aSeries,
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneAllDiveSamples(database, stampLocalWrite());
+      return subject;
+    },
+  },
+  adoptDiveSamples: {
+    leaves: 'dirty',
+    given: aSeries,
+    when: async (database, given) => {
+      const subject = required(given);
+      await adoptDiveSamples(database);
+      return subject;
+    },
+  },
+  applyPulledDiveSamples: {
+    leaves: 'clean',
+    when: async (database) => {
+      await applyPulledDiveSamples(database, [
+        {
+          id: 'pulled-dive-samples',
+          series: [[0, 5.5, 21, 200]],
+          createdAt: '2026-08-16T00:00:00.000Z',
+          updatedAt: '2099-01-01T00:00:00.000Z',
+          deletedAt: null,
+        },
+      ]);
+      return { table: diveSamples, id: 'pulled-dive-samples' };
+    },
+  },
+  wipeDiveSamples: {
+    erases: '\u00a77.4\u2019s sign-out: the row goes, so there is no flag left to have a state.',
+    table: diveSamples,
+    seed: aSeries,
+    erase: (database) => wipeDiveSamples(database),
+  },
+  getDiveSamples: { reads: 'A read.' },
+  pendingDiveSamples: { reads: 'The push set \u2014 reads the flag, never moves it.' },
+  countPendingDiveSamples: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
+};
+
 /** A server row for a site, in the shape `pull_changes` renders (M2b's `sync_site`). */
 const pulledSite = (id: string, updatedAt: string) => ({
   id,
@@ -613,6 +713,7 @@ const OWNERS: Record<string, { module: Record<string, unknown>; paths: Record<st
   'db/dives.ts': { module: divesModule, paths: DIVES },
   'db/gearPresets.ts': { module: presetsModule, paths: PRESETS },
   'db/certifications.ts': { module: certificationsModule, paths: CERTIFICATIONS },
+  'db/diveSamples.ts': { module: diveSamplesModule, paths: DIVE_SAMPLES },
   'db/catalogue.ts': { module: catalogueModule, paths: CATALOGUE },
 };
 
@@ -655,6 +756,8 @@ describe('every write path is classified, and the classification is exhaustive (
       'db/gearPresets.ts': 7,
       // create · update · soft-delete · clear · adopt · apply-pulled (M3b) · tombstone-all
       'db/certifications.ts': 7,
+      // put (create+update in one) · tombstone · clear · adopt · apply-pulled · tombstone-all
+      'db/diveSamples.ts': 6,
       // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
       'db/catalogue.ts': 8,
     };
@@ -664,13 +767,13 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(31);
+    expect(writePaths.length).toBe(37);
 
     // §7.4's erases, counted the same way and for the same reason: one filed as a read would
     // never be run, and a sign-out that quietly left a table behind is a device holding one
     // person's logbook after they have gone.
-    // dives · presets · cards · sites · centres
-    expect(erasePaths.length).toBe(5);
+    // dives · presets · cards · series · sites · centres
+    expect(erasePaths.length).toBe(6);
 
     // And a read is classified with a reason, not with an empty string.
     for (const { paths } of Object.values(OWNERS)) {
@@ -1041,6 +1144,7 @@ describe('the owners are the only writers, and every write of theirs carries the
     'dives.ts',
     'gearPresets.ts',
     'certifications.ts',
+    'diveSamples.ts',
     'catalogue.ts',
     'dirty.ts',
   ].map((file) => path.join(__dirname, file));
@@ -1069,6 +1173,10 @@ describe('the owners are the only writers, and every write of theirs carries the
     'db/dives.ts': { role: 'synced', why: '§4.1: every write to a dive.' },
     'db/gearPresets.ts': { role: 'synced', why: '§4.1: every write to a preset.' },
     'db/certifications.ts': { role: 'synced', why: "§4.1, M3b: every write to a diver's card." },
+    'db/diveSamples.ts': {
+      role: 'synced',
+      why: 'The dive-import task: every write to a depth profile.',
+    },
     'db/catalogue.ts': { role: 'synced', why: '§4.1, M2d: every write to a site or a centre.' },
     'db/dirty.ts': {
       role: 'mechanism',
@@ -1169,7 +1277,7 @@ describe('the owners are the only writers, and every write of theirs carries the
     // NULL with **no Drizzle default**, so Drizzle's own insert type requires it. Every
     // `@ts-expect-error` below is an assertion that `npm run typecheck` still refuses the row
     // — delete the flag from `schema.ts`'s `dirtyFlag`, or give it a `.default()`, and these
-    // five lines stop erroring and the gate goes red.
+    // six lines stop erroring and the gate goes red.
     const stamps = { createdAt: '2026-08-16T00:00:00.000Z', updatedAt: '2026-08-16T00:00:00.000Z' };
 
     // @ts-expect-error — a dive insert with no flag
@@ -1182,14 +1290,17 @@ describe('the owners are the only writers, and every write of theirs carries the
     const site: typeof diveSites.$inferInsert = { id: 'c', ...stamps };
     // @ts-expect-error — a centre insert with no flag
     const centre: typeof diveCenters.$inferInsert = { id: 'd', ...stamps };
+    // @ts-expect-error — a series insert with no flag
+    const series: typeof diveSamples.$inferInsert = { id: 'f', ...stamps };
 
-    // Used, so the five declarations are not dead code the linter would ask to delete.
-    expect([dive, preset, site, centre, card].map((row) => row.id)).toEqual([
+    // Used, so the six declarations are not dead code the linter would ask to delete.
+    expect([dive, preset, site, centre, card, series].map((row) => row.id)).toEqual([
       'a',
       'b',
       'c',
       'd',
       'e',
+      'f',
     ]);
   });
 });

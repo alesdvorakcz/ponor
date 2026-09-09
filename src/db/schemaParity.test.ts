@@ -105,8 +105,20 @@ const localTable = (name: string) => {
  * M2a and `pull_changes` has returned them since M2b, and until now they had nowhere on the
  * device to land. What was a table-shaped difference is now the ordinary two column-shaped
  * ones every private synced table has — the server's `user_id` and the device's `dirty`.
+ *
+ * **`dive_samples` joined with the dive-import task**, the sixth table and the first one added
+ * on both sides in the same task: unlike the five above, no Postgres-only or local-only phase
+ * ever existed for it. It carries the same two column-shaped exceptions as `certifications` —
+ * nothing about a depth profile needed a third kind of difference.
  */
-const SYNCED_TABLES = ['dives', 'gear_presets', 'certifications', 'dive_sites', 'dive_centers'] as const;
+const SYNCED_TABLES = [
+  'dives',
+  'gear_presets',
+  'certifications',
+  'dive_samples',
+  'dive_sites',
+  'dive_centers',
+] as const;
 
 type SyncedTable = (typeof SYNCED_TABLES)[number];
 
@@ -152,6 +164,11 @@ const ACCOUNT_DELETION: Record<string, { readonly action: 'cascade' | 'set null'
   'dives.user_id': { action: 'cascade', why: "A diver's dives are theirs alone (§5) and go with the account." },
   'gear_presets.user_id': { action: 'cascade', why: 'Private, as dives — one diver\'s named cylinder sets.' },
   'certifications.user_id': { action: 'cascade', why: 'Private, as dives — the §6 wallet is one person\'s cards.' },
+  'dive_samples.user_id': {
+    action: 'cascade',
+    why: 'Private, as dives — a depth profile has no life apart from the dive it belongs to, ' +
+      "and that dive is one diver's alone.",
+  },
   'profiles.id': {
     action: 'cascade',
     why: '§6 makes a profile BE the user, so it cannot outlive them; it also holds the only ' +
@@ -187,6 +204,10 @@ const POSTGRES_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
       'As dives.user_id — ownership is a server-side fact, and §5 cascades this one so a ' +
       "departed diver's cards go with the account.",
   },
+  dive_samples: {
+    user_id: 'As dives.user_id — ownership is a server-side fact, and §5 cascades this one so ' +
+      "a departed diver's depth profiles go with the account, and with the dives they belong to.",
+  },
   dive_sites: {
     location:
       '§6: "SQLite has no point type … Postgres composes them into a PostGIS point — the ' +
@@ -213,6 +234,7 @@ const LOCAL_ONLY_COLUMNS: Record<SyncedTable, Record<string, string>> = {
   dives: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
   gear_presets: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
   certifications: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
+  dive_samples: { dirty: DEVICE_ONLY_COLUMNS.dirty ?? '' },
   dive_sites: {
     latitude: '§6: the pair the device holds in place of the server\'s PostGIS point; it is on ' +
       'the wire either way, as `sync_site` renders it and `push_changes` reads it back.',
@@ -333,7 +355,12 @@ describe('the migrations and src/db/schema.ts describe the same schema (DESIGN.m
 
     // Non-empty by construction — the column-set assertion above would have failed first —
     // but stated so a parser that started returning nothing could not pass this vacuously.
-    expect(shared.length).toBeGreaterThan(5);
+    // Low rather than the higher number every table happened to clear before `dive_samples`:
+    // that table's whole point (§6, and this table's own docblock in schema.ts) is to carry as
+    // little as a synced table can — id, one payload column and the three sync timestamps,
+    // five shared names exactly — so a floor calibrated to the OTHER tables' incidental width
+    // would fail a table for being exactly as narrow as it was designed to be.
+    expect(shared.length).toBeGreaterThan(2);
 
     expect(shared.filter((column) => column.notNull !== remote.get(column.name)).map((c) => c.name)).toEqual(
       [],

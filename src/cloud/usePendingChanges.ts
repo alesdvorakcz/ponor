@@ -2,7 +2,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 
 import { db } from '../db/client';
 import { pendingRowsQuery, type PushableTable } from '../db/dirty';
-import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets } from '../db/schema';
 
 /**
  * **How many rows this device still owes the server, live.**
@@ -17,14 +17,14 @@ import { certifications, diveCenters, diveSites, dives, gearPresets } from '../d
  *
  * `useLiveQuery` subscribes to exactly one table — it reads `query.config.table` and re-runs
  * only when `addDatabaseChangeListener` names that table
- * (drizzle-orm/expo-sqlite/query.js) — so five synced tables is five hooks. They are spelled
+ * (drizzle-orm/expo-sqlite/query.js) — so six synced tables is six hooks. They are spelled
  * out rather than mapped over `SYNCED_TABLES` because a hook inside a loop is a hook whose
  * call order depends on a list, and React's rule is not negotiable for a list that "cannot"
  * change. What keeps this list honest instead is `usePendingChanges.test.tsx`, which compares
  * `PENDING_TABLES` against `cloud/sync.ts`'s own list: a table added to the protocol fails
  * that test rather than quietly being left out of the count. **It has now done exactly that
- * once** — M3b's `certifications` turned it red, which is the whole reason the tie is a test
- * and not a comment.
+ * twice** — M3b's `certifications` turned it red first, and the dive-import task's
+ * `dive_samples` again — which is the whole reason the tie is a test and not a comment.
  *
  * ── Why there is no `resolved` field, which is not an oversight ───────────────────────────
  *
@@ -56,6 +56,7 @@ export const PENDING_TABLES: readonly PushableTable[] = [
   dives,
   gearPresets,
   certifications,
+  diveSamples,
   diveSites,
   diveCenters,
 ];
@@ -66,6 +67,7 @@ export function usePendingChanges(): number {
   const pendingDives = useLiveQuery(pendingRowsQuery(db, dives));
   const pendingPresets = useLiveQuery(pendingRowsQuery(db, gearPresets));
   const pendingCards = useLiveQuery(pendingRowsQuery(db, certifications));
+  const pendingSamples = useLiveQuery(pendingRowsQuery(db, diveSamples));
   const pendingSites = useLiveQuery(pendingRowsQuery(db, diveSites));
   const pendingCenters = useLiveQuery(pendingRowsQuery(db, diveCenters));
 
@@ -73,6 +75,7 @@ export function usePendingChanges(): number {
     pendingDives.data.length +
     pendingPresets.data.length +
     pendingCards.data.length +
+    pendingSamples.data.length +
     pendingSites.data.length +
     pendingCenters.data.length
   );

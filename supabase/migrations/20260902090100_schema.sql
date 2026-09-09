@@ -1,4 +1,4 @@
--- Ponor · M2a · 2 of 3 — the six tables of DESIGN.md §6
+-- Ponor · M2a · 2 of 3 — the tables of DESIGN.md §6 (dive_samples added by the dive-import task)
 --
 -- §6 opens with "the same schema lives in SQLite (Drizzle) and Postgres". That sentence
 -- is a claim about two hand-maintained files, which is §4.1's defining defect waiting to
@@ -218,6 +218,25 @@ create table if not exists public.certifications (
   deleted_at timestamptz
 );
 
+-- A dive's depth profile (import spec §3), private. One row per dive, and `id` IS the dive's
+-- id — there is exactly one series per dive, so this is a 1:1 extension rather than a child
+-- collection, with no join key and no unique index. Mirrors `dive_samples` in src/db/schema.ts
+-- column for column, plus `user_id`, which every private table here carries for `dives.user_id`'s
+-- own reason above: a device holds one diver's logbook, so ownership is the server's alone.
+--
+-- `series` is the same JSON array of `[t, depth, temp, bar]` tuples the device stores in its own
+-- `text` column of the same name; this server has no reason to parse it apart into rows or
+-- columns of its own, and `jsonb` would buy nothing a `text` column already has for a value
+-- nothing here ever queries into — so `text` is the honest column type.
+create table if not exists public.dive_samples (
+  id uuid primary key,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  series text not null default '[]',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
 -- One row per account (§6). `id` IS the auth user's id rather than a separate key with a
 -- `user_id` beside it: a profile is the user, and two ids would be two answers to the
 -- same question. That is also why it carries no `default gen_random_uuid()` — an invented
@@ -250,6 +269,7 @@ create table if not exists public.profiles (
 create index if not exists dives_user_id_updated_at_idx on public.dives (user_id, updated_at);
 create index if not exists gear_presets_user_id_updated_at_idx on public.gear_presets (user_id, updated_at);
 create index if not exists certifications_user_id_updated_at_idx on public.certifications (user_id, updated_at);
+create index if not exists dive_samples_user_id_updated_at_idx on public.dive_samples (user_id, updated_at);
 
 create index if not exists dive_sites_updated_at_idx on public.dive_sites (updated_at);
 create index if not exists dive_centers_updated_at_idx on public.dive_centers (updated_at);

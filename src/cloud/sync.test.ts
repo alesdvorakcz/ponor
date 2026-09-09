@@ -18,10 +18,11 @@ import {
   softDeleteCertification,
 } from '../db/certifications';
 import type { PushableTable } from '../db/dirty';
+import { getDiveSamples, putDiveSamples } from '../db/diveSamples';
 import { createDive, getDive, listDives, pendingDives, softDeleteDive, updateDive } from '../db/dives';
 import { createGearPreset, listGearPresets } from '../db/gearPresets';
 import * as localSchema from '../db/schema';
-import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import { createTestDb, type TestDb } from '../db/testDb';
 import { groupDivesByPlace } from '../domain/mapSites';
@@ -714,28 +715,32 @@ describe('§7.4’s start over: which rows are the diver’s (M3j)', () => {
     );
 
     expect(excused.sort()).toEqual(['dive_centers', 'dive_sites']);
-    expect(swept.sort()).toEqual(['certifications', 'dives', 'gear_presets']);
+    expect(swept.sort()).toEqual(['certifications', 'dive_samples', 'dives', 'gear_presets']);
     // Floored, because two empty lists are equal — the failure this file already records once.
-    expect(SYNCED_TABLES.length).toBe(5);
+    expect(SYNCED_TABLES.length).toBe(6);
   });
 
   it('tombstones every personal row and no community one', async () => {
     const dive = await createDive(db, { date: '2026-08-16' });
     await createGearPreset(db, { name: 'alu 80' });
     await createCertification(db, { agency: 'PADI' });
+    // A profile is one dive's (§6), so it is swept exactly as the dive it belongs to is.
+    await putDiveSamples(db, dive.id, [[0, 1.27, 27.7, 188.9]]);
     const site = await createDiveSite(db, { name: 'Blue Hole' });
     const centre = await createDiveCenter(db, { name: 'Emperor' });
 
-    expect(await tombstonePersonalRows(db)).toBe(3);
+    expect(await tombstonePersonalRows(db)).toBe(4);
 
     expect(await listDives(db)).toEqual([]);
     expect(await listGearPresets(db)).toEqual([]);
     expect(await listCertifications(db)).toEqual([]);
+    expect(await getDiveSamples(db, dive.id)).toBeNull();
     // The row is still there, carrying the deletion — this is a tombstone, not a delete, and
     // the row IS the deletion (§7.2). Read past the repository, which hides it.
     expect(await getDive(db, dive.id)).toBeNull();
     expect((await db.select().from(dives)).length).toBe(1);
     expect((await db.select().from(dives))[0]?.deletedAt).not.toBeNull();
+    expect((await db.select().from(diveSamples))[0]?.deletedAt).not.toBeNull();
     // And the two the community owns are untouched, live and unstamped.
     expect((await listDiveSites(db)).map((row) => row.id)).toEqual([site.id]);
     expect((await listDiveCenters(db)).map((row) => row.id)).toEqual([centre.id]);
@@ -749,15 +754,16 @@ describe('§7.4’s start over: which rows are the diver’s (M3j)', () => {
    * one.
    */
   it('leaves every tombstone it writes owed to the server', async () => {
-    await createDive(db, { date: '2026-08-16' });
+    const dive = await createDive(db, { date: '2026-08-16' });
     await createGearPreset(db, { name: 'alu 80' });
     await createCertification(db, { agency: 'PADI' });
+    await putDiveSamples(db, dive.id, [[0, 1.27, 27.7, 188.9]]);
     await pushPendingRows(db, client);
     expect(await countUnsyncedRows(db)).toBe(0);
 
     await tombstonePersonalRows(db);
 
-    expect(await countUnsyncedRows(db)).toBe(3);
+    expect(await countUnsyncedRows(db)).toBe(4);
   });
 
   /**
@@ -980,15 +986,16 @@ describe('the tables the loop covers', () => {
     expect(SYNCED_TABLES.map((synced) => wireTableName(synced.table)).sort()).toEqual(flagged);
     // Floored, because two empty lists are equal — and an extractor that matched nothing is
     // exactly how the version this replaced managed to assert nothing while looking finished.
-    expect(flagged.length).toBe(5);
+    expect(flagged.length).toBe(6);
 
-    await createDive(db, { date: '2026-08-16' });
+    const dive = await createDive(db, { date: '2026-08-16' });
     await createGearPreset(db, { name: 'alu 80' });
     await createCertification(db, { agency: 'PADI' });
+    await putDiveSamples(db, dive.id, [[0, 1.27, 27.7, 188.9]]);
     await createDiveSite(db, { name: 'Blue Hole' });
     await createDiveCenter(db, { name: 'Emperor' });
 
-    expect(await countUnsyncedRows(db)).toBe(5);
+    expect(await countUnsyncedRows(db)).toBe(6);
     await pushPendingRows(db, client);
     expect(await countUnsyncedRows(db)).toBe(0);
     // The rows really reached the server, table by table — and the tables are the extracted

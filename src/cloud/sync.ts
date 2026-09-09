@@ -27,6 +27,13 @@ import {
   type PushedRow,
 } from '../db/dirty';
 import {
+  applyPulledDiveSamples,
+  clearDiveSampleDirtyFlags,
+  countPendingDiveSamples,
+  pendingDiveSamples,
+  tombstoneAllDiveSamples,
+} from '../db/diveSamples';
+import {
   applyPulledDives,
   clearDiveDirtyFlags,
   countPendingDives,
@@ -41,7 +48,7 @@ import {
   pendingGearPresets,
   tombstoneAllGearPresets,
 } from '../db/gearPresets';
-import { certifications, diveCenters, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import type { Db } from '../db/types';
 
@@ -168,14 +175,14 @@ function synced<Pending extends object, Pulled extends object>(spec: {
 }
 
 /**
- * The five tables §7.1 pushes and §7.2 pulls: "dives, presets, and any sites or centers
- * created offline", §6's certification wallet, plus the community catalogue coming the other
- * way.
+ * The six tables §7.1 pushes and §7.2 pulls: "dives, presets, and any sites or centers
+ * created offline", §6's certification wallet, the import spec's depth profiles, plus the
+ * community catalogue coming the other way.
  *
- * **`certifications` was the fifth and joined in M3b**, when the device got a table to put one
- * in. `push_changes` has upserted it since M2a and `pull_changes` has returned it since M2b,
- * so the gap was on this side alone: `readChangeSet` ignores any table this list does not
- * name, so a diver's cards were quietly dropped on arrival and never went up.
+ * **`certifications` joined in M3b**, when the device got a table to put one in. `push_changes`
+ * has upserted it since M2a and `pull_changes` has returned it since M2b, so the gap was on
+ * this side alone: `readChangeSet` ignores any table this list does not name, so a diver's
+ * cards were quietly dropped on arrival and never went up.
  *
  * `profiles` is the one key both RPCs still return that nothing here stores — §6 keeps
  * `dives_before` in the local `settings` table instead, and there is no other profile field a
@@ -206,6 +213,18 @@ export const SYNCED_TABLES: readonly SyncedTable[] = [
     apply: applyPulledCertifications,
     countPending: countPendingCertifications,
     tombstoneAll: tombstoneAllCertifications,
+  }),
+  // **The sixth table, and it needed no protocol change** — a series is one row keyed by its
+  // dive's id, so §7's whole-row LWW carries it exactly as it carries a dive. It is also
+  // *immutable*: nothing in the app edits a profile, so the only conflict LWW can meet is a
+  // re-import of the same file, whose content is identical.
+  synced({
+    table: diveSamples,
+    pending: pendingDiveSamples,
+    clear: clearDiveSampleDirtyFlags,
+    apply: applyPulledDiveSamples,
+    countPending: countPendingDiveSamples,
+    tombstoneAll: tombstoneAllDiveSamples,
   }),
   synced({
     table: diveSites,
