@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Text, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
 import { type DiveSample } from '../db/schema';
@@ -6,6 +8,7 @@ import { PROFILE_RMV_WINDOW_S, consumptionSeries } from '../domain/consumption';
 import { axisMax, colourRuns, depthAxis, medianIntervalS, type ProfilePoint } from '../domain/profile';
 import { type Dive } from '../domain/types';
 import {
+  formatDepth,
   formatDepthBoundary,
   formatDuration,
   formatRmv,
@@ -13,6 +16,7 @@ import {
   formatSampleInterval,
   isDisplayableDepth,
   METADATA_SEPARATOR,
+  NO_FIGURE,
 } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { t } from '../i18n';
@@ -32,13 +36,31 @@ import { type ColorScheme } from '../theme/tokens';
  * non-uniform scale genuinely stretches — is drawn a per cent or two wide rather than visibly
  * elliptical.
  *
- * **Measuring the column would be better and belongs to the next task.** The scrub gesture
- * (spec §5) has to map a touch's x back to a time, which needs the real width; `onLayout` is
- * where that comes from, and it does not fire under Jest, so a component that depended on it
- * today would render an empty plot in every test in this file. This constant is what that
- * measurement will fall back to before the first layout pass.
+ * **The column IS measured now, and this constant is deliberately not what it measures.** The
+ * scrub (spec §5) maps a touch's x back to a time, which needs the real width, so the plot
+ * reports its own through `onLayout` — see `scrubbedIndexAt`. That measurement is the *touch*
+ * scale and never the drawing's: the path data below stays in these units, the SVG goes on
+ * stretching to whatever the column gives it, and nothing has to be redrawn when the
+ * measurement arrives (or fails to, which is why the pan is inert until it does). Two scales,
+ * one for what is drawn and one for what is touched, is what keeps every test in this file able
+ * to render the real card without a layout pass Jest never performs.
  */
 export const PLOT_WIDTH = 320;
+
+/**
+ * **The plot's own handle**, for `onLayout`'s measurement and for the pan attached to it.
+ *
+ * One string for both, because to a test they are one thing: the view whose width is measured
+ * is the view the finger is dragged across, and a scrub mapped through any other box's width
+ * would be wrong by exactly the difference. RNGH keeps gesture test ids in a registry of its
+ * own (`getByGestureTestId`), separate from React Native's `testID` tree, so the two uses
+ * cannot collide.
+ *
+ * Exported because the test drives both halves through it, and because this is the app's first
+ * `testID` — a string a component and its test must agree on letter for letter is exactly the
+ * kind of thing §4.1 says gets one owner rather than two spellings.
+ */
+export const PROFILE_PLOT_TEST_ID = 'profile-plot';
 
 /**
  * The three stroke weights and the marker's radius, in viewBox units.
@@ -53,7 +75,21 @@ export const PLOT_WIDTH = 320;
 const DEPTH_STROKE_WIDTH = 2;
 const GAS_STROKE_WIDTH = 1;
 const GRID_STROKE_WIDTH = 1;
+const HAIRLINE_STROKE_WIDTH = 1;
 const DEEPEST_MARK_RADIUS = 3;
+
+/**
+ * **How far a finger must travel sideways before the chart takes the gesture**, in points —
+ * spec §5's *"horizontal activation only"*.
+ *
+ * The dive detail is a `ScrollView`, and a pan with no activation threshold wins the touch the
+ * instant it lands: the page would stop scrolling anywhere over the chart, which reads as a
+ * broken screen rather than as a feature. With the threshold, a vertical drag never activates
+ * the pan at all and scrolls the page as it always did, while a horizontal one scrubs.
+ *
+ * Applied symmetrically (`[-8, 8]`), because a diver scrubs in both directions.
+ */
+const SCRUB_ACTIVATION_X = 8;
 
 /**
  * **How far the plotted curve is pulled in from the viewBox's own top and bottom edge**, in
@@ -75,6 +111,25 @@ const DEEPEST_MARK_RADIUS = 3;
  * clip this constant exists to remove, just on a thinner stroke.
  */
 const PLOT_INSET_Y = Math.max(DEPTH_STROKE_WIDTH / 2, DEEPEST_MARK_RADIUS);
+
+/**
+ * `PLOT_INSET_Y`'s counterpart on the other axis, and it exists for exactly one shape: **the
+ * scrub hairline**, which is the only thing this plot draws whose stroke runs along x rather
+ * than across it. A vertical line at `x = 0` or `x = PLOT_WIDTH` has half its own width outside
+ * the viewport and renders at half weight — the same clip the finding behind `PLOT_INSET_Y`
+ * describes for a gridline, turned ninety degrees — and a diver reaches both edges routinely,
+ * since the ends of the series are where a scrub naturally runs out.
+ *
+ * Half the hairline's own width and nothing else's: the curve's endpoints do not need it (a
+ * stroke is laid perpendicular to its path, so a run ending at `x = 0` extends inward, not
+ * past the edge) and the marker already has `PLOT_INSET_Y` for its radius on the axis where a
+ * non-uniform scale cannot help it.
+ *
+ * In viewBox units, like every other number here, and that is near enough to points because
+ * this viewBox is written at about a phone's real content width — `PLOT_WIDTH`'s own argument,
+ * and the same approximation that keeps the deepest-sample dot round.
+ */
+const PLOT_INSET_X = HAIRLINE_STROKE_WIDTH / 2;
 
 /**
  * **How far apart two consumption points may be before the trace breaks** — two windows, from
@@ -147,6 +202,130 @@ function gasSegments(points: readonly ProfilePoint[]): ProfilePoint[][] {
   segments.push(current);
 
   return segments.filter((segment) => segment.length > 1);
+}
+
+/**
+ * **The whole of what a touch means: which recorded sample the finger is on** — or `null` when
+ * the question cannot be answered yet.
+ *
+ * Exported and pure because this, not the gesture wiring, is the part that can be wrong.
+ * `Gesture.Pan()` is a thin wrapper over it: the pan reads an `x` and calls this, and everything
+ * a scrub could get wrong — the direction of the mapping, the clamp at either end, what
+ * "nearest" is measured in — is decided here where a test can state it as arithmetic.
+ *
+ * **Two different widths are in play and this is where they meet.** The drawing is written in
+ * viewBox units (`PLOT_WIDTH`) and stretched to the column; a touch arrives in the column's own
+ * points. So the mapping goes through the *measured* width — the fraction across the plot is
+ * what the two scales share — and never through `PLOT_WIDTH`, which is not a size anything is
+ * laid out at.
+ *
+ * **`null` until the plot has been measured, rather than a guess.** `onLayout` has not fired
+ * before the first layout pass (and never fires at all under Jest), and an unmeasured plot
+ * mapped through a fallback width would put every touch somewhere it is not — at `x / 320` of a
+ * dive, which for a narrow column is the wrong sample and for the first touch of all is sample
+ * zero. A readout that jumps to the start of the dive when a diver touches its middle is worse
+ * than one that does nothing for a frame, so this does nothing.
+ *
+ * **Nearest by TIME, not by position in the array.** The x axis is the series' time extent
+ * (both series share it — see the component), and a device that dropped samples, or one whose
+ * series carries a surface interval in the middle, has stretches where index and instant have
+ * nothing to do with each other. Ties keep the earlier sample, matching `deepestSampleIndex`
+ * below and `sparklinePoints`' own `deepestOf`.
+ *
+ * A finger past either edge clamps to that end of the dive: a pan continues to report positions
+ * outside the view it started in, and the sample nearest a touch 40 pt to the left of the plot
+ * is the first one.
+ */
+export function scrubbedIndexAt(
+  x: number,
+  width: number | null,
+  samples: readonly DiveSample[],
+): number | null {
+  if (width === null || !(width > 0)) return null;
+
+  const first = samples.at(0);
+  const last = samples.at(-1);
+  if (first === undefined || last === undefined) return null;
+  const startS = first[0];
+  const endS = last[0];
+  // The same refusal the component makes: a series whose first and last sample share one
+  // instant has no time axis to map onto, and dividing by its extent would produce NaN.
+  if (!(endS > startS)) return null;
+
+  const at = startS + Math.min(1, Math.max(0, x / width)) * (endS - startS);
+
+  let nearest = 0;
+  let gap = Math.abs(startS - at);
+  for (let i = 1; i < samples.length; i++) {
+    const sample = samples[i];
+    if (sample === undefined) continue;
+    const distance = Math.abs(sample[0] - at);
+    if (distance < gap) {
+      nearest = i;
+      gap = distance;
+    }
+  }
+  return nearest;
+}
+
+/**
+ * **Where the deepest sample is in the series** — the one fact the marked dot and the untouched
+ * readout are both about (spec §5: the readout before any touch "explains what the dot is").
+ *
+ * An index rather than a point, because the scrub's state is an index into this same array and
+ * the default has to be a value of that same kind — otherwise the card would hold two different
+ * notions of "which sample is being described" and they could drift.
+ *
+ * Filtered by `isDisplayableDepth`, which is what `colourRuns` filters by (`hasBandableDepth`,
+ * domain/profile.ts, delegates to it), so the sample this finds is always one the curve actually
+ * strokes. Ties keep the earliest, exactly as `sparklinePoints`' `deepestOf` does: the mark
+ * lands as early in the dive as the data allows rather than on whichever equal sample came last.
+ *
+ * `null` for a series holding no displayable depth at all — which the component has already
+ * refused to draw by the time it asks, but the function answers for itself rather than relying
+ * on that.
+ */
+function deepestSampleIndex(samples: readonly DiveSample[]): number | null {
+  let deepest: number | null = null;
+  let depth = -Infinity;
+  for (let i = 0; i < samples.length; i++) {
+    const metres = samples[i]?.[1];
+    if (!isDisplayableDepth(metres) || !(metres > depth)) continue;
+    deepest = i;
+    depth = metres;
+  }
+  return deepest;
+}
+
+/**
+ * **The consumption reading at one instant, or `null` where there is not one** — spec §5's
+ * *"an em dash where there is no gas value — inside the surface break, or on a dive with no
+ * transmitter"*.
+ *
+ * **The segments decide, so the readout and the trace can never disagree.** It takes the
+ * already-split segments (`gasSegments` above), not the flat series, and answers only for an
+ * instant that falls *within* one of them — so the figure appears exactly where the trace has a
+ * stroke under the hairline, and the slot holds a dash exactly where the pen was lifted. Before
+ * the first window and after the last are the same case as a gap in the middle: no complete
+ * window covered that instant, so there is nothing measured to report.
+ *
+ * Inside a segment it returns the nearest point's value and **never interpolates between two**
+ * (§0.4). Ties keep the earlier point, as everything else here does.
+ */
+function gasAt(segments: readonly (readonly ProfilePoint[])[], seconds: number): number | null {
+  for (const segment of segments) {
+    const opens = segment.at(0);
+    const closes = segment.at(-1);
+    if (opens === undefined || closes === undefined) continue;
+    if (seconds < opens.t || seconds > closes.t) continue;
+
+    let nearest = opens;
+    for (const point of segment) {
+      if (Math.abs(point.t - seconds) < Math.abs(nearest.t - seconds)) nearest = point;
+    }
+    return nearest.v;
+  }
+  return null;
 }
 
 export interface DepthProfileProps {
@@ -225,11 +404,48 @@ export interface DepthProfileProps {
  * stage will see it in the whole-dive figure and not in this curve, which is the truth about
  * what was measured.
  *
+ * ── The scrub ─────────────────────────────────────────────────────────────────────────────
+ *
+ * **§5: a fixed readout over the chart, not a tooltip under the finger.** A tooltip is covered
+ * by the hand that summons it and clips at both edges of the plot; the row above states the
+ * depth and the gas at the position being touched, always present, never moving (`profileReadout`,
+ * theme/styles.ts, gives each figure a fixed share of the row so a changing figure cannot
+ * shift its neighbour).
+ *
+ * **Before any touch it reads the deepest SAMPLE**, which is the point already marked with a
+ * dot — not `dive.maxDepthM`, which is a figure with nothing on the curve to sit on, and which
+ * for the reference dive is genuinely a different number (24.33 m against a deepest sample of
+ * 24.29). One `deepestSampleIndex` answers for both the dot and the readout, so the row cannot
+ * describe a point other than the one marked.
+ *
+ * **Both halves answer for ONE instant** — the scrubbed sample's — so the hairline, the depth
+ * and the gas figure are three statements about the same moment rather than three near-misses.
+ * The gas half shows an em dash wherever the trace itself is not drawn (`gasAt`), which is
+ * §0.4 reaching the readout: no complete window covered that instant, so there is no reading,
+ * and interpolating one across a surface break would invent a measurement.
+ *
+ * **The pan runs its callbacks on the JS thread (`runOnJS(true)`), and that is required rather
+ * than a preference.** Reanimated's Babel plugin turns a gesture callback into a worklet, and a
+ * worklet runs on the UI thread where `setState` is not available — so without this the scrub
+ * would work in every test here (Jest has no UI thread to be wrong about) and do nothing on a
+ * device. It also silences RNGH's own warning about the same thing, which is the library asking
+ * for exactly this to be made explicit.
+ *
+ * **A `GestureHandlerRootView` has to be mounted above this**, or `GestureDetector` throws in
+ * development — `src/app/_layout.tsx` carries the app's one root view, added with this card.
+ *
  * ── The drawing itself ────────────────────────────────────────────────────────────────────
  *
  * One `<Svg>`, stretched to the content column (see `PLOT_WIDTH`), holding the gridlines, then
- * the gas trace, then the depth runs, then the mark — in that order, because that is the order
- * they stack: the secondary series passes under the curve it accompanies, never over it.
+ * the gas trace, then the depth runs, then the hairline, then the mark — in that order, because
+ * that is the order they stack: the secondary series passes under the curve it accompanies,
+ * never over it, and the hairline passes over both because being hidden by the data it points
+ * at is the one thing it may not do.
+ *
+ * **Three inks, one meaning each**, which is what keeps §0.1's rule readable on a chart that has
+ * to draw three non-depth things: `border` is the grid, `fgMuted` is the gas series, and `fg` is
+ * where the diver's finger is. A hairline in either of the other two would be a second thing
+ * wearing a colour that already means something here.
  *
  * **The axis labels are `Text`, not SVG text**, and that is deliberate: they are type, so they
  * belong to §0.2's faces and to `makeStyles` like every other word in the app, and they stay
@@ -245,12 +461,25 @@ export interface DepthProfileProps {
  * sentence invented here would be a second owner of those same facts before that lands.
  */
 export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps) {
+  // **Both hooks sit above every guard below, and have to.** This component refuses to draw a
+  // great many shapes of series (see its docblock) and did so before it held any state at all;
+  // a `useState` under one of those early returns would be called on some renders and not
+  // others, which React forbids outright. So the state is declared first and the refusals read
+  // exactly as they did.
+  //
+  // `plotWidth` is the column's measured width in points, `null` until `onLayout` has fired —
+  // the touch scale, never the drawing's (`PLOT_WIDTH`). `scrubbed` is an index into `samples`,
+  // `null` until a finger has actually moved across the plot, which is what tells "the diver is
+  // reading the dive's maximum" apart from "the diver is reading the point they chose".
+  const [plotWidth, setPlotWidth] = useState<number | null>(null);
+  const [scrubbed, setScrubbed] = useState<number | null>(null);
+
   if (samples === null) return null;
 
   const runs = colourRuns(samples, scheme);
   // Every point that will actually be stroked, in order — including the boundary samples
-  // `colourRuns` repeats into the run they open, which are harmless here: a duplicate cannot
-  // change where the curve starts, ends, or reaches its deepest.
+  // `colourRuns` repeats into the run they open, which are harmless for the one thing this is
+  // read for below: a duplicate cannot change where the curve starts or ends.
   const drawn = runs.flatMap((run) => run.points);
   const first = drawn.at(0);
   const last = drawn.at(-1);
@@ -281,9 +510,16 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
 
-  // Ties keep the earliest, matching `sparklinePoints`' own `deepestOf` — the mark lands as
-  // early in the dive as the data allows rather than on whichever equal sample came last.
-  const deepest = drawn.reduce((best, point) => (point.v > best.v ? point : best), first);
+  // The deepest sample, as an INDEX into the recorded series, because the mark and the
+  // untouched readout are one fact and the scrub's own state is an index (`deepestSampleIndex`,
+  // above, which is where the tie rule and the `isDisplayableDepth` filter are stated).
+  const deepestIndex = deepestSampleIndex(samples);
+  const deepestSample = deepestIndex === null ? undefined : samples[deepestIndex];
+  // `first`/`last` being defined means `colourRuns` accepted at least two samples' depths, and
+  // this function scans for exactly those — so this is `noUncheckedIndexedAccess`'s claim
+  // again, narrowed explicitly for the same reason `firstSample` above is.
+  if (deepestIndex === null || deepestSample === undefined) return null;
+  const deepest: ProfilePoint = { t: deepestSample[0], v: deepestSample[1] };
   // `isDisplayableDepth`, not `?? 0`: a stored maximum that is null, NaN or negative is not a
   // scale, and `format/display.ts` is the one owner of that question (§4.1). Whichever of the
   // two is deeper wins, so a header that disagrees with its own series can never scale the
@@ -310,6 +546,53 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   const yGas = (rate: number): number =>
     round(PROFILE_PLOT_HEIGHT - PLOT_INSET_Y - (rate / gasMax) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
 
+  // ── The readout, and the pan that moves it ──────────────────────────────────────────────
+  // A scrubbed index is only ever produced from THIS series, but the component survives its
+  // `samples` prop changing under it, so an index that no longer addresses a sample falls back
+  // to the default rather than reading off the end of a shorter series. `scrubbedSample` is
+  // also what says whether a finger has been on the plot at all: the hairline is drawn for it
+  // and not for the default, because before a touch there is no touch point to mark and §0.4's
+  // dot already marks what the row is describing.
+  const scrubbedSample = scrubbed === null ? undefined : samples[scrubbed];
+  const reading = scrubbedSample ?? deepestSample;
+  // Both figures go through `format/display.ts` like every other figure in the app, so the
+  // diver's m/ft and l/min/cu ft/min follow them here (§4.1) — and both fall back to the same
+  // `NO_FIGURE` the Stats screen's counters use, for the reason that constant records: this row
+  // is a fixed pair of slots that may never close up, so an absent figure is a dash rather than
+  // a gap that moves the other one. A depth reaches the dash only when the series recorded one
+  // this app cannot show (negative, NaN); the gas half reaches it wherever the trace is not
+  // drawn, which is the ordinary case rather than the exception.
+  const readingDepth = formatDepth(reading[1], units) ?? NO_FIGURE;
+  const readingGas = formatRmv(gasAt(gas, reading[0]), units) ?? NO_FIGURE;
+
+  // Inset from both edges so a scrub that runs to either end of the dive still draws a
+  // full-weight line rather than half of one — `PLOT_INSET_X`, this plot's only stroke laid
+  // along x rather than across it.
+  const hairlineX = Math.min(PLOT_WIDTH - PLOT_INSET_X, Math.max(PLOT_INSET_X, x(reading[0])));
+
+  const scrubTo = (touchX: number) => {
+    const index = scrubbedIndexAt(touchX, plotWidth, samples);
+    // `null` is "this touch cannot be mapped yet" — an unmeasured plot — and doing nothing is
+    // the answer (`scrubbedIndexAt`'s own docblock).
+    if (index !== null) setScrubbed(index);
+  };
+  // `onStart` as well as `onUpdate`: with `activeOffsetX` the pan does not activate until the
+  // finger has already travelled, so the activation itself carries a position the diver chose
+  // and the readout should be there before the next move event arrives. Deliberately NOT
+  // `onBegin`, which fires on touch-down before the threshold has been cleared — scrubbing
+  // there would move the readout under a finger that was only ever going to scroll the page.
+  //
+  // And nothing on `onEnd`: **lifting the finger leaves the readout where the diver put it**,
+  // which is the whole point of putting the numbers above the plot instead of under the hand
+  // that is covering them. Snapping back to the deepest sample on release would mean the one
+  // moment a diver can actually read the row is the one moment it stops saying what they chose.
+  const scrub = Gesture.Pan()
+    .withTestId(PROFILE_PLOT_TEST_ID)
+    .runOnJS(true)
+    .activeOffsetX([-SCRUB_ACTIVATION_X, SCRUB_ACTIVATION_X])
+    .onStart((event) => scrubTo(event.x))
+    .onUpdate((event) => scrubTo(event.x));
+
   // The caption describes the STORED series, not the subset that survived to be stroked: it
   // says what the device recorded and how often, and both halves have to be read off the same
   // array or they would describe two different things.
@@ -331,6 +614,19 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
         <Text style={styles.profileTitle}>{t('group.profile')}</Text>
         <Text style={styles.profileMeta}>{caption}</Text>
       </View>
+      {/* §5's readout, above the plot rather than under the finger. Always both figures, always
+          real data or the dash — and the row's own style is what keeps a changing figure from
+          moving its neighbour. */}
+      <View style={styles.profileReadout}>
+        <View style={styles.profileReadoutFigure}>
+          <Text style={styles.profileReadoutLabel}>{t('profile.depth')}</Text>
+          <Text style={styles.profileReadoutValue}>{readingDepth}</Text>
+        </View>
+        <View style={styles.profileReadoutFigure}>
+          <Text style={styles.profileReadoutLabel}>{t('profile.gas')}</Text>
+          <Text style={styles.profileReadoutValue}>{readingGas}</Text>
+        </View>
+      </View>
       <View style={styles.profilePlotRow}>
         <View style={styles.profileDepthAxis}>
           {/* `formatDepthBoundary`, not `formatDepth`: a gridline is a whole number of metres
@@ -345,69 +641,93 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
             </Text>
           ))}
         </View>
-        <View style={styles.profilePlot}>
-          <Svg
-            width="100%"
-            height={PROFILE_PLOT_HEIGHT}
-            viewBox={`0 0 ${PLOT_WIDTH} ${PROFILE_PLOT_HEIGHT}`}
-            // The drawing fills the column rather than letterboxing inside it. Nothing is
-            // distorted by that: every stroke below is `non-scaling-stroke`, and the one
-            // shape a horizontal-only scale could stretch is the mark, whose scale factor is
-            // about 1 at the width this viewBox is written for (see `PLOT_WIDTH`).
-            preserveAspectRatio="none"
+        {/* The pan is attached to the SAME view whose width is measured, and it has to be: a
+            touch's `x` arrives relative to the view the detector wraps, so mapping it through
+            any other box's width would be wrong by exactly the difference. That view is the
+            plot column — the drawing and the time axis under it, 140 pt tall and the full width
+            of what the card has left, so §0.5's 48 pt floor is not in question. */}
+        <GestureDetector gesture={scrub}>
+          <View
+            style={styles.profilePlot}
+            testID={PROFILE_PLOT_TEST_ID}
+            onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}
           >
-            {axis.ticks.map((tick) => (
-              <Line
-                key={tick}
-                x1={0}
-                y1={yDepth(tick)}
-                x2={PLOT_WIDTH}
-                y2={yDepth(tick)}
-                stroke={theme.border}
-                strokeWidth={GRID_STROKE_WIDTH}
-                vectorEffect="non-scaling-stroke"
+            <Svg
+              width="100%"
+              height={PROFILE_PLOT_HEIGHT}
+              viewBox={`0 0 ${PLOT_WIDTH} ${PROFILE_PLOT_HEIGHT}`}
+              // The drawing fills the column rather than letterboxing inside it. Nothing is
+              // distorted by that: every stroke below is `non-scaling-stroke`, and the one
+              // shape a horizontal-only scale could stretch is the mark, whose scale factor is
+              // about 1 at the width this viewBox is written for (see `PLOT_WIDTH`).
+              preserveAspectRatio="none"
+            >
+              {axis.ticks.map((tick) => (
+                <Line
+                  key={tick}
+                  x1={0}
+                  y1={yDepth(tick)}
+                  x2={PLOT_WIDTH}
+                  y2={yDepth(tick)}
+                  stroke={theme.border}
+                  strokeWidth={GRID_STROKE_WIDTH}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              {gasDrawn.length > 0 && (
+                <Path
+                  d={multiPathOf(
+                    gas.map((segment) => segment.map((point) => ({ x: x(point.t), y: yGas(point.v) }))),
+                  )}
+                  stroke={theme.fgMuted}
+                  strokeWidth={GAS_STROKE_WIDTH}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  fill="none"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              {runs.map((run, index) => (
+                <Path
+                  key={index}
+                  d={pathOf(run.points.map((point) => ({ x: x(point.t), y: yDepth(point.v) })))}
+                  stroke={run.colour}
+                  strokeWidth={DEPTH_STROKE_WIDTH}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  fill="none"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ))}
+              {/* Only once a finger has been on the plot: before that there is no touch point to
+                  mark, and the mark below already says what the readout is describing. */}
+              {scrubbedSample !== undefined && (
+                <Line
+                  x1={hairlineX}
+                  y1={0}
+                  x2={hairlineX}
+                  y2={PROFILE_PLOT_HEIGHT}
+                  stroke={theme.fg}
+                  strokeWidth={HAIRLINE_STROKE_WIDTH}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+              <Circle
+                cx={x(deepest.t)}
+                cy={yDepth(deepest.v)}
+                r={DEEPEST_MARK_RADIUS}
+                fill={depthColor(deepest.v, scheme)}
               />
-            ))}
-            {gasDrawn.length > 0 && (
-              <Path
-                d={multiPathOf(
-                  gas.map((segment) => segment.map((point) => ({ x: x(point.t), y: yGas(point.v) }))),
-                )}
-                stroke={theme.fgMuted}
-                strokeWidth={GAS_STROKE_WIDTH}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                fill="none"
-                vectorEffect="non-scaling-stroke"
-              />
-            )}
-            {runs.map((run, index) => (
-              <Path
-                key={index}
-                d={pathOf(run.points.map((point) => ({ x: x(point.t), y: yDepth(point.v) })))}
-                stroke={run.colour}
-                strokeWidth={DEPTH_STROKE_WIDTH}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                fill="none"
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-            <Circle
-              cx={x(deepest.t)}
-              cy={yDepth(deepest.v)}
-              r={DEEPEST_MARK_RADIUS}
-              fill={depthColor(deepest.v, scheme)}
-            />
-          </Svg>
-          <View style={styles.profileTimeAxis}>
-            {timeLabels.map((label, index) => (
-              <Text key={index} style={styles.profileAxisLabel}>
-                {label}
-              </Text>
-            ))}
+            </Svg>
+            <View style={styles.profileTimeAxis}>
+              {timeLabels.map((label, index) => (
+                <Text key={index} style={styles.profileAxisLabel}>
+                  {label}
+                </Text>
+              ))}
+            </View>
           </View>
-        </View>
+        </GestureDetector>
         {/* The consumption axis, stated once at its top: the value the trace's own ceiling
             stands for, with the unit that says what the second series is. It runs to zero at
             the plot's floor, which the trace itself shows. Absent with the trace. */}

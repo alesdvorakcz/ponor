@@ -23,19 +23,19 @@ import {
   formatRmvTrend,
   formatRmvWindow,
   formatTimeUnderwater,
+  NO_FIGURE,
 } from '../format/display';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
-/**
- * **A counter with nothing behind it**, in the slot its figure would occupy.
+/* **Why this screen draws an em dash where the rest of the app omits.**
  *
- * §0.6 draws the line this screen sits on the other side of: *"A figure with nothing behind it
- * is omitted, not drawn as an em dash — the dash belongs to a labelled row that is drawn
- * whether or not it holds a value."* The Dives header line omits, because it has no labels; the
- * dive detail omits too, and correctly, because **its** row set varies per dive — a dive that
- * recorded no water temperature is a dive with nothing to say about water temperature, and a
- * dangling "Max depth" label with nothing beside it has shipped here once already.
+ * §0.6 draws the line: *"A figure with nothing behind it is omitted, not drawn as an em dash —
+ * the dash belongs to a labelled row that is drawn whether or not it holds a value."* The Dives
+ * header line omits, because it has no labels; the dive detail omits too, and correctly,
+ * because **its** row set varies per dive — a dive that recorded no water temperature is a dive
+ * with nothing to say about water temperature, and a dangling "Max depth" label with nothing
+ * beside it has shipped here once already.
  *
  * This screen is the other kind. It has exactly one subject — the logbook — and a fixed
  * inventory of figures about it, so a row that vanished would be indistinguishable from the app
@@ -44,12 +44,8 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * §0.6 sanctions it, and the rows stay in the same order at the same height however empty a
  * logbook is.
  *
- * Exported so its test reads the same character a diver does. `clearedTag`
- * (components/CarriedMark.tsx) is its sibling and the app's only other em dash — that one is a
- * *gesture* ("you cleared this"), this one is an *absence* ("nothing recorded"), which is why
- * neither may become the other's constant.
- */
-export const NO_FIGURE = '—';
+ * The mark itself is `NO_FIGURE` (format/display.ts) since M3's profile scrub gave it a second
+ * caller — see its docblock there for why a screen stopped being the right home for it. */
 
 /**
  * **What this screen says when the logbook has no dives in it** — and there are two answers,

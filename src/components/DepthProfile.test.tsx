@@ -1,16 +1,19 @@
-import { render, type RenderResult } from '@testing-library/react-native';
+import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { processColor } from 'react-native';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+import type { PanGesture } from 'react-native-gesture-handler';
 
 import type { DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
 import { suuntoJsonImporter } from '../domain/import/suunto';
 import type { Dive, Tank } from '../domain/types';
+import { formatDepth, formatRmv, NO_FIGURE } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { PROFILE_PLOT_HEIGHT } from '../theme/styles';
-import { DepthProfile, PLOT_WIDTH } from './DepthProfile';
+import { DepthProfile, PLOT_WIDTH, PROFILE_PLOT_TEST_ID, scrubbedIndexAt } from './DepthProfile';
 
 // Adapted from the brief's react-test-renderer-shaped examples to the API the installed
 // @testing-library/react-native@14 actually exposes, exactly as `DiveRow.test.tsx` records:
@@ -39,6 +42,35 @@ function pathsIn(t: RenderResult) {
 
 function linesIn(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'RNSVGLine') : [];
+}
+
+/**
+ * **Tell the plot how wide it is.** `onLayout` never fires under Jest — the reason Task 4
+ * deferred measuring at all — so a test that wants the scrub to map anywhere has to hand the
+ * component the measurement the device would have given it. Without this the pan is inert by
+ * design (`scrubbedIndexAt`), which the "before the plot has been measured" test below pins.
+ */
+async function measure(t: RenderResult, width: number) {
+  await act(async () => {
+    fireEvent(t.getByTestId(PROFILE_PLOT_TEST_ID), 'layout', {
+      nativeEvent: { layout: { width, height: PROFILE_PLOT_HEIGHT, x: 0, y: 0 } },
+    });
+  });
+}
+
+/**
+ * **A finger dragged to `x` on the plot**, through RNGH's own test harness.
+ *
+ * `fireGestureHandler` is the supported way in — hand-firing touch events at a
+ * `GestureDetector` does nothing, because the handler is driven by native state-machine events
+ * rather than by the responder system. One partial event is enough: RNGH fills in the `BEGAN`
+ * and `END` around it, so this is one whole gesture stream ending at `x`, which is what a
+ * diver's drag is. `act` because the stream lands in React state.
+ */
+async function scrubTo(x: number) {
+  await act(async () => {
+    fireGestureHandler<PanGesture>(getByGestureTestId(PROFILE_PLOT_TEST_ID), [{ x }]);
+  });
 }
 
 /** A minimal, complete `Tank` for tests that need a cylinder but not the whole shape a
@@ -288,4 +320,144 @@ it('drops a one-point gas segment rather than leaving a stray subpath for it', a
   expect(gas).toBeDefined();
   // One `M` only: the two stray one-point segments must not each contribute their own.
   expect(String(gas!.props.d).match(/M/g)).toHaveLength(1);
+});
+
+// ── §5's scrub readout ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The deepest sample the fixture actually holds — 24.29 m — computed rather than typed, so it
+ * cannot drift from the file every other test here reads. Deliberately NOT the 24.33 m the
+ * same dive's header claims: those two are what make "the readout explains the dot" a testable
+ * statement rather than a coincidence (see `fixture` above).
+ */
+const DEEPEST_SAMPLE_M = Math.max(...FIXTURE.map(([, depthM]) => depthM));
+
+// Spec §5's first rule: "before any touch the readout shows the deepest sample — the point
+// already marked with a dot". `maxDepthM: 34` rather than the fixture's own 24.33, which
+// formats to the same "24.3 m" the deepest sample does and so could not tell the two apart.
+it('reads out the deepest sample, not the dive’s stored maximum, before anyone touches it', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  const text = textIn(t).join(' ');
+  expect(text).toContain(formatDepth(DEEPEST_SAMPLE_M, 'metric'));
+  expect(text).not.toContain(formatDepth(34, 'metric'));
+});
+
+// §0.4 in the readout: a dive with no transmitter has no consumption to state, so the slot
+// holds the dash rather than closing up or inventing a figure.
+it('shows an em dash for gas on a dive with no per-sample pressure', async () => {
+  const noGas = FIXTURE.map(([at, depthM]): DiveSample => [at, depthM, null, null]);
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={noGas} scheme="light" units="metric" />,
+  );
+  const text = textIn(t).join(' ');
+  // The depth half is still real — a readout that had dropped BOTH figures would satisfy a
+  // bare search for the dash.
+  expect(text).toContain(formatDepth(DEEPEST_SAMPLE_M, 'metric'));
+  expect(text).toContain(NO_FIGURE);
+});
+
+it('scrubs to the sample under the finger', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  await measure(t, 300);
+  await scrubTo(300); // the plot's far right edge
+  const text = textIn(t).join(' ');
+  expect(text).toContain(formatDepth(FIXTURE.at(-1)![1], 'metric'));
+  expect(text).not.toContain(formatDepth(DEEPEST_SAMPLE_M, 'metric'));
+});
+
+// The plot's width arrives from `onLayout`, which does not fire under Jest and has not fired
+// on a device either until the first layout pass. An unmeasured plot has no scale, and a touch
+// mapped through no scale would jump the readout to the first sample of the dive — so the pan
+// does nothing at all instead.
+it('does not move the readout before the plot has been measured', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  await scrubTo(300);
+  const text = textIn(t).join(' ');
+  expect(text).toContain(formatDepth(DEEPEST_SAMPLE_M, 'metric'));
+  expect(text).not.toContain(formatDepth(FIXTURE.at(-1)![1], 'metric'));
+});
+
+// Spec §5's gas half, on a series small enough to compute by hand — the shape
+// `consumption.test.ts` uses for the same reason. Three samples at a constant, bandable 10 m,
+// at 0, 60 and 130 s, so `consumptionSeries` emits exactly two complete windows.
+it('reads the consumption at the scrubbed sample, and an em dash where the trace has none', async () => {
+  const series: DiveSample[] = [
+    [0, 10, null, 200],
+    [60, 10, null, 196],
+    [130, 10, null, 190],
+  ];
+  const t = await render(
+    <DepthProfile dive={dive({ tanks: [tank()] })} samples={series} scheme="light" units="metric" />,
+  );
+  await measure(t, 300);
+
+  // First window, 0→60 s: 4 bar out of a 10 l cylinder is 40 l of free gas, at a mean 10 m
+  // (2 ata) over one minute — 20 l/min, anchored at the window's midpoint, t = 30 s. The
+  // second window (60→130 s) reads 25.7, which the right axis rounds up to 30 — so a readout
+  // showing the axis maximum, or the other window's point, fails this.
+  await scrubTo(150); // t = 65 s: nearer the 30 s window than the 95 s one
+  expect(textIn(t).join(' ')).toContain(formatRmv(20, 'metric'));
+
+  // The plot's left edge is t = 0, thirty seconds before the trace's first point. §0.4 forbids
+  // inventing a reading there, so the gas slot holds the dash — while the depth beside it,
+  // which the series really does record, stays a figure.
+  await scrubTo(0);
+  const text = textIn(t).join(' ');
+  expect(text).toContain(NO_FIGURE);
+  expect(text).not.toContain(formatRmv(20, 'metric'));
+  expect(text).toContain(formatDepth(10, 'metric'));
+});
+
+// The hairline marks where the finger is, so before there has been a finger there is nothing
+// to mark — and the dot §0.4 already draws is what the untouched readout is describing.
+it('draws no hairline until the diver has actually scrubbed', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 34 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  const before = linesIn(t);
+  expect(before.length).toBeGreaterThan(0);
+  // Every line on an untouched plot is a gridline, and a gridline is horizontal.
+  expect(before.every((line) => line.props.y1 === line.props.y2)).toBe(true);
+
+  await measure(t, 300);
+  await scrubTo(300);
+  const after = linesIn(t);
+  expect(after).toHaveLength(before.length + 1);
+  expect(after.filter((line) => line.props.x1 === line.props.x2)).toHaveLength(1);
+});
+
+// ── The mapping the gesture is a wrapper over ──────────────────────────────────────────────
+// Extracted so the cases a simulated gesture stages awkwardly — an unmeasured plot, a finger
+// dragged past either edge — are testable as arithmetic rather than as plumbing.
+
+/** Four samples over ten minutes, three of them bunched at the end: the shape that tells
+ * "nearest by time" apart from "nearest by position in the array". */
+const UNEVEN: DiveSample[] = [
+  [0, 4, null, null],
+  [500, 22, null, null],
+  [590, 18, null, null],
+  [600, 2, null, null],
+];
+
+it('maps a touch to the nearest sample by time, not to its position in the array', () => {
+  // Halfway across a plot whose series runs 0→600 s is t = 300 s. The nearest sample by TIME
+  // is the one at 500 s, 200 s away; the sample halfway along the ARRAY is the one at 590 s,
+  // which is 290 s away. Indexing by position would land on the wrong one.
+  expect(scrubbedIndexAt(150, 300, UNEVEN)).toBe(1);
+});
+
+it('clamps a finger dragged past either edge of the plot to the ends of the series', () => {
+  expect(scrubbedIndexAt(-40, 300, UNEVEN)).toBe(0);
+  expect(scrubbedIndexAt(900, 300, UNEVEN)).toBe(UNEVEN.length - 1);
+});
+
+it('maps nothing at all until the plot has reported a width', () => {
+  expect(scrubbedIndexAt(150, null, UNEVEN)).toBeNull();
+  expect(scrubbedIndexAt(150, 0, UNEVEN)).toBeNull();
 });

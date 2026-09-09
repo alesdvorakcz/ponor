@@ -619,6 +619,41 @@ export const HE_LABEL = 'He';
 export const METADATA_SEPARATOR = ' · ';
 
 /**
+ * **A figure with nothing behind it, in the slot its value would occupy** — and the one place
+ * the em dash is spelled.
+ *
+ * §0.6 draws the line: *"A figure with nothing behind it is omitted, not drawn as an em dash —
+ * the dash belongs to a labelled row that is drawn whether or not it holds a value."* So most
+ * of this module omits (see `formatLogbookSummary`'s own note), and this is what the callers on
+ * the other side of that line write instead: a **fixed inventory** of slots, where a row that
+ * vanished would be indistinguishable from the app having dropped it.
+ *
+ * Two callers today, and they are the two shapes §0.6 sanctions:
+ *
+ * - **The Stats screen** (`Counter`, screens/StatsScreen.tsx) has exactly one subject and a
+ *   fixed set of figures about it, so a diver looking for *Deepest* must be able to tell
+ *   "nothing recorded" from "this screen forgot".
+ * - **The profile card's scrub readout** (`DepthProfile`, components/DepthProfile.tsx), which
+ *   §5 of the profile spec requires to be always present and never to shift the layout — so
+ *   the gas figure inside a surface break, where §0.4 forbids inventing a reading, is a dash
+ *   rather than a slot that closes up under the diver's finger.
+ *
+ * **It lives here rather than on the screen that first needed it** (M3, the profile's scrub
+ * task). It was `StatsScreen`'s own exported constant, which was fine while a screen was the
+ * only caller and stopped being fine the moment a *component* needed the same mark: a component
+ * importing from a screen inverts the dependency, and retyping the character would make two
+ * owners of one rule (§4.1). It sits beside `METADATA_SEPARATOR` above because it is the same
+ * kind of thing — a mark this app spells once — and in the module §4.1 already names the owner
+ * of what a stored value looks like to a diver.
+ *
+ * `clearedTag` (components/CarriedMark.tsx, `field.cleared` in the resource files) is its
+ * sibling and the app's only other em dash: that one is a *gesture* ("you cleared this"), this
+ * one is an *absence* ("nothing recorded"), which is why neither may become the other's
+ * constant.
+ */
+export const NO_FIGURE = '—';
+
+/**
  * U+00A0, and it is here so that the one place that needs it can be read (`formatLogbookSummary`,
  * M1m). A middot list is normally set on a line that cannot wrap — a dive row's metadata, a
  * cylinder spec — and the header summary is the exception: §0.6 caps its column at the floating

@@ -541,6 +541,18 @@ export const cs = {
       profile: 'Hloubkový profil',
     },
 
+    /**
+     * Popisky nad odečtem z křivky (`DepthProfile`). *Hloubka* je hloubka v jednom okamžiku
+     * křivky, ne maximum ani průměr ponoru — ty mají svoje názvy o jmenný prostor vedle.
+     * *Spotřeba* je okamžitá spotřeba v okně, kterou aplikace nikde jinde jako řádek neukazuje;
+     * *Plyn* by tu bylo o látce, ne o tom, kolik jí jde za minutu. Jednotky sem nepatří, ty umí
+     * `format/units.ts`.
+     */
+    profile: {
+      depth: 'Hloubka',
+      gas: 'Spotřeba',
+    },
+
     form: {
       headingNewDive: 'Nový ponor',
       headingNewPlan: 'Nový plán',

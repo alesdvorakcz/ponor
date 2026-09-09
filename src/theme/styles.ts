@@ -2442,6 +2442,46 @@ function build(scheme: ColorScheme) {
       color: theme.fgMuted,
       flexShrink: 1,
     },
+    /**
+     * **The scrub readout** (profile spec §5): the depth and the gas at the position under the
+     * diver's finger, stated over the plot rather than in a tooltip beside it — a tooltip is
+     * covered by the finger that summons it and clips at both edges of the chart.
+     *
+     * **Each figure gets an equal share of the row, and that is the whole point of the
+     * `flex: 1` below.** §5 requires the readout never to shift the layout as it changes, and a
+     * row of two intrinsically-sized items does exactly that: `0.1 m` and `24.3 m` are not the
+     * same width even in mono, so the gas figure beside them would slide left and right under a
+     * dragging finger. Fixed slots mean only the glyphs inside them ever change.
+     */
+    profileReadout: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 12,
+    },
+    profileReadoutFigure: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 6,
+    },
+    // The label reads as the figure's footnote, exactly as the card's own caption does beside
+    // its title — same face, same size, same muted ink, so the readout sits inside the card's
+    // typography instead of introducing a third voice.
+    profileReadoutLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
+      color: theme.fgMuted,
+    },
+    // The figure itself is the one thing on this card a diver is reading rather than looking
+    // at, so it carries full ink and the medium weight §0.2 gives a data figure — a step up
+    // from the axis labels, which are furniture.
+    profileReadoutValue: {
+      fontFamily: fonts['mono-medium'],
+      fontSize: 13,
+      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
+      color: theme.fg,
+    },
     // The axis column, the plot and the gas axis, side by side. `flex-start` so the two axis
     // columns hang from the plot's top edge rather than stretching to the taller child (the
     // plot column, which also carries the time axis under it).

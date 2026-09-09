@@ -652,6 +652,29 @@ export const en = {
       profile: 'Depth profile',
     },
 
+    /**
+     * **§0.4's chart, in words** — the two labels over the scrub readout (`DepthProfile`,
+     * components/DepthProfile.tsx), which name the two SERIES the plot draws.
+     *
+     * Not `field.*`, and the distinction is that namespace's own: a word there is what a dive
+     * *field* is called, on the four screens where a diver enters one or reads it back. Neither
+     * of these is a field. *Depth* here is the depth at one instant on the curve — not the
+     * dive's `maxDepth` or `avgDepth`, which are different figures already named one namespace
+     * over, and which is exactly the ambiguity `field.siteDepth`'s docblock refuses to allow
+     * into a bare *Depth*. *Gas* is a windowed rate that has no row anywhere in the app.
+     *
+     * The card's TITLE is in `group.*` for the mirror-image reason: it really is a cluster
+     * label like *Conditions*, and its own docblock above says so.
+     *
+     * **No unit words here**, on this file's standing rule: the readout formats both figures
+     * through `format/display.ts`, so `m`/`ft` and `l/min`/`cu ft/min` follow the diver's own
+     * setting from the one owner that already has them.
+     */
+    profile: {
+      depth: 'Depth',
+      gas: 'Gas',
+    },
+
     /** §2.2's dive form — its own chrome, its refusals, and §2.3's catalogue offers. Every field
      * label it draws is `field.*` above, shared with the detail it will be read back on. */
     form: {

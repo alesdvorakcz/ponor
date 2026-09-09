@@ -15,7 +15,7 @@ import { dive } from '../domain/diveFixture';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { logbookStats } from '../domain/logbookStats';
 import { type Dive, type DiveSite, type Tank } from '../domain/types';
-import { formatLogbookSummary } from '../format/display';
+import { formatLogbookSummary, NO_FIGURE } from '../format/display';
 import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { depthScale } from '../theme/tokens';
@@ -24,7 +24,6 @@ import { logbookUnreadable } from '../domain/logbook';
 import StatsScreen, {
   countriesUnknownNote,
   nothingLoggedMessage,
-  NO_FIGURE,
   onlyPlannedMessage,
   refresherMessage,
 } from './StatsScreen';
