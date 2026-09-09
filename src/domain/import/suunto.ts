@@ -81,6 +81,13 @@ export const suuntoJsonImporter: DiveImporter = {
     // Built once and read twice below (the top-level field, and nowhere else — `dive` itself
     // no longer carries a copy; see `ImportedDive.dive`'s own docblock in ./types for why).
     const importId = `${serial}:${localKey}`;
+    // `DeviceLog.Device.Name`, with `DeviceLog.Header.Device.Name` as the same fallback the
+    // serial number above reads through. Guarded like `startedAt` above rather than a bare
+    // `??`: a name that is not a string is treated the same as one that is not there at all,
+    // which is what `dives.importDevice`'s own docblock (schema.ts) promises every dive
+    // imported before this column existed — null, not a fabricated label.
+    const deviceName = log?.Device?.Name ?? header?.Device?.Name;
+    const importDevice = typeof deviceName === 'string' ? deviceName : null;
     const startMs = Date.parse(startedAt);
 
     const samples: SuuntoSample[] = Array.isArray(log?.Samples) ? log.Samples : [];
@@ -147,6 +154,7 @@ export const suuntoJsonImporter: DiveImporter = {
         waterTempC: celsius(deepest?.Temperature),
         tanks,
         status: 'logged',
+        importDevice,
       },
     };
     return [dive];

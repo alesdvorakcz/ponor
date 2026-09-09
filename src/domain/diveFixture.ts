@@ -34,7 +34,7 @@ export const dive = (over: Partial<Dive> = {}): Dive => {
     visibility: null, visibilityM: null, waves: null, current: null, surge: null,
     weather: null, tanks: [],
     suit: null, suitThicknessMm: null, equipment: [], weightsKg: null, weightsFeel: null,
-    buddy: null, guide: null, importSource: null, importId: null,
+    buddy: null, guide: null, importSource: null, importId: null, importDevice: null,
     createdAt: '2026-08-16T00:00:00.000Z', updatedAt: '2026-08-16T00:00:00.000Z',
     deletedAt: null,
     // A fixture dive has never been written by the repository, so it has never been flagged

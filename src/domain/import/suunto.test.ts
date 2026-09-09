@@ -161,6 +161,20 @@ it('leaves importSource and importId for the writer to stamp, not for this impor
   expect(dive.status).toBe('logged');
 });
 
+it('records which computer wrote the file, so the dive can say where it came from', () => {
+  const { dive } = only('suunto-d5');
+  expect(dive.importDevice).toBe('Suunto D5');
+});
+
+it('leaves the device null when the export does not name one', () => {
+  // Not defensive tidiness: every dive imported before this column existed is permanently in
+  // this state, because dedupe skips an already-imported dive and a deleted one stays deleted.
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ DeviceLog: { Header: { DateTime: '2026-02-19T11:22:08.290+08:00' } } }),
+  );
+  expect(suuntoJsonImporter.parse(bytes)[0]?.dive.importDevice ?? null).toBeNull();
+});
+
 it('refuses a fabricated Temperature rather than turning it into a plausible-looking reading', () => {
   // `true - 273.15` is a real, finite number that looks exactly like a plausible reading —
   // every sibling field (Depth, Pressure, ...) reads through num() and would correctly

@@ -483,6 +483,7 @@ const DIVE_FIELD_QUANTITY: { readonly [K in keyof Dive]: Quantity | null } = {
 
   importSource: null,
   importId: null,
+  importDevice: null,
 
   createdAt: null,
   updatedAt: null,

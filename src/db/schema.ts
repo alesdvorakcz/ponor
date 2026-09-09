@@ -209,6 +209,12 @@ export const dives = sqliteTable('dives', {
   /** Reserved so a future dive-computer import can dedupe safely (§6). */
   importSource: text('import_source'),
   importId: text('import_id'),
+  /** Which computer wrote the file this dive came from — `Suunto D5`. Its siblings above say
+   * WHAT read it and WHICH dive it was; this says what recorded it, and it is what the dive
+   * detail's `Imported from` row names. Null for every dive imported before it existed, and
+   * permanently so: dedupe skips an already-imported dive, so re-running the files cannot
+   * backfill it. The row falls back to the importer's own label. */
+  importDevice: text('import_device'),
 
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

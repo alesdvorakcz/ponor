@@ -310,7 +310,7 @@ begin
       latitude, longitude, max_depth_m, avg_depth_m, water_temp_c, air_temp_c,
       visibility, visibility_m, waves, current, surge, weather, tanks,
       suit, suit_thickness_mm, equipment, weights_kg, weights_feel, buddy, guide,
-      import_source, import_id, created_at, updated_at, deleted_at
+      import_source, import_id, import_device, created_at, updated_at, deleted_at
     )
     select
       incoming.id, v_uid, coalesce(incoming.status, 'logged'), incoming.date, incoming.time_in,
@@ -323,7 +323,7 @@ begin
       coalesce(incoming.tanks, '[]'::jsonb), incoming.suit, incoming.suit_thickness_mm,
       coalesce(incoming.equipment, '[]'::jsonb), incoming.weights_kg, incoming.weights_feel,
       incoming.buddy, incoming.guide, incoming.import_source, incoming.import_id,
-      coalesce(incoming.created_at, v_now), v_now, incoming.deleted_at
+      incoming.import_device, coalesce(incoming.created_at, v_now), v_now, incoming.deleted_at
     from incoming
     on conflict (id) do update set
       status = excluded.status, date = excluded.date, time_in = excluded.time_in,
@@ -342,6 +342,7 @@ begin
       weights_kg = excluded.weights_kg, weights_feel = excluded.weights_feel,
       buddy = excluded.buddy, guide = excluded.guide,
       import_source = excluded.import_source, import_id = excluded.import_id,
+      import_device = excluded.import_device,
       updated_at = v_now, deleted_at = excluded.deleted_at
     returning t.*
   )

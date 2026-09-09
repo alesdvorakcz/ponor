@@ -1,0 +1,1 @@
+ALTER TABLE `dives` ADD `import_device` text;

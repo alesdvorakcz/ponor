@@ -126,6 +126,7 @@ create table if not exists public.dives (
   guide text,
   import_source text,
   import_id text,
+  import_device text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz

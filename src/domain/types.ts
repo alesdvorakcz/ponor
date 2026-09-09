@@ -336,6 +336,7 @@ export interface Dive {
 
   importSource: string | null;
   importId: string | null;
+  importDevice: string | null;
 
   createdAt: string;
   updatedAt: string;
