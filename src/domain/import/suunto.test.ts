@@ -108,3 +108,24 @@ it('marks where the dive came from, so a re-import can find it again', () => {
   expect(dive.importSource).toBe('suunto-app-json');
   expect(dive.status).toBe('logged');
 });
+
+it('refuses a fabricated Temperature rather than turning it into a plausible-looking reading', () => {
+  // `true - 273.15` is a real, finite number that looks exactly like a plausible reading —
+  // every sibling field (Depth, Pressure, ...) reads through num() and would correctly
+  // answer null for the same input. Built inline rather than added to a fixture: no real
+  // Suunto export carries a boolean here, so this is adversarial input, not a device shape.
+  const poisoned = new TextEncoder().encode(
+    JSON.stringify({
+      DeviceLog: {
+        Header: { DateTime: '2026-01-01T10:00:00.000+00:00', Depth: { Max: 5, Avg: 5 } },
+        Samples: [{ Depth: 5, Temperature: true, TimeISO8601: '2026-01-01T10:00:05.000+00:00' }],
+      },
+    }),
+  );
+  const [imported] = suuntoJsonImporter.parse(poisoned);
+  if (!imported) throw new Error('no dive parsed');
+  // The per-sample series reading.
+  expect(imported.series?.[0]?.[2]).toBeNull();
+  // The waterTempC read from the deepest (here, only) sample.
+  expect(imported.dive.waterTempC).toBeNull();
+});

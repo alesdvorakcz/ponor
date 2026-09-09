@@ -6,6 +6,7 @@ import {
   isTimeOfDay,
   localDateToCalendarDate,
   localDateToTimeOfDay,
+  localPartsOf,
   normaliseCalendarDate,
   normaliseTimeOfDay,
   storedCalendarDate,
@@ -349,5 +350,75 @@ describe('daysBetweenCalendarDates', () => {
   // `compareDiveOrder` leans on so that '2026-8-17' does not sort after '2026-08-18'.
   it('reads a date however it was spelled', () => {
     expect(daysBetweenCalendarDates('2026-8-30', '2026-08-31')).toBe(1);
+  });
+});
+
+/**
+ * `localPartsOf` — the offset-string boundary (M3g, dive import). An importer hands this the
+ * local moment a device export names *and*, immediately after it, the UTC offset that moment
+ * had — `2026-02-19T11:22:08.290+08:00`. Ponor stores `date`/`timeIn` as local strings (§10),
+ * so the offset is never applied, and it is read out of the string's own digits rather than
+ * through a `Date`: going via `Date`/`Date.parse` would mean either applying the offset (an
+ * instant, not the diver's wall clock) or reading it back through the *runtime's* zone, which
+ * is the exact defect the picker boundary above exists to avoid. That is also why this block
+ * needs none of `datetime.utc-plus-14.test.ts`'s or `datetime.utc-minus-11.test.ts`'s
+ * machinery to force a zone: nothing here consults the runtime's zone at all, so the ordinary
+ * test environment already proves it — and the second case below picks an offset far from
+ * whatever zone happens to be ambient, so a regression that routed this through `Date` would
+ * still be caught.
+ */
+describe('localPartsOf', () => {
+  it('reads the local date, time and whole seconds a device export opens with', () => {
+    expect(localPartsOf('2026-02-19T11:22:08.290+08:00')).toEqual({
+      date: '2026-02-19',
+      time: '11:22',
+      second: '08',
+    });
+  });
+
+  it('discards the offset rather than applying it, whatever that offset is', () => {
+    // -11:00 (Niue), picked because it is nowhere near this suite's own zone and nowhere near
+    // the +09:00 the importer suite is separately re-run under (TZ=Asia/Tokyo). Applied
+    // through Date.parse, 23:50 at -11:00 is 10:50 the *next* UTC day — if this read the
+    // instant instead of the string, date and time would both come back wrong.
+    expect(localPartsOf('2026-08-31T23:50:05-11:00')).toEqual({
+      date: '2026-08-31',
+      time: '23:50',
+      second: '05',
+    });
+    // A device that wrote 'Z' instead of an explicit offset is read exactly the same way —
+    // the marker is discarded, never treated as a reason to convert.
+    expect(localPartsOf('2026-08-31T23:50:05.000Z')).toEqual({
+      date: '2026-08-31',
+      time: '23:50',
+      second: '05',
+    });
+  });
+
+  it('defaults the seconds to :00 when the string does not carry any, and ignores what follows', () => {
+    expect(localPartsOf('2026-02-19T11:22+08:00')).toEqual({ date: '2026-02-19', time: '11:22', second: '00' });
+    // No offset at all is read the same way too: offset-or-not is not this function's business.
+    expect(localPartsOf('2026-02-19T11:22:08')).toEqual({ date: '2026-02-19', time: '11:22', second: '08' });
+  });
+
+  it('refuses a value that is syntactically a moment but names no real one', () => {
+    // The trap the hand-rolled regex this replaced would have missed entirely: two digits is
+    // not the same as a real hour, minute or second, and normaliseCalendarDate/normaliseTimeOfDay
+    // are what this function reuses to tell the difference rather than checking a third way.
+    expect(localPartsOf('2026-02-19T25:12:08+00:00')).toBeNull(); // hour 25
+    expect(localPartsOf('2026-02-19T10:60:08+00:00')).toBeNull(); // minute 60
+    expect(localPartsOf('2026-02-19T10:12:60+00:00')).toBeNull(); // second 60
+    expect(localPartsOf('2026-02-30T10:12:08+00:00')).toBeNull(); // 30 February
+    expect(localPartsOf('2026-13-01T10:12:08+00:00')).toBeNull(); // month 13
+  });
+
+  it('refuses blank, non-string and structurally wrong values, rather than guessing', () => {
+    expect(localPartsOf('')).toBeNull();
+    expect(localPartsOf('not a date')).toBeNull();
+    expect(localPartsOf('2026-02-19')).toBeNull(); // a date with no time is not this shape
+    expect(localPartsOf(null)).toBeNull();
+    expect(localPartsOf(undefined)).toBeNull();
+    expect(localPartsOf(20260219)).toBeNull();
+    expect(localPartsOf({})).toBeNull();
   });
 });

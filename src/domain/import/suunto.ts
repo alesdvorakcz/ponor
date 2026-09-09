@@ -1,28 +1,11 @@
 import { type DiveSample } from '../../db/schema';
+import { localPartsOf } from '../datetime';
 import { decodeUtf8, ImportRefusal, type DiveImporter, type ImportedDive } from './types';
 
 const PASCALS_PER_BAR = 100_000;
 const LITRES_PER_CUBIC_METRE = 1000;
 const KELVIN_AT_ZERO_C = 273.15;
 const SECONDS_PER_MINUTE = 60;
-
-/**
- * `2026-02-19T11:22:08.290+08:00` → the diver's own date, minute and dedupe key.
- *
- * **Read out of the string, never through a `Date`.** §10 names the trap: `toISOString()` on a
- * dive picked late in the evening east of Greenwich files it under the previous day. The two
- * reference dives make it concrete — the same device wrote `+08:00` on one and `+02:00` on the
- * other, so the offset varies inside one logbook and is deliberately discarded.
- *
- * The key drops milliseconds and the offset: one computer cannot record two dives starting in
- * the same second, and a future export writing `Z` or a different precision must not produce a
- * second key for a dive already imported.
- */
-function localParts(dateTime: string): { date: string; time: string; key: string } | null {
-  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?/.exec(dateTime);
-  if (!m?.[1] || !m[2]) return null;
-  return { date: m[1], time: m[2], key: `${m[1]}T${m[2]}${m[3] ?? ':00'}` };
-}
 
 /** A number the file actually carried. A missing key and an explicit `null` are one answer —
  * the pod-less export omits `StartPressure` entirely while its samples set `Pressure: null`. */
@@ -31,6 +14,16 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 const scaled = (v: unknown, by: number, dp: number): number | null => {
   const n = num(v);
   return n === null ? null : Number((n / by).toFixed(dp));
+};
+
+/** Kelvin → Celsius, rounded to 0.1 °C, or null if the file did not carry a real number here.
+ * `Temperature` is read through this rather than a bare subtraction so that a malformed value
+ * (`true`, a string, `NaN`) cannot produce a plausible-looking fake reading the way
+ * `true - KELVIN_AT_ZERO_C` otherwise would — the same guard every other field in this file
+ * already gets from `num()`/`scaled()`. */
+const celsius = (v: unknown): number | null => {
+  const k = num(v);
+  return k === null ? null : Number((k - KELVIN_AT_ZERO_C).toFixed(1));
 };
 
 interface SuuntoSample {
@@ -62,10 +55,14 @@ export const suuntoJsonImporter: DiveImporter = {
     const header = log?.Header;
     const startedAt = typeof header?.DateTime === 'string' ? header.DateTime : null;
     if (!startedAt) throw new ImportRefusal('no dive start time');
-    const local = localParts(startedAt);
+    const local = localPartsOf(startedAt);
     // `date` is Ponor's one required column, so a start time it cannot read is a refusal
     // rather than a dive with an invented date.
     if (!local) throw new ImportRefusal('unreadable dive start time');
+    // Milliseconds and the offset dropped: one computer cannot record two dives starting in
+    // the same second, and a future export writing `Z` or a different precision must not
+    // produce a second key for a dive already imported.
+    const localKey = `${local.date}T${local.time}:${local.second}`;
 
     const serial = String(log?.Device?.SerialNumber ?? header?.Device?.SerialNumber ?? 'unknown');
     const startMs = Date.parse(startedAt);
@@ -80,7 +77,7 @@ export const suuntoJsonImporter: DiveImporter = {
       // timestamps it claims to represent.
       Number(((Date.parse(s.TimeISO8601!) - startMs) / 1000).toFixed(2)),
       num(s.Depth)!,
-      s.Temperature == null ? null : Number((s.Temperature - KELVIN_AT_ZERO_C).toFixed(1)),
+      celsius(s.Temperature),
       scaled(s.Cylinders?.[0]?.Pressure, PASCALS_PER_BAR, 1),
     ]);
 
@@ -108,7 +105,7 @@ export const suuntoJsonImporter: DiveImporter = {
 
     const duration = num(header?.Duration);
     const dive: ImportedDive = {
-      importId: `${serial}:${local.key}`,
+      importId: `${serial}:${localKey}`,
       series: series.length > 0 ? series : null,
       dive: {
         date: local.date,
@@ -121,12 +118,11 @@ export const suuntoJsonImporter: DiveImporter = {
         // every imported dive (24.29 sampled against 24.33 stated).
         maxDepthM: num(header?.Depth?.Max),
         avgDepthM: num(header?.Depth?.Avg),
-        waterTempC:
-          deepest?.Temperature == null ? null : Number((deepest.Temperature - KELVIN_AT_ZERO_C).toFixed(1)),
+        waterTempC: celsius(deepest?.Temperature),
         tanks,
         status: 'logged',
         importSource: 'suunto-app-json',
-        importId: `${serial}:${local.key}`,
+        importId: `${serial}:${localKey}`,
       },
     };
     return [dive];

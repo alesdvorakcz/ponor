@@ -407,3 +407,65 @@ export function timeOfDayToLocalDate(value: unknown, base: Date = new Date()): D
   const day = realDate(base) ?? new Date();
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(minutes / 60), minutes % 60, 0, 0);
 }
+
+/**
+ * ---------------------------------------------------------------------------
+ * THE OFFSET-STRING BOUNDARY (M3g) — an ISO-8601-with-offset string in, this module's own
+ * `date`/`time` strings out, and NO `Date` anywhere in between.
+ *
+ * A device export names a local wall-clock moment and then, separately, the UTC offset that
+ * moment had — `2026-02-19T11:22:08.290+08:00`. That offset is the *dive computer's*, not the
+ * runtime's, and it is not even constant for one diver: the same Suunto D5 wrote `+08:00` on
+ * one export and `+02:00` on the other. Ponor stores `date`/`timeIn` as local strings (§10),
+ * so the only correct read takes the digits already in front of the offset and never looks at
+ * the offset itself — going via `Date`/`Date.parse` would mean either applying that offset (an
+ * instant, not the diver's wall clock) or reading the instant back through local getters, which
+ * asks the *runtime's* zone and is the exact defect the picker boundary above exists to avoid.
+ *
+ * `localPartsOf` below is the one place that does this read. An importer that hand-rolled its
+ * own regex for it — which the first version of the Suunto importer did — is the one-rule-in-
+ * two-places defect this file's own docblock records having paid for three times already
+ * (DESIGN.md §4.1); the next importer (UDDF, Subsurface, FIT or PADI — DESIGN.md §9) calls this
+ * instead of writing a fourth copy.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The local date and time an ISO-8601 string opens with, and the whole seconds if it carries
+ * any — `2026-02-19T11:22:08.290+08:00` captures `2026-02-19`, `11:22` and `08`, and stops
+ * there. Whatever follows (milliseconds, an offset, `Z`, nothing at all) is neither required
+ * nor read, because none of it is the diver's own wall clock.
+ */
+const LOCAL_OFFSET_DATETIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?/;
+
+/**
+ * The local date, time and whole seconds an ISO-8601-with-offset string opens with, or null if
+ * it does not open with that shape or names no real moment. This is what an importer reads a
+ * device export's own timestamp field through.
+ *
+ * **Range-checked by the same rule a typed date or time is, not a fourth one.** The date and
+ * time substrings this extracts are handed to `normaliseCalendarDate` / `normaliseTimeOfDay`
+ * above — so `'2026-02-30T25:99:00+00:00'` is refused exactly as typing `'25:99'` into a time
+ * field would be, rather than accepted as a literal `timeIn` of `'25:99'`. Seconds have no
+ * sibling validator to reuse here — nothing else in this module reads them — so they get the
+ * one check they need on their own: two digits already rules out anything but 00-99, and only
+ * 60-99 is left to refuse.
+ *
+ * `second` is kept apart from `time` rather than folded into an `HH:MM:SS` key: composing a
+ * dedupe key out of it is the calling importer's concern (today, Suunto's serial-number
+ * pairing), not a third string form for this module to own alongside `date` and `time`.
+ */
+export function localPartsOf(value: unknown): { date: string; time: string; second: string } | null {
+  if (typeof value !== 'string') return null;
+  const match = LOCAL_OFFSET_DATETIME_PATTERN.exec(value);
+  // The regex guarantees the first two groups whenever it matches at all, but this way the
+  // guard does not depend on that guarantee holding after a future edit — the same reasoning
+  // `canonicalCalendarDate` above applies to its own captures.
+  if (!match?.[1] || !match[2]) return null;
+  const date = normaliseCalendarDate(match[1]);
+  const time = normaliseTimeOfDay(match[2]);
+  if (date === null || time === null) return null;
+  const second = match[3] ?? '00';
+  if (Number(second) > 59) return null;
+  return { date, time, second };
+}
