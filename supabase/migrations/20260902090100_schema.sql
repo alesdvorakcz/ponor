@@ -224,14 +224,20 @@ create table if not exists public.certifications (
 -- column for column, plus `user_id`, which every private table here carries for `dives.user_id`'s
 -- own reason above: a device holds one diver's logbook, so ownership is the server's alone.
 --
--- `series` is the same JSON array of `[t, depth, temp, bar]` tuples the device stores in its own
--- `text` column of the same name; this server has no reason to parse it apart into rows or
--- columns of its own, and `jsonb` would buy nothing a `text` column already has for a value
--- nothing here ever queries into — so `text` is the honest column type.
+-- `series` is `jsonb`, the same as `tanks` and `equipment` above and for the same reason: it is
+-- the same JSON array of `[t, depth, temp, bar]` tuples the device decodes from its own column
+-- of the same name (`seriesJson`, src/db/schema.ts), and `sync_row`'s generic `to_jsonb(row)` —
+-- used for every synced table's push echo and every pull, this table included — hands a `jsonb`
+-- column back as that same array, matching the device's decoded representation exactly. `text`
+-- was tried first and does not: `to_jsonb` treats a `text` column as opaque and JSON-string-quotes
+-- whatever it holds, so the device's own generic wire mapping would double-encode that string on
+-- write, and the next read's `Array.isArray` guard would degrade it to `[]` — silently emptying a
+-- dive's profile the moment it is first pushed. Nothing here queries into the array either way,
+-- so `jsonb` costs nothing and `text` was simply wrong.
 create table if not exists public.dive_samples (
   id uuid primary key,
   user_id uuid not null references auth.users (id) on delete cascade,
-  series text not null default '[]',
+  series jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz

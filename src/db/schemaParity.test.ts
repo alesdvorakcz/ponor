@@ -510,9 +510,15 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     expect(columnDefinitions.filter((column) => /\bcheck\s*\(/.test(column.definition))).toEqual([]);
   });
 
-  it('keeps tanks and equipment NOT NULL with an empty-array default (§6)', () => {
-    const arrays = columnDefinitions.filter((column) => ['tanks', 'equipment'].includes(column.name));
+  it('keeps tanks, equipment and series NOT NULL with an empty-array default (§6)', () => {
+    // `series` (dive_samples) joined this list with the dive-import task: it is the same
+    // JSON-array-on-a-row shape as `tanks`/`equipment`, and for the same reason needs the same
+    // type — `jsonb`, not `text` — or `sync_row`'s `to_jsonb(row)` would round-trip the array
+    // as a quoted string instead of an array (schema.sql's own comment on the table carries
+    // the full trace of what that breaks).
+    const arrays = columnDefinitions.filter((column) => ['tanks', 'equipment', 'series'].includes(column.name));
     expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual([
+      'dive_samples.series',
       'dives.equipment',
       'dives.tanks',
       'gear_presets.tanks',

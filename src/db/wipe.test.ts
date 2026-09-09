@@ -16,9 +16,10 @@ import {
   softDeleteCertification,
   wipeCertifications,
 } from './certifications';
+import { applyPulledDiveSamples, putDiveSamples, wipeDiveSamples } from './diveSamples';
 import { createDive, softDeleteDive, wipeDives } from './dives';
 import { createGearPreset, softDeleteGearPreset, wipeGearPresets } from './gearPresets';
-import { certifications, diveCenters, diveSites, dives, gearPresets, syncState } from './schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets, syncState } from './schema';
 import { forgetLastPulledAt, recordPull } from './syncState';
 import { createTestDb, type TestDb } from './testDb';
 
@@ -40,7 +41,7 @@ import { createTestDb, type TestDb } from './testDb';
  * checked below is the statement, not the event it causes on a device.
  *
  * The instrument that looks like it would close the gap makes it worse: an `AFTER DELETE`
- * trigger counting rows would report all six of these healthy while they were broken,
+ * trigger counting rows would report all seven of these healthy while they were broken,
  * because a trigger on the table is itself one of the conditions that disables the truncate
  * optimisation. Measured, not assumed — the last case in this file is that measurement, kept
  * as an executable record of why the obvious test is not here.
@@ -49,7 +50,7 @@ import { createTestDb, type TestDb } from './testDb';
  *
  * 1. **The opcodes of the statement each wipe actually ran.** This is the fix: `Clear` is the
  *    truncate, a per-row `Delete` is what reaches the hook. It is red the moment a `.where()`
- *    is removed from any of the five, which is the whole point of it — the clause looks like
+ *    is removed from any of the seven, which is the whole point of it — the clause looks like
  *    a no-op and the next reader will want to tidy it away.
  * 2. **The table is empty afterwards, tombstones included.** This one is the *safety net for
  *    the new predicate*, not the guarantee — it passes with or without the fix, because a
@@ -167,6 +168,26 @@ const SITES: Record<string, WipeSite> = {
     tombstones: (database) => tombstonesIn(database, certifications),
     wipe: (database) => wipeCertifications(database),
   },
+  'db/diveSamples.ts wipeDiveSamples': {
+    table: diveSamples,
+    seeded: 2,
+    seed: async (database) => {
+      // One written locally — dirty, live — and one pulled and already tombstoned by another
+      // device, which arrives clean. Same two states the catalogue seeds below exercise.
+      await putDiveSamples(database, 'dive-1', [[0, 1, null, null]]);
+      await applyPulledDiveSamples(database, [
+        {
+          id: 'dive-2',
+          series: [[0, 2, null, null]],
+          createdAt: STAMP,
+          updatedAt: STAMP,
+          deletedAt: STAMP,
+        },
+      ]);
+    },
+    tombstones: (database) => tombstonesIn(database, diveSamples),
+    wipe: (database) => wipeDiveSamples(database),
+  },
   'db/catalogue.ts wipeDiveSites': {
     table: diveSites,
     seeded: 2,
@@ -214,11 +235,12 @@ function opcodesOf(statement: string): string[] {
 }
 
 describe('§7.4’s wipe emits a statement that visits every row (M2i)', () => {
-  it('covers every bare-delete site there is, so a seventh cannot be added unnoticed', () => {
+  it('covers every bare-delete site there is, so an eighth cannot be added unnoticed', () => {
     // The floor `dirty.test.ts` puts under its own census, for the same reason: a table below
     // that quietly stopped being listed would be a wipe nobody checked, and the failure is a
-    // screen drawing a logbook that has been erased. Six since M3b's wallet.
-    expect(sites.length).toBe(6);
+    // screen drawing a logbook that has been erased. Seven since the dive-import task's depth
+    // profiles — "start over" silently leaving a diver's profiles behind is exactly this.
+    expect(sites.length).toBe(7);
   });
 
   it.each(sites)('%s', async (_name, site) => {

@@ -401,23 +401,12 @@ begin
   -- whose content is identical. `id` IS the dive's own id (src/db/schema.ts) rather than a
   -- fresh one, which is why this column carries no `gen_random_uuid()` fallback in file 2.
   --
-  -- KNOWN OPEN QUESTION, recorded rather than silently shipped: `series` is `text` here (file
-  -- 2) so Postgres never has to parse it, while the device's own column decodes it into a real
-  -- array (`seriesJson`, src/db/schema.ts) — so the two sides disagree about whether this value
-  -- is opaque. `sync_row`'s generic `to_jsonb(row)` treats a `text` column as opaque and
-  -- JSON-STRING-quotes whatever it holds; the device's generic wire mapping (`toWireRow`/
-  -- `fromWireRow`, cloud/sync.ts) is column-oblivious and sends/receives whatever Drizzle
-  -- handed it, which for this column is the DECODED array, not the encoded string. Traced by
-  -- hand (no Postgres reachable from this repository to confirm): a device pushes `series` as
-  -- a genuine JSON array; `jsonb_populate_recordset` folds that array into this column's own
-  -- canonical text; `to_jsonb(row)` on the way back out re-quotes that text as a JSON STRING;
-  -- the device stores that string through the SAME encoder it uses for a real array
-  -- (`JSON.stringify`), double-encoding it; and the next read's `JSON.parse` yields a *string*,
-  -- which `seriesJson`'s `Array.isArray` guard then degrades to `[]` — silently emptying the
-  -- profile on the very first push. Left as the schema task specified rather than fixed here,
-  -- because the fix is a design choice (this column as `jsonb` like `tanks`/`equipment` above,
-  -- or a column-specific cast in `sync_row`/here) that this task's brief did not ask for and
-  -- that changes a column type this migration otherwise ships verbatim.
+  -- `series` is `jsonb` (file 2's own comment on the table records why, in full) so it needs no
+  -- special-casing here: `jsonb_populate_recordset` below folds the incoming JSON array straight
+  -- into the column, and `sync_row`'s generic `to_jsonb(row)` on the way back out hands it back
+  -- as that same array — exactly the round trip `tanks`/`equipment` already get above, and
+  -- `coalesce(incoming.series, '[]'::jsonb)` matches their own null-guard rather than a bare
+  -- `'[]'` text literal, which would no longer be this column's type.
   perform public.sync_reject_unknown_keys('dive_samples', v_changes->'dive_samples');
 
   with incoming as (
@@ -428,7 +417,7 @@ begin
       id, user_id, series, created_at, updated_at, deleted_at
     )
     select
-      incoming.id, v_uid, coalesce(incoming.series, '[]'),
+      incoming.id, v_uid, coalesce(incoming.series, '[]'::jsonb),
       coalesce(incoming.created_at, v_now), v_now, incoming.deleted_at
     from incoming
     on conflict (id) do update set
