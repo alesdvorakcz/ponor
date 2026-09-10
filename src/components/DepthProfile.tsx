@@ -35,7 +35,13 @@ import { type UnitSystem } from '../format/units';
 import { t } from '../i18n';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
-import { makeStyles, PROFILE_PLOT_HEIGHT } from '../theme/styles';
+import {
+  makeStyles,
+  PROFILE_DEEPEST_MARK_RADIUS,
+  PROFILE_DEPTH_STROKE_WIDTH,
+  PROFILE_PLOT_HEIGHT,
+  PROFILE_PLOT_INSET_Y,
+} from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 /**
@@ -77,20 +83,23 @@ export const PLOT_WIDTH = 320;
 export const PROFILE_PLOT_TEST_ID = 'profile-plot';
 
 /**
- * The three stroke weights and the marker's radius, in viewBox units.
+ * The three stroke weights this file still owns, in viewBox units.
  *
  * **Deliberately not in `makeStyles`**, which is the one place a *token* may meet a *style
  * property* (theme/styles.ts's own header). None of these is either: they are geometry handed
  * to an SVG element as props, they carry no colour, and no `View` is painted with them — so
- * putting them in the sheet would widen its contract rather than honour it. `PROFILE_PLOT_HEIGHT`
- * is in the sheet precisely because it *is* shared with a style: the axis column is sized
- * against it.
+ * putting them in the sheet would widen its contract rather than honour it.
+ *
+ * **The depth stroke and the marker radius are NOT here, and their absence is the same rule
+ * read the other way.** `PROFILE_PLOT_INSET_Y` is derived from those two, the axis column is
+ * laid out against that inset, and the sheet is where a number two files must agree on lives —
+ * `PROFILE_PLOT_HEIGHT`'s own reason. They are module constants there rather than entries in
+ * the sheet, so nothing about the paragraph above is weakened by the move; see their docblock
+ * in theme/styles.ts for the shear that followed from their once being local here.
  */
-const DEPTH_STROKE_WIDTH = 2;
 const GAS_STROKE_WIDTH = 1;
 const GRID_STROKE_WIDTH = 1;
 const HAIRLINE_STROKE_WIDTH = 1;
-const DEEPEST_MARK_RADIUS = 3;
 
 /**
  * **How far a finger must travel sideways before the chart takes the gesture**, in points —
@@ -106,38 +115,18 @@ const DEEPEST_MARK_RADIUS = 3;
 const SCRUB_ACTIVATION_X = 8;
 
 /**
- * **How far the plotted curve is pulled in from the viewBox's own top and bottom edge**, in
- * viewBox units. Without it, a stroke or marker drawn at either extreme value sits exactly on
- * `y = 0` or `y = PROFILE_PLOT_HEIGHT` and has the far half of its own width or radius clipped
- * by the viewport: a round `axis.max` sample puts the deepest-sample marker's centre on the
- * bottom edge with nothing beyond it to show the rest of its `r = 3`, and a near-surface
- * sample thins the depth stroke the same way at the top.
- *
- * Derived from the two named constants that can actually poke past a point sitting on either
- * edge, rather than a new magic number: half the widest stroke this plot draws, and the
- * marker's own radius, whichever reaches further. The marker wins today (`3` beats
- * `DEPTH_STROKE_WIDTH / 2`'s `1`), but writing it as a `max` of both means a stroke that ever
- * grew past `2 * DEEPEST_MARK_RADIUS` could not silently reopen this clip.
- *
- * Applied to both vertical scales (`yDepth` and `yGas`) rather than the depth curve alone:
- * the two share this one viewBox and its top and bottom edges, and a gas trace whose own
- * extreme reading still touched `y = 0` or `y = PROFILE_PLOT_HEIGHT` would carry the identical
- * clip this constant exists to remove, just on a thinner stroke.
- */
-const PLOT_INSET_Y = Math.max(DEPTH_STROKE_WIDTH / 2, DEEPEST_MARK_RADIUS);
-
-/**
- * `PLOT_INSET_Y`'s counterpart on the other axis, and it exists for exactly one shape: **the
- * scrub hairline**, which is the only thing this plot draws whose stroke runs along x rather
- * than across it. A vertical line at `x = 0` or `x = PLOT_WIDTH` has half its own width outside
- * the viewport and renders at half weight — the same clip the finding behind `PLOT_INSET_Y`
- * describes for a gridline, turned ninety degrees — and a diver reaches both edges routinely,
- * since the ends of the series are where a scrub naturally runs out.
+ * `PROFILE_PLOT_INSET_Y`'s counterpart on the other axis (theme/styles.ts), and it exists for
+ * exactly one shape: **the scrub hairline**, which is the only thing this plot draws whose
+ * stroke runs along x rather than across it. A vertical line at `x = 0` or `x = PLOT_WIDTH` has
+ * half its own width outside the viewport and renders at half weight — the same clip the
+ * finding behind that inset describes for a gridline, turned ninety degrees — and a diver
+ * reaches both edges routinely, since the ends of the series are where a scrub naturally runs
+ * out.
  *
  * Half the hairline's own width and nothing else's: the curve's endpoints do not need it (a
  * stroke is laid perpendicular to its path, so a run ending at `x = 0` extends inward, not
- * past the edge) and the marker already has `PLOT_INSET_Y` for its radius on the axis where a
- * non-uniform scale cannot help it.
+ * past the edge) and the marker already has `PROFILE_PLOT_INSET_Y` for its radius on the axis
+ * where a non-uniform scale cannot help it.
  *
  * In viewBox units, like every other number here, and that is near enough to points because
  * this viewBox is written at about a phone's real content width — `PLOT_WIDTH`'s own argument,
@@ -364,11 +353,15 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   const axis = depthAxis(Math.max(storedMaxM, deepest.v));
 
   const x = (seconds: number): number => round(((seconds - startS) / (endS - startS)) * PLOT_WIDTH);
-  // Inset by `PLOT_INSET_Y` at both ends (see its own docblock) so a value at either extreme —
-  // 0 m, or a deepest sample sitting exactly on `axis.max` — has room for its own stroke width
-  // or marker radius inside the viewport instead of sitting on the edge.
+  // Inset by `PROFILE_PLOT_INSET_Y` at both ends (theme/styles.ts, where its own docblock is)
+  // so a value at either extreme — 0 m, or a deepest sample sitting exactly on `axis.max` — has
+  // room for its own stroke width or marker radius inside the viewport instead of sitting on
+  // the edge. The axis column beside the plot is laid out from that same constant, which is
+  // what puts each label on the line it names.
   const yDepth = (metres: number): number =>
-    round(PLOT_INSET_Y + (metres / axis.max) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
+    round(
+      PROFILE_PLOT_INSET_Y + (metres / axis.max) * (PROFILE_PLOT_HEIGHT - 2 * PROFILE_PLOT_INSET_Y),
+    );
 
   // The main cylinder — see this component's docblock for why that is the first and why it is
   // not `derived.ts`'s whole-dive read. `consumptionSeries` decides for itself whether the
@@ -380,7 +373,11 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   // Inverted (rate 0 at the bottom, gasMax at the top) and inset exactly like `yDepth` above —
   // the same edge either scale could sit on is the same viewBox, so it takes the same margin.
   const yGas = (rate: number): number =>
-    round(PROFILE_PLOT_HEIGHT - PLOT_INSET_Y - (rate / gasMax) * (PROFILE_PLOT_HEIGHT - 2 * PLOT_INSET_Y));
+    round(
+      PROFILE_PLOT_HEIGHT -
+        PROFILE_PLOT_INSET_Y -
+        (rate / gasMax) * (PROFILE_PLOT_HEIGHT - 2 * PROFILE_PLOT_INSET_Y),
+    );
 
   // ── The readout, and the pan that moves it ──────────────────────────────────────────────
   // Review round 2, Finding 5: `samples[scrubbed] ?? deepestSample` only HALF survives
@@ -535,7 +532,7 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
                   key={index}
                   d={pathOf(run.points.map((point) => ({ x: x(point.t), y: yDepth(point.v) })))}
                   stroke={run.colour}
-                  strokeWidth={DEPTH_STROKE_WIDTH}
+                  strokeWidth={PROFILE_DEPTH_STROKE_WIDTH}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   fill="none"
@@ -558,7 +555,7 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
               <Circle
                 cx={x(deepest.t)}
                 cy={yDepth(deepest.v)}
-                r={DEEPEST_MARK_RADIUS}
+                r={PROFILE_DEEPEST_MARK_RADIUS}
                 fill={depthColor(deepest.v, scheme)}
               />
             </Svg>

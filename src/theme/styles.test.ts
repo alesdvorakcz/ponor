@@ -6,6 +6,8 @@ import { themeFor } from './resolve';
 import {
   liftedBottomInset,
   makeStyles,
+  PROFILE_PLOT_HEIGHT,
+  PROFILE_PLOT_INSET_Y,
   PROFILE_SPARK_HEIGHT,
   screenBottomInset,
   screenTopInset,
@@ -1534,6 +1536,59 @@ describe('the row sparkline and the chip beside it', () => {
       // to `styles.diveChip?.lineHeight` directly, matching how the assertion above already
       // reads: two readers of one constant, not two literals asserted equal to each other.
       expect(styles.diveSparkline?.height).toBe(PROFILE_SPARK_HEIGHT);
+    },
+  );
+});
+
+/**
+ * Whole-branch review, Important #1, and it is `PROFILE_SPARK_HEIGHT`'s finding above one card
+ * over: **the sheet lays the depth axis out against the drawing's geometry, so it has to be
+ * told when that geometry changes.** It was not. An earlier fix inset both of the plot's
+ * vertical scales by `PROFILE_PLOT_INSET_Y` so an edge stroke would not be half-clipped, and
+ * `profileDepthAxis` went on spreading its labels over the full `PROFILE_PLOT_HEIGHT` — putting
+ * the 0 m label 3 pt above its own gridline and the deepest one 3 pt below, which reads as a
+ * 6 pt shear across an axis whose own docblock claims exactness.
+ *
+ * **Arithmetic, not a rendered position, and that is forced rather than chosen.** Jest runs no
+ * layout pass, so `space-between` never actually distributes anything here; what can be pinned
+ * is the relationship the layout will then produce — where a label's centre lands, computed
+ * from the sheet's own numbers, against where the drawing puts the gridline it names, computed
+ * from the constants the component draws with. Two readers of one geometry, checked against
+ * each other, which is the only shape that can catch the sheet being left behind again.
+ */
+describe('the depth axis column and the gridlines its labels name', () => {
+  it.each(['dark', 'light'] as const)(
+    'lands every axis label on its own gridline, inset and all (%s)',
+    (scheme) => {
+      const styles = makeStyles(scheme) as unknown as Record<string, Record<string, number>>;
+      const column = styles.profileDepthAxis!;
+      const line = styles.profileAxisLabel!.lineHeight!;
+
+      // `space-between` over N labels of `line` inside a box of `column.height`: the gaps are
+      // equal, so label i's top edge sits at `i * (line + gap)` and its centre half a line
+      // below that. `marginTop` then shifts the whole column against the plot's own top edge.
+      const labelCentre = (i: number, n: number): number => {
+        const gap = (column.height! - n * line) / (n - 1);
+        return column.marginTop! + i * (line + gap) + line / 2;
+      };
+      // `yDepth` (components/DepthProfile.tsx) for the i-th of n ticks, which `depthAxis`
+      // spaces evenly from 0 to `axis.max`.
+      const gridline = (i: number, n: number): number =>
+        PROFILE_PLOT_INSET_Y + (i / (n - 1)) * (PROFILE_PLOT_HEIGHT - 2 * PROFILE_PLOT_INSET_Y);
+
+      // Two ticks is the shallowest axis `depthAxis` can produce (0 and 10 m), four is the
+      // reference dive's (24.33 m → 0/10/20/30) and seven is a deep one — every count has to
+      // hold, since a diver's own dive decides which one this card draws.
+      for (const ticks of [2, 4, 7]) {
+        for (let i = 0; i < ticks; i += 1) {
+          expect(labelCentre(i, ticks)).toBeCloseTo(gridline(i, ticks), 10);
+        }
+      }
+
+      // The gas axis states one value at the top of the plot and carries the same pull for the
+      // same reason, so it lands on `yGas(gasMax)` — which is the inset itself.
+      const gasLabel = styles.profileGasAxisLabel!;
+      expect(gasLabel.marginTop! + gasLabel.lineHeight! / 2).toBeCloseTo(PROFILE_PLOT_INSET_Y, 10);
     },
   );
 });

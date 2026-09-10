@@ -323,6 +323,44 @@ it('reserves no bottom row for a points array too short to draw', async () => {
   ).toHaveLength(0);
 });
 
+// Whole-branch review, Important #2: `diveSparkline` was `flex: 1`, which is `flexBasis: 0`
+// plus `flexGrow` — the shape gets only the row's SURPLUS space. On a fully-logged, rated dive
+// opened from Search, the map sheet, Dive site or Dive centre (none of which pass
+// `datedByContext`, so the date chip is there too) a 320–375 pt phone has no surplus: the shape
+// renders 0 pt wide and Yoga re-measures the chip against what is left, wrapping it onto a
+// second line. That is the same "the row's height must not change" guarantee `diveChip`'s own
+// `lineHeight` was pinned for, broken by a second mechanism.
+//
+// The fix is the pairing `profileReadout` already uses one card over: a floor the shape cannot
+// be squeezed below, and text that gives way instead — capped, since shrinking a `Text` with
+// nowhere to grow wraps rather than truncates, which is the wrap this is trying to prevent.
+// Pinned on the sheet and on the rendered props together, exactly as `DepthProfile.test.tsx`'s
+// own readout-overflow test does, because either half alone leaves the row able to grow.
+it('keeps the sparkline a shape and the chips one line, on a row with no space to spare', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <DiveRow
+      dive={dive({ timeIn: '09:15', durationMin: 46, rating: 5, maxDepthM: 24.33 })}
+      points={FIXTURE}
+      number={1}
+      scheme="light"
+      units="metric"
+      onPress={() => {}}
+    />,
+  );
+  // A basis rather than a width: the shape still takes the whole of what a sparse row has left
+  // (`flexGrow`), and simply cannot be taken below this on a full one (`flexShrink: 0`).
+  expect(styles.diveSparkline.flexGrow).toBe(1);
+  expect(styles.diveSparkline.flexShrink).toBe(0);
+  expect(styles.diveSparkline.flexBasis).toBeGreaterThan(0);
+  // The half that has to give way instead, and the cap that makes giving way a truncation.
+  expect(styles.diveChip.flexShrink).toBe(1);
+  const chips = textNodesOf(t).filter((n) => [n.props.style].flat(3).includes(styles.diveChip));
+  // The date, time and duration joined into one chip, plus the middot before the rating dots.
+  expect(chips).toHaveLength(2);
+  for (const chip of chips) expect(chip.props.numberOfLines).toBe(1);
+});
+
 it('passes the dive id to onPress', async () => {
   const onPress = jest.fn();
   const d = dive({ id: 'abc' });

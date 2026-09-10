@@ -224,11 +224,59 @@ export const RMV_SPARK_STEPS = 6;
 export const PROFILE_PLOT_HEIGHT = 140;
 
 /**
+ * **The depth curve's stroke width and the deepest-sample mark's radius**, in the profile's own
+ * viewBox units (`DepthProfile`, components/DepthProfile.tsx, which hands both straight to an
+ * SVG element as props).
+ *
+ * They sit here rather than in the component for the one reason `PROFILE_PLOT_HEIGHT` above
+ * does: `PROFILE_PLOT_INSET_Y` below is derived from them, the axis column is laid out against
+ * that inset, and a number two files both have to agree on has one owner or it has two copies.
+ * The card's other three weights — the gas trace, the gridlines, the scrub hairline — stay in
+ * the component, because nothing here is laid out against any of them.
+ *
+ * Note where they are NOT: inside `build` below, which is the one place a *token* may meet a
+ * *style property* (this file's own header). Neither of these is either — they carry no colour,
+ * and no `View` is painted with them — so they are module constants beside the sheet rather
+ * than entries in it, exactly as `PROFILE_PLOT_HEIGHT` and `RMV_SPARK_STEPS` are.
+ */
+export const PROFILE_DEPTH_STROKE_WIDTH = 2;
+export const PROFILE_DEEPEST_MARK_RADIUS = 3;
+
+/**
+ * **How far the plotted curve is pulled in from the viewBox's own top and bottom edge**, in
+ * those same units. Without it, a stroke or marker drawn at either extreme value sits exactly
+ * on `y = 0` or `y = PROFILE_PLOT_HEIGHT` and has the far half of its own width or radius
+ * clipped by the viewport: a round `axis.max` sample puts the deepest-sample marker's centre on
+ * the bottom edge with nothing beyond it to show the rest of its radius, and a near-surface
+ * sample thins the depth stroke the same way at the top.
+ *
+ * Derived from the two named constants above — the ones that can actually poke past a point
+ * sitting on either edge — rather than a new magic number: half the widest stroke this plot
+ * draws, and the marker's own radius, whichever reaches further. The marker wins today (`3`
+ * beats `PROFILE_DEPTH_STROKE_WIDTH / 2`'s `1`), but writing it as a `max` of both means a
+ * stroke that ever grew past `2 * PROFILE_DEEPEST_MARK_RADIUS` could not silently reopen this
+ * clip.
+ *
+ * **It is in this file because the sheet is its second reader, and that is the whole finding.**
+ * The inset was the component's own constant when it arrived, and `profileDepthAxis` below —
+ * which spreads the axis labels over the plot's height so each lands on its gridline — was
+ * never told: the drawing inset both vertical scales while the column went on spreading labels
+ * over the full 140, so the outer two labels sat 3 pt off their own lines in opposite
+ * directions and the axis read as a 6 pt shear. Every reader of the plot's vertical geometry
+ * now reads it from here (`PROFILE_PLOT_HEIGHT`'s own argument, one number over), and
+ * `styles.test.ts` pins the arithmetic that ties the two together.
+ */
+export const PROFILE_PLOT_INSET_Y = Math.max(
+  PROFILE_DEPTH_STROKE_WIDTH / 2,
+  PROFILE_DEEPEST_MARK_RADIUS,
+);
+
+/**
  * The exact line box of a profile axis label, which is what makes `profileDepthAxis`'s
  * alignment arithmetic work rather than approximately work: the column is one line taller than
- * the plot and pulled up by half a line, so `space-between` puts each label's CENTRE on its
- * gridline instead of its top edge. Both halves of that read this number, so it is a constant
- * rather than a `lineHeight` and two hand-matched literals.
+ * the plot's own inset band and pulled up by half a line, so `space-between` puts each label's
+ * CENTRE on its gridline instead of its top edge. Both halves of that read this number, so it
+ * is a constant rather than a `lineHeight` and two hand-matched literals.
  */
 const PROFILE_AXIS_LINE_HEIGHT = 13;
 
@@ -2069,17 +2117,40 @@ function build(scheme: ColorScheme) {
       // left to whatever line box the platform's own font metrics produce for 11.5 pt type —
       // see that constant's own docblock for what happened while this was unset.
       lineHeight: PROFILE_SPARK_HEIGHT,
+      // Whole-branch review, Important #2: RN's default `flexShrink` is 0, so a full metadata
+      // line — a date, a time range and a duration, which is what every screen but `DivesScreen`
+      // shows — took its intrinsic width whatever else was in the row, and `diveSparkline` below
+      // was left with nothing. This chip is the half that should give way: it truncates a figure
+      // a diver can still read the rest of, where the shape beside it would simply cease to
+      // exist. Paired with `numberOfLines={1}` in DiveRow.tsx, or shrinking alone would wrap it
+      // onto a second line and grow the row — `profileReadout` further down carries the same
+      // pairing and the same argument for why neither half works without the other.
+      flexShrink: 1,
     },
     // Task 6's row sparkline (`ProfileSparkline`, components/ProfileSparkline.tsx) — the shape
     // sits AFTER whatever text/rating chips this row already has, at the trailing edge of
-    // `diveRowBottom`'s flex row. `flex: 1` (the same convention `profilePlot` above uses for
-    // the big card's own drawing) rather than a fixed width: the metadata chips it follows are
-    // short and variable, and taking whatever the row has left gives the shape more of the
-    // row's actual width to draw in than a guessed constant would. `marginStart` keeps it off
-    // the chip or the dots immediately before it; there is nothing to keep it off when it is
-    // the row's ONLY child (a dive with a series but no other metadata — see DiveRow.tsx).
+    // `diveRowBottom`'s flex row. It takes whatever the row has left (`flexGrow`) rather than a
+    // fixed width: the metadata chips it follows are short and variable, and a guessed constant
+    // would draw in less of the row than is actually free. `marginStart` keeps it off the chip
+    // or the dots immediately before it; there is nothing to keep it off when it is the row's
+    // ONLY child (a dive with a series but no other metadata — see DiveRow.tsx).
+    //
+    // **Whole-branch review, Important #2: this was `flex: 1`, and "whatever the row has left"
+    // is not what that says.** RN's `flex: 1` is `flexBasis: 0` with a grow factor, so the shape
+    // is sized from the SURPLUS after every sibling has taken its intrinsic width — and a
+    // fully-logged, rated dive on a small phone leaves none: a date, a time range and a duration
+    // at 11.5 pt mono, a middot, and five rating dots already overrun a 320 pt screen's content
+    // column. The shape then rendered 0 pt wide and the chip beside it wrapped onto a second
+    // line, growing the row this file pinned `diveChip.lineHeight` to keep still.
+    //
+    // So: a real basis it cannot be squeezed below (`flexShrink: 0`), and `diveChip` above
+    // shrinks instead. 40 pt is a floor for a SHAPE — a dive's silhouette, not its detail, which
+    // is §0.4's own division of labour between this and the number beside it — and it is what a
+    // small phone can spare once the chip has truncated rather than what a large one would like.
     diveSparkline: {
-      flex: 1,
+      flexGrow: 1,
+      flexShrink: 0,
+      flexBasis: 40,
       height: PROFILE_SPARK_HEIGHT,
       marginStart: 8,
     },
@@ -2561,22 +2632,32 @@ function build(scheme: ColorScheme) {
       flex: 1,
     },
     /**
-     * The depth axis's labels, spread over the plot's own height so each sits on its gridline.
+     * The depth axis's labels, spread over **the band the curve is actually drawn in** so each
+     * sits on its gridline.
      *
-     * **One line taller than the plot, pulled up by half a line**, which is what turns
-     * `space-between` from approximately right into exactly right: with N labels of height
-     * `lh` in a container of `H + lh`, the gaps come to `(H − (N−1)·lh) / (N−1)`, so label i's
-     * centre lands at `i · H / (N−1)` once the half-line offset is applied — precisely where
-     * `depthAxis`'s i-th tick is drawn. Without it every label sits half a line below its own
-     * line, which at this type size is a third of the gap between two of them.
+     * That band is the plot's height less its inset at both ends (`PROFILE_PLOT_INSET_Y`), not
+     * the plot's height — which is the whole of the whole-branch review's Important #1. The
+     * drawing insets both vertical scales so an edge stroke is not half-clipped, and this
+     * column spread its labels over the full 140 for a while afterwards: the two outer labels
+     * came out 3 pt off their own lines in OPPOSITE directions, so the axis sheared by 6 pt end
+     * to end. Half the error the paragraph below already calls unacceptable, per label — and
+     * the paragraph below is the one promising this column lands each label exactly.
+     *
+     * **One line taller than that band, pushed down by the inset less half a line**, which is
+     * what turns `space-between` from approximately right into exactly right: with N labels of
+     * height `lh` in a container of `B + lh`, the gaps come to `(B − (N−1)·lh) / (N−1)`, so
+     * label i's centre lands at `inset + i · B / (N−1)` once the offset is applied — precisely
+     * where `yDepth` draws `depthAxis`'s i-th tick. Without the half-line every label sits half
+     * a line below its own line, which at this type size is a third of the gap between two of
+     * them; without the inset the ends of the axis shear against the middle.
      *
      * `flex-end` so the figures align on their right edge against the plot, the way a chart's
      * axis reads; `marginTop` is one of the keys `unexpectedGraphics` permits, but this one is
      * in the sheet regardless, because it is composition rather than device geometry.
      */
     profileDepthAxis: {
-      height: PROFILE_PLOT_HEIGHT + PROFILE_AXIS_LINE_HEIGHT,
-      marginTop: -PROFILE_AXIS_LINE_HEIGHT / 2,
+      height: PROFILE_PLOT_HEIGHT - 2 * PROFILE_PLOT_INSET_Y + PROFILE_AXIS_LINE_HEIGHT,
+      marginTop: PROFILE_PLOT_INSET_Y - PROFILE_AXIS_LINE_HEIGHT / 2,
       justifyContent: 'space-between',
       alignItems: 'flex-end',
     },
@@ -2587,13 +2668,15 @@ function build(scheme: ColorScheme) {
       color: theme.fgMuted,
     },
     // The consumption axis: one label, at the top, carrying the maximum and the unit (spec
-    // §4.5). The same half-line pull as the depth column, so the two sides of the plot state
-    // their top values on one line rather than 6 pt apart.
+    // §4.5). The same offset as the depth column above, and for the same two reasons: half a
+    // line up puts the label's centre rather than its top edge on the value it names, and the
+    // inset is where the trace's own ceiling is actually drawn (`yGas(gasMax)`). Without the
+    // second half this floated 3 pt above its own trace, exactly as the depth labels sheared.
     profileGasAxisLabel: {
       fontFamily: fonts.mono,
       fontSize: 10,
       lineHeight: PROFILE_AXIS_LINE_HEIGHT,
-      marginTop: -PROFILE_AXIS_LINE_HEIGHT / 2,
+      marginTop: PROFILE_PLOT_INSET_Y - PROFILE_AXIS_LINE_HEIGHT / 2,
       color: theme.fgMuted,
     },
     // Start, midpoint and end (spec §3). The two ends align to the plot's own edges rather

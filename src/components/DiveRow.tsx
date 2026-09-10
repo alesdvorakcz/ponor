@@ -242,12 +242,19 @@ function DiveRowComponent({
       </View>
       {showBottomRow && (
         <View style={styles.diveRowBottom}>
-          {hasMetaText && <Text style={styles.diveChip}>{metaText}</Text>}
+          {/* `numberOfLines={1}`, and it is half of a pair: `diveChip` shrinks (theme/styles.ts,
+              whole-branch review Important #2) so the sparkline at the end of this row keeps a
+              width to draw in, and a `Text` that shrinks with nowhere to grow wraps rather than
+              truncates — which would grow the row exactly as the shape being squeezed out did.
+              The same pairing, for the same reason, as the profile card's own scrub readout. */}
+          {hasMetaText && <Text style={styles.diveChip} numberOfLines={1}>{metaText}</Text>}
           {/* The one separator `.join(METADATA_SEPARATOR)` above can't supply: RatingDots is a row of
               drawn circles (§0.6: "drawn, not typed", task 7), not a string, so it can't
               join into `metaText` the way the three text chips do. Rendered only when both
               sides actually exist, so the line never opens or closes on a stray middot. */}
-          {hasMetaText && dive.rating !== null && <Text style={styles.diveChip}>{METADATA_SEPARATOR}</Text>}
+          {hasMetaText && dive.rating !== null && (
+            <Text style={styles.diveChip} numberOfLines={1}>{METADATA_SEPARATOR}</Text>
+          )}
           {dive.rating !== null && <RatingDots rating={dive.rating} scheme={scheme} />}
           {/* Task 6: `undefined` (no screen has this dive's series, which is most dives) becomes
               `null`, `ProfileSparkline`'s own "nothing to draw" spelling — the same conversion
