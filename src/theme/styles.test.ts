@@ -1585,10 +1585,12 @@ describe('the depth axis column and the gridlines its labels name', () => {
         }
       }
 
-      // The gas axis states one value at the top of the plot and carries the same pull for the
-      // same reason, so it lands on `yGas(gasMax)` — which is the inset itself.
-      const gasLabel = styles.profileGasAxisLabel!;
-      expect(gasLabel.marginTop! + gasLabel.lineHeight! / 2).toBeCloseTo(PROFILE_PLOT_INSET_Y, 10);
+      // **And nothing hangs to the plot's right.** The consumption ceiling used to be a third
+      // column in `profilePlotRow`, and a column that sizes to its own text is a column that
+      // decides the chart's width — `40.0 l/min` against `1,41 cu ft/min`, so the same dive
+      // drew narrower in Czech imperial (owner's call, 2026-09-10). Pinned here rather than
+      // left to a comment, because the width it cost was invisible to every test we had.
+      expect(styles.profileGasAxisLabel).toBeUndefined();
     },
   );
 });

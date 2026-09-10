@@ -2629,9 +2629,17 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
       flexShrink: 1,
     },
-    // The axis column, the plot and the gas axis, side by side. `flex-start` so the two axis
-    // columns hang from the plot's top edge rather than stretching to the taller child (the
-    // plot column, which also carries the time axis under it).
+    // The depth axis and the plot, side by side, and **nothing to the plot's right** — the
+    // consumption ceiling used to be a third column here and was removed (owner's call,
+    // 2026-09-10; see the gas-trace paragraph in `DepthProfile`'s own docblock). A column that
+    // sizes to its own text decides the chart's width, so that one made the same dive draw
+    // narrower in Czech imperial than in English metric, and made a dive with no gas draw wider
+    // than the dive above it. The depth column that remains is the same width in either unit
+    // system (`0 m`…`30 m` against `0 ft`…`98 ft`), which is what makes the chart's width a
+    // constant rather than a consequence.
+    //
+    // `flex-start` so the axis column hangs from the plot's top edge rather than stretching to
+    // the taller child (the plot column, which also carries the time axis under it).
     profilePlotRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -2677,18 +2685,6 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.mono,
       fontSize: 10,
       lineHeight: PROFILE_AXIS_LINE_HEIGHT,
-      color: theme.fgMuted,
-    },
-    // The consumption axis: one label, at the top, carrying the maximum and the unit (spec
-    // §4.5). The same offset as the depth column above, and for the same two reasons: half a
-    // line up puts the label's centre rather than its top edge on the value it names, and the
-    // inset is where the trace's own ceiling is actually drawn (`yGas(gasMax)`). Without the
-    // second half this floated 3 pt above its own trace, exactly as the depth labels sheared.
-    profileGasAxisLabel: {
-      fontFamily: fonts.mono,
-      fontSize: 10,
-      lineHeight: PROFILE_AXIS_LINE_HEIGHT,
-      marginTop: PROFILE_PLOT_INSET_Y - PROFILE_AXIS_LINE_HEIGHT / 2,
       color: theme.fgMuted,
     },
     // Start, midpoint and end (spec §3). The two ends align to the plot's own edges rather

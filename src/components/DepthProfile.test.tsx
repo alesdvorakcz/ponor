@@ -204,7 +204,12 @@ it('draws a consumption trace for a dive whose samples carry pressure', async ()
   const t = await render(<DepthProfile dive={imported} samples={series} scheme="light" units="metric" />);
   const gas = pathsIn(t).filter((p) => paintOf(p, 'stroke') === paint(themeFor('light').fgMuted));
   expect(gas).toHaveLength(1);
-  expect(textIn(t).join(' ')).toContain('l/min');
+  // The path is a trace and not a stub: at least one line segment, so it joins two measured
+  // points rather than parking a lone `M` somewhere. This used to assert that `l/min` appeared
+  // in the card's text, which read the gas axis ceiling beside the plot — a label removed on
+  // 2026-09-10 because its column set the chart's width. The unit still reaches a diver, from
+  // the readout, which states it wherever the finger is; what this test is for is the drawing.
+  expect(String(gas[0]?.props.d)).toContain('L');
 });
 
 // Spec §4.3's third rule, carried into the drawing because `consumptionSeries` returns a flat
@@ -470,8 +475,9 @@ it('reads the consumption at the scrubbed sample, and an em dash where the trace
 
   // First window, 0→60 s: 4 bar out of a 10 l cylinder is 40 l of free gas, at a mean 10 m
   // (2 ata) over one minute — 20 l/min, anchored at the window's midpoint, t = 30 s. The
-  // second window (60→130 s) reads 25.7, which the right axis rounds up to 30 — so a readout
-  // showing the axis maximum, or the other window's point, fails this.
+  // second window (60→130 s) reads 25.7, so a readout showing the other window's point fails
+  // this. (It used to discriminate against a third figure too, the gas axis ceiling of 30 that
+  // this card drew beside the plot; that label is gone — see the test below.)
   await scrubTo(150); // t = 65 s: nearer the 30 s window than the 95 s one
   expect(textIn(t).join(' ')).toContain(formatRmv(20, 'metric'));
 
@@ -483,6 +489,33 @@ it('reads the consumption at the scrubbed sample, and an em dash where the trace
   expect(text).toContain(NO_FIGURE);
   expect(text).not.toContain(formatRmv(20, 'metric'));
   expect(text).toContain(formatDepth(10, 'metric'));
+});
+
+// Owner's call, 2026-09-10, after seeing the card on a phone: the consumption ceiling used to
+// be drawn in a column to the right of the plot, and a column that sizes to its own text is a
+// column that decides the chart's width — the same dive drew a narrower chart in Czech imperial
+// (`1,41 cu ft/min`) than in English metric (`40.0 l/min`), and a dive with no gas, having no
+// such column at all, drew wider than the dive above it in the same list.
+//
+// The series below is the one used above, whose two windows read 20.0 and 25.7, so `axisMax`
+// puts the ceiling at exactly 30 — a figure that appeared nowhere else on this card and is
+// therefore the one that proves the label is gone rather than merely moved.
+it('draws no consumption ceiling beside the plot, because a caption must not set the chart width', async () => {
+  const series: DiveSample[] = [
+    [0, 10, null, 200],
+    [60, 10, null, 196],
+    [130, 10, null, 190],
+  ];
+  const t = await render(
+    <DepthProfile dive={dive({ tanks: [tank()] })} samples={series} scheme="light" units="metric" />,
+  );
+  await measure(t, 300);
+
+  const text = textIn(t).join(' ');
+  expect(text).not.toContain(formatRmv(30, 'metric'));
+  // Not vacuous: the trace itself is drawn, so this is a card that HAS a ceiling to state and
+  // does not state it — rather than a card with no gas in it, which would pass for free.
+  expect(pathsIn(t).length).toBeGreaterThan(1);
 });
 
 // Review round 2, Finding 3: the test above only covers a scrub BEFORE the first gas segment.

@@ -246,13 +246,25 @@ export interface DepthProfileProps {
  * ── The gas trace ─────────────────────────────────────────────────────────────────────────
  *
  * Instantaneous RMV over a moving 60 s window (`consumptionSeries`, domain/consumption.ts),
- * muted, against a right axis that runs 0 to the next multiple of ten — `axisMax`, the same
- * function the depth axis uses, so spec §4.5's *"one convention rather than two"* is one
- * function rather than two roundings that happen to agree.
+ * muted, scaled 0 to the next multiple of ten — `axisMax`, the same function the depth axis
+ * uses, so spec §4.5's *"one convention rather than two"* is one function rather than two
+ * roundings that happen to agree.
+ *
+ * **That ceiling is never drawn as a label, and the owner's call is why** (2026-09-10, after
+ * seeing the card on a phone). It used to sit in a third column to the right of the plot, and
+ * a column that sizes to its own text decides the chart's width: `40.0 l/min` and
+ * `1,41 cu ft/min` are not the same width, so the same dive drew a narrower chart in Czech
+ * imperial than in English metric, and a dive with no gas — no third column at all — drew a
+ * wider one than the dive above it in the same list. **A drawing whose width depends on the
+ * length of a caption is the caption's drawing.** What the label bought is bought better by
+ * the readout above, which states the gas at the finger exactly, wherever the finger is; the
+ * ceiling only ever said how tall the tallest point was. So the plot now has one neighbour,
+ * the depth axis, whose four labels are the same width in either unit system — and the chart
+ * is the same width on every dive, in every language.
  *
  * **It is absent entirely when there is nothing to compute it from** — no cylinder size, no
- * per-sample pressure, or fewer than two windows that clear the 1.5 m floor. No trace, no
- * right axis, no apology.
+ * per-sample pressure, or fewer than two windows that clear the 1.5 m floor. No trace, and
+ * nothing left behind where it would have been.
  *
  * **Which cylinder it describes: the dive's first, which is the main one.** `Tank`'s own
  * docblock (domain/types.ts) states that rule — *"first entry = the main cylinder"* — and the
@@ -642,12 +654,6 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
             </View>
           </View>
         </GestureDetector>
-        {/* The consumption axis, stated once at its top: the value the trace's own ceiling
-            stands for, with the unit that says what the second series is. It runs to zero at
-            the plot's floor, which the trace itself shows. Absent with the trace. */}
-        {gasDrawn.length > 0 && (
-          <Text style={styles.profileGasAxisLabel}>{formatRmv(gasMax, units)}</Text>
-        )}
       </View>
     </View>
   );
