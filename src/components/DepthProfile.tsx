@@ -129,17 +129,26 @@ const SCRUB_ACTIVATION_X = 8;
  * gesture the diver meant as a scroll — the exact failure `SCRUB_ACTIVATION_X` exists to
  * prevent, arriving by the other axis, and the sentence above used to claim it could not.
  *
- * **Larger than the sideways threshold, not equal to it**, so the band between them belongs to
- * the chart: a scrub is a deliberate sideways move and a little vertical wander is what a thumb
- * on a curve does, where a scroll is decisively vertical from the first millimetre.
+ * **Equal to the sideways threshold, and the equality is the whole rule**: the chart takes the
+ * touch only when the drag is more sideways than down. That is a line with a meaning rather
+ * than a tuned number — no ratio to re-guess when either threshold moves.
  *
- * **It only governs activation.** Once the pan has the touch, the finger may go anywhere —
- * tracing the curve up and down does not hand the gesture back mid-scrub.
+ * A first version made this larger, on the thought that a thumb tracing a curve wanders and the
+ * band between the two should belong to the chart. Review priced that: at 12 against 8 the pan
+ * wins every drag inside 56° of horizontal, which is well past the point where the finger is
+ * travelling further down the page than across it. **The two harms are not symmetric.** A page
+ * that stops scrolling anywhere over the chart reads as a broken screen — the failure
+ * `SCRUB_ACTIVATION_X` exists to prevent — where a scrub that needs one straighter second
+ * attempt is a moment's friction. When in doubt the scroll should win, so it does.
  *
- * The ratio is reasoned, not measured: no test can feel it, and Jest never runs a gesture
- * arbitration. It is the one number on this card a thumb has to settle.
+ * **It only governs activation.** Once the pan has the touch the finger may go anywhere;
+ * tracing the curve up and down does not hand the gesture back mid-scrub. (RNGH 2.32 evaluates
+ * the offsets inside `checkBegan()` alone, guarded on `State.BEGAN`.)
+ *
+ * Reasoned, not measured: Jest never runs gesture arbitration, so no test can feel this. It is
+ * the one number on this card a thumb has to settle.
  */
-const SCRUB_FAIL_Y = 12;
+const SCRUB_FAIL_Y = SCRUB_ACTIVATION_X;
 
 /**
  * `PROFILE_PLOT_INSET_Y`'s counterpart on the other axis (theme/styles.ts), and it exists for
@@ -453,9 +462,11 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   // **No usable measurement, no correction.** Before `onLayout` there is no scale to counteract
   // and assuming one would distort the mark on the phone this viewBox is written for; a
   // reported width of zero (or a NaN) is not a scale either, and dividing by it would hand the
-  // element an infinite radius. `!(width > 0)` is `scrubbedIndexAt`'s own guard (domain/
-  // profile.ts) for the identical question about the identical number, spelled the same way so
-  // the two cannot come to different answers about what "measured" means. The measurement
+  // element an infinite radius. This is `scrubbedIndexAt`'s own guard (domain/profile.ts) for
+  // the identical question about the identical number — written here as the positive
+  // complement, `plotWidth !== null && plotWidth > 0`, because this branch wants the scale and
+  // that one wants the refusal. The two admit exactly the same inputs, `NaN` included, which is
+  // what stops them coming to different answers about what "measured" means. The measurement
   // arriving redraws the mark and nothing else.
   const markScale = plotWidth !== null && plotWidth > 0 ? PLOT_WIDTH / plotWidth : 1;
   const markRx = round(PROFILE_DEEPEST_MARK_RADIUS * markScale);

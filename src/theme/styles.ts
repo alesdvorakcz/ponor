@@ -2145,8 +2145,15 @@ function build(scheme: ColorScheme) {
     //
     // So: a real basis it cannot be squeezed below (`flexShrink: 0`), and `diveChip` above
     // shrinks instead. 40 pt is a floor for a SHAPE — a dive's silhouette, not its detail, which
-    // is §0.4's own division of labour between this and the number beside it — and it is what a
-    // small phone can spare once the chip has truncated rather than what a large one would like.
+    // is §0.4's own division of labour between this and the number beside it.
+    //
+    // **The 40 is chosen, not measured.** It is one point per bucket at `SPARK_BUCKETS`, which
+    // is the width below which the downsampling stops buying anything; the arithmetic that
+    // motivates it (the chip's own overrun on a 320 pt screen) is above, but nothing here has
+    // been rendered on a phone. What a device pass would settle is whether the chip truncating
+    // by roughly nine characters — the tail of the duration, the least anchoring of its three
+    // figures — is the right side of the trade, or whether the shape should give up a few
+    // points first.
     diveSparkline: {
       flexGrow: 1,
       flexShrink: 0,
