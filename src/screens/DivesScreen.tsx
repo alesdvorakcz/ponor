@@ -646,7 +646,7 @@ export default function DivesScreen() {
         <DiveRow
           dive={item.dive}
           number={numbers.get(item.dive.id)}
-          samples={shapes.get(item.dive.id)}
+          points={shapes.get(item.dive.id)}
           scheme={scheme}
           units={units}
           onPress={openDive}

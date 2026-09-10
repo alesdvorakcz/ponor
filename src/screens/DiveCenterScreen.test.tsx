@@ -7,13 +7,13 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { type DiveSample } from '../db/schema';
 import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
+import { type ProfilePoint } from '../domain/profile';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
 import { setActiveLanguage } from '../i18n';
@@ -127,10 +127,10 @@ const withPonorka = (over: Partial<Dive> = {}) =>
 
 // Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
 // row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 // Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing

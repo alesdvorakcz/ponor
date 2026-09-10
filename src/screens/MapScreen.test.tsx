@@ -9,7 +9,6 @@ import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@te
 import { router } from 'expo-router';
 
 import { useAuthSession } from '../cloud/useAuthSession';
-import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
@@ -17,6 +16,7 @@ import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
+import { type ProfilePoint } from '../domain/profile';
 import { unnamedCenter, unnamedSite } from '../format/display';
 import { type Dive, type DiveCenter, type DiveSite } from '../domain/types';
 import { locationPermission, requestLocationPermission } from '../platform/locationPermission';
@@ -253,10 +253,10 @@ const pinned = (over: Partial<Dive> = {}) =>
 
 // Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
 // row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 // --- The screen names itself in every state (§0.6, and `DivesScreen`'s own four branches) ---

@@ -1,19 +1,19 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
-import { type DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
+import { type ProfilePoint } from '../domain/profile';
 import { makeStyles } from '../theme/styles';
 import { DiveRow } from './DiveRow';
 import { applyReorder, createReorderGate, moveDown, moveUp, ReorderControls } from './ReorderControls';
 
-// A small hand-rolled series is enough here: this file is proving the PROP reaches DiveRow at
-// all (Task 6's whole reason for existing — "nothing would ever pass it, so the sparkline
-// would ship dead"), not exercising the shape-drawing rules `ProfileSparkline.test.tsx` and
-// `DiveRow.test.tsx` already own with the real fixture.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+// A small hand-rolled set of points is enough here: this file is proving the PROP reaches
+// DiveRow at all (Task 6's whole reason for existing — "nothing would ever pass it, so the
+// sparkline would ship dead"), not exercising the shape-drawing rules `ProfileSparkline.test.tsx`
+// and `DiveRow.test.tsx` already own with the real fixture.
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 // Same adaptation DiveRow.test.tsx and DivesScreen.test.tsx already note: `render`

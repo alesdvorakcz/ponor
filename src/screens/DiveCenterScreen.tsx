@@ -224,7 +224,7 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           <DiveRow
             dive={item}
             number={numbers.get(item.id)}
-            samples={shapes.get(item.id)}
+            points={shapes.get(item.id)}
             scheme={scheme}
             units={units}
             onPress={(diveId) => router.push(`/dive/${diveId}`)}

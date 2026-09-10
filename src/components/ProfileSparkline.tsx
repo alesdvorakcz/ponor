@@ -1,17 +1,10 @@
 import { View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { type DiveSample } from '../db/schema';
-import { pathOf, round, sparklinePoints } from '../domain/profile';
+import { pathOf, round, type ProfilePoint } from '../domain/profile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, PROFILE_SPARK_HEIGHT } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-
-/**
- * How many points `sparklinePoints` (domain/profile.ts) downsamples to — spec §6: "downsampled
- * to roughly 40 points — the row is 46 px tall and more points buy nothing there."
- */
-const SPARK_BUCKETS = 40;
 
 /**
  * **The viewBox's nominal x-extent, not a width anything is laid out at** — `DepthProfile`'s
@@ -42,11 +35,14 @@ const INSET_Y = STROKE_WIDTH / 2;
 
 export interface ProfileSparklineProps {
   /**
-   * The dive's recorded profile, or `null` where there is none — `useDiveSamples`'s own
-   * convention (and `DepthProfile`'s), so a caller reads one meaning for "no series" across
+   * The dive's profile, already downsampled to its sparkline points — `toDiveSampleShapes`
+   * (db/diveSamples.ts) is the one owner of that downsampling and of the "too short to draw"
+   * judgement (a single sample, say); this component draws whatever it is handed and never
+   * calls `sparklinePoints` itself. `null` where there is no series at all — `useDiveSamples`'s
+   * own convention (and `DepthProfile`'s), so a caller reads one meaning for "no series" across
    * every component that draws one rather than learning a second spelling here.
    */
-  samples: DiveSample[] | null;
+  points: ProfilePoint[] | null;
   scheme: ColorScheme;
 }
 
@@ -62,11 +58,11 @@ export interface ProfileSparklineProps {
  * (`diveChip`) — is what says "this is secondary, and it is not the depth figure" the same way
  * every muted chip elsewhere in this row already does.
  *
- * **Nothing is drawn that was not measured** (§0.4 again). `null` samples and a series
- * `sparklinePoints` cannot make two points from — nothing, one raw sample, or (in principle) a
- * series with no elapsed time between its first bucket and its last — all render `null`: no
- * card, no axis, no empty box standing in for a shape. A row without samples renders exactly
- * as it always has.
+ * **Nothing is drawn that was not measured** (§0.4 again). `null` points, or a points array
+ * `toDiveSampleShapes` could make fewer than two of — nothing, a single sample's worth, or (in
+ * principle) a series with no elapsed time between its first bucket and its last — all render
+ * `null` here too: no card, no axis, no empty box standing in for a shape. A row without a
+ * series renders exactly as it always has.
  *
  * **No axes, no marker, no interaction** (spec §6, verbatim). `DepthProfile`'s scrub, its
  * gridlines and its deepest-sample dot all exist to make a dense curve *readable*; this shape
@@ -75,21 +71,21 @@ export interface ProfileSparklineProps {
  *
  * **Hidden from a screen reader.** `RmvSparkline` speaks its own series because it IS the only
  * place those per-dive figures appear at all (that component's own docblock) — a handful of
- * values a sentence can hold. A depth curve downsampled to `SPARK_BUCKETS` points is not that:
- * it cannot be spoken usefully, and `DiveRow`'s accessibility label is already composed from
- * `formatDepth`'s own output specifically so a reader can never announce a depth the screen
- * contradicts. A second, independent spoken description of the same dive here would work
- * against that guarantee rather than add to it, so this draws for sighted divers only.
+ * values a sentence can hold. A downsampled depth curve is not that: it cannot be spoken
+ * usefully, and `DiveRow`'s accessibility label is already composed from `formatDepth`'s own
+ * output specifically so a reader can never announce a depth the screen contradicts. A second,
+ * independent spoken description of the same dive here would work against that guarantee
+ * rather than add to it, so this draws for sighted divers only.
  */
-export function ProfileSparkline({ samples, scheme }: ProfileSparklineProps) {
-  if (samples === null) return null;
+export function ProfileSparkline({ points, scheme }: ProfileSparklineProps) {
+  if (points === null) return null;
 
-  const points = sparklinePoints(samples, SPARK_BUCKETS);
   const first = points.at(0);
   const last = points.at(-1);
-  // Below two points there is nothing to stroke (`sparklinePoints`' own floor); and the same
-  // refusal `DepthProfile` makes for a series whose first and last point share one instant —
-  // there is no time axis to map onto, and dividing by its extent would produce NaN.
+  // Below two points there is nothing to stroke (`sparklinePoints`' own floor, upstream in
+  // `toDiveSampleShapes`); and the same refusal `DepthProfile` makes for a series whose first
+  // and last point share one instant — there is no time axis to map onto, and dividing by its
+  // extent would produce NaN.
   if (first === undefined || last === undefined || !(last.t > first.t)) return null;
 
   const styles = makeStyles(scheme);

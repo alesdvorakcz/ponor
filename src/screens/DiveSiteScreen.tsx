@@ -251,7 +251,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           <DiveRow
             dive={item}
             number={numbers.get(item.id)}
-            samples={shapes.get(item.id)}
+            points={shapes.get(item.id)}
             scheme={scheme}
             units={units}
             onPress={(diveId) => router.push(`/dive/${diveId}`)}

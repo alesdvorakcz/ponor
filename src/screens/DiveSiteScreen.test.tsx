@@ -7,13 +7,13 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
+import { type ProfilePoint } from '../domain/profile';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { SITE_DEFAULT_FIELDS } from '../domain/siteDefaults';
 import { type Dive, type DiveSite } from '../domain/types';
@@ -97,10 +97,10 @@ beforeEach(() => {
 
 // Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
 // row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 function allNodes(t: RenderResult) {

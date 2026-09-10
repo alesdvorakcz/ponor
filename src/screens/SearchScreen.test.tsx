@@ -10,11 +10,11 @@ import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-lib
 import { router } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { dive } from '../domain/diveFixture';
+import { type ProfilePoint } from '../domain/profile';
 import { makeStyles } from '../theme/styles';
 import { logbookUnreadable } from '../domain/logbook';
 import { setActiveLanguage } from '../i18n';
@@ -109,10 +109,10 @@ function findDock(t: RenderResult) {
 
 // Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
 // row at all — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real fixture.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 const TWO_DIVES = {

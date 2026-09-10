@@ -795,7 +795,7 @@ export default function MapScreen() {
                 <DiveRow
                   dive={item}
                   number={numbers.get(item.id)}
-                  samples={shapes.get(item.id)}
+                  points={shapes.get(item.id)}
                   scheme={scheme}
                   units={units}
                   onPress={(id) => router.push(`/dive/${id}`)}

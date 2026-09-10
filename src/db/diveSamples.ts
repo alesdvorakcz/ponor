@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
+import { sparklinePoints, SPARK_BUCKETS, type ProfilePoint } from '../domain/profile';
 import {
   applyPulledRows,
   clearDirtyFlags,
@@ -117,23 +118,37 @@ export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
 }
 
 /**
- * Raw rows to a per-dive map of drawable series — `toDiveSamples`' counterpart across every
- * dive rather than one, for Task 6's row sparkline (`useDiveSampleShapes`,
- * db/useDiveSampleShapes.ts).
+ * Raw rows to a per-dive map of drawable sparkline POINTS, not raw series — `toDiveSamples`'
+ * counterpart across every dive rather than one, for Task 6's row sparkline
+ * (`useDiveSampleShapes`, db/useDiveSampleShapes.ts).
  *
- * **The same "missing and empty are one answer" rule as `toDiveSamples`, expressed as the Map
- * idiom rather than as `null`**: a dive with no series, or a stored-but-empty one, simply gets
- * no entry, so `.get(id)` reads `undefined` — the spelling `useDives()`'s own `numbers` map
- * already uses for "this dive has no number" (a planned dive), and the one `DiveRow`'s
- * `samples` prop is typed against. Emitting an empty-array entry instead would reach that row
- * as "draw nothing HERE" rather than "there is nothing to draw", exactly the distinction
- * `toDiveSamples`'s own docblock draws.
+ * **Downsamples here, at the map builder, rather than handing `ProfileSparkline` the raw
+ * series and letting it call `sparklinePoints` itself.** That was the original design, and a
+ * review costed it: a dive's series runs to ~250 samples, so a 500-dive logbook parses ~3 MB
+ * of JSON into ~125,000 four-element arrays and RETAINS all of it — every row on screen kept
+ * its own full-resolution series alive for the sake of drawing `SPARK_BUCKETS` points from it.
+ * Worse, `DivesScreen`, `MapScreen` and `SearchScreen` all live under `(tabs)` and never
+ * unmount, so a diver who has opened all three held three independent copies of that same
+ * ~8–12 MB. Downsampling HERE instead means the full series becomes collectable the moment
+ * this map is built — on the order of 20,000 retained points instead of ~125,000 retained
+ * samples for that same logbook — and `sparklinePoints` runs once per query rather than once
+ * per row on every render. `ProfileSparkline` now only ever draws the points it is handed.
+ *
+ * **The same "missing and empty are one answer" rule as `toDiveSamples`, one step further
+ * in**: a dive with no series, a stored-but-empty one, or one too short for `sparklinePoints`
+ * to draw anything from (a single sample, say) all get no entry, so `.get(id)` reads
+ * `undefined` — the spelling `useDives()`'s own `numbers` map already uses for "this dive has
+ * no number" (a planned dive), and the one `DiveRow`'s `points` prop is typed against.
+ * Emitting an empty-array entry instead would reach that row as "draw nothing HERE" rather
+ * than "there is nothing to draw", exactly the distinction `toDiveSamples`'s own docblock
+ * draws — and, one step further than that function ever had to worry about, would reserve an
+ * empty bottom row on `DiveRow` for a shape that can never actually appear there.
  *
  * Takes `unknown[]` for the reason `toDiveSamples` does: `useLiveQuery`'s `.data` is typed
  * that loosely, and the cast is sound because this function's one caller only ever hands it
  * rows `everyDiveSampleRowsQuery` itself produced.
  */
-export function toDiveSampleShapes(rows: unknown[]): Map<string, DiveSample[]> {
+export function toDiveSampleShapes(rows: unknown[]): Map<string, ProfilePoint[]> {
   // Built through the `Map` constructor from an entry list rather than an imperative loop
   // calling the map's own single-pair mutator: `dirty.test.ts`'s "stamps every UPDATE" check
   // scans every repository file's TEXT for that exact call syntax, on the reasoning (that
@@ -145,8 +160,8 @@ export function toDiveSampleShapes(rows: unknown[]): Map<string, DiveSample[]> {
   // spelling entirely, rather than teaching that check this table's shape one call at a time,
   // is what keeps it a check on the DATABASE writes it was built for.
   const entries = (rows as DiveSampleRow[])
-    .filter((row) => row.series.length > 0)
-    .map((row): [string, DiveSample[]] => [row.id, row.series]);
+    .map((row): [string, ProfilePoint[]] => [row.id, sparklinePoints(row.series, SPARK_BUCKETS)])
+    .filter(([, points]) => points.length > 0);
   return new Map(entries);
 }
 

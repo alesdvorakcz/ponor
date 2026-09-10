@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { type DiveSample } from '../db/schema';
+import { type ProfilePoint } from '../domain/profile';
 import { type Dive } from '../domain/types';
 import { t, useT } from '../i18n';
 import {
@@ -72,21 +72,26 @@ interface DiveRowProps {
    */
   datedByContext?: boolean;
   /**
-   * **The dive's recorded depth profile, downsampled to a small shape beside the row's own
-   * metadata** (Task 6, spec §6) — `useDiveSampleShapes()`'s map, threaded exactly as `number`
-   * already is: a screen reads `numbers.get(dive.id)` for one prop and `shapes.get(dive.id)`
-   * for this one, and both simply come back `undefined` for the (still ordinary) case of a
-   * dive nothing was ever imported for. `ProfileSparkline` (below) is the one owner of turning
-   * this into an actual shape, or into nothing at all for a series too short to draw — this
-   * row does not repeat that judgement, it only decides WHERE the shape goes and hands the
-   * prop on unchanged (`?? null`, since `ProfileSparkline`'s own "no series" spelling is
-   * `null`, matching `DepthProfile`'s and `useDiveSamples`', not `undefined`).
+   * **The dive's recorded depth profile, already downsampled to its sparkline points** (Task
+   * 6, spec §6) — `useDiveSampleShapes()`'s map, threaded exactly as `number` already is: a
+   * screen reads `numbers.get(dive.id)` for one prop and `shapes.get(dive.id)` for this one,
+   * and both simply come back `undefined` for the (still ordinary) case of a dive nothing was
+   * ever imported for.
+   *
+   * **Points, not raw samples** — a review found the hook returning the latter expensive to
+   * hold across a whole logbook (`toDiveSampleShapes`'s own docblock, db/diveSamples.ts, has
+   * the reasoning and the numbers); the downsampling, and the "too short to draw" judgement for
+   * a series too small to make a shape from, both happen there now, once per query, rather than
+   * in `ProfileSparkline` (below) once per row per render. This row still repeats none of that
+   * judgement — it only decides WHERE the shape goes and hands the prop on unchanged (`?? null`,
+   * since `ProfileSparkline`'s own "no series" spelling is `null`, matching `DepthProfile`'s and
+   * `useDiveSamples`', not `undefined`).
    *
    * Optional, unlike `number`: every screen this row already had before Task 6 renders it with
-   * no opinion about samples at all, and making this required would have turned every one of
+   * no opinion about a series at all, and making this required would have turned every one of
    * those pre-existing renders into a type error for a prop they have nothing to pass.
    */
-  samples?: DiveSample[];
+  points?: ProfilePoint[];
 }
 
 /**
@@ -128,7 +133,7 @@ function accessibilityLabelFor(
  * `plannedDate` below).
  *
  * **A sparkline, beside the metadata, for the one case §0.4 always meant to allow**: a dive
- * that carries a real recorded sample series (`samples`, Task 6) gets a small monochrome shape
+ * that carries a real recorded sample series (`points`, Task 6) gets a small monochrome shape
  * of it there; every other dive — still almost all of them — gets exactly the row this always
  * drew. Nothing here decides that for itself: `ProfileSparkline` is the one owner of "does
  * this series draw a shape at all", so this row cannot invent one from data that was never
@@ -146,7 +151,7 @@ function DiveRowComponent({
   onPress,
   depthSlot,
   datedByContext = false,
-  samples,
+  points,
 }: DiveRowProps) {
   // **This component is `memo`'d, which is why the subscription matters here more than
   // anywhere else** (src/i18n). Its words come from `format/display.ts` and from `t` below,
@@ -191,14 +196,20 @@ function DiveRowComponent({
   const hasMetaText = metaText !== '';
   const hasMeta = hasMetaText || dive.rating !== null;
   // Task 6: the bottom row is where the sparkline lives too, so a dive whose ONLY metadata is
-  // a real sample series still gets a row to put it in — `samples !== undefined` on top of
+  // a real sample series still gets a row to put it in — `points !== undefined` on top of
   // `hasMeta` rather than folded into it, since `hasMeta`'s own name and every existing reader
   // of it are about the text/rating chips specifically. In practice this rarely changes
   // anything: every dive that carries a series was imported from a dive computer, and every
   // importer in this app fills in `timeIn` from the device's own log, which already makes
   // `hasMeta` true on its own (`DiveRow.test.tsx`'s "still shows the sparkline..." test pins
   // the one case it does change — a series with no other metadata at all).
-  const showBottomRow = hasMeta || samples !== undefined;
+  //
+  // Testing PRESENCE rather than drawability is safe only because `toDiveSampleShapes`
+  // (db/diveSamples.ts) already filters to series that produce at least one drawable point —
+  // a review once found a one-sample series surviving into the map, reserving this row's empty
+  // bottom slot for a shape that could never draw. An entry in `points` now means "will draw",
+  // not merely "was recorded", so presence and drawability are the same test.
+  const showBottomRow = hasMeta || points !== undefined;
 
   return (
     <Pressable
@@ -234,7 +245,7 @@ function DiveRowComponent({
               `null`, `ProfileSparkline`'s own "nothing to draw" spelling — the same conversion
               `DepthProfile`'s own caller (`useDiveSamples`) never has to make, because that hook
               already answers in `null`. A `Map.get` does not. */}
-          <ProfileSparkline samples={samples ?? null} scheme={scheme} />
+          <ProfileSparkline points={points ?? null} scheme={scheme} />
         </View>
       )}
     </Pressable>

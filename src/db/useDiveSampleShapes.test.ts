@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react-native';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 
+import { sparklinePoints, SPARK_BUCKETS } from '../domain/profile';
 import { db } from './client';
 import { everyDiveSampleRowsQuery } from './diveSamples';
 import type { DiveSample } from './schema';
@@ -30,6 +31,15 @@ const mockRowsQuery = everyDiveSampleRowsQuery as unknown as jest.Mock;
 const SERIES: DiveSample[] = [
   [0, 1.2, 27.7, 188.9],
   [10, 12.4, 27.4, 186.1],
+];
+
+// A second two-sample series, distinct from `SERIES` — Task 6 review, Finding 0: the map's
+// values are downsampled points now, and `sparklinePoints` needs at least two raw samples to
+// produce any ("gives a one-sample series no entry either" in diveSamples.test.ts pins the
+// floor this file does not need to re-pin).
+const SERIES_2: DiveSample[] = [
+  [0, 5, null, null],
+  [10, 8, null, null],
 ];
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -62,10 +72,13 @@ beforeEach(() => {
 });
 
 it('hands back a map holding every dive that has a series', async () => {
-  stubQuery({ data: [row(), row({ id: 'dive-2', series: [[0, 5, null, null]] })], updatedAt: ANSWERED });
+  stubQuery({ data: [row(), row({ id: 'dive-2', series: SERIES_2 })], updatedAt: ANSWERED });
   const { result } = await renderHook(() => useDiveSampleShapes());
-  expect(result.current.shapes.get('dive-1')).toEqual(SERIES);
-  expect(result.current.shapes.get('dive-2')).toEqual([[0, 5, null, null]]);
+  // Computed through the real `sparklinePoints`, not hand-copied points: this file is about
+  // the hook's own wiring and memoisation, and the downsampling arithmetic already has its one
+  // owner in domain/profile.test.ts and db/diveSamples.test.ts.
+  expect(result.current.shapes.get('dive-1')).toEqual(sparklinePoints(SERIES, SPARK_BUCKETS));
+  expect(result.current.shapes.get('dive-2')).toEqual(sparklinePoints(SERIES_2, SPARK_BUCKETS));
   expect(result.current.shapes.size).toBe(2);
 });
 
@@ -111,7 +124,7 @@ it('stops reporting a failure once a later read succeeds', async () => {
   await rerender(undefined);
 
   expect(result.current.error).toBeUndefined();
-  expect(result.current.shapes.get('dive-1')).toEqual(SERIES);
+  expect(result.current.shapes.get('dive-1')).toEqual(sparklinePoints(SERIES, SPARK_BUCKETS));
 });
 
 describe('resolved', () => {

@@ -177,6 +177,24 @@ function deepestOf(bucket: DiveSample[]): DiveSample | undefined {
 }
 
 /**
+ * How many points `sparklinePoints` downsamples a dive's series to, for the row sparkline
+ * (spec §6: "downsampled to roughly 40 points — the row is 46 px tall and more points buy
+ * nothing there").
+ *
+ * **Lives here, beside the function it parameterises, rather than beside `ProfileSparkline`
+ * (components/ProfileSparkline.tsx) where it used to sit.** Task 6's review costed that
+ * arrangement: `ProfileSparkline` called `sparklinePoints` itself, so a 500-dive logbook held
+ * every dive's FULL series in memory (~250 samples each, ~125,000 four-element arrays, 8–12
+ * MB) for the sake of a shape drawn from 40 of them — and `DivesScreen`, `MapScreen` and
+ * `SearchScreen` all live under `(tabs)` and never unmount, so a diver who visits all three
+ * held three independent copies of that. `toDiveSampleShapes` (db/diveSamples.ts) is what
+ * actually calls `sparklinePoints` now, at the map-building step rather than per row per
+ * render — see that function's own docblock for why moving the call mattered and this constant
+ * with it.
+ */
+export const SPARK_BUCKETS = 40;
+
+/**
  * Downsamples a series to at most `buckets` points for the row sparkline (spec §6): splits it
  * into that many contiguous chunks by position and keeps each chunk's deepest sample.
  *

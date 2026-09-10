@@ -24,8 +24,8 @@ import { dive } from '../domain/diveFixture';
 // The real numbering rule, not a stub: §2.5's numbers are computed, so a test that
 // hand-wrote them would be asserting its own arithmetic rather than the app's.
 import { assignDiveNumbers } from '../domain/diveNumber';
+import { type ProfilePoint } from '../domain/profile';
 import { reorderDivesForDate, softDeleteDive, type ReorderOutcome } from '../db/dives';
-import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -279,10 +279,10 @@ function findRow(t: RenderResult, number: number) {
 // Task 6's row sparkline: a small hand-rolled series is enough to prove the wiring reaches the
 // row at all (below) — `ProfileSparkline.test.tsx` and `DiveRow.test.tsx` already own the real
 // fixture and the shape-drawing rules.
-const SERIES: DiveSample[] = [
-  [0, 5, null, null],
-  [30, 12, null, null],
-  [60, 3, null, null],
+const SERIES: ProfilePoint[] = [
+  { t: 0, v: 5 },
+  { t: 30, v: 12 },
+  { t: 60, v: 3 },
 ];
 
 const mockUseDives = useDives as jest.Mock;

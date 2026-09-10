@@ -5,6 +5,7 @@ import { Text } from 'react-native';
 
 import { type DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
+import { sparklinePoints, SPARK_BUCKETS } from '../domain/profile';
 import { suuntoJsonImporter } from '../domain/import/suunto';
 import { formatDuration, formatTimeRange } from '../format/display';
 import { setActiveLanguage } from '../i18n';
@@ -30,7 +31,11 @@ function fixtureSeries(): DiveSample[] {
   return imported.series ?? [];
 }
 
-const FIXTURE = fixtureSeries();
+// Task 6 review, Finding 0: `DiveRow`'s `points` prop is already-downsampled sparkline
+// points, not the raw series `fixtureSeries()` returns — the same call `toDiveSampleShapes`
+// (db/diveSamples.ts) now makes at the map-building step, run here so this file's own FIXTURE
+// matches what a real row is actually handed.
+const FIXTURE = sparklinePoints(fixtureSeries(), SPARK_BUCKETS);
 
 // Adapted from the brief's react-test-renderer-shaped example to the API the installed
 // @testing-library/react-native@14 actually exposes:
@@ -248,7 +253,7 @@ it('draws no graphic for a dive, because no dive has a sample series', async () 
 
 it('shows a sparkline only for a dive that has a series', async () => {
   const withSamples = await render(
-    <DiveRow dive={dive({ id: 'a' })} samples={FIXTURE} number={1} scheme="light" units="metric" onPress={() => {}} />,
+    <DiveRow dive={dive({ id: 'a' })} points={FIXTURE} number={1} scheme="light" units="metric" onPress={() => {}} />,
   );
   if (!withSamples.root) throw new Error('DiveRow did not render a root element');
   expect(withSamples.root.queryAll((n) => n.type === 'RNSVGPath').length).toBeGreaterThan(0);
@@ -265,7 +270,7 @@ it('shows a sparkline only for a dive that has a series', async () => {
 // its band, not by the theme" above, with a series on top of it this time.
 it('leaves the depth value and its colour untouched by a sample series', async () => {
   const t = await render(
-    <DiveRow dive={dive({ maxDepthM: 32.4 })} samples={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
+    <DiveRow dive={dive({ maxDepthM: 32.4 })} points={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   const depthNode = textNodesOf(t).find((n) => String(n.children[0]).includes('32.4'));
   expect(depthNode).toBeDefined();
@@ -281,7 +286,7 @@ it('leaves the depth value and its colour untouched by a sample series', async (
 // `ProfileSparkline.test.tsx` pins the rule directly; this is the integration, through the row.
 it('hides the sparkline from a screen reader, so it does not speak a second description of the dive', async () => {
   const t = await render(
-    <DiveRow dive={dive({ id: 'a' })} samples={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
+    <DiveRow dive={dive({ id: 'a' })} points={FIXTURE} number={1} scheme="dark" units="metric" onPress={() => {}} />,
   );
   if (!t.root) throw new Error('DiveRow did not render a root element');
   expect(t.root.queryAll((n) => n.props?.accessible === false).length).toBeGreaterThan(0);
@@ -295,7 +300,7 @@ it('still shows the sparkline when a series is the only metadata the row has', a
   const t = await render(
     <DiveRow
       dive={dive({ id: 'a', timeIn: null, durationMin: null, rating: null })}
-      samples={FIXTURE}
+      points={FIXTURE}
       number={1}
       scheme="light"
       units="metric"

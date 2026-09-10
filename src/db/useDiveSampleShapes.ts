@@ -1,17 +1,18 @@
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useMemo } from 'react';
 
+import { type ProfilePoint } from '../domain/profile';
 import { db } from './client';
 import { everyDiveSampleRowsQuery, toDiveSampleShapes } from './diveSamples';
 import { isResolved, useCurrentError } from './liveQuery';
-import { type DiveSample } from './schema';
 
 export interface DiveSampleShapesState {
-  /** Every dive that has a real recorded profile, by id — Task 6's row sparkline reads
-   * `shapes.get(dive.id)` for exactly the value `DiveRow`'s own `samples` prop wants, `undefined`
-   * for the (still ordinary) case of a dive nothing was ever imported for. Never an entry
-   * holding `[]`: `toDiveSampleShapes` (db/diveSamples.ts) owns that rule and its reasons. */
-  shapes: Map<string, DiveSample[]>;
+  /** Every dive that has a real recorded profile, downsampled to its sparkline points, by id
+   * — Task 6's row sparkline reads `shapes.get(dive.id)` for exactly the value `DiveRow`'s own
+   * `points` prop wants, `undefined` for the (still ordinary) case of a dive nothing was ever
+   * imported for. Never an entry holding `[]`: `toDiveSampleShapes` (db/diveSamples.ts) owns
+   * that rule and its reasons. */
+  shapes: Map<string, ProfilePoint[]>;
   /**
    * Whether the read has produced an answer yet — rows, or a failure (`isResolved`,
    * db/liveQuery.ts, which owns the mechanism and both words' exact meaning).
@@ -44,9 +45,10 @@ export interface DiveSampleShapesState {
 }
 
 /**
- * Every dive's recorded depth profile, live, as a map from dive id to series — Task 6's row
- * sparkline (`ProfileSparkline`, components/ProfileSparkline.tsx) is what this exists for:
- * import a file and every screen holding this re-renders with the new shape.
+ * Every dive's recorded depth profile, live, downsampled to its row-sparkline points and
+ * mapped from dive id to those — Task 6's row sparkline (`ProfileSparkline`,
+ * components/ProfileSparkline.tsx) is what this exists for: import a file and every screen
+ * holding this re-renders with the new shape.
  *
  * **Deliberately its own hook rather than a field on `useDives()`.** `useGearPresets`' own
  * docblock records what merging a second read into the dives read already cost once — "a
@@ -62,7 +64,7 @@ export interface DiveSampleShapesState {
  * is left to the app. There is nothing here beyond that call, `isResolved` and the memo below.
  *
  * `toDiveSampleShapes` is memoised on the raw row array for the reason `useGearPresets`
- * records: it rebuilds a `Map` from `rows.filter(...).map(...)`, so without this every
+ * records: it rebuilds a `Map` from `rows.map(...).filter(...)`, so without this every
  * consumer would get a brand-new `Map` on every render whether or not a row had changed — and
  * **these rows render in a list**, so a fresh reference on every parent render would defeat
  * `DiveRow`'s own `memo` for every row, on every render, whether or not that row's series

@@ -150,18 +150,30 @@ it('reads every live series across dives, and nothing a diver has deleted', asyn
  * **`toDiveSampleShapes`, the per-dive counterpart of `toDiveSamples`** — same "missing and
  * empty are one answer" rule (this file's own top docblock), expressed as the Map idiom
  * `useDives()`'s own `numbers` already uses: a dive with no entry has no number, and here a
- * dive with no entry has no series. `.get(id)` on the result is `DiveRow`'s own `samples` prop
- * exactly.
+ * dive with no entry has no drawable series. `.get(id)` on the result is `DiveRow`'s own
+ * `points` prop exactly.
+ *
+ * **Task 6 review, Finding 0: this now holds downsampled `ProfilePoint[]`, not the raw
+ * `DiveSample[]` a row is stored with** — the ruling that fixed a real memory cost
+ * (`toDiveSampleShapes`'s own docblock has the numbers). The two-sample series below are the
+ * smallest input `sparklinePoints` (domain/profile.ts) turns into points at all — one sample
+ * produces none, which the "too short to draw" test further down pins directly.
  */
 describe('toDiveSampleShapes', () => {
-  it('maps each row to its own series, by the dive id', () => {
+  it('maps each row to its downsampled points, by the dive id', () => {
     const rows = [
-      { id: 'dive-1', series: [[0, 1.27, 27.7, 188.9]] },
-      { id: 'dive-2', series: [[0, 5.5, 21, 200]] },
+      { id: 'dive-1', series: [[0, 1.27, 27.7, 188.9], [10, 2.5, 27.7, 188.0]] },
+      { id: 'dive-2', series: [[0, 5.5, 21, 200], [10, 6.2, 21, 195]] },
     ];
     const shapes = toDiveSampleShapes(rows);
-    expect(shapes.get('dive-1')).toEqual([[0, 1.27, 27.7, 188.9]]);
-    expect(shapes.get('dive-2')).toEqual([[0, 5.5, 21, 200]]);
+    expect(shapes.get('dive-1')).toEqual([
+      { t: 0, v: 1.27 },
+      { t: 10, v: 2.5 },
+    ]);
+    expect(shapes.get('dive-2')).toEqual([
+      { t: 0, v: 5.5 },
+      { t: 10, v: 6.2 },
+    ]);
     expect(shapes.size).toBe(2);
   });
 
@@ -171,6 +183,17 @@ describe('toDiveSampleShapes', () => {
     const shapes = toDiveSampleShapes([{ id: 'dive-1', series: [] }]);
     expect(shapes.has('dive-1')).toBe(false);
     expect(shapes.get('dive-1')).toBeUndefined();
+  });
+
+  // Task 6 review, Finding 2: a single sample is a series `sparklinePoints` can draw nothing
+  // from (its own "fewer than two samples" floor), so it used to survive into this map as a
+  // one-element `DiveSample[]` entry — `ProfileSparkline` would then compute zero points from
+  // it and draw nothing, but `DiveRow`'s bottom row had already been reserved for a shape that
+  // could never appear. Filtering on the COMPUTED points, not on the raw series length, is
+  // what keeps a dive like this out of the map entirely.
+  it('gives a one-sample series no entry either, since there is nothing to downsample', () => {
+    const shapes = toDiveSampleShapes([{ id: 'dive-1', series: [[0, 12, null, null]] }]);
+    expect(shapes.has('dive-1')).toBe(false);
   });
 
   it('maps nothing at all for no rows', () => {
