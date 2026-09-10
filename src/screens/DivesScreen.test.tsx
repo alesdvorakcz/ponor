@@ -1049,7 +1049,7 @@ it('draws none on a populated logbook either', async () => {
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
-// **...and none on a list whose rows actually draw something** (M3o). The two sweeps above both
+// **...and none on a list whose rows actually draw something** (M3p). The two sweeps above both
 // render dives with no series, so the sparkline Task 6 put in every row had never met this guard
 // on any of the five screens that render `DiveRow` — an exposure that was latent purely because
 // the fixtures happened not to trigger it. It is the sparkline's real stroke that is being swept

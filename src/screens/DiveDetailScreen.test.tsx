@@ -583,7 +583,7 @@ it('marks Used pressure as computed, the same as MOD beside it', async () => {
 // each value from its own inputs (i.e. hardcoding the six again, just as function calls
 // instead of as strings) could rule it out.
 //
-// `rmvFrom` (profile work, M3o) was exactly the *other* kind of new export arriving: not
+// `rmvFrom` (profile work, M3p) was exactly the *other* kind of new export arriving: not
 // screen-facing at all, but the shared litres/ata/minutes arithmetic `rmv` below and
 // `domain/consumption.ts`'s windowed figure both call — nothing here renders a bare
 // "litres ÷ ata ÷ minutes" row, so it can never be the value behind a mark on this screen.

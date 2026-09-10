@@ -15,7 +15,7 @@ import { depthScale, type ColorScheme } from '../theme/tokens';
  * The first two exemptions arrived together in M1h with the first-run empty state, and both
  * are named rather than opened as categories — see `isDepthPaint` below and the `Image` arm
  * of the filter. Until then the claim really was "nothing draws a graphic", because nothing
- * did. The third is M3o's depth profile, and it is a rule rather than an exemption: an SVG
+ * did. The third is M3p's depth profile, and it is a rule rather than an exemption: an SVG
  * node is judged by what it was painted with (`isSanctionedSvg`), not admitted by being one.
  *
  * **Shared, unlike every other helper in this codebase's tests.** Five test files carried a
@@ -166,7 +166,7 @@ const SVG_CONTAINERS: readonly string[] = ['RNSVGSvgView', 'RNSVGGroup'];
 /**
  * The one SVG host that draws a **raster** rather than a vector shape, and the reason it is
  * reported unconditionally by the arm below regardless of what it was painted with (review,
- * M3o task 7 fix round 1, closing a gap the review found in `isSanctionedSvg` itself).
+ * M3p task 7 fix round 1, closing a gap the review found in `isSanctionedSvg` itself).
  *
  * `RNSVGImage` matches `SVG_HOST` exactly like every shape, and react-native-svg's `Image`
  * accepts `fill`/`stroke` like any other element (`CommonPathProps`) whether or not either
@@ -240,7 +240,7 @@ function isPaintlessSvgBox(entry: unknown): boolean {
 
 /**
  * **What a legitimate SVG node looks like** — the question this arm was left open for, decided
- * by the screen that put `DepthProfile` on the dive detail (M3o).
+ * by the screen that put `DepthProfile` on the dive detail (M3p).
  *
  * The rule is *paint*, not existence: **every colour an SVG element was painted with has to be
  * one this app's own palette produced.** It is the same shape `isDepthPaint` gives a `View` and
@@ -343,7 +343,7 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
       const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
       return style.length === 0 || !style.every((entry) => entry === mark);
     }
-    // **A real SVG element, judged by what it was painted with** (M3o) — the decision this arm
+    // **A real SVG element, judged by what it was painted with** (M3p) — the decision this arm
     // was left holding open, and `isSanctionedSvg` above is where it is written and argued.
     //
     // The arm it replaces reported any SVG on sight, which was the right default for exactly as
@@ -353,7 +353,7 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
     // a new graphic is no longer an edit here; it is painting it from the app's own palette, and
     // being reported by this line the moment it is painted from anywhere else.
     //
-    // **Except a raster, which reports regardless of paint** (review, M3o task 7 fix round 1):
+    // **Except a raster, which reports regardless of paint** (review, M3p task 7 fix round 1):
     // `RNSVGImage` matches `SVG_HOST` like every shape, so without the `SVG_RASTER` carve-out a
     // bitmap that happened to declare a sanctioned colour would be admitted here, where the arm
     // this replaced always reported it on sight — see `SVG_RASTER`'s own comment for why a
