@@ -1,5 +1,4 @@
 import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { processColor } from 'react-native';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import type { PanGesture } from 'react-native-gesture-handler';
 
@@ -9,8 +8,9 @@ import type { Dive, Tank } from '../domain/types';
 import { formatDepth, formatRmv, NO_FIGURE } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
-import { makeStyles, PROFILE_PLOT_HEIGHT } from '../theme/styles';
+import { makeStyles, PROFILE_DEEPEST_MARK_RADIUS, PROFILE_PLOT_HEIGHT } from '../theme/styles';
 import { fixtureImportedDive } from '../testing/suuntoFixture';
+import { paint, paintOf } from '../testing/svgPaint';
 import { DepthProfile, PLOT_WIDTH, PROFILE_PLOT_TEST_ID } from './DepthProfile';
 
 // Adapted from the brief's react-test-renderer-shaped examples to the API the installed
@@ -19,10 +19,12 @@ import { DepthProfile, PLOT_WIDTH, PROFILE_PLOT_TEST_ID } from './DepthProfile';
 //     is a `test-renderer` `TestInstance`, not a classic react-test-renderer one.
 //   - That `TestInstance` has `queryAll(predicate)`, not `findAllByType`/`findByType`.
 //   - Its tree holds host elements only, so react-native-svg's elements appear under their
-//     native names — `RNSVGPath`, `RNSVGCircle`, `RNSVGLine` — and never as `Path`.
+//     native names — `RNSVGPath`, `RNSVGEllipse`, `RNSVGLine` — and never as `Path`.
 // `textIn` is local rather than shared, per this codebase's convention for a three-line
 // query helper (`src/testing/unexpectedGraphics.ts`'s own docblock draws the line: a rule two
-// DESIGN.md sections depend on gets an owner, a query helper does not).
+// DESIGN.md sections depend on gets an owner, a query helper does not). `paintOf`/`paint` are
+// shared for the other half of that line — see `src/testing/svgPaint.ts`, which is where they
+// live now (whole-branch review, Minor #5).
 
 function textNodesOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'Text') : [];
@@ -40,6 +42,30 @@ function pathsIn(t: RenderResult) {
 
 function linesIn(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'RNSVGLine') : [];
+}
+
+/**
+ * **The deepest-sample mark**, asked for by what it is rather than by which primitive draws it:
+ * a circle states one radius for both axes and an ellipse states each, and what these tests are
+ * about is the shape a diver sees, not the element react-native-svg was handed. Keeping the
+ * query that wide is also what lets the wide-layout test below fail on the geometry — a mark
+ * drawn as a lozenge — instead of on a missing element name.
+ */
+function marksIn(t: RenderResult) {
+  return t.root
+    ? t.root.queryAll((n) => n.type === 'RNSVGEllipse' || n.type === 'RNSVGCircle')
+    : [];
+}
+
+function markIn(t: RenderResult) {
+  const [mark] = marksIn(t);
+  if (!mark) throw new Error('DepthProfile drew no deepest-sample mark');
+  const r = mark.props.r as number | undefined;
+  return {
+    cy: mark.props.cy as number,
+    rx: (mark.props.rx as number | undefined) ?? r ?? 0,
+    ry: (mark.props.ry as number | undefined) ?? r ?? 0,
+  };
 }
 
 /**
@@ -78,24 +104,6 @@ function tank(over: Partial<Tank> = {}): Tank {
     material: 'steel', configuration: 'single', sizeL: 10, workingBar: 232,
     o2Pct: 21, hePct: null, startBar: null, endBar: null, ...over,
   };
-}
-
-/**
- * **The colour an SVG element was actually painted with.**
- *
- * react-native-svg does not keep the string it was handed: `extractBrush` runs every
- * `stroke`/`fill` through React Native's own `processColor` and passes the native element
- * `{ type: 0, payload: <ARGB int> }`. So an assertion has to compare payloads, and `paint`
- * below puts the expected colour through the same conversion — which makes these tests
- * compare one colour with another rather than pin the encoding react-native-svg happens to
- * use today.
- */
-function paintOf(node: { props: Record<string, unknown> }, prop: 'stroke' | 'fill'): unknown {
-  return (node.props[prop] as { payload?: unknown } | undefined)?.payload;
-}
-
-function paint(colour: string): unknown {
-  return processColor(colour);
 }
 
 /**
@@ -225,9 +233,42 @@ it('marks the deepest sample in its own band colour', async () => {
   const t = await render(
     <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme="light" units="metric" />,
   );
-  const marks = t.root ? t.root.queryAll((n) => n.type === 'RNSVGCircle') : [];
+  const marks = marksIn(t);
   expect(marks).toHaveLength(1);
   expect(paintOf(marks[0]!, 'fill')).toBe(paint(depthColor(24.29, 'light')));
+});
+
+// Whole-branch review, Minor #3. `preserveAspectRatio="none"` stretches this viewBox to
+// whatever the column gives it, and the argument that this costs nothing — "the horizontal
+// scale sits at about 1" — is a phone's argument. `DivesScreen`'s wide layout puts the whole
+// dive detail in `wideDetailColumn` (theme/styles.ts), a `flex: 1` column beside a fixed 360 pt
+// list, so on a 1366 pt iPad the plot is about 930 pt: a scale of ~2.9, which drew the one
+// non-stroke shape on this card about 17 pt across against 6 pt tall — a dash. Every stroke is
+// `non-scaling-stroke` and cannot be distorted at all; the mark is the exception, and it is the
+// one thing §0.4 says has to sit where the device actually was.
+it('keeps the deepest-sample mark round on a plot the wide layout has stretched', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  // Before `onLayout`, no scale is known — nothing to counteract, so the mark is drawn round in
+  // the viewBox's own units, exactly as it was when this card only ever appeared on a phone.
+  const unmeasured = markIn(t);
+  expect(unmeasured.rx).toBe(unmeasured.ry);
+  expect(unmeasured.ry).toBe(PROFILE_DEEPEST_MARK_RADIUS);
+
+  await measure(t, 930);
+  const measured = markIn(t);
+  // The height is untouched: the stretch is horizontal, so nothing about the vertical radius
+  // (or the inset that keeps it inside the viewport) is this fix's business.
+  expect(measured.ry).toBe(PROFILE_DEEPEST_MARK_RADIUS);
+  // What a diver actually sees is `rx` multiplied by the column's own scale factor, and that
+  // product is what has to come back to the radius.
+  expect(measured.rx * (930 / PLOT_WIDTH)).toBeCloseTo(measured.ry, 1);
+
+  // A width of zero is not a scale — it is a layout that has not settled — and dividing by it
+  // would hand the element an infinite radius. Same guard, same spelling, as `scrubbedIndexAt`.
+  await measure(t, 0);
+  expect(markIn(t).rx).toBe(PROFILE_DEEPEST_MARK_RADIUS);
 });
 
 // Review round 1, Finding A: the viewBox spans exactly 0…PROFILE_PLOT_HEIGHT, so anything
@@ -241,13 +282,12 @@ it('keeps the deepest-sample marker fully inside the viewBox when the deepest sa
     [10, 30, null, null],
   ];
   const t = await render(<DepthProfile dive={dive()} samples={series} scheme="light" units="metric" />);
-  const marks = t.root ? t.root.queryAll((n) => n.type === 'RNSVGCircle') : [];
-  expect(marks).toHaveLength(1);
-  const mark = marks[0]!;
-  const cy = mark.props.cy as number;
-  const r = mark.props.r as number;
-  expect(cy - r).toBeGreaterThanOrEqual(0);
-  expect(cy + r).toBeLessThanOrEqual(PROFILE_PLOT_HEIGHT);
+  expect(marksIn(t)).toHaveLength(1);
+  // `ry` rather than `r`: the mark is an ellipse now (Minor #3, the test above), and the
+  // vertical radius is the half of it this viewport can clip.
+  const { cy, ry } = markIn(t);
+  expect(cy - ry).toBeGreaterThanOrEqual(0);
+  expect(cy + ry).toBeLessThanOrEqual(PROFILE_PLOT_HEIGHT);
 });
 
 // Same finding, the gridlines' half: a 1 pt line stroked exactly at y = 0 or y =
@@ -338,6 +378,21 @@ it('lets each readout figure give way rather than overflow or wrap the row', asy
   expect(styles.profileReadoutFigure.flexShrink).toBe(1);
   expect(styles.profileReadoutLabel.flexShrink).toBe(1);
   expect(styles.profileReadoutValue.flexShrink).toBe(1);
+});
+
+// Whole-branch review, Minor #4: the same shrink-without-a-cap defect as the test above, two
+// blocks up in the same card. `profileMeta` shrinks and `profileTitle` does not, so in Czech on
+// a narrow phone the caption gives way — and, uncapped, gave way by wrapping, growing a header
+// whose `alignItems: 'baseline'` had been laid out for one line and pushing the plot down.
+it('caps the caption at one line, so a long one cannot push the plot down the screen', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme="light" units="metric" />,
+  );
+  const styles = makeStyles('light');
+  const caption = textNodesOf(t).find((n) => [n.props.style].flat(3).includes(styles.profileMeta));
+  expect(caption).toBeDefined();
+  expect(caption?.props.numberOfLines).toBe(1);
+  expect(styles.profileMeta.flexShrink).toBe(1);
 });
 
 /**

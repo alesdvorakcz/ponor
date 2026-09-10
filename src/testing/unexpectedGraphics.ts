@@ -183,7 +183,7 @@ const SVG_CONTAINERS: readonly string[] = ['RNSVGSvgView', 'RNSVGGroup'];
 const SVG_RASTER = 'RNSVGImage';
 
 /** The two props that put colour on an SVG element. Both, not `stroke` alone: the deepest-sample
- * marker on the profile card is a filled `Circle`, so a rule reading strokes would leave the
+ * marker on the profile card is a filled `Ellipse`, so a rule reading strokes would leave the
  * app's one filled shape unguarded. */
 const SVG_PAINT_PROPS: readonly string[] = ['fill', 'stroke'];
 
@@ -202,7 +202,8 @@ const SVG_PAINT_PROPS: readonly string[] = ['fill', 'stroke'];
  * not keep the string it was handed: `extractBrush` converts every `stroke`/`fill` and gives the
  * host `{ type: 0, payload: <int> }`. Converting the expected colours the same way compares one
  * colour with another rather than pinning the encoding the library happens to use today —
- * `DepthProfile.test.tsx`'s `paint`/`paintOf` helpers are the same move.
+ * `svgPaint.ts`'s `paint`/`paintOf` pair, beside this file, is the same move for one node at a
+ * time.
  *
  * A conversion that came back empty is dropped rather than admitted: an unreadable token would
  * otherwise put `undefined` in this set, and `undefined` is exactly what reading `payload` off

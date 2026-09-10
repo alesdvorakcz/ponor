@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Svg, { Circle, Line, Path } from 'react-native-svg';
+import Svg, { Ellipse, Line, Path } from 'react-native-svg';
 
 import { type DiveSample } from '../db/schema';
 import { consumptionSeries } from '../domain/consumption';
@@ -49,21 +49,26 @@ import { type ColorScheme } from '../theme/tokens';
  *
  * The `<Svg>` is `width="100%"` with `preserveAspectRatio="none"`, so the drawing stretches to
  * whatever the content column gives it (`profilePlot`, theme/styles.ts) and this number only
- * decides the units the path data is written in. It is set near a phone's real content width
- * so the horizontal scale sits at about 1: every stroke carries `vectorEffect="non-scaling-
- * stroke"` and so cannot be distorted at all, and the deepest-sample dot — the one shape a
- * non-uniform scale genuinely stretches — is drawn a per cent or two wide rather than visibly
- * elliptical.
+ * decides the units the path data is written in. It is set near a phone's real content width,
+ * so on a phone the horizontal scale sits at about 1 and the stretch is invisible.
+ *
+ * **It is not about 1 everywhere, which is the whole-branch review's Minor #3.** `DivesScreen`'s
+ * wide layout puts this whole screen in `wideDetailColumn` — a `flex: 1` column beside a fixed
+ * 360 pt list — so the plot runs about 590 pt on a 1024 pt iPad and about 930 pt on a 1366 pt
+ * one, scales of ~1.8 and ~2.9. Every stroke carries `vectorEffect="non-scaling-stroke"` and so
+ * cannot be distorted at any of them; the deepest-sample mark is the one shape a non-uniform
+ * scale genuinely stretches, and it now counteracts the stretch itself (`markRx`) rather than
+ * relying on there being little to counteract.
  *
  * **The column IS measured now, and this constant is deliberately not what it measures.** The
  * scrub (spec §5) maps a touch's x back to a time, which needs the real width, so the plot
  * reports its own through `onLayout` — see `scrubbedIndexAt` (domain/profile.ts). That
- * measurement is the *touch* scale and never the drawing's: the path data below stays in these
- * units, the SVG goes on stretching to whatever the column gives it, and nothing has to be
- * redrawn when the measurement arrives (or fails to, which is why the pan is inert until it
- * does). Two scales,
- * one for what is drawn and one for what is touched, is what keeps every test in this file able
- * to render the real card without a layout pass Jest never performs.
+ * measurement is the *touch* scale and stays out of the drawing's units: the path data below is
+ * written in these, the SVG goes on stretching to whatever the column gives it, and the only
+ * thing the measurement changes about the drawing is the mark's own horizontal radius — one
+ * number, redrawn when it arrives, with the round mark of a phone standing until it does. Two
+ * scales, one for what is drawn and one for what is touched, is what keeps every test in this
+ * file able to render the real card without a layout pass Jest never performs.
  */
 export const PLOT_WIDTH = 320;
 
@@ -125,12 +130,15 @@ const SCRUB_ACTIVATION_X = 8;
  *
  * Half the hairline's own width and nothing else's: the curve's endpoints do not need it (a
  * stroke is laid perpendicular to its path, so a run ending at `x = 0` extends inward, not
- * past the edge) and the marker already has `PROFILE_PLOT_INSET_Y` for its radius on the axis
- * where a non-uniform scale cannot help it.
+ * past the edge) and the marker already has `PROFILE_PLOT_INSET_Y` for its radius on the
+ * vertical axis, where nothing scales it.
  *
- * In viewBox units, like every other number here, and that is near enough to points because
- * this viewBox is written at about a phone's real content width — `PLOT_WIDTH`'s own argument,
- * and the same approximation that keeps the deepest-sample dot round.
+ * In viewBox units, like every other number here, and on a phone that is near enough to points
+ * because this viewBox is written at about a phone's real content width (`PLOT_WIDTH`'s own
+ * argument). On the wide layout it is not: a hairline drawn 0.5 units in from the edge sits
+ * 1.5 pt in on a 1366 pt iPad. That costs nothing here, because all this number has to do is
+ * keep the line off the edge, and a wider column only puts it further off — unlike the mark,
+ * whose actual roundness depends on the scale and which corrects for it (`markRx`).
  */
 const PLOT_INSET_X = HAIRLINE_STROKE_WIDTH / 2;
 
@@ -410,6 +418,26 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
   // along x rather than across it.
   const hairlineX = Math.min(PLOT_WIDTH - PLOT_INSET_X, Math.max(PLOT_INSET_X, x(reading[0])));
 
+  // **The mark's horizontal radius, narrowed by exactly what the column is about to stretch it
+  // by** — the only place this drawing reads its own measurement (see `PLOT_WIDTH`). The
+  // viewBox is written at a phone's content width and the `<Svg>` stretches to fill whatever it
+  // is given, so on `DivesScreen`'s wide layout — a `flex: 1` detail column beside a fixed
+  // 360 pt list — the horizontal scale reaches ~1.8 on a 1024 pt iPad and ~2.9 on a 1366 pt
+  // one, which draws the mark as a dash rather than a dot. Every stroke is `non-scaling-stroke`
+  // and so cannot be distorted at all; the mark is the one shape that can be, and §0.4 makes it
+  // the one shape that has to be right, since it is the app's only claim about where the device
+  // actually was.
+  //
+  // **No usable measurement, no correction.** Before `onLayout` there is no scale to counteract
+  // and assuming one would distort the mark on the phone this viewBox is written for; a
+  // reported width of zero (or a NaN) is not a scale either, and dividing by it would hand the
+  // element an infinite radius. `!(width > 0)` is `scrubbedIndexAt`'s own guard (domain/
+  // profile.ts) for the identical question about the identical number, spelled the same way so
+  // the two cannot come to different answers about what "measured" means. The measurement
+  // arriving redraws the mark and nothing else.
+  const markScale = plotWidth !== null && plotWidth > 0 ? PLOT_WIDTH / plotWidth : 1;
+  const markRx = round(PROFILE_DEEPEST_MARK_RADIUS * markScale);
+
   const scrubTo = (touchX: number) => {
     const index = scrubbedIndexAt(touchX, plotWidth, samples);
     // `null` is "this touch cannot be mapped yet" — an unmeasured plot — and doing nothing is
@@ -452,7 +480,12 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
     <View style={styles.profileCard}>
       <View style={styles.profileHeader}>
         <Text style={styles.profileTitle}>{t('group.profile')}</Text>
-        <Text style={styles.profileMeta}>{caption}</Text>
+        {/* `numberOfLines={1}` for the reason the readout below already carries it, and the
+            review found it missing here: `profileMeta` shrinks, and a `Text` that shrinks with
+            nowhere left to grow wraps rather than truncates. On a narrow phone in Czech,
+            `Hloubkový profil` beside `222 vzorků · 120 s` did exactly that — a two-line caption
+            growing this baseline-aligned header and pushing the whole plot down. */}
+        <Text style={styles.profileMeta} numberOfLines={1}>{caption}</Text>
       </View>
       {/* §5's readout, above the plot rather than under the finger. Always both figures, always
           real data or the dash — and the row's own style is what keeps a changing figure from
@@ -484,8 +517,9 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
         {/* The pan is attached to the SAME view whose width is measured, and it has to be: a
             touch's `x` arrives relative to the view the detector wraps, so mapping it through
             any other box's width would be wrong by exactly the difference. That view is the
-            plot column — the drawing and the time axis under it, 140 pt tall and the full width
-            of what the card has left, so §0.5's 48 pt floor is not in question. */}
+            plot column — `PROFILE_PLOT_HEIGHT` of drawing plus the time axis under it, so more
+            than 140 pt tall, and the full width of what the card has left. §0.5's 48 pt floor
+            is not in question either way. */}
         <GestureDetector gesture={scrub}>
           <View
             style={styles.profilePlot}
@@ -498,8 +532,9 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
               viewBox={`0 0 ${PLOT_WIDTH} ${PROFILE_PLOT_HEIGHT}`}
               // The drawing fills the column rather than letterboxing inside it. Nothing is
               // distorted by that: every stroke below is `non-scaling-stroke`, and the one
-              // shape a horizontal-only scale could stretch is the mark, whose scale factor is
-              // about 1 at the width this viewBox is written for (see `PLOT_WIDTH`).
+              // shape a horizontal-only scale could stretch is the mark, which narrows itself
+              // by that scale (`markRx`) — on a phone, where it is about 1, and on the wide
+              // layout's iPad column, where it is not (see `PLOT_WIDTH`).
               preserveAspectRatio="none"
             >
               {axis.ticks.map((tick) => (
@@ -552,10 +587,15 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
                   vectorEffect="non-scaling-stroke"
                 />
               )}
-              <Circle
+              {/* An `Ellipse` rather than a `Circle`, and it is drawn round: `rx` counteracts
+                  the column's own horizontal stretch (see `markRx`) while `ry` stays the
+                  radius, so the mark is a dot at every width this card is laid out at rather
+                  than only at the one its viewBox is written for. */}
+              <Ellipse
                 cx={x(deepest.t)}
                 cy={yDepth(deepest.v)}
-                r={PROFILE_DEEPEST_MARK_RADIUS}
+                rx={markRx}
+                ry={PROFILE_DEEPEST_MARK_RADIUS}
                 fill={depthColor(deepest.v, scheme)}
               />
             </Svg>

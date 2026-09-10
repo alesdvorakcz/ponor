@@ -2546,6 +2546,11 @@ function build(scheme: ColorScheme) {
     // reads as the label's footnote rather than as a second heading. `flexShrink` because
     // Czech's own words for these are longer (§0.5) and the count must give way before the
     // name of the thing does.
+    //
+    // Paired with `numberOfLines={1}` in DepthProfile.tsx (whole-branch review, Minor #4), the
+    // same pairing `profileReadout` below spells out at length: shrinking alone only turns an
+    // overflow into a wrap, and a caption that wraps grows this baseline-aligned header and
+    // pushes the plot down the screen.
     profileMeta: {
       fontFamily: fonts.mono,
       fontSize: 10,

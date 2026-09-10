@@ -984,7 +984,13 @@ it('rules each cluster off from the one above it, except the first, which the he
   }
 });
 
-it('draws no profile chart, because no dive carries a sample series', async () => {
+// Whole-branch review, Minor #7: this used to be named "because no dive carries a sample
+// series" — a global truth this branch removed, since plenty of dives carry one now. What it
+// actually pins is narrower and still true: THIS dive's `useDiveSamples()` answers `null`, so
+// the screen draws no graphic of its own. `DiveRow.test.tsx`'s identical defect was caught and
+// renamed earlier on this same branch, and the comment below claimed this one kept its name
+// deliberately — which was the wrong call twice over, since the two are the same test.
+it('draws no profile chart for a dive whose hook answers with no series', async () => {
   const t = await renderDetailTree(diveWithGas);
   // DivesScreen.tsx's own constraint applies here too: this screen resolves its scheme via
   // useColorScheme(), which is 'light' under Jest — the whitelist has to be built from the
@@ -996,10 +1002,11 @@ it('draws no profile chart, because no dive carries a sample series', async () =
 // ------------------------------------------------------------------------------------------
 // §0.4's depth profile, and §7's `Imported from` row beneath it.
 //
-// The test above is the other half of this block and keeps its name: it renders a dive whose
-// `useDiveSamples()` answers `null` — which is what most dives in a real logbook answer, and
-// what every assertion in this file written before the hook existed answers — and pins that
-// nothing is drawn for one. What follows is the case that did not exist when it was written.
+// The test above is the other half of this block, renamed for what it pins rather than for what
+// was true when it was written: it renders a dive whose `useDiveSamples()` answers `null` —
+// which is what most dives in a real logbook answer, and what every assertion in this file
+// written before the hook existed answers — and pins that nothing is drawn for one. What
+// follows is the case that did not exist when it was written.
 // ------------------------------------------------------------------------------------------
 
 /** The committed reference dive's own series (`src/testing/suuntoFixture.ts`), not a hand-rolled

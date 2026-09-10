@@ -9,13 +9,14 @@ import { type ColorScheme } from '../theme/tokens';
 /**
  * **The viewBox's nominal x-extent, not a width anything is laid out at** — `DepthProfile`'s
  * own `PLOT_WIDTH` says the same thing for the big card, but this is not that constant reused:
- * that one is sized near a phone's real content width specifically to keep the deepest-sample
- * MARKER's scale factor close to 1 (a non-uniform stretch would draw it visibly elliptical).
- * This drawing has no marker and no other shape whose distortion a scale factor could show —
- * only a `non-scaling-stroke` line, which by construction cannot be stretched at all — so the
- * exact number here changes nothing about what is drawn. Kept small and round for the `d`
- * string's own sake rather than borrowed from a constant whose actual justification does not
- * apply here.
+ * that one is sized near a phone's real content width because the big card has a shape a
+ * non-uniform stretch genuinely distorts, the deepest-sample MARKER, which on the wide layout's
+ * iPad column has to narrow itself by the measured scale to stay a dot at all. This drawing has
+ * no marker and no other shape whose distortion a scale factor could show — only a
+ * `non-scaling-stroke` line, which by construction cannot be stretched at all — so the exact
+ * number here changes nothing about what is drawn, at any width. Kept small and round for the
+ * `d` string's own sake rather than borrowed from a constant whose actual justification does
+ * not apply here.
  */
 const SPARK_WIDTH = 100;
 
@@ -25,11 +26,12 @@ const SPARK_WIDTH = 100;
 const STROKE_WIDTH = 1.5;
 
 /**
- * Half the stroke's own width, inset from both the top and bottom of the viewBox — `DepthProfile`'s
- * `PLOT_INSET_Y` finding, one size down: a value sitting exactly on `y = 0` or `y =
- * PROFILE_SPARK_HEIGHT` would have the far half of the stroke's width clipped by the viewport,
- * and a dive that spends its whole profile at the surface (v = 0 throughout) would draw that
- * clipped line for its entire length rather than for one instant.
+ * Half the stroke's own width, inset from both the top and bottom of the viewBox — the big
+ * card's `PROFILE_PLOT_INSET_Y` finding (theme/styles.ts), one size down: a value sitting
+ * exactly on `y = 0` or `y = PROFILE_SPARK_HEIGHT` would have the far half of the stroke's
+ * width clipped by the viewport, and a dive that spends its whole profile at the surface
+ * (v = 0 throughout) would draw that clipped line for its entire length rather than for one
+ * instant.
  */
 const INSET_Y = STROKE_WIDTH / 2;
 

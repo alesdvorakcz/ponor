@@ -21,8 +21,15 @@ export default function RootLayout() {
        `GestureDetector` throws outright in a development build when nothing above it provides
        this context, so the dive detail's profile card — Ponor's first gesture — would take the
        screen down without it. The library's own installation guide asks for it "as close to the
-       actual root of the app as possible", which under expo-router is this file; nested roots
-       are ignored in favour of the topmost one, so there is never a reason to add a second.
+       actual root of the app as possible", which under expo-router is this file.
+
+       A nested root inside the same native view hierarchy is ignored in favour of this one, so
+       adding one there buys nothing. The exception, if the app ever needs it, is a gesture
+       inside React Native's `<Modal>`: that renders into a SEPARATE native hierarchy while
+       staying in the same React context, so a root nested there degrades to a plain `View` and
+       the gesture inside it never fires — which is precisely when a second root IS required.
+       Nothing in the app does this today (nothing under src/ renders a `Modal` at all), so this
+       is a note for whoever adds the first one rather than a rule anything here follows.
 
        No `style` prop, deliberately: with none it defaults to `flex: 1`, and the library warns
        that a custom style which forgets that renders an app of zero height. `SyncTriggers` and

@@ -1,9 +1,9 @@
 import { render, type RenderResult } from '@testing-library/react-native';
-import { processColor } from 'react-native';
 
 import { sparklinePoints, SPARK_BUCKETS } from '../domain/profile';
 import { themeFor } from '../theme/resolve';
 import { fixtureSeries } from '../testing/suuntoFixture';
+import { paint, paintOf } from '../testing/svgPaint';
 import { ProfileSparkline } from './ProfileSparkline';
 
 // Same adaptation as DiveRow.test.tsx/DepthProfile.test.tsx (see either file's own top
@@ -17,19 +17,10 @@ function pathsIn(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : [];
 }
 
-/**
- * **The colour an SVG element was actually painted with** — `DepthProfile.test.tsx`'s own
- * `paintOf`/`paint` pair, reused by the same approach rather than a second copy: react-native-
- * svg runs `stroke`/`fill` through `processColor` before the native element ever sees them, so
- * an assertion has to compare payloads, not strings.
- */
-function paintOf(node: { props: Record<string, unknown> }, prop: 'stroke' | 'fill'): unknown {
-  return (node.props[prop] as { payload?: unknown } | undefined)?.payload;
-}
-
-function paint(colour: string): unknown {
-  return processColor(colour);
-}
+// `paintOf`/`paint` are imported, not written here (whole-branch review, Minor #5): this file
+// used to declare its own pair under a docblock calling them "reused by the same approach
+// rather than a second copy", which `src/testing/suuntoFixture.ts` names, in this branch's own
+// words, as what a second copy is. `src/testing/svgPaint.ts` holds the pair and the reasoning.
 
 // Task 6 review, Finding 0: this component now takes already-downsampled points rather than
 // raw samples and never calls `sparklinePoints` itself (`toDiveSampleShapes`, db/diveSamples.ts,
