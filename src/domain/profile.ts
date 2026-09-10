@@ -97,6 +97,18 @@ function hasBandableDepth(sample: DiveSample): boolean {
  * every band change. A dive that spends its bottom time hovering a metre either side of a
  * boundary would show that notch dozens of times over.
  *
+ * **The seed can produce a one-point run — only ever the first one — and it is dropped
+ * before this returns.** `points` starts holding just the first bandable sample, and the
+ * push above is unconditional: if that very first sample and the one after it already
+ * straddle a band boundary, the push fires before `points` has grown past its single
+ * element, and the run it pushes holds only the seed — a stroke with nothing to draw. A
+ * later boundary can never repeat this, because by then `points` has already been reset to
+ * the two-element `[previous, point]` the repeat above describes, and every step from there
+ * either grows that array or resets it to the same two-element pair, never back down to one.
+ * So the run this filters out, on the rare series where it happens at all, is always the
+ * first one `runs` would otherwise hold — never the last. Nothing drawn is lost by dropping
+ * it: the one point it held is already the repeated head of the run after it.
+ *
  * A run's colour is decided from the first sample genuinely inside its band, before the
  * repeat above is applied — never from the finished run's own `points[0]`, which for every
  * run but the first *is* the repeated boundary sample and, depth-wise, still belongs to the
@@ -128,7 +140,8 @@ export function colourRuns(samples: DiveSample[], scheme: ColorScheme): ColourRu
   }
 
   runs.push({ colour, points });
-  return runs;
+  // Drops the one-point run the seed above can produce — see the docblock.
+  return runs.filter((run) => run.points.length >= 2);
 }
 
 /**

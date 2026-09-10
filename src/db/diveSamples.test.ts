@@ -196,6 +196,20 @@ describe('toDiveSampleShapes', () => {
     expect(shapes.has('dive-1')).toBe(false);
   });
 
+  // Review, Finding 6: this filter used to read `points.length > 0`, its own hand-rolled
+  // half of a question `isSparkDrawable` (domain/profile.ts) already owns in full — the same
+  // function DiveRow's `showBottomRow` asks so a row never reserves space this component then
+  // declines to draw into. `isSparkDrawable` additionally requires `last.t > first.t`, which
+  // `points.length > 0` cannot express: a stored two-sample series whose samples share one
+  // timestamp downsamples to two points that still share it, `points.length > 0` lets the
+  // entry through, and the row's own guard then quietly draws nothing behind it.
+  it('gives a same-timestamp pair no entry either, since isSparkDrawable would refuse to draw it', () => {
+    const shapes = toDiveSampleShapes([
+      { id: 'dive-1', series: [[5, 12, null, null], [5, 18, null, null]] },
+    ]);
+    expect(shapes.has('dive-1')).toBe(false);
+  });
+
   it('maps nothing at all for no rows', () => {
     expect(toDiveSampleShapes([]).size).toBe(0);
   });

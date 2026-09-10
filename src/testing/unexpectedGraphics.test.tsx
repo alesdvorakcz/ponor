@@ -5,7 +5,7 @@ import Svg, { Circle, G, Image as SvgImage, Path } from 'react-native-svg';
 import { DepthProfile } from '../components/DepthProfile';
 import { ProfileSparkline } from '../components/ProfileSparkline';
 import { dive } from '../domain/diveFixture';
-import { sparklinePoints } from '../domain/profile';
+import { SPARK_BUCKETS, sparklinePoints } from '../domain/profile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
@@ -190,7 +190,7 @@ it('passes the row sparkline, whose one stroke is the row’s own muted ink', as
   // The latent half of the same exposure: five screens render `DiveRow`, and every one of them
   // sweeps this guard — but only over dives whose series is absent, so until the rule above
   // existed the sparkline had simply never met it.
-  const t = await render(<ProfileSparkline points={sparklinePoints(SERIES, 40)} scheme="light" />);
+  const t = await render(<ProfileSparkline points={sparklinePoints(SERIES, SPARK_BUCKETS)} scheme="light" />);
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 

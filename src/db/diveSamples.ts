@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
-import { sparklinePoints, SPARK_BUCKETS, type ProfilePoint } from '../domain/profile';
+import { isSparkDrawable, sparklinePoints, SPARK_BUCKETS, type ProfilePoint } from '../domain/profile';
 import {
   applyPulledRows,
   clearDirtyFlags,
@@ -151,9 +151,11 @@ export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
  * warrants: every other live read in this app is built on it.
  *
  * **The same "missing and empty are one answer" rule as `toDiveSamples`, one step further
- * in**: a dive with no series, a stored-but-empty one, or one too short for `sparklinePoints`
- * to draw anything from (a single sample, say) all get no entry, so `.get(id)` reads
- * `undefined` — the spelling `useDives()`'s own `numbers` map already uses for "this dive has
+ * in**: a dive with no series, a stored-but-empty one, or one `isSparkDrawable`
+ * (domain/profile.ts) would refuse to draw — too short for `sparklinePoints` to produce
+ * anything from (a single sample, say), or two points that still share one timestamp — all
+ * get no entry, so `.get(id)` reads `undefined` — the spelling `useDives()`'s own `numbers`
+ * map already uses for "this dive has
  * no number" (a planned dive), and the one `DiveRow`'s `points` prop is typed against.
  * Emitting an empty-array entry instead would reach that row as "draw nothing HERE" rather
  * than "there is nothing to draw", exactly the distinction `toDiveSamples`'s own docblock
@@ -170,7 +172,13 @@ export function toDiveSampleShapes(rows: unknown[]): Map<string, ProfilePoint[]>
   // tell apart from Drizzle's own update builder.
   const entries = (rows as DiveSampleRow[])
     .map((row): [string, ProfilePoint[]] => [row.id, sparklinePoints(row.series, SPARK_BUCKETS)])
-    .filter(([, points]) => points.length > 0);
+    // `isSparkDrawable` (domain/profile.ts) is the declared single owner of "is there a shape
+    // here" — the same function `DiveRow`'s `showBottomRow` asks so a row never reserves space
+    // this map then declines to fill. Review, Finding 6: `points.length > 0` was this filter's
+    // own hand-rolled half of that question, and it let a same-timestamp pair through —
+    // `sparklinePoints` can downsample two same-instant samples to two points that still share
+    // it, which `isSparkDrawable`'s `last.t > first.t` check refuses and this one did not.
+    .filter(([, points]) => isSparkDrawable(points));
   return new Map(entries);
 }
 

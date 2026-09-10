@@ -66,6 +66,20 @@ describe('colourRuns', () => {
         .map((p) => p.v),
     ).toEqual([3, 5]);
   });
+
+  it('never produces a one-point run, even when the very first two samples straddle a boundary', () => {
+    // Review, Finding 1: `points` is seeded with just the first sample and pushed
+    // unconditionally on the first band change — so when the very FIRST comparison already
+    // crosses a boundary (4 m is band 1; 8 m and 9 m are both band 2), the run pushed holds
+    // only that one seed. Verified directly before this fix: this returned runs of length
+    // [1, 3], and `pathOf` would render the first as `"M0 4"` — a stroked `<Path>` with a
+    // move and no drawing command. Nothing drawn is lost by dropping it: the point survives
+    // as the repeated head of the run after it.
+    const runs = colourRuns([s(0, 4), s(10, 8), s(20, 9)], 'light');
+    expect(runs.every((run) => run.points.length >= 2)).toBe(true);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.points.map((p) => p.v)).toEqual([4, 8, 9]);
+  });
 });
 
 describe('medianIntervalS', () => {
