@@ -516,6 +516,10 @@ export const cs = {
       notes: 'Poznámky',
       rating: 'Hodnocení',
       presetName: 'Název předvolby',
+      /** *Importováno z* — příčestí, ne podstatné jméno: řádek říká, odkud se ponor do aplikace
+       * dostal, ne že by ho počítač vlastnil. *Ponor* se sem záměrně nedostal (§ M3n): věta o
+       * ponoru se jménem aplikace uvnitř čte dvojznačně, a tady není potřeba ani jedno. */
+      importedFrom: 'Importováno z',
     },
 
     group: {

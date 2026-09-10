@@ -1,15 +1,22 @@
 import { type RenderResult } from '@testing-library/react-native';
+import { processColor } from 'react-native';
 
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale, type ColorScheme } from '../theme/tokens';
 
 /**
- * The §0.4/§0.1 guard: **the only graphic on screen is the mark**, and no `View` is painted
- * with anything `makeStyles(scheme)` did not hand out or the depth scale did not produce.
+ * The §0.4/§0.1 guard: **every graphic on screen is one somebody decided to draw, in a colour
+ * this app's own palette produced.** Three arms say that of three kinds of node — the only
+ * `Image` is the mark, an SVG element is painted from the depth scale or the theme tokens, and
+ * no `View` wears anything `makeStyles(scheme)` did not hand out or the depth scale did not
+ * produce.
  *
- * Both exemptions arrived together in M1h with the first-run empty state, and both are named
- * rather than opened as categories — see `isDepthPaint` below and the `Image` arm of the
- * filter. Until then the claim really was "nothing draws a graphic", because nothing did.
+ * The first two exemptions arrived together in M1h with the first-run empty state, and both
+ * are named rather than opened as categories — see `isDepthPaint` below and the `Image` arm
+ * of the filter. Until then the claim really was "nothing draws a graphic", because nothing
+ * did. The third is M3o's depth profile, and it is a rule rather than an exemption: an SVG
+ * node is judged by what it was painted with (`isSanctionedSvg`), not admitted by being one.
  *
  * **Shared, unlike every other helper in this codebase's tests.** Five test files carried a
  * character-for-character copy of this, each under a comment saying it was copied "per this
@@ -53,6 +60,11 @@ import { depthScale, type ColorScheme } from '../theme/tokens';
  * the filter now handles `Image` before reaching here: the pattern is a substring match, so
  * this is what still catches a `FastImage`, an `ImageBackground` or anything else that draws
  * a bitmap under a different host name, while the arm above admits exactly one styled `Image`.
+ *
+ * The SVG names stay too, and still do work: `RNSVG*` nodes are taken by the arm above this
+ * one (`SVG_HOST`), but a component that merely *calls itself* `Path` or `Circle` — a host
+ * type this pattern matches and that one does not — has said what it draws and has no paint
+ * to be judged on, so it lands here and reports.
  */
 const SUSPICIOUS_TYPE_NAME = /svg|path|circle|rect|ellipse|polyline|polygon|canvas|chart|sparkline|profile|image/i;
 
@@ -129,6 +141,141 @@ function isDepthPaint(entry: unknown, scheme: ColorScheme): boolean {
   );
 }
 
+/**
+ * **react-native-svg's own host elements**, which is what an `<Svg>`, a `<Path>` or a `<Circle>`
+ * arrives as once React Native has rendered it: `RNSVGSvgView`, `RNSVGGroup`, `RNSVGPath`,
+ * `RNSVGCircle`, `RNSVGLine`. Matched on the library's prefix rather than on a list of shapes,
+ * so a primitive the app has not used yet is judged by the same rule instead of falling through
+ * to an arm that knows nothing about paint.
+ */
+const SVG_HOST = /^RNSVG/;
+
+/**
+ * The two SVG hosts that **draw nothing of their own**: the canvas, and a group.
+ *
+ * They are exempt from one half of the rule below — the half that insists a drawing element
+ * name its own paint — and from that half only. Everything else still applies to them, which is
+ * what catches a `<G fill="…">` colouring every child under it without any child naming a
+ * colour, and the `<Svg>`'s own `style`.
+ *
+ * Named, not derived, and short on purpose: a container react-native-svg adds later is reported
+ * until somebody decides it belongs here, which is the direction this file wants to fail in.
+ */
+const SVG_CONTAINERS: readonly string[] = ['RNSVGSvgView', 'RNSVGGroup'];
+
+/** The two props that put colour on an SVG element. Both, not `stroke` alone: the deepest-sample
+ * marker on the profile card is a filled `Circle`, so a rule reading strokes would leave the
+ * app's one filled shape unguarded. */
+const SVG_PAINT_PROPS: readonly string[] = ['fill', 'stroke'];
+
+/**
+ * Every colour an SVG element in this app is allowed to be painted with — **the depth scale for
+ * this scheme, plus this scheme's theme tokens**, and nothing else.
+ *
+ * That pairing is §0.1 stated for a drawing: the curve's colour is *data* (`depthColor`, one
+ * `Path` per band), and the three non-depth things the card has to draw — the grid, the gas
+ * trace, the scrub hairline — are `border`, `fgMuted` and `fg`, one ink each. `themeFor` rather
+ * than `makeStyles` because an SVG `stroke` is a prop and not a style property, so the sheet is
+ * not where it could come from; `DepthProfile`'s own docblock records the same licence from the
+ * other end.
+ *
+ * **Run through `processColor`, because that is what the elements hold.** react-native-svg does
+ * not keep the string it was handed: `extractBrush` converts every `stroke`/`fill` and gives the
+ * host `{ type: 0, payload: <int> }`. Converting the expected colours the same way compares one
+ * colour with another rather than pinning the encoding the library happens to use today —
+ * `DepthProfile.test.tsx`'s `paint`/`paintOf` helpers are the same move.
+ *
+ * A conversion that came back empty is dropped rather than admitted: an unreadable token would
+ * otherwise put `undefined` in this set, and `undefined` is exactly what reading `payload` off
+ * something that is not a brush produces — so one bad colour would quietly stop the check.
+ */
+function sanctionedPaint(scheme: ColorScheme): Set<unknown> {
+  const colours = [...depthScale[scheme], ...Object.values(themeFor(scheme))];
+  return new Set(colours.map((colour) => processColor(colour)).filter((value) => value != null));
+}
+
+/**
+ * An `<Svg>`'s own `style` entry that **cannot paint and cannot draw**, which is what the two
+ * react-native-svg composes for itself are: `{ backgroundColor: 'transparent', borderWidth: 0 }`
+ * — its reset — and `{ width, height, flex }`, built from the element's own `width`/`height`
+ * props.
+ *
+ * Bounded by construction on both axes, exactly as `DEVICE_GEOMETRY_KEYS` and `DEPTH_PAINT_KEYS`
+ * above are, and for the same reason: the keys are an allowlist, so nothing here can set a
+ * border, a radius or a shadow; and the two keys that *could* carry a hue are pinned to the two
+ * values that carry none. So a third entry with a real background — a fill reaching the canvas
+ * without going near `stroke` or `fill` — is still reported.
+ */
+function isPaintlessSvgBox(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const own = Object.entries(entry as Record<string, unknown>);
+  return (
+    own.length > 0 &&
+    own.every(([key, value]) => {
+      if (key === 'backgroundColor') return value === 'transparent';
+      if (key === 'borderWidth') return value === 0;
+      return ['width', 'height', 'flex'].includes(key) && ['number', 'string'].includes(typeof value);
+    })
+  );
+}
+
+/**
+ * **What a legitimate SVG node looks like** — the question this arm was left open for, decided
+ * by the screen that put `DepthProfile` on the dive detail (M3o).
+ *
+ * The rule is *paint*, not existence: **every colour an SVG element was painted with has to be
+ * one this app's own palette produced.** It is the same shape `isDepthPaint` gives a `View` and
+ * the `Image` arm gives the mark — a value checked against what produced it, not a category
+ * opened — and it is §0.1's own sentence for a drawing, which is why it, rather than "no SVG
+ * anywhere", is what this guard can defend now that the app genuinely draws.
+ *
+ * Three parts, and each closes a way past the other two:
+ *
+ * - **`propList` says what the element actually declared.** react-native-svg gives every node
+ *   both props whether or not anyone set them — an unpainted shape inherits opaque black from
+ *   the canvas — so the raw `fill` is not evidence of a decision. `propList` is, and a declared
+ *   `none` (which arrives as `null`) paints nothing and passes.
+ * - **A drawing element must declare paint at all.** Since an undeclared colour is not evidence,
+ *   a `<Path d="…" />` that names none would otherwise ride in — and it draws, in that inherited
+ *   black, which is neither a depth colour nor a token. Only `SVG_CONTAINERS` are excused, and
+ *   they draw nothing themselves.
+ * - **The element's own `style` is read too**, or a backdrop could be painted onto the canvas
+ *   without touching either paint prop (`isPaintlessSvgBox`).
+ *
+ * **What this deliberately no longer does is make the mere existence of an SVG cost an edit
+ * here.** That was the old arm's whole content, and it was the right placeholder while nothing
+ * could be written against a real component; kept now it would report `DepthProfile` and
+ * `ProfileSparkline` on twelve screens and be exempted away within the week, which is how a
+ * guard becomes a formality. §0.4's other rule — that nothing is drawn which was not measured —
+ * is not this file's to enforce and never was: it is about whether a component draws at all with
+ * no series behind it, which each component's own tests pin directly (`DepthProfile.test.tsx`,
+ * `ProfileSparkline.test.tsx`, both of which assert an empty render). What is left here is the
+ * half a whole-screen sweep can actually see, and it still bites: a chart in any hue nobody
+ * chose, a shape that names no paint, a group tinting its children, a coloured canvas — and a
+ * dark-palette stroke on a light render, which is a real colour from a real scale and still
+ * wrong.
+ */
+function isSanctionedSvg(node: Node, palette: Set<unknown>, known: unknown[]): boolean {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const declaredList = Array.isArray(props.propList) ? (props.propList as unknown[]) : [];
+  const declared = SVG_PAINT_PROPS.filter((prop) => declaredList.includes(prop));
+  const type = typeof node.type === 'string' ? node.type : '';
+  if (declared.length === 0 && !SVG_CONTAINERS.includes(type)) return false;
+
+  const paintedFromPalette = declared.every((prop) => {
+    const brush = props[prop];
+    // `fill="none"` reaches the host as `null` — nothing is painted, so there is no colour to
+    // check. Anything that is not a brush object (a gradient reference, say) has no payload and
+    // falls through to the palette test, which no `undefined` is a member of.
+    if (brush === null) return true;
+    const payload = (brush as { payload?: unknown } | undefined)?.payload;
+    return palette.has(payload);
+  });
+
+  const style = [props.style].flat(5).filter(Boolean) as unknown[];
+  return paintedFromPalette && style.every((entry) => known.includes(entry) || isPaintlessSvgBox(entry));
+}
+
 type Node = NonNullable<RenderResult['root']>;
 
 /**
@@ -141,6 +288,9 @@ type Node = NonNullable<RenderResult['root']>;
 export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[] {
   if (!t.root) return [];
   const known = Object.values(makeStyles(scheme)) as unknown[];
+  // Built once beside `known` and for the same reason: it is a property of the scheme, not of
+  // any node, and a whole-screen sweep asks it of several hundred of them.
+  const palette = sanctionedPaint(scheme);
   // `queryAll` walks DESCENDANTS only — it never returns the instance it was called on — so
   // the rendered subject's own root node was the one element the guard could never see. A
   // component whose outermost View carried the literal was therefore exempt, which is the
@@ -174,19 +324,22 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
       const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
       return style.length === 0 || !style.every((entry) => entry === mark);
     }
-    // An element whose own type NAME says what it draws: an SVG primitive (react-native-svg
-    // arrived with the dive profile — `RNSVGPath`, `RNSVGCircle`, `RNSVGLine`, all of which
-    // this pattern already matches), an `Image` used as a rendered sprite, or a component
-    // simply named for the thing it draws (Chart, Sparkline, Profile).
+    // **A real SVG element, judged by what it was painted with** (M3o) — the decision this arm
+    // was left holding open, and `isSanctionedSvg` above is where it is written and argued.
     //
-    // **`DepthProfile` is the first thing in the app this arm will genuinely fire on, and it
-    // is not exempted here.** The screen that puts the card on the dive detail is what has to
-    // decide what a legitimate SVG node looks like — §0.1's rule for one is that its `stroke`
-    // is a depth colour or a theme token, which is a different question from the one the
-    // `View` arm below answers about styles, and this guard cannot answer it until there is a
-    // component whose answer it can be written against. Until then the arm stands as written:
-    // any SVG on a screen reports, which is the right default for a rule that exists to make
-    // a new graphic cost a deliberate edit here.
+    // The arm it replaces reported any SVG on sight, which was the right default for exactly as
+    // long as nothing in the app drew one: the rule §0.1 gives a drawing — its paint is a depth
+    // colour or a theme token — cannot be written until there is a component whose answer it can
+    // be written against, and `DepthProfile` and `ProfileSparkline` are now that. So the cost of
+    // a new graphic is no longer an edit here; it is painting it from the app's own palette, and
+    // being reported by this line the moment it is painted from anywhere else.
+    //
+    // Ordered before the name test below, and it has to be: every `RNSVG*` type contains "svg",
+    // so that pattern matches all of them and would report the card wholesale.
+    if (typeof n.type === 'string' && SVG_HOST.test(n.type)) return !isSanctionedSvg(n, palette, known);
+    // An element whose own type NAME says what it draws: an `Image` used as a rendered sprite,
+    // or a component simply named for the thing it draws (Chart, Sparkline, Profile). It has
+    // announced a drawing and carries no paint for the arm above to read, so it reports.
     if (typeof n.type === 'string' && SUSPICIOUS_TYPE_NAME.test(n.type)) return true;
     if (n.type !== 'View') return false;
     const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];

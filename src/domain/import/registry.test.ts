@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { importerFor, importerLabels, IMPORTERS } from './registry';
+import { importerFor, importerLabelFor, importerLabels, IMPORTERS } from './registry';
 
 const bytesOf = (text: string) => new TextEncoder().encode(text);
 
@@ -31,4 +31,22 @@ it('names every format it knows, from the registry rather than from a second lis
   // caption that quietly stops naming everything the app can read.
   expect(importerLabels()).toHaveLength(IMPORTERS.length);
   expect(importerLabels().every((l) => l.length > 0)).toBe(true);
+});
+
+it('names the importer a stored dive came from, by the source column it was stamped with', async () => {
+  // The dive detail's `Imported from` row (spec §7) reads this for every dive whose device
+  // model was never recorded — which is every dive imported before that column existed, for
+  // good. Asked of the registry rather than of a literal, so the label a diver reads on the
+  // detail and the label they read in Settings can only ever be the same string.
+  for (const importer of IMPORTERS) {
+    expect(importerLabelFor(importer.source)).toBe(importer.label());
+  }
+});
+
+it('names nothing for a source no importer claims', async () => {
+  // A row written by a version of the app that read a format this one does not, or a format
+  // since removed. The caller's own answer to null is to draw no row at all, which is better
+  // than a row naming a source word the diver has never seen.
+  expect(importerLabelFor('no-such-importer')).toBeNull();
+  expect(importerLabelFor('')).toBeNull();
 });

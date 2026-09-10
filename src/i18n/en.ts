@@ -618,6 +618,18 @@ export const en = {
       notes: 'Notes',
       rating: 'Rating',
       presetName: 'Preset name',
+      /**
+       * §7's provenance row on the dive detail — the dive computer the dive was read off, or
+       * the importer's own name where the export never said which model wrote it.
+       *
+       * In `field.*` for the reason `group.profile` below is in `group.*`: it is a row label of
+       * exactly the shape every label in this namespace has, on one of the screens where a
+       * diver reads a dive back, and a second namespace for the rows a diver reads but cannot
+       * type would be a distinction without a difference. What it is not is `detail.*` — that
+       * holds the screen's own chrome (its way out, its two actions, its one refusal), not the
+       * facts about a dive it lists.
+       */
+      importedFrom: 'Imported from',
     },
 
     /**

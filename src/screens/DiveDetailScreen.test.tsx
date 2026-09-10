@@ -14,10 +14,22 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, StyleSheet } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
-import { formatCurrent, formatSurge, formatWaves, HE_LABEL, N2_LABEL, O2_LABEL } from '../format/display';
+import {
+  formatCurrent,
+  formatDepthParts,
+  formatSurge,
+  formatWaves,
+  HE_LABEL,
+  N2_LABEL,
+  O2_LABEL,
+} from '../format/display';
 import { softDeleteDive } from '../db/dives';
+import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveSamples } from '../db/useDiveSamples';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { suuntoJsonImporter } from '../domain/import/suunto';
+import { fixtureSeries } from '../testing/suuntoFixture';
 // Namespace import, not the usual named one: the completeness test below (`marks every
 // value this screen reads from derived.ts as computed`) needs the module's own export list
 // at runtime, via `Object.keys`, rather than a set of names typed into this file — see that
@@ -25,7 +37,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import * as derived from '../domain/derived';
 import { type Dive, type Tank } from '../domain/types';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
-import { setActiveLanguage } from '../i18n';
+import { setActiveLanguage, t } from '../i18n';
 import { depthColor } from '../theme/depth';
 import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
@@ -51,6 +63,22 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // system without one. Left on its own default, `metric`, by every test that does not care
 // — which is what keeps the existing assertions below reading in metres, unchanged.
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+// This dive's recorded profile (§0.4's card), the third live read this screen makes, mocked
+// per module for the reason the two above are: it opens a real SQLite subscription, and the
+// screen must be renderable without one. Its default is `samples: null` — the state EVERY
+// dive in the app was in before the import landed and the state most dives stay in — so
+// every assertion written before this hook existed goes on rendering a screen with no card
+// on it, unchanged.
+//
+// The factory returns a fresh object per call rather than one shared literal, which is the
+// hoisting-safe half of the same lesson `stubDives` below records at length: the real hook
+// builds its wrapper in its own return statement, so a screen written against a stub that
+// hands back one forever-stable object can loop in the running app with every test here
+// green. It closes over nothing, so babel-plugin-jest-hoist's `mock`-prefix rule (see this
+// file's header) does not come into it.
+jest.mock('../db/useDiveSamples', () => ({
+  useDiveSamples: jest.fn(() => ({ samples: null, resolved: true, error: undefined })),
+}));
 
 // M1d task 7: this screen now writes, too — the one write it has, `softDeleteDive`. Mocked
 // per module exactly as DiveFormScreen.test.tsx mocks `createDive`/`updateDive`, so a delete
@@ -177,11 +205,32 @@ const mockReplace = router.replace as jest.Mock;
 const mockPush = router.push as jest.Mock;
 const mockSoftDelete = softDeleteDive as jest.Mock;
 const mockUseUnitSystem = useUnitSystem as jest.Mock;
+const mockUseDiveSamples = useDiveSamples as jest.Mock;
+
+/**
+ * The dive's recorded profile, for the handful of tests that are about the card §0.4 puts on
+ * this screen. Everything else leaves the hook on its `null` default and renders a screen with
+ * no card, which is what most dives in a real logbook look like.
+ *
+ * `mockImplementation`, like `stubDives` above and for the same recorded reason: the real hook
+ * returns a new wrapper object on every render (`useDiveSamples`, db/useDiveSamples.ts — the
+ * `samples` array inside it is what is memoised, not the object around it), and a stub that
+ * models the opposite contract lets a component that depends on the fiction stay green here
+ * while looping on a device.
+ */
+function stubSamples(samples: DiveSample[] | null) {
+  mockUseDiveSamples.mockImplementation(() => ({ samples, resolved: true, error: undefined }));
+}
 
 afterEach(() => {
   // Put back rather than reset: every test below that says nothing about units expects the
   // metric default, and `mockReset` would leave the hook returning `undefined`.
   mockUseUnitSystem.mockReturnValue('metric');
+  // Same reasoning for the profile read, and the same shape: `mockReset` would leave the hook
+  // returning `undefined`, and this screen would crash destructuring it rather than draw the
+  // no-series screen every other test in this file expects.
+  stubSamples(null);
+  mockUseDiveSamples.mockClear();
   mockUseDives.mockReset();
   mockUseLocalSearchParams.mockReset();
   mockCanGoBack.mockReset();
@@ -942,6 +991,95 @@ it('draws no profile chart, because no dive carries a sample series', async () =
   // same scheme the screen actually rendered with, or every real style would misreport as
   // "ad hoc" against the wrong scheme's cached objects.
   expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
+});
+
+// ------------------------------------------------------------------------------------------
+// §0.4's depth profile, and §7's `Imported from` row beneath it.
+//
+// The test above is the other half of this block and keeps its name: it renders a dive whose
+// `useDiveSamples()` answers `null` — which is what most dives in a real logbook answer, and
+// what every assertion in this file written before the hook existed answers — and pins that
+// nothing is drawn for one. What follows is the case that did not exist when it was written.
+// ------------------------------------------------------------------------------------------
+
+/** The committed reference dive's own series (`src/testing/suuntoFixture.ts`), not a hand-rolled
+ * one: DESIGN.md's testing facts forbid asserting a number from memory of a fuller dive, and this
+ * screen is where the card meets a real `Dive` row. */
+const FIXTURE = fixtureSeries();
+
+/** The dive that carries it — the fixture's own header maximum (24.33 m), so the hero above the
+ * card and the card's own axis are scaled from the same figure a diver would actually see. */
+const diveWithProfile = dive({ id: 'profiled', maxDepthM: 24.33 });
+
+it('asks for THIS dive’s own series, not for whatever the last one held', async () => {
+  // `useDiveSamples`' own docblock names the failure this forbids: the hook subscribes inside a
+  // `useEffect` keyed on the id, and expo-router keeps a route's component mounted, so a screen
+  // that asked for the wrong id would draw a real curve under the wrong dive's name — §0.4 broken
+  // in the one way that cannot be seen.
+  stubSamples(FIXTURE);
+  await renderDetailTree(diveWithProfile);
+  expect(mockUseDiveSamples).toHaveBeenCalledWith(diveWithProfile.id);
+});
+
+it('puts the profile between the hero and the first cluster, where §0.4 reserved the space', async () => {
+  stubSamples(FIXTURE);
+  const lines = textIn(await renderDetailTree(diveWithProfile));
+  // Every string here is read from the thing that owns it — the formatter for the figure, the
+  // i18n key for each label. A typed `'24,3'` would assert a decimal comma from a locale this
+  // test never sets, and a typed `'Depth profile'` would pin one of the app's two languages.
+  const heroDepth = formatDepthParts(diveWithProfile.maxDepthM, 'metric')?.value;
+  if (heroDepth === undefined) throw new Error('the fixture dive has no displayable depth');
+  // The hero is the FIRST place the depth is said (the Depth & duration cluster says it again,
+  // below the card), so `indexOf` is the hero's own line by construction.
+  expect(lines.indexOf(t('group.profile'))).toBeGreaterThan(lines.indexOf(heroDepth));
+  expect(lines.indexOf(t('group.profile'))).toBeLessThan(lines.indexOf(t('group.dateTime')));
+});
+
+it('names the computer a dive was imported from', async () => {
+  const device = 'Suunto D5';
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: suuntoJsonImporter.source, importDevice: device }),
+  );
+  expect(textIn(tree)).toContain(device);
+});
+
+it('falls back to the importer’s own label when the device was never recorded', async () => {
+  // The permanent state of every dive imported before the column existed: dedupe means
+  // re-running the same files writes nothing, so those rows keep `importDevice = null` for
+  // good (spec §7). The label is read off the importer rather than typed, so a rename there
+  // cannot leave this test agreeing with a string the app no longer shows.
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: suuntoJsonImporter.source, importDevice: null }),
+  );
+  expect(textIn(tree)).toContain(suuntoJsonImporter.label());
+});
+
+it('says nothing about importing for a dive the diver logged by hand', async () => {
+  const tree = await renderDetailTree(dive({ id: 'd', importSource: null }));
+  expect(textIn(tree)).not.toContain(t('field.importedFrom'));
+});
+
+it('says nothing about importing for a source no importer in the registry claims', async () => {
+  // A row read back from a database another version of the app wrote, or a format since
+  // removed. `importerLabelFor` answers null, and a row reading "Imported from ·" with nothing
+  // after it would be worse than the absence.
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: 'no-such-importer', importDevice: null }),
+  );
+  expect(textIn(tree)).not.toContain(t('field.importedFrom'));
+});
+
+// **The guard, on the screen that draws the app's first real SVG** (§0.1/§0.4). The sweep above
+// runs on a dive with no series, so until this one existed every node the card draws was
+// unexamined here — and `unexpectedGraphics`' SVG arm reported any of them on sight, by its own
+// deliberate default, until this task taught it what a legitimate one looks like.
+//
+// 'light' for the reason its neighbour above gives: that is the scheme `useColorScheme()` reports
+// under Jest, and the sheet compared against has to be the one that rendered.
+it('draws the card without a single colour that is not a depth or a token', async () => {
+  stubSamples(FIXTURE);
+  const tree = await renderDetailTree(diveWithProfile);
+  expect(unexpectedGraphics(tree, 'light')).toEqual([]);
 });
 
 it('says the dive is gone rather than crashing when the id is unknown', async () => {

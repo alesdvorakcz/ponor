@@ -52,6 +52,15 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/useDiveSampleShapes', () => ({
   useDiveSampleShapes: jest.fn(() => ({ shapes: new Map(), resolved: true, error: undefined })),
 }));
+// **`DiveDetailScreen`'s read, not this screen's** — mocked here because the wide (tablet)
+// layout renders that component directly beside the list, so every hook it calls is a hook
+// this file's tests mount. It reaches `expo-sqlite`'s `addDatabaseChangeListener` through
+// `useLiveQuery`, which does not exist under Jest, so the three wide-layout tests below throw
+// on render without this. Default `samples: null`: the pane draws no card, which is what those
+// three tests were asserting about before the card existed and still are.
+jest.mock('../db/useDiveSamples', () => ({
+  useDiveSamples: jest.fn(() => ({ samples: null, resolved: true, error: undefined })),
+}));
 // The unit preference (§3), mocked per module exactly as `useDives` is above and for the
 // same reason: it is a live database read, and this screen must be renderable in either
 // system without one. Left on its own default, `metric`, by every test that does not care
@@ -1037,6 +1046,28 @@ it('draws none on a populated logbook either', async () => {
   const b = dive({ date: '2026-08-17', siteName: 'Shark Bay', maxDepthM: 31.4 });
   stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
   const t = await render(<DivesScreen />);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+// **...and none on a list whose rows actually draw something** (M3o). The two sweeps above both
+// render dives with no series, so the sparkline Task 6 put in every row had never met this guard
+// on any of the five screens that render `DiveRow` — an exposure that was latent purely because
+// the fixtures happened not to trigger it. It is the sparkline's real stroke that is being swept
+// here (`RNSVGPath`, one per drawing row), against the rule `unexpectedGraphics` gained for the
+// profile: paint from the depth scale or from a theme token, nothing else.
+it('draws none on a list whose rows have a shape to draw', async () => {
+  const a = dive({ id: 'has-series', date: '2026-08-18', siteName: 'Blue Hole', maxDepthM: 12.2 });
+  const b = dive({ id: 'no-series', date: '2026-08-17', siteName: 'Shark Bay', maxDepthM: 31.4 });
+  stubDives({ dives: [a, b], numbers: assignDiveNumbers([a, b], 0), error: undefined });
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await render(<DivesScreen />);
+  // The sweep is worthless if nothing drew: an empty shapes map would make this pass for the
+  // reason the two above did.
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 

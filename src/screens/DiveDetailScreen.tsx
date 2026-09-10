@@ -3,12 +3,15 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
+import { useDiveSamples } from '../db/useDiveSamples';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
+import { importerLabelFor } from '../domain/import/registry';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/leaveScreen';
@@ -110,9 +113,38 @@ import { type ColorScheme } from '../theme/tokens';
  * centre) except the date, which DESIGN.md §6 never allows to be null — so the sub-line
  * always has at least the date to show, and the screen never opens on a truly empty hero.
  *
- * No profile chart, sparkline, or other graphic is drawn (§0.4): no dive in this version
- * carries a real sample series, and this screen does not import anything that could draw
- * one.
+ * §0.4's depth profile is drawn here, between the hero and the first cluster — the space
+ * that rule reserved for it and left empty until a dive could carry a real sample series.
+ * `<DepthProfile>` (components/DepthProfile.tsx) owns everything about the drawing; this
+ * screen owns only the read, `useDiveSamples(id)`, because a screen reads and a component
+ * takes the answer as a prop (db/useUnitSystem.ts's standing rule), and because that is what
+ * keeps the card testable without a database under it.
+ *
+ * **What that does not license.** §0.4's other half is untouched: nothing is drawn that was
+ * not measured. The card renders `null` for a dive with no series, for a series too short to
+ * stroke, and for one with no elapsed time in it — no placeholder, no skeleton, and no
+ * reserved space where it would have been, so a hand-logged dive opens on exactly the screen
+ * it always did. That judgement lives in the component and is deliberately not repeated here:
+ * this screen cannot ask "will it draw?" without owning a second copy of a rule §4.1 says has
+ * one owner.
+ *
+ * **The first cluster keeps its `first` treatment either way, and that is the same rule.**
+ * `detailClusterFirst` drops the hairline that would otherwise land beside the hero's own
+ * bottom border; with a card on screen the Date & time cluster follows the card instead, and
+ * on the strict reading of §0.6 it would then draw its rule. Making that conditional means the
+ * screen deciding whether the card drew — the very question above — so it stays fixed, and the
+ * card's own `profileCard` carries no rule for the mirror-image reason (theme/styles.ts).
+ *
+ * Beneath the card sits §7's `Imported from` row: the dive computer the dive was read off
+ * (`importDevice`), falling back to the importer's own label (`importerLabelFor`) where the
+ * export never named a model. That fallback is not defensive tidiness — it is the permanent
+ * state of every dive imported before the column existed, because dedupe means re-running the
+ * same files writes nothing. Absent entirely for a dive the diver logged by hand, like every
+ * other null field on this screen, and **carrying no chevron**: §0.6 spends that mark on
+ * in-place disclosure and never on navigation, and there is nowhere to navigate to. It is a
+ * row of its own rather than part of the card, because the two are independent — a computer
+ * can export a dive with no profile in it — and because the provenance is a fact about the
+ * dive, not a caption under a drawing.
  *
  * The screen supplies its own back control (BackButton, below) rather than relying on a
  * native header: `_layout.tsx` sets `headerShown: false` for the whole app, and flipping
@@ -720,6 +752,14 @@ export default function DiveDetailScreen({
   // with the rows beside it. Its own hook, never a field on `useDives()` — see
   // db/useUnitSystem.ts for why those two reads stay apart.
   const units = useUnitSystem();
+  // §0.4's series for the card below. Keyed on the ROUTE's id rather than on `dive.id`,
+  // because the dive itself is not found until after the list has been searched and the
+  // not-found branch has had its chance to return — and a hook may not sit after a
+  // conditional return, the same constraint the two state declarations below record. The
+  // empty string covers the render where neither an `id` prop nor a route param has arrived:
+  // no row can match it, so the read answers `samples: null` and the card draws nothing,
+  // which is exactly what that render should show anyway.
+  const { samples } = useDiveSamples(id ?? '');
   // Both halves of DESIGN.md §10's in-flight guard, for the same reason DiveFormScreen's
   // save carries them: `deletingRef` is what actually turns a second confirmation away
   // (written and read synchronously), and `deleting` is only how that is SHOWN, a render
@@ -849,6 +889,14 @@ export default function DiveDetailScreen({
   const rating = formatRating(dive.rating);
   const hasNotes = dive.title !== null || dive.notes !== null || rating !== null;
 
+  // §7's row, and the whole of its rule: the device where the export named one, the importer's
+  // own label where it did not, and nothing at all where the dive was typed in by hand or came
+  // from a source this build's registry does not know. Deliberately NOT marked computed (§0.6):
+  // that mark means "read from domain/derived.ts", and a device name is a stored fact, not
+  // something this app worked out — writing `= Suunto D5` would claim otherwise.
+  const importedFrom =
+    dive.importDevice ?? (dive.importSource === null ? null : importerLabelFor(dive.importSource));
+
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       {/* The way out and the dive's own action, as one row above the hero. `EditButton` is
@@ -873,6 +921,19 @@ export default function DiveDetailScreen({
         </View>
 
         <View style={styles.detailContent}>
+          {/* §0.4's card, in the space that rule reserved for it — first inside the content,
+              so it sits between the hero and the first cluster with nothing above it moved.
+              It is handed the series and draws nothing at all without one; this screen never
+              asks whether it will (see this file's docblock). */}
+          <DepthProfile dive={dive} samples={samples} scheme={scheme} units={units} />
+
+          {/* §7's provenance, beneath the card and independent of it: a computer can export a
+              dive it recorded no profile for, and this row is a fact about the dive either
+              way. A plain value row — no chevron (§0.6), nothing to press. */}
+          {importedFrom !== null && (
+            <Row label={t('field.importedFrom')} value={importedFrom} mono={false} styles={styles} />
+          )}
+
           {/* The one cluster that always renders (Status and Date are never null, §6), so
               `first` is a fixed prop here rather than an index the list of clusters below
               would have to compute — every other cluster is conditional, and the topmost

@@ -1,8 +1,14 @@
 import { render } from '@testing-library/react-native';
 import { Image, View } from 'react-native';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 
+import { DepthProfile } from '../components/DepthProfile';
+import { ProfileSparkline } from '../components/ProfileSparkline';
+import { dive } from '../domain/diveFixture';
+import { sparklinePoints } from '../domain/profile';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
+import { fixtureSeries } from './suuntoFixture';
 import { unexpectedGraphics } from './unexpectedGraphics';
 
 // The guard has a test of its own now, which is the other half of it having one owner: five
@@ -154,6 +160,104 @@ it('does not let a depth colour smuggle a shape in beside it', async () => {
   const t = await render(
     <View style={[styles.depthLegendBar, { backgroundColor: DEPTH_1, borderRadius: 40 }]} />,
   );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------------------
+// **The SVG arm, taught** (the dive profile). It used to report any SVG node on sight, as a
+// placeholder for a decision nothing could yet be written against; it now reads what the node
+// was PAINTED with. Both halves need cases again, and here the failing ones matter more than
+// anywhere else in this file: "an SVG is fine" would be the guard switched off for the only
+// part of the app that draws anything at all.
+//
+// The two real subjects are rendered rather than stood in for. `Sparkline` above is still the
+// right stand-in for the *name* rule, which is about a type name and not about a library; this
+// is the opposite — the rule is about what react-native-svg actually hands the host, and a
+// hand-built approximation of that is a test of the approximation.
+// ---------------------------------------------------------------------------------------
+
+const SERIES = fixtureSeries();
+
+it('passes the depth profile, whose every stroke is a depth colour or a theme token', async () => {
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={SERIES} scheme="light" units="metric" />,
+  );
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+it('passes the row sparkline, whose one stroke is the row’s own muted ink', async () => {
+  // The latent half of the same exposure: five screens render `DiveRow`, and every one of them
+  // sweeps this guard — but only over dives whose series is absent, so until the rule above
+  // existed the sparkline had simply never met it.
+  const t = await render(<ProfileSparkline points={sparklinePoints(SERIES, 40)} scheme="light" />);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+it('reads the profile per palette too, so a light render of dark ink is still reported', async () => {
+  // Exactly `isDepthPaint`'s own per-palette case, one arm over: the card's strokes are real
+  // colours from a real scale, and against the other scheme's sheet every one of them is wrong.
+  const t = await render(
+    <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={SERIES} scheme="dark" units="metric" />,
+  );
+  expect(unexpectedGraphics(t, 'dark')).toEqual([]);
+  expect(unexpectedGraphics(t, 'light').length).toBeGreaterThan(0);
+});
+
+it('catches a stroke that is neither a depth nor a token', async () => {
+  // The dropped-in chart, in the shape it would actually arrive in now that the app has a
+  // drawing primitive: a `Path` painted from a literal.
+  const t = await render(
+    <Svg>
+      <Path d="M0 0 L10 10" stroke="#ff0000" fill="none" />
+    </Svg>,
+  );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
+});
+
+it('catches a fill that is neither a depth nor a token', async () => {
+  // `fill` and `stroke` are one rule: the deepest-sample marker is a filled `Circle`, so a
+  // guard reading strokes alone would leave the app's one filled shape unguarded.
+  const t = await render(
+    <Svg>
+      <Circle cx={1} cy={1} r={1} fill="#ff0000" />
+    </Svg>,
+  );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
+});
+
+it('catches a shape that names no paint at all, which draws in the library’s own black', async () => {
+  // Not a hypothetical: react-native-svg fills an unpainted shape with opaque black, which is
+  // neither a depth colour nor a token in either scheme. Saying nothing about paint has to
+  // report, or "draw it and say nothing" would be the way past this arm.
+  const t = await render(
+    <Svg>
+      <Path d="M0 0 L10 10" />
+    </Svg>,
+  );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
+});
+
+it('catches a group that paints its children from outside the palette', async () => {
+  // SVG paint inherits, so a `<G fill="#f00">` colours everything under it without any of them
+  // naming a colour. Both are reported here — the group for the paint it declared, the path for
+  // declaring none — which is the same "nothing can say which of two was meant" answer the
+  // two-image case above gives.
+  const t = await render(
+    <Svg>
+      <G fill="#ff0000">
+        <Path d="M0 0 L10 10" />
+      </G>
+    </Svg>,
+  );
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(2);
+});
+
+it('catches a backdrop painted onto the drawing itself', async () => {
+  // The `<Svg>` element takes a `style` like any other view, so a fill can reach the canvas
+  // without touching `stroke` or `fill` at all. Its own two entries — the transparent reset and
+  // the box built from its `width`/`height` props — are what the rule permits, and a third one
+  // carrying a colour is not.
+  const t = await render(<Svg width="100%" height={40} style={{ backgroundColor: '#ff0000' }} />);
   expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
 });
 
