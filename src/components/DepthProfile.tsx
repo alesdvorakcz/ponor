@@ -112,12 +112,34 @@ const HAIRLINE_STROKE_WIDTH = 1;
  *
  * The dive detail is a `ScrollView`, and a pan with no activation threshold wins the touch the
  * instant it lands: the page would stop scrolling anywhere over the chart, which reads as a
- * broken screen rather than as a feature. With the threshold, a vertical drag never activates
- * the pan at all and scrolls the page as it always did, while a horizontal one scrubs.
+ * broken screen rather than as a feature. With the threshold, a straight vertical drag never
+ * activates the pan at all and scrolls the page as it always did, while a horizontal one scrubs.
  *
  * Applied symmetrically (`[-8, 8]`), because a diver scrubs in both directions.
  */
 const SCRUB_ACTIVATION_X = 8;
+
+/**
+ * **How far it may drift vertically while doing it**, in points — the companion
+ * `activeOffsetX` needs and did not have (whole-branch review).
+ *
+ * A sideways threshold alone decides nothing about a *diagonal* drag: a finger heading mostly
+ * down the page still accumulates `SCRUB_ACTIVATION_X` of sideways travel on the way, and
+ * whichever threshold it crosses first wins the touch. Without this the chart could take a
+ * gesture the diver meant as a scroll — the exact failure `SCRUB_ACTIVATION_X` exists to
+ * prevent, arriving by the other axis, and the sentence above used to claim it could not.
+ *
+ * **Larger than the sideways threshold, not equal to it**, so the band between them belongs to
+ * the chart: a scrub is a deliberate sideways move and a little vertical wander is what a thumb
+ * on a curve does, where a scroll is decisively vertical from the first millimetre.
+ *
+ * **It only governs activation.** Once the pan has the touch, the finger may go anywhere —
+ * tracing the curve up and down does not hand the gesture back mid-scrub.
+ *
+ * The ratio is reasoned, not measured: no test can feel it, and Jest never runs a gesture
+ * arbitration. It is the one number on this card a thumb has to settle.
+ */
+const SCRUB_FAIL_Y = 12;
 
 /**
  * `PROFILE_PLOT_INSET_Y`'s counterpart on the other axis (theme/styles.ts), and it exists for
@@ -458,6 +480,7 @@ export function DepthProfile({ dive, samples, scheme, units }: DepthProfileProps
     .withTestId(PROFILE_PLOT_TEST_ID)
     .runOnJS(true)
     .activeOffsetX([-SCRUB_ACTIVATION_X, SCRUB_ACTIVATION_X])
+    .failOffsetY([-SCRUB_FAIL_Y, SCRUB_FAIL_Y])
     .onStart((event) => scrubTo(event.x))
     .onUpdate((event) => scrubTo(event.x));
 
