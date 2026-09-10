@@ -18,6 +18,7 @@ import { type ProfilePoint } from '../domain/profile';
 import { makeStyles } from '../theme/styles';
 import { logbookUnreadable } from '../domain/logbook';
 import { setActiveLanguage } from '../i18n';
+import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import SearchScreen from './SearchScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
@@ -227,6 +228,26 @@ it("passes each dive its own series from useDiveSampleShapes() through to its ro
   const t = await render(<SearchScreen />);
   await fireEvent.changeText(findField(t), 'Blue');
   expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
+});
+
+// **§0.1's sweep, on a row whose sparkline actually draws** (review, Finding 6). This screen had
+// no `unexpectedGraphics` sweep at all until now — every other test here either has no query
+// typed (no rows at all) or, like the wiring test above, was never checked against the guard —
+// so the sparkline Task 6 put in every row had never met it here. Same treatment `DivesScreen`'s
+// own equivalent test (`draws none on a list whose rows have a shape to draw`) got.
+it('paints nothing of its own on a result row whose sparkline actually draws', async () => {
+  stubDives({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Blue Lagoon' })],
+    numbers: new Map([['a', 1], ['b', 2]]),
+    error: undefined,
+  });
+  mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map([['a', SERIES]]), resolved: true, error: undefined });
+  const t = await render(<SearchScreen />);
+  await fireEvent.changeText(findField(t), 'Blue');
+  // The sweep below is worthless if nothing drew: an empty shapes map would make it pass for
+  // the reason it would on every other test in this file.
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
 // Three states that read the same unless kept apart — the same discipline DivesScreen keeps

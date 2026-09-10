@@ -894,8 +894,20 @@ export default function DiveDetailScreen({
   // from a source this build's registry does not know. Deliberately NOT marked computed (§0.6):
   // that mark means "read from domain/derived.ts", and a device name is a stored fact, not
   // something this app worked out — writing `= Suunto D5` would claim otherwise.
-  const importedFrom =
-    dive.importDevice ?? (dive.importSource === null ? null : importerLabelFor(dive.importSource));
+  //
+  // A blank `importDevice` reads as absent, exactly like a null one, so `??` alone is not
+  // enough: today's only writer (the Suunto importer) normalises a blank name to null before it
+  // ever reaches the database, but this column also arrives by sync — a row written by a future
+  // client version, or by a second importer that forgot to normalise, lands in this same column
+  // with this screen as its reader. Closed here, where the reading happens, rather than trusted
+  // to every writer that will ever touch it.
+  //
+  // `trim()` and `||`, not a comparison against `''`: a name of nothing but spaces is as blank
+  // as an empty one and would render the label over an invisible value, which is the very thing
+  // this line exists to prevent. Trimmed before the test rather than only for it, so the row
+  // never shows a name with the whitespace some export padded it with.
+  const importDevice = dive.importDevice?.trim() || null;
+  const importedFrom = importDevice ?? (dive.importSource === null ? null : importerLabelFor(dive.importSource));
 
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>

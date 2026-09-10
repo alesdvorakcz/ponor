@@ -348,6 +348,26 @@ it('paints nothing of its own', async () => {
   expect(unexpectedGraphics(await show(), 'light')).toEqual([]);
 });
 
+// **...and none on a row whose sparkline actually draws** (review, Finding 6). The sweep above
+// renders with no entry in `shapes` at all, so the sparkline Task 6 put in every row had never
+// met this guard on this screen — exactly the latent exposure `DivesScreen`'s own equivalent
+// test (`draws none on a list whose rows have a shape to draw`) closed there.
+it('paints nothing of its own on a row whose sparkline actually draws', async () => {
+  mockUseDives.mockReturnValue(
+    divesState([withPonorka({ id: 'has-series' }), withPonorka({ id: 'no-series' })]),
+  );
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await show();
+  // The sweep below is worthless if nothing drew: an empty shapes map would make it pass for
+  // the reason the sweep above does.
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
 // The title is the screen's own, in the app's one heading treatment — not a borrowed one.
 it('sets its heading in the treatment every other screen title uses', async () => {
   const t = await show();

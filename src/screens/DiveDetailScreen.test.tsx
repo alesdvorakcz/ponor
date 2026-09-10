@@ -1024,6 +1024,12 @@ it('asks for THIS dive’s own series, not for whatever the last one held', asyn
 it('puts the profile between the hero and the first cluster, where §0.4 reserved the space', async () => {
   stubSamples(FIXTURE);
   const lines = textIn(await renderDetailTree(diveWithProfile));
+  // Review, Finding 4: pinned directly rather than left to the two comparisons below to imply.
+  // If the card vanished, `lines.indexOf(t('group.profile'))` is -1, and `-1 < indexOf(dateTime)`
+  // alone would still pass — only the first comparison actually caught that, and only because
+  // `heroDepth`'s own index happens to be a real, non-negative number. This says "the card is
+  // present" once, in a form nothing about the ordering math can make degrade quietly.
+  expect(lines).toContain(t('group.profile'));
   // Every string here is read from the thing that owns it — the formatter for the figure, the
   // i18n key for each label. A typed `'24,3'` would assert a decimal comma from a locale this
   // test never sets, and a typed `'Depth profile'` would pin one of the app's two languages.
@@ -1054,6 +1060,39 @@ it('falls back to the importer’s own label when the device was never recorded'
   expect(textIn(tree)).toContain(suuntoJsonImporter.label());
 });
 
+// Review, Finding 2: today's only importer normalises a blank device name to `null` before it
+// ever reaches the database, so `dive.importDevice` cannot actually hold `''` from that writer —
+// but the column also arrives by sync, from a future client or a second importer that forgot to
+// normalise. A blank must read exactly like the null case above, not like a name, or this would
+// render "Imported from" with nothing after it.
+it('treats a blank device name as no device, falling back to the importer’s own label', async () => {
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: suuntoJsonImporter.source, importDevice: '' }),
+  );
+  // Under the old `??` alone, `''` is not nullish, so this would read the blank string
+  // itself rather than ever calling `importerLabelFor` — the label below would not appear.
+  expect(textIn(tree)).toContain(suuntoJsonImporter.label());
+});
+
+// A name of nothing but spaces is as blank as an empty one, and a comparison against `''`
+// alone would let it through to render the label over an invisible value — the same defect
+// the case above closes, spelled differently by whichever writer eventually sends it.
+it('treats a whitespace-only device name as no device either', async () => {
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: suuntoJsonImporter.source, importDevice: '   ' }),
+  );
+  expect(textIn(tree)).toContain(suuntoJsonImporter.label());
+});
+
+// The trim is applied to the name itself, not only to the test for one — a padded name is
+// shown as the name, never with the export's own whitespace carried into the row.
+it('shows a padded device name without the padding', async () => {
+  const tree = await renderDetailTree(
+    dive({ id: 'd', importSource: suuntoJsonImporter.source, importDevice: '  Suunto D5  ' }),
+  );
+  expect(textIn(tree)).toContain('Suunto D5');
+});
+
 it('says nothing about importing for a dive the diver logged by hand', async () => {
   const tree = await renderDetailTree(dive({ id: 'd', importSource: null }));
   expect(textIn(tree)).not.toContain(t('field.importedFrom'));
@@ -1079,6 +1118,13 @@ it('says nothing about importing for a source no importer in the registry claims
 it('draws the card without a single colour that is not a depth or a token', async () => {
   stubSamples(FIXTURE);
   const tree = await renderDetailTree(diveWithProfile);
+  // Review, Finding 3: the sweep below is worthless if nothing drew — if `DepthProfile` stopped
+  // rendering, an empty tree reports nothing wrong for the wrong reason. `DivesScreen`'s own
+  // equivalent sweep (`draws none on a list whose rows have a shape to draw`) guards itself the
+  // same way. Not a fixed count, unlike that one's single sparkline stroke: how many `Path`s the
+  // fixture's series draws depends on how many depth bands it crosses, which is not this test's
+  // concern — only that it is more than none.
+  expect((tree.root ? tree.root.queryAll((n) => n.type === 'RNSVGPath') : []).length).toBeGreaterThan(0);
   expect(unexpectedGraphics(tree, 'light')).toEqual([]);
 });
 

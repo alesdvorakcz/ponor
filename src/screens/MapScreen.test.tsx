@@ -1348,6 +1348,25 @@ it('paints nothing outside the sheet, and never from the depth scale on a mark',
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
+// **...and none on a sheet row whose sparkline actually draws** (review, Finding 6). The sweep
+// above renders with no entry in `shapes` at all, so the sparkline Task 6 put in every row had
+// never met this guard on this screen — exactly the latent exposure `DivesScreen`'s own
+// equivalent test (`draws none on a list whose rows have a shape to draw`) closed there.
+it('paints nothing of its own on a sheet row whose sparkline actually draws', async () => {
+  mockUseDives.mockReturnValue(divesState([pinned({ id: 'has-series' }), pinned({ id: 'no-series' })]));
+  mockUseDiveSampleShapes.mockReturnValue({
+    shapes: new Map([['has-series', SERIES]]),
+    resolved: true,
+    error: undefined,
+  });
+  const t = await show();
+  await tapMark(t, 'Blue Hole, 2 dives');
+  // The sweep below is worthless if nothing drew: an empty shapes map would make it pass for
+  // the reason the sweep above does.
+  expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
 
 // ---------------------------------------------------------------------------------------
 // Czech (M3h) — the three sentences on this screen that carry a counted noun

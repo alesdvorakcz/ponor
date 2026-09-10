@@ -163,6 +163,25 @@ const SVG_HOST = /^RNSVG/;
  */
 const SVG_CONTAINERS: readonly string[] = ['RNSVGSvgView', 'RNSVGGroup'];
 
+/**
+ * The one SVG host that draws a **raster** rather than a vector shape, and the reason it is
+ * reported unconditionally by the arm below regardless of what it was painted with (review,
+ * M3o task 7 fix round 1, closing a gap the review found in `isSanctionedSvg` itself).
+ *
+ * `RNSVGImage` matches `SVG_HOST` exactly like every shape, and react-native-svg's `Image`
+ * accepts `fill`/`stroke` like any other element (`CommonPathProps`) whether or not either
+ * paints anything visible — so judging it on declared paint the way a `Path` or `Circle` is
+ * judged would admit a bitmap that happened to declare a sanctioned colour, where the arm this
+ * replaced always reported any SVG on sight. A blameless-looking `fill` does not make a photo,
+ * an imported chart PNG, or anything else this app has never drawn any less a raster: no
+ * legitimate node in this app is one, since the app draws exactly one image and it is the
+ * mark, which the `Image` arm above already owns and judges by identity against
+ * `emptyStateMark`. So this is carved out before `isSanctionedSvg` ever runs on it — the same
+ * way the two containers above are carved out from the opposite side (they draw nothing
+ * themselves, so there is no paint to be missing).
+ */
+const SVG_RASTER = 'RNSVGImage';
+
 /** The two props that put colour on an SVG element. Both, not `stroke` alone: the deepest-sample
  * marker on the profile card is a filled `Circle`, so a rule reading strokes would leave the
  * app's one filled shape unguarded. */
@@ -334,9 +353,17 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
     // a new graphic is no longer an edit here; it is painting it from the app's own palette, and
     // being reported by this line the moment it is painted from anywhere else.
     //
+    // **Except a raster, which reports regardless of paint** (review, M3o task 7 fix round 1):
+    // `RNSVGImage` matches `SVG_HOST` like every shape, so without the `SVG_RASTER` carve-out a
+    // bitmap that happened to declare a sanctioned colour would be admitted here, where the arm
+    // this replaced always reported it on sight — see `SVG_RASTER`'s own comment for why a
+    // raster's paint is beside the point.
+    //
     // Ordered before the name test below, and it has to be: every `RNSVG*` type contains "svg",
     // so that pattern matches all of them and would report the card wholesale.
-    if (typeof n.type === 'string' && SVG_HOST.test(n.type)) return !isSanctionedSvg(n, palette, known);
+    if (typeof n.type === 'string' && SVG_HOST.test(n.type)) {
+      return n.type === SVG_RASTER || !isSanctionedSvg(n, palette, known);
+    }
     // An element whose own type NAME says what it draws: an `Image` used as a rendered sprite,
     // or a component simply named for the thing it draws (Chart, Sparkline, Profile). It has
     // announced a drawing and carries no paint for the arm above to read, so it reports.

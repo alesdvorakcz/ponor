@@ -1,11 +1,12 @@
 import { render } from '@testing-library/react-native';
 import { Image, View } from 'react-native';
-import Svg, { Circle, G, Path } from 'react-native-svg';
+import Svg, { Circle, G, Image as SvgImage, Path } from 'react-native-svg';
 
 import { DepthProfile } from '../components/DepthProfile';
 import { ProfileSparkline } from '../components/ProfileSparkline';
 import { dive } from '../domain/diveFixture';
 import { sparklinePoints } from '../domain/profile';
+import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { depthScale } from '../theme/tokens';
 import { fixtureSeries } from './suuntoFixture';
@@ -203,6 +204,31 @@ it('reads the profile per palette too, so a light render of dark ink is still re
   expect(unexpectedGraphics(t, 'light').length).toBeGreaterThan(0);
 });
 
+it('reads a bare SVG stroke per palette too, with no View beside it to confound the claim', async () => {
+  // Review, Finding 1: the test above is satisfied by the CARD's own `View`s alone — a dark
+  // render carries `makeStyles('dark')` objects, none of which are in the light `known` set,
+  // so its second assertion would still pass even with the SVG paint check deleted outright
+  // (proved by mutation: stub `isSanctionedSvg` to always return `true` and the test above
+  // stays green). This isolates the SVG arm exactly as "reads the scheme it is given" above
+  // isolates `isDepthPaint` for a `View`: no card, no `View` at all, one bare stroke built
+  // from the OTHER scheme's own theme token, in both directions.
+  const dark = await render(
+    <Svg>
+      <Path d="M0 0 L10 10" stroke={themeFor('dark').fgMuted} fill="none" />
+    </Svg>,
+  );
+  expect(unexpectedGraphics(dark, 'dark')).toEqual([]);
+  expect(unexpectedGraphics(dark, 'light')).toHaveLength(1);
+
+  const light = await render(
+    <Svg>
+      <Path d="M0 0 L10 10" stroke={themeFor('light').fgMuted} fill="none" />
+    </Svg>,
+  );
+  expect(unexpectedGraphics(light, 'light')).toEqual([]);
+  expect(unexpectedGraphics(light, 'dark')).toHaveLength(1);
+});
+
 it('catches a stroke that is neither a depth nor a token', async () => {
   // The dropped-in chart, in the shape it would actually arrive in now that the app has a
   // drawing primitive: a `Path` painted from a literal.
@@ -258,6 +284,22 @@ it('catches a backdrop painted onto the drawing itself', async () => {
   // the box built from its `width`/`height` props — are what the rule permits, and a third one
   // carrying a colour is not.
   const t = await render(<Svg width="100%" height={40} style={{ backgroundColor: '#ff0000' }} />);
+  expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
+});
+
+it('catches a raster inside an SVG even when its declared paint is sanctioned', async () => {
+  // Review, Finding 5: `RNSVGImage` matches `SVG_HOST` exactly like every shape above, and
+  // react-native-svg's `Image` accepts `fill`/`stroke` like any other element whether or not
+  // either paints anything visible. Judged on declared paint the way the cases above are, this
+  // would be ADMITTED — a light `fg` is genuinely sanctioned — where the arm this file's own
+  // SVG rule replaced always reported any SVG on sight. No legitimate node in this app is a
+  // raster: the one image Ponor draws is the mark, and the `Image` arm far above this one
+  // already owns it.
+  const t = await render(
+    <Svg>
+      <SvgImage href={{ uri: 'x' }} width={10} height={10} fill={themeFor('light').fg} stroke="none" />
+    </Svg>,
+  );
   expect(unexpectedGraphics(t, 'light')).toHaveLength(1);
 });
 
