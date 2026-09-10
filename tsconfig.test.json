@@ -11,6 +11,7 @@
     "src/db/testDb.ts",
     "src/testing/fakeSyncServer.ts",
     "src/testing/migrationSql.ts",
+    "src/testing/suuntoFixture.ts",
     "src/testing/unexpectedGraphics.ts"
   ],
   // Un-excludes the test files tsconfig.json excludes ("exclude" replaces rather than merges

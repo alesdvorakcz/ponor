@@ -239,13 +239,19 @@ const PROFILE_AXIS_LINE_HEIGHT = 13;
  * wrapper to match, so the two cannot drift apart into a shape that is clipped or a wrapper
  * with dead space around it.
  *
- * Sized to sit inside the metadata row's own line height (`diveChip` is 11.5 pt type, whose
- * line box already runs 14–16 pt) rather than to any figure the spec pins — spec §6 only says
- * "the row is 46 px tall", about the row as a whole, not this shape's own share of it. Kept at
- * or under that line's height on purpose: `diveRowBottom` sizes itself to its tallest child,
- * so a sparkline taller than the text and rating dots beside it would grow the row for every
- * dive that carries one — exactly what DESIGN.md §0.5's 48 dp floor and this task's own
- * "the row's height must not change" rule forbid.
+ * **`diveChip`'s own `lineHeight`, below, is set to this exact constant — not merely sized to
+ * sit inside whatever line box 11.5 pt type happens to measure.** A review found this docblock
+ * once claiming that implicit line box "already runs 14–16 pt", with nothing in the stylesheet
+ * actually pinning that number: `diveChip` carried no `lineHeight` at all, so its real line box
+ * was whatever a given platform's font metrics produced for 11.5 pt type, which is not
+ * guaranteed to land anywhere near 16. A logbook mixing dives with and without a sparkline
+ * could then show two interleaved row heights, since `diveRowBottom` sizes itself to its
+ * tallest child and has no fixed height of its own to fall back on — exactly what DESIGN.md
+ * §0.5's 48 dp floor and this task's own "the row's height must not change" rule forbid.
+ * `PROFILE_AXIS_LINE_HEIGHT` just above already makes this same call for the plot's own axis
+ * labels, for the same reason: a hand-matched implicit line box is a claim nothing enforces,
+ * and the one way to make two numbers agree by construction rather than by coincidence is to
+ * give them one name.
  */
 export const PROFILE_SPARK_HEIGHT = 16;
 
@@ -2059,6 +2065,10 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.mono,
       fontSize: 11.5,
       color: theme.fgMuted,
+      // Task 6 review, Important #1: pinned to `PROFILE_SPARK_HEIGHT` explicitly, rather than
+      // left to whatever line box the platform's own font metrics produce for 11.5 pt type —
+      // see that constant's own docblock for what happened while this was unset.
+      lineHeight: PROFILE_SPARK_HEIGHT,
     },
     // Task 6's row sparkline (`ProfileSparkline`, components/ProfileSparkline.tsx) — the shape
     // sits AFTER whatever text/rating chips this row already has, at the trailing edge of

@@ -149,16 +149,9 @@ export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
  * rows `everyDiveSampleRowsQuery` itself produced.
  */
 export function toDiveSampleShapes(rows: unknown[]): Map<string, ProfilePoint[]> {
-  // Built through the `Map` constructor from an entry list rather than an imperative loop
-  // calling the map's own single-pair mutator: `dirty.test.ts`'s "stamps every UPDATE" check
-  // scans every repository file's TEXT for that exact call syntax, on the reasoning (that
-  // file's own docblock) that a real miss is worse than a false one it has to name on purpose
-  // — and this table's own map, spelled the imperative way, is exactly the kind of same-
-  // spelling-different-thing collision that check cannot tell from Drizzle's own update
-  // builder. (Naming the syntax here in full would retrigger the very thing this avoids —
-  // hence "own mutator" rather than the three characters that follow the dot.) Avoiding the
-  // spelling entirely, rather than teaching that check this table's shape one call at a time,
-  // is what keeps it a check on the DATABASE writes it was built for.
+  // Built from an entries array rather than an imperative loop calling the map's own
+  // single-pair mutator, which `dirty.test.ts`'s dirty-flag sweep text-scans for and cannot
+  // tell apart from Drizzle's own update builder.
   const entries = (rows as DiveSampleRow[])
     .map((row): [string, ProfilePoint[]] => [row.id, sparklinePoints(row.series, SPARK_BUCKETS)])
     .filter(([, points]) => points.length > 0);

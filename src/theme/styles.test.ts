@@ -3,7 +3,13 @@ import { join, relative } from 'node:path';
 
 import { fonts } from './fonts';
 import { themeFor } from './resolve';
-import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset } from './styles';
+import {
+  liftedBottomInset,
+  makeStyles,
+  PROFILE_SPARK_HEIGHT,
+  screenBottomInset,
+  screenTopInset,
+} from './styles';
 import { depthScale } from './tokens';
 
 // makeStyles(scheme) is called on every render (see src/screens/DivesScreen.tsx). If it built a
@@ -1500,4 +1506,27 @@ describe('liftedBottomInset', () => {
     expect(liftedBottomInset(0, 0, true)).toBe(0);
     expect(liftedBottomInset(120, 24, false)).toBe(144);
   });
+});
+
+// Task 6 review, Important #1: `diveSparkline` carries a hard `height: PROFILE_SPARK_HEIGHT`
+// (16), but its sibling `diveChip` — the metadata chip a sparkline sits beside, inside the same
+// `diveRowBottom` row — declared no `lineHeight` at all, so its line box was whatever the
+// platform's own font metrics happened to produce for 11.5 pt type. `diveRowBottom` has no
+// fixed height of its own and sizes to its tallest child, so a logbook mixing dives with and
+// without a sparkline showed two interleaved row heights — exactly what this task's own "the
+// row's tap target and height must not change" rule forbids.
+//
+// The two numbers can only stay equal by CONSTRUCTION, not by two literals that happen to
+// agree today — `PROFILE_AXIS_LINE_HEIGHT` (above `PROFILE_SPARK_HEIGHT` in styles.ts) already
+// makes this exact call for the plot's own axis labels, for the same reason. So this pins the
+// relationship, not a number: `diveChip.lineHeight` has to read the very constant
+// `diveSparkline.height` does.
+describe('the row sparkline and the chip beside it', () => {
+  it.each(['dark', 'light'] as const)(
+    "gives the metadata chip the sparkline's own line height, so the row cannot grow for one and not the other (%s)",
+    (scheme) => {
+      const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      expect(styles.diveChip?.lineHeight).toBe(PROFILE_SPARK_HEIGHT);
+    },
+  );
 });

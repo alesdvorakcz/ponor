@@ -212,8 +212,17 @@ it('narrows to matching dives as the diver types', async () => {
 // Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
 // ever passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
 // actually reaches the matching row.
+// Task 6 review, Finding 6: `TWO_DIVES` above narrows to a single visible row once the field
+// reads "Blue" ("Shark Reef" does not match), which cannot tell "this dive's series" apart
+// from "any series" — a screen that passed every row the same constant would pass just as
+// well. Two dives that BOTH match the search term, with only one carrying a series, is what
+// makes this a real per-id test rather than a vacuous one.
 it("passes each dive its own series from useDiveSampleShapes() through to its row's sparkline", async () => {
-  stubDives(TWO_DIVES);
+  stubDives({
+    dives: [dive({ id: 'a', siteName: 'Blue Hole' }), dive({ id: 'b', siteName: 'Blue Lagoon' })],
+    numbers: new Map([['a', 1], ['b', 2]]),
+    error: undefined,
+  });
   mockUseDiveSampleShapes.mockReturnValue({ shapes: new Map([['a', SERIES]]), resolved: true, error: undefined });
   const t = await render(<SearchScreen />);
   await fireEvent.changeText(findField(t), 'Blue');

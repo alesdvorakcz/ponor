@@ -1,18 +1,16 @@
 import { act, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { processColor } from 'react-native';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import type { PanGesture } from 'react-native-gesture-handler';
 
 import type { DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
-import { suuntoJsonImporter } from '../domain/import/suunto';
 import type { Dive, Tank } from '../domain/types';
 import { formatDepth, formatRmv, NO_FIGURE } from '../format/display';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, PROFILE_PLOT_HEIGHT } from '../theme/styles';
+import { fixtureImportedDive } from '../testing/suuntoFixture';
 import { DepthProfile, PLOT_WIDTH, PROFILE_PLOT_TEST_ID } from './DepthProfile';
 
 // Adapted from the brief's react-test-renderer-shaped examples to the API the installed
@@ -101,25 +99,19 @@ function paint(colour: string): unknown {
 }
 
 /**
- * **The committed reference dive, run through the real importer** — the plan's `FIXTURE`.
+ * **The committed reference dive, run through the real importer** — the plan's `FIXTURE`,
+ * built on `../testing/suuntoFixture`'s `fixtureImportedDive()` (Task 6 review, Finding 4:
+ * that module is the one place this read-and-parse happens now, rather than a copy per file).
  *
- * Built from `src/domain/import/__fixtures__/suunto-d5.json` rather than hand-written,
- * because a hand-built series would miss the exact shapes this card's geometry has to
- * survive: an **event-only first sample** (no `Depth`, dropped by the importer, so the series
- * starts at the second row), a **non-zero first offset** (0.57 s, not 0), and a **header
- * maximum deeper than any sample** (24.33 m against a deepest sample of 24.29 m).
- *
- * The committed fixture is the *trimmed* five-sample dive, not the 222-sample original — the
- * same fact `domain/consumption.test.ts` had to absorb — so every number asserted below is
- * this file's own, measured from it, and is deliberately not the reference dive's headline
- * figures (222 samples, a 10 s median).
+ * The trimmed five-sample dive it returns has the exact shapes this card's geometry has to
+ * survive that a hand-built series would miss: an **event-only first sample** (no `Depth`,
+ * dropped by the importer, so the series starts at the second row), a **non-zero first
+ * offset** (0.57 s, not 0), and a **header maximum deeper than any sample** (24.33 m against a
+ * deepest sample of 24.29 m) — not the 222-sample original's headline figures (a 10 s median),
+ * the same fact `domain/consumption.test.ts` had to absorb.
  */
 function fixture(): { dive: Dive; series: DiveSample[] } {
-  const bytes = new Uint8Array(
-    readFileSync(join(__dirname, '..', 'domain', 'import', '__fixtures__', 'suunto-d5.json')),
-  );
-  const [imported] = suuntoJsonImporter.parse(bytes);
-  if (!imported) throw new Error('suunto-d5 fixture yielded no dive');
+  const imported = fixtureImportedDive();
   // An importer yields a `NewDiveInput`, not a stored row (`ImportedDive`, domain/import/
   // types.ts) — this card is handed the dive a screen read back out of the database. So the
   // imported fields go through the same `dive()` fixture every other component test uses,

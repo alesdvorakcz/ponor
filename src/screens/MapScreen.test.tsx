@@ -812,15 +812,18 @@ it('offers the site’s page from the sheet its own mark opens', async () => {
 // Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing ever
 // passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
 // actually reaches this sheet's own `DiveRow` list, not just its number and depth.
+// Task 6 review, Finding 6: a second dive with NO entry in `shapes` — without it, a screen
+// that passed every row the same constant series would pass this test just as well as one
+// that genuinely looks the series up by id.
 it("passes each dive its own series from useDiveSampleShapes() through to the sheet's row", async () => {
-  mockUseDives.mockReturnValue(divesState([pinned({ id: 'has-series' })]));
+  mockUseDives.mockReturnValue(divesState([pinned({ id: 'has-series' }), pinned({ id: 'no-series' })]));
   mockUseDiveSampleShapes.mockReturnValue({
     shapes: new Map([['has-series', SERIES]]),
     resolved: true,
     error: undefined,
   });
   const t = await show();
-  await tapMark(t, 'Blue Hole, 1 dive');
+  await tapMark(t, 'Blue Hole, 2 dives');
   expect(t.root ? t.root.queryAll((n) => n.type === 'RNSVGPath') : []).toHaveLength(1);
 });
 

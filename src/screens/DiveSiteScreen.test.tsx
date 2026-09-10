@@ -303,8 +303,13 @@ it('counts a dive that named the site by hand', async () => {
 // Task 6's whole reason for calling out the wiring by name: a `samples` prop that nothing
 // ever passes draws nothing, forever. This proves the map `useDiveSampleShapes()` hands back
 // actually reaches this page's own dive list.
+// Task 6 review, Finding 6: a second dive with NO entry in `shapes` — without it, a screen
+// that passed every row the same constant series would pass this test just as well as one
+// that genuinely looks the series up by id.
 it("passes each dive its own series from useDiveSampleShapes() through to its row's sparkline", async () => {
-  mockUseDives.mockReturnValue(divesState([dive({ id: 'has-series', siteId: 's1' })]));
+  mockUseDives.mockReturnValue(
+    divesState([dive({ id: 'has-series', siteId: 's1' }), dive({ id: 'no-series', siteId: 's1' })]),
+  );
   mockUseDiveSampleShapes.mockReturnValue({
     shapes: new Map([['has-series', SERIES]]),
     resolved: true,

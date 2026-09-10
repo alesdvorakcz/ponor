@@ -1,12 +1,9 @@
 import { render, type RenderResult } from '@testing-library/react-native';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { processColor } from 'react-native';
 
-import type { DiveSample } from '../db/schema';
 import { sparklinePoints, SPARK_BUCKETS } from '../domain/profile';
-import { suuntoJsonImporter } from '../domain/import/suunto';
 import { themeFor } from '../theme/resolve';
+import { fixtureSeries } from '../testing/suuntoFixture';
 import { ProfileSparkline } from './ProfileSparkline';
 
 // Same adaptation as DiveRow.test.tsx/DepthProfile.test.tsx (see either file's own top
@@ -32,23 +29,6 @@ function paintOf(node: { props: Record<string, unknown> }, prop: 'stroke' | 'fil
 
 function paint(colour: string): unknown {
   return processColor(colour);
-}
-
-/**
- * **The plan's `FIXTURE`: the committed reference dive's trimmed series, run through the real
- * importer** — `DepthProfile.test.tsx`'s own `fixture()`, minus the `Dive` half this component
- * never reads. Built rather than hand-written for the reason that file's docblock gives: a
- * hand-rolled series would miss the exact shapes the real file has (an event-only first
- * sample, a non-zero first offset), and this is the trimmed five-sample dive, not the
- * 222-sample original.
- */
-function fixtureSeries(): DiveSample[] {
-  const bytes = new Uint8Array(
-    readFileSync(join(__dirname, '..', 'domain', 'import', '__fixtures__', 'suunto-d5.json')),
-  );
-  const [imported] = suuntoJsonImporter.parse(bytes);
-  if (!imported) throw new Error('suunto-d5 fixture yielded no dive');
-  return imported.series ?? [];
 }
 
 // Task 6 review, Finding 0: this component now takes already-downsampled points rather than

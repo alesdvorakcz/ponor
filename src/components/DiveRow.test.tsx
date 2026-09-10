@@ -1,35 +1,16 @@
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { Text } from 'react-native';
 
-import { type DiveSample } from '../db/schema';
 import { dive } from '../domain/diveFixture';
 import { sparklinePoints, SPARK_BUCKETS } from '../domain/profile';
-import { suuntoJsonImporter } from '../domain/import/suunto';
 import { formatDuration, formatTimeRange } from '../format/display';
 import { setActiveLanguage } from '../i18n';
 import { depthColor } from '../theme/depth';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { fixtureSeries } from '../testing/suuntoFixture';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { DiveRow } from './DiveRow';
-
-/**
- * **The plan's `FIXTURE`** — `DepthProfile.test.tsx`'s and `ProfileSparkline.test.tsx`'s own
- * `fixture()`/`fixtureSeries()`, reused by the same approach rather than a second copy: the
- * committed reference dive's trimmed five-sample series, run through the real importer, since
- * a hand-rolled series would miss the exact shapes the real file has and this task's own
- * testing facts forbid asserting a number from memory of a fuller dive.
- */
-function fixtureSeries(): DiveSample[] {
-  const bytes = new Uint8Array(
-    readFileSync(join(__dirname, '..', 'domain', 'import', '__fixtures__', 'suunto-d5.json')),
-  );
-  const [imported] = suuntoJsonImporter.parse(bytes);
-  if (!imported) throw new Error('suunto-d5 fixture yielded no dive');
-  return imported.series ?? [];
-}
 
 // Task 6 review, Finding 0: `DiveRow`'s `points` prop is already-downsampled sparkline
 // points, not the raw series `fixtureSeries()` returns — the same call `toDiveSampleShapes`
@@ -237,7 +218,11 @@ it('shows no dive number for a planned dive', async () => {
   expect(textIn(t).join(' ')).not.toMatch(/#\d/);
 });
 
-it('draws no graphic for a dive, because no dive has a sample series', async () => {
+// Task 6 review, Finding 3: this used to state a global truth ("because no dive has a sample
+// series") that Task 6 itself removed — plenty of dives do now. What this test actually pins
+// is narrower and still true: THIS dive was given no `points` prop, so it must draw no stray
+// graphic of its own, whatever other dives elsewhere may have.
+it('draws no graphic for a dive that was given no series of its own', async () => {
   // `rating: 4` on top of `maxDepthM` so this render also exercises RatingDots' own
   // `View`s (§0.6's drawn marks, task 7) — proving the whitelist above recognises every
   // legitimate View this row can produce, not just the ones a depth-only fixture reaches.
