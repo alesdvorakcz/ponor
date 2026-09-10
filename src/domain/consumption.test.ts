@@ -19,16 +19,32 @@ function fixtureSeries(name: string): { series: DiveSample[]; tank: Tank } {
   return { series: imported.series ?? [], tank };
 }
 
-it('emits no point where the window is incomplete', () => {
-  // The bug this rule exists for: a window that shrinks as it runs out of samples falls back
-  // to noisy 10-second readings and produced a phantom 36 l/min spike at the dive's end.
+it('ends before the series’ own last sample, on a real imported dive', () => {
+  // Review, Finding 4: named for the incomplete-window bug this file exists to prevent (a
+  // window that shrinks as it runs out of samples falls back to noisy 10-second readings and
+  // produced a phantom 36 l/min spike at the dive's end) — but every point is anchored at its
+  // window's own midpoint and every window has start < end, so `out[out.length - 1].t <
+  // series[last][0]` holds for ANY non-empty output, including a widening-window
+  // implementation that reintroduces that exact spike. What actually pins the rule is
+  // 'computes an exact RMV at constant depth, checkable by hand' below (`toHaveLength(1)`,
+  // which a widening window fails) and 'skips a window once its mean depth drops below
+  // PROFILE_RMV_MIN_DEPTH_M' (the exact `t` list, worked out on paper). This test's own job is
+  // narrower and still worth keeping: run the real suunto-d5 fixture — not a hand-built series
+  // — through the function and confirm the shape of a real answer.
   const { series, tank } = fixtureSeries('suunto-d5');
   const out = consumptionSeries(series, tank);
   const last = series[series.length - 1]?.[0] ?? 0;
   expect(out[out.length - 1]!.t).toBeLessThan(last);
 });
 
-it('emits no point above 1.5 m, where the formula inflates', () => {
+it('emits only positive RMV values, on a real imported dive', () => {
+  // Review, Finding 4: named for the 1.5 m depth-exclusion rule this file also enforces, but
+  // `point.v > 0` holds for every window `rmvFrom` can produce regardless of that rule —
+  // its other guards (a non-negative pressure drop, a real elapsed time) already make this
+  // true on their own, so it cannot tell a missing 1.5 m check apart from a working one.
+  // 'skips a window once its mean depth drops below PROFILE_RMV_MIN_DEPTH_M' below is what
+  // actually pins that rule, on a hand-computable series. This test's job, like its neighbour
+  // above, is to run the real fixture through the function and confirm a real answer's shape.
   const { series, tank } = fixtureSeries('suunto-d5');
   for (const point of consumptionSeries(series, tank)) {
     expect(point.v).toBeGreaterThan(0);
@@ -102,7 +118,7 @@ it('skips a window once its mean depth drops below PROFILE_RMV_MIN_DEPTH_M', () 
   // surface — only mean depth does. That is exactly why this rule is needed: rmvFrom
   // itself does not reject a shallow-but-positive depth (ata approaches 1, not 0 or
   // negative), so a window sitting entirely in the 1 m tail would still produce a valid,
-  // inflated value if this check didn't exist — the "emits no point above 1.5 m" fixture
+  // inflated value if this check didn't exist — the "emits only positive RMV values" fixture
   // test above names that failure mode, but its own assertion (every point.v > 0) can't
   // detect a missing rule, since rmvFrom's other guards already make that true regardless.
   //

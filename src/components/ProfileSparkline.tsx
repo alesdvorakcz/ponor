@@ -101,8 +101,11 @@ export function ProfileSparkline({ points, scheme }: ProfileSparklineProps) {
   // the identical call for the identical reason: a min–max scale would draw two close depths
   // (12 m and 13 m, say) as a mountain range, where a real dive that stayed shallow throughout
   // should read as a shallow line. `sparklinePoints`' own docblock guarantees the max of the
-  // DOWNSAMPLED points is the dive's true deepest sample, wherever in the series it fell, so
-  // this scale is never shallower than the row's own depth figure beside it.
+  // DOWNSAMPLED points is the dive's true deepest sample, wherever in the series it fell — not
+  // the row's own depth figure beside it, which is the stored `maxDepthM` and can be a hair
+  // deeper still (`depthAxis`'s own docblock, domain/profile.ts, has the numbers). Sub-pixel in
+  // practice, and never drawn as a visible disagreement — recorded here only so this scale's
+  // own guarantee stays exactly what `sparklinePoints` actually promises.
   //
   // Clamped to at least 0: `sparklinePoints` does not filter by `isDisplayableDepth` the way
   // `colourRuns` does, so a device drifting negative at the surface could in principle hand

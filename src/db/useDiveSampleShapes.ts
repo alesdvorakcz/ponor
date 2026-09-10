@@ -32,7 +32,7 @@ export interface DiveSampleShapesState {
    * its own hook rather than a field on `useDives()`.** A failed sample-series read must not
    * blank the diver's logbook — the exact failure `useGearPresets`' own docblock records
    * `useDives()` once suffering from a *settings* read, one column over. A row with no
-   * `samples` prop renders exactly as it always has, whether that absence means "never
+   * `points` prop renders exactly as it always has, whether that absence means "never
    * imported" or "the read that would have said otherwise just failed" — so there is nothing
    * for this field to gate today. It is here for the same reason `resolved` is: the fact
    * exists, and a caller that ever needs to say "couldn't read your dive profiles" must not

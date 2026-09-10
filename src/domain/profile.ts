@@ -211,12 +211,16 @@ export const SPARK_BUCKETS = 40;
  * Downsamples a series to at most `buckets` points for the row sparkline (spec §6): splits it
  * into that many contiguous chunks by position and keeps each chunk's deepest sample.
  *
- * **Not every *n*th sample.** A dive's true maximum routinely lands on a single sample — the
- * reference dive's does — and a row draws this sparkline right beside that same figure.
- * Skipping every *n*th sample would drop that one point about as often as it kept it, and a
- * sparkline shallower than the number beside it would read as the two disagreeing about the
- * dive. Taking each chunk's deepest sample instead means the silhouette's lowest point is
- * always the dive's real maximum, wherever in the series it falls.
+ * **Not every *n*th sample.** A dive's deepest reading routinely lands on a single sample —
+ * the reference dive's does — and a row draws this sparkline beside its own depth figure.
+ * Skipping every *n*th sample would drop that one point about as often as it kept it, which
+ * would read as the sparkline and the figure beside it disagreeing about the dive. Taking
+ * each chunk's deepest sample instead means the silhouette's lowest point is always the
+ * deepest sample the series actually recorded, wherever it falls — **not the dive's stored
+ * `maxDepthM`**, which `depthAxis` above draws from instead. The import spec (§4.2) records
+ * that stored figure as finer than the series and occasionally deeper than any sample it
+ * holds (24.33 stated vs 24.29 sampled, on the reference dive) — a difference this function
+ * never sees, since it never reads `maxDepthM` at all.
  *
  * Chunked by position rather than by the samples' own time span: the series is already in
  * chronological order, so an equal split by count gives (near enough) equal spans of time for
