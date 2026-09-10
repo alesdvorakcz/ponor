@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { pathOf, round, type ProfilePoint } from '../domain/profile';
+import { isSparkDrawable, pathOf, round, type ProfilePoint } from '../domain/profile';
 import { themeFor } from '../theme/resolve';
 import { makeStyles, PROFILE_SPARK_HEIGHT } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -82,11 +82,15 @@ export function ProfileSparkline({ points, scheme }: ProfileSparklineProps) {
 
   const first = points.at(0);
   const last = points.at(-1);
-  // Below two points there is nothing to stroke (`sparklinePoints`' own floor, upstream in
-  // `toDiveSampleShapes`); and the same refusal `DepthProfile` makes for a series whose first
-  // and last point share one instant — there is no time axis to map onto, and dividing by its
-  // extent would produce NaN.
-  if (first === undefined || last === undefined || !(last.t > first.t)) return null;
+  // `isSparkDrawable` (domain/profile.ts) is the one place this refusal is decided — below two
+  // points there is nothing to stroke (`sparklinePoints`' own floor, upstream in
+  // `toDiveSampleShapes`), and the same refusal `DepthProfile` makes for a series whose first
+  // and last point share one instant, where there is no time axis to map onto and dividing by
+  // its extent would produce NaN. `DiveRow`'s `showBottomRow` asks the identical function for
+  // its own "reserve a row for this or not" question, so the two can't drift apart. Re-checked
+  // for `undefined` here, rather than trusted from the call above, only because `Array#at`'s
+  // return type can't tell TypeScript what `isSparkDrawable` already proved.
+  if (first === undefined || last === undefined || !isSparkDrawable(points)) return null;
 
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);

@@ -1527,6 +1527,13 @@ describe('the row sparkline and the chip beside it', () => {
     (scheme) => {
       const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       expect(styles.diveChip?.lineHeight).toBe(PROFILE_SPARK_HEIGHT);
+      // Task 6 review, fix round 2, Finding 2: the assertion above pinned only `diveChip`'s
+      // side of the relationship the comment above already claims — `diveSparkline.height`
+      // could drift to a stray literal and this test would still pass, which is the exact
+      // failure this describe block exists to catch. Pinned to the same named constant, not
+      // to `styles.diveChip?.lineHeight` directly, matching how the assertion above already
+      // reads: two readers of one constant, not two literals asserted equal to each other.
+      expect(styles.diveSparkline?.height).toBe(PROFILE_SPARK_HEIGHT);
     },
   );
 });

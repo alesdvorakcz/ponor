@@ -230,6 +230,27 @@ export function sparklinePoints(samples: DiveSample[], buckets: number): Profile
 }
 
 /**
+ * Whether `points` has enough to draw a stroke at all: at least two of them, with a first and
+ * last that do not share one instant — a series whose whole extent is one recorded moment has
+ * no time axis to map onto. `ProfileSparkline` (components/ProfileSparkline.tsx) asks exactly
+ * this before it draws; `DiveRow`'s `showBottomRow` asks it too, for a narrower question of its
+ * own — whether reserving a bottom row for a shape is worth it at all — so that the row can
+ * never reserve space `ProfileSparkline` then declines to draw into, nor the reverse.
+ *
+ * **One function rather than two independently-tuned checks.** A review found `DiveRow` using
+ * `points !== undefined` in `isSparkDrawable`'s place — true of a one-point array, which
+ * `toDiveSampleShapes` (db/diveSamples.ts) does not currently hand a real screen but the public
+ * `points` prop does not itself forbid. `null` and `undefined` both answer `false` so either
+ * caller can hand this whatever "no series" spelling it already has on hand.
+ */
+export function isSparkDrawable(points: readonly ProfilePoint[] | null | undefined): boolean {
+  if (points === null || points === undefined) return false;
+  const first = points.at(0);
+  const last = points.at(-1);
+  return first !== undefined && last !== undefined && last.t > first.t;
+}
+
+/**
  * A point already placed in a drawing's own coordinates — `x`/`y` in whatever units the
  * caller scaled to (viewBox units, for both `DepthProfile` and Task 6's `ProfileSparkline`) —
  * as opposed to `ProfilePoint`'s `t`/`v`, which stay in the dive's own units (seconds, metres).

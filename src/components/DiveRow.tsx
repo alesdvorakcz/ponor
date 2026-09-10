@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { type ProfilePoint } from '../domain/profile';
+import { isSparkDrawable, type ProfilePoint } from '../domain/profile';
 import { type Dive } from '../domain/types';
 import { t, useT } from '../i18n';
 import {
@@ -78,14 +78,17 @@ interface DiveRowProps {
    * and both simply come back `undefined` for the (still ordinary) case of a dive nothing was
    * ever imported for.
    *
-   * **Points, not raw samples** — a review found the hook returning the latter expensive to
-   * hold across a whole logbook (`toDiveSampleShapes`'s own docblock, db/diveSamples.ts, has
-   * the reasoning and the numbers); the downsampling, and the "too short to draw" judgement for
-   * a series too small to make a shape from, both happen there now, once per query, rather than
-   * in `ProfileSparkline` (below) once per row per render. This row still repeats none of that
-   * judgement — it only decides WHERE the shape goes and hands the prop on unchanged (`?? null`,
-   * since `ProfileSparkline`'s own "no series" spelling is `null`, matching `DepthProfile`'s and
-   * `useDiveSamples`', not `undefined`).
+   * **Points, not raw samples.** `toDiveSampleShapes` (db/diveSamples.ts) downsamples once per
+   * query run instead of `ProfileSparkline` (below) calling `sparklinePoints` on a ~250-sample
+   * series itself, per row, on every render — that function's own docblock has the reasoning,
+   * and, since a later review, the one thing that move does not fix (the raw series stays
+   * resident regardless, for a reason that belongs to `useDiveSampleShapes`, not to this prop).
+   * This row still decides nothing about how a shape is drawn, or draws one itself — it asks
+   * `isSparkDrawable` (domain/profile.ts), the identical test `ProfileSparkline` draws by, only
+   * to decide whether reserving a bottom row for one is worth it at all (`showBottomRow`
+   * below). Otherwise it hands the prop on unchanged (`?? null`, since `ProfileSparkline`'s own
+   * "no series" spelling is `null`, matching `DepthProfile`'s and `useDiveSamples`', not
+   * `undefined`).
    *
    * Optional, unlike `number`: every screen this row already had before Task 6 renders it with
    * no opinion about a series at all, and making this required would have turned every one of
@@ -196,7 +199,7 @@ function DiveRowComponent({
   const hasMetaText = metaText !== '';
   const hasMeta = hasMetaText || dive.rating !== null;
   // Task 6: the bottom row is where the sparkline lives too, so a dive whose ONLY metadata is
-  // a real sample series still gets a row to put it in — `points !== undefined` on top of
+  // a real sample series still gets a row to put it in — `isSparkDrawable(points)` on top of
   // `hasMeta` rather than folded into it, since `hasMeta`'s own name and every existing reader
   // of it are about the text/rating chips specifically. In practice this rarely changes
   // anything: every dive that carries a series was imported from a dive computer, and every
@@ -204,12 +207,17 @@ function DiveRowComponent({
   // `hasMeta` true on its own (`DiveRow.test.tsx`'s "still shows the sparkline..." test pins
   // the one case it does change — a series with no other metadata at all).
   //
-  // Testing PRESENCE rather than drawability is safe only because `toDiveSampleShapes`
-  // (db/diveSamples.ts) already filters to series that produce at least one drawable point —
-  // a review once found a one-sample series surviving into the map, reserving this row's empty
-  // bottom slot for a shape that could never draw. An entry in `points` now means "will draw",
-  // not merely "was recorded", so presence and drawability are the same test.
-  const showBottomRow = hasMeta || points !== undefined;
+  // **Asks `isSparkDrawable` (domain/profile.ts) rather than testing `points !== undefined`.**
+  // A review found that presence check safe for all six of today's callers — every one passes
+  // `shapes.get(id)`, and `toDiveSampleShapes` already filters to series with a drawable point
+  // — but not safe for the prop itself, which is public: a caller handing this row a one-point
+  // array directly, bypassing that map entirely, would still reserve an empty bottom row —
+  // `diveRowBottom`, and the `gap: 6` `diveRow` spends reaching it — for a shape that could
+  // never draw. `isSparkDrawable` is the exact question `ProfileSparkline` itself asks
+  // before drawing, so this can never reserve a row `ProfileSparkline` then leaves empty, nor
+  // the reverse (`DiveRow.test.tsx`'s "reserves no bottom row..." test pins the case that
+  // mattered: no OTHER metadata, and a points array too short to draw).
+  const showBottomRow = hasMeta || isSparkDrawable(points);
 
   return (
     <Pressable

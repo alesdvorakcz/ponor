@@ -73,6 +73,17 @@ export interface DiveSampleShapesState {
  * re-runs. It is an optimisation, not a contract: no consumer may assume `shapes` is
  * referentially stable, and none needs to — every reader only ever calls `.get(id)` on it.
  *
+ * **That same `useState` is also why moving the downsampling into `toDiveSampleShapes`
+ * (db/diveSamples.ts) does not shrink what this hook holds onto.** The rows `useLiveQuery`
+ * fetches — each dive's full sample series, not just this hook's own downsampled output — stay
+ * in that `useState` for as long as whatever called this hook stays mounted, whether or not
+ * `shapes` (or anything else) still points at them. Three of the six call sites that render a
+ * row with a `points` prop (`DivesScreen`, `MapScreen`, `SearchScreen`) live under `(tabs)` and
+ * never unmount once visited, so for them that is the life of the app, not of one screen visit.
+ * See `toDiveSampleShapes`'s own docblock for the fuller accounting — including the false claim
+ * an earlier version of it made about this — and why fixing it would cost more than this
+ * feature is worth.
+ *
  * **Screens call this; components take the answer as a prop** — the same rule `useUnitSystem`
  * states, so `DiveRow` and `ReorderControls` both stay a pure function of their props that a
  * test can render without a database.

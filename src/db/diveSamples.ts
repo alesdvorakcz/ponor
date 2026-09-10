@@ -124,15 +124,31 @@ export function toDiveSamples(rows: unknown[]): DiveSample[] | null {
  *
  * **Downsamples here, at the map builder, rather than handing `ProfileSparkline` the raw
  * series and letting it call `sparklinePoints` itself.** That was the original design, and a
- * review costed it: a dive's series runs to ~250 samples, so a 500-dive logbook parses ~3 MB
- * of JSON into ~125,000 four-element arrays and RETAINS all of it — every row on screen kept
- * its own full-resolution series alive for the sake of drawing `SPARK_BUCKETS` points from it.
- * Worse, `DivesScreen`, `MapScreen` and `SearchScreen` all live under `(tabs)` and never
- * unmount, so a diver who has opened all three held three independent copies of that same
- * ~8–12 MB. Downsampling HERE instead means the full series becomes collectable the moment
- * this map is built — on the order of 20,000 retained points instead of ~125,000 retained
- * samples for that same logbook — and `sparklinePoints` runs once per query rather than once
- * per row on every render. `ProfileSparkline` now only ever draws the points it is handed.
+ * review costed what it did to every render: a dive's series runs to ~250 samples, and
+ * `ProfileSparkline` was calling `sparklinePoints` on the full series to produce the same
+ * `SPARK_BUCKETS` points again — per row, on every render that row took for any reason at all,
+ * a scroll or a sibling row's own state changing included. Moved here, the downsampling runs
+ * once per query run instead: `useDiveSampleShapes`'s `useMemo` reruns this function only when
+ * the live rows themselves change, so a render that changes nothing underneath allocates no
+ * new points at all. `ProfileSparkline` now only ever draws the points it is handed, which is
+ * also the honest shape of the prop: a component that draws forty points is handed forty
+ * points, not a ~250-sample series it must re-derive them from itself.
+ *
+ * **What this move does not buy: the raw series does not become collectable.** An earlier
+ * version of this docblock claimed moving the call here would let a 500-dive logbook's full
+ * series — ~3 MB of JSON, ~125,000 four-element samples — be freed the moment this map is
+ * built, "instead of" retained; that was false, and a later review found it so. This function's
+ * caller, `useDiveSampleShapes`, reads rows through `useLiveQuery` (drizzle-orm/expo-sqlite),
+ * which holds whatever it fetches in `useState` regardless of what any caller then does with
+ * it, so the raw series stays resident for as long as the screen that called the hook stays
+ * mounted — and three of the six call sites that render a row with a `points` prop
+ * (`DivesScreen`, `MapScreen`, `SearchScreen`) live under `(tabs)` and never unmount once
+ * visited, so for them that is the life of the app, not of one screen visit. What this
+ * function returns — on the order of 20,000 `ProfilePoint`s for that same 500-dive logbook —
+ * is retained ON TOP of those raw rows, not instead of them, so total retention is marginally
+ * higher than the original design, not lower. Landing the actual fix would mean not reading
+ * this table through `useLiveQuery` at all, which is a bigger change than this feature
+ * warrants: every other live read in this app is built on it.
  *
  * **The same "missing and empty are one answer" rule as `toDiveSamples`, one step further
  * in**: a dive with no series, a stored-but-empty one, or one too short for `sparklinePoints`

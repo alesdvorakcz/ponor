@@ -297,6 +297,32 @@ it('still shows the sparkline when a series is the only metadata the row has', a
   expect(t.root.queryAll((n) => n.type === 'RNSVGPath').length).toBeGreaterThan(0);
 });
 
+// Task 6 review, Finding 3 (fix round 2): `points` is public and optional, so a caller besides
+// `toDiveSampleShapes` (db/diveSamples.ts) can hand this row something too short for
+// `ProfileSparkline` to draw — a single point, here. `showBottomRow` used to test only
+// `points !== undefined`, which this array satisfies, so the row reserved `diveRowBottom` —
+// and the `gap: 6` `diveRow` spends reaching it — for a shape that could never appear there.
+// Same metadata suppression as "still shows the sparkline..." above, so nothing else is left
+// to justify a bottom row on its own.
+it('reserves no bottom row for a points array too short to draw', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <DiveRow
+      dive={dive({ id: 'a', timeIn: null, durationMin: null, rating: null })}
+      points={[{ t: 0, v: 10 }]}
+      number={1}
+      scheme="light"
+      units="metric"
+      onPress={() => {}}
+      datedByContext
+    />,
+  );
+  if (!t.root) throw new Error('DiveRow did not render a root element');
+  expect(
+    t.root.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.diveRowBottom)),
+  ).toHaveLength(0);
+});
+
 it('passes the dive id to onPress', async () => {
   const onPress = jest.fn();
   const d = dive({ id: 'abc' });
