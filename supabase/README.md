@@ -2,9 +2,10 @@
 
 DESIGN.md §5, §6 and §7 in SQL. Seven files, applied in order, on the project the owner owns.
 
-Files 1–6 have been run, by the owner, on his own project — see [Applied](#applied) below.
-**File 7 and the `push_changes` that file 4 now holds have never run anywhere** (M2q); what to
-paste and in what order is [below](#applying-m2q-to-a-project-that-already-has-files-16). **No one working in this repository has credentials for
+All seven have been run, by the owner, on his own project — see [Applied](#applied) below.
+M2q's file 7 and the `push_changes` file 4 now holds went up on 2026-09-11, together with
+`dive_samples` and `dives.import_device`; what to paste on a project still sitting at files 1–6
+is [below](#applying-m2q-to-a-project-that-already-has-files-16). **No one working in this repository has credentials for
 the project and none will be added** — see [Keys](#keys-what-may-never-appear-here) below.
 So these files are written to be pasted into the **Supabase Studio SQL editor** by hand;
 the CLI is supported but not required, and nothing assumes a linked project.
@@ -285,10 +286,10 @@ never run.
 <a id="applied"></a>
 ### Applied
 
-**Files 1–6 only, and file 4 has changed since.** M2q's `push_changes` and the whole of file 7
-have never been executed by anyone: they were written after the run below, in a repository with
-no credentials, and the honest default for both is that they have never run. What holds them
-here is the parity checks and a libpg_query grammar pass (all seven files, plus every `language
+**All seven, in two runs.** Files 1–6 went up 2026-09-02 to 09-04; M2q's `push_changes`, the
+whole of file 7, `dive_samples` and `dives.import_device` followed on 2026-09-11 (M3o and M3p).
+What held that second set before it ran — and what still holds anything written here after
+2026-09-11 — is the parity checks and a libpg_query grammar pass (all seven files, plus every `language
 sql` body and 24 SQL fragments lifted out of the plpgsql ones, all parsing; the checker re-proved
 on this task's own SQL by breaking the recheck's parentheses, its conflict clause, file 7's
 column list and its composite key, each of which it caught). Two things it demonstrably cannot
@@ -313,7 +314,36 @@ beyond "the grammar is valid" — each of these was explicitly unprovable from h
 - **`name_fold` folds both sides to a score of 1** for `Divoká Šárka` against `Divoka Sarka`,
   which scored below the 0.3 floor and returned nothing before.
 
-All six files have been through **libpg_query** — the real PostgreSQL grammar — including
+**The second run, 2026-09-11 (M3o and M3p).** Section 0's `alter table … add column import_device`
+— the one statement no file here can carry, because `create table if not exists` does not alter a
+table that already exists — then files 2, 3, 7 and 4, pasted as a single script so a failure
+anywhere left nothing half-applied. What that established, none of it provable from this
+repository:
+
+- **`push_changes` really does write `import_device`.** This is the load-bearing one, and it is
+  proven by the absence of an error rather than by a value: the column is enumerated in three
+  places in file 4, a push is one transaction, and `sync_reject_unknown_keys` raises `42703` on a
+  key the server does not have. Three dives adopted on sign-in came back with their dirty flags
+  cleared, so the server accepted every column they carried.
+- **`dive_samples` is a synced table like any other** — it exists, its RLS insert policy admits
+  the owner, and both halves of §7's protocol carry it.
+- **A profile survives `jsonb` and comes back a profile.** A device holding two imported dives
+  pushed, then signed out (which erases it) and signed back in. Both series returned identical to
+  the byte, 222 and 249 samples, `null` pressures intact — compared as canonical JSON, so a
+  re-serialised number could not have hidden a difference. The M3o entry in DESIGN.md §10 records
+  that specifying this column as `text` would have emptied it silently on the first push; this is
+  the other half of that entry, which is that `jsonb` does not.
+- **`import_device` round-trips**, with `import_source` and `import_id` beside it, so a
+  re-import still dedupes against a dive that has been to the server and back.
+- The same sign-in pulled 17 dives down, six of them tombstones, which is §7 declining to filter
+  a tombstone out of a pull.
+
+**What that run did not establish, and the distinction matters: file 7's recheck has still never
+fired.** It runs only when a site the server has not held before *arrives* in a push, and none
+did. A missing table there is swallowed by the recheck's own `exception` block into a server-log
+warning, so a push succeeding is not evidence about it either way. Push a new site to settle it.
+
+All seven files have been through **libpg_query** — the real PostgreSQL grammar — including
 the plpgsql bodies and every SQL fragment inside them, and all six parse. Re-run for M2j, with
 the checker itself checked: a broken `name_fold` body, a broken `search_centers` CTE and a
 broken index expression were each introduced deliberately and each was caught. That was run from a
