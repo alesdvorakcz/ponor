@@ -25,6 +25,21 @@ expo-env.d.ts
 /ios
 /android
 
+# dive computer exports
+# A real Suunto export carries the computer's serial in `DeviceLog.Device.SerialNumber`, and a
+# transmitter's id in every sample that had one. `.fit` is never a legitimate file in this tree,
+# and the two drop folders give a real export somewhere to sit inside the repo — for a test run,
+# or to hand to the importer — without being committable.
+#
+# **What this cannot catch is the way it actually went wrong** (M3o): the two committed fixtures
+# ARE real exports, trimmed to six samples. Trimming cut the samples and left the header, so a
+# serial rode along into git and was only redacted three commits later. A file deliberately added
+# under `__fixtures__/` is a file no ignore rule will ever stop — anonymise the header by hand,
+# and check it before committing.
+*.fit
+/exports/
+/private/
+
 # misc
 *.log
 .metro-health-check*
