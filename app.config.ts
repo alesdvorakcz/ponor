@@ -10,7 +10,23 @@ const config: ExpoConfig = {
   // Lets the OS drive light/dark. Without this iOS pins the app to light and
   // the M0 done-when cannot pass.
   userInterfaceStyle: 'automatic',
-  ios: { supportsTablet: true, bundleIdentifier: 'app.ponor.mobile' },
+  ios: {
+    supportsTablet: true,
+    bundleIdentifier: 'app.ponor.mobile',
+    infoPlist: {
+      // **Answers App Store Connect's export-compliance question once, here, instead of on
+      // every submission.** `false` means "uses no NON-exempt encryption", which is what is
+      // true of this app: the only cryptography it involves is HTTPS to Supabase and the
+      // platform keychain behind `expo-secure-store`, and both are exempt uses. Declaring it
+      // in the binary is what stops TestFlight holding each build at "Missing Compliance"
+      // until someone answers the same question by hand again.
+      //
+      // It is a claim about the app rather than a convenience, so it stops being true the day
+      // Ponor ships its own cryptography — encrypting an export, say, or anything on the §9
+      // shelf that protects data itself rather than the pipe it travels down.
+      ITSAppUsesNonExemptEncryption: false,
+    },
+  },
   icon: './assets/images/icon.png',
   android: {
     package: 'app.ponor.mobile',
