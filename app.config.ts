@@ -88,6 +88,13 @@ const config: ExpoConfig = {
     ],
   ],
   experiments: { typedRoutes: true },
+  // The EAS project this app builds under (expo.dev/accounts/alesdvorakcz/projects/ponor).
+  // Written here by hand because `eas init` cannot write into a dynamic config — it prints the
+  // id and stops. `owner` pins builds to the personal account: an Expo login can belong to
+  // more than one account, and a build that silently lands in the wrong one is a build signed
+  // with the wrong Apple team.
+  owner: 'alesdvorakcz',
+  extra: { eas: { projectId: '3efbfc6f-aa73-44bb-9e1d-7c3880bba3cc' } },
 };
 
 export default config;
