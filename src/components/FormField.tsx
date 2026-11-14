@@ -207,8 +207,16 @@ export interface FormFieldProps {
    * (`submitBehavior="submit"`) so it does not drop and rise again between two fields. A caller
    * that passes neither leaves the platform's own key exactly as it was.
    */
-  returnKeyType?: 'next' | 'done';
+  returnKeyType?: 'next' | 'done' | 'go';
   onSubmitEditing?: () => void;
+  /**
+   * What the field holds, for the platform's AutoFill (2026-11-14, the account screen): iOS
+   * offers a saved address, a saved password, or a strong new one only when the field says
+   * which it is (`textContentType`), and Android reads the same answer from `autoComplete`.
+   * Passed through where a caller says, and left to the platform everywhere else.
+   */
+  textContentType?: 'username' | 'emailAddress' | 'password' | 'newPassword';
+  autoComplete?: 'email' | 'current-password' | 'new-password';
   /**
    * Fired with the **whole** `Suggestion` the diver tapped, never just its text.
    *
@@ -341,7 +349,7 @@ export interface FieldMatch {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing, textContentType, autoComplete },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -438,6 +446,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       cursorColor={styles.formFieldCaret.color}
       returnKeyType={returnKeyType}
       onSubmitEditing={onSubmitEditing}
+      textContentType={textContentType}
+      autoComplete={autoComplete}
       // Kept up through a press that moves focus to the next field, so the keyboard does not
       // drop and rise again between two rows. Only where a caller handles the press.
       submitBehavior={onSubmitEditing === undefined ? undefined : 'submit'}

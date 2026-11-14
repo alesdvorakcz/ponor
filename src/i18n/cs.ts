@@ -749,6 +749,17 @@ export const cs = {
 
     account: {
       heading: 'Účet',
+      signInHeading: 'Přihlášení',
+      signUpHeading: 'Nový účet',
+      signUpNote: 'Pošleme vám e-mail s odkazem pro potvrzení adresy. Otevřete ho na tomto telefonu a budete přihlášeni.',
+      forgotPassword: 'Zapomněli jste heslo?',
+      resetSent: 'Pokud k té adrese existuje účet, posíláme na ni odkaz pro nastavení nového hesla. Otevřete ho na tomto telefonu.',
+      signingIn: 'Přihlašuji…',
+      emailConfirmed: 'E-mail je potvrzený a jste přihlášeni.',
+      newPasswordHeading: 'Nové heslo',
+      newPassword: 'Nové heslo',
+      savePassword: 'Uložit heslo',
+      passwordChanged: 'Heslo je změněné.',
       whatItIsFor:
         'Ponor funguje i bez účtu. S účtem se váš deník zálohuje, synchronizuje do dalších zařízení a můžete přidávat potápěčské lokality a centra, která použijí i ostatní.',
       signIn: 'Přihlásit se',
@@ -756,7 +767,6 @@ export const cs = {
       switchToSignUp: 'Vytvořit si účet',
       switchToSignIn: 'Účet už mám',
       email: 'E-mail',
-      emailPlaceholder: 'vy@example.com',
       password: 'Heslo',
       signedInAs: 'Přihlášen jako',
       /** All four forms, and the participle moves with the count as well as the noun —
@@ -771,7 +781,7 @@ export const cs = {
         'Váš deník bude z tohoto zařízení odstraněn. Zůstane ve vašem účtu a po opětovném přihlášení se vrátí.',
       checkEmail: 'Zkontrolujte e-mail',
       sentTo: 'Odesláno na',
-      openTheLink: 'Otevřete odkaz v tom e-mailu a pak se tu přihlaste.',
+      openTheLink: 'Otevřete odkaz v tom e-mailu na tomto telefonu a budete přihlášeni.',
       nothingArrives:
         'Nic nepřišlo? Adresa může být špatně, nebo už k ní účet existuje — zkuste se přihlásit.',
       backToSignIn: 'Zpět na přihlášení',
@@ -794,6 +804,11 @@ export const cs = {
         'Server se nepodařilo kontaktovat. Váš deník je v bezpečí v telefonu — zkuste to znovu, až budete online.',
       signInFailed: 'Přihlášení se nezdařilo. Zkuste to znovu.',
       signUpFailed: 'Účet se nepodařilo vytvořit. Zkuste to znovu.',
+      resetFailed: 'E-mail pro obnovení hesla se nepodařilo odeslat. Zkuste to znovu.',
+      linkExpired: 'Platnost odkazu vypršela. Požádejte o nový.',
+      linkFailed: 'Tento odkaz na tomto telefonu použít nejde. Přihlaste se e-mailem a heslem.',
+      samePassword: 'To je vaše současné heslo. Zvolte jiné.',
+      passwordChangeFailed: 'Nové heslo se nepodařilo uložit. Zkuste to znovu.',
       signOutUnavailable: 'Odhlášení zatím neumí toto zařízení vyčistit, takže se nic neodhlásilo.',
       wipeFailed: 'Deník v tomto zařízení se nepodařilo vymazat, takže se nic neodhlásilo.',
       unpushedChanges:

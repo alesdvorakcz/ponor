@@ -127,13 +127,18 @@ export function connectCloud(credentials: CloudCredentials): Cloud {
           storage: sessionStore,
           persistSession: true,
           autoRefreshToken: true,
-          // Off because nothing in this build produces a redirect for it to read. Left at its
-          // default (`true`) the auth client parses `window.location` on construction looking
-          // for a token fragment, which on web means this module starts inspecting the URL of
-          // a page that has never had an OAuth callback in it. Whoever wires §5's three
-          // sign-in methods turns it on for the platform that needs it, having decided what a
-          // callback URL is here; until then the honest value is the one that does nothing.
+          // Off, and still right now that the mail links ARE handled (2026-11-14): left at its
+          // default (`true`) the auth client parses `window.location` on construction, which on
+          // web means inspecting the URL of a page that never had a callback in it, and on a
+          // phone means nothing at all. The links arrive as app links instead and are read
+          // explicitly — `cloud/AuthLinks.tsx` hands them to `completeAuthLink` (cloud/auth.ts).
           detectSessionInUrl: false,
+          // **PKCE** (2026-11-14), because the links in the confirmation and reset mails now
+          // sign the diver in. Under PKCE the link carries a one-time code that is worth nothing
+          // without the verifier this client stored when it asked for the mail, so a link made
+          // up by anyone else cannot sign this phone into their account — which tokens in a
+          // fragment (the implicit flow, the default) would. Password sign-in is unaffected.
+          flowType: 'pkce',
         },
       }),
     };

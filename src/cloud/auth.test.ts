@@ -8,7 +8,9 @@ import {
 import {
   accountDeletedDeviceKept,
   authenticate,
+  completeAuthLink,
   credentialRefusal,
+  isAuthLink,
   CONFIRMATION_REDIRECT,
   confirmationRequired,
   credentialsRejected,
@@ -21,8 +23,15 @@ import {
   emailTaken,
   endSession,
   messageFor,
+  linkExpired,
+  linkFailed,
+  passwordChangeFailed,
   passwordRequired,
   passwordTooWeak,
+  requestPasswordReset,
+  resetFailed,
+  samePassword,
+  setNewPassword,
   serverUnreachable,
   signInFailed,
   signOutFailed,
@@ -63,6 +72,9 @@ interface FakeAuth {
   signInWithPassword: jest.Mock;
   signUp: jest.Mock;
   signOut: jest.Mock;
+  resetPasswordForEmail: jest.Mock;
+  exchangeCodeForSession: jest.Mock;
+  updateUser: jest.Mock;
 }
 
 /** A client with the calls this module makes and nothing else — the three `auth` ones, and
@@ -73,6 +85,11 @@ function fakeClient(): { client: SupabaseClient; auth: FakeAuth; rpc: jest.Mock 
     signInWithPassword: jest.fn().mockResolvedValue({ data: { session: SESSION, user: USER }, error: null }),
     signUp: jest.fn().mockResolvedValue({ data: { session: null, user: USER }, error: null }),
     signOut: jest.fn().mockResolvedValue({ error: null }),
+    resetPasswordForEmail: jest.fn().mockResolvedValue({ data: {}, error: null }),
+    exchangeCodeForSession: jest
+      .fn()
+      .mockResolvedValue({ data: { session: SESSION, user: USER, redirectType: null }, error: null }),
+    updateUser: jest.fn().mockResolvedValue({ data: { user: USER }, error: null }),
   };
   const rpc = jest
     .fn()
@@ -855,6 +872,156 @@ describe('deleteAccount — §8’s App Store requirement (M3j)', () => {
 describe('the shipped local-logbook seam', () => {
   it('is wired, so the app in this tree really erases on sign-out', () => {
     expect(localLogbook.wired).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Password reset and the email link (2026-11-14)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * A forgotten password used to have no way back from inside the app. The reset mail goes back
+ * to the app's own scheme — the same `ponor://` the confirmation mail already uses — and the
+ * link it carries is what `completeAuthLink` below turns into a session.
+ */
+describe('requestPasswordReset', () => {
+  it('refuses an empty address under the email row, without asking the server', async () => {
+    const { client, auth } = fakeClient();
+    expect(await requestPasswordReset(client, '  ')).toEqual({ kind: 'failed', message: emailRequired(), field: 'email' });
+    expect(auth.resetPasswordForEmail).not.toHaveBeenCalled();
+  });
+
+  it('asks for the reset mail for the trimmed address, back to the app', async () => {
+    const { client, auth } = fakeClient();
+    const outcome = await requestPasswordReset(client, '  Ales@Example.com \n');
+    expect(auth.resetPasswordForEmail).toHaveBeenCalledWith('Ales@Example.com', { redirectTo: CONFIRMATION_REDIRECT });
+    // The address goes back on screen, so a typo in it is caught by the diver reading it.
+    expect(outcome).toEqual({ kind: 'resetSent', email: 'Ales@Example.com' });
+  });
+
+  it('says what went wrong in the app’s own words, and never the server’s', async () => {
+    const { client, auth } = fakeClient();
+    auth.resetPasswordForEmail.mockResolvedValueOnce({
+      data: null,
+      error: new AuthApiError('For security purposes…', 429, 'over_email_send_rate_limit'),
+    });
+    expect(await requestPasswordReset(client, 'a@b.c')).toEqual({ kind: 'failed', message: tooManyTries() });
+
+    auth.resetPasswordForEmail.mockRejectedValueOnce(new AuthRetryableFetchError('Network request failed', 0));
+    expect(await requestPasswordReset(client, 'a@b.c')).toEqual({ kind: 'failed', message: serverUnreachable() });
+
+    auth.resetPasswordForEmail.mockResolvedValueOnce({ data: null, error: new AuthApiError('?', 500, 'unexpected_failure') });
+    expect(await requestPasswordReset(client, 'a@b.c')).toEqual({ kind: 'failed', message: resetFailed() });
+  });
+});
+
+/**
+ * The link in either mail opens the app as `ponor://?code=…` — PKCE, so the code is worth
+ * nothing without the verifier this phone stored when it asked for the mail, and a link made up
+ * by anyone else cannot sign this phone into their account.
+ */
+describe('completeAuthLink', () => {
+  it('leaves alone a link that is not about signing in', async () => {
+    const { client, auth } = fakeClient();
+    const { logbook, adopt } = wiredLogbook();
+    for (const url of ['ponor://account', 'ponor://', 'exp+ponor://expo-development-client/?url=http%3A%2F%2F192.168.1.2%3A8081']) {
+      expect(await completeAuthLink(client, url, logbook)).toEqual({ kind: 'notAuthLink' });
+    }
+    expect(auth.exchangeCodeForSession).not.toHaveBeenCalled();
+    expect(adopt).not.toHaveBeenCalled();
+  });
+
+  // The confirmation mail's link signs the diver in, and their phone's dives go to the account
+  // exactly as they do on a password sign-in (§7.4).
+  it('signs in with a confirmation link, adopting this phone’s dives', async () => {
+    const { client, auth } = fakeClient();
+    const { logbook } = wiredLogbook({ adopt: jest.fn().mockResolvedValue(3) });
+    const outcome = await completeAuthLink(client, 'ponor://?code=abc-123', logbook);
+    expect(auth.exchangeCodeForSession).toHaveBeenCalledWith('abc-123');
+    expect(outcome).toEqual({ kind: 'signedIn', adopted: 3 });
+  });
+
+  // The reset mail's link signs in too — the diver has just proved they hold the address — and
+  // says that what they came for is a new password.
+  it('reports a reset link as a recovery, signed in and adopting all the same', async () => {
+    const { client, auth } = fakeClient();
+    auth.exchangeCodeForSession.mockResolvedValueOnce({
+      data: { session: SESSION, user: USER, redirectType: 'recovery' },
+      error: null,
+    });
+    const { logbook } = wiredLogbook({ adopt: jest.fn().mockResolvedValue(1) });
+    expect(await completeAuthLink(client, 'ponor://?code=r-9', logbook)).toEqual({ kind: 'recovery', adopted: 1 });
+  });
+
+  // What Supabase puts on the link when it will not honour it — query or fragment, both seen.
+  it('says an old link has expired, in words, wherever the link carries the error', async () => {
+    const { client, auth } = fakeClient();
+    const expired = 'error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired';
+    expect(await completeAuthLink(client, `ponor://?${expired}`, UNWIRED)).toEqual({ kind: 'failed', message: linkExpired() });
+    expect(await completeAuthLink(client, `ponor://#${expired}`, UNWIRED)).toEqual({ kind: 'failed', message: linkExpired() });
+    expect(await completeAuthLink(client, 'ponor://?error=server_error', UNWIRED)).toEqual({ kind: 'failed', message: linkFailed() });
+    expect(auth.exchangeCodeForSession).not.toHaveBeenCalled();
+  });
+
+  // The code arrived but this phone cannot use it — most often because the mail was asked for
+  // on another phone, or asked for twice. The address is confirmed either way; signing in with
+  // the password still works, which is what the sentence says.
+  it('says so when the code cannot be used here, and adopts nothing', async () => {
+    const { client, auth } = fakeClient();
+    const { logbook, adopt } = wiredLogbook();
+    auth.exchangeCodeForSession.mockResolvedValueOnce({
+      data: { session: null, user: null, redirectType: null },
+      error: new AuthApiError('invalid flow state', 404, 'flow_state_not_found'),
+    });
+    expect(await completeAuthLink(client, 'ponor://?code=x', logbook)).toEqual({ kind: 'failed', message: linkFailed() });
+
+    auth.exchangeCodeForSession.mockResolvedValueOnce({
+      data: { session: null, user: null, redirectType: null },
+      error: new AuthApiError('expired', 400, 'flow_state_expired'),
+    });
+    expect(await completeAuthLink(client, 'ponor://?code=x', logbook)).toEqual({ kind: 'failed', message: linkExpired() });
+
+    auth.exchangeCodeForSession.mockRejectedValueOnce(new AuthRetryableFetchError('Network request failed', 0));
+    expect(await completeAuthLink(client, 'ponor://?code=x', logbook)).toEqual({ kind: 'failed', message: serverUnreachable() });
+    expect(adopt).not.toHaveBeenCalled();
+  });
+});
+
+describe('isAuthLink', () => {
+  it('knows a mail link from every other link the app is opened with', () => {
+    expect(isAuthLink('ponor://?code=abc')).toBe(true);
+    expect(isAuthLink('ponor://#error=access_denied&error_code=otp_expired')).toBe(true);
+    expect(isAuthLink('ponor://?error=server_error')).toBe(true);
+    expect(isAuthLink('ponor://account')).toBe(false);
+    expect(isAuthLink('ponor://?code=')).toBe(false);
+    expect(isAuthLink('exp+ponor://expo-development-client/?url=http%3A%2F%2F192.168.1.2%3A8081')).toBe(false);
+  });
+});
+
+describe('setNewPassword', () => {
+  it('refuses an empty password without asking the server', async () => {
+    const { client, auth } = fakeClient();
+    expect(await setNewPassword(client, '')).toEqual({ ok: false, message: passwordRequired() });
+    expect(auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  // Byte for byte, for `authenticate`'s own reason: a trimmed password is a different password.
+  it('sets the password exactly as typed', async () => {
+    const { client, auth } = fakeClient();
+    expect(await setNewPassword(client, '  new pass  ')).toEqual({ ok: true });
+    expect(auth.updateUser).toHaveBeenCalledWith({ password: '  new pass  ' });
+  });
+
+  it('says why a password was refused, in the app’s own words', async () => {
+    const { client, auth } = fakeClient();
+    auth.updateUser.mockResolvedValueOnce({ data: { user: null }, error: new AuthApiError('weak', 422, 'weak_password') });
+    expect(await setNewPassword(client, 'a')).toEqual({ ok: false, message: passwordTooWeak() });
+    auth.updateUser.mockResolvedValueOnce({ data: { user: null }, error: new AuthApiError('same', 422, 'same_password') });
+    expect(await setNewPassword(client, 'a')).toEqual({ ok: false, message: samePassword() });
+    auth.updateUser.mockRejectedValueOnce(new AuthRetryableFetchError('Network request failed', 0));
+    expect(await setNewPassword(client, 'a')).toEqual({ ok: false, message: serverUnreachable() });
+    auth.updateUser.mockResolvedValueOnce({ data: { user: null }, error: new AuthApiError('?', 500, 'unexpected_failure') });
+    expect(await setNewPassword(client, 'a')).toEqual({ ok: false, message: passwordChangeFailed() });
   });
 });
 

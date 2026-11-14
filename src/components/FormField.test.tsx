@@ -1238,3 +1238,20 @@ it('draws nothing outside its own treatment with described rows showing (ยง0.4/ย
   await focusInput(t);
   expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
 });
+
+// The account screen's two rows (2026-11-14): the platform's AutoFill only offers a saved
+// address, a saved password or a strong new one when the field says which it is. Passed
+// through, and left to the platform wherever a caller says nothing.
+it('tells the platform what a field holds, for AutoFill, only when its caller says', async () => {
+  const told = await render(
+    <FormField label="Password" value="" onChange={() => {}} scheme="light" secureTextEntry textContentType="newPassword" autoComplete="new-password" returnKeyType="go" onSubmitEditing={() => {}} />,
+  );
+  const input = inputsOf(told)[0];
+  expect(input?.props.textContentType).toBe('newPassword');
+  expect(input?.props.autoComplete).toBe('new-password');
+  expect(input?.props.returnKeyType).toBe('go');
+
+  const silent = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  expect(inputsOf(silent)[0]?.props.textContentType).toBeUndefined();
+  expect(inputsOf(silent)[0]?.props.autoComplete).toBeUndefined();
+});

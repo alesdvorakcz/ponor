@@ -8,7 +8,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { Alert } from 'react-native';
+import { Alert, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
@@ -17,11 +17,15 @@ import {
   credentialsRejected,
   emailRequired,
   endSession,
+  requestPasswordReset,
+  setNewPassword,
   signOutUnavailable,
   type AuthOutcome,
   type Credentials,
+  type ResetOutcome,
   type SignOutOutcome,
 } from '../cloud/auth';
+import { authLinkState, setAuthLinkState } from '../cloud/authLinkState';
 import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { setActiveLanguage } from '../i18n';
@@ -45,6 +49,8 @@ jest.mock('../cloud/auth', () => ({
   ...jest.requireActual('../cloud/auth'),
   authenticate: jest.fn(),
   endSession: jest.fn(),
+  requestPasswordReset: jest.fn(),
+  setNewPassword: jest.fn(),
 }));
 jest.mock('../cloud/useAuthSession', () => ({ useAuthSession: jest.fn() }));
 // The way out. Nothing else on this screen navigates.
@@ -66,6 +72,8 @@ jest.mock('../cloud/supabase', () => ({
 }));
 
 const mockAuthenticate = authenticate as unknown as jest.Mock;
+const mockRequestReset = requestPasswordReset as unknown as jest.Mock;
+const mockSetNewPassword = setNewPassword as unknown as jest.Mock;
 const mockEndSession = endSession as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
 
@@ -93,6 +101,9 @@ beforeEach(() => {
   stubSession();
   mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({ kind: 'signedIn', adopted: 0 }));
   mockEndSession.mockImplementation(async (): Promise<SignOutOutcome> => ({ ok: true }));
+  mockRequestReset.mockImplementation(async (_c: unknown, email: string): Promise<ResetOutcome> => ({ kind: 'resetSent', email: email.trim() }));
+  mockSetNewPassword.mockImplementation(async () => ({ ok: true }));
+  setAuthLinkState({ kind: 'idle' });
 });
 
 afterEach(() => {
@@ -244,7 +255,8 @@ describe('signed out', () => {
 
     expect(findField(t, 'Email')).toBeDefined();
     expect(findField(t, 'Password')).toBeDefined();
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
+    // ...and, since 2026-11-14, the way back from a forgotten password, under the password row.
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 
   /**
@@ -306,7 +318,7 @@ describe('signed out', () => {
     expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create account', 'I already have an account']);
 
     await pressControl(t, 'I already have an account');
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 
   it('signs in with what was typed, in the mode on screen, through the app’s own seam', async () => {
@@ -524,7 +536,7 @@ describe('after a sign-up that sent a confirmation', () => {
 
     await pressControl(t, 'Back to sign in');
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign in', 'Create an account']);
+    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 });
 
@@ -806,11 +818,14 @@ describe('the mode toggle and the action it belongs to', () => {
   });
 
   /** The other half, and not a restatement of it: the first would still pass with the toggle
-   * drawn twice, once in each place. */
-  it('leaves no control at all in the scrolling content', async () => {
+   * drawn twice, once in each place. **One control does live in the content since 2026-11-14**
+   * — *Forgot password?* — and it is the exception that proves the rule rather than a breach
+   * of it: it is about the password ROW, so it is drawn with the row, the way a field's own
+   * clear control is; the toggle is about the BUTTON, so it stays with the button. */
+  it('leaves only the password row’s own control in the scrolling content', async () => {
     const t = await render(<AccountScreen />);
 
-    expect(controlsUnder(scrollOf(t))).toEqual([]);
+    expect(controlsUnder(scrollOf(t))).toEqual(['Forgot password?']);
   });
 
   /** The pair is the arrangement, not the two strings that happen to be in it — the whole
@@ -821,6 +836,7 @@ describe('the mode toggle and the action it belongs to', () => {
     await pressControl(t, 'Create an account');
 
     expect(controlsUnder(footerOf(t))).toEqual(['Create account', 'I already have an account']);
+    // A new account has no password to forget.
     expect(controlsUnder(scrollOf(t))).toEqual([]);
   });
 
@@ -877,6 +893,189 @@ describe('the mode toggle and the action it belongs to', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------------------
+// 2026-11-14: the form that works with a keyboard up, and the way back from a lost password
+// ---------------------------------------------------------------------------------------
+
+/** The one spy every input instance shares (the test double's `focus`), and which instance the
+ * last call was made on. */
+const inputFocus = () => (TextInput as unknown as { prototype: { focus: jest.Mock } }).prototype.focus;
+const lastFocused = () => (inputFocus().mock.contexts.at(-1) as { props?: { accessibilityLabel?: string } } | undefined)?.props?.accessibilityLabel;
+
+describe('the sign-in form', () => {
+  // The two modes looked identical apart from the button — "Account" over both.
+  it('names the mode it is in, in its heading', async () => {
+    const t = await render(<AccountScreen />);
+    expect(textIn(t)).toContain('Sign in');
+    expect(textIn(t)).not.toContain('Account');
+    await pressControl(t, 'Create an account');
+    expect(textIn(t)).toContain('New account');
+  });
+
+  // Signing up used to say nothing about the mail until after it had been sent.
+  it('says before an account is created that a confirmation mail follows', async () => {
+    const t = await render(<AccountScreen />);
+    expect(screenText(t)).not.toContain('We’ll email you a link');
+    await pressControl(t, 'Create an account');
+    expect(screenText(t)).toContain('We’ll email you a link');
+  });
+
+  // The return key closed the keyboard; now it walks address → password → sign in.
+  it('walks from the address to the password, and signs in from the password', async () => {
+    const t = await render(<AccountScreen />);
+    await typeCredentials(t, 'ales@example.com', 'hunter2');
+
+    const email = findField(t, 'Email');
+    expect(email.props.returnKeyType).toBe('next');
+    await act(() => email.props.onSubmitEditing());
+    expect(lastFocused()).toBe('Password');
+
+    const password = findField(t, 'Password');
+    expect(password.props.returnKeyType).toBe('go');
+    await act(() => password.props.onSubmitEditing());
+    expect(mockAuthenticate).toHaveBeenCalledWith(CLIENT, 'signIn', { email: 'ales@example.com', password: 'hunter2' }, localLogbook);
+  });
+
+  // AutoFill offers a saved address and password on sign-in, and a strong new password on
+  // sign-up, only when each row says what it holds.
+  it('tells the platform which row is the address and which the password, per mode', async () => {
+    const t = await render(<AccountScreen />);
+    expect(findField(t, 'Email').props).toMatchObject({ textContentType: 'username', autoComplete: 'email' });
+    expect(findField(t, 'Password').props).toMatchObject({ textContentType: 'password', autoComplete: 'current-password' });
+    await pressControl(t, 'Create an account');
+    expect(findField(t, 'Password').props).toMatchObject({ textContentType: 'newPassword', autoComplete: 'new-password' });
+  });
+
+  // A right-aligned placeholder put the caret on top of "you@example.com"; the label already
+  // says what belongs in the row.
+  it('draws no placeholder for the caret to sit on', async () => {
+    const t = await render(<AccountScreen />);
+    expect(findField(t, 'Email').props.placeholder).toBeUndefined();
+  });
+});
+
+describe('a forgotten password', () => {
+  it('sends the reset mail to the address in the email row, and says where it went', async () => {
+    const t = await render(<AccountScreen />);
+    await fireEvent.changeText(findField(t, 'Email'), ' ales@example.com ');
+    await pressControl(t, 'Forgot password?');
+
+    expect(mockRequestReset).toHaveBeenCalledWith(CLIENT, ' ales@example.com ');
+    expect(screenText(t)).toContain('Check your email');
+    expect(textIn(t)).toContain('ales@example.com');
+    // Supabase answers an unknown address exactly as a known one, so the sentence promises
+    // nothing it cannot know.
+    expect(screenText(t)).toContain('If that address has an account');
+  });
+
+  it('puts a refusal about the address under the email row', async () => {
+    mockRequestReset.mockImplementation(async (): Promise<ResetOutcome> => ({ kind: 'failed', message: emailRequired(), field: 'email' }));
+    const t = await render(<AccountScreen />);
+    await pressControl(t, 'Forgot password?');
+    expect(screenText(t)).toContain(emailRequired());
+    expect(screenText(t)).not.toContain('Check your email');
+  });
+
+  it('offers the way back to the form', async () => {
+    const t = await render(<AccountScreen />);
+    await fireEvent.changeText(findField(t, 'Email'), 'ales@example.com');
+    await pressControl(t, 'Forgot password?');
+    await pressControl(t, 'Back to sign in');
+    expect(findField(t, 'Password')).toBeDefined();
+  });
+});
+
+describe('a link from one of the mails', () => {
+  // Said the moment the link arrives, so the diver does not start typing into a sign-in form.
+  it('says it is signing in while the link is being used', async () => {
+    setAuthLinkState({ kind: 'working' });
+    const t = await render(<AccountScreen />);
+    expect(screenText(t)).toContain('Signing you in');
+    expect(() => findField(t, 'Email')).toThrow();
+  });
+
+  it('signs in from a confirmation link and says the address is confirmed', async () => {
+    stubSession({ session: SESSION });
+    setAuthLinkState({ kind: 'signedIn', adopted: 2 });
+    const t = await render(<AccountScreen />);
+    expect(screenText(t)).toContain('Your email is confirmed');
+    expect(screenText(t)).toContain('2 dives from this phone were added to your logbook.');
+  });
+
+  it('shows why a link could not be used, over the sign-in form', async () => {
+    setAuthLinkState({ kind: 'failed', message: 'That link has expired. Ask for a new one.' });
+    const t = await render(<AccountScreen />);
+    expect(screenText(t)).toContain('That link has expired. Ask for a new one.');
+    expect(findField(t, 'Email')).toBeDefined();
+  });
+
+  // Found on the simulator: the sentence stayed up after the diver had moved on to the other
+  // mode, where it read as being about the account they were now creating.
+  it('drops what a failed link said once the diver moves on, by switching mode or typing', async () => {
+    setAuthLinkState({ kind: 'failed', message: 'That link has expired. Ask for a new one.' });
+    const t = await render(<AccountScreen />);
+    await pressControl(t, 'Create an account');
+    expect(screenText(t)).not.toContain('That link has expired');
+
+    setAuthLinkState({ kind: 'failed', message: 'That link has expired. Ask for a new one.' });
+    const typed = await render(<AccountScreen />);
+    await fireEvent.changeText(findField(typed, 'Email'), 'a');
+    expect(screenText(typed)).not.toContain('That link has expired');
+  });
+
+  describe('after a reset link', () => {
+    beforeEach(() => {
+      stubSession({ session: SESSION });
+      setAuthLinkState({ kind: 'recovery', adopted: 0 });
+    });
+
+    it('asks for a new password, and lets AutoFill suggest a strong one', async () => {
+      const t = await render(<AccountScreen />);
+      expect(textIn(t)).toContain('New password');
+      expect(findField(t, 'New password').props).toMatchObject({
+        secureTextEntry: true,
+        textContentType: 'newPassword',
+        autoComplete: 'new-password',
+        returnKeyType: 'go',
+      });
+      expect(buttonLabels(t)).toContain('Save password');
+    });
+
+    it('saves exactly what was typed, then says the password is changed', async () => {
+      const t = await render(<AccountScreen />);
+      await fireEvent.changeText(findField(t, 'New password'), ' new pass ');
+      await pressControl(t, 'Save password');
+
+      expect(mockSetNewPassword).toHaveBeenCalledWith(CLIENT, ' new pass ');
+      expect(authLinkState()).toEqual({ kind: 'passwordChanged' });
+      expect(screenText(t)).toContain('Your password is changed.');
+      expect(() => findField(t, 'New password')).toThrow();
+    });
+
+    it('puts a refusal under the field and keeps it', async () => {
+      mockSetNewPassword.mockImplementation(async () => ({ ok: false, message: 'That password is too weak — try a longer one.' }));
+      const t = await render(<AccountScreen />);
+      await fireEvent.changeText(findField(t, 'New password'), 'a');
+      await act(() => findField(t, 'New password').props.onSubmitEditing());
+
+      expect(screenText(t)).toContain('That password is too weak');
+      expect(findField(t, 'New password')).toBeDefined();
+    });
+  });
+
+  // A link's news is about the sign-in it made, and must not outlive the account it was about.
+  it('forgets what the last link said once the diver signs out', async () => {
+    stubSession({ session: SESSION });
+    setAuthLinkState({ kind: 'signedIn', adopted: 0 });
+    const t = await render(<AccountScreen />);
+    await pressControl(t, 'Sign out');
+    await act(async () => {
+      alertButtons().find((b) => b.style === 'destructive')?.onPress?.();
+    });
+    expect(authLinkState()).toEqual({ kind: 'idle' });
+  });
+});
 
 // ---------------------------------------------------------------------------------------
 // Czech (M3h)

@@ -239,6 +239,30 @@ export function signUpFailed(): string {
   return t('auth.signUpFailed');
 }
 
+/** The reset mail could not be sent, for a reason the app has no better sentence for. */
+export function resetFailed(): string {
+  return t('auth.resetFailed');
+}
+/** A link from either mail that is past its life — Supabase's `otp_expired`, or a PKCE flow
+ * state that has timed out. The way on is the one the sentence names: ask again. */
+export function linkExpired(): string {
+  return t('auth.linkExpired');
+}
+/** A link this phone cannot use — most often a mail asked for on another phone, or asked for
+ * twice, so the verifier here is not the one the code was issued against. The address is
+ * confirmed either way, and the password still signs in, which is what the sentence says. */
+export function linkFailed(): string {
+  return t('auth.linkFailed');
+}
+/** A new password the server refuses because it is the current one. */
+export function samePassword(): string {
+  return t('auth.samePassword');
+}
+/** The new password could not be saved, for a reason the app has no better sentence for. */
+export function passwordChangeFailed(): string {
+  return t('auth.passwordChangeFailed');
+}
+
 /**
  * The build cannot erase the local logbook yet, so it did not sign out (`localLogbook.ts`).
  *
@@ -380,6 +404,15 @@ function codeOf(error: unknown): string | undefined {
  * fall to the mode's plain sentence rather than to anything the server wrote.
  */
 export function messageFor(error: unknown, mode: AuthMode): string {
+  return knownMessage(error) ?? (mode === 'signUp' ? signUpFailed() : signInFailed());
+}
+
+/**
+ * `messageFor`'s table without its fallback (2026-11-14), so the reset and new-password calls
+ * below read the same codes the same way and still end on a sentence of their own when nothing
+ * matches — "Couldn't sign in" is the wrong thing to say about a reset mail that was not sent.
+ */
+function knownMessage(error: unknown): string | null {
   // Checked before the code, because a fetch failure has no code to switch on: `AuthRetryableFetchError`
   // is constructed client-side when the request never completed, which is the ordinary state
   // of a phone on a boat.
@@ -393,6 +426,8 @@ export function messageFor(error: unknown, mode: AuthMode): string {
       return emailTaken();
     case 'weak_password':
       return passwordTooWeak();
+    case 'same_password':
+      return samePassword();
     case 'email_address_invalid':
     case 'validation_failed':
       return emailMalformed();
@@ -404,7 +439,7 @@ export function messageFor(error: unknown, mode: AuthMode): string {
     case 'email_not_confirmed':
       return confirmationRequired();
     default:
-      return mode === 'signUp' ? signUpFailed() : signInFailed();
+      return null;
   }
 }
 
@@ -499,6 +534,148 @@ export async function authenticate(
   }
 
   return { kind: 'signedIn', adopted: await adopt(logbook) };
+}
+
+/** How asking for a reset mail ended — the address it went to, or why it did not go. */
+export type ResetOutcome =
+  | { readonly kind: 'resetSent'; readonly email: string }
+  | { readonly kind: 'failed'; readonly message: string; readonly field?: CredentialField };
+
+/**
+ * **Sends the reset mail** (2026-11-14). A forgotten password used to have no way back from
+ * inside the app: the screen deliberately said nothing about recovery, because the link in the
+ * mail needed the app to handle its own `ponor://` links and it did not. `completeAuthLink`
+ * below is that handling.
+ *
+ * The mail comes back to `CONFIRMATION_REDIRECT`, the address the confirmation mail already
+ * uses, so the project's allowed redirect list needs nothing new; the two links are told apart
+ * by what the exchange reports, not by where they point. Trimmed for `authenticate`'s reason.
+ * Supabase answers an address with no account exactly as it answers one with an account, on
+ * purpose, so `resetSent` claims only that a mail was asked for — and the screen says so too.
+ */
+export async function requestPasswordReset(client: SupabaseClient, rawEmail: string): Promise<ResetOutcome> {
+  const email = rawEmail.trim();
+  if (email === '') return { kind: 'failed', message: emailRequired(), field: 'email' };
+  try {
+    const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo: CONFIRMATION_REDIRECT });
+    if (error) return { kind: 'failed', message: knownMessage(error) ?? resetFailed() };
+  } catch (thrown) {
+    return { kind: 'failed', message: knownMessage(thrown) ?? resetFailed() };
+  }
+  return { kind: 'resetSent', email };
+}
+
+/**
+ * What opening a link from one of the two mails did. `recovery` is a sign-in too — the diver
+ * has just proved they hold the address — and says that what they came for is a new password.
+ * `notAuthLink` is every other URL the app is opened with, which this leaves alone.
+ */
+export type LinkOutcome =
+  | { readonly kind: 'signedIn'; readonly adopted: number }
+  | { readonly kind: 'recovery'; readonly adopted: number }
+  | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'notAuthLink' };
+
+/** One `a=b&c=d` run, decoded — a malformed escape kept as written rather than thrown. */
+function readPairs(run: string, into: Map<string, string>): void {
+  const decode = (raw: string) => {
+    try {
+      return decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch {
+      return raw;
+    }
+  };
+  for (const part of run.split('&')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    into.set(decode(part.slice(0, eq)), decode(part.slice(eq + 1)));
+  }
+}
+
+/**
+ * Every `key=value` in a URL's query and fragment. By hand rather than through `URL`, whose
+ * React Native implementation does not support reading search params, and over both halves
+ * because Supabase puts an error in the query on one flow and in the fragment on the other.
+ */
+function linkParams(url: string): Map<string, string> {
+  const params = new Map<string, string>();
+  const hashAt = url.indexOf('#');
+  const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt);
+  const queryAt = beforeHash.indexOf('?');
+  if (queryAt !== -1) readPairs(beforeHash.slice(queryAt + 1), params);
+  if (hashAt !== -1) readPairs(url.slice(hashAt + 1), params);
+  return params;
+}
+
+/**
+ * **Turns a link from the confirmation or the reset mail into a session** (2026-11-14). The
+ * confirmation link used to open the app and stop there: the address was confirmed on the
+ * server, and the diver then had to find the account screen and type both the address and the
+ * password again.
+ *
+ * The client runs the PKCE flow (`cloud/supabase.ts`), so the link carries a one-time `code`
+ * that is worth nothing without the verifier this phone stored when it asked for the mail — a
+ * link anyone else made up cannot sign this phone into their account, which is the reason the
+ * flow is PKCE rather than tokens in a fragment. `exchangeCodeForSession` reports a reset link
+ * as `redirectType: 'recovery'`, which is how one redirect address serves both mails.
+ *
+ * A successful link adopts this phone's dives exactly as a password sign-in does (§7.4) — it is
+ * a sign-in. Never throws: every way it fails is a sentence, and none of them is the server's.
+ */
+/** Whether a URL the app was opened with is a link from one of the two mails — a `code` to
+ * exchange, or Supabase's error for one it would not issue. Every other link is the router's. */
+export function isAuthLink(url: string): boolean {
+  const params = linkParams(url);
+  const code = params.get('code');
+  return (code !== undefined && code !== '') || params.has('error_code') || params.has('error');
+}
+
+export async function completeAuthLink(client: SupabaseClient, url: string, logbook: LocalLogbook): Promise<LinkOutcome> {
+  const params = linkParams(url);
+  const errorCode = params.get('error_code') ?? params.get('error');
+  const code = params.get('code');
+  if (errorCode !== undefined) return { kind: 'failed', message: errorCode === 'otp_expired' ? linkExpired() : linkFailed() };
+  if (code === undefined || code === '') return { kind: 'notAuthLink' };
+
+  const exchangeMessage = (error: unknown): string => {
+    if (isAuthRetryableFetchError(error)) return serverUnreachable();
+    const failed = codeOf(error);
+    return failed === 'flow_state_expired' || failed === 'otp_expired' ? linkExpired() : linkFailed();
+  };
+
+  let recovery = false;
+  try {
+    const { data, error } = await client.auth.exchangeCodeForSession(code);
+    if (error) return { kind: 'failed', message: exchangeMessage(error) };
+    if (data.session === null) return { kind: 'failed', message: linkFailed() };
+    // `redirectType` is on the object at runtime (auth-js 2.112.4's `_exchangeCodeForSession`
+    // spreads it in, and its own docs name it) but not in the method's declared return type —
+    // hence the narrow read rather than a cast of the whole result.
+    recovery = (data as { redirectType?: unknown }).redirectType === 'recovery';
+  } catch (thrown) {
+    return { kind: 'failed', message: exchangeMessage(thrown) };
+  }
+
+  const adopted = await adopt(logbook);
+  return recovery ? { kind: 'recovery', adopted } : { kind: 'signedIn', adopted };
+}
+
+/** How setting a new password ended. */
+export type NewPasswordOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
+/**
+ * **Sets the signed-in account's password** — the last step of a reset, after the reset link has
+ * signed the diver in. Passed through byte for byte, for `authenticate`'s reason.
+ */
+export async function setNewPassword(client: SupabaseClient, password: string): Promise<NewPasswordOutcome> {
+  if (password === '') return { ok: false, message: passwordRequired() };
+  try {
+    const { error } = await client.auth.updateUser({ password });
+    if (error) return { ok: false, message: knownMessage(error) ?? passwordChangeFailed() };
+  } catch (thrown) {
+    return { ok: false, message: knownMessage(thrown) ?? passwordChangeFailed() };
+  }
+  return { ok: true };
 }
 
 /**

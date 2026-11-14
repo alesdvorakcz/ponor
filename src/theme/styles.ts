@@ -4043,6 +4043,16 @@ function build(scheme: ColorScheme) {
     // exists to have stopped three times already.
     accountSecondaryAction: mutedControl,
     accountSecondaryActionLabel: mutedControlLabel,
+    // *Forgot password?* (2026-11-14) — `mutedControl` with the row it belongs to rather than
+    // in the footer, so it hangs off the content column like the rows above it instead of
+    // centring itself: §0.6's "a pill in a left-aligned card is left-aligned", found three
+    // times before by looking. Same 48 dp box; the label is `mutedControlLabel`.
+    accountRowAction: {
+      ...mutedControl,
+      alignSelf: 'flex-start',
+      alignItems: 'flex-start',
+      paddingHorizontal: CONTENT_INSET,
+    },
     // ------------------------------------------------------------------------------------
     // The catalogue's pages and directories (DESIGN.md §5's community model, §6's `dive_sites`
     // and `dive_centers`) — `DiveCenterScreen` (`/center/[id]`) and `DiveCentersScreen`

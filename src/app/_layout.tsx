@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { AuthLinks } from '../cloud/AuthLinks';
 import { SyncTriggers } from '../cloud/syncTriggers';
 import { useMigrations } from '../db/client';
 import { LanguageSync } from '../i18n/LanguageSync';
@@ -41,6 +42,10 @@ export default function RootLayout() {
           early return means a hook would arm a sync against a database whose tables have not
           been created yet. */}
       <SyncTriggers />
+      {/* The links in the confirmation and reset mails (cloud/AuthLinks.tsx). Draws nothing;
+          below the migration gate for `SyncTriggers`' reason — a link that signs in adopts
+          this phone's dives, which needs the tables to exist. */}
+      <AuthLinks />
       {/* §3's language setting, applied (src/i18n/LanguageSync.tsx). Below the migration gate
           for `SyncTriggers`' own reason: it reads the `settings` table, and the tables do not
           exist until the migrations above have run. */}

@@ -898,6 +898,17 @@ export const en = {
     /** §5's auth screen and §7.4's sign-out. */
     account: {
       heading: 'Account',
+      signInHeading: 'Sign in',
+      signUpHeading: 'New account',
+      signUpNote: 'We’ll email you a link to confirm the address. Open it on this phone and you’re signed in.',
+      forgotPassword: 'Forgot password?',
+      resetSent: 'If that address has an account, a link to choose a new password is on its way. Open it on this phone.',
+      signingIn: 'Signing you in…',
+      emailConfirmed: 'Your email is confirmed and you’re signed in.',
+      newPasswordHeading: 'New password',
+      newPassword: 'New password',
+      savePassword: 'Save password',
+      passwordChanged: 'Your password is changed.',
       whatItIsFor:
         'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.',
       signIn: 'Sign in',
@@ -905,7 +916,6 @@ export const en = {
       switchToSignUp: 'Create an account',
       switchToSignIn: 'I already have an account',
       email: 'Email',
-      emailPlaceholder: 'you@example.com',
       password: 'Password',
       signedInAs: 'Signed in as',
       /** §7.4's adoption sentence. English moves its verb as well as its noun; Czech moves the
@@ -918,7 +928,7 @@ export const en = {
         'Your logbook will be removed from this device. It stays in your account, and signing back in brings it back.',
       checkEmail: 'Check your email',
       sentTo: 'Sent to',
-      openTheLink: 'Open the link in that email, then sign in here.',
+      openTheLink: 'Open the link in that email on this phone and you’re signed in.',
       nothingArrives:
         'Nothing arrives? The address may be wrong, or it may already have an account — try signing in.',
       backToSignIn: 'Back to sign in',
@@ -944,6 +954,11 @@ export const en = {
         'Couldn’t reach the server. Your logbook is safe on this phone — try again when you’re online.',
       signInFailed: 'Couldn’t sign in. Try again.',
       signUpFailed: 'Couldn’t create the account. Try again.',
+      resetFailed: 'Couldn’t send the reset email. Try again.',
+      linkExpired: 'That link has expired. Ask for a new one.',
+      linkFailed: 'That link can’t be used on this phone. Sign in with your email and password instead.',
+      samePassword: 'That’s your current password. Choose a different one.',
+      passwordChangeFailed: 'Couldn’t save the new password. Try again.',
       signOutUnavailable: 'Sign-out can’t clear this device yet, so nothing was signed out.',
       wipeFailed: 'Couldn’t clear this device’s logbook, so nothing was signed out.',
       unpushedChanges:

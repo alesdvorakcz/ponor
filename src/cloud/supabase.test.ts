@@ -164,6 +164,16 @@ describe('connectCloud', () => {
     expect(options.auth?.detectSessionInUrl).toBe(false);
   });
 
+  // The links in the confirmation and reset mails sign the diver in (cloud/auth.ts,
+  // `completeAuthLink`). PKCE is what makes that safe: the link carries a one-time code that is
+  // worth nothing without the verifier this phone stored when it asked for the mail.
+  it('runs the PKCE flow, so a mail link is only good on the phone that asked for it', () => {
+    connectCloud({ configured: true, url: 'https://demo.supabase.co', anonKey: 'anon-key' });
+
+    const options = createClient.mock.calls[0]?.[2] as { auth?: Record<string, unknown> };
+    expect(options.auth?.flowType).toBe('pkce');
+  });
+
   /**
    * A typo in a URL must cost the diver the cloud and nothing else. `createClient` validates
    * synchronously and throws — and this client is built at module scope, so an escaping throw

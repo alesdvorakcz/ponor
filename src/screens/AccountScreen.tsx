@@ -1,10 +1,18 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useColorScheme, type TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FieldNote } from '../components/FieldNote';
 import { FormField } from '../components/FormField';
-import { authenticate, endSession, type AuthMode, type CredentialField } from '../cloud/auth';
+import {
+  authenticate,
+  endSession,
+  requestPasswordReset,
+  setNewPassword,
+  type AuthMode,
+  type CredentialField,
+} from '../cloud/auth';
+import { setAuthLinkState, useAuthLinkState } from '../cloud/authLinkState';
 import { localLogbook } from '../cloud/localLogbook';
 import { cloud } from '../cloud/supabase';
 import { useAuthSession } from '../cloud/useAuthSession';
@@ -12,7 +20,8 @@ import { t, useT, type TranslationKey } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
+import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
 
 /**
  * §1, said to a diver rather than to a planner: "an account is only needed to back up, sync a
@@ -34,6 +43,29 @@ import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 function whatAnAccountIsFor(): string {
   return t('account.whatItIsFor');
 }
+
+/**
+ * **What the form is doing, as its heading** (2026-11-14). Both modes used to sit under
+ * "Account" and differ only in the button's verb, so a diver had to read the button to know
+ * which screen they were on — and a diver who had come to sign in read "Create account" as the
+ * screen's purpose often enough to say so.
+ */
+const HEADING: Record<AuthMode, TranslationKey> = {
+  signIn: 'account.signInHeading',
+  signUp: 'account.signUpHeading',
+};
+
+/**
+ * What each row holds, for the platform's AutoFill (2026-11-14). The address is the account's
+ * `username` — the content type iOS pairs with a password to offer a saved login — and the
+ * password is the CURRENT one when signing in and a NEW one when signing up, which is what lets
+ * the platform suggest a strong password there and save it afterwards instead of offering an
+ * old one.
+ */
+const PASSWORD_KIND: Record<AuthMode, { textContentType: 'password' | 'newPassword'; autoComplete: 'current-password' | 'new-password' }> = {
+  signIn: { textContentType: 'password', autoComplete: 'current-password' },
+  signUp: { textContentType: 'newPassword', autoComplete: 'new-password' },
+};
 
 /** The two things a diver does here, as the action's own label. The mode is one value and
  * these are two views of it (`SWITCH_TO`, below, is the third). */
@@ -186,15 +218,20 @@ function noBackendMessage(): string {
  * 5. *Signed in* — who, §7.4's adoption sentence if there is one, and the way out of the
  *    account.
  *
+ * **And four more since 2026-11-14**, for the reset and the mail links (cloud/AuthLinks.tsx,
+ * cloud/authLinkState.ts): *reset sent* — the reset's own "check your email", the confirmation
+ * state's twin; *signing you in* — a mail link is being exchanged, said with nothing to type
+ * into; *new password* — a reset link has signed the diver in and what they came for is a new
+ * password; and a link that failed, which is said over the sign-in form because the form is
+ * the way on from it. A link that signs in lands on state 5 with a sentence saying what it did.
+ *
  * **What is deliberately not here.** No sync trigger and no pending indicator: §7.5's triggers
  * are subscriptions with the app's lifetime (`cloud/syncTriggers.tsx`, mounted at the root) and
  * the indicator belongs on the screen a diver is actually looking at (`DivesScreen.tsx`) — this
  * screen's part is to leave a session where the engine can find it, which `useAuthSession` is.
  * No Apple or Google (§5 has both before release; Apple is
- * mandatory once Google is offered). No password reset — it needs the `ponor://` deep link
- * handled, which is its own task, and this screen says nothing about recovery in either
- * direction: a link that cannot work is the dead affordance §10 has an entry about, and a line
- * claiming recovery is impossible would be false.
+ * mandatory once Google is offered). Password reset arrived on 2026-11-14 with the `ponor://`
+ * link handling it was waiting for — see `forgotPassword` below and DESIGN.md §5.
  *
  * **And no *start over* and no *delete account*, which is a placement rather than a gap**
  * (M3j). §7.4 groups all three destructive acts in one table and this screen holds only the
@@ -267,6 +304,23 @@ export default function AccountScreen() {
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
 
+  // 2026-11-14. What the last link from a mail did (cloud/authLinkState.ts) — signing in,
+  // signed in, a reset to finish, a failure to say. Read before every early return below,
+  // because hooks cannot follow one.
+  const link = useAuthLinkState();
+  // Whether the footer is riding on the keyboard, for the clearance under it (`liftedBottomInset`).
+  const keyboardShown = useKeyboardShown();
+  // The password row, so the address row's return key can hand the keyboard to it.
+  const passwordRef = useRef<TextInput | null>(null);
+  // The address a reset mail went to — the reset's own "check your email" state, the
+  // confirmation's twin.
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
+  // The new password, after a reset link, and the refusal under it. Held apart from `password`
+  // because it is a different row on a different screen, and cleared the moment it is saved for
+  // `password`'s own reason.
+  const [freshPassword, setFreshPassword] = useState('');
+  const [freshNote, setFreshNote] = useState<string | null>(null);
+
   if (!cloud.configured) {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
@@ -285,11 +339,17 @@ export default function AccountScreen() {
   // re-asking a question this render has already answered.
   const client = cloud.client;
 
+  // A link's failure was about that link; a new attempt is the diver moving on from it.
+  const forgetFailedLink = () => {
+    if (link.kind === 'failed') setAuthLinkState({ kind: 'idle' });
+  };
+
   const submit = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setNote(null);
+    forgetFailedLink();
     try {
       const outcome = await authenticate(client, mode, { email, password }, localLogbook);
       if (outcome.kind === 'failed') {
@@ -314,11 +374,59 @@ export default function AccountScreen() {
     }
   };
 
+  /**
+   * **The way back from a forgotten password** (2026-11-14). Sends the reset mail to whatever is
+   * in the address row — the diver has usually just typed it and been told the password is
+   * wrong — and switches to the reset's own "check your email" state. A refusal is about the
+   * address, so it lands under the address row.
+   */
+  const forgotPassword = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setNote(null);
+    forgetFailedLink();
+    try {
+      const outcome = await requestPasswordReset(client, email);
+      if (outcome.kind === 'failed') {
+        setNote({ message: outcome.message, field: outcome.field ?? 'email' });
+        return;
+      }
+      setPassword('');
+      setResetSentTo(outcome.email);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  /** The last step of a reset: the link has signed the diver in, and this saves the password. */
+  const saveFreshPassword = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setFreshNote(null);
+    try {
+      const outcome = await setNewPassword(client, freshPassword);
+      if (!outcome.ok) {
+        setFreshNote(outcome.message);
+        return;
+      }
+      setFreshPassword('');
+      setAuthLinkState({ kind: 'passwordChanged' });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
   const runSignOut = async () => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setSignOutError(null);
+    // What the last link said was about the sign-in it made; it must not greet the next one.
+    setAuthLinkState({ kind: 'idle' });
     try {
       // `endSession` wipes first and ends the session only if the wipe succeeded — see its own
       // docblock for why that order is a safety property rather than a preference. M2g wired the
@@ -359,6 +467,77 @@ export default function AccountScreen() {
     );
   }
 
+  // A mail link has arrived and its code is being exchanged (cloud/AuthLinks.tsx). Said at once,
+  // and with nothing to type into, so a diver who landed here from their mail app does not start
+  // filling in a sign-in form that is about to be replaced.
+  if (link.kind === 'working') {
+    return (
+      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+        <BackControl styles={styles} />
+        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
+        <View style={styles.accountCaption}>
+          <Text style={styles.accountCaptionText}>{t('account.signingIn')}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (session !== null && link.kind === 'recovery') {
+    // The reset link has signed the diver in, and what they came for is a new password. One row,
+    // marked as a NEW password so the platform can suggest a strong one and save it, with the
+    // footer's own action — the sign-in form's arrangement, keyboard and all.
+    return (
+      <KeyboardAvoidingView
+        style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <BackControl styles={styles} />
+        <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
+          <Text style={styles.accountHeading}>{t('account.newPasswordHeading')}</Text>
+          {session.user.email !== undefined && (
+            <View style={styles.formField}>
+              <View style={styles.formFieldRow}>
+                <Text style={styles.formFieldLabel}>{t('account.signedInAs')}</Text>
+                <Text style={styles.accountEmail}>{session.user.email}</Text>
+              </View>
+            </View>
+          )}
+          <View>
+            <FormField
+              label={t('account.newPassword')}
+              value={freshPassword}
+              onChange={(text) => {
+                setFreshNote(null);
+                setFreshPassword(text);
+              }}
+              scheme={scheme}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+              autoComplete="new-password"
+              returnKeyType="go"
+              onSubmitEditing={() => void saveFreshPassword()}
+            />
+            <FieldNote message={freshNote ?? undefined} scheme={scheme} />
+          </View>
+        </ScrollView>
+        <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
+          <Pressable
+            style={styles.action}
+            onPress={() => void saveFreshPassword()}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={t('account.savePassword')}
+            accessibilityState={{ disabled: busy }}
+          >
+            <Text style={styles.actionLabel}>{t('account.savePassword')}</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
   if (session !== null) {
     // Every session this app can produce carries an address, because §5's one method is email
     // and password. The branch exists because `Session`'s own type leaves `email` optional, and
@@ -366,7 +545,13 @@ export default function AccountScreen() {
     // rather than drawing a dash for a figure with nothing behind it. The way out of the
     // account stands either way, which is the half that matters.
     const address = session.user.email ?? null;
-    const adoption = adoptionSentence(adopted);
+    // A sign-in made by a mail link reports its own count (cloud/authLinkState.ts); one made by
+    // the form reports `adopted`. Never both: a link that signs in replaces whatever the form did.
+    const adoption = adoptionSentence(link.kind === 'signedIn' ? link.adopted : adopted);
+    // What a mail link just did, said once on arrival: the address is confirmed, or the new
+    // password is saved. Statements, like §7.4's — nothing to dismiss.
+    const linkNews =
+      link.kind === 'signedIn' ? t('account.emailConfirmed') : link.kind === 'passwordChanged' ? t('account.passwordChanged') : null;
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <BackControl styles={styles} />
@@ -383,6 +568,12 @@ export default function AccountScreen() {
                 <Text style={styles.formFieldLabel}>{t('account.signedInAs')}</Text>
                 <Text style={styles.accountEmail}>{address}</Text>
               </View>
+            </View>
+          )}
+
+          {linkNews !== null && (
+            <View style={styles.accountCaption}>
+              <Text style={styles.accountCaptionText}>{linkNews}</Text>
             </View>
           )}
 
@@ -475,8 +666,51 @@ export default function AccountScreen() {
     );
   }
 
+  if (resetSentTo !== null) {
+    // The reset's own "check your email" — the confirmation state's twin, with the address shown
+    // back for the same reason. Supabase answers an address with no account exactly as it
+    // answers one with an account, so the sentence promises only what the app knows.
+    return (
+      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+        <BackControl styles={styles} />
+        <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
+          <Text style={styles.accountHeading}>{t('account.checkEmail')}</Text>
+          <View style={styles.formField}>
+            <View style={styles.formFieldRow}>
+              <Text style={styles.formFieldLabel}>{t('account.sentTo')}</Text>
+              <Text style={styles.accountEmail}>{resetSentTo}</Text>
+            </View>
+          </View>
+          <View style={styles.accountCaption}>
+            <Text style={styles.accountCaptionText}>{t('account.resetSent')}</Text>
+          </View>
+          <Pressable
+            style={styles.accountSecondaryAction}
+            onPress={() => {
+              setResetSentTo(null);
+              setMode('signIn');
+              setNote(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('account.backToSignIn')}
+          >
+            <Text style={styles.accountSecondaryActionLabel}>{t('account.backToSignIn')}</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+    // **A `KeyboardAvoidingView`, for the dive form's own reason** (2026-11-14, found on a
+    // phone): with the keyboard up, the footer's action and the mode toggle were both behind it,
+    // so a diver who had typed their password had to find a way to put the keyboard away before
+    // they could sign in. `padding` on iOS and `height` on Android is the pairing the dive form
+    // and the search screen pass.
+    <KeyboardAvoidingView
+      style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <BackControl styles={styles} />
       {/* `keyboardShouldPersistTaps="handled"`, the same as the dive form's and Settings'
           own ScrollViews: RN's default spends the first tap dismissing the keyboard, so with
@@ -489,7 +723,15 @@ export default function AccountScreen() {
         contentContainerStyle={styles.settingsContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
+        <Text style={styles.accountHeading}>{t(HEADING[mode])}</Text>
+
+        {/* What the last mail link could not do (cloud/authLinkState.ts) — over the form,
+            because the form is the way on from it. */}
+        {link.kind === 'failed' && (
+          <View style={styles.accountNotice}>
+            <Text style={styles.accountNoticeText}>{link.message}</Text>
+          </View>
+        )}
 
         <View style={styles.accountCaption}>
           <Text style={styles.accountCaptionText}>{whatAnAccountIsFor()}</Text>
@@ -502,7 +744,9 @@ export default function AccountScreen() {
             onChange={(text) => {
               // Typing clears the note: it described the pair that was in the boxes, and a
               // sentence about credentials the diver has already changed is a stale complaint.
+              // The same for a failed link's sentence — the diver has moved on from it.
               setNote(null);
+              forgetFailedLink();
               setEmail(text);
             }}
             scheme={scheme}
@@ -512,25 +756,61 @@ export default function AccountScreen() {
             // see it happen. §0.6 keeps names in sans, and an address is a name.
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder={t('account.emailPlaceholder')}
+            // No placeholder (2026-11-14): a right-aligned hint put the caret on top of
+            // "you@example.com", and the label already says what belongs in the row.
+            textContentType="username"
+            autoComplete="email"
+            // The return key hands the keyboard to the password row rather than closing it.
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
           {/* Only ever the refusal this app made about THIS row — see `note` above. */}
           <FieldNote message={noteFor('email')} scheme={scheme} />
           <FormField
+            ref={passwordRef}
             label={t('account.password')}
             value={password}
             onChange={(text) => {
               setNote(null);
+              forgetFailedLink();
               setPassword(text);
             }}
             scheme={scheme}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
+            {...PASSWORD_KIND[mode]}
+            // The last row's return key does what the button below does.
+            returnKeyType="go"
+            onSubmitEditing={() => void submit()}
           />
           {/* This row's own refusal, and everything the server said — which is about the pair
               and lands under the last row of it. */}
           <FieldNote message={noteFor('password')} scheme={scheme} />
+          {/* **The way back from a forgotten password** (2026-11-14), with the row it is
+              about — the toggle in the footer is about the BUTTON and stays there; this is
+              about the password ROW, the way a field's clear control is. Sign-in only: a new
+              account has no password to forget. Left-aligned on the content column, which is
+              §0.6's rule for a control inside a left-aligned block. */}
+          {mode === 'signIn' && (
+            <Pressable
+              style={styles.accountRowAction}
+              onPress={() => void forgotPassword()}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={t('account.forgotPassword')}
+              accessibilityState={{ disabled: busy }}
+            >
+              <Text style={styles.accountSecondaryActionLabel}>{t('account.forgotPassword')}</Text>
+            </Pressable>
+          )}
+          {/* Said before the account is made rather than only after (2026-11-14): there is a
+              mail to come, and opening it on this phone is what finishes the job. */}
+          {mode === 'signUp' && (
+            <View style={styles.accountCaption}>
+              <Text style={styles.accountCaptionText}>{t('account.signUpNote')}</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -547,7 +827,7 @@ export default function AccountScreen() {
           (§0.5's floor met by geometry, never `hitSlop` — FormField.tsx keeps the account of
           what an invisible target cost when it was not), so its own centring is what sets
           the label off the button's bottom edge. */}
-      <View style={[styles.formFooter, { paddingBottom: insets.bottom + 24 }]}>
+      <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
         <Pressable
           style={styles.action}
           onPress={() => void submit()}
@@ -566,6 +846,7 @@ export default function AccountScreen() {
           style={styles.accountSecondaryAction}
           onPress={() => {
             setMode(otherMode(mode));
+            forgetFailedLink();
             // The note described an attempt in the other mode — "that email already has an
             // account" is advice to switch, and it must not still be on screen after the
             // switch it was advising.
@@ -579,7 +860,7 @@ export default function AccountScreen() {
           <Text style={styles.accountSecondaryActionLabel}>{t(SWITCH_TO[mode])}</Text>
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
