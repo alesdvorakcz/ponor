@@ -2330,9 +2330,28 @@ describe('brought to the design canvas', () => {
       expect(openURL).not.toHaveBeenCalled();
     });
 
-    // §2.4 keeps a plan off the map, so Ponor's map has no mark to point at; the device's maps
-    // do what the words promise, as every dive's card did before #21.
-    it('opens a planned dive in the device’s maps, since Ponor’s map does not draw a plan', async () => {
+    // §2.4 keeps a plan off the map, so a plan points the map at its SITE when it has one (the
+    // owner's call on #21's PR) — the same map the site's own page opens.
+    it('opens Ponor’s map on a planned dive’s site, since the plan itself is not drawn', async () => {
+      (router.push as jest.Mock).mockClear();
+      const screen = await renderNumbered(dive({ ...placed, status: 'planned', siteId: 'blue' }), 6);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 'blue' } });
+      expect(openURL).not.toHaveBeenCalled();
+    });
+
+    // A logged dive with a site still points at the DIVE — its place, with its sheet — not at the
+    // site: the site branch is for what the map does not draw, and must not shadow the dive's own.
+    it('points a logged dive at the dive, even when it has a site', async () => {
+      (router.push as jest.Mock).mockClear();
+      const screen = await renderNumbered(dive({ ...placed, siteId: 'blue' }), 6);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/dive/[id]/map', params: { id: 'placed' } });
+    });
+
+    // A plan at a place typed by hand has no mark anywhere, so the device's maps do what the words
+    // promise, as every dive's card did before #21.
+    it('opens a planned dive with no site in the device’s maps', async () => {
       (router.push as jest.Mock).mockClear();
       const screen = await renderNumbered(dive({ ...placed, status: 'planned' }), 6);
       await pressControl(screen, t('detail.showOnMap'));

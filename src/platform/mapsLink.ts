@@ -9,7 +9,8 @@ import { type MapPoint } from '../domain/mapSites';
  * Issue #3's *Show on map* card opened this for every dive, because Ponor's Map tab could not yet
  * be pointed at a place. Issue #21 taught it (`platform/showOnMap.ts`), and this module kept three
  * callers: a focused map's *Directions* pill, which is what the card used to give a diver for free;
- * a **planned** dive's card, since §2.4 keeps a plan off Ponor's map; and the browser, whose map is
+ * a **planned** dive's card when the plan has no site to point Ponor's map at (§2.4 keeps a plan
+ * itself off the map; a plan at a catalogue site opens that site); and the browser, whose map is
  * a sentence (`showOnMap.web.ts`). DESIGN.md §10 has the reasoning for each.
  *
  * **One URL per platform, built here and nowhere else** (§4.1). iOS takes Apple's universal link,

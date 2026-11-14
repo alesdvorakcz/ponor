@@ -551,10 +551,22 @@ function RecordActionsSheet({
  * it sits in place of the GPS row that used to state the two numbers in Site & centre.
  *
  * **A dive the map draws opens Ponor's map, pointed at it** (`platform/showOnMap.ts`), with its
- * place selected and the place's sheet up. **A planned dive opens the device's maps instead**, as
- * every dive did before #21: §2.4 keeps a plan off the map, so Ponor's map has no mark to point at,
- * and a map centred on nothing would look broken — the issue's own words about a focus that is not
- * drawn. A plan is also somewhere a diver is *going*, which is what the device's maps are for.
+ * place selected and the place's sheet up.
+ *
+ * **A planned dive is not drawn** — §2.4 keeps a plan off the map — **so it points the map at its
+ * SITE instead, when it has one** (the owner's call on #21's PR). A plan at a catalogue site opens
+ * Ponor's map on that site's mark, exactly as the site's own page would: the community dot, or the
+ * diver's own mark with its sheet if they have dived there before. *Show on map* then means the
+ * same thing on every dive with a site, and Directions is still one tap away in the map's header.
+ * The plan itself stays undrawn; the map points at a place that is already on it.
+ *
+ * **A plan with no site id still opens the device's maps**, as every dive did before #21 — a place
+ * typed by hand and never published has no mark anywhere, and a map centred on nothing would look
+ * broken (the issue's own words about a focus that is not drawn).
+ *
+ * The id is trusted rather than looked up, on the Site row's own rule (`Field.opens` above): a row
+ * this device does not hold opens the map the way the Map tab opens when its place cannot be found,
+ * which is one screen's existing answer rather than a reason to read the catalogue here.
  *
  * Whether the map draws the dive is `drawsOnMap`'s answer (domain/mapSites.ts), asked of the
  * function that does the drawing rather than restated here as a status check.
@@ -562,6 +574,7 @@ function RecordActionsSheet({
 function showDiveOnMap(dive: Dive, point: MapPoint): void {
   const label = diveSiteLabel(dive);
   if (drawsOnMap(dive)) showOnMap({ kind: 'dive', id: dive.id }, point, label);
+  else if (dive.siteId !== null) showOnMap({ kind: 'site', id: dive.siteId }, point, label);
   else openInMaps(point, label);
 }
 

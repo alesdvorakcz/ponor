@@ -16,7 +16,7 @@ import { symbolName } from './symbolName';
  * second page wanted it, which is the point at which a shape becomes a rule (§4.1).
  *
  * The card does not decide where it goes — each page hands it `onPress` (`platform/showOnMap.ts`
- * for Ponor's map, `platform/mapsLink.ts` for a planned dive, which is not on it), because the
+ * for Ponor's map, `platform/mapsLink.ts` for a planned dive with no site, which has no mark on it), because the
  * destination depends on what the place is and the card only knows that it has a position.
  *
  * A page draws it only for a position `pointOf` accepts (domain/mapSites.ts) — the Map's own test
