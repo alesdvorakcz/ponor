@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import {
   FlatList,
   Pressable,
@@ -373,7 +373,31 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
           centers: centres.resolved ? centres.centers : null,
         });
   const found = target === null || target === 'pending' ? null : target;
+  /**
+   * **A focus looked for and not found is let go of at once** (#27's review). Without this the
+   * selection stays `FOCUSED` while the map opens on everything, and a sync that brings the place
+   * in later would select its mark and pop its sheet on its own — over a camera that never moved,
+   * since a `MapView` reads its region once. The map had already opened as the Map tab does; a
+   * place that arrives afterwards is one more mark on it, like any other.
+   *
+   * Set during render rather than in an effect: React's own pattern for state derived from what a
+   * render saw, applied before the frame is painted, so no frame shows the stale selection. The
+   * guard makes it settle in one extra pass.
+   */
+  if (chosen === FOCUSED && focus !== undefined && target === null) setSelected(null);
   const selected: MapMarkRef | null = chosen === FOCUSED ? (found?.mark ?? null) : chosen;
+
+  /**
+   * **A page this map links to, or — when it is the page the map was pointed from — the way back
+   * to it** (#27's review). A focused map is pushed over a dive, a site or a centre, and its sheet
+   * and marks link to exactly those kinds of page; pushing the one it came from again would stack
+   * site → map → site → map, and Back would walk the repeats. Every other page is pushed as on the
+   * Map tab.
+   */
+  const openPage = (kind: MapFocusKind, id: string, href: Href) => {
+    if (focus !== undefined && focus.kind === kind && focus.id === id) leaveTo(mapFocusOrigin(focus));
+    else router.push(href);
+  };
 
   /**
    * **Whether the diver's own position may be drawn — READ, never asked.**
@@ -791,11 +815,11 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
    */
   const pressMark = (mark: MapMark) => {
     if (mark.kind === 'centers') {
-      router.push(`/center/${mark.key}`);
+      openPage('center', mark.key, `/center/${mark.key}`);
       return;
     }
     if (mark.kind === 'community') {
-      router.push(`/site/${mark.key}`);
+      openPage('site', mark.key, `/site/${mark.key}`);
       return;
     }
     setSelected({ kind: mark.kind, key: mark.key });
@@ -933,7 +957,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
             {placeSite !== undefined && (
               <MapPill
                 label={t('map.sitePage')}
-                onPress={() => router.push(`/site/${placeSite.id}`)}
+                onPress={() => openPage('site', placeSite.id, `/site/${placeSite.id}`)}
                 announce={t('common.open', { name: siteLabel(placeSite) })}
                 style={styles.mapSheetAction}
                 styles={styles}
@@ -952,7 +976,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
                   points={shapes.get(item.id)}
                   scheme={scheme}
                   units={units}
-                  onPress={(id) => router.push(`/dive/${id}`)}
+                  onPress={(id) => openPage('dive', id, `/dive/${id}`)}
                 />
               )}
               // The device's own clearance, not a constant — `screenBottomInset` (theme/

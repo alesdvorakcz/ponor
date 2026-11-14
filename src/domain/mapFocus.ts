@@ -90,6 +90,12 @@ export interface FocusSources {
  * **Independent of the filter, on purpose.** It reads every logged dive rather than the places the
  * filter currently draws, so switching *your dives* off does not make a focus disappear — the
  * Directions pill is about the place, not about what is switched on.
+ *
+ * **The point is always the selected mark's own** (#27's review). A place of the diver's own is
+ * drawn where `groupDivesByPlace` puts it — one dive's pin standing for the group — and neither the
+ * focused dive's own pin nor the catalogue's position for the site has to be that one: later dives
+ * at a site drift by the GPS's own error, and an admin can move a catalogue row. Centring on any
+ * other point could open with the selected mark at the edge of the screen or under its own sheet.
  */
 export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget | 'pending' | null {
   switch (focus.kind) {
@@ -97,30 +103,26 @@ export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget
       if (sources.dives === null) return 'pending';
       const dive = sources.dives.find((row) => row?.id === focus.id);
       if (dive === undefined) return null;
-      const point = pointOf(dive);
-      if (point === null) return null;
+      // A dive with no position, or a plan, is in no place — `groupDivesByPlace` owns both rules.
       const place = groupDivesByPlace(sources.dives).find((group) =>
         group.dives.some((member) => member.id === dive.id),
       );
       if (place === undefined) return null;
-      return { kind: 'dive', dive, point, mark: { kind: 'mine', key: place.key } };
+      return { kind: 'dive', dive, point: place.point, mark: { kind: 'mine', key: place.key } };
     }
     case 'site': {
       if (sources.sites === null || sources.dives === null) return 'pending';
       const site = sources.sites.find((row) => row?.id === focus.id);
       if (site === undefined) return null;
-      const point = pointOf(site);
-      if (point === null) return null;
       // The same identity `sitesWithoutYourMark` drops the dot by (domain/mapSites.ts), asked of
-      // the same places — so this selects the diver's mark exactly when the dot is not drawn.
+      // the same places — so this selects the diver's mark exactly when the dot is not drawn, and
+      // centres on that mark rather than on the catalogue's position for the row.
       const identity = catalogueSiteIdentity(site.id);
       const yours = groupDivesByPlace(sources.dives).find((group) => group.key === identity);
-      return {
-        kind: 'site',
-        site,
-        point,
-        mark: yours === undefined ? { kind: 'community', key: site.id } : { kind: 'mine', key: yours.key },
-      };
+      if (yours !== undefined) return { kind: 'site', site, point: yours.point, mark: { kind: 'mine', key: yours.key } };
+      const point = pointOf(site);
+      if (point === null) return null;
+      return { kind: 'site', site, point, mark: { kind: 'community', key: site.id } };
     }
     case 'center': {
       if (sources.centers === null) return 'pending';
@@ -166,5 +168,8 @@ export function focusRegion(point: MapPoint, opensSheet: boolean): MapRegion {
   // One point always frames: `regionFor` returns null only for none.
   const framed = regionFor([point]) as MapRegion;
   if (!opensSheet) return framed;
-  return { ...framed, latitude: framed.latitude - framed.latitudeDelta * SHEET_CLEARANCE };
+  // **Never south of the pole** (#27's review): a place within a quarter-span of it would put the
+  // centre below −90°, which MapKit rejects as an invalid region rather than clamping. At the pole
+  // itself the region is `regionFor`'s own for that point, as on the Map tab.
+  return { ...framed, latitude: Math.max(-90, framed.latitude - framed.latitudeDelta * SHEET_CLEARANCE) };
 }

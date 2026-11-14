@@ -23,6 +23,7 @@ import {
   N2_LABEL,
   O2_LABEL,
 } from '../format/display';
+import { getDiveSite } from '../db/catalogue';
 import { softDeleteDive } from '../db/dives';
 import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
@@ -85,6 +86,9 @@ jest.mock('../db/useDiveSamples', () => ({
 // test controls what the write resolves or rejects with and no real database is involved.
 // `router.push` joins the fake for the Edit control, which opens `/dive/[id]/edit`.
 jest.mock('../db/dives', () => ({ softDeleteDive: jest.fn() }));
+// A planned dive's *Show on map* looks its site up, one row, at the press (#27's review). Only that
+// read is faked; the rest of the module is the real one.
+jest.mock('../db/catalogue', () => ({ ...jest.requireActual('../db/catalogue'), getDiveSite: jest.fn() }));
 jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(),
   router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn(), push: jest.fn() },
@@ -2334,10 +2338,30 @@ describe('brought to the design canvas', () => {
     // owner's call on #21's PR) — the same map the site's own page opens.
     it('opens Ponor’s map on a planned dive’s site, since the plan itself is not drawn', async () => {
       (router.push as jest.Mock).mockClear();
+      (getDiveSite as jest.Mock).mockResolvedValue({ id: 'blue', latitude: 43.0378, longitude: 16.1489 });
       const screen = await renderNumbered(dive({ ...placed, status: 'planned', siteId: 'blue' }), 6);
       await pressControl(screen, t('detail.showOnMap'));
+      await act(async () => {});
+      expect(getDiveSite).toHaveBeenCalledWith(expect.anything(), 'blue');
       expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 'blue' } });
       expect(openURL).not.toHaveBeenCalled();
+    });
+
+    // #27's review: a map pointed at a site it cannot find opens on everything with nothing
+    // selected and no Directions — worse than the plan's own pin in the device's maps. So a site
+    // this device does not hold, one with no position, and a read that failed all go there.
+    it.each([
+      ['is not on this device', () => (getDiveSite as jest.Mock).mockResolvedValue(null)],
+      ['has no position', () => (getDiveSite as jest.Mock).mockResolvedValue({ id: 'blue', latitude: null, longitude: null })],
+      ['could not be read', () => (getDiveSite as jest.Mock).mockRejectedValue(new Error('locked'))],
+    ])('opens the device’s maps for a plan whose site %s', async (_, arrange) => {
+      (router.push as jest.Mock).mockClear();
+      arrange();
+      const screen = await renderNumbered(dive({ ...placed, status: 'planned', siteId: 'blue' }), 6);
+      await pressControl(screen, t('detail.showOnMap'));
+      await act(async () => {});
+      expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
+      expect(router.push).not.toHaveBeenCalled();
     });
 
     // A logged dive with a site still points at the DIVE — its place, with its sheet — not at the
@@ -2353,8 +2377,11 @@ describe('brought to the design canvas', () => {
     // promise, as every dive's card did before #21.
     it('opens a planned dive with no site in the device’s maps', async () => {
       (router.push as jest.Mock).mockClear();
+      (getDiveSite as jest.Mock).mockClear();
       const screen = await renderNumbered(dive({ ...placed, status: 'planned' }), 6);
       await pressControl(screen, t('detail.showOnMap'));
+      await act(async () => {});
+      expect(getDiveSite).not.toHaveBeenCalled();
       expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
       expect(router.push).not.toHaveBeenCalled();
     });

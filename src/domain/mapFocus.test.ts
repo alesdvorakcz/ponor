@@ -71,16 +71,15 @@ describe('focusTarget — a dive', () => {
   });
 
   // §3 groups by site identity, so the mark a dive is drawn under is shared with every dive at
-  // that place and is positioned at the FIRST pinned one. The camera goes to this dive's own pin
-  // — #21's "centred on the dive's position" — and the mark selected is still the shared one.
-  it('selects the shared mark of a place, while centring on its own pin', () => {
+  // that place and is positioned at the FIRST pinned one. The camera goes to THAT mark, not to this
+  // dive's own pin (#27's review): the mark is what is selected and what the sheet must clear, and
+  // a pin that drifted from it would open with the selected mark off-centre. Built by #21 the other
+  // way round, and this test said so; it is the test that changed.
+  it('selects the shared mark of a place, and centres on that mark rather than its own pin', () => {
     const newer = dive({ id: 'newer', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
     const older = dive({ id: 'older', siteId: 'blue', siteName: 'Blue Hole', latitude: 43.0381, longitude: 16.1492 });
     const target = focusTarget({ kind: 'dive', id: 'older' }, answered({ dives: [newer, older] }));
-    expect(target).toMatchObject({
-      point: { latitude: 43.0381, longitude: 16.1492 },
-      mark: { kind: 'mine', key: 'site:blue' },
-    });
+    expect(target).toMatchObject({ point: BLUE_HOLE, mark: { kind: 'mine', key: 'site:blue' } });
   });
 
   it('is a place of its own for a dive at no named site', () => {
@@ -136,6 +135,28 @@ describe('focusTarget — a site', () => {
     expect(focusTarget({ kind: 'site', id: 'blue' }, answered({ dives: [been], sites: [row] }))).toMatchObject({
       point: BLUE_HOLE,
       mark: { kind: 'mine', key: 'site:blue' },
+    });
+  });
+
+  // The catalogue's position and the diver's mark need not agree — later dives drift by the GPS's
+  // own error, and an admin can move a row. The focus selects the diver's mark, so it centres on
+  // that mark: centring on the row's position could leave the selected mark at the screen's edge or
+  // under its own sheet (#27's review).
+  it('centres a dived site on the diver’s own mark, not on the catalogue’s position', () => {
+    const row = site({ id: 'blue', name: 'Blue Hole', latitude: 43.06, longitude: 16.2 });
+    const been = dive({ siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
+    expect(focusTarget({ kind: 'site', id: 'blue' }, answered({ dives: [been], sites: [row] }))).toMatchObject({
+      point: BLUE_HOLE,
+      mark: { kind: 'mine', key: 'site:blue' },
+    });
+  });
+
+  // …and so a dived site needs no position of its own: the mark is the diver's, drawn at their pin.
+  it('finds a dived site that has no position of its own, at the diver’s mark', () => {
+    const row = site({ id: 'blue', name: 'Blue Hole' });
+    const been = dive({ siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
+    expect(focusTarget({ kind: 'site', id: 'blue' }, answered({ dives: [been], sites: [row] }))).toMatchObject({
+      point: BLUE_HOLE,
     });
   });
 
@@ -219,5 +240,13 @@ describe('focusRegion', () => {
   it('keeps the place on the map either way', () => {
     expect(regionContains(focusRegion(BLUE_HOLE, true), BLUE_HOLE)).toBe(true);
     expect(regionContains(focusRegion(BLUE_HOLE, false), BLUE_HOLE)).toBe(true);
+  });
+
+  // A quarter-span south of a place this close to the South Pole is below −90°, which MapKit
+  // rejects as an invalid region — a crash rather than a bad frame (#27's review).
+  it('never moves the camera south of the South Pole', () => {
+    const region = focusRegion({ latitude: -89.999, longitude: 0 }, true);
+    expect(region.latitude).toBeGreaterThanOrEqual(-90);
+    expect(region.latitude).toBe(-90);
   });
 });

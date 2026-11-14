@@ -1545,6 +1545,21 @@ describe('pointed at one place', () => {
     expect(textIn(t)).not.toContain('Directions');
   });
 
+  // #27's review: a focus that is looked for and not found must be let go of. Otherwise a sync that
+  // brings the place in later selects its mark and pops its sheet on its own, over a camera that
+  // never moved (a `MapView` reads its region once).
+  it('does not select a place that arrives after it was looked for', async () => {
+    mockUseDives.mockReturnValue(divesState([blueDeep, split]));
+    mockUseDiveSites.mockReturnValue(catalogueState([]));
+    const t = await showFocused({ kind: 'site', id: 'blue' });
+    expect(chosenMarks(t)).toEqual([]);
+
+    mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
+    await t.rerender(<MapScreen focus={{ kind: 'site', id: 'blue' }} />);
+    expect(chosenMarks(t)).toEqual([]);
+    expect(allNodes(t).some((n) => n.props?.accessibilityLabel === 'Close Blue Hole')).toBe(false);
+  });
+
   // What #3's card did before #21 — the device's maps, with directions — kept one tap away.
   it('offers directions to the place, in the device’s maps', async () => {
     mockUseDives.mockReturnValue(divesState([blueDeep, split]));
@@ -1588,6 +1603,75 @@ describe('pointed at one place', () => {
     const t = await showFocused({ kind: 'dive', id: 'blue-deep' });
     await press(t, 'Go back');
     expect(router.replace).toHaveBeenCalledWith({ pathname: '/dive/[id]', params: { id: 'blue-deep' } });
+  });
+
+  // #27's review: the sheet and the marks link to dives, sites and centres — the very kinds of page
+  // a focused map is pushed over. Pushing the page it came from again stacks site → map → site →
+  // map; the link to that one page goes back to it instead, and every other link still pushes.
+  describe('a link to the page it was opened from', () => {
+    beforeEach(() => (router.back as jest.Mock).mockClear());
+
+    it('goes back from a site’s own page link in the sheet', async () => {
+      mockUseDives.mockReturnValue(divesState([blueDeep, split]));
+      mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
+      const t = await showFocused({ kind: 'site', id: 'blue' });
+      await press(t, 'Open Blue Hole');
+      expect(router.back).toHaveBeenCalledTimes(1);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+
+    it('still pushes a site’s page from a dive’s map', async () => {
+      mockUseDives.mockReturnValue(divesState([blueDeep, split]));
+      mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
+      const t = await showFocused({ kind: 'dive', id: 'blue-deep' });
+      await press(t, 'Open Blue Hole');
+      expect(router.push).toHaveBeenCalledWith('/site/blue');
+      expect(router.back).not.toHaveBeenCalled();
+    });
+
+    // Kind and id both, since a dive's id and a site's id are two tables' ids: a dive that happens
+    // to share its site's id is still not that site's page.
+    it('pushes a site’s page from a dive whose id is the same string', async () => {
+      const twin = dive({ id: 'blue', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE, maxDepthM: 18.2 });
+      mockUseDives.mockReturnValue(divesState([twin]));
+      mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
+      const t = await showFocused({ kind: 'dive', id: 'blue' });
+      await press(t, 'Open Blue Hole');
+      expect(router.push).toHaveBeenCalledWith('/site/blue');
+      expect(router.back).not.toHaveBeenCalled();
+    });
+
+    it('goes back from the dive it came from in the sheet, and pushes the others', async () => {
+      mockUseDives.mockReturnValue(divesState([blueDeep, blueShallow, split]));
+      const t = await showFocused({ kind: 'dive', id: 'blue-deep' });
+      const styles = makeStyles('light');
+      const rows = allNodes(t).filter(
+        (n) => typeof n.type === 'string' && [n.props?.style].flat(5).includes(styles.diveRow),
+      );
+      expect(rows).toHaveLength(2);
+      for (const row of rows) await fireEvent.press(row);
+      expect(router.back).toHaveBeenCalledTimes(1);
+      expect((router.push as jest.Mock).mock.calls).toEqual([['/dive/blue-shallow']]);
+    });
+
+    it('goes back from the centre’s own mark', async () => {
+      mockUseDiveCenters.mockReturnValue(centresState([centre({ id: 'ponorka', name: 'Ponorka', ...SPLIT })]));
+      const t = await showFocused({ kind: 'center', id: 'ponorka' });
+      await tapMark(t, 'Ponorka, dive centre');
+      expect(router.back).toHaveBeenCalledTimes(1);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+
+    it('goes back from the site’s own mark, and pushes a neighbour’s page', async () => {
+      mockUseDiveSites.mockReturnValue(
+        catalogueState([site({ id: 'vis', name: 'Vis', ...BLUE_HOLE }), site({ id: 'bisevo', name: 'Biševo', ...SPLIT })]),
+      );
+      const t = await showFocused({ kind: 'site', id: 'vis' });
+      await tapMark(t, 'Vis, dive site');
+      await tapMark(t, 'Biševo, dive site');
+      expect(router.back).toHaveBeenCalledTimes(1);
+      expect((router.push as jest.Mock).mock.calls).toEqual([['/site/bisevo']]);
+    });
   });
 
   // The Map tab is a tab: nothing to go back to, and no one place to give directions to.

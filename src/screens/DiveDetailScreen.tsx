@@ -8,6 +8,7 @@ import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
 import { MapCard } from '../components/MapCard';
 import { symbolName } from '../components/symbolName';
+import { getDiveSite } from '../db/catalogue';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
@@ -560,21 +561,30 @@ function RecordActionsSheet({
  * same thing on every dive with a site, and Directions is still one tap away in the map's header.
  * The plan itself stays undrawn; the map points at a place that is already on it.
  *
- * **A plan with no site id still opens the device's maps**, as every dive did before #21 — a place
- * typed by hand and never published has no mark anywhere, and a map centred on nothing would look
- * broken (the issue's own words about a focus that is not drawn).
+ * **A plan whose site the map cannot show still opens the device's maps**, as every dive did
+ * before #21: one with no site id (a place typed by hand and never published has no mark
+ * anywhere), and one whose row this device does not hold or that has no position — not yet pulled,
+ * hidden by an admin. A map pointed at a site it cannot find opens on everything with nothing
+ * selected and no Directions, which is worse than what the plan's own pin gets from the device's
+ * maps (#27's review).
  *
- * The id is trusted rather than looked up, on the Site row's own rule (`Field.opens` above): a row
- * this device does not hold opens the map the way the Map tab opens when its place cannot be found,
- * which is one screen's existing answer rather than a reason to read the catalogue here.
+ * **So the row is looked up, once, at the press** — unlike the Site row's link (`Field.opens`
+ * above), which trusts the id because the page it opens can say "not found" and a map cannot. One
+ * row by id (`getDiveSite`, the same `pickable` filter the map's own read uses), only for a plan,
+ * only when pressed: the detail still reads no catalogue while it renders. A failed read is treated
+ * as a row that is not there.
  *
  * Whether the map draws the dive is `drawsOnMap`'s answer (domain/mapSites.ts), asked of the
  * function that does the drawing rather than restated here as a status check.
  */
-function showDiveOnMap(dive: Dive, point: MapPoint): void {
+async function showDiveOnMap(dive: Dive, point: MapPoint): Promise<void> {
   const label = diveSiteLabel(dive);
-  if (drawsOnMap(dive)) showOnMap({ kind: 'dive', id: dive.id }, point, label);
-  else if (dive.siteId !== null) showOnMap({ kind: 'site', id: dive.siteId }, point, label);
+  if (drawsOnMap(dive)) {
+    showOnMap({ kind: 'dive', id: dive.id }, point, label);
+    return;
+  }
+  const site = dive.siteId === null ? null : await getDiveSite(db, dive.siteId).catch(() => null);
+  if (site !== null && pointOf(site) !== null) showOnMap({ kind: 'site', id: site.id }, point, label);
   else openInMaps(point, label);
 }
 
@@ -1104,7 +1114,7 @@ export default function DiveDetailScreen({
               styles={styles}
               scheme={scheme}
               coordinates={coordinates}
-              onPress={() => showDiveOnMap(dive, point)}
+              onPress={() => void showDiveOnMap(dive, point)}
             />
           )}
 
