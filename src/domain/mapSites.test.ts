@@ -1,5 +1,6 @@
 import { dive } from './diveFixture';
 import {
+  drawsOnMap,
   groupDivesByPlace,
   pointOf,
   refitRegion,
@@ -84,6 +85,28 @@ describe('pointOf', () => {
   it('keeps the extremes, which are places rather than errors', () => {
     expect(pointOf({ latitude: 90, longitude: 180 })).toEqual({ latitude: 90, longitude: 180 });
     expect(pointOf({ latitude: -90, longitude: -180 })).toEqual({ latitude: -90, longitude: -180 });
+  });
+});
+
+// Issue #21: the dive detail's *Show on map* opens Ponor's map only for a dive that map draws,
+// and the device's maps for one it does not. Each case is written out rather than derived from
+// `groupDivesByPlace`, which is what the function asks — so a change to either half of the rule
+// (§2.4's plans, `pointOf`'s globe) is red here instead of agreed with.
+describe('drawsOnMap', () => {
+  const at = { latitude: 43.0378, longitude: 16.1489 };
+
+  it('draws a logged dive with a position', () => {
+    expect(drawsOnMap(dive({ ...at }))).toBe(true);
+  });
+
+  it('does not draw a planned dive, even with a position (§2.4)', () => {
+    expect(drawsOnMap(dive({ status: 'planned', ...at }))).toBe(false);
+  });
+
+  it('does not draw a dive with no position, half a position, or one off the globe', () => {
+    expect(drawsOnMap(dive())).toBe(false);
+    expect(drawsOnMap(dive({ latitude: 43.0378 }))).toBe(false);
+    expect(drawsOnMap(dive({ latitude: 91, longitude: 16.1489 }))).toBe(false);
   });
 });
 

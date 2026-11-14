@@ -2320,10 +2320,24 @@ describe('brought to the design canvas', () => {
       expect(lines.indexOf(t('detail.showOnMap'))).toBeLessThan(lines.indexOf(t('group.dateTime')));
     });
 
-    it('opens the position in the device’s maps', async () => {
+    // Issue #21: Ponor's own map, pointed at the dive, pushed over this screen so Back returns
+    // here. Where the map opens and what it selects is `MapScreen.test.tsx`'s.
+    it('opens Ponor’s map pointed at the dive, and not the device’s maps', async () => {
+      (router.push as jest.Mock).mockClear();
       const screen = await renderNumbered(placed, 6);
       await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/dive/[id]/map', params: { id: 'placed' } });
+      expect(openURL).not.toHaveBeenCalled();
+    });
+
+    // §2.4 keeps a plan off the map, so Ponor's map has no mark to point at; the device's maps
+    // do what the words promise, as every dive's card did before #21.
+    it('opens a planned dive in the device’s maps, since Ponor’s map does not draw a plan', async () => {
+      (router.push as jest.Mock).mockClear();
+      const screen = await renderNumbered(dive({ ...placed, status: 'planned' }), 6);
+      await pressControl(screen, t('detail.showOnMap'));
       expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
+      expect(router.push).not.toHaveBeenCalled();
     });
 
     // A pair no map can draw — finite, but off the globe — gets no card, and must not therefore

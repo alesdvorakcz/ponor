@@ -3,6 +3,7 @@ import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DiveRow } from '../components/DiveRow';
+import { MapCard } from '../components/MapCard';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
@@ -10,11 +11,12 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { divesWithCenter } from '../domain/centerDives';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
-import { waterTempRange } from '../domain/mapSites';
-import { formatSiteSummary, unnamedCenter } from '../format/display';
+import { pointOf, waterTempRange } from '../domain/mapSites';
+import { formatCoordinates, formatSiteSummary, unnamedCenter } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToCenters } from '../navigation/leaveScreen';
 import { isOpenableWebsite, openWebsite } from '../platform/openWebsite';
+import { showOnMap } from '../platform/showOnMap';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
@@ -189,6 +191,11 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
     ? null
     : formatSiteSummary(logbookStats(myDives), waterTempRange(myDives), units);
 
+  // §2.3 gives a centre this app creates its name alone, so the card is drawn only for a centre a
+  // catalogue surveyed — the same reason the Map tab draws so few of them.
+  const point = pointOf(center);
+  const coordinates = formatCoordinates(center.latitude, center.longitude);
+
   const header = (
     <View>
       <Text style={styles.centerHeading}>{centerLabel(center)}</Text>
@@ -197,6 +204,17 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           is the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence four other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.centerSummary}>{logbookUnreadable()}</Text>}
+      {/* **"Show on map"** (issue #21) — the dive detail's card, under the page's own lines where the
+          design canvas draws it, and only for a centre with a position a map can show (`pointOf`).
+          It opens Ponor's map pointed at this centre (`platform/showOnMap.ts`), its outlined mark inverted. */}
+      {point !== null && coordinates !== null && (
+        <MapCard
+          styles={styles}
+          scheme={scheme}
+          coordinates={coordinates}
+          onPress={() => showOnMap({ kind: 'center', id: center.id }, point, centerLabel(center))}
+        />
+      )}
       {hasFacts && (
         <View>
           <Text style={styles.centerSectionTitle}>{t('centre.facts')}</Text>

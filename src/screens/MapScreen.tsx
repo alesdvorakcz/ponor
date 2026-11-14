@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { router, type Href } from 'expo-router';
+import { router } from 'expo-router';
 import {
   FlatList,
   Pressable,
@@ -41,10 +41,19 @@ import {
   type MapRegion,
   type MapSite,
 } from '../domain/mapSites';
+import {
+  focusRegion,
+  focusTarget,
+  type FocusMarkKind,
+  type FocusTarget,
+  type MapFocus,
+  type MapFocusKind,
+} from '../domain/mapFocus';
 import { catalogueSiteIdentity } from '../domain/siteIdentity';
 import { type DiveCenter, type DiveSite } from '../domain/types';
 import { t, useT, type TranslationKey } from '../i18n';
 import {
+  diveSiteLabel,
   formatCenterMarkLabel,
   formatDiveMarkLabel,
   formatMapSummary,
@@ -55,7 +64,10 @@ import {
   unnamedSite,
 } from '../format/display';
 import { useForegroundReturn } from '../hooks/useForegroundReturn';
+import { leaveTo } from '../navigation/leaveScreen';
+import { mapFocusOrigin } from '../navigation/mapFocusLink';
 import { locationPermission } from '../platform/locationPermission';
+import { openInMaps } from '../platform/mapsLink';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
@@ -137,6 +149,54 @@ function centreLabel(centre: Pick<DiveCenter, 'name'>): string {
 }
 
 /**
+ * **What the map opens with switched on** — the diver's own dives and nothing else, on the Map tab
+ * and on a focused map alike (see `shown` below for why that is the default).
+ */
+const OPENS_SHOWING: readonly MapMarkKind[] = ['mine'];
+
+/**
+ * **What a focused map switches on so that its place is drawn** (issue #21; §3: the layers are a
+ * filter, and focusing on a mark that is not drawn would look broken).
+ *
+ * Keyed by what the map is pointed at rather than by the mark it resolves to, because the layers
+ * are decided on the first render and the mark is only known once the reads answer. That costs
+ * nothing for a dive or a centre, whose mark is always of one kind. **A site is either kind** —
+ * the diver's own place where they have dived it, the community's dot where they have not
+ * (`focusTarget`, domain/mapFocus.ts) — so both are switched on, and whichever of the two is the
+ * site is drawn.
+ */
+const FOCUS_SHOWS: Record<MapFocusKind, readonly MapMarkKind[]> = {
+  dive: ['mine'],
+  site: ['mine', 'community'],
+  center: ['mine', 'centers'],
+};
+
+/**
+ * **The one kind of mark that opens a sheet** — your own dives; a catalogue row goes to its page
+ * instead (`pressMark` below has the whole rule). Named because two things ask it: which place the
+ * sheet describes, and whether a focused map must leave room for that sheet (`focusRegion`).
+ */
+function opensSheet(kind: MapMarkKind): boolean {
+  return kind === 'mine';
+}
+
+/**
+ * The selection a focused map starts with: "the focus's own mark, once the reads have found it".
+ * A value of its own rather than the mark itself, because the mark is not known on the first
+ * render — and once the diver presses a mark, closes the sheet or switches a layer, `selected`
+ * holds what they chose and this is gone for good.
+ */
+const FOCUSED = 'focused';
+
+/** What a focused place is called — on the Directions pill, and to the maps app it opens. Each
+ * record's own label rule, so a focus is named exactly as its page and its mark name it. */
+function focusLabel(target: FocusTarget): string {
+  if (target.kind === 'dive') return diveSiteLabel(target.dive);
+  if (target.kind === 'site') return siteLabel(target.site);
+  return centreLabel(target.center);
+}
+
+/**
  * A catalogue kind's marks: one per row that has a position, named by its own table's label rule
  * and carrying no count.
  *
@@ -156,8 +216,10 @@ function catalogueMarks<T extends { id: string }>(
 }
 
 /**
- * **A pill on this screen that leaves it for a catalogue screen** — the two directory links under
- * the summary line, and the site's page from an open sheet.
+ * **A pill on this screen that leaves it** — the two directory links under the summary line, the
+ * site's page from an open sheet, and since issue #21 a focused map's *Directions*, which leaves
+ * for the device's maps app rather than for a catalogue screen. `onPress` rather than an `href` for
+ * that reason: one of the four does not navigate inside the app.
  *
  * §0.6's day-strip action: *"a bordered pill in tracked uppercase, not plain text, so it reads as
  * a control rather than a label"*. One component rather than three copies of a Pressable wrapping
@@ -172,15 +234,15 @@ function catalogueMarks<T extends { id: string }>(
  * say what they do, and *Site page* is a category, so the sheet's copy announces the place by
  * name. That is Settings' rule for every row that opens something.
  */
-function DirectoryLink({
+function MapPill({
   label,
-  href,
+  onPress,
   announce,
   style,
   styles,
 }: {
   label: string;
-  href: Href;
+  onPress: () => void;
   announce?: string;
   style?: StyleProp<ViewStyle>;
   styles: Styles;
@@ -188,7 +250,7 @@ function DirectoryLink({
   return (
     <Pressable
       style={style ?? styles.mapDirectoryAction}
-      onPress={() => router.push(href)}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={announce ?? label}
     >
@@ -238,8 +300,29 @@ function DirectoryLink({
  * and the option that was rejected. The consequence for THIS file is the part worth seeing from
  * here: the depth palette appears on this screen exactly where it appears on every other one —
  * on the `DiveRow`s inside the site sheet, each depth in its own band, beside its own number.
+ *
+ * ── Pointed at one place (issue #21) ──────────────────────────────────────────────────────
+ *
+ * With a `focus`, this is the map *Show on map* pushes over a dive, a site's page or a centre's
+ * page (`navigation/mapFocusLink.ts`, which says why it is pushed rather than the tab switched
+ * to). It is this same screen rather than a second one, because everything the Map tab does — the
+ * filter, the sheet, the refit, the empty and failing states — is what a map pointed at a place
+ * should do too; a second map screen would be every rule above written twice. **Four things
+ * differ, and nothing else:**
+ *
+ *  1. it opens on the place (`focusRegion`) rather than framing every mark, and not until the reads
+ *     it needs have answered — a `MapView` reads its region once (M3l), so a map opened early on
+ *     the wrong place could not be moved to the right one without a visible jump;
+ *  2. the place's own kind of mark is switched on (`FOCUS_SHOWS`), and its mark starts selected,
+ *     so a dive's place opens with its sheet already up;
+ *  3. a `‹ Back` above the title, because this screen is pushed and the Map tab is not;
+ *  4. a *Directions* pill, which hands the place to the device's maps app (`platform/mapsLink.ts`)
+ *     — what #3's card did before it, kept one tap away rather than given up.
+ *
+ * **Offline it behaves exactly as the Map tab does** (§1): the place, its mark and the sheet come
+ * from the device's own tables, and only Apple's tiles need a network.
  */
-export default function MapScreen() {
+export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
   // The subscription that repaints this screen when the diver changes the language (src/i18n) —
   // a screen root, so nothing above it re-renders on its own.
   useT();
@@ -269,9 +352,28 @@ export default function MapScreen() {
    * nonsense row, which is `db/settings.ts`' territory (§4.1) and a decision of its own; the map
    * opening on the diver's own logbook is a defensible answer rather than a placeholder for one.
    */
-  const [shown, setShown] = useState<ReadonlySet<MapMarkKind>>(() => new Set<MapMarkKind>(['mine']));
-  const [selected, setSelected] = useState<MapMarkRef | null>(null);
+  const [shown, setShown] = useState<ReadonlySet<MapMarkKind>>(
+    () => new Set<MapMarkKind>([...OPENS_SHOWING, ...(focus === undefined ? [] : FOCUS_SHOWS[focus.kind])]),
+  );
+  const [chosen, setSelected] = useState<MapMarkRef | null | typeof FOCUSED>(focus === undefined ? null : FOCUSED);
   const [locatable, setLocatable] = useState(false);
+
+  /**
+   * **The place this map is pointed at, once the reads have found it** (issue #21) — or `'pending'`
+   * while one it needs has not answered, or `null` when there is nothing to point at (no focus, a
+   * record that is gone or has no position, a planned dive). `domain/mapFocus.ts` owns which mark
+   * a record is; this only says which reads have answered.
+   */
+  const target =
+    focus === undefined
+      ? null
+      : focusTarget(focus, {
+          dives: resolved ? dives : null,
+          sites: catalogue.resolved ? catalogue.sites : null,
+          centers: centres.resolved ? centres.centers : null,
+        });
+  const found = target === null || target === 'pending' ? null : target;
+  const selected: MapMarkRef | null = chosen === FOCUSED ? (found?.mark ?? null) : chosen;
 
   /**
    * **Whether the diver's own position may be drawn — READ, never asked.**
@@ -382,7 +484,21 @@ export default function MapScreen() {
 
   const { places, communitySites, placedCentres, marks } = drawnFor(shown);
 
-  const region = regionFor(marks.map((mark) => mark.point));
+  /**
+   * **Where the map opens.** Every mark framed, on the Map tab; on a focused map, the place —
+   * clear of the sheet when its mark opens one — and no map at all until the place has been looked
+   * for (`'pending'`), for the reason this screen's docblock gives. A focus that found nothing opens
+   * the way the tab does rather than on nowhere.
+   *
+   * **No marks is still no map**, focused or not: the sentences below are what this screen shows
+   * when nothing is drawn, and a map centred on a place with nothing on it would be both at once.
+   */
+  const region =
+    marks.length === 0 || target === 'pending'
+      ? null
+      : found !== null
+        ? focusRegion(found.point, opensSheet(found.mark.kind))
+        : regionFor(marks.map((mark) => mark.point));
 
   /**
    * ── Switching a kind on must not leave it off-frame (M3l) ──────────────────────────────────
@@ -441,6 +557,24 @@ export default function MapScreen() {
   };
 
   const root = [styles.screen, { paddingTop: screenTopInset(insets.top) }];
+
+  /**
+   * **A focused map's way back** — the dive detail's own control (`detailBack`, §0.6's one
+   * treatment for leaving), above the title rather than beside it, because the capsule already
+   * holds the title's trailing edge. `leaveTo` pops to the page *Show on map* was pressed on; the
+   * fallback is only for a cold deep link with nothing under the map (`mapFocusOrigin`).
+   */
+  const back =
+    focus === undefined ? null : (
+      <Pressable
+        style={styles.detailBack}
+        onPress={() => leaveTo(mapFocusOrigin(focus))}
+        accessibilityRole="button"
+        accessibilityLabel={t('back.anyLabel')}
+      >
+        <Text style={styles.detailBackLabel}>{t('back.any')}</Text>
+      </Pressable>
+    );
 
   /**
    * The large title, drawn on every branch — this screen names itself in the same words, the
@@ -598,13 +732,16 @@ export default function MapScreen() {
    * gone: a dive deleted on another screen, a pull that merges a site away, or a filter that took
    * the mark off the map.
    *
-   * **Only a place of the diver's own can be selected now** (M3f). A catalogue mark of either kind
-   * navigates to that row's page, so `selected` is `kind: 'mine'` in practice — the type still
-   * carries all three because `MapMarkRef` is `DiveMap`'s vocabulary and the lookup is written to
-   * find nothing for the other two rather than to assume they cannot arrive.
+   * **Only a place of the diver's own opens a sheet** (M3f). A catalogue mark of either kind
+   * navigates to that row's page, so a *press* never selects one — but since issue #21 a focused
+   * map starts with its place selected, and that place can be a centre or a community site —
+   * drawn chosen like any mark (lifted, and the centre's outlined disc inverted too, `DiveMap`).
+   * Neither has a sheet, which is what `opensSheet` says.
    */
   const selectedPlace =
-    selected?.kind === 'mine' ? places.find((place) => place.key === selected.key) : undefined;
+    selected !== null && opensSheet(selected.kind)
+      ? places.find((place) => place.key === selected.key)
+      : undefined;
 
   /**
    * **What the catalogue knows about the place a dive sheet is describing** — the other half of
@@ -679,6 +816,7 @@ export default function MapScreen() {
 
   return (
     <View style={root}>
+      {back}
       {/* The region the capsule floats in — its top edge is the title's top edge, which is what
           lets `capsuleFloat` say `top: 0` and mean "beside the title". The same arrangement
           `divesListArea` makes on the Dives screen, and the reason that style is now named for
@@ -702,14 +840,30 @@ export default function MapScreen() {
 
             **One row for both.** A second row would push the map down by a row's height for a
             diver who switched both kinds on, and the two pills are the same object about two
-            tables; the row is only drawn at all when at least one of them is in it. */}
-        {(shown.has('community') || shown.has('centers')) && (
+            tables; the row is only drawn at all when at least one of them is in it.
+
+            **A focused map's *Directions* leads the row** (issue #21). Before #21 *Show on map*
+            opened the device's maps, which gave a diver directions to the site for free; the
+            focused map keeps that one tap away rather than giving it up. Here rather than in the
+            place's sheet because only one of the three kinds of focus HAS a sheet — a centre or
+            an unvisited site opens none — and a control that moved between the header and a
+            card depending on what was focused would be two controls. It is the place's, not the
+            filter's, so it is drawn whatever is switched on. */}
+        {(found !== null || shown.has('community') || shown.has('centers')) && (
           <View style={styles.mapDirectoryRow}>
+            {found !== null && (
+              <MapPill
+                label={t('map.directions')}
+                onPress={() => openInMaps(found.point, focusLabel(found))}
+                announce={t('map.directionsTo', { name: focusLabel(found) })}
+                styles={styles}
+              />
+            )}
             {shown.has('community') && (
-              <DirectoryLink label={t('map.allSites')} href="/sites" styles={styles} />
+              <MapPill label={t('map.allSites')} onPress={() => router.push('/sites')} styles={styles} />
             )}
             {shown.has('centers') && (
-              <DirectoryLink label={t('map.allCentres')} href="/centers" styles={styles} />
+              <MapPill label={t('map.allCentres')} onPress={() => router.push('/centers')} styles={styles} />
             )}
           </View>
         )}
@@ -777,9 +931,9 @@ export default function MapScreen() {
                 to open — a dive at a hand-typed site has no page, which is every dive in a logbook
                 that has never synced. */}
             {placeSite !== undefined && (
-              <DirectoryLink
+              <MapPill
                 label={t('map.sitePage')}
-                href={`/site/${placeSite.id}`}
+                onPress={() => router.push(`/site/${placeSite.id}`)}
                 announce={t('common.open', { name: siteLabel(placeSite) })}
                 style={styles.mapSheetAction}
                 styles={styles}
@@ -850,3 +1004,15 @@ export default function MapScreen() {
  * it is about a group of dives rather than about a row, it exists for places the catalogue has
  * never heard of, and it now carries the way to the page for the ones it has.
  */
+
+type Assert<T extends true> = T;
+
+/**
+ * **`domain/mapFocus.ts`' three kinds of mark are `DiveMap`'s three, tied at compile time** (§4.1's
+ * "derive, or tie"). That module restates the union because `domain/` does not import from
+ * `components/`; a fourth kind of mark added to `MAP_MARK_KINDS` and not there — or the reverse —
+ * fails `tsc` here instead of a focus resolving to a mark the map has no way to draw.
+ */
+export type FocusMarkKindsAreMapMarkKinds = Assert<
+  [FocusMarkKind] extends [MapMarkKind] ? ([MapMarkKind] extends [FocusMarkKind] ? true : false) : false
+>;

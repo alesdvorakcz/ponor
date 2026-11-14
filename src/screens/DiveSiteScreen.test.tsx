@@ -550,3 +550,44 @@ describe('in Czech', () => {
     expect(textIn(t)).not.toContain('Country');
   });
 });
+
+// --- Show on map (issue #21) -------------------------------------------------------------------
+//
+// The dive detail's card, on a site's page as the design canvas draws it: Ponor's own map pointed
+// at this site. Where the map then opens and what it selects is `MapScreen.test.tsx`'s; this page
+// only has to offer it, for a site that has a position, and push the right route.
+
+/** The card, by what a screen reader hears — the label is the card's own, not this page's. */
+function mapCard(t: RenderResult) {
+  return allNodes(t).find((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === 'Show on map');
+}
+
+it('offers the site on the map, with its position under the words', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ latitude: 49.72134, longitude: 16.20311 })]));
+  const t = await show();
+  expect(mapCard(t)).toBeDefined();
+  expect(textIn(t)).toContain('49.72134, 16.20311');
+});
+
+it('pushes the map pointed at this site', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ latitude: 49.72134, longitude: 16.20311 })]));
+  const t = await show();
+  await fireEvent.press(mapCard(t)!);
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 's1' } });
+});
+
+// §5 asks a new site for a name and nothing else, so this is the ordinary site, not an edge.
+it('offers no map for a site with no position', async () => {
+  const t = await show();
+  expect(mapCard(t)).toBeUndefined();
+  expect(textIn(t)).not.toContain('Show on map');
+});
+
+it('puts the card under the page’s own lines and above the site’s facts', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([rock({ country: 'Czechia', latitude: 49.72134, longitude: 16.20311 })]),
+  );
+  const lines = textIn(await show());
+  expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Kotelna'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Site'));
+});

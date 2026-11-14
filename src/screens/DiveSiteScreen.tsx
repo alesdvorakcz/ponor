@@ -3,17 +3,19 @@ import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DiveRow } from '../components/DiveRow';
+import { MapCard } from '../components/MapCard';
 import { useDives } from '../db/useDives';
 import { useDiveSampleShapes } from '../db/useDiveSampleShapes';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
-import { waterTempRange } from '../domain/mapSites';
+import { pointOf, waterTempRange } from '../domain/mapSites';
 import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaults';
 import { divesAtSite } from '../domain/siteDives';
 import { type DiveSite } from '../domain/types';
 import {
+  formatCoordinates,
   formatDepth,
   formatEntry,
   formatSalinity,
@@ -23,6 +25,7 @@ import {
 } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToSites } from '../navigation/leaveScreen';
+import { showOnMap } from '../platform/showOnMap';
 import { type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -226,6 +229,9 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
     ? null
     : formatSiteSummary(logbookStats(myDives), waterTempRange(myDives), units);
 
+  const point = pointOf(site);
+  const coordinates = formatCoordinates(site.latitude, site.longitude);
+
   const header = (
     <View>
       <Text style={styles.siteHeading}>{siteLabel(site)}</Text>
@@ -234,6 +240,18 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence five other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.siteSummary}>{logbookUnreadable()}</Text>}
+      {/* **"Show on map"** (issue #21) — the dive detail's card, under the page's own lines where the
+          design canvas draws it, and only for a site with a position a map can show (`pointOf`).
+          It opens Ponor's map pointed at this site (`platform/showOnMap.ts`), selecting the diver's own mark where they have dived it — that is the mark
+          standing there (`domain/mapFocus.ts`). */}
+      {point !== null && coordinates !== null && (
+        <MapCard
+          styles={styles}
+          scheme={scheme}
+          coordinates={coordinates}
+          onPress={() => showOnMap({ kind: 'site', id: site.id }, point, siteLabel(site))}
+        />
+      )}
       <SiteFacts site={site} units={units} styles={styles} />
       {myDives.length > 0 && <Text style={styles.siteSectionTitle}>{t('place.yourDives')}</Text>}
     </View>

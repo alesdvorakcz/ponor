@@ -428,3 +428,36 @@ describe('in Czech', () => {
     expect(textIn(t)).not.toContain('Country');
   });
 });
+
+// --- Show on map (issue #21) -------------------------------------------------------------------
+//
+// The dive detail's card, on a centre's page as the design canvas draws it. §2.3 gives a centre
+// this app creates its name alone, so the card appears only for a centre a catalogue surveyed.
+
+it('offers the centre on the map, with its position under the words', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([centre({ latitude: 43.0611, longitude: 16.1834 })]));
+  const t = await show();
+  expect(textIn(t)).toContain('Show on map');
+  expect(textIn(t)).toContain('43.06110, 16.18340');
+});
+
+it('pushes the map pointed at this centre', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([centre({ latitude: 43.0611, longitude: 16.1834 })]));
+  const t = await show();
+  await fireEvent.press(labelled(t, 'Show on map'));
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/center/[id]/map', params: { id: 'c1' } });
+});
+
+it('offers no map for a centre with no position, which is every centre this app creates', async () => {
+  const t = await show();
+  expect(textIn(t)).not.toContain('Show on map');
+});
+
+it('puts the card under the page’s own lines and above the centre’s facts', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    catalogueState([centre({ country: 'Croatia', latitude: 43.0611, longitude: 16.1834 })]),
+  );
+  const lines = textIn(await show());
+  expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Ponorka'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Centre'));
+});

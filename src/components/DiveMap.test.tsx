@@ -288,29 +288,25 @@ it('inverts only the mark whose kind AND key were selected', async () => {
 });
 
 /**
- * **A community site has no chosen form, and the reason is a fact about the tokens rather than an
- * omission** (M3k).
+ * **A community site cannot be inverted, so chosen it is lifted and keeps its ink** (M3k, then
+ * issue #21).
  *
- * §0.1 leaves exactly one lever for "this one is chosen" and it is inverted ink — but `action`
- * **is** `fg` in both themes (§0.2), so a mark already drawn at full ink has nowhere to invert to.
- * That is why the kind that gets the fill is the kind that navigates: since M3f a catalogue row's
- * mark goes to its page and is never selected, so it can spend the fill without spending the
- * state.
+ * `selectedFill`'s lever for "this one is chosen" is inverted ink — but `action` **is** `fg` in
+ * both themes (§0.2), so a mark already drawn at full ink has nowhere to invert to. That is why the
+ * kind that gets the fill is the kind a press never chooses (M3f). A map pointed at a site does
+ * choose one, though, and a state nothing shows is one the diver cannot find in a bay of sites —
+ * so the chosen form is the canvas's lift (`mapMarkLifted`: bigger, floating), which needs no ink.
  *
- * Both halves are asserted, because either alone would be satisfied by an accident: the premise
- * (the mark IS drawn in the ink selection would move it to — which is what makes a chosen state
- * impossible rather than merely absent) and the rendering (handed a selection naming it, the mark
- * comes out byte-for-byte what it was). If `action` and `fg` ever part company, the first
- * expectation fails and this assignment wants deciding again rather than quietly leaving a
- * community mark unable to show a state it could now show.
+ * Three halves, because each alone would be satisfied by an accident: the premise (the mark IS
+ * drawn in the ink inversion would move it to — if `action` and `fg` ever part company this wants
+ * deciding again); the ink unchanged by a selection (a chosen site redrawn outlined would read as
+ * a centre, the one confusion §3 forbids); and the lift present when chosen and only then.
  *
- * **And the comparison is made to be about something** (M3k mutation pass). Two renders of a mark
- * that drew nothing styled at all are two empty lists, and equal — measured: replacing the whole
- * branch with a bare `<View />` left this test green while it went on claiming the mark comes out
- * the same either way. The line below is what makes that a failure here rather than only two
- * files away.
+ * **And the comparison is made to be about something** (M3k mutation pass): two renders of a mark
+ * that drew nothing styled are two empty lists, and equal — measured once by replacing the branch
+ * with a bare `<View />`. The `toContain` lines are what make that a failure here.
  */
-it.each(['light', 'dark'] as const)('draws a community site in the ink a selection would move it to (%s)', async (scheme) => {
+it.each(['light', 'dark'] as const)('lifts a chosen community site and leaves its ink alone (%s)', async (scheme) => {
   const theme = themeFor(scheme);
   const styles = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
   expect(theme.action).toBe(theme.fg);
@@ -319,11 +315,36 @@ it.each(['light', 'dark'] as const)('draws a community site in the ink a selecti
   const discs = async (selected: MapMarkRef | null) => {
     const mark = markers(await draw({ scheme, marks: [SITE], selected }))[0];
     expect(mark).toBeDefined();
-    return mark!.queryAll((n) => stylesOf(n).length > 0).map((n) => stylesOf(n));
+    return mark!.queryAll((n) => stylesOf(n).length > 0).flatMap((n) => stylesOf(n));
   };
   const unselected = await discs(null);
-  expect(unselected.flat()).toContain(styles.mapMarkDotFilled);
-  expect(await discs({ kind: 'community', key: SITE.key })).toEqual(unselected);
+  const chosen = await discs({ kind: 'community', key: SITE.key });
+  expect(unselected).toContain(styles.mapMarkDotFilled);
+  expect(unselected).not.toContain(styles.mapMarkLifted);
+  expect(chosen).toContain(styles.mapMarkDotFilled);
+  expect(chosen).toContain(styles.mapMarkLifted);
+  expect(chosen).not.toContain(styles.mapMarkDotSelected);
+  // Nothing else moves: take the lift away and it is the unselected mark exactly.
+  expect(chosen.filter((s) => s !== styles.mapMarkLifted)).toEqual(unselected);
+});
+
+/**
+ * **Every kind of mark says "chosen" the same way** (issue #21): the lift reaches the two
+ * outlined marks too, on top of their inversion, so a focused community site and a pressed place
+ * are visibly the same state. Asserted per mark, chosen and not, so a lift on every mark or on
+ * none fails alike.
+ */
+it('lifts the chosen mark of every kind, and only the chosen one', async () => {
+  const styles = makeStyles('light');
+  const place = MARKS[0]!;
+  const all = [place, SITE, { ...CENTRE, key: 'c2' }];
+  for (const target of all) {
+    const t = await draw({ marks: all, selected: { kind: target.kind, key: target.key } });
+    const lifted = markers(t).map(
+      (m) => m.queryAll((n) => stylesOf(n).includes(styles.mapMarkLifted)).length,
+    );
+    expect(lifted).toEqual(all.map((mark) => (mark === target ? 1 : 0)));
+  }
 });
 
 /** And the glyph inside a selected centre inverts with its disc — a `storefront` left in `fg`
