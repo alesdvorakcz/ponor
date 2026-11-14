@@ -2917,8 +2917,7 @@ function build(scheme: ColorScheme) {
     // boxes, trailing"). `marginLeft: 'auto'` keeps the group trailing whether or not the back
     // control is drawn — it is not on the wide layout. The trailing margin is the column less 8,
     // the canvas's own: ⋯ is a glyph centred in a 48 box, so a box on the column would leave its
-    // ink 14 inboard of every other right edge on the screen, and the 8 brings the dots back out
-    // to sit over the values' column.
+    // ink 16 inboard of the right edge every value shares, and the 8 halves that.
     detailTopActions: {
       flexDirection: 'row',
       alignItems: 'center',
