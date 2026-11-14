@@ -11,7 +11,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, Linking, StyleSheet } from 'react-native';
 
 import { dive } from '../domain/diveFixture';
 import {
@@ -664,13 +664,14 @@ it('gives the mark a fixed width, rather than sizing it to the glyph', async () 
 // `variant="hero"`, from task 1). `renderDetail`'s helper `numbers: new Map()` never
 // carries a number for its target, so a dedicated `mockUseDives` call is needed here to
 // give this dive one, the same way the "shows every cylinder its own MOD" test above does.
-it('opens with a hero — site name heading, then number · date · centre in mono', async () => {
+it('opens with a hero — number, site name heading, then date · centre in mono', async () => {
   const d = dive({ date: '2026-08-22', siteName: 'Blue Hole', centerName: 'Ponorka', maxDepthM: 18 });
   stubDives({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
-  const text = textIn(await render(<DiveDetailScreen id={d.id} />)).join(' ');
-  expect(text).toContain('Blue Hole');
-  expect(text).toContain('#6 · 22 Aug 2026 · Ponorka');
+  const lines = textIn(await render(<DiveDetailScreen id={d.id} />));
+  expect(lines).toContain('#6');
+  expect(lines).toContain('Blue Hole');
+  expect(lines).toContain('22 Aug 2026 · Ponorka');
 });
 
 // The hero's depth is specifically the 34 px hero variant, not a second 20 px row-scale
@@ -731,9 +732,9 @@ it('renders a clean hero for a dive with only a date, with no stray separators',
   expect(text).not.toContain('null');
   expect(text).not.toContain('undefined');
   expect(text).not.toContain('·  ·');
-  // The 22 px hero heading names the dive rather than being absent — the same words
-  // DiveRow.test.tsx pins for the same dive in the list it was tapped from.
-  const headings = textNodesOf(t).filter((n) => fontSizeOf(n) === 22);
+  // The 20 px hero heading (the canvas's compact title, issue #3) names the dive rather than
+  // being absent — the same words DiveRow.test.tsx pins for the same dive in the list.
+  const headings = textNodesOf(t).filter((n) => fontSizeOf(n) === 20);
   expect(headings.map((n) => String(n.children[0] ?? ''))).toEqual(['Unnamed site']);
 });
 
@@ -748,11 +749,11 @@ it('does not repeat the centre in the sub-line when the heading has already fall
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
 
-  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 22);
+  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 20);
   expect(String(heading?.children[0] ?? '')).toBe('Aqua');
-  // The sub-line still carries everything else it had.
-  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
-  expect(String(sub?.children[0] ?? '')).toBe('#6 · 22 Aug 2026');
+  // The sub-line still carries everything else it had, and nothing after the date.
+  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('22 Aug 2026'));
+  expect(String(sub?.children[0] ?? '')).toBe('22 Aug 2026');
 });
 
 // The control for the test above: with a real site name, the centre is NOT the label, so
@@ -763,13 +764,13 @@ it('keeps the centre in the sub-line whenever the heading is not already showing
   stubDives({ dives: [d], numbers: new Map([[d.id, 6]]), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
   const t = await render(<DiveDetailScreen id={d.id} />);
-  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('#6'));
-  expect(String(sub?.children[0] ?? '')).toBe('#6 · 22 Aug 2026 · Aqua');
+  const sub = textNodesOf(t).find((n) => String(n.children[0] ?? '').startsWith('22 Aug 2026'));
+  expect(String(sub?.children[0] ?? '')).toBe('22 Aug 2026 · Aqua');
   // The hero's own heading, which the assertion above never reads: `diveSiteLabel` is
   // site-FIRST, and its precedence was pinned only in display.test.ts. Nothing here set both
   // fields on the heading's own dive, so this call site accepted a centre-first inline copy
   // — a dive titled after the shop rather than the place, on every trip booked through one.
-  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 22);
+  const heading = textNodesOf(t).find((n) => fontSizeOf(n) === 20);
   expect(String(heading?.children[0] ?? '')).toBe('Blue Hole');
 });
 
@@ -932,17 +933,11 @@ it("shows a planned dive's status, distinctly from a logged one", async () => {
   expect(text).not.toContain('Logged');
 });
 
-// DESIGN.md §0.6's hairline rule, applied to this screen's clusters: separators sit on the
-// TOP edge, so each cluster's own line reads as the rule under the cluster before it. `gap`
-// alone was doing all the separating here, which left the seven clusters reading as one
-// undifferentiated column — the same complaint §0.6 exists to answer for the list.
-//
-// The FIRST cluster is the exception, and that is what `detailClusterFirst` is for: it sits
-// immediately below the hero, which already draws its own bottom border, so a rule here too
-// would land as a visible double line. Both halves need pinning — a variant that never
-// applied would show up as a doubled line, and a border that never applied would leave the
-// screen exactly as it was.
-it('rules each cluster off from the one above it, except the first, which the hero already closes', async () => {
+// §0.6's hairline rule, as the canvas draws it (issue #3): every ROW carries the line on its top
+// edge, so a cluster's first row draws the rule under its label and its last row has none
+// beneath it — the next cluster's 22 of air does the separating. No cluster draws a rule of its
+// own any more; the old shape ruled clusters and left the rows between them bare.
+it('rules every row on its top edge, and no cluster, so a group ends on its last row', async () => {
   const d = dive({
     date: '2026-08-16',
     siteName: 'Blue Hole',
@@ -957,31 +952,13 @@ it('rules each cluster off from the one above it, except the first, which the he
   // 'light' for the same reason "draws no profile chart" below gives: that is the scheme
   // useColorScheme() reports under Jest, and the sheet has to match the one that rendered.
   const styles = makeStyles('light');
-
-  const clusters = t.root.queryAll((n) => [n.props?.style].flat(3).filter(Boolean).includes(styles.detailCluster));
-  // Date & time, Site & centre, Depth & duration, Conditions — four, so "the first" is
-  // genuinely distinguishable from "every cluster" and from "the last".
-  expect(clusters).toHaveLength(4);
-
-  const borderWidthOf = (node: (typeof clusters)[number]) =>
-    [node.props.style].flat(3).filter(Boolean).reduce((a: number, s: any) => (typeof s?.borderTopWidth === 'number' ? s.borderTopWidth : a), 0);
-  const borderColorOf = (node: (typeof clusters)[number]) =>
-    [node.props.style].flat(3).filter(Boolean).reduce((a: unknown, s: any) => s?.borderTopColor ?? a, undefined);
-
-  const paddingTopOf = (node: (typeof clusters)[number]) =>
-    [node.props.style].flat(3).filter(Boolean).reduce((a: number, s: any) => (typeof s?.paddingTop === 'number' ? s.paddingTop : a), 0);
-
-  expect(borderWidthOf(clusters[0]!)).toBe(0);
-  // No leftover padding either: that space exists to hold a label off a line, and the first
-  // cluster has no line — keeping it would just push the screen's first heading away from
-  // the hero on top of `detailContent`'s own padding.
-  expect(paddingTopOf(clusters[0]!)).toBe(0);
-  for (const cluster of clusters.slice(1)) {
-    expect(borderWidthOf(cluster)).toBeGreaterThan(0);
-    expect(borderColorOf(cluster)).toBe(themeFor('light').border);
-    // Enough room below the line that the cluster's own label isn't sitting on it.
-    expect(paddingTopOf(cluster)).toBeGreaterThan(0);
-  }
+  const ruled = t.root.queryAll(
+    (n) => typeof n.type === 'string' && [n.props?.style].flat(3).filter(Boolean).some((st: any) => (st?.borderTopWidth ?? 0) > 0),
+  );
+  // Status, Date, Site, Max depth, Duration, Water temp — six rows, six rules, and nothing else
+  // on the screen draws one.
+  expect(ruled).toHaveLength(6);
+  for (const node of ruled) expect([node.props.style].flat(3)).toContain(styles.detailRow);
 });
 
 // Whole-branch review, Minor #7: this used to be named "because no dive carries a sample
@@ -1401,10 +1378,17 @@ function alertButtons(): { text?: string; style?: string; onPress?: () => void }
   return (alertSpy.mock.calls[0]?.[2] ?? []) as { text?: string; style?: string; onPress?: () => void }[];
 }
 
+/** Opens the record's actions (⋯, issue #3) and presses Delete in the sheet — the only way to
+ * reach it since the canvas moved it off the page. */
+async function pressDelete(t: RenderResult) {
+  await pressControl(t, 'More actions');
+  await pressControl(t, 'Delete dive');
+}
+
 /** Presses Delete and then the Alert's own destructive button, which is the only path that
  * actually deletes anything. */
 async function confirmDelete(t: RenderResult) {
-  await pressControl(t, 'Delete dive');
+  await pressDelete(t);
   const destructive = alertButtons().find((b) => b.style === 'destructive');
   if (!destructive) throw new Error('the confirmation offered no destructive button');
   await act(async () => {
@@ -1434,8 +1418,8 @@ it('opens the edit form for the dive on screen', async () => {
 // plain-edit affordance at all — fixing a typo in a plan meant pressing "Complete dive" and
 // then flipping the form's §2.4 control back to Planned. The two acts are now two controls:
 // *Edit* at the trailing edge of the top bar for EVERY dive, and, for a planned dive only,
-// *Complete dive* at the end of the content above *Delete dive* — the same place, and for the
-// same reason, `detailDelete` already sits there (theme/styles.ts).
+// *Complete dive* at the end of the content, where a deliberate act on the whole dive takes a
+// deliberate reach (`detailCompleteRow`, theme/styles.ts).
 //
 // Every test below asserts WHICH HREF a named control sends, not merely that some link was
 // pushed: this pair's whole history is a label and a link disagreeing (§10 — "Complete dive"
@@ -1518,26 +1502,26 @@ it('offers no Complete dive anywhere for a logged dive, only Edit', async () => 
 // cluster and Delete" are readable directly from that order: *Edit* is top-bar chrome above
 // the hero, *Complete dive* is the end of the scrolled content, immediately above *Delete
 // dive* — the two whole-dive acts grouped where a deliberate act takes a deliberate reach.
-it('puts Edit above the hero and Complete dive at the end of the content, above Delete', async () => {
-  const d = dive({ id: 'p1', status: 'planned', siteName: 'Blue Hole', date: '2026-09-01' });
+it('puts Edit and ⋯ above the hero and Complete dive at the end of the content', async () => {
+  const d = dive({ id: 'p1', status: 'planned', siteName: 'Blue Hole', date: '2026-09-01', durationMin: 40 });
   stubDives({ dives: [d], numbers: new Map(), error: undefined });
   mockUseLocalSearchParams.mockReturnValue({ id: d.id });
-  const texts = textIn(await render(<DiveDetailScreen id={d.id} />));
+  const t = await render(<DiveDetailScreen id={d.id} />);
+  const texts = textIn(t);
 
   const edit = texts.indexOf('Edit');
   const site = texts.indexOf('Blue Hole'); // the hero heading
-  const status = texts.indexOf('Status'); // the first cluster's first label
+  const last = texts.indexOf('Duration'); // the last cluster's last label
   const complete = texts.indexOf('Complete dive');
-  const del = texts.indexOf('Delete dive');
 
   expect(edit).toBeGreaterThanOrEqual(0);
   expect(complete).toBeGreaterThanOrEqual(0);
-  expect(del).toBeGreaterThanOrEqual(0);
-  // Edit is chrome above the hero...
+  // Edit is chrome above the hero, and ⋯ is beside it...
   expect(edit).toBeLessThan(site);
-  // ...and Complete dive is past every cluster, immediately before Delete.
-  expect(complete).toBeGreaterThan(status);
-  expect(complete).toBeLessThan(del);
+  expect(findControl(t, 'More actions')).toBeDefined();
+  // ...and Complete dive is past every cluster, the last thing on the page.
+  expect(complete).toBeGreaterThan(last);
+  expect(complete).toBe(texts.length - 1);
 });
 
 // §0.1: colour encodes depth and nothing else, so this control gets no hue — and it is not
@@ -1545,7 +1529,7 @@ it('puts Edit above the hero and Complete dive at the end of the content, above 
 // vocabulary is what separates them: "a bordered pill in tracked uppercase, not plain text,
 // so it reads as a control rather than a label" — the same `actionPill` this exact action
 // already wears on an "Up next" row, versus Delete's deliberately plain muted label.
-it('gives Complete dive the bordered-pill control treatment, not Delete’s plain label', async () => {
+it('gives Complete dive the bordered-pill control treatment, in no hue', async () => {
   const t = await renderDetailTree(dive({ id: 'p1', status: 'planned' }));
   if (!t.root) throw new Error('DiveDetailScreen did not render a root element');
   // 'light' is the scheme useColorScheme() reports under Jest — the same note every other
@@ -1554,21 +1538,17 @@ it('gives Complete dive the bordered-pill control treatment, not Delete’s plai
   const theme = themeFor('light');
 
   const complete = textNode(t, 'Complete dive');
-  const del = textNode(t, 'Delete dive');
   expect(complete).toBeDefined();
-  expect(del).toBeDefined();
 
-  // A bordered pill wraps the label, and Delete has no such wrapper — that is the whole
-  // difference in weight, and it is a shape the app already owns rather than new vocabulary.
+  // A bordered pill wraps the label — a shape the app already owns rather than new vocabulary,
+  // and the one this action wears on an "Up next" row.
   const pills = t.root.queryAll((n) => [n.props?.style].flat(3).filter(Boolean).includes(styles.detailCompletePill));
   expect(pills).toHaveLength(1);
   expect(pills[0]!.props.style.borderWidth).toBeGreaterThan(0);
   expect(pills[0]!.props.style.borderColor).toBe(theme.border);
 
-  // Monochrome on both: whatever ink each carries, neither may be a hue.
-  for (const colour of [colorOf(complete), colorOf(del)]) {
-    expect([theme.fg, theme.fgMuted]).toContain(colour);
-  }
+  // Monochrome: whatever ink it carries, it may not be a hue.
+  expect([theme.fg, theme.fgMuted]).toContain(colorOf(complete));
 });
 
 // §0.5's floor, on the Pressable rather than on the visually smaller pill inside it — the
@@ -1585,7 +1565,7 @@ it('gives Complete dive a 48 dp tap target, not just a pill-sized one', async ()
 
 it('asks before deleting, and deletes nothing until the diver confirms', async () => {
   const t = await renderDetailTree(dive({ id: 'target', siteName: 'Blue Hole' }));
-  await pressControl(t, 'Delete dive');
+  await pressDelete(t);
 
   expect(alertSpy).toHaveBeenCalled();
   // Pressing the control is a request to be asked, not a deletion. Without this, a
@@ -1599,11 +1579,22 @@ it('asks before deleting, and deletes nothing until the diver confirms', async (
   expect(buttons.find((b) => b.style === 'cancel')).toBeDefined();
 });
 
-it("keeps the app's own delete control muted, never coloured", async () => {
+// The sheet closes on a yes and only then (issue #3): a no leaves the diver where they were,
+// one Cancel from the dive, rather than dropping them back onto the page as though nothing had
+// been asked.
+it('closes the sheet once the diver says yes, and leaves it open on a no', async () => {
+  mockSoftDelete.mockResolvedValue(undefined);
   const t = await renderDetailTree(dive({ id: 'target' }));
-  // §0.1: colour encodes depth and nothing else, so this app's own surface stays monochrome
-  // — the destructive colour belongs to the Alert above and to nothing this screen draws.
-  expect(colorOf(textNode(t, 'Delete dive'))).toBe(themeFor('light').fgMuted);
+  await pressDelete(t);
+  await act(async () => {
+    alertButtons().find((b) => b.style === 'cancel')?.onPress?.();
+  });
+  expect(textIn(t)).toContain('Delete dive');
+
+  await act(async () => {
+    alertButtons().find((b) => b.style === 'destructive')?.onPress?.();
+  });
+  expect(textIn(t)).not.toContain('Delete dive');
 });
 
 it('deletes the dive and leaves the detail screen once the diver confirms', async () => {
@@ -1654,7 +1645,7 @@ it('tombstones the dive once when the confirmation is double-tapped', async () =
   mockCanGoBack.mockReturnValue(true);
   const release = hangingDelete();
   const t = await renderDetailTree(dive({ id: 'target' }));
-  await pressControl(t, 'Delete dive');
+  await pressDelete(t);
   const destructive = alertButtons().find((b) => b.style === 'destructive');
   if (!destructive) throw new Error('the confirmation offered no destructive button');
 
@@ -1696,13 +1687,15 @@ it('lets the diver try again after a failed delete, rather than latching the con
   await waitFor(() => expect(mockSoftDelete).toHaveBeenCalledTimes(2));
 });
 
-it('marks the delete control disabled while the write is in flight, and only then', async () => {
+// Since issue #3 the sheet that asked has closed by the time the write is in flight, so what
+// is disabled is the way back into it: ⋯ is the one control that could start a second delete.
+it('marks ⋯ disabled while the write is in flight, and only then', async () => {
   mockCanGoBack.mockReturnValue(true);
   const release = hangingDelete();
   const t = await renderDetailTree(dive({ id: 'target' }));
-  expect(findControl(t, 'Delete dive')?.props?.accessibilityState?.disabled).not.toBe(true);
+  expect(findControl(t, 'More actions')?.props?.accessibilityState?.disabled).not.toBe(true);
 
-  await pressControl(t, 'Delete dive');
+  await pressDelete(t);
   const destructive = alertButtons().find((b) => b.style === 'destructive');
   if (!destructive) throw new Error('the confirmation offered no destructive button');
   await act(async () => {
@@ -1713,7 +1706,7 @@ it('marks the delete control disabled while the write is in flight, and only the
   // observable from here: `Pressable` consumes the `disabled` prop itself rather than
   // forwarding it to the host `View` these queries reach. A control that ignores a tap it
   // still announces as available is its own kind of dead button.
-  await waitFor(() => expect(findControl(t, 'Delete dive')?.props?.accessibilityState?.disabled).toBe(true));
+  await waitFor(() => expect(findControl(t, 'More actions')?.props?.accessibilityState?.disabled).toBe(true));
 
   release();
   await waitFor(() => expect(mockBack).toHaveBeenCalled());
@@ -1760,7 +1753,7 @@ it('offers neither action for a dive it could not find', async () => {
   // either do nothing or act on the wrong id.
   expect(findControl(t, 'Edit')).toBeUndefined();
   expect(findControl(t, 'Complete dive')).toBeUndefined();
-  expect(findControl(t, 'Delete dive')).toBeUndefined();
+  expect(findControl(t, 'More actions')).toBeUndefined();
   expect(textIn(t).join(' ')).toContain('Dive not found');
 });
 
@@ -1971,21 +1964,20 @@ it('makes the two paired rows destinations and no others', async () => {
 });
 
 /**
- * **A row you can press is a control and takes §0.5's floor; a row you only read is a fact and
- * stays dense** (M3k, the owner's call, closing §0.5's second recorded exception).
+ * **Every row on the dive detail is one height, the ones you can press and the ones you read**
+ * (issue #3, the owner's call on PR #20: the canvas's uniform 48).
  *
- * M3c made these two rows navigate and gave them no target: measured on the device, the *Site*
- * row answers at y=351 and y=358 and **not at y=364**, a ~9 pt band between two adjacent
- * navigation rows where a press is swallowed rather than landing on either. `styles.test.ts`'s
- * sweep is what says the pressable row now clears 48; what it cannot see is the other half of
- * the rule — that the floor is on the rows that go somewhere and **only** on those, which is the
- * whole of what makes the height difference legible instead of arbitrary.
+ * M3k gave the *Site* and *Centre* rows §0.5's floor and left the facts dense, and #3 first kept
+ * a difference at 64 against 48. On the simulator the taller rows read as uneven spacing rather
+ * than as a cue, so the owner took the canvas's one height; what says a row opens a page is
+ * issue #5's to settle, not a height. The rows that navigate still clear the floor — at 48 the
+ * floor IS the row — and `styles.test.ts`'s sweep over every `Pressable` is what keeps them there.
  *
- * Asserted in both directions over one render holding both populations, because either direction
- * alone is satisfied by an accident: give every row the floor and the second expectation fails;
- * give none of them the floor and the first does.
+ * Asked of what each row RESOLVES to (`StyleSheet.flatten`, the merge React Native itself makes
+ * on the way to the view) over one render holding both populations, so a style composed onto the
+ * pressable row alone — a height, a different alignment — is red here however it is spelled.
  */
-it('gives a row that navigates the floor, and a row that only reads none', async () => {
+it('gives a row that navigates the same 48, centred, as a row a diver only reads', async () => {
   const styles = makeStyles('light');
   const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
   const t = await renderDetailTree(d);
@@ -1993,49 +1985,19 @@ it('gives a row that navigates the floor, and a row that only reads none', async
   const rows = t.root?.queryAll((n) => entries(n).includes(styles.detailRow)) ?? [];
   const opens = (n: { props?: { accessibilityLabel?: unknown } }) =>
     typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('Open ');
+  const resolved = (n: { props: { style?: unknown } }) => {
+    const { minHeight, alignItems } = StyleSheet.flatten(n.props.style as never) as Record<string, unknown>;
+    return { minHeight, alignItems };
+  };
 
-  // Both populations are on this tree, or one of the two claims below is about an empty set.
-  expect(rows.filter(opens).length).toBe(2);
-  expect(rows.filter((n) => !opens(n)).length).toBeGreaterThan(0);
+  const navigating = rows.filter(opens);
+  const reading = rows.filter((n) => !opens(n));
+  // Both populations are on this tree, or the comparison below is about an empty set.
+  expect(navigating).toHaveLength(2);
+  expect(reading.length).toBeGreaterThan(0);
 
-  expect(rows.filter((n) => opens(n) && !entries(n).includes(styles.detailRowControl))).toEqual([]);
-  expect(rows.filter((n) => !opens(n) && entries(n).includes(styles.detailRowControl))).toEqual([]);
-});
-
-/**
- * **…and what the row RESOLVES to, which is the half neither of the other two checks reads.**
- *
- * `styles.test.ts` pins `detailRowControl`'s own `alignItems: 'center'`, and the test above pins
- * that the style reaches the rows that navigate and only those. Both read the pieces; neither
- * reads the row. A style array merges left to right, so `[detailRowControl, detailRow]` — which
- * is what tidying the call site into alphabetical or "base last" order produces — hands
- * `alignItems` back to `detailRow`'s `flex-start` and leaves a 21 pt line at the top of a 48 pt
- * box with 27 pt of empty ink under it: exactly the row that reads as having failed to render
- * rather than as a taller one, which is the defect the centring exists to prevent
- * (`detailRowControl`, theme/styles.ts). **Measured, not assumed:** that swap left every other
- * test in this file and every test in `styles.test.ts` green.
- *
- * `StyleSheet.flatten` is the merge React Native itself performs on the way to the view, so this
- * asks the row what it IS rather than what it was composed from.
- */
-it('resolves that floor into a centred line, not one pinned to the top of the box', async () => {
-  const styles = makeStyles('light');
-  const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka' });
-  const t = await renderDetailTree(d);
-  const rows =
-    t.root?.queryAll(
-      (n) =>
-        typeof n.props?.accessibilityLabel === 'string' &&
-        n.props.accessibilityLabel.startsWith('Open ') &&
-        [n.props?.style].flat(3).filter(Boolean).includes(styles.detailRow),
-    ) ?? [];
-
-  // Both navigating rows are on this tree, or the loop below is over an empty set.
-  expect(rows).toHaveLength(2);
-  for (const row of rows) {
-    const resolved = StyleSheet.flatten(row.props.style) as Record<string, unknown>;
-    expect(resolved.minHeight).toBe(48);
-    expect(resolved.alignItems).toBe('center');
+  for (const row of [...navigating, ...reading]) {
+    expect(resolved(row)).toEqual({ minHeight: 48, alignItems: 'center' });
   }
 });
 
@@ -2159,13 +2121,18 @@ describe('in Czech', () => {
     expect(said).toContain('Polosuchý');
   });
 
-  /** The screen's own chrome: the way out, the two actions, and the one destructive dialog. */
-  it('names its way out and its three actions in Czech', async () => {
-    const t = await renderDetailTree(dive({ status: 'planned' }));
+  /** The screen's own chrome: the way out, the actions, and the record's sheet behind ⋯. */
+  it('names its way out and its actions in Czech, the sheet behind ⋯ included', async () => {
+    const t = await renderDetailTree(dive({ status: 'planned', latitude: 43.0378, longitude: 16.1489 }));
     expect(textIn(t)).toContain('‹ Zpět');
     expect(textIn(t)).toContain('Upravit');
     expect(textIn(t)).toContain('Dokončit ponor');
+    expect(textIn(t)).toContain('Zobrazit na mapě');
+    await pressControl(t, 'Další akce');
+    expect(textIn(t)).toContain('Plánovaný ponor');
     expect(textIn(t)).toContain('Smazat ponor');
+    expect(textIn(t)).toContain('zeptá se · nejde vzít zpět');
+    expect(textIn(t)).toContain('Zrušit');
   });
 
   /** A numbered cylinder, which is the one label on this screen that interpolates. */
@@ -2197,5 +2164,232 @@ describe('in Czech', () => {
     });
     expect(textIn(t)).toContain('Max. hloubka');
     expect(textIn(t)).not.toContain('Max depth');
+  });
+});
+
+// ------------------------------------------------------------------------------------------
+// Issue #3: the screen brought to the owner's design canvas (screens 03 and 14).
+//
+// What the canvas draws, and what each test below holds the screen to: a compact hero with the
+// dive number on its own line, a "Show on map" card carrying the position, rows of one height
+// with a hairline on each, a muted `=` in a fixed slot, and the record's own actions behind ⋯
+// rather than at the end of the content. DESIGN.md §0.6 and §10 record what changed and where
+// the screen deliberately does not follow the drawing.
+// ------------------------------------------------------------------------------------------
+
+describe('brought to the design canvas', () => {
+  /** Every style a node wears, merged the way React Native merges an array. */
+  const worn = (node: { props: { style?: unknown } } | null | undefined): Record<string, unknown> =>
+    Object.assign({}, ...[node?.props.style].flat(5).filter(Boolean));
+
+  /** The row a label sits in: the label's own parent, which is the row's View or Pressable. */
+  const rowOf = (screen: RenderResult, label: string) => {
+    const row = textNode(screen, label)?.parent;
+    if (!row) throw new Error(`no row labelled ${label}`);
+    return row;
+  };
+
+  const placed = dive({
+    id: 'placed',
+    date: '2026-08-22',
+    timeIn: '09:15',
+    siteName: 'Blue Hole',
+    centerName: 'Ponorka',
+    latitude: 43.0378,
+    longitude: 16.1489,
+    maxDepthM: 18,
+    durationMin: 45,
+  });
+
+  async function renderNumbered(d: Dive, number?: number): Promise<RenderResult> {
+    stubDives({ dives: [d], numbers: new Map(number === undefined ? [] : [[d.id, number]]), error: undefined });
+    mockUseLocalSearchParams.mockReturnValue({ id: d.id });
+    return render(<DiveDetailScreen id={d.id} />);
+  }
+
+  describe('the hero', () => {
+    it('gives the dive number a line of its own above the site, as a dive row does', async () => {
+      const screen = await renderNumbered(placed, 6);
+      const lines = textIn(screen);
+      expect(lines).toContain('#6');
+      expect(lines.indexOf('#6')).toBeLessThan(lines.indexOf('Blue Hole'));
+    });
+
+    it('says when and with whom under the site: date · time in · centre', async () => {
+      const lines = textIn(await renderNumbered(placed, 6));
+      expect(lines).toContain('22 Aug 2026 · 09:15 · Ponorka');
+      expect(lines.indexOf('Blue Hole')).toBeLessThan(lines.indexOf('22 Aug 2026 · 09:15 · Ponorka'));
+    });
+
+    it('leaves out a time that was never recorded, with no stray separator', async () => {
+      const lines = textIn(await renderNumbered(dive({ ...placed, timeIn: null }), 6));
+      expect(lines).toContain('22 Aug 2026 · Ponorka');
+    });
+
+    it('draws no number line for a dive that has no number', async () => {
+      const lines = textIn(await renderNumbered(dive({ ...placed, status: 'planned' })));
+      expect(lines.filter((line) => line.startsWith('#'))).toEqual([]);
+    });
+
+    it('sets the site compact, at 20 on a 22 line', async () => {
+      const screen = await renderNumbered(placed, 6);
+      const site = worn(textNode(screen, 'Blue Hole'));
+      expect(site.fontSize).toBe(20);
+      expect(site.lineHeight).toBe(22);
+    });
+
+    it('closes on whitespace rather than a rule', async () => {
+      const screen = await renderNumbered(placed, 6);
+      const hero = textNode(screen, 'Blue Hole')?.parent?.parent;
+      expect(worn(hero).borderBottomWidth ?? 0).toBe(0);
+      expect(worn(hero).paddingBottom).toBe(18);
+    });
+  });
+
+  describe('the rows', () => {
+    const full = dive({
+      date: '2026-08-16',
+      timeIn: '09:15',
+      siteName: 'Blue Hole',
+      maxDepthM: 25,
+      avgDepthM: 20,
+      durationMin: 45,
+      waterTempC: 21,
+      buddy: 'Eva',
+      tanks: [tank()],
+    });
+
+    it('gives every row one 48 pt line, a hairline on its top edge, and the app’s column', async () => {
+      const screen = await renderNumbered(full);
+      const styles = makeStyles('light');
+      const column = styles.diveRow.paddingHorizontal;
+      for (const label of ['Status', 'Date', 'Time out', 'Max depth', 'Duration', 'Water temp', 'Gas used', 'Buddy']) {
+        const row = worn(rowOf(screen, label));
+        expect([label, row.minHeight]).toEqual([label, 48]);
+        expect([label, row.borderTopWidth]).toEqual([label, 1]);
+        expect([label, row.borderTopColor]).toEqual([label, themeFor('light').border]);
+        expect([label, row.paddingHorizontal]).toEqual([label, column]);
+        expect([label, row.paddingVertical]).toEqual([label, 12]);
+      }
+    });
+
+    it('starts the first cluster flush under what is above it, and every later one 22 below its rows', async () => {
+      const screen = await renderNumbered(full);
+      const headers = [t('group.dateTime'), t('group.depthDuration'), t('group.conditions'), t('group.gas')].map(
+        (title) => worn(textNode(screen, title)?.parent),
+      );
+      expect(headers.map((header) => header.paddingTop)).toEqual([0, 22, 22, 22]);
+      expect(new Set(headers.map((header) => header.paddingBottom))).toEqual(new Set([6]));
+    });
+
+    // The first cluster sits flush only under something that closes on its own air — the hero
+    // or a card. Under the `Imported from` row it takes the ordinary 22, or its label would read
+    // as that row's caption.
+    it('gives the first cluster its 22 back when the Imported from row is above it', async () => {
+      const screen = await renderNumbered(dive({ ...full, importSource: suuntoJsonImporter.source, importDevice: 'Suunto D5' }));
+      expect(worn(textNode(screen, t('group.dateTime'))?.parent).paddingTop).toBe(22);
+    });
+
+    it('gives the computed mark a 14 pt slot of its own', async () => {
+      const screen = await renderNumbered(full);
+      const marks = textNodesOf(screen).filter((n) => n.children[0] === '=');
+      expect(marks.length).toBeGreaterThan(0);
+      for (const mark of marks) expect(worn(mark).width).toBe(14);
+    });
+  });
+
+  describe('the map card', () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    afterEach(() => openURL.mockClear());
+
+    it('carries the dive’s position under "Show on map", in place of a GPS row', async () => {
+      const lines = textIn(await renderNumbered(placed, 6));
+      expect(lines).toContain(t('detail.showOnMap'));
+      expect(lines).toContain('43.03780, 16.14890');
+      expect(lines).not.toContain(t('field.gps'));
+    });
+
+    it('is not drawn for a dive with no position', async () => {
+      const lines = textIn(await renderNumbered(dive({ ...placed, latitude: null, longitude: null }), 6));
+      expect(lines).not.toContain(t('detail.showOnMap'));
+    });
+
+    it('sits between the hero and the first cluster', async () => {
+      const lines = textIn(await renderNumbered(placed, 6));
+      expect(lines.indexOf(t('detail.showOnMap'))).toBeGreaterThan(lines.indexOf('Blue Hole'));
+      expect(lines.indexOf(t('detail.showOnMap'))).toBeLessThan(lines.indexOf(t('group.dateTime')));
+    });
+
+    it('opens the position in the device’s maps', async () => {
+      const screen = await renderNumbered(placed, 6);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
+    });
+
+    // A pair no map can draw — finite, but off the globe — gets no card, and must not therefore
+    // vanish from the dive: it stays the GPS row it always was.
+    it('keeps a position no map can draw as the row it was, rather than dropping it', async () => {
+      const lines = textIn(await renderNumbered(dive({ ...placed, latitude: 91, longitude: 16.1489 }), 6));
+      expect(lines).not.toContain(t('detail.showOnMap'));
+      expect(lines).toContain(t('field.gps'));
+      expect(lines).toContain('91.00000, 16.14890');
+    });
+
+    it('is a surface card, radius 12, at least 56 tall, on the app’s column', async () => {
+      const screen = await renderNumbered(placed, 6);
+      const card = worn(findControl(screen, t('detail.showOnMap')));
+      expect(card.backgroundColor).toBe(themeFor('light').surface);
+      expect(card.borderRadius).toBe(12);
+      expect(card.minHeight).toBe(56);
+      expect(card.marginHorizontal).toBe(makeStyles('light').diveRow.paddingHorizontal);
+    });
+  });
+
+  describe('the record’s actions, behind ⋯', () => {
+    it('keeps Delete off the page and puts ⋯ in the top bar', async () => {
+      const screen = await renderNumbered(placed, 6);
+      expect(findControl(screen, t('detail.moreActions'))).toBeDefined();
+      expect(textIn(screen)).not.toContain(t('detail.deleteLabel'));
+    });
+
+    it('opens a sheet naming the dive, with Delete, what it costs, and a way out', async () => {
+      const screen = await renderNumbered(placed, 6);
+      await pressControl(screen, t('detail.moreActions'));
+      const lines = textIn(screen);
+      expect(lines).toContain('Dive #6');
+      expect(lines).toContain('Blue Hole · 22 Aug 2026');
+      expect(lines).toContain(t('detail.deleteLabel'));
+      expect(lines).toContain(t('detail.deleteCost'));
+      expect(findControl(screen, t('common.cancel'))).toBeDefined();
+    });
+
+    it('names a planned dive’s sheet without a number it does not have', async () => {
+      const screen = await renderNumbered(dive({ ...placed, status: 'planned' }));
+      await pressControl(screen, t('detail.moreActions'));
+      expect(textIn(screen)).toContain(t('detail.plannedDiveTitle'));
+    });
+
+    it('closes on Cancel without asking anything', async () => {
+      const screen = await renderNumbered(placed, 6);
+      await pressControl(screen, t('detail.moreActions'));
+      await pressControl(screen, t('common.cancel'));
+      expect(textIn(screen)).not.toContain(t('detail.deleteLabel'));
+      expect(alertSpy).not.toHaveBeenCalled();
+    });
+
+    it('draws the destructive action in ink, never a hue', async () => {
+      const screen = await renderNumbered(placed, 6);
+      await pressControl(screen, t('detail.moreActions'));
+      expect(colorOf(textNode(screen, t('detail.deleteLabel')))).toBe(themeFor('light').fg);
+      expect(colorOf(textNode(screen, t('detail.deleteCost')))).toBe(themeFor('light').fgMuted);
+    });
+
+    it('stands the sheet 8 in from three edges, radius 22, over a scrim', async () => {
+      const screen = await renderNumbered(placed, 6);
+      await pressControl(screen, t('detail.moreActions'));
+      const sheet = worn(textNode(screen, 'Dive #6')?.parent?.parent);
+      expect([sheet.left, sheet.right, sheet.borderRadius]).toEqual([8, 8, 22]);
+      expect(sheet.backgroundColor).toBe(themeFor('light').sheet);
+    });
   });
 });

@@ -16,6 +16,16 @@ const depthScale = {
   light: ['#E04A28', '#C2600A', '#8F7000', '#0E9F6E', '#0B76B8', '#3A49C0'],
 };
 
+/**
+ * The chrome tokens of DESIGN.md §0.2. `sheet`, `sheetItem` and `scrim` arrived with the dive
+ * detail's record-actions sheet (issue #3, the owner's design canvas): a sheet stands on its own
+ * ground a step off `bg`, holds its actions on a second step, and dims the screen it rises over.
+ * They are grey steps and a translucent ink, never a hue — §0.1 has spent every hue on depth, so
+ * a sheet that holds a destructive act still says so in words.
+ *
+ * `sheetItem` equals `surface` in dark and does not in light, which is why it is its own token:
+ * on a light sheet a white card would be the brightest thing on screen and read as a field.
+ */
 const tokens = {
   dark: {
     bg: '#080B0F',
@@ -25,6 +35,9 @@ const tokens = {
     fgMuted: '#7C8D9A',
     action: '#F0F5F8',
     actionFg: '#080B0F',
+    sheet: '#0F161D',
+    sheetItem: '#111820',
+    scrim: 'rgba(8, 11, 15, 0.66)',
   },
   light: {
     bg: '#EDEEEA',
@@ -34,6 +47,9 @@ const tokens = {
     fgMuted: '#5A6670',
     action: '#0D1216',
     actionFg: '#EDEEEA',
+    sheet: '#F4F5F1',
+    sheetItem: '#E4E6E0',
+    scrim: 'rgba(13, 18, 22, 0.42)',
   },
 };
 

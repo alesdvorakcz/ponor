@@ -265,6 +265,11 @@ const PRESSABLES: readonly PressSite[] = appSources(APP_SOURCE_ROOT).flatMap((fi
  * measurement rather than a shrug.
  */
 const BELOW_THE_FLOOR: Record<string, string> = {
+  recordSheetScrim:
+    'The whole screen behind the dive detail\'s record-actions sheet (issue #3): `flex: 1` inside a ' +
+    'full-screen `Modal`, so its height is the display\'s and no number a style could state. It ' +
+    'claims no floor because it is never smaller than the screen; the sheet\'s own actions are ' +
+    '64 and its Cancel 52, and those are swept like every other control.',
   reorderButton:
     'A 34 x 26 visible box that reaches 48 x 48 through `ARROW_HIT_SLOP` (ReorderControls.tsx), ' +
     'which is a prop and not a style — §0.6 wanted the arrows narrower than the row they sit ' +
@@ -285,11 +290,12 @@ const BELOW_THE_FLOOR: Record<string, string> = {
  * because slop deep enough to reach the floor overruns `detailCluster`'s 10 pt gap and hands
  * presses aimed at the site to the centre.
  *
- * What it became is a rule rather than a number: **a row you can press is a control and takes the
- * floor; a row you only read is a fact and stays dense** (`detailRowControl`, theme/styles.ts).
- * The sweep below is what carries it now — the pressable row merges that style and clears 48,
- * every fact row on the screen is a `View` and is not swept at all, and a navigation row that
- * forgot the floor arrives here as a failure rather than as a new entry in this list.
+ * What it became was a rule: **a row you can press is a control and takes the floor**. M3k left
+ * the fact rows dense beside it; issue #3 brought every row on the screen to the canvas's 48, so
+ * the pressable row and the fact rows are now one `detailRow` and the floor is simply the row's
+ * height. The sweep below is what carries it — the pressable row clears 48 on `detailRow` alone,
+ * and a navigation row that lost the floor arrives here as a failure rather than as a new entry
+ * in this list.
  */
 
 describe('every control the app can press', () => {
@@ -350,20 +356,22 @@ describe('every control the app can press', () => {
 });
 
 /**
- * **The floor a navigating row takes, and the centring that has to come with it** (M3k).
+ * **The dive detail's rows: one height, centred, the ones you press included** (M3k's floor,
+ * issue #3's canvas, and the owner's call on PR #20).
  *
- * The `Pressable` sweep above says the row clears 48; it cannot say what the row looks like once
- * it does. `detailRow` aligns to `flex-start` so a wrapped value lines up with its label, and a
- * 21 pt line left at the top of a 48 pt box has 27 pt of empty ink under it — a row that reads as
- * having failed to render rather than as a taller one. Pinned as a DIFFERENCE from `detailRow`
- * rather than as the word alone, so dropping the override is red whichever way it is dropped.
+ * A navigating row is a `Pressable` on `detailRow` and nothing else, so the sweep above reads
+ * this row's height for it; what the sweep cannot see is the centring. A 21 pt line left at the
+ * top of a 48 pt box has 27 pt of empty ink under it — a row that reads as having failed to
+ * render — and #3 moved the row from `flex-start` to `center` for exactly that.
+ * DiveDetailScreen.test.tsx asks the rendered rows the same thing, pressable and read alike.
  */
-describe('the dive detail’s navigating row', () => {
-  it('centres its line inside the floor it claims, unlike the fact rows around it', () => {
-    const sheet = makeStyles('dark') as unknown as Record<string, Record<string, unknown>>;
-    expect(sheet.detailRowControl?.minHeight).toBe(48);
-    expect(sheet.detailRowControl?.alignItems).toBe('center');
-    expect(sheet.detailRow?.alignItems).not.toBe(sheet.detailRowControl?.alignItems);
+describe('the dive detail’s rows', () => {
+  it('are the canvas’s 48, centred, in both themes', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+      expect(sheet.detailRow?.minHeight).toBe(48);
+      expect(sheet.detailRow?.alignItems).toBe('center');
+    }
   });
 });
 
@@ -1136,6 +1144,15 @@ describe('the app content column', () => {
     'detailComplete',
     'detailCompletePill',
     'detailDeleteError',
+    // The dive detail's chrome and cards since issue #3: *Edit*'s air inside its own 48 box, a
+    // card's inner padding (its outer margin is the column, asserted below), and the
+    // record-actions sheet, which stands 8 in from the screen edge and pads its header 12 in.
+    'detailAction',
+    'detailMapCard',
+    'profileCard',
+    'recordSheet',
+    'recordSheetHeader',
+    'recordSheetAction',
     'formStatus',
     'formStatusPill',
     'formChip',
@@ -1177,8 +1194,13 @@ describe('the app content column', () => {
     'emptyStateWrap',
     'detailHero',
     'detailBack',
-    'detailAction',
-    'detailContent',
+    // The detail's content has no padding of its own since issue #3 — every row runs its hairline
+    // to the screen's edges and holds the column with its own padding, as a dive row does.
+    'detailRow',
+    'detailClusterHeader',
+    'detailTankTitle',
+    'detailNotes',
+    'detailCompleteRow',
     'formHeadingRow',
     'formCarriedNote',
     'formField',
@@ -1255,13 +1277,13 @@ describe('the app content column', () => {
 
   // A notice banner is a card, so its INNER padding is its own; what has to sit in the column
   // is its outer edge, or a failed-read banner hangs four points inboard of the rows it is
-  // reporting on. `detailDeleteError` is deliberately not here — it lives inside
-  // `detailContent`, which already pads, and carries `marginHorizontal: 0` for that reason.
+  // reporting on. `detailDeleteError` joined them in issue #3, when the detail's content stopped
+  // padding itself and every child began to carry the column.
   it('lands a notice banner outer edge on that column too', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       const column = sheet.diveRow?.paddingHorizontal;
-      for (const name of ['reorderNotice', 'settingsNotice', 'syncNotice', 'formSaveError', 'presetNotice']) {
+      for (const name of ['reorderNotice', 'settingsNotice', 'syncNotice', 'formSaveError', 'presetNotice', 'detailDeleteError']) {
         expect([name, sheet[name]?.marginHorizontal]).toEqual([name, column]);
       }
     }
@@ -1347,18 +1369,18 @@ describe('the app content column', () => {
     }
   });
 
-  // **The detail screen's vertical padding is NOT that rule**, and this is what keeps the two
-  // apart. `detailContent` was a single `padding: 20` doing both jobs, which is what let the
-  // column be argued about as though it were the same decision as the gap under the hero's
-  // divider. Collapsing it back to one `padding` would move that gap to 16 with no test
-  // noticing, so the split is asserted rather than merely written.
-  it('keeps the dive detail top gap independent of that column', () => {
+  // **The dive detail's content carries no column of its own** (issue #3). It used to pad both
+  // ways — and was once one `padding: 20` doing both jobs — and the canvas runs every row's
+  // hairline to the screen's edges, so the column moved onto the children. A padded content
+  // column would cut every hairline 16 short without moving a word, which Jest cannot see; this
+  // is the one place that can.
+  it('lets the dive detail rows run their hairlines to the screen edges', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
       const content = sheet.detailContent ?? {};
       expect(content.padding).toBeUndefined();
-      expect(content.paddingTop).toBe(20);
-      expect(content.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
+      expect(content.paddingHorizontal).toBeUndefined();
+      expect(sheet.detailRow?.paddingHorizontal).toBe(sheet.diveRow?.paddingHorizontal);
     }
   });
 });

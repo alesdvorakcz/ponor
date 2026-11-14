@@ -34,6 +34,17 @@ it('sets the hero variant larger than the default row variant', async () => {
   expect(sizeOf(heroResult)).toBeGreaterThan(sizeOf(rowResult));
 });
 
+// The hero's unit at the owner's design canvas's 13.5 (issue #3: "heroDepth 34 / lh 36 · unit
+// 13.5"), on the 36 line the figure already has. Read off the nested unit node, which is the only
+// Text inside the figure's own.
+it('sets the hero unit at 13.5 under a 34 figure on a 36 line', async () => {
+  const t = await render(<DepthValue metres={32.4} scheme="dark" units="metric" variant="hero" />);
+  const [figure, unit] = t.root?.queryAll((n) => n.type === 'Text', { includeSelf: true }) ?? [];
+  const merged = (node: typeof figure) => Object.assign({}, ...[node?.props.style].flat(3).filter(Boolean));
+  expect([merged(figure).fontSize, merged(figure).lineHeight]).toEqual([34, 36]);
+  expect(merged(unit).fontSize).toBe(13.5);
+});
+
 // M1c task 1 review, Important: the old implementation read formatDepth's string and
 // split it on its one space to style the unit more quietly than the number. Nothing
 // validated that a space was actually there — a spaceless formatDepth output made `unit`

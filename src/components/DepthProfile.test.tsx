@@ -389,6 +389,19 @@ it('lets each readout figure give way rather than overflow or wrap the row', asy
 // blocks up in the same card. `profileMeta` shrinks and `profileTitle` does not, so in Czech on
 // a narrow phone the caption gives way — and, uncapped, gave way by wrapping, growing a header
 // whose `alignItems: 'baseline'` had been laid out for one line and pushing the plot down.
+// Issue #3, the owner's design canvas (screen 14: "profileCard: surface, radius 12, pad 16 / 16 /
+// 12"). The card stands on the app's column as the dive detail's map card does, filled, so the
+// two things on that screen that are read as a whole look like one kind of object. Read off the
+// rendered card in both schemes, because the fill is a token and a token has two values.
+it.each(['light', 'dark'] as const)('stands on a surface card, radius 12, padded 16 / 16 / 12 (%s)', async (scheme) => {
+  const t = await render(<DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme={scheme} units="metric" />);
+  const card = Object.assign({}, ...[t.root?.props.style].flat(5).filter(Boolean)) as Record<string, unknown>;
+  expect(card.backgroundColor).toBe(themeFor(scheme).surface);
+  expect(card.borderRadius).toBe(12);
+  expect([card.paddingTop, card.paddingHorizontal, card.paddingBottom]).toEqual([16, 16, 12]);
+  expect(card.marginHorizontal).toBe(makeStyles(scheme).diveRow.paddingHorizontal);
+});
+
 it('caps the caption at one line, so a long one cannot push the plot down the screen', async () => {
   const t = await render(
     <DepthProfile dive={dive({ maxDepthM: 24.33 })} samples={FIXTURE} scheme="light" units="metric" />,

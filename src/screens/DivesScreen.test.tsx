@@ -1874,6 +1874,10 @@ it('clears the tablet detail pane when the dive in it is deleted, rather than st
   await fireEvent.press(findRow(t, 2));
   expect(textIn(t).join(' ')).toContain('Date & time'); // the pane really is showing the dive
 
+  // Delete lives behind the pane's own ⋯ (issue #3), exactly as it does on the routed screen.
+  const more = findControl(t, 'More actions');
+  if (!more) throw new Error('the embedded detail pane offered no ⋯ control');
+  await fireEvent.press(more);
   const del = findControl(t, 'Delete dive');
   if (!del) throw new Error('the embedded detail pane offered no Delete dive control');
   await fireEvent.press(del);
