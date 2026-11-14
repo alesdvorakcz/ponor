@@ -7,10 +7,10 @@ import { type MapPoint } from '../domain/mapSites';
  * canvas), and why it leaves the app.
  *
  * The canvas draws the card and not its destination. Ponor's own Map tab cannot be pointed at a
- * place yet — it frames every mark it draws and has no way to be asked for one — so teaching it
- * would be a change to that screen of its own, recorded in DESIGN.md §10 rather than slipped in
- * behind a card. The device's maps app already does exactly what the words promise, offers
- * directions to the site on top, and is the same move iOS's own apps make with an address.
+ * place yet — it frames every mark it draws and has no way to be asked for one — and teaching it
+ * is issue #21, a change to that screen rather than something to slip in behind a card. Until
+ * then the device's maps app does exactly what the words promise, offers directions to the site
+ * on top, and is the same move iOS's own apps make with an address (DESIGN.md §10).
  *
  * **One URL per platform, built here and nowhere else** (§4.1). iOS takes Apple's universal link,
  * which opens Maps rather than Safari; Android takes the `geo:` scheme its maps apps register,

@@ -2770,6 +2770,11 @@ function build(scheme: ColorScheme) {
      * reads as a row that failed to render. A value that wraps (a long equipment list, a name in
      * Czech) grows the row past 48 and is centred against its label, which is how a settings list
      * reads one too.
+     *
+     * A row that opens a page (a paired *Site* or *Centre*) is this same row, as a `Pressable`:
+     * 48 is §0.5's floor, so it needs nothing added. A taller variant for those rows was tried and
+     * dropped on the owner's call — on the device it read as uneven spacing, not as a cue; what
+     * says "this opens a page" is issue #5's (DESIGN.md §10).
      */
     detailRow: {
       flexDirection: 'row',
@@ -2781,28 +2786,6 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: CONTENT_INSET,
       borderTopWidth: 1,
       borderTopColor: theme.border,
-    },
-    /**
-     * **A row you can press stays taller than a row you read** (M3k's rule, kept through issue #3
-     * at the canvas's own numbers — and weaker than it was, which DESIGN.md §10 records).
-     *
-     * M3k gave the *Site* and *Centre* rows §0.5's 48 floor and left the facts dense, and the
-     * height difference became the one thing on this screen that says which lines take you
-     * somewhere: measured on the simulator before this change, a navigating row stood about 58 pt
-     * from the next line against about 28 for a fact. The canvas's uniform 48 rows would take
-     * that away entirely, and #3 is not where issue #5 gets settled, in either direction.
-     *
-     * So a pressable row takes 64 — the height the canvas gives the rows it draws for opening
-     * something (its search results, `resultRow.minHeight 64`) — and a fact row the canvas's 48.
-     * The difference survives at 16 pt rather than ~30: the same cue, no hue (§0.1), no chevron
-     * (§0.6), no new word, at about half the strength. That trade is the owner's to accept or
-     * overrule, and #5 is what replaces it.
-     *
-     * Composed ONTO `detailRow` (`[detailRow, detailRowControl]`), so the two cannot drift apart
-     * on anything but the height.
-     */
-    detailRowControl: {
-      minHeight: 64,
     },
     detailLabel: rowLabel,
     // Data figures — depths, pressures, durations, timestamps (§0.2) — read through this

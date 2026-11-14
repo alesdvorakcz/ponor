@@ -1964,21 +1964,20 @@ it('makes the two paired rows destinations and no others', async () => {
 });
 
 /**
- * **A row you can press is a control and takes §0.5's floor; a row you only read is a fact and
- * stays dense** (M3k, the owner's call, closing §0.5's second recorded exception).
+ * **Every row on the dive detail is one height, the ones you can press and the ones you read**
+ * (issue #3, the owner's call on PR #20: the canvas's uniform 48).
  *
- * M3c made these two rows navigate and gave them no target: measured on the device, the *Site*
- * row answers at y=351 and y=358 and **not at y=364**, a ~9 pt band between two adjacent
- * navigation rows where a press is swallowed rather than landing on either. `styles.test.ts`'s
- * sweep is what says the pressable row now clears 48; what it cannot see is the other half of
- * the rule — that the floor is on the rows that go somewhere and **only** on those, which is the
- * whole of what makes the height difference legible instead of arbitrary.
+ * M3k gave the *Site* and *Centre* rows §0.5's floor and left the facts dense, and #3 first kept
+ * a difference at 64 against 48. On the simulator the taller rows read as uneven spacing rather
+ * than as a cue, so the owner took the canvas's one height; what says a row opens a page is
+ * issue #5's to settle, not a height. The rows that navigate still clear the floor — at 48 the
+ * floor IS the row — and `styles.test.ts`'s sweep over every `Pressable` is what keeps them there.
  *
- * Asserted in both directions over one render holding both populations, because either direction
- * alone is satisfied by an accident: give every row the floor and the second expectation fails;
- * give none of them the floor and the first does.
+ * Asked of what each row RESOLVES to (`StyleSheet.flatten`, the merge React Native itself makes
+ * on the way to the view) over one render holding both populations, so a style composed onto the
+ * pressable row alone — a height, a different alignment — is red here however it is spelled.
  */
-it('gives a row that navigates the floor, and a row that only reads none', async () => {
+it('gives a row that navigates the same 48, centred, as a row a diver only reads', async () => {
   const styles = makeStyles('light');
   const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
   const t = await renderDetailTree(d);
@@ -1986,44 +1985,10 @@ it('gives a row that navigates the floor, and a row that only reads none', async
   const rows = t.root?.queryAll((n) => entries(n).includes(styles.detailRow)) ?? [];
   const opens = (n: { props?: { accessibilityLabel?: unknown } }) =>
     typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('Open ');
-
-  // Both populations are on this tree, or one of the two claims below is about an empty set.
-  expect(rows.filter(opens).length).toBe(2);
-  expect(rows.filter((n) => !opens(n)).length).toBeGreaterThan(0);
-
-  expect(rows.filter((n) => opens(n) && !entries(n).includes(styles.detailRowControl))).toEqual([]);
-  expect(rows.filter((n) => !opens(n) && entries(n).includes(styles.detailRowControl))).toEqual([]);
-});
-
-/**
- * **…and what the row RESOLVES to, which is the half neither of the other two checks reads.**
- *
- * `styles.test.ts` pins `detailRowControl`'s own `alignItems: 'center'`, and the test above pins
- * that the style reaches the rows that navigate and only those. Both read the pieces; neither
- * reads the row. A style array merges left to right, so `[detailRowControl, detailRow]` — which
- * is what tidying the call site into alphabetical or "base last" order produces — hands
- * `alignItems` back to `detailRow`'s `flex-start` and leaves a 21 pt line at the top of a 48 pt
- * box with 27 pt of empty ink under it: exactly the row that reads as having failed to render
- * rather than as a taller one, which is the defect the centring exists to prevent
- * (`detailRowControl`, theme/styles.ts). **Measured, not assumed:** that swap left every other
- * test in this file and every test in `styles.test.ts` green.
- *
- * `StyleSheet.flatten` is the merge React Native itself performs on the way to the view, so this
- * asks the row what it IS rather than what it was composed from.
- */
-// M3k's rule kept through issue #3: the canvas's rows are all 48 now, and a row that goes
-// somewhere stays taller than one you read — at the canvas's own 64 for a row that opens
-// something. That cue is issue #5's to replace; this pins only that #3 did not take it away.
-it('keeps a navigating row taller than the rows a diver only reads, still centred', async () => {
-  const styles = makeStyles('light');
-  const d = dive({ siteId: 's1', siteName: 'Blue Hole', centerId: 'c-p', centerName: 'Ponorka', buddy: 'Jana' });
-  const t = await renderDetailTree(d);
-  const entries = (n: { props?: { style?: unknown } }) => [n.props?.style].flat(3).filter(Boolean);
-  const rows = t.root?.queryAll((n) => entries(n).includes(styles.detailRow)) ?? [];
-  const opens = (n: { props?: { accessibilityLabel?: unknown } }) =>
-    typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('Open ');
-  const heightOf = (n: { props: { style?: unknown } }) =>
-    (StyleSheet.flatten(n.props.style as never) as Record<string, unknown>).minHeight as number;
+  const resolved = (n: { props: { style?: unknown } }) => {
+    const { minHeight, alignItems } = StyleSheet.flatten(n.props.style as never) as Record<string, unknown>;
+    return { minHeight, alignItems };
+  };
 
   const navigating = rows.filter(opens);
   const reading = rows.filter((n) => !opens(n));
@@ -2031,10 +1996,8 @@ it('keeps a navigating row taller than the rows a diver only reads, still centre
   expect(navigating).toHaveLength(2);
   expect(reading.length).toBeGreaterThan(0);
 
-  const tallestRead = Math.max(...reading.map(heightOf));
-  for (const row of navigating) {
-    expect(heightOf(row)).toBeGreaterThan(tallestRead);
-    expect((StyleSheet.flatten(row.props.style) as Record<string, unknown>).alignItems).toBe('center');
+  for (const row of [...navigating, ...reading]) {
+    expect(resolved(row)).toEqual({ minHeight: 48, alignItems: 'center' });
   }
 });
 

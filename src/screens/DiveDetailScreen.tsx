@@ -258,19 +258,17 @@ function Row({ label, value, mono, computed, opens, styles }: Field & { styles: 
       </View>
     </>
   );
-  // **A row that goes somewhere is a Pressable, and it is still visibly taller** (M3k, kept
-  // through issue #3). M3c shipped it looking identical and with no tap target, and the owner
-  // measured a ~9 pt band between the *Site* and *Centre* rows where a press was swallowed; M3k
-  // gave it §0.5's floor and the facts stayed dense, which made the height difference the one
-  // thing on this screen saying which lines take you somewhere. The canvas's rows are all 48
-  // now, so `detailRowControl` keeps a difference at the canvas's own 64 for a row that opens
-  // something — see its docblock for what that costs, and why #3 neither removes the cue nor
-  // replaces it (that is issue #5). The announcement says what pressing does rather than what
-  // the row is called, Settings' rule for every row that opens something.
+  // **A row that goes somewhere is a Pressable, at the same height as every other row** (M3k,
+  // then issue #3). M3c shipped it with no tap target, and the owner measured a ~9 pt band
+  // between the *Site* and *Centre* rows where a press was swallowed; M3k gave it §0.5's floor,
+  // and since #3 every row on this screen is the canvas's 48, so the floor is simply the row. A
+  // taller pressable row was tried as the cue for "this opens a page" and read as uneven spacing
+  // on the device; that cue is issue #5's. The announcement says what pressing does rather than
+  // what the row is called, Settings' rule for every row that opens something.
   if (opens === undefined) return <View style={styles.detailRow}>{contents}</View>;
   return (
     <Pressable
-      style={[styles.detailRow, styles.detailRowControl]}
+      style={styles.detailRow}
       onPress={() => router.push(opens)}
       accessibilityRole="button"
       accessibilityLabel={t('common.open', { name: value })}

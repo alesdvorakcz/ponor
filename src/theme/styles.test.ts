@@ -290,11 +290,12 @@ const BELOW_THE_FLOOR: Record<string, string> = {
  * because slop deep enough to reach the floor overruns `detailCluster`'s 10 pt gap and hands
  * presses aimed at the site to the centre.
  *
- * What it became is a rule rather than a number: **a row you can press is a control and takes the
- * floor; a row you only read is a fact and stays dense** (`detailRowControl`, theme/styles.ts).
- * The sweep below is what carries it now — the pressable row merges that style and clears 48,
- * every fact row on the screen is a `View` and is not swept at all, and a navigation row that
- * forgot the floor arrives here as a failure rather than as a new entry in this list.
+ * What it became was a rule: **a row you can press is a control and takes the floor**. M3k left
+ * the fact rows dense beside it; issue #3 brought every row on the screen to the canvas's 48, so
+ * the pressable row and the fact rows are now one `detailRow` and the floor is simply the row's
+ * height. The sweep below is what carries it — the pressable row clears 48 on `detailRow` alone,
+ * and a navigation row that lost the floor arrives here as a failure rather than as a new entry
+ * in this list.
  */
 
 describe('every control the app can press', () => {
@@ -355,26 +356,20 @@ describe('every control the app can press', () => {
 });
 
 /**
- * **The floor a navigating row takes, and the centring that has to come with it** (M3k).
+ * **The dive detail's rows: one height, centred, the ones you press included** (M3k's floor,
+ * issue #3's canvas, and the owner's call on PR #20).
  *
- * The `Pressable` sweep above says the row clears 48; it cannot say what the row looks like once
- * it does. `detailRow` aligns to `flex-start` so a wrapped value lines up with its label, and a
- * 21 pt line left at the top of a 48 pt box has 27 pt of empty ink under it — a row that reads as
- * having failed to render rather than as a taller one. Pinned as a DIFFERENCE from `detailRow`
- * rather than as the word alone, so dropping the override is red whichever way it is dropped.
+ * A navigating row is a `Pressable` on `detailRow` and nothing else, so the sweep above reads
+ * this row's height for it; what the sweep cannot see is the centring. A 21 pt line left at the
+ * top of a 48 pt box has 27 pt of empty ink under it — a row that reads as having failed to
+ * render — and #3 moved the row from `flex-start` to `center` for exactly that.
+ * DiveDetailScreen.test.tsx asks the rendered rows the same thing, pressable and read alike.
  */
-describe('the dive detail’s navigating row', () => {
-  // Issue #3 made every row 48 (the canvas's `detailRow.minHeight`), and that is the case this
-  // pins: a navigating row must still be TALLER than the rows around it, or the one thing on the
-  // screen that says which lines take you somewhere is gone (issue #5 is what replaces it). A
-  // relation rather than two numbers, so raising the rows' height without the control's is red.
-  it('stays taller than the fact rows around it, at the floor and over', () => {
+describe('the dive detail’s rows', () => {
+  it('are the canvas’s 48, centred, in both themes', () => {
     for (const scheme of ['dark', 'light'] as const) {
       const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
-      const row = sheet.detailRow?.minHeight as number;
-      const control = sheet.detailRowControl?.minHeight as number;
-      expect(row).toBeGreaterThanOrEqual(48);
-      expect(control).toBeGreaterThan(row);
+      expect(sheet.detailRow?.minHeight).toBe(48);
       expect(sheet.detailRow?.alignItems).toBe('center');
     }
   });
