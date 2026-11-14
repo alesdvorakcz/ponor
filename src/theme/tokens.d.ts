@@ -8,6 +8,9 @@ export interface ThemeTokens {
   fgMuted: string;
   action: string;
   actionFg: string;
+  sheet: string;
+  sheetItem: string;
+  scrim: string;
 }
 
 /**

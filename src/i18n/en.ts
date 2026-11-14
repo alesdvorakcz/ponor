@@ -793,6 +793,11 @@ export const en = {
       deleteTitle: 'Delete this dive?',
       deleteBody: "It will be removed from your logbook. This can't be undone.",
       deleteFailed: "Couldn't delete this dive. Try again.",
+      moreActions: 'More actions',
+      recordTitle: 'Dive #{{number}}',
+      plannedDiveTitle: 'Planned dive',
+      deleteCost: 'asks to confirm · cannot be undone',
+      showOnMap: 'Show on map',
     },
 
     /**

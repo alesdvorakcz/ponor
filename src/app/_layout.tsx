@@ -29,8 +29,9 @@ export default function RootLayout() {
        inside React Native's `<Modal>`: that renders into a SEPARATE native hierarchy while
        staying in the same React context, so a root nested there degrades to a plain `View` and
        the gesture inside it never fires — which is precisely when a second root IS required.
-       Nothing in the app does this today (nothing under src/ renders a `Modal` at all), so this
-       is a note for whoever adds the first one rather than a rule anything here follows.
+       The app's one `Modal` today, the dive detail's record-actions sheet (issue #3), holds only
+       `Pressable`s, which are React Native's own and need no root — so this is a note for
+       whoever puts the first gesture in one rather than a rule anything here follows.
 
        No `style` prop, deliberately: with none it defaults to `flex: 1`, and the library warns
        that a custom style which forgets that renders an app of zero height. `SyncTriggers` and

@@ -646,6 +646,11 @@ export const cs = {
       deleteTitle: 'Smazat tento ponor?',
       deleteBody: 'Zmizí z vašeho deníku. Tohle nejde vzít zpět.',
       deleteFailed: 'Tento ponor se nepodařilo smazat. Zkuste to znovu.',
+      moreActions: 'Další akce',
+      recordTitle: 'Ponor #{{number}}',
+      plannedDiveTitle: 'Plánovaný ponor',
+      deleteCost: 'zeptá se · nejde vzít zpět',
+      showOnMap: 'Zobrazit na mapě',
     },
 
     /**

@@ -1,10 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { Modal, Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
+import { symbolName } from '../components/symbolName';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
@@ -12,6 +14,7 @@ import { useDiveSamples } from '../db/useDiveSamples';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { importerLabelFor } from '../domain/import/registry';
+import { pointOf, type MapPoint } from '../domain/mapSites';
 import { splitPlanned } from '../domain/trips';
 import { type Dive, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/leaveScreen';
@@ -55,7 +58,8 @@ import {
 import { type UnitSystem } from '../format/units';
 import { t, useT } from '../i18n';
 import { confirmDestructive } from '../platform/confirmDestructive';
-import { resolveScheme } from '../theme/resolve';
+import { openInMaps } from '../platform/mapsLink';
+import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
@@ -107,10 +111,11 @@ import { type ColorScheme } from '../theme/tokens';
  *
  * The hero at the top of the screen (also M1c task 5, §0.6) is the same anchor idea
  * DiveRow.tsx's row gives a dive — depth, in its band colour, is the value that actually
- * differs dive to dive — read at detail scale: the site name, a `#number · date · centre`
+ * differs dive to dive — read at detail scale, and since issue #3 drawn as the owner's design
+ * canvas draws it: the number on a line of its own, the site name, a `date · time · centre`
  * mono sub-line (`heroSubline` below), and `<DepthValue variant="hero" />`. Every piece of
- * it is independently nullable (no site name, no assigned number for a planned dive, no
- * centre) except the date, which DESIGN.md §6 never allows to be null — so the sub-line
+ * it is independently nullable (no site name, no assigned number for a planned dive, no time,
+ * no centre) except the date, which DESIGN.md §6 never allows to be null — so the sub-line
  * always has at least the date to show, and the screen never opens on a truly empty hero.
  *
  * §0.4's depth profile is drawn here, between the hero and the first cluster — the space
@@ -128,12 +133,11 @@ import { type ColorScheme } from '../theme/tokens';
  * this screen cannot ask "will it draw?" without owning a second copy of a rule §4.1 says has
  * one owner.
  *
- * **The first cluster keeps its `first` treatment either way, and that is the same rule.**
- * `detailClusterFirst` drops the hairline that would otherwise land beside the hero's own
- * bottom border; with a card on screen the Date & time cluster follows the card instead, and
- * on the strict reading of §0.6 it would then draw its rule. Making that conditional means the
- * screen deciding whether the card drew — the very question above — so it stays fixed, and the
- * card's own `profileCard` carries no rule for the mirror-image reason (theme/styles.ts).
+ * **The first cluster sits flush under the card either way, and that is the same rule.**
+ * `detailClusterHeaderFirst` drops the cluster's 22 of air because the hero and every card above
+ * it close on their own; whether the profile card drew does not change that, so the screen never
+ * has to ask. The one thing that does is the `Imported from` row, which is this screen's own
+ * decision to draw and closes on no air of its own (issue #3).
  *
  * Beneath the card sits §7's `Imported from` row: the dive computer the dive was read off
  * (`importDevice`), falling back to the importer's own label (`importerLabelFor`) where the
@@ -155,10 +159,11 @@ import { type ColorScheme } from '../theme/tokens';
  * *Edit* at the trailing edge of the top bar, for **every** dive, opening `/dive/[id]/edit` on
  * the dive's own status; *Complete dive* (§2.4) at the end of the content for a **planned**
  * dive only, opening that same form with the Logged/Planned control already on Logged; and
- * *Delete*, last, which confirms through platform chrome (`platform/confirmDestructive.ts`:
- * the OS `Alert` on a device, the browser's own dialog on web) and then tombstones the
- * dive (`softDeleteDive`). All three are described where they are built (`EditButton`,
- * `CompleteButton`, `runDelete`/`confirmDelete` below). The two links are `editDiveHref` and
+ * *Delete*, behind ⋯ in the record's own sheet since issue #3, which confirms through platform
+ * chrome (`platform/confirmDestructive.ts`: the OS `Alert` on a device, the browser's own dialog
+ * on web) and then tombstones the dive (`softDeleteDive`). All three are described where they
+ * are built (`EditButton`, `CompleteButton`, `RecordActionsSheet`, `runDelete`/`confirmDelete`
+ * below). The two links are `editDiveHref` and
  * `completeDiveHref` respectively — one module owns both ends of each (editDiveLink.ts), and
  * which control sends which is the single fact this area's tests exist to pin.
  *
@@ -253,20 +258,15 @@ function Row({ label, value, mono, computed, opens, styles }: Field & { styles: 
       </View>
     </>
   );
-  // **A row that goes somewhere is a Pressable, and since M3k it is also visibly taller.**
-  //
-  // M3c shipped it looking identical, on the reasoning that §0.1 rules out a hue and §0.6 spends
-  // the chevron on in-place disclosure alone ("the mark is never spent on navigation"), so a
-  // navigation row here had no visual mark available and was not given an invented one. That was
-  // right about marks and wrong about size: the row also had no tap target, and the owner
-  // measured the consequence on the device — the *Site* row answers at y=351 and y=358 and not at
-  // y=364, a ~9 pt band between two adjacent navigation rows where a press is silently swallowed.
-  //
-  // `detailRowControl` (theme/styles.ts) is §0.5's floor, and the rule it carries is *a row you
-  // can press is a control; a row you only read is a fact* — so the height difference is not
-  // decoration either, it is the one thing on this screen that says which lines take you
-  // somewhere. The announcement still says what pressing it DOES rather than what the row is
-  // called, which is Settings' own rule for every row that opens something.
+  // **A row that goes somewhere is a Pressable, and it is still visibly taller** (M3k, kept
+  // through issue #3). M3c shipped it looking identical and with no tap target, and the owner
+  // measured a ~9 pt band between the *Site* and *Centre* rows where a press was swallowed; M3k
+  // gave it §0.5's floor and the facts stayed dense, which made the height difference the one
+  // thing on this screen saying which lines take you somewhere. The canvas's rows are all 48
+  // now, so `detailRowControl` keeps a difference at the canvas's own 64 for a row that opens
+  // something — see its docblock for what that costs, and why #3 neither removes the cue nor
+  // replaces it (that is issue #5). The announcement says what pressing does rather than what
+  // the row is called, Settings' rule for every row that opens something.
   if (opens === undefined) return <View style={styles.detailRow}>{contents}</View>;
   return (
     <Pressable
@@ -281,17 +281,15 @@ function Row({ label, value, mono, computed, opens, styles }: Field & { styles: 
 }
 
 /**
- * One titled group of rows. Every cluster carries §0.6's hairline on its TOP edge, the same
- * rule `diveRow`/`dayStrip` follow in the list — so the line reads as the rule under the
- * cluster before it, and the last cluster closes on whitespace rather than a rule.
+ * One titled group of rows: its label, then the rows, each of which draws its own hairline on its
+ * top edge (`detailRow`) — so the first row's line is the rule under the label, and the cluster
+ * ends on its last row with nothing beneath it, the next cluster's 22 of air doing the separating
+ * (issue #3, the canvas's `clusterLabel.padTop 22 between groups`).
  *
- * `first` is the one exception, and it belongs to POSITION, not to any particular cluster:
- * the topmost cluster sits directly under the hero, which draws its own bottom border, so a
- * rule there too would render as a visible double line. Passed explicitly at the one call
- * site that is first rather than inferred here, because this component renders one cluster
- * at a time and has no way to know where it sits. (The alternative — the hero dropping its
- * own bottom border — is deliberately not taken: the hero is a full-bleed banner at 16 and
- * the clusters are an indented column at 20, and those two lines are not the same line.)
+ * `first` drops that 22 for the cluster that begins right under the hero or a card, both of which
+ * close on their own air already. It belongs to POSITION rather than to any cluster, and is passed
+ * by the one call site that knows what is above it, because this component renders one cluster at
+ * a time and cannot see.
  */
 function Cluster({
   title,
@@ -305,8 +303,10 @@ function Cluster({
   children: ReactNode;
 }) {
   return (
-    <View style={first ? [styles.detailCluster, styles.detailClusterFirst] : styles.detailCluster}>
-      <Text style={styles.detailClusterTitle}>{title}</Text>
+    <View>
+      <View style={first ? [styles.detailClusterHeader, styles.detailClusterHeaderFirst] : styles.detailClusterHeader}>
+        <Text style={styles.detailClusterTitle}>{title}</Text>
+      </View>
       {children}
     </View>
   );
@@ -363,8 +363,8 @@ function deleteErrorMessage(): string {
 
 /**
  * The dive's own action (M1d task 7), at the trailing edge of the top bar — where the back
- * control is the leading edge of the same row. Deleting deliberately does NOT sit beside it:
- * see `detailDelete` (theme/styles.ts) for why it lives at the end of the content instead.
+ * control is the leading edge of the same row. Deleting does not sit beside it: it is behind ⋯,
+ * in the record's own sheet (`RecordActionsSheet`, issue #3), two deliberate presses away.
  *
  * **It reads *Edit* for every dive, and sends `editDiveHref` for every dive** (M1d task 8).
  * There is no conditional here any more. It used to read *Complete dive* over
@@ -403,9 +403,8 @@ function EditButton({ dive, styles }: { dive: Dive; styles: Styles }) {
 /**
  * §2.4's *Complete dive* — "After surfacing, Complete dive asks only for the missing
  * numbers" — for a planned dive and no other (M1d task 8). Rendered at the END of the
- * content, immediately above *Delete dive*, on the reasoning `detailDelete` (theme/styles.ts)
- * already records for itself: the two acts that operate on the whole dive belong together at
- * the end of a deliberate reach, not in the top bar where the thumb already is. Completing
+ * content: an act on the whole dive belongs at the end of a deliberate reach, not in the top bar
+ * where the thumb already is (`detailCompleteRow`, theme/styles.ts). Completing
  * does not thereby become harder to reach — the prominent pill on an "Up next" row in
  * DivesScreen is untouched, and that is the on-the-boat path.
  *
@@ -440,6 +439,148 @@ function CompleteButton({ dive, styles }: { dive: Dive; styles: Styles }) {
         </View>
       </Pressable>
     </View>
+  );
+}
+
+/**
+ * ⋯ — the way into the record's own actions (issue #3, the owner's design canvas), beside *Edit*
+ * at the trailing edge of the top bar. *Edit* changes what the dive says; what sits behind this
+ * acts on the record itself, and today that is deleting it (see `RecordActionsSheet`).
+ *
+ * Disabled while a delete is in flight, which is the one thing this can start: the sheet has
+ * closed by then, and a second press would offer to delete a dive that is already going.
+ */
+function MoreButton({ styles, onPress, disabled }: { styles: Styles; onPress: () => void; disabled: boolean }) {
+  return (
+    <Pressable
+      style={styles.detailMore}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={t('detail.moreActions')}
+      accessibilityState={{ disabled }}
+    >
+      <View style={styles.detailMoreDots}>
+        <View style={styles.detailMoreDot} />
+        <View style={styles.detailMoreDot} />
+        <View style={styles.detailMoreDot} />
+      </View>
+    </Pressable>
+  );
+}
+
+/**
+ * **The record's actions, in a sheet** (issue #3; `recordSheet` in theme/styles.ts has the canvas's
+ * geometry and why the destructive act is never coloured).
+ *
+ * The canvas draws three actions here and v1 has one. *Duplicate as new dive* was cut in M1e
+ * (§10 — carry-over already prefills the next dive from the last) and *Export this dive · UDDF*
+ * is on §9's post-release shelf, so neither is drawn: a sheet offering an act the app cannot do
+ * is worse than a short sheet. What is left is *Delete dive*, which used to be a muted label at
+ * the end of the content — the canvas's reason for moving it is that the palette cannot warn you,
+ * so the one act that removes something should take two deliberate presses and the platform's
+ * confirmation rather than one press at the foot of a scroll.
+ *
+ * The confirmation is raised OVER the sheet and the sheet closes only once it is answered yes:
+ * backing out of the dialog leaves the diver where they were, one Cancel from the dive. A plain
+ * React Native `Modal`, the app's first — it holds no gesture-handler gesture, which is the one
+ * thing `_layout.tsx` notes a modal would need a second gesture root for.
+ */
+function RecordActionsSheet({
+  styles,
+  scheme,
+  title,
+  meta,
+  onDelete,
+  onClose,
+}: {
+  styles: Styles;
+  scheme: ColorScheme;
+  title: string;
+  meta: string;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      {/* The scrim is the whole screen behind the sheet, and pressing it closes the sheet the way
+          an iOS sheet closes — a wet thumb aiming for the dive behind it should not have to find
+          Cancel first. It says so to a screen reader in the app's own word for closing. */}
+      <Pressable
+        style={styles.recordSheetScrim}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel={t('common.close')}
+      />
+      <View style={styles.recordSheet} accessibilityViewIsModal>
+        <View style={styles.recordSheetHeader}>
+          <Text style={styles.recordSheetTitle}>{title}</Text>
+          <Text style={styles.recordSheetMeta} numberOfLines={1}>
+            {meta}
+          </Text>
+        </View>
+        <Pressable
+          style={styles.recordSheetAction}
+          onPress={onDelete}
+          accessibilityRole="button"
+          accessibilityLabel={t('detail.deleteLabel')}
+          accessibilityHint={t('detail.deleteCost')}
+        >
+          <SymbolView name={symbolName({ ios: 'trash', android: 'delete' })} size={20} tintColor={themeFor(scheme).fg} />
+          <View style={styles.recordSheetActionText}>
+            <Text style={styles.recordSheetActionLabel}>{t('detail.deleteLabel')}</Text>
+            <Text style={styles.recordSheetActionMeta}>{t('detail.deleteCost')}</Text>
+          </View>
+        </Pressable>
+        <Pressable
+          style={styles.recordSheetCancel}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.cancel')}
+        >
+          <Text style={styles.recordSheetCancelLabel}>{t('common.cancel')}</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
+
+/**
+ * **"Show on map"** (issue #3): the dive's position as a card, in place of the GPS row that used to
+ * state the two numbers in Site & centre. The coordinates stay on screen, under the words.
+ *
+ * It opens the device's own maps (`platform/mapsLink.ts`, which says why that and not Ponor's Map
+ * tab). Drawn only for a position `pointOf` accepts — the Map's own test of whether a pair is a
+ * place at all — so the card never offers to show a point no map can draw; `whereFields` keeps a
+ * pair it refuses as the plain row it always was, rather than letting it vanish.
+ */
+function MapCard({
+  styles,
+  scheme,
+  point,
+  coordinates,
+  label,
+}: {
+  styles: Styles;
+  scheme: ColorScheme;
+  point: MapPoint;
+  coordinates: string;
+  label: string;
+}) {
+  return (
+    <Pressable
+      style={styles.detailMapCard}
+      onPress={() => openInMaps(point, label)}
+      accessibilityRole="button"
+      accessibilityLabel={t('detail.showOnMap')}
+      accessibilityHint={coordinates}
+    >
+      <SymbolView name={symbolName({ ios: 'map', android: 'map' })} size={22} tintColor={themeFor(scheme).fg} />
+      <View style={styles.detailMapCardText}>
+        <Text style={styles.detailMapCardTitle}>{t('detail.showOnMap')}</Text>
+        <Text style={styles.detailMapCardMeta}>{coordinates}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -483,8 +624,14 @@ function whereFields(dive: Dive): Field[] {
   if (salinity !== null) fields.push({ label: t('field.salinity'), value: salinity, mono: false });
   const waterBody = formatWaterBody(dive.waterBody);
   if (waterBody !== null) fields.push({ label: t('field.waterBody'), value: waterBody, mono: false });
+  // **The position is the map card's now** (issue #3), not a row: the card carries the same two
+  // numbers under "Show on map". A pair `pointOf` refuses — finite but off the globe, which only a
+  // future client or a hand-edited sync could write — is not a place a map can show, so the card
+  // is not drawn for it, and it stays the row it always was rather than vanishing from the dive.
   const coordinates = formatCoordinates(dive.latitude, dive.longitude);
-  if (coordinates !== null) fields.push({ label: t('field.gps'), value: coordinates, mono: true });
+  if (coordinates !== null && pointOf(dive) === null) {
+    fields.push({ label: t('field.gps'), value: coordinates, mono: true });
+  }
   return fields;
 }
 
@@ -669,31 +816,26 @@ function previousLoggedDive(dives: Dive[], dive: Dive): Dive | undefined {
 }
 
 /**
- * The hero's mono sub-line, e.g. "#6 · 22 Aug 2026 · Ponorka" — dive number, date, dive
- * centre, middot-separated. `number` comes from `useDives()`'s own `numbers` map (the same
- * one DiveRow.tsx and ReorderControls.tsx already read `numbers.get(dive.id)` from), not
- * recomputed here, for the identical reason this file's own top docblock gives for reading
- * the dive itself from that one hook: a second numbering path is a second place a number
- * shown here could disagree with the number the list showed for the same dive.
+ * The hero's mono sub-line, e.g. "22 Aug 2026 · 09:15 · Ponorka" — when and with whom, under the
+ * site (issue #3, the owner's design canvas). The dive number used to lead this line and is a
+ * line of its own above the site now, as it is in a dive row; the time in took its place, because
+ * a date and a time are one fact about when the dive was.
  *
- * The centre is also dropped when the heading above is ALREADY showing it: `diveSiteLabel`
- * falls back to the centre for a dive with no site name, so on that dive "Aqua" would
- * otherwise appear twice, one line apart. That case is recognised by comparing against the
- * label itself rather than by re-deriving "siteName is null" — the label's rule has one
- * owner, and a second statement of it here is exactly the drift item 5 exists to end.
+ * The time is `dive.timeIn` as the diver entered it, never `timeOut`'s computed figure: this line
+ * carries no `=` mark, so it may only say what was typed.
  *
- * Number and centre are independently omitted when absent (`undefined` for a planned dive
- * per §2.4, `null` for a dive with no recorded centre) — filtered out before joining,
- * never rendered as an empty segment or a stray leading/trailing " · ". `formatDiveDate`
- * never returns null (`date` is the one field DESIGN.md §6 never allows to be absent), so
- * this is never itself the empty string: a dive with nothing else recorded still gets a
- * one-part sub-line, exactly the "only the date" case this file's own docblock (and its
- * test "shows nothing but the date and status for a dive with only a date") already treats
- * as a normal, expected dive rather than a broken one.
+ * The centre is dropped when the heading above is ALREADY showing it: `diveSiteLabel` falls back to
+ * the centre for a dive with no site name, so on that dive "Aqua" would otherwise appear twice, one
+ * line apart. That case is recognised by comparing against the label itself rather than by
+ * re-deriving "siteName is null" — the label's rule has one owner.
+ *
+ * Time and centre are independently omitted when absent — filtered out before joining, never an
+ * empty segment or a stray separator. `formatDiveDate` never returns null (`date` is the one field
+ * §6 never allows to be absent), so a dive with nothing else recorded still gets a one-part line.
  */
-function heroSubline(dive: Dive, number: number | undefined): string {
+function heroSubline(dive: Dive): string {
   const centre = diveSiteLabel(dive) === dive.centerName ? null : dive.centerName;
-  return [number !== undefined ? `#${number}` : null, formatDiveDate(dive.date), centre]
+  return [formatDiveDate(dive.date), dive.timeIn, centre]
     .filter((part): part is string => part !== null)
     .join(METADATA_SEPARATOR);
 }
@@ -772,6 +914,9 @@ export default function DiveDetailScreen({
   // still here, and silently leaving it on screen as though nothing had been asked for
   // would be indistinguishable from a dead control.
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Whether the record's actions are open (issue #3). Declared with the others above the
+  // not-found return, for the same reason they are.
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const dive = dives.find((d) => d.id === id);
 
@@ -825,21 +970,26 @@ export default function DiveDetailScreen({
 
   // A confirmation drawn by the platform, not by this app (M1d task 7, amendment C). That
   // is what resolves the tension with §0.1: the app's own surfaces stay monochrome, and the
-  // danger signal belongs to OS chrome — the same way the keyboard's colours do — so this
-  // screen's own control stays a plain muted label. Confirmation is not optional for this
-  // one: it is the only action in the app that removes something.
+  // danger signal belongs to OS chrome — the same way the keyboard's colours do — so the
+  // sheet's own action stays ink. Confirmation is not optional for this one: it is the only
+  // action in the app that removes something.
   //
   // `platform/confirmDestructive.ts` owns *which* chrome: the platform `Alert` and its
-  // `style: 'destructive'` button on a device, the browser's own dialog on web, where
-  // `Alert` is an empty function and the dive was never deleted at all. This screen states
-  // the question and what to do with the answer, and nothing about where it is drawn.
+  // `style: 'destructive'` button on a device, the browser's own dialog on web. This screen
+  // states the question and what to do with the answer, and nothing about where it is drawn.
+  //
+  // Asked from the sheet (issue #3) and answered over it: the sheet closes on a yes, and a no
+  // leaves it open, one Cancel from the dive, which is where the diver was.
   const confirmDelete = () => {
     confirmDestructive({
       title: deleteTitle(),
       body: deleteBody(),
       confirmLabel: t('common.delete'),
       cancelLabel: t('common.cancel'),
-      onConfirm: () => void runDelete(),
+      onConfirm: () => {
+        setSheetOpen(false);
+        void runDelete();
+      },
     });
   };
 
@@ -847,10 +997,19 @@ export default function DiveDetailScreen({
   const previous = previousLoggedDive(dives, dive);
   const surfaceInterval = previous === undefined ? null : formatSurfaceInterval(surfaceIntervalMin(previous, dive));
 
-  // Hero (§0.6, M1c task 5) — see heroSubline's own docblock for why `number` comes from
-  // useDives()'s own map rather than being recomputed here.
+  // Hero (§0.6, M1c task 5; issue #3). `number` comes from `useDives()`'s own map — the one
+  // DiveRow.tsx reads — never recomputed here: a second numbering path is a second place the
+  // number shown here could disagree with the one the list showed for the same dive. A planned
+  // dive has none (§2.4), and then the hero has no number line and the sheet names it as a plan.
   const number = numbers.get(dive.id);
-  const heroSub = heroSubline(dive, number);
+  const heroSub = heroSubline(dive);
+  const recordTitle =
+    number === undefined ? t('detail.plannedDiveTitle') : t('detail.recordTitle', { number });
+  const recordMeta = [diveSiteLabel(dive), formatDiveDate(dive.date)].join(METADATA_SEPARATOR);
+  // The map card's point and its two numbers — see `MapCard` for why the card is drawn only for
+  // a point the Map itself would accept.
+  const point = pointOf(dive);
+  const coordinates = formatCoordinates(dive.latitude, dive.longitude);
 
   const maxDepth = formatDepth(dive.maxDepthM, units);
   const avgDepth = formatDepth(dive.avgDepthM, units);
@@ -911,16 +1070,20 @@ export default function DiveDetailScreen({
 
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-      {/* The way out and the dive's own action, as one row above the hero. `EditButton` is
+      {/* The way out and the dive's own actions, as one row above the hero. *Edit* and ⋯ are
           rendered regardless of `showBackButton`: on the wide layout there is nothing to go
-          back TO, but editing the dive on screen is exactly as valid there as it is here. */}
+          back TO, but editing or deleting the dive on screen is exactly as valid there. */}
       <View style={styles.detailTopBar}>
         {showBackButton && <BackButton styles={styles} />}
-        <EditButton dive={dive} styles={styles} />
+        <View style={styles.detailTopActions}>
+          <EditButton dive={dive} styles={styles} />
+          <MoreButton styles={styles} onPress={() => setSheetOpen(true)} disabled={deleting} />
+        </View>
       </View>
       <ScrollView style={styles.detailScroll}>
         <View style={styles.detailHero}>
           <View style={styles.detailHeroMain}>
+            {number !== undefined && <Text style={styles.detailHeroNumber}>{`#${number}`}</Text>}
             {/* Unconditional, and `diveSiteLabel` rather than `dive.siteName`: this screen
                 used to render a heading only `if (dive.siteName !== null)`, so a dive the
                 list called "Unnamed site" opened on a page with no title at all. That rule
@@ -933,24 +1096,44 @@ export default function DiveDetailScreen({
         </View>
 
         <View style={styles.detailContent}>
-          {/* §0.4's card, in the space that rule reserved for it — first inside the content,
-              so it sits between the hero and the first cluster with nothing above it moved.
-              It is handed the series and draws nothing at all without one; this screen never
-              asks whether it will (see this file's docblock). */}
+          {/* A delete that failed, at the top of the content where the diver is looking — the
+              sheet that asked closed when they said yes. */}
+          {deleteError !== null && (
+            <View style={styles.detailDeleteError}>
+              <Text style={styles.detailDeleteErrorText}>{deleteError}</Text>
+            </View>
+          )}
+
+          {/* "Show on map" (issue #3), directly under the hero where the canvas draws it. */}
+          {point !== null && coordinates !== null && (
+            <MapCard
+              styles={styles}
+              scheme={scheme}
+              point={point}
+              coordinates={coordinates}
+              label={diveSiteLabel(dive)}
+            />
+          )}
+
+          {/* §0.4's card, in the space that rule reserved for it — between the hero and the
+              first cluster, with nothing above it moved by its arriving. It is handed the series
+              and draws nothing at all without one; this screen never asks whether it will (see
+              this file's docblock). */}
           <DepthProfile dive={dive} samples={samples} scheme={scheme} units={units} />
 
           {/* §7's provenance, beneath the card and independent of it: a computer can export a
               dive it recorded no profile for, and this row is a fact about the dive either
-              way. A plain value row — no chevron (§0.6), nothing to press. */}
+              way. A plain value row — no chevron (§0.6), nothing to press; the canvas draws one
+              and opens the source, and there is no page for a source to open. */}
           {importedFrom !== null && (
             <Row label={t('field.importedFrom')} value={importedFrom} mono={false} styles={styles} />
           )}
 
-          {/* The one cluster that always renders (Status and Date are never null, §6), so
-              `first` is a fixed prop here rather than an index the list of clusters below
-              would have to compute — every other cluster is conditional, and the topmost
-              one is this one either way. */}
-          <Cluster title={t('group.dateTime')} styles={styles} first>
+          {/* The one cluster that always renders (Status and Date are never null, §6), so it is
+              the topmost either way. It is `first` — flush under what is above it — unless the
+              `Imported from` row sits between: a hero or a card closes on its own air, a row
+              does not, and a label pressed against a row's foot reads as that row's caption. */}
+          <Cluster title={t('group.dateTime')} styles={styles} first={importedFrom === null}>
             <Row label={t('field.status')} value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
             <Row label={t('field.date')} value={formatDiveDate(dive.date)} mono styles={styles} />
             {dive.timeIn !== null && <Row label={t('field.timeIn')} value={dive.timeIn} mono styles={styles} />}
@@ -1003,7 +1186,7 @@ export default function DiveDetailScreen({
               {tankGroups.map(({ index, fields }) => {
                 if (fields.length === 0) return null;
                 return (
-                  <View key={index} style={styles.detailTank}>
+                  <View key={index}>
                     <Text style={styles.detailTankTitle}>
                       {dive.tanks.length > 1
                         ? t('field.cylinderNumbered', { number: index + 1 })
@@ -1036,32 +1219,20 @@ export default function DiveDetailScreen({
 
           {/* §2.4's *Complete dive*, for a planned dive only (M1d task 8) — see
               CompleteButton above for why it sits here rather than in the top bar, and why
-              it sends `completeDiveHref` where the top bar's *Edit* sends `editDiveHref`.
-              Above Delete, not below it: finishing a dive is the ordinary next thing to do
-              with a plan, and the one destructive act stays last. */}
+              it sends `completeDiveHref` where the top bar's *Edit* sends `editDiveHref`. */}
           {dive.status === 'planned' && <CompleteButton dive={dive} styles={styles} />}
-
-          {/* Deleting (M1d task 7, amendment C). At the END of the content and inside the
-              scroll, below every cluster: a deliberate act on one dive you are looking at,
-              which is also why it lives here rather than on a row in the list. A plain muted
-              label — the red is the confirmation dialog's, not this app's (§0.1). */}
-          {deleteError !== null && (
-            <View style={styles.detailDeleteError}>
-              <Text style={styles.detailDeleteErrorText}>{deleteError}</Text>
-            </View>
-          )}
-          <Pressable
-            style={styles.detailDelete}
-            onPress={confirmDelete}
-            disabled={deleting}
-            accessibilityRole="button"
-            accessibilityLabel={t('detail.deleteLabel')}
-            accessibilityState={{ disabled: deleting }}
-          >
-            <Text style={styles.detailDeleteLabel}>{t('detail.deleteLabel')}</Text>
-          </Pressable>
         </View>
       </ScrollView>
+      {sheetOpen && (
+        <RecordActionsSheet
+          styles={styles}
+          scheme={scheme}
+          title={recordTitle}
+          meta={recordMeta}
+          onDelete={confirmDelete}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
     </View>
   );
 }

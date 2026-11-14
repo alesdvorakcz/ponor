@@ -404,18 +404,19 @@ function build(scheme: ColorScheme) {
     color: theme.actionFg,
   };
 
-  // A control that is a deliberate act rather than the screen's primary one: *Delete dive*,
-  // *Delete preset*, and the dive form's own *Save as preset*. §0.1 spends every hue on
+  // A control that is a deliberate act rather than the screen's primary one: *Delete preset*
+  // and the dive form's own *Save as preset* (and *Delete dive* until issue #3 moved it into the
+  // dive detail's record-actions sheet, `recordSheetAction`). §0.1 spends every hue on
   // depth, so there is nothing to make a destructive control look destructive — and a plain
   // muted label is exactly right for one you should not hit by accident (§10: "a destructive
   // confirmation is OS chrome; the app's own control stays muted"). The weight goes into the
   // platform dialog that follows, which this app does not draw.
   //
   // One definition rather than three literals, the same reasoning `backControl` above
-  // records. It was already three: `detailDelete`/`detailDeleteLabel` below, and
-  // `formPresetActionLabel`, whose own comment said it was "`detailDelete`'s shape" while
-  // being a byte-identical retyping of it. The call sites differ in how they are PLACED — the
-  // two deletes are centred at the end of their screen's content, the preset control trails
+  // records. It was three when it was written: the dive detail's old delete control,
+  // `presetDelete`, and `formPresetActionLabel`, whose own comment said it was the delete's
+  // shape while being a byte-identical retyping of it. The call sites differ in how they are
+  // PLACED — a delete centred at the end of its screen's content, the preset control trailing
   // inside a group of trailing-value rows — and that is set there.
   const mutedControl: ViewStyle = {
     minHeight: 48,
@@ -721,6 +722,34 @@ function build(scheme: ColorScheme) {
     fontFamily: fonts.sans,
     fontSize: 15,
     color: theme.fgMuted,
+  };
+  /**
+   * **The dive detail's cards** — "Show on map" (issue #3) and §0.4's profile — share one frame:
+   * a `surface` fill, radius 12, standing on the app's column with 14 beneath it before the next
+   * thing begins (the canvas's `padding: 0 16 14` around each).
+   *
+   * They are the only filled things on the screen, and that is what the fill is for: the rows
+   * below are facts on the screen's own ground, and a card is an object you can act on or read
+   * as a whole. What each holds is its own business, so each composes this with its own inner
+   * padding and layout.
+   */
+  const detailCardFrame: ViewStyle = {
+    marginHorizontal: CONTENT_INSET,
+    marginBottom: 14,
+    borderRadius: 12,
+    backgroundColor: theme.surface,
+  };
+  /**
+   * A dive's number as a label above its site (§0.6's table: "Plex Mono 11, muted, above the
+   * site name — a label, not a headline"). One definition because two places say it: the dive
+   * row, and since issue #3 the dive detail's hero, which the canvas draws as that row at detail
+   * scale.
+   */
+  const diveNumberLabel: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: theme.fgMuted,
+    letterSpacing: 0.4,
   };
 
   // The same row label in **full ink**, for the two rows on Settings that are not settings:
@@ -1433,9 +1462,11 @@ function build(scheme: ColorScheme) {
       fontSize: 11,
       opacity: 0.62,
     },
+    // 13.5 since issue #3, the owner's design canvas ("heroDepth 34 / lh 36 · unit 13.5") — the
+    // computed figures' size, so the hero's quiet half and the screen's derived values are one size.
     depthUnitHero: {
       fontFamily: fonts.mono,
-      fontSize: 13,
+      fontSize: 13.5,
       opacity: 0.62,
     },
     // The app's one button treatment (§0.1): inverted ink, monochrome. Used
@@ -2110,12 +2141,7 @@ function build(scheme: ColorScheme) {
     },
     // A label above the site name, not a headline (§0.6) — muted and small, so it
     // never competes with depthValue below for the row's one moment of emphasis.
-    diveNumber: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      color: theme.fgMuted,
-      letterSpacing: 0.4,
-    },
+    diveNumber: diveNumberLabel,
     diveSite: {
       flex: 1,
       fontFamily: fonts['sans-medium'],
@@ -2439,119 +2465,136 @@ function build(scheme: ColorScheme) {
     // alarmingly, over and over.
     syncNotice: noticeBanner,
     syncNoticeText: noticeBannerText,
-    // DiveDetailScreen's hero (§0.6, M1c task 5): the site name, a `#N · date · centre`
-    // mono sub-line, and the 34 px depth anchor (DepthValue's `variant="hero"`, from task
-    // 1) — "the same anchor idea the row now uses, at detail scale." Sits above
-    // `detailContent` below, outside its padding, and carries `CONTENT_INSET` itself plus a
-    // bottom divider, so it reads as one banner across the screen. It used to be described as
-    // spanning "the screen's true edge rather than another indented cluster", against a
-    // `detailContent` at 20 — the clusters are in this same column now (M1l), and what still
-    // makes the hero a banner is the divider under it, not a 4 pt difference in where it
-    // starts. `flexDirection: 'row'` +
-    // `alignItems: 'flex-end'` mirrors `diveRowTop`/`diveRowMain` exactly: the depth value
-    // bottom-aligns against the sub-line, the same way a row's depth bottom-aligns against
-    // its site name.
-    // `paddingTop: 4`, not 16 (M1d): `detailBack` above it carries §0.5's 48 dp tap-target
-    // floor around a 13 px label, which centres that label and leaves roughly 17 px of
-    // slack below it — the hero's own 16 then stacked on top, so the gap between "‹ Back"
-    // and the title read as about double the spec's figure. The 48 stays (it is a wet-hands
-    // tap target, not spacing); this is the half that was actually redundant.
+    // DiveDetailScreen's hero (§0.6, M1c task 5; re-cut to the owner's design canvas, issue #3):
+    // the dive number on a line of its own, the site under it, `date · time in · centre` in mono
+    // under that, and the 34 px depth anchor (DepthValue's `variant="hero"`) at the trailing edge.
+    // It is a dive row read at detail scale, and the canvas made that literal — the number sits
+    // above the site exactly as `diveNumber` puts it in a row, in that same style.
+    //
+    // **`flex-start`, where it used to bottom-align the depth against the sub-line.** The canvas
+    // hangs the figure from the top of the block, level with the number, so the two ends of the
+    // hero read as one line — what the dive was and how deep — rather than the depth floating at
+    // whatever height the title happened to wrap to.
+    //
+    // **No rule beneath it, and no top padding** (canvas: `0 / 16 / 18`). The rule used to close
+    // the hero as a banner over a column of clusters; the canvas closes it on whitespace and lets
+    // the first card or cluster label begin the facts, and with every row now carrying its own
+    // hairline a second line here would land as a double one. The top padding was already only 4
+    // because `detailBack`'s 48 pt floor holds the label above it off the title (M1d); the canvas
+    // spends that floor the same way and adds nothing to it.
     detailHero: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-end',
-      gap: 12,
+      alignItems: 'flex-start',
+      gap: 16,
       paddingHorizontal: CONTENT_INSET,
-      paddingTop: 4,
-      paddingBottom: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.border,
+      paddingBottom: 18,
     },
-    // Holds the site name and sub-line stacked, `flex: 1` so it takes the hero's full
-    // width apart from what the depth value needs — the same role `diveRowMain` plays in
-    // a row.
+    // The number, the site and the sub-line stacked, `flex: 1` so the column takes the hero's
+    // width apart from what the depth needs — the role `diveRowMain` plays in a row. The canvas's
+    // 5 between the three lines is a `gap` rather than three margins, so a planned dive, which
+    // has no number line, loses the line and its gap together.
     detailHeroMain: {
       flex: 1,
+      gap: 5,
     },
+    // `diveNumber` itself: "a label above the site name, not a headline" (§0.6's table), and the
+    // same label in the row the diver tapped to get here.
+    detailHeroNumber: diveNumberLabel,
+    // Compact, at the canvas's 20 on a 22 line with its −0.4 tracking — the size the rest of the
+    // app gives a screen's own title is the large title, and a dive's name is not that: the depth
+    // beside it is the hero's one loud figure.
     detailHeroSite: {
       fontFamily: fonts['sans-semibold'],
-      fontSize: 22,
+      fontSize: 20,
+      lineHeight: 22,
+      letterSpacing: -0.4,
       color: theme.fg,
-      lineHeight: 26,
     },
     detailHeroSub: {
       fontFamily: fonts.mono,
       fontSize: 11.5,
       color: theme.fgMuted,
-      marginTop: 3,
     },
-    // DiveDetailScreen (§3's clusters: date & time, site & centre, depth & duration,
-    // conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not a
-    // SectionList: unlike the Dives list this is one fixed dive's worth of content, not
-    // a long reflowing collection.
+    // "Show on map" (issue #3): the dive's position as a card the diver can press, in place of
+    // the GPS row that used to state the two numbers in Site & centre. The map glyph, the words,
+    // and the coordinates muted beneath them; the canvas's 56 is the height it gives every card
+    // that holds a place — this one and the new-site form's position card.
     //
-    // **The horizontal padding is `CONTENT_INSET`, and the vertical is not it** (M1l). This was
-    // one `padding: 20` doing both jobs, which is what let the screen's column be argued about
-    // as if it were the same decision as the gap under the hero. It is not: the 20 above the
-    // first cluster is clearance below the hero's divider (`detailClusterFirst` zeroes the
-    // cluster's own `paddingTop` so it does not stack), and 48 at the bottom is a scroll's
-    // run-out. Only the horizontal half is the app's content column, so only that half reads
-    // the constant.
+    // **No chevron, where the canvas draws one** (§0.6: the chevron is spent on in-place
+    // disclosure and "never on navigation"). The words say what a press does, and a card is
+    // already the thing on this screen that is pressed rather than read.
+    detailMapCard: {
+      ...detailCardFrame,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      minHeight: 56,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+    },
+    detailMapCardText: {
+      flex: 1,
+      gap: 2,
+    },
+    detailMapCardTitle: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 15,
+      color: theme.fg,
+    },
+    detailMapCardMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+    },
+    // DiveDetailScreen's scroll content (§3's clusters: date & time, site & centre, depth &
+    // duration, conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not
+    // a SectionList: this is one fixed dive's worth of content, not a long reflowing collection.
+    //
+    // **No horizontal padding, and no gap** (issue #3). Every child carries the column itself —
+    // a row its padding, a card its margin, a cluster's label its own — because the canvas runs
+    // each row's hairline to the screen's real edges, the way a dive row's and a form field's
+    // already run (§0.6). A padded column here would cut every one of those lines 16 short. The
+    // 48 at the bottom is a scroll's run-out, and is the one thing this style still says.
     detailContent: {
-      paddingHorizontal: CONTENT_INSET,
-      paddingTop: 20,
       paddingBottom: 48,
-      gap: 24,
     },
-    // §0.6's hairline rule reaches this screen too: "Hairline separators on `border`...
-    // set on each row's top edge, not its bottom." A cluster is this screen's row, so its
-    // rule sits on top and reads as the line under the cluster before it. `detailContent`'s
-    // `gap: 24` alone used to do all the separating, which is what left seven clusters
-    // reading as one undifferentiated column. `paddingTop` is what keeps the cluster's own
-    // uppercase label off the line it sits under; the asymmetry with the 24 above is
-    // deliberate, so the rule reads as belonging to the cluster it introduces.
-    detailCluster: {
-      gap: 10,
-      borderTopWidth: 1,
-      borderTopColor: theme.border,
-      paddingTop: 16,
-    },
-    // The first cluster only. It sits directly below `detailHero`, which draws its own
-    // bottom border, so the rule above would land as a visible double line — and its
-    // `paddingTop` would stack on `detailContent`'s own 20. Applied ON TOP of
-    // `detailCluster` (a two-element style array at the call site), never as a replacement,
-    // so the two can't drift apart on anything but the border and the padding.
+    // A cluster's label and the air around it (issue #3, the canvas's `22 / 16 / 6`). The 22 is
+    // what separates one cluster's last row from the next cluster — there is no rule between
+    // them, since the last row of a group carries no line beneath it (§0.6) — and the 6 holds the
+    // label just off the hairline of the cluster's own first row.
     //
-    // The hero deliberately does NOT drop its bottom border to solve this instead: the line
-    // closing a banner is not the same line as the one dividing two clusters, and the banner
-    // is what the diver needs shut before the column of facts starts. That argument used to
-    // lean on the hero sitting at 16 while the clusters sat at 20; both are `CONTENT_INSET`
-    // now (M1l), so the two lines are the same width and the distinction is entirely in what
-    // each one closes — which is what it always actually rested on.
-    detailClusterFirst: {
-      borderTopWidth: 0,
+    // A wrapper rather than padding on the label itself, so the label stays `clusterLabel` and
+    // nothing else: the form's group headers wear the same text style beside a chevron, where
+    // padding would push them off that row's centre (FormGroup.test.tsx pins the two as one).
+    detailClusterHeader: {
+      paddingTop: 22,
+      paddingBottom: 6,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // The first cluster only, which begins right under the hero or a card — both of which already
+    // close on their own 18 or 14 — so the cluster's 22 would stack on top of it. Applied ON TOP
+    // of `detailClusterHeader`, so the two cannot drift apart on anything but this.
+    detailClusterHeaderFirst: {
       paddingTop: 0,
     },
-    // DESIGN.md §0.6 table's "Cluster label" row — `clusterLabel` at the top of this
-    // function, the one definition the form's own group headers now read too (M1d design
-    // pass), plus the margin that only a block heading wants. M1c task 5 replaced an earlier
-    // Archivo SemiBold 13 px treatment that predated §0.6 — mono is what marks this text as a
-    // structural label rather than content, the same distinction §0.2 draws for every data
-    // figure on this screen.
-    detailClusterTitle: {
-      ...clusterLabel,
-      marginBottom: 8,
-    },
+    // DESIGN.md §0.6 table's "Cluster label" row — `clusterLabel` itself, the one definition the
+    // form's group headers and the first-run screen read too.
+    detailClusterTitle: clusterLabel,
     // ------------------------------------------------------------------------------------
     // §0.4's depth profile (`DepthProfile`, components/DepthProfile.tsx)
     // ------------------------------------------------------------------------------------
-    // The card is a cluster of the same family as the seven above — a label, then content —
-    // but its content is a drawing rather than rows, so it carries the gap and none of
-    // `detailCluster`'s rule: the spec puts it directly under the hero, which draws its own
-    // bottom border, and a second hairline there would land as a double line exactly as
-    // `detailClusterFirst` exists to prevent.
+    // **A card since issue #3** (the canvas's screen 14: `surface`, radius 12, padding 16 / 16 /
+    // 12). It was a cluster drawn on the screen's own ground — a label, then a drawing instead of
+    // rows — and the canvas makes it the same object as the map card above it: the two things on
+    // the screen that are read as a whole rather than line by line. `detailCardFrame` is that
+    // shared frame; the 12 at the foot is shorter than the 16 at the head because the time axis
+    // under the plot is itself a line of small type with its own air.
     profileCard: {
+      ...detailCardFrame,
       gap: 10,
+      paddingTop: 16,
+      paddingHorizontal: 16,
+      paddingBottom: 12,
     },
     // The label with the sample count and interval trailing it (spec §3). `baseline`, not
     // `center`: two different type sizes reading as one line only line up on the type's own
@@ -2563,7 +2606,7 @@ function build(scheme: ColorScheme) {
     },
     // `clusterLabel` itself, carrying no margin of its own — this header is a flex row and
     // `profileCard`'s gap is what separates it from the plot, which is the same reason
-    // `clusterLabel` above deliberately carries none and `detailClusterTitle` adds one.
+    // `clusterLabel` above deliberately carries none.
     profileTitle: clusterLabel,
     // "222 samples · 10 s" — mono, muted and a shade smaller than the label it trails, so it
     // reads as the label's footnote rather than as a second heading. `flexShrink` because
@@ -2711,40 +2754,55 @@ function build(scheme: ColorScheme) {
       justifyContent: 'space-between',
       marginTop: 4,
     },
+    /**
+     * **One row, one height, a hairline on its top edge** (issue #3, the owner's design canvas:
+     * `detailRow.minHeight 48 · pad 12 / 16`).
+     *
+     * The rows used to be lines of type 10 apart inside a cluster, ruled only between clusters.
+     * The canvas gives every row the form's grammar instead — §0.6 already calls the form "the
+     * dive detail you can type into", and the two screens now draw one row the same way: the
+     * label at the leading edge, the value trailing, 48 tall, the hairline on the row's **top**
+     * edge (so the first row of a cluster draws the line under its label, and the last row of a
+     * cluster has none beneath it), running to the screen's real edges with the column held by
+     * the row's own padding.
+     *
+     * `center` because a row is now taller than its line, and a line left at the top of a box
+     * reads as a row that failed to render. A value that wraps (a long equipment list, a name in
+     * Czech) grows the row past 48 and is centred against its label, which is how a settings list
+     * reads one too.
+     */
     detailRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: 12,
+      minHeight: 48,
+      paddingVertical: 12,
+      paddingHorizontal: CONTENT_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
     /**
-     * **A row you can press is a control and takes §0.5's floor; a row you only read is a fact
-     * and stays dense** (M3k, owner's call, closing §0.5's second recorded exception).
+     * **A row you can press stays taller than a row you read** (M3k's rule, kept through issue #3
+     * at the canvas's own numbers — and weaker than it was, which DESIGN.md §10 records).
      *
-     * M3c made the dive detail's *Site* and *Centre* rows navigate and gave them no target. The
-     * owner measured the result on the device: the row responds at y=351 and y=358 and **y=364
-     * does nothing** — two adjacent navigation rows about 21 pt tall with a ~9 pt dead band
-     * between them, where a press aimed at one is swallowed rather than landing on the other.
-     * §0.5 recorded that as an exemption "wanting deciding on a device", and this is the decision.
+     * M3k gave the *Site* and *Centre* rows §0.5's 48 floor and left the facts dense, and the
+     * height difference became the one thing on this screen that says which lines take you
+     * somewhere: measured on the simulator before this change, a navigating row stood about 58 pt
+     * from the next line against about 28 for a fact. The canvas's uniform 48 rows would take
+     * that away entirely, and #3 is not where issue #5 gets settled, in either direction.
      *
-     * **It is a rule rather than a number, and that is what makes it self-explaining.** The rows
-     * that take you somewhere become visibly taller than the facts around them, so the column
-     * says which of its lines are controls without a hue (§0.1), without a chevron (§0.6 spends
-     * that on in-place disclosure and "never on navigation") and without a word. And it closes
-     * the dead band **by construction**: the alternative M3c weighed was slop, and 13 pt of it
-     * either side overruns `detailCluster`'s 10 pt gap and hands presses aimed at the site to the
-     * centre — the failure this project rates worst of all.
+     * So a pressable row takes 64 — the height the canvas gives the rows it draws for opening
+     * something (its search results, `resultRow.minHeight 64`) — and a fact row the canvas's 48.
+     * The difference survives at 16 pt rather than ~30: the same cue, no hue (§0.1), no chevron
+     * (§0.6), no new word, at about half the strength. That trade is the owner's to accept or
+     * overrule, and #5 is what replaces it.
      *
-     * Composed ONTO `detailRow` rather than replacing it (`[detailRow, detailRowControl]`), so a
-     * pressable row and a fact row cannot drift apart on anything but the two properties here.
-     *
-     * `alignItems: 'center'` is the second of those and is not decoration: with `detailRow`'s
-     * `flex-start` a 21 pt line inside a 48 pt box would sit at the top of it with 27 pt of empty
-     * ink beneath, which reads as a row that failed to render rather than as a taller one.
+     * Composed ONTO `detailRow` (`[detailRow, detailRowControl]`), so the two cannot drift apart
+     * on anything but the height.
      */
     detailRowControl: {
-      minHeight: 48,
-      alignItems: 'center',
+      minHeight: 64,
     },
     detailLabel: rowLabel,
     // Data figures — depths, pressures, durations, timestamps (§0.2) — read through this
@@ -2791,10 +2849,13 @@ function build(scheme: ColorScheme) {
     // however wide "=" happens to render in a given font, so a column of values reads the
     // same whether a given row carries a mark or not (§0.6's own "give the mark a
     // fixed-width slot rather than letting it push digits around").
+    //
+    // **14 wide, the mark flush left in it** (issue #3, the canvas's `computed.slot`). It was 12
+    // with the glyph pushed right and a 3 pt margin after it — 15 in all, landing the mark against
+    // the value. The canvas leaves the air on the value's side of the glyph instead, so `=` reads
+    // as a prefix standing in a column of its own rather than as part of the figure.
     detailValueMark: {
-      width: 12,
-      textAlign: 'right',
-      marginRight: 3,
+      width: 14,
       fontFamily: fonts.mono,
       fontSize: 13.5,
       color: theme.fgMuted,
@@ -2808,138 +2869,224 @@ function build(scheme: ColorScheme) {
       fontSize: 13.5,
       color: theme.fgMuted,
     },
-    // One cylinder's block within Gas & cylinders — hairline-separated from the one
-    // above it via `theme.border`, DESIGN.md §0.2's hairlines/dividers token. Not
-    // TripHeader's divider — M1c task 2 removed that one in favour of typography and
-    // whitespace; see the comment on `tripHeader` above.
-    detailTank: {
-      gap: 10,
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: theme.border,
-    },
+    // One cylinder's title within Gas & cylinders, when the dive has any. A heading between rows
+    // rather than a row: it says which cylinder the rows beneath it describe, so it sits on the
+    // column with the canvas's cluster rhythm above it and the first row's hairline under it.
     detailTankTitle: {
       fontFamily: fonts['sans-medium'],
       fontSize: 14,
       color: theme.fg,
+      paddingTop: 14,
+      paddingBottom: 6,
+      paddingHorizontal: CONTENT_INSET,
     },
+    // The diver's own words, as a block rather than a row — notes have no label beside them and
+    // run as long as they run — with the same hairline and column a row has.
     detailNotes: {
       fontFamily: fonts.sans,
       fontSize: 15,
       color: theme.fg,
       lineHeight: 22,
+      paddingVertical: 12,
+      paddingHorizontal: CONTENT_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
-    // The ScrollView itself, once its content sits below detailBack below rather than
-    // filling `screen` alone — screen still supplies the flex/background/status-bar
-    // clearance for both, this just lets the ScrollView take the remaining height.
+    // The ScrollView itself, below the top bar: `screen` supplies the flex, background and
+    // status-bar clearance for both, and this lets the scroll take the remaining height.
     detailScroll: {
       flex: 1,
     },
     // DiveDetailScreen's own back control (review task 7, Important #1): _layout.tsx sets
-    // headerShown: false app-wide with no per-route override, and flipping that globally
-    // would also put a header on the Dives list, which the design doesn't call for — so the
-    // screen supplies its own, pinned above the ScrollView rather than scrolling with its
-    // content. 48 dp minHeight matches the `action`/`fab` tap-target floor above, but this
-    // is deliberately NOT filled ink like those: it's wayfinding, not the screen's primary
-    // action, so it stays a plain label rather than competing with one.
-    // `CONTENT_INSET` matches `detailHero` directly beneath it (M1d). At 20 the back label sat
-    // 4 px further in than the title under it, which is visible precisely because they are
-    // stacked and left-aligned — the same step the owner later found between the Dives title
-    // and Settings', and the reason there is now one constant for the whole app rather than
-    // this fix repeated per control. `minHeight: 48` is §0.5's tap-target floor and is not
-    // spacing — it stays exactly as it is.
+    // headerShown: false app-wide, so the screen supplies its own, pinned above the ScrollView.
+    // `minHeight: 48` is §0.5's tap-target floor, and with the safe-area inset above it this is
+    // the canvas's `backBar.height 96 (48 status pad + 48 target)` — the device supplies the
+    // first half (`screenTopInset`) rather than a constant. Wayfinding, so a plain muted label
+    // rather than filled ink. `CONTENT_INSET` matches `detailHero` directly beneath it (M1d).
     detailBack: {
       ...backControl,
       paddingHorizontal: CONTENT_INSET,
     },
-    // The detail screen's top bar (M1d task 7): the way out at its leading edge, the dive's
-    // own action at its trailing edge — always "Edit" since task 8, for a planned dive as
-    // much as a logged one; §2.4's "Complete dive" is its own control at the end of the
-    // content (`detailComplete` below). A row rather than two stacked controls, because the
-    // second one is a peer of the first, not a heading: both are chrome above the hero, and §0.6 already
-    // fixes that treatment — mono, small, quiet. No `justifyContent: 'space-between'`,
-    // because the back control is hidden in the wide (tablet) layout and the action must
-    // stay at the trailing edge regardless of how many children the row has; `detailAction`
-    // below carries `marginLeft: 'auto'` for that instead.
+    // The top bar (M1d task 7): the way out at its leading edge, the dive's own actions at its
+    // trailing edge. A row of peers rather than stacked controls, all chrome above the hero.
     detailTopBar: {
       flexDirection: 'row',
       alignItems: 'center',
     },
+    // *Edit* and ⋯ as one group at the trailing edge (issue #3, the canvas: "Edit and ⋯ both 48
+    // boxes, trailing"). `marginLeft: 'auto'` keeps the group trailing whether or not the back
+    // control is drawn — it is not on the wide layout. The trailing margin is the column less 8,
+    // the canvas's own: ⋯ is a glyph centred in a 48 box, so a box on the column would leave its
+    // ink 14 inboard of every other right edge on the screen, and the 8 brings the dots back out
+    // to sit over the values' column.
+    detailTopActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginLeft: 'auto',
+      marginRight: CONTENT_INSET - 8,
+    },
+    // *Edit*: a 48 box grown to its label, with the canvas's 6 of air either side inside it.
+    detailAction: {
+      minWidth: 48,
+      minHeight: 48,
+      paddingHorizontal: 6,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     // Full ink where `detailBackLabel` below is muted — §0.6: "Ink versus muted ink is the
-    // only lever" (§0.1 rules out a hue, and a new shape would be new vocabulary for one
-    // control). Wayfinding stays muted; the thing a diver came here to DO reads as the
+    // only lever". Wayfinding stays muted; the thing a diver came here to DO reads as the
     // brighter of the two, without becoming the filled `action` button, which on this screen
     // would compete with the hero it sits directly above.
-    detailAction: {
-      ...backControl,
-      paddingHorizontal: CONTENT_INSET,
-      marginLeft: 'auto',
-    },
     detailActionLabel: {
       ...backControlLabel,
       color: theme.fg,
     },
-    // §2.4's *Complete dive* on the detail screen (M1d task 8). It sits at the END of the
-    // content, immediately above `detailDelete` below, for the reason that style already
-    // records for itself: the two acts that operate on the whole dive belong together, at the
-    // end of a deliberate reach, rather than crowding the top bar where the thumb already is.
-    // The top bar's own action is now always plain *Edit* — a planned dive used to have no
-    // plain-edit affordance at all, because that one control read "Complete dive" instead.
-    //
-    // The treatment is `actionPill`/`actionPillLabel` (this function's own top): §0.6's "a
-    // bordered pill in tracked uppercase, not plain text, so it reads as a control rather
-    // than a label", and the very treatment this same action already wears on an "Up next"
-    // row (`plannedActionPill`). That is what gives it its own weight without inventing
-    // anything: §0.1 spends every hue on depth, so a colour is out; the filled `action`
-    // button would make finishing a plan louder than the hero above it; and borrowing
-    // `detailDeleteLabel`'s plain muted label would make a non-destructive act look exactly
-    // like the one destructive act in the app, two indistinguishable rows in one column.
-    // Centred rather than trailing-aligned (where `plannedActions` puts it) because here it
-    // stacks with `detailDelete`, which is centred, not with a column of other dives' rows.
-    // This wrapper is what keeps the Pressable below at the pill's own width: `detailContent`
-    // is a column, so without it the 48 dp target would span the full screen and sit directly
-    // above `detailDelete`'s own — two full-width targets stacked, one of them the only
-    // destructive act in the app, with the boundary between them invisible.
-    detailCompleteRow: {
+    // ⋯, the way into the record's own actions (issue #3). A 48 box holding the glyph.
+    detailMore: {
+      width: 48,
+      height: 48,
       alignItems: 'center',
+      justifyContent: 'center',
     },
-    // §0.5's 48 dp floor on the Pressable, centred around the visually smaller pill inside
-    // it — the same "small visible control, generous hidden target" split `plannedAction` and
-    // `dayStripAction` above already use, and the reason the pill is nested rather than being
-    // the Pressable itself.
+    // **The glyph is drawn, not typed** — §0.6's rule for every mark whose size a typeface would
+    // decide: `⋯` and `…` sit at a different height and width in every face, and the canvas's three
+    // dots are 3.4 across on 6 centres. Three filled circles in ink, the dots' 2.6 gaps the space
+    // between them.
+    detailMoreDots: {
+      flexDirection: 'row',
+      gap: 2.6,
+    },
+    detailMoreDot: {
+      width: 3.4,
+      height: 3.4,
+      borderRadius: 1.7,
+      backgroundColor: theme.fg,
+    },
+    // §2.4's *Complete dive*, for a planned dive, at the end of the content (M1d task 8): the
+    // ordinary next thing to do with a plan, at the end of a deliberate reach rather than in the
+    // top bar where the thumb already is. The treatment is `actionPill` — §0.6's bordered pill
+    // in tracked uppercase, the treatment this action already wears on an "Up next" row.
+    //
+    // **On the column since issue #3, where it used to be centred.** It was centred to stack with
+    // *Delete dive* beneath it; Delete is behind ⋯ now, and alone at the foot of a left-aligned
+    // column a centred pill is §0.6's "a pill in a left-aligned card is left-aligned" all over
+    // again. The 22 above it is a cluster's own rhythm, so it reads as the next block rather than
+    // as a row of the one above. This wrapper is also what keeps the Pressable at the pill's own
+    // width rather than the screen's.
+    detailCompleteRow: {
+      alignItems: 'flex-start',
+      paddingTop: 22,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // §0.5's 48 dp floor on the Pressable around the visually smaller pill inside it — the
+    // "small visible control, generous hidden target" split `plannedAction` already uses.
     detailComplete: {
       minHeight: 48,
       minWidth: 48,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 4,
     },
     detailCompletePill: actionPill,
     detailCompleteLabel: actionPillLabel,
-    // Deleting a dive (M1d task 7, DESIGN.md §6's tombstone): "a plain muted label, not a
-    // red one" — §0.1 spends every hue on depth, so the destructive colour belongs to the
-    // OS's own confirmation dialog (`style: 'destructive'`, platform/confirmDestructive.ts) exactly as
-    // the keyboard's colours do, and never to a surface this app draws. It sits at the END
-    // of the scrolled content, below every cluster, rather than in the top bar beside Edit:
-    // a deliberate act on one dive should take a deliberate reach, and the top bar is where
-    // the thumb already is.
-    // A delete that failed, said plainly (§10: "A local save failure is shown to the
-    // diver"). The same `noticeBanner` shape `reorderNotice`/`settingsNotice`/`formSaveError`
-    // already share, minus the horizontal margin: this one sits inside `detailContent`'s own
-    // 20 px padding rather than spanning the screen.
+    // A delete that failed, said plainly (§10: "A local save failure is shown to the diver").
+    // The `noticeBanner` every other screen's failure wears, standing on the column, at the top
+    // of the content: the sheet that asked has closed by the time the write fails, and the end of
+    // a long scroll is the one place the diver is certainly not looking.
     detailDeleteError: {
       ...noticeBanner,
-      marginHorizontal: 0,
+      marginBottom: 14,
     },
     detailDeleteErrorText: noticeBannerText,
-    detailDelete: mutedControl,
-    detailDeleteLabel: mutedControlLabel,
-    // M1c task 7 (§0.6: "Chrome the type scale does not cover"): this used to be
-    // sans-medium 16 in full ink — the exact size/weight/colour family a heading uses on
-    // this screen (`detailHeroSite` is sans-semibold 22) — and read as one. "Mono, muted
-    // and small... a way out, not a heading" is the fix: mono because wayfinding chrome is
-    // not UI/display text the way "Dives" as a destination NAME would be, muted+small so it
-    // never competes with the hero it sits above.
+    /**
+     * **The record's own actions, in a sheet behind ⋯** (issue #3, the canvas: "recordActions
+     * sheet: 8 inset, radius 22 · destructive last, hairline above, never coloured").
+     *
+     * Deleting a dive used to be a muted label at the end of the content. The canvas moves it
+     * behind ⋯ for the reason it gives itself: the palette cannot warn you — colour is spent on
+     * depth (§0.1) — so the one act that removes something is made to take two deliberate presses
+     * and then the platform's own confirmation, and is never a stray tap at the end of a scroll.
+     *
+     * The scrim dims the screen in `scrim`, a translucent ink; the sheet stands on `sheet`, 8 in
+     * from three edges with the canvas's radius 22; each action is a `sheetItem` card 64 tall. The
+     * destructive action is never coloured — its label is ink and the confirmation's red is the
+     * platform's (`platform/confirmDestructive.ts`) — and sits last, under a hairline once there
+     * is anything above it to separate it from. Today there is not: the canvas's other two
+     * actions are *Duplicate as new dive* (cut in M1e, §10) and *Export this dive · UDDF*
+     * (§9's shelf), so Delete stands alone and the hairline waits for them.
+     */
+    recordSheetScrim: {
+      flex: 1,
+      backgroundColor: theme.scrim,
+    },
+    recordSheet: {
+      position: 'absolute',
+      left: 8,
+      right: 8,
+      bottom: 8,
+      borderRadius: 22,
+      backgroundColor: theme.sheet,
+      paddingTop: 8,
+      paddingHorizontal: 8,
+      paddingBottom: 10,
+    },
+    // Which dive the sheet is about — the number in the cluster label's voice and the site and
+    // date muted beside it — because a sheet that deletes "this dive" should say which one.
+    recordSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      gap: 8,
+      paddingTop: 14,
+      paddingHorizontal: 12,
+      paddingBottom: 10,
+    },
+    recordSheetTitle: clusterLabel,
+    recordSheetMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      flexShrink: 1,
+    },
+    recordSheetAction: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 14,
+      minHeight: 64,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      backgroundColor: theme.sheetItem,
+    },
+    recordSheetActionText: {
+      flex: 1,
+      gap: 2,
+    },
+    recordSheetActionLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 16,
+      color: theme.fg,
+    },
+    // What the action costs, under its name: the canvas's "asks to confirm · cannot be undone".
+    recordSheetActionMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+    },
+    // The way out of the sheet, in the app's one treatment for leaving (§0.6: mono, muted, small)
+    // at the canvas's 52 — a full-width target under the actions, where the thumb already is.
+    recordSheetCancel: {
+      minHeight: 52,
+      marginTop: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    recordSheetCancelLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      color: theme.fgMuted,
+    },
+    // M1c task 7 (§0.6: "Chrome the type scale does not cover"): mono, muted and small — a way
+    // out, not a heading — so it never competes with the hero it sits above.
     detailBackLabel: backControlLabel,
     // The dive-entry form (DESIGN.md §2.2, M1d task 4) — DiveFormScreen.tsx's own
     // ScrollView content, and since Settings arrived, `rowScroll`/`rowScrollContent` at the
@@ -3745,12 +3892,13 @@ function build(scheme: ColorScheme) {
     // See `PresetChips` (DiveFormScreen.tsx) for why the same reasoning keeps this out of
     // `OptionChips`, which owns that invert and nothing else.
     //
-    // The capture control is `detailDelete`'s shape, on `detailDelete`'s own reasoning:
-    // "a deliberate act on one dive should take a deliberate reach". Saving a preset is that
+    // The capture control is `mutedControl`, on the reasoning the dive detail's delete control
+    // gave for it before issue #3 moved that act behind ⋯: "a deliberate act on one dive should
+    // take a deliberate reach". Saving a preset is that
     // kind of act — it is not part of the flow down the fields — so it sits at the END of
     // the group, wears a muted label rather than a fill, and never competes with the one
     // primary action on the screen (`action`/`actionLabel`, which stays the dive's save).
-    // Trailing (`flex-end`) rather than centred, unlike `detailDelete`: it sits inside a
+    // Trailing (`flex-end`) rather than centred, unlike `presetDelete`: it sits inside a
     // group of trailing-value rows rather than alone at the bottom of a screen, and a
     // centred label in that column would read as a heading for the group below it.
     formPresetActions: {
@@ -3969,13 +4117,14 @@ function build(scheme: ColorScheme) {
     // §7.4's other two destructive acts (M3j) — *Start over* and *Delete account*, at the end
     // of the content where §0.6 puts a deliberate act, "where it takes a reach".
     //
-    // **`mutedControl`, exactly as *Delete dive* and *Delete preset* are**, and §10 is why
+    // **`mutedControl`, exactly as *Delete preset* is (and *Delete dive* was, until issue #3
+    // moved it behind the detail's ⋯)**, and §10 is why
     // rather than taste: "a destructive confirmation is OS chrome; the app's own control stays
     // muted". §0.1 leaves no colour to make a control look dangerous, so the weight goes into
     // a dialog this app does not draw (`platform/confirmDestructive.ts`) and the control itself
     // stays the quietest thing on the screen — which is the right treatment for something you
     // should not hit by accident. Two keys from the one definition, named for where they are
-    // placed, on `detailDelete`/`presetDelete`'s own precedent.
+    // placed, on `presetDelete`'s own precedent.
     //
     // **A row, not a centred control**, which is the one place these differ from *Delete dive*
     // and *Delete preset*. Those sit at the end of a screen whose content is not a list; this
