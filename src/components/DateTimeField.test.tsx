@@ -421,3 +421,20 @@ it('says nothing about the keyboard when the picker is closed again', async () =
     dismiss.mockRestore();
   }
 });
+
+// An open picker is this field's focus, so it wears the same focus the text fields do — since
+// the 2026-11-14 design pass a card around the row, with the picker itself below it on the
+// screen's own ground, the way a text field's suggestion list sits below its card.
+it('draws its row as the focused card while the picker is open, and the picker outside it', async () => {
+  const styles = makeStyles('light');
+  const t = await render(<DateTimeField label="Date" value="2026-08-31" onChange={noop} mode="date" scheme="light" />);
+  const cards = () =>
+    t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formFieldCardFocused)) : [];
+  expect(cards()).toHaveLength(0);
+
+  await openPicker(t, 'Date');
+  const [card] = cards();
+  expect(card).toBeDefined();
+  expect(card?.queryAll((n) => n.type === 'RNDateTimePicker')).toHaveLength(0);
+  expect([t.root?.props.style].flat(5)).toContain(styles.formFieldFocused);
+});

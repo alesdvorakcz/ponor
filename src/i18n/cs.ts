@@ -134,6 +134,7 @@ export const cs = {
 
     figure: {
       deepest: 'nejhlubší {{depth}}',
+      lastOn: 'naposledy {{date}}',
       /**
        * **The noun rides the FIRST number here, where English hangs it on the second.**
        * *7 ponorů z 24*, not *7 z 24 ponorů* — because `z` governs the genitive and
@@ -436,6 +437,13 @@ export const cs = {
       settingsLabel: 'Zpět do Nastavení',
       cancel: '‹ Zrušit',
       cancelLabel: 'Odejít bez uložení',
+    },
+
+    suggest: {
+      siteName: 'Vaše lokality',
+      centerName: 'Vaše centra',
+      buddy: 'Vaši buddy',
+      guide: 'Vaši průvodci',
     },
 
     /**

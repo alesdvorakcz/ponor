@@ -10,6 +10,9 @@ import {
   type Tank,
 } from '../domain/types';
 import {
+  formatSuggestionFigure,
+  formatSuggestionMeta,
+  formatSuggestionsTitle,
   certificationLabel,
   formatCertificationSummary,
   untitledCertification,
@@ -1826,5 +1829,48 @@ describe('in Czech', () => {
    */
   it('keeps a decimal point in a coordinate pair, where a comma already separates the two', () => {
     expect(formatCoordinates(50.12345, 14.56789)).toBe('50.12345, 14.56789');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The suggestion row's words (2026-11-14, the design canvas)
+// ---------------------------------------------------------------------------------------
+
+describe('a suggestion row', () => {
+  const visited = { dives: 4, lastDate: '2026-05-18', deepestM: 34.6, sites: 1 };
+
+  it('says how many dives were done under the name, and when the last one was', () => {
+    expect(formatSuggestionMeta(visited, 'siteName')).toBe(`4 dives · last ${formatDiveDate('2026-05-18')}`);
+  });
+
+  // The canvas's centre row: "12 dives · 5 sites · last …" — a centre is a relationship, and
+  // how many places it took the diver to is half of it.
+  it('adds how many places for a centre, and only for a centre', () => {
+    const centre = { ...visited, dives: 12, sites: 5 };
+    expect(formatSuggestionMeta(centre, 'centerName')).toBe(`12 dives · 5 sites · last ${formatDiveDate('2026-05-18')}`);
+    expect(formatSuggestionMeta(centre, 'buddy')).toBe(`12 dives · last ${formatDiveDate('2026-05-18')}`);
+  });
+
+  // A name only planned dives carry has nothing done under it, and "0 dives" under a name the
+  // list is offering reads as a contradiction. No line at all.
+  it('says nothing about a name no logged dive carries', () => {
+    expect(formatSuggestionMeta({ dives: 0, lastDate: null, deepestM: null, sites: 0 }, 'buddy')).toBeNull();
+  });
+
+  // A site's trailing figure is its deepest dive, in the diver's own units. Nothing trails a
+  // centre or a person: the canvas draws none, and no figure is true of a buddy.
+  it('trails a site with its deepest dive in the diver’s units, and nothing else with anything', () => {
+    expect(formatSuggestionFigure(visited, 'siteName', 'metric')).toBe(formatDepth(34.6, 'metric'));
+    expect(formatSuggestionFigure(visited, 'siteName', 'imperial')).toBe(formatDepth(34.6, 'imperial'));
+    expect(formatSuggestionFigure(visited, 'centerName', 'metric')).toBeNull();
+    expect(formatSuggestionFigure({ ...visited, deepestM: null }, 'siteName', 'metric')).toBeNull();
+  });
+
+  // The cluster label over the diver's own history: "YOUR SITES · 3" once the style uppercases it.
+  it('heads the list with what kind of thing it is and how many are offered', () => {
+    expect(formatSuggestionsTitle('siteName', 3)).toBe('Your sites · 3');
+    expect(formatSuggestionsTitle('centerName', 1)).toBe('Your centres · 1');
+    expect(formatSuggestionsTitle('buddy', 2)).toBe('Your buddies · 2');
+    expect(formatSuggestionsTitle('guide', 2)).toBe('Your guides · 2');
   });
 });

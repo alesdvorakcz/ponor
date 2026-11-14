@@ -9,6 +9,7 @@ import {
 } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -32,7 +33,9 @@ import { FieldNote } from '../components/FieldNote';
 import { CarriedMark } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
 import { EntryIcon } from '../components/EntryIcon';
-import { FormField, type FieldAddition, type FieldMatch } from '../components/FormField';
+import { FocusChainProvider, useFocusChainStep } from '../components/FocusChain';
+import { RevealingScrollView } from '../components/FormReveal';
+import { FormField, type FieldAddition, type FieldMatch, type OfferedSuggestion } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
@@ -79,6 +82,7 @@ import {
   nearMatches,
   pairedIdField,
   suggestFrom,
+  suggestionHistory,
   type SuggestedField,
   type Suggestion,
 } from '../domain/suggest';
@@ -110,6 +114,9 @@ import {
   formatEntry,
   formatEquipmentToken,
   formatSalinity,
+  formatSuggestionFigure,
+  formatSuggestionMeta,
+  formatSuggestionsTitle,
   formatSurge,
   formatSuit,
   formatTankMaterial,
@@ -814,6 +821,18 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
 export const CORE_STRIP_FIELDS: readonly FieldPath<DiveFormInput>[] = ['date', 'siteName', 'centerName'];
 
 /**
+ * **Every field on the form, top to bottom** — the core strip, then each group's fields in the
+ * order `FORM_GROUP_IDS` renders the groups (2026-11-14). It is what the return key walks
+ * (components/FocusChain.tsx): read off the two lists that already state the order rather than
+ * written out a third time, so the walk cannot disagree with the screen. It names pickers and
+ * chip rows too; only text fields on screen ever register, so those are stepped over.
+ */
+export const FORM_FIELD_ORDER: readonly FieldPath<DiveFormInput>[] = [
+  ...CORE_STRIP_FIELDS,
+  ...FORM_GROUP_IDS.flatMap((id) => FORM_GROUPS[id].fields),
+];
+
+/**
  * The fields this form holds but does not put in a row of its own, named so that "every field
  * is somewhere" stays a checkable claim rather than one with a silent exception.
  *
@@ -1273,6 +1292,11 @@ interface ControlledTextFieldProps {
    * to publish a buddy than it can suggest one from the wrong column.
    */
   catalogue?: (field: SuggestedField, text: string) => CatalogueOffer | undefined;
+  /**
+   * The diver's units, for the one figure a suggestion row carries — a site's deepest dive
+   * (2026-11-14, the design canvas's suggestion row). Passed where `history` is.
+   */
+  units?: UnitSystem;
 }
 
 /**
@@ -1303,10 +1327,16 @@ function ControlledTextField({
   history,
   onPairedId,
   catalogue,
+  units,
 }: ControlledTextFieldProps) {
   // Which of §2.3's four fields this row is, if it is one at all — read off the `name` this
   // row already carries. See `history` above for why it is not a prop.
   const suggested = asSuggestedField(name);
+
+  // This row's place in the form's return-key walk (2026-11-14; components/FocusChain.tsx).
+  // Every text field is a place the walk can land; notes takes no step of its own, because its
+  // return key writes a new line.
+  const step = useFocusChainStep(name, multiline !== true);
 
   // §2.3's create offer, in flight and afterwards. Held HERE rather than in the screen, and
   // rather than inside the `Controller` render prop below, for two different reasons: the
@@ -1427,8 +1457,22 @@ function ControlledTextField({
         // own logbook (a few thousand dives at most, DESIGN.md §4.1's own figure), and a
         // `Controller`'s render prop is a plain function call, so a hook here would be
         // illegal rather than merely unnecessary.
-        const suggestions =
-          suggested !== null && history !== undefined ? suggestFrom(history, suggested, text) : undefined;
+        //
+        // Each one is drawn with what the diver has done under it (2026-11-14, the design
+        // canvas's row): `suggestionHistory` counts the same dives the list is drawn from, the
+        // way the logbook counts, and `display.ts` owns the words. Only for the few rows the
+        // list actually shows, so it is a pass per row over the same few thousand dives.
+        const suggestions: OfferedSuggestion[] | undefined =
+          suggested !== null && history !== undefined
+            ? suggestFrom(history, suggested, text).map((suggestion) => {
+                const done = suggestionHistory(history, suggested, suggestion.value);
+                return {
+                  ...suggestion,
+                  meta: formatSuggestionMeta(done, suggested),
+                  figure: units === undefined ? null : formatSuggestionFigure(done, suggested, units),
+                };
+              })
+            : undefined;
         // §2.3's other answer to the same question the list answers — see `catalogue` above.
         // Asked on every render off this field's live text, so the offer names what the diver
         // is looking at and disappears the moment the dive holds the id.
@@ -1506,6 +1550,13 @@ function ControlledTextField({
                 field.onChange(emptied);
               }}
               suggestions={suggestions}
+              suggestionsTitle={
+                suggested !== null && suggestions !== undefined && suggestions.length > 0
+                  ? formatSuggestionsTitle(suggested, suggestions.length)
+                  : undefined
+              }
+              returnKeyType={step?.returnKeyType}
+              onSubmitEditing={step?.onSubmitEditing}
               // Picking is the one gesture that SETS the pair, and it sets both halves from
               // the same suggestion — which `suggestFrom` already guarantees came from one
               // dive. Deliberately not routed through `onChange` above, which would clear the
@@ -1870,7 +1921,7 @@ function ControlledPositionField({
   return (
     <>
       <View style={[styles.formField, locating && styles.formFieldFocused]}>
-        <View style={styles.formFieldRow}>
+        <View style={[styles.formFieldRow, styles.formFieldCard, locating && styles.formFieldCardFocused]}>
           <Text style={styles.formFieldLabel}>{positionLabel()}</Text>
           <Pressable
             style={styles.formFieldPicker}
@@ -2906,7 +2957,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // docblock describes. §3's Settings list is where the error is worth showing.
   const { presets } = useGearPresets();
 
-  const { control, handleSubmit, setValue, getValues, formState } = useForm<DiveFormInput, unknown, DiveFormValues>({
+  const { control, handleSubmit, setValue, getValues, setFocus, formState } = useForm<DiveFormInput, unknown, DiveFormValues>({
     resolver: zodResolver(diveFormSchema),
     defaultValues: carried.values,
     // `values`, not a second `defaultValues`: react-hook-form only ever reads
@@ -3852,7 +3903,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <CancelControl styles={styles} />
-      <ScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
+      {/* The return key walks the form in `FORM_FIELD_ORDER`, through react-hook-form's own
+          `setFocus`; past the last text field on screen it puts the keyboard away. And the
+          scroll keeps whichever field is focused — its suggestion list included — in the part
+          of the form the keyboard leaves visible (2026-11-14, both found on a phone; see
+          components/FocusChain.tsx and components/FormReveal.tsx). */}
+      <FocusChainProvider order={FORM_FIELD_ORDER} focus={(name) => setFocus(name as FieldPath<DiveFormInput>)} onEnd={Keyboard.dismiss}>
+      <RevealingScrollView style={styles.formScroll} contentContainerStyle={styles.formScrollContent} keyboardShouldPersistTaps="handled">
         {/* The header row (§2.4): what this form is, and the control that decides it. The
             heading is `headingFor`'s alone — it reads what the SAVE will do, from the
             control's live value and the dive's stored status together, so it can no longer
@@ -3924,6 +3981,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
+            units={units}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
             autoCapitalize="words"
@@ -3937,6 +3995,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
+            units={units}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
             autoCapitalize="words"
@@ -4360,6 +4419,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
+            units={units}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
             autoCapitalize="words"
@@ -4373,6 +4433,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
+            units={units}
             onPairedId={setPairedId}
             catalogue={catalogueOffer}
             autoCapitalize="words"
@@ -4386,7 +4447,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledTextField control={control} carryOver={carryOver} name="notes" label={t('field.notes')} scheme={scheme} multiline />
           <ControlledRatingField control={control} scheme={scheme} />
         </FormGroup>
-      </ScrollView>
+      </RevealingScrollView>
+      </FocusChainProvider>
 
       {/* Task 6: a failed `createDive` says so, plainly, rather than pretending the save
           worked (§1's "never block a save" cutting the other way — see `saveErrorMessage`

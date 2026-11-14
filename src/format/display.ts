@@ -11,6 +11,7 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // mapSites.ts` imports `diveSiteLabel` from this module (a map place is called what a dive row
 // calls it), so only the shape of its answer may come back the other way.
 import type { WaterTempRange } from '../domain/mapSites';
+import type { SuggestedField, SuggestionHistory } from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
@@ -350,6 +351,41 @@ export function formatSiteSummary(
   if (water !== null) parts.push(water);
 
   return parts.join(METADATA_SEPARATOR);
+}
+
+/**
+ * **What the diver has done under a suggested name**, as the muted line beneath it in the dive
+ * form's suggestion list — `"4 dives · last 18 kvě 2026"`, and for a centre the places it took
+ * the diver to as well: `"12 dives · 5 sites · last …"` (2026-11-14, the design canvas's own
+ * rows). The figures are `suggestionHistory`'s (domain/suggest.ts), which counts the way the
+ * logbook counts; this owns the words and the order.
+ *
+ * **Null for a name no logged dive carries** — a name only planned dives use is still offered,
+ * and "0 dives" under a name the list is offering would read as a contradiction rather than as
+ * a fact. The date is `formatDiveDate`'s, the dive row's own.
+ */
+export function formatSuggestionMeta(history: SuggestionHistory, field: SuggestedField): string | null {
+  if (history.dives === 0) return null;
+  const parts: string[] = [formatDiveCount(history.dives)];
+  if (field === 'centerName' && history.sites > 0) parts.push(formatSiteCount(history.sites));
+  if (history.lastDate !== null) parts.push(t('figure.lastOn', { date: formatDiveDate(history.lastDate) }));
+  return parts.join(METADATA_SEPARATOR);
+}
+
+/**
+ * **A suggested site's trailing figure: its deepest dive**, in the diver's units — null for
+ * anything that is not a site (no figure is true of a centre or a person, and the canvas draws
+ * none) and for a site with no depth logged. Drawn muted and unbanded (`formSuggestionFigure`,
+ * theme/styles.ts): a deepest-of-a-set takes no band, `formatSiteSummary`'s own rule above.
+ */
+export function formatSuggestionFigure(history: SuggestionHistory, field: SuggestedField, system: UnitSystem): string | null {
+  return field === 'siteName' ? formatDepth(history.deepestM, system) : null;
+}
+
+/** The group header over a field's own suggestions — "Your sites · 3", uppercased by the
+ * cluster label it is drawn in. */
+export function formatSuggestionsTitle(field: SuggestedField, count: number): string {
+  return `${t(`suggest.${field}`)}${METADATA_SEPARATOR}${count}`;
 }
 
 /**

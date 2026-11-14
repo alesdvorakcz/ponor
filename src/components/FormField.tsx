@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react';
+import { forwardRef, useCallback, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
@@ -7,6 +7,19 @@ import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
+import { useKeepInView } from './FormReveal';
+
+/**
+ * A suggestion as the list draws it (2026-11-14, the design canvas): the suggestion itself, and
+ * what the diver has done with it — `meta`, the muted line under the name ("4 dives · last
+ * 18 kvě 2026"), and `figure`, the trailing figure (a site's deepest dive). Both are the
+ * caller's words, already formatted: this component decides where they go, never what they say.
+ * A pick hands back the whole object, details and all, so nothing a caller pairs with it is lost.
+ */
+export interface OfferedSuggestion extends Suggestion {
+  readonly meta?: string | null;
+  readonly figure?: string | null;
+}
 
 export interface FormFieldProps {
   /** Wraps rather than truncates — never `numberOfLines`, never `ellipsizeMode` (DESIGN.md
@@ -178,7 +191,24 @@ export interface FormFieldProps {
    * is why it is drawn here at all rather than by the screen: a list positioned by the caller
    * would be positioned four times.
    */
-  suggestions?: Suggestion[];
+  suggestions?: readonly OfferedSuggestion[];
+  /**
+   * The group header over the suggestions — "Your sites · 3", the design canvas's cluster
+   * label (2026-11-14). The caller's whole phrase, count included, for the reason `meta` is
+   * the caller's: only it knows what kind of thing is being offered. Drawn only while there is
+   * a suggestion under it.
+   */
+  suggestionsTitle?: string;
+  /**
+   * What the keyboard's return key says, and what pressing it does (2026-11-14, found on a
+   * phone: the key closed the keyboard, so a diver walking down the form re-opened it on every
+   * row). A caller that knows which field comes next passes `'next'` and moves focus in
+   * `onSubmitEditing`; this component then keeps the keyboard up through the press
+   * (`submitBehavior="submit"`) so it does not drop and rise again between two fields. A caller
+   * that passes neither leaves the platform's own key exactly as it was.
+   */
+  returnKeyType?: 'next' | 'done';
+  onSubmitEditing?: () => void;
   /**
    * Fired with the **whole** `Suggestion` the diver tapped, never just its text.
    *
@@ -293,11 +323,16 @@ export interface FieldMatch {
  * for every field whether or not it was being used. §0.6: "Five bordered boxes down the core
  * strip was the heaviest chrome in the app."
  *
- * **Focus is what draws the affordance** (§0.6). The row fills with `surface` while the input
- * holds focus and nothing else does, so the box appears where it is wanted instead of five
- * times over. The state is local: nothing outside this component has any use for it, and
+ * **Focus is what draws the affordance** (§0.6). While the input holds focus the row becomes a
+ * `surface` card (the design canvas's, since 2026-11-14) and nothing else does, so the box
+ * appears where it is wanted instead of five times over. The state is local, apart from the one
+ * fact the form needs — which node to keep in view above the keyboard (`FormReveal.tsx`) — and
  * `onBlur` is still forwarded to whatever the caller passed — react-hook-form's own
  * `field.onBlur`, which is what marks a field touched — rather than being swallowed here.
+ *
+ * **The whole row is the field** (2026-11-14). A press anywhere on the card that no control
+ * inside it takes — the label above all — focuses the input. The label used to be plain text,
+ * which left the leading third of every row dead to a tap, wider still in Czech.
  *
  * `forwardRef`s its `TextInput` so a `Controller`'s `field.ref` can attach to the real
  * input for react-hook-form's own focus management, rather than being destructured and
@@ -306,11 +341,32 @@ export interface FieldMatch {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, onPickSuggestion, addition },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing },
   ref,
 ) {
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
+  const keepInView = useKeepInView();
+
+  // The input, held here as well as handed to the caller: the row focuses it when the diver
+  // presses the label, and react-hook-form's `field.ref` still has to reach the same input for
+  // its own focus management (`setFocus`, which the form's return key now walks through).
+  const inputRef = useRef<TextInput | null>(null);
+  const attachInput = useCallback(
+    (node: TextInput | null) => {
+      inputRef.current = node;
+      if (typeof ref === 'function') ref(node);
+      else if (ref !== null) ref.current = node;
+    },
+    [ref],
+  );
+
+  // The node the form keeps in view — the whole field, card AND list, since the list is what
+  // has to fit above the keyboard.
+  const fieldRef = useRef<View | null>(null);
+  const hold = (holding: boolean) => {
+    if (fieldRef.current !== null) keepInView(fieldRef.current, holding);
+  };
 
   // **The tag is drawn only over a row that is actually empty**, and that guard belongs here
   // rather than only in the caller. `cleared` is a claim about a gesture; `— cleared` is a
@@ -361,17 +417,30 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
 
   const input = (
     <TextInput
-      ref={ref}
+      ref={attachInput}
       style={[styles.formFieldInput, mono === true && styles.formFieldInputMono, stacked && styles.formFieldInputMultiline]}
       value={value}
       onChangeText={onChange}
-      onFocus={() => setFocused(true)}
-      // Both, in this order: the row stops being the focused one, and the caller still hears
-      // about the blur it asked for.
+      onFocus={() => {
+        setFocused(true);
+        hold(true);
+      }}
+      // All three, in this order: the row stops being the focused one, the form stops keeping
+      // it in view, and the caller still hears about the blur it asked for.
       onBlur={() => {
         setFocused(false);
+        hold(false);
         onBlur?.();
       }}
+      // Ink rather than the platform's blue (2026-11-14): see `formFieldCaret`. `cursorColor`
+      // is Android's half of the same thing; iOS reads both from `selectionColor`.
+      selectionColor={styles.formFieldCaret.color}
+      cursorColor={styles.formFieldCaret.color}
+      returnKeyType={returnKeyType}
+      onSubmitEditing={onSubmitEditing}
+      // Kept up through a press that moves focus to the next field, so the keyboard does not
+      // drop and rise again between two rows. Only where a caller handles the press.
+      submitBehavior={onSubmitEditing === undefined ? undefined : 'submit'}
       keyboardType={keyboardType ?? 'default'}
       multiline={multiline}
       // Passed straight through, and only where a caller asked: `undefined` leaves React
@@ -381,16 +450,16 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       autoCapitalize={autoCapitalize}
       autoCorrect={autoCorrect}
       spellCheck={spellCheck}
-      // §0.6: an empty numeric field shows its unit as the placeholder, "so the row still
-      // says what belongs in it". `placeholder` covers the fields whose hint is not a unit —
-      // a conditions scale's `0-3`, a rating's `1-5`.
+      // `placeholder` is for the fields whose hint is not a unit — a conditions scale's `0-3`,
+      // a rating's `1-5`. **A unit is never a placeholder any more** (2026-11-14): it is drawn
+      // as the suffix below in every state, because a right-aligned empty input puts its caret
+      // exactly where a right-aligned placeholder ends, and focusing an empty `min` row drew
+      // the caret through the `n`.
       //
-      // **A cleared row shows neither**, for the same reason a filled one shows no
-      // placeholder: the slot says one thing at a time. `kg — cleared` reads as two competing
-      // claims about a row that is simply empty on purpose, and the tag is the one the diver
-      // has not seen before. The hint comes back the moment they type, which is the moment it
-      // is useful again.
-      placeholder={showCleared ? undefined : (unit ?? placeholder)}
+      // **A cleared row shows no hint at all**: the slot says one thing at a time, and
+      // `kg — cleared` reads as two competing claims about a row that is simply empty on
+      // purpose. The hint comes back the moment the diver types.
+      placeholder={showCleared || unit !== undefined ? undefined : placeholder}
       placeholderTextColor={styles.formFieldLabel.color}
       accessibilityLabel={label}
     />
@@ -406,59 +475,88 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
     </Text>
   ) : null;
 
-  return (
-    <View style={[styles.formField, focused && styles.formFieldFocused]}>
-      <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
-        {!stacked ? (
-          <View style={styles.formFieldValue}>
-            {input}
-            {/* The muted suffix (§0.6), drawn only while there is a figure for it to follow:
-                an empty field is already showing this same word as its placeholder, and both
-                at once would read as "m m". */}
-            {unit !== undefined && value !== '' && <Text style={styles.formFieldUnit}>{unit}</Text>}
-            {clearedNode}
-          </View>
-        ) : (
-          // **A stacked row keeps the tag, and that is a correction rather than symmetry for
-          // its own sake.** Its box drops to the full width below, so it has no trailing value
-          // slot of its own — and a version of this that simply skipped the tag drew a carried
-          // multiline row with a ring, no mark and no way to say it had been cleared. That was
-          // unreachable only because §2.1 happens to mark `notes` fresh; the screen hands every
-          // row the same `carryOver` prop, so "unreachable" there is one line of
-          // `CARRIED_FIELDS` away from being wrong, and a row given part of the treatment must
-          // not fail quietly.
-          clearedNode !== null && <View style={styles.formFieldValue}>{clearedNode}</View>
-        )}
-        {/* §0.6's carried treatment, as one object at the row's trailing edge: the return mark
-            and the 20 pt ring in its 48 dp box.
-            
-            **Together, on the owner's ruling** — the mark began at the leading edge of the
-            value slot, where the sheet draws it, and on a device landed against the label
-            rather than the value and at a different x on every row. `formFieldCarryState`
-            (theme/styles.ts) carries the whole account.
+  // **A clear control while the diver edits a value of their own** (2026-11-14, the design
+  // canvas: a clear control inside the focused field whenever it holds something). The carried
+  // ring was the only one, and it went with the carried value the moment the diver typed — so
+  // a wrong site typed by hand could only be backspaced out letter by letter. Focused only, so
+  // a column of rings never appears down the form; never on a carried row, which already has
+  // its own ring and must not grow a second; never on notes, whose paragraph is not a value to
+  // throw away in one tap. It empties through `onChange('')` — the typing path — because
+  // emptying a value the diver typed IS an edit to it, not a carry-over being thrown away, and
+  // it never leaves `— cleared` behind for the same reason.
+  const clearable = focused && !stacked && carried !== true && value !== '';
 
-            Only ever on a carried row: clearing is what a diver does to a value they did not
-            enter, and a control offering to empty one they typed themselves would be offering
-            to destroy their own work. Both halves go in the same gesture, so a cleared row has
-            neither and shows the tag instead. */}
-        {carried === true && (
-          <View style={styles.formFieldCarryState}>
-            <CarriedMark scheme={scheme} />
-            <ClearFieldControl
-              accessibilityLabel={t('field.clearCarried', { label })}
-              onPress={() => onClear?.('')}
-              scheme={scheme}
-            />
-          </View>
-        )}
-      </View>
-      {stacked && input}
+  return (
+    <View
+      ref={fieldRef}
+      style={[styles.formField, focused && styles.formFieldFocused]}
+      // While focused, every layout change — the list arriving, growing, shrinking — re-asks
+      // the form to keep this field in view, so a list that grows under the keyboard is lifted
+      // above it rather than left for the diver to find.
+      onLayout={focused ? () => hold(true) : undefined}
+    >
+      {/* The card: the field itself. A `Pressable` so that a press nothing inside it takes —
+          the label above all — focuses the input; `accessible={false}` so a screen reader
+          still lands on the input alone, which announces itself by the label already. */}
+      <Pressable
+        style={[styles.formFieldCard, focused && styles.formFieldCardFocused]}
+        onPress={() => inputRef.current?.focus()}
+        accessible={false}
+      >
+        <View style={styles.formFieldRow}>
+          <Text style={styles.formFieldLabel}>{label}</Text>
+          {!stacked ? (
+            <View style={styles.formFieldValue}>
+              {input}
+              {/* The muted suffix (§0.6), in every state but cleared — see `placeholder` above
+                  for why an empty figure's unit is a suffix rather than a placeholder now. */}
+              {unit !== undefined && !showCleared && <Text style={styles.formFieldUnit}>{unit}</Text>}
+              {clearedNode}
+            </View>
+          ) : (
+            // **A stacked row keeps the tag, and that is a correction rather than symmetry for
+            // its own sake.** Its box drops to the full width below, so it has no trailing value
+            // slot of its own — and a version of this that simply skipped the tag drew a carried
+            // multiline row with a ring, no mark and no way to say it had been cleared. That was
+            // unreachable only because §2.1 happens to mark `notes` fresh; the screen hands every
+            // row the same `carryOver` prop, so "unreachable" there is one line of
+            // `CARRIED_FIELDS` away from being wrong, and a row given part of the treatment must
+            // not fail quietly.
+            clearedNode !== null && <View style={styles.formFieldValue}>{clearedNode}</View>
+          )}
+          {/* §0.6's carried treatment, as one object at the row's trailing edge: the return mark
+              and the 20 pt ring in its 48 dp box.
+            
+              **Together, on the owner's ruling** — the mark began at the leading edge of the
+              value slot, where the sheet draws it, and on a device landed against the label
+              rather than the value and at a different x on every row. `formFieldCarryState`
+              (theme/styles.ts) carries the whole account.
+
+              Only ever on a carried row: clearing is what a diver does to a value they did not
+              enter, and a control offering to empty one they typed themselves would be offering
+              to destroy their own work. Both halves go in the same gesture, so a cleared row has
+              neither and shows the tag instead. */}
+          {carried === true && (
+            <View style={styles.formFieldCarryState}>
+              <CarriedMark scheme={scheme} />
+              <ClearFieldControl
+                accessibilityLabel={t('field.clearCarried', { label })}
+                onPress={() => onClear?.('')}
+                scheme={scheme}
+              />
+            </View>
+          )}
+          {clearable && (
+            <ClearFieldControl accessibilityLabel={t('field.clear', { label })} onPress={() => onChange('')} scheme={scheme} />
+          )}
+        </View>
+        {stacked && input}
+      </Pressable>
       {/* §2.3's autocomplete list, in the slot §0.6 fixes for it — "directly under the
-          focused row", the same second line `OptionChips` fills with chips and `stacked`
-          notes fills with its box. Inside this field's own View rather than beside it, so
-          the focused row's `surface` fill runs behind the list and visually attaches it to
-          the field it will fill.
+          focused row" — and since 2026-11-14 under the CARD rather than inside it, on the
+          screen's own ground, as the design canvas draws it: the card is the field, and the
+          rows beneath are what it offers. Still inside this field's own View, so the form
+          keeps the card and its list in view as one thing.
 
           **A tap reaches it while the keyboard is up** because both ScrollViews that host a
           `FormField` set `keyboardShouldPersistTaps="handled"` — DiveFormScreen.tsx's form
@@ -469,6 +567,12 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           this component, which is why it is named here rather than assumed. */}
       {(offered.length > 0 || offeredAddition !== undefined) && (
         <View style={styles.formSuggestions}>
+          {/* "YOUR SITES · 3" — over the diver's own history only, and only while there is
+              some: a header over nothing, or over a question, would name a group that is not
+              there. */}
+          {offered.length > 0 && suggestionsTitle !== undefined && (
+            <Text style={styles.formSuggestionsTitle}>{suggestionsTitle}</Text>
+          )}
           {offered.map((suggestion) => (
             <Pressable
               // The value, not an index: `suggestFrom` yields values that are distinct
@@ -485,15 +589,24 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               // would land.
               accessibilityLabel={t('field.fillWith', { label, value: suggestion.value })}
             >
-              <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
+              {/* The canvas's row: the name over what the diver has done with it, and a figure
+                  trailing. Each line drawn only when the caller has something to say — an
+                  empty `Text` would still take its line. */}
+              <View style={styles.formSuggestionBody}>
+                <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
+                {suggestion.meta != null && suggestion.meta !== '' && (
+                  <Text style={styles.formSuggestionMeta}>{suggestion.meta}</Text>
+                )}
+              </View>
+              {suggestion.figure != null && suggestion.figure !== '' && (
+                <Text style={styles.formSuggestionFigure}>{suggestion.figure}</Text>
+              )}
             </Pressable>
           ))}
-          {/* §2.3's fuzzy check, between the names and the act (M2p). Muted, in the
-              suggestion's own box and the suggestion's own treatment, because that is exactly
-              what one is: picking it fills the field with a name and pairs §6's id. §0.6
-              leaves ink as the only lever and it is already spent below on "this is an act,
-              not another name to pick" — two full-ink rows would spend it twice and say
-              nothing. What carries the interruption is the sentence.
+          {/* §2.3's fuzzy check, between the names and the act (M2p), in the suggestion's own
+              row and the name's own treatment, because that is exactly what one is: picking it
+              fills the field with a name and pairs §6's id. What carries the interruption is
+              the sentence.
 
               **The whole question is the announcement**, unlike a suggestion's `Fill … with
               …`: the diver pressed a control, and a screen reader that read this row as an
@@ -522,11 +635,10 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
             </Pressable>
           ))}
           {/* Last in the list, always: the offers are what the diver most likely meant, and
-              publishing a new record is what is left when none of them was. §0.6 leaves "ink
-              versus muted ink" as the lever for telling two things apart without new
-              vocabulary, and it is spent here — a suggestion is muted because it is not yet a
-              value, and this is an action in full ink. While in flight it goes muted again,
-              exactly as `formFieldPickerTextUnset` reads for a value that is not there yet.
+              publishing a new record is what is left when none of them was. In ink like the
+              names since 2026-11-14 — what tells it apart is its sentence, its place at the end
+              and the absence of any history under it. While in flight it goes muted, exactly
+              as `formFieldPickerTextUnset` reads for a value that is not there yet.
 
               **Both `disabled` and `accessibilityState`**, never one: the first stops the
               press, the second stops a screen reader announcing an available control that

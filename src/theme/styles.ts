@@ -822,6 +822,22 @@ function build(scheme: ColorScheme) {
   // the row itself met it.
   const FIELD_EXTRA_CLEARANCE = 12;
 
+  // **How far the focused field's card stands in from the screen edge** (2026-11-14, the
+  // design canvas: a white card 8 in from each side, radius 12). The card's own padding is the
+  // same 8, so its contents land on `CONTENT_INSET` exactly — focusing a field draws the card
+  // around the label and value without moving either a point, which is the one property a focus
+  // treatment must have on a row the diver's thumb is already on.
+  const FOCUS_CARD_INSET = 8;
+
+  // The suggestion row's name — Archivo Medium 16 in full ink, the canvas's own treatment and
+  // the weight a dive row gives a site. One definition, because the create offer wears it too.
+  const suggestionName: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 16,
+    lineHeight: 20,
+    color: theme.fg,
+  };
+
   // **How wide a line of prose is allowed to get** (M1l, the owner: *"the text lines should
   // not go for full width"*). The first-run screen is the only place in Ponor that sets running
   // prose at all — every other screen is rows, labels and figures — and left to the column it
@@ -3070,15 +3086,46 @@ function build(scheme: ColorScheme) {
       borderTopWidth: 1,
       borderTopColor: theme.border,
     },
-    // §0.6: "**Focus is what draws the affordance.** The focused row fills with `surface`;
-    // nothing else does. The box appears where it is wanted instead of five times over."
-    // Composed ON TOP of `formField` above (a two-element style array at the call site),
-    // never as a replacement, so a focused row cannot drift from an unfocused one on
-    // anything but the fill. `surface` and nothing else — no border, no radius, no shadow:
-    // §0.1 spends every hue on depth, and this is the one moment the form has to say "here",
-    // so it says it with the token §0.2 reserves for exactly this ("Cards, fields, charts").
+    // §0.6: "**Focus is what draws the affordance.**" Since the 2026-11-14 design pass the
+    // affordance is a card (`formFieldCard` / `formFieldCardFocused` below) rather than a
+    // full-bleed `surface` band, and what is left for the FIELD to do is drop the hairline on
+    // its top edge: a filled card with a rule running along its top reads as a seam — the
+    // design canvas's own note 2, "I dropped the rule on the focused row". The width stays, so
+    // the row cannot move by a point when it takes focus; only the ink goes. `'transparent'`
+    // is a rendering value rather than a design colour, the same reading the trip chevron's
+    // borders give it above.
     formFieldFocused: {
+      borderTopColor: 'transparent',
+    },
+    // **The focused field is a card** (2026-11-14, the design canvas). The full-bleed band it
+    // replaces read as a highlighted stripe across the screen rather than as "the field you are
+    // in", and the canvas draws a card: `surface`, radius 12, standing 8 in from each edge.
+    //
+    // The GEOMETRY is worn at rest as well as in focus — a negative margin that reaches out to
+    // the card's edge and a padding that brings the contents straight back to `CONTENT_INSET`
+    // — so focusing changes the fill and nothing else. A card that grew its padding on focus
+    // would move the label and value under the finger that just touched them. Radius 12 is
+    // the canvas's, and `surface` is the token §0.2 reserves for "cards, fields, charts". No
+    // border and no shadow: §0.1 spends hue on depth, and a card on the ground needs neither
+    // to read as one.
+    //
+    // `minHeight: 48` because the card is now the thing a press on the label lands on, and
+    // §0.5's floor belongs on whatever a diver presses; the row inside it already meets it.
+    formFieldCard: {
+      minHeight: 48,
+      marginHorizontal: -FOCUS_CARD_INSET,
+      paddingHorizontal: FOCUS_CARD_INSET,
+      borderRadius: 12,
+    },
+    formFieldCardFocused: {
       backgroundColor: theme.surface,
+    },
+    // The caret and the selection, in ink (2026-11-14). iOS draws a field's caret in its own
+    // blue, which made it the only hue anywhere in the app's chrome; the canvas draws an ink
+    // caret, and §0.1 agrees. Read as `.color` at the call site, the way `formFieldPickerInk`
+    // hands a colour to a native control.
+    formFieldCaret: {
+      color: theme.fg,
     },
     // The label/value line inside `formField` above. A separate style rather than putting
     // `flexDirection: 'row'` on the field itself, because a field is not always one line:
@@ -3261,9 +3308,12 @@ function build(scheme: ColorScheme) {
     // scale. It is a sibling `Text`, never concatenated into the input's own value: what the
     // diver typed has to stay exactly what the form holds.
     //
-    // Rendered only while the field HAS a figure. An empty numeric field shows its unit as
-    // the placeholder instead (§0.6: "so the row still says what belongs in it"), which is
-    // the same word in the same slot — drawing both would read as "m m".
+    // **Drawn whether or not there is a figure yet** (2026-11-14). An empty numeric field used
+    // to show its unit as the input's placeholder instead (§0.6: "so the row still says what
+    // belongs in it") — and a right-aligned empty input draws its caret at its trailing edge,
+    // which is exactly where a right-aligned placeholder ends, so focusing an empty `min` row
+    // put the caret through the `n`. As a sibling the unit always sits after the caret, and the
+    // row still says what belongs in it. Never also a placeholder: that would read "m m".
     formFieldUnit: {
       fontFamily: fonts.mono,
       fontSize: 15,
@@ -3353,59 +3403,88 @@ function build(scheme: ColorScheme) {
        `ClearFieldControl`, on the plain ground that a form row has one way to be emptied and
        one control that does it (§4.1). Both were already the same gesture in the same slot;
        they are now the same control. */
-    // §2.3's autocomplete list (FormField.tsx), in the slot §0.6 fixes for it: "The list
-    // belongs directly under the focused row" — the same second line `formChipRow` above puts
-    // its chips in and an open picker takes. `paddingBottom` is `FIELD_EXTRA_CLEARANCE` for
-    // the reason that constant records: anything under a row owns its own clearance to the
-    // next row's hairline.
+    // §2.3's autocomplete list (FormField.tsx), in the slot §0.6 fixes for it — "directly
+    // under the focused row" — and, since the 2026-11-14 design pass, **under the card rather
+    // than inside it**, on the screen's own ground, as the design canvas draws it: the card is
+    // the field, and the rows beneath are what the field is offering.
     //
-    // **It is deliberately the least this can be, and that is a decision rather than an
-    // omission.** §0.6, in the same sentence that fixes the position: "How it looks waits for
-    // M2, which reworks site search around the shared site database and adding new sites —
-    // designing it now means designing it twice." So there is no new token, no border, no
-    // fill and no radius here; the rows borrow `rowLabel`, the treatment a field's own label
-    // already wears, which reads as an offer rather than as data the diver has entered. The
-    // focused row's `surface` fill (`formFieldFocused`) is already behind all of it, which is
-    // what visually attaches the list to the field it belongs to — one more reason it needs
-    // no ground of its own.
+    // §0.6 held this list at "the least this can be" until M2 reworked site search, on the
+    // grounds that designing it earlier meant designing it twice. M2 has landed and the canvas
+    // is that design, so the rows now carry what makes them choosable — the name in ink, what
+    // the diver has done there muted beneath it, a figure trailing — instead of a column of
+    // muted words that read as disabled text.
+    //
+    // The negative margin takes the list to the screen edge, so each row's hairline is
+    // full-bleed exactly as a dive row's is; each row brings `CONTENT_INSET` back as padding.
     formSuggestions: {
-      paddingBottom: FIELD_EXTRA_CLEARANCE,
+      marginHorizontal: -CONTENT_INSET,
     },
-    // One offer. `minHeight` is §0.5's floor, and it is the only number here that is not a
-    // borrowed treatment: a suggestion is a control a diver taps with wet hands on a rocking
-    // deck, so it gets the same 48 dp every other control in this app does. `justifyContent`
-    // centres the text in it, since a `Text` does not centre itself in a box taller than its
-    // own line — the same note `formFieldPicker` above carries.
+    // "YOUR SITES · 3" — the cluster label, the canvas's group header over the diver's own
+    // history. The top padding plus the field's own `gap` is the canvas's 16 from the card;
+    // the bottom is its 8 to the first hairline.
+    formSuggestionsTitle: {
+      ...clusterLabel,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 6,
+      paddingBottom: 8,
+    },
+    // One offer: a full-bleed row with a hairline on its top edge, "the same rule dive rows
+    // follow", the name and its history leading and a figure trailing. `minHeight` is §0.5's
+    // floor — a suggestion is a control a diver taps with wet hands — and a row with history
+    // under its name comes out at the canvas's 64 through the padding and the two lines.
     formSuggestion: {
       minHeight: 48,
-      justifyContent: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: CONTENT_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
     },
-    // `rowLabel` — Archivo 15 muted, the field label's own treatment, and leading rather than
-    // trailing. Both halves borrowed on purpose. Muted, because an offer is not yet a value.
-    // Leading, on `formChipRow`'s own recorded reasoning one style down: a list of options is
-    // "a set of options to read through, not a value to read off, and a set reads
-    // left-to-right." Trailing it would put every offer in the value column, where the value
-    // it has not yet become already sits.
-    formSuggestionText: rowLabel,
-    // §2.3's *add this to the catalogue* offer, in the same slot and the same box as the
-    // suggestions above it (M2o) — the field label's face and size, leading, so the list reads
-    // as one list rather than as a list with a button stuck to it.
-    //
-    // **Full ink is the whole difference, and it is the lever §0.6 leaves for exactly this**:
-    // "Ink versus muted ink is the only lever", already spent this way by `settingsRowInk`
-    // over `rowLabel`, `detailActionLabel` over `detailBackLabel` and `tripTitleUpNext` over a
-    // trip's own title. A suggestion is muted because it is not yet a value; this is not a
-    // value at all but an act, and the one thing it must never look like is another name to
-    // pick. §0.1 rules out a hue and a new shape would be new vocabulary for one row.
-    formSuggestionAdd: {
-      ...rowLabel,
-      color: theme.fg,
+    // The leading column: the name over its history, 3 apart (the canvas's own gap).
+    formSuggestionBody: {
+      flex: 1,
+      gap: 3,
     },
-    // The same row while the write is in flight, muted again — the pairing
-    // `formFieldPickerText` / `formFieldPickerTextUnset` already draws for a value that is not
-    // there yet, and what says "this control has gone quiet and will come back" rather than
-    // "this control is dead".
-    formSuggestionAddBusy: rowLabel,
+    // **The name is in ink now** (2026-11-14). It was `rowLabel`, muted, on the reasoning that
+    // an offer is not yet a value — and a column of muted names with nothing under them read
+    // as greyed-out text rather than as places the diver has been. The canvas draws a name the
+    // way a dive row draws a site, and it is the muted line BENEATH it that says "a record to
+    // pick" rather than "a value you entered".
+    formSuggestionText: suggestionName,
+    // What the diver has done with this name — "4 dives · last 18 kvě 2026". Mono 11.5 muted,
+    // a dive row's own metadata treatment (§0.6's type table), because it is the same kind of
+    // line.
+    formSuggestionMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+    },
+    // The trailing figure — a site's deepest dive. **Muted and unbanded**, where the canvas
+    // draws it in a band colour: it is a deepest-of-a-set, and §0.6 already ruled for the
+    // Dives header and the map's site summary that an aggregate takes no band, since one band
+    // would be a claim about a set no single band is true of. Mono 13.5 is the canvas's own
+    // size for the figure it draws muted (a distance).
+    formSuggestionFigure: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fgMuted,
+    },
+    // §2.3's *add this to the catalogue* offer, in the list's own rows (M2o). Ink, in the
+    // name's own treatment: since the names went to ink this no longer differs by ink alone —
+    // what separates the act from a name is its sentence ("Add “K” as a new site"), its place
+    // at the end of the list, and the absence of any history beneath it. It keeps its own style
+    // key so a question can never be drawn as a second act.
+    formSuggestionAdd: { ...suggestionName },
+    // The same row while the write is in flight, muted — the pairing `formFieldPickerText` /
+    // `formFieldPickerTextUnset` already draws for a value that is not there yet, and what says
+    // "this control has gone quiet and will come back" rather than "this control is dead".
+    formSuggestionAddBusy: {
+      ...suggestionName,
+      color: theme.fgMuted,
+    },
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this

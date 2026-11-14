@@ -5,6 +5,7 @@ import {
   SUGGESTED_FIELDS,
   SUGGESTION_LIMIT,
   suggestFrom,
+  suggestionHistory,
   type Suggestion,
 } from './suggest';
 import { type Dive, type DiveSite } from './types';
@@ -575,4 +576,45 @@ it('caps the question at the same number of rows a suggestion list gets', () => 
   const fromServer = Array.from({ length: SUGGESTION_LIMIT + 3 }, (_, i) => found(`Shark ${i}`, `id-${i}`));
   expect(nearMatches('Sharks', [], fromServer)).toHaveLength(SUGGESTION_LIMIT);
   expect(nearMatches('Sharks', [], fromServer, 2)).toEqual(fromServer.slice(0, 2));
+});
+
+// ---------------------------------------------------------------------------------------
+// What the diver has done with a suggestion (2026-11-14, the design canvas's suggestion row)
+// ---------------------------------------------------------------------------------------
+
+// The canvas draws each suggestion with its history under it — "4 dives · last 18 kvě 2026" —
+// and a site's deepest trailing. Every figure is the logbook's own population rule
+// (`logbookStats`): logged dives only, so a planned dive at a place is not a dive done there.
+it('counts the logged dives under a name, and finds the last and the deepest of them', () => {
+  const dives = [
+    dive({ date: '2026-05-12', siteName: 'Vrak Teti', maxDepthM: 28.4 }),
+    dive({ date: '2026-05-18', siteName: 'Vrak Teti', maxDepthM: 34.6 }),
+    dive({ date: '2026-05-14', siteName: 'vrak teti ', maxDepthM: 22 }),
+    dive({ date: '2026-06-01', siteName: 'Vrak Teti', maxDepthM: 40, status: 'planned' }),
+    dive({ date: '2026-05-20', siteName: 'Stiniva', maxDepthM: 41 }),
+  ];
+  expect(suggestionHistory(dives, 'siteName', 'Vrak Teti')).toEqual({
+    dives: 3,
+    lastDate: '2026-05-18',
+    deepestM: 34.6,
+    sites: 1,
+  });
+});
+
+// A centre's row says how many places the diver has dived with it — the canvas's
+// "12 dives · 5 sites · last …" — counted the way the Stats tab counts sites visited.
+it('counts the places a centre was dived at', () => {
+  const dives = [
+    dive({ date: '2026-05-12', centerName: 'Nautica Vis', siteName: 'Vrak Teti' }),
+    dive({ date: '2026-05-13', centerName: 'Nautica Vis', siteName: 'Stiniva' }),
+    dive({ date: '2026-05-14', centerName: 'Nautica Vis', siteName: 'Stiniva' }),
+  ];
+  expect(suggestionHistory(dives, 'centerName', 'Nautica Vis').sites).toBe(2);
+});
+
+// A name used only on planned dives has history in the form's sense — it is offered — but no
+// dive done under it, and its row must not invent one.
+it('says nothing was done under a name that only planned dives carry', () => {
+  const dives = [dive({ date: '2026-06-01', buddy: 'Petr', status: 'planned' })];
+  expect(suggestionHistory(dives, 'buddy', 'Petr')).toEqual({ dives: 0, lastDate: null, deepestM: null, sites: 0 });
 });

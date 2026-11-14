@@ -1,4 +1,5 @@
 import { compareDiveOrder } from './diveNumber';
+import { logbookStats, sitesVisited } from './logbookStats';
 import { foldForMatching } from './search';
 import { type Dive, type DiveSite } from './types';
 
@@ -295,6 +296,43 @@ export function suggestFrom(
   });
 
   return matches.slice(0, Math.max(limit, 0)).map(([, tally]) => ({ value: tally.value, id: tally.id }));
+}
+
+/**
+ * **What the diver has done under one suggested name** (2026-11-14) — the design canvas draws
+ * each suggestion with its history beneath it ("4 dives · last 18 kvě 2026") and a site's
+ * deepest dive trailing, so a diver choosing between two similar names chooses between two
+ * histories rather than two spellings.
+ *
+ * **Matched the way `suggestFrom` tallies**, by the folded, trimmed name, so the history under a
+ * row is the history of exactly the dives that put that row in the list. **Counted the way the
+ * logbook counts**: `logbookStats` and `sitesVisited` (domain/logbookStats.ts) own the population
+ * rule — logged dives only — and the deepest figure, so a row cannot say "3 dives" about a place
+ * the Dives header and the Stats tab would count differently. `lastDate` is the newest logged
+ * dive's own date; a planned dive at a place is not a dive done there, so a name only planned
+ * dives carry reads as nothing done rather than as a date in the future.
+ */
+export interface SuggestionHistory {
+  dives: number;
+  lastDate: string | null;
+  deepestM: number | null;
+  sites: number;
+}
+
+export function suggestionHistory(dives: readonly Dive[], field: SuggestedField, value: string): SuggestionHistory {
+  const wanted = foldForMatching(value.trim());
+  const under = dives.filter((d) => {
+    if (d === null || d === undefined) return false;
+    const raw = d[field];
+    return typeof raw === 'string' && foldForMatching(raw.trim()) === wanted;
+  });
+  const stats = logbookStats(under);
+  let lastDate: string | null = null;
+  for (const d of under) {
+    if (d.status !== 'logged' || typeof d.date !== 'string') continue;
+    if (lastDate === null || d.date > lastDate) lastDate = d.date;
+  }
+  return { dives: stats.dives, lastDate, deepestM: stats.deepestM, sites: sitesVisited(under) };
 }
 
 /**

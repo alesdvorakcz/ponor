@@ -76,7 +76,7 @@ export function DateTimeField({ label, value, onChange, mode, scheme, onClear }:
 
   return (
     <View style={[styles.formField, focused && styles.formFieldFocused]}>
-      <View style={styles.formFieldRow}>
+      <View style={[styles.formFieldRow, styles.formFieldCard, focused && styles.formFieldCardFocused]}>
         <Text style={styles.formFieldLabel}>{label}</Text>
         <View style={styles.formFieldPicker}>
           <input

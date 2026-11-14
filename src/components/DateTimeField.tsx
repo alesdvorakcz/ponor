@@ -163,11 +163,12 @@ export function DateTimeField({ label, value, onChange, mode, scheme, placeholde
     // §0.6 gives a field's second line, "directly under the focused row."
     //
     // **`open` is this field's focus.** A picker field has no keyboard focus to read, and
-    // being open is exactly the state a text field's focus fill marks: this is the row the
-    // diver is working in. So it draws the same `surface` fill, from the same style, rather
-    // than the form having two different ways of saying the same thing.
+    // being open is exactly the state a text field's focus marks: this is the row the diver is
+    // working in. So it draws the same focus, from the same styles — since 2026-11-14 a card
+    // around the row, with the picker below it on the ground the way a text field's
+    // suggestions sit below its card — rather than the form having two ways of saying it.
     <View style={[styles.formField, open && styles.formFieldFocused]}>
-      <View style={styles.formFieldRow}>
+      <View style={[styles.formFieldRow, styles.formFieldCard, open && styles.formFieldCardFocused]}>
         <Text style={styles.formFieldLabel}>{label}</Text>
         <Pressable
           style={styles.formFieldPicker}

@@ -136,6 +136,7 @@ export const en = {
      * owns them. */
     figure: {
       deepest: 'deepest {{depth}}',
+      lastOn: 'last {{date}}',
       /**
        * `formatCoverage` — "7 of 24 dives". `{{total}}` already carries its own noun, which is
        * the half Czech cannot copy: *z* governs the genitive, so a nominative count phrase
@@ -535,6 +536,18 @@ export const en = {
       settingsLabel: 'Back to Settings',
       cancel: '‹ Cancel',
       cancelLabel: 'Leave without saving',
+    },
+
+    /**
+     * The group header over a field's own history in its suggestion list (2026-11-14, the
+     * design canvas's "YOUR SITES · 2"), one per autocompleting field — keyed by the field's
+     * name so `formatSuggestionsTitle` reads it straight off `SuggestedField`.
+     */
+    suggest: {
+      siteName: 'Your sites',
+      centerName: 'Your centres',
+      buddy: 'Your buddies',
+      guide: 'Your guides',
     },
 
     /**

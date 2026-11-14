@@ -10,7 +10,7 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, TextInput } from 'react-native';
 import { router, useNavigation } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -37,6 +37,8 @@ import {
   formatWaves,
   HE_LABEL,
   O2_LABEL,
+  formatDepth as formatDepthFigure,
+  formatDiveDate as formatDiveDay,
 } from '../format/display';
 import {
   CONDITION_SCALE_VALUES,
@@ -502,6 +504,15 @@ function findTextInput(t: RenderResult, label: string) {
   return (t.root ? t.root.queryAll((n) => n.type === 'TextInput') : []).find(
     (n) => String(n.props?.accessibilityLabel ?? '') === label,
   );
+}
+
+/** The unit a field's figure is measured in, as drawn: the muted suffix in the input's own value
+ * slot (FormField.tsx), which since 2026-11-14 is drawn whether or not the field holds a figure
+ * yet, rather than being the empty input's placeholder. `''` when the field draws none. */
+function unitSuffixOf(t: RenderResult, label: string): string {
+  const slot = findTextInput(t, label)?.parent;
+  const drawn = slot ? slot.queryAll((n) => n.type === 'Text') : [];
+  return drawn.length === 0 ? '' : drawn[0]!.children.filter((c): c is string => typeof c === 'string').join('');
 }
 
 // --- M1d: `date` and `timeIn` are pickers now, not text fields (DESIGN.md §10) ---
@@ -2065,14 +2076,16 @@ it('fills chips and the focused row with surface, and nothing else — least of 
   expect(atRest.filter((n) => !wears(n, styles.formChip))).toEqual([]);
   // ...and not one field row among them.
   expect(atRest.filter((n) => wears(n, styles.formField))).toEqual([]);
+  expect(atRest.filter((n) => wears(n, styles.formFieldCard))).toEqual([]);
 
   const input = findTextInput(t, 'Max depth');
   if (!input) throw new Error('no Max depth field found');
   await fireEvent(input, 'focus');
-  // Exactly one row, not the whole column: "the box appears where it is wanted."
-  const focused = nodesFilledWith(t, surface).filter((n) => wears(n, styles.formField));
+  // Exactly one card, not the whole column: "the box appears where it is wanted." Since the
+  // 2026-11-14 design pass the fill is the focused field's card rather than its full-bleed row.
+  const focused = nodesFilledWith(t, surface).filter((n) => wears(n, styles.formFieldCard));
   expect(focused).toHaveLength(1);
-  expect(focused.filter((n) => wears(n, styles.formFieldFocused))).toHaveLength(1);
+  expect(focused.filter((n) => wears(n, styles.formFieldCardFocused))).toHaveLength(1);
   // And the chips did not change their minds about being filled while a row took focus.
   expect(nodesFilledWith(t, surface)).toHaveLength(atRest.length + 1);
 });
@@ -4305,11 +4318,11 @@ it('names the cylinder gas fields from the one owner of those words, with the un
 
   // And the `%` the old label carried is on the FIGURE now, not lost in the rename — the
   // same place `Size` keeps its `l` and `Working pressure` its `bar`, and the same place the
-  // detail screen has always kept it (`formatPercent` renders "32 %"). `unit` reaches an
-  // empty field as its placeholder (FormField.tsx, §0.6), which is what makes it readable
+  // detail screen has always kept it (`formatPercent` renders "32 %"). `unit` is drawn as the
+  // field's suffix even while it is empty (FormField.tsx, §0.6), which is what makes it readable
   // here on a form nobody has typed into.
-  expect(findTextInput(t, O2_LABEL)?.props?.placeholder).toBe('%');
-  expect(findTextInput(t, HE_LABEL)?.props?.placeholder).toBe('%');
+  expect(unitSuffixOf(t, O2_LABEL)).toBe('%');
+  expect(unitSuffixOf(t, HE_LABEL)).toBe('%');
 });
 
 it('asks for the rig with chips, and asks for no cylinder count at all', async () => {
@@ -5141,7 +5154,7 @@ it('shows a blocking field message as a line of text, not as a second empty fiel
   // ...and a real field does have all three, so the difference above is a real one rather
   // than the whole form having quietly lost its rows.
   expect(styles.formField.borderTopWidth).toBeGreaterThan(0);
-  expect(styles.formFieldFocused.backgroundColor).toBeDefined();
+  expect(styles.formFieldCardFocused.backgroundColor).toBeDefined();
   expect(styles.formField.minHeight).toBe(48);
   // Weight and size are the lever §0.1 leaves (no red): smaller than the input's own text,
   // and muted rather than full ink. §0.6 adds one more — "muted, **trailing**, under the row
@@ -5442,8 +5455,7 @@ describe('the unit setting', () => {
   /** A field's unit suffix and placeholder, which §0.6 makes the same word in the same slot
    * (`FormField.tsx`: one is drawn or the other, never both). Read off the real
    * `TextInput`'s placeholder, so this follows the control rather than the prop. */
-  const unitOf = (t: RenderResult, label: string) =>
-    String(findTextInput(t, label)?.props?.placeholder ?? '');
+  const unitOf = unitSuffixOf;
 
   it('labels every unit-bearing field in the chosen system', async () => {
     imperial();
@@ -5609,6 +5621,60 @@ it('offers each of §2.3\'s four fields its own column of the diver\'s history',
   await focusField(t, 'Guide');
   await typeInto(t, 'Guide', 'kar');
   expect(suggestionsUnder(t, 'Guide')).toEqual(['Karel']);
+});
+
+// --- 2026-11-14: the design canvas's suggestion row, and a return key that walks the form ---
+
+// The canvas draws each suggestion with what the diver has done there beneath it and a site's
+// deepest dive trailing, under a "YOUR SITES · n" header. The words are display.test.ts's and
+// the counting suggest.test.ts's; what is this screen's is that every row gets its own history,
+// read from the same dives the list itself is drawn from.
+it('draws what the diver has done at each suggested site, and its deepest dive', async () => {
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-20', siteName: 'Silfra', maxDepthM: 12 }),
+      dive({ date: '2026-08-12', siteName: 'Blue Hole', maxDepthM: 30.2 }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', maxDepthM: 18 }),
+    ],
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await focusField(t, 'Site');
+  await typeInto(t, 'Site', 'blue');
+
+  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole']);
+  expect(textIn(t)).toContain('Your sites · 1');
+  expect(textIn(t)).toContain(`2 dives · last ${formatDiveDay('2026-08-12')}`);
+  expect(textIn(t)).toContain(formatDepthFigure(30.2, 'metric'));
+});
+
+// Found on a phone: the return key closed the keyboard, so walking down the form meant
+// re-opening it on every row. It reads "next" now and lands in the next text field on screen —
+// Site to Centre here — through react-hook-form's own focus, which is the input instance the
+// field handed over.
+it('gives a name field a return key that walks to the next field on screen', async () => {
+  stubDives({ dives: historyOfTwo() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const site = findTextInput(t, 'Site');
+  if (!site) throw new Error('no Site field');
+  expect(site.props.returnKeyType).toBe('next');
+
+  // The test double's `focus` is one spy on the class every input shares; `contexts` records the
+  // instance each call was made on, and an input instance carries its own props.
+  const focus = (TextInput as unknown as { prototype: { focus: jest.Mock } }).prototype.focus;
+  const before = focus.mock.calls.length;
+  await act(() => site.props.onSubmitEditing());
+  // react-hook-form's `setFocus` focuses on the next tick (a `setTimeout` inside it), so wait.
+  await waitFor(() => expect(focus.mock.calls.length).toBe(before + 1));
+  const focused = focus.mock.contexts.at(-1) as { props?: { accessibilityLabel?: string } } | undefined;
+  expect(focused?.props?.accessibilityLabel).toBe('Centre');
+});
+
+// Notes is a paragraph, so its return key is a new line, never a step.
+it('leaves the notes return key writing a new line', async () => {
+  stubDives({ dives: historyOfTwo() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Notes & rating');
+  expect(findTextInput(t, 'Notes')?.props.returnKeyType).toBeUndefined();
 });
 
 // The other half of the same rule: §2.3 names four fields, and title and notes are prose a

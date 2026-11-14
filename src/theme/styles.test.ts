@@ -1157,6 +1157,10 @@ describe('the app content column', () => {
     'mapDirectoryActionPill',
     'mapSheetAction',
     'mapSheetActionPill',
+    // The focused field's card (2026-11-14): its padding is a distance inside the card, and its
+    // negative margin exactly undoes it, so what the card holds sits on the column. That
+    // cancellation is asserted on its own below rather than taken on trust here.
+    'formFieldCard',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -1214,6 +1218,17 @@ describe('the app content column', () => {
     'sitesHeading',
     'siteDefaultsCaption',
   ];
+
+  // A focused field draws its card 8 in from the screen edge, and what the card holds — the label
+  // and the value — must not move by a point when it does: the card's padding has to cancel its
+  // margin exactly, or focusing a field would shift the row under the finger that just touched it.
+  it('keeps what a focused field’s card holds on the column', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const card = makeStyles(scheme).formFieldCard;
+      expect(typeof card.paddingHorizontal).toBe('number');
+      expect(card.marginHorizontal).toBe(-(card.paddingHorizontal as number));
+    }
+  });
 
   it('starts every screen content at the same edge, in both schemes', () => {
     for (const scheme of ['dark', 'light'] as const) {

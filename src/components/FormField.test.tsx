@@ -1,11 +1,13 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { View } from 'react-native';
+import { createRef } from 'react';
+import { type TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { FormField, type FieldMatch } from './FormField';
+import { FormField, type FieldMatch, type OfferedSuggestion } from './FormField';
+import { FormRevealContext } from './FormReveal';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
 // DiveDetailScreen.test.tsx): `render` is async and its `root` is a test-renderer
@@ -29,6 +31,12 @@ function inputsOf(t: RenderResult) {
  * convention (`src/testing/` is for guards, not for three-line queries). */
 function buttonsOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
+}
+
+/** The controls the list itself offers — `buttonsOf` minus the focused field's own clear
+ * control (2026-11-14), which is the field's rather than one of its offers. */
+function offersOf(t: RenderResult) {
+  return buttonsOf(t).filter((n) => !String(n.props?.accessibilityLabel ?? '').startsWith('Clear '));
 }
 
 // The §0.4/§0.1 guard now lives in `src/testing/unexpectedGraphics.ts` — one owner, because
@@ -275,8 +283,10 @@ it('drops the unit hint while the row is saying it was cleared, and not otherwis
   expect(inputsOf(cleared)[0]?.props.placeholder).toBeUndefined();
   expect(textIn(cleared)).toContain('— cleared');
 
+  expect(textIn(cleared)).not.toContain('kg');
+
   const empty = await render(<FormField label="Weights" value="" onChange={() => {}} scheme="light" mono unit="kg" />);
-  expect(inputsOf(empty)[0]?.props.placeholder).toBe('kg');
+  expect(textIn(empty)).toContain('kg');
 });
 
 // --- §0.6's design pass: a field is a row, its figures are mono, and focus draws the box ---
@@ -322,7 +332,13 @@ it('sets a figure in mono and a name in sans, from the field\'s own prop', async
 // Both halves in one test, because the rule is that they are the SAME word in the SAME slot:
 // a component that drew both at once would read as "m m", and one that drew neither would
 // leave the row saying nothing about what belongs in it.
-it('shows the unit as a suffix once there is a figure, and as the placeholder before', async () => {
+//
+// **The unit is a suffix in both states now** (2026-11-14, found on a phone). It used to be the
+// empty field's placeholder, and a right-aligned empty input draws its caret at the trailing
+// edge — exactly where a right-aligned placeholder ends — so focusing an empty `min` row put
+// the caret through the `n`. A sibling `Text` keeps the caret before the unit in every state,
+// and the row still says what belongs in it.
+it('shows the unit as a suffix whether or not there is a figure yet, and never as a placeholder', async () => {
   const filled = await render(<FormField label="Max depth" value="18.4" onChange={() => {}} scheme="light" mono unit="m" />);
   // A real `Text` node reading exactly the unit, beside the value — never concatenated into
   // the value itself, which has to stay exactly what the diver typed.
@@ -330,10 +346,9 @@ it('shows the unit as a suffix once there is a figure, and as the placeholder be
   expect(inputsOf(filled)[0]?.props.value).toBe('18.4');
 
   const empty = await render(<FormField label="Max depth" value="" onChange={() => {}} scheme="light" mono unit="m" />);
-  expect(inputsOf(empty)[0]?.props.placeholder).toBe('m');
-  // ...and NOT also as a suffix. The two are the same word in the same slot, so drawing both
-  // would read as "m m" the moment the field is empty — which is most of the time.
-  expect(textIn(empty)).not.toContain('m');
+  expect(textIn(empty)).toContain('m');
+  // ...and NOT also as a placeholder: the same word in the same slot twice would read "m m".
+  expect(inputsOf(empty)[0]?.props.placeholder).toBeUndefined();
 });
 
 // A field whose hint is not a unit — a conditions scale's `0-3`, a rating's `1-5` — keeps it
@@ -345,28 +360,36 @@ it('never turns a plain hint into a suffix beside the value', async () => {
   expect(inputsOf(t)[0]?.props.placeholder).toBe('0-3');
 });
 
-// §0.6: "**Focus is what draws the affordance.** The focused row fills with `surface`;
-// nothing else does." Driven through the input's real `onFocus`/`onBlur` rather than a prop,
-// so a field wired to a fill it could never turn on would fail here rather than pass.
-it('fills its row with surface while focused, and nothing at rest', async () => {
+// §0.6: "**Focus is what draws the affordance.**" Since the 2026-11-14 design pass the
+// affordance is the design canvas's card — `surface`, rounded, inset from the screen edge —
+// rather than a full-bleed band, and the rule above the focused row goes, because a filled
+// card with a hairline on its top edge reads as a seam (the canvas's own note 2). Driven
+// through the input's real `onFocus`/`onBlur`, so a card wired to a state it could never reach
+// fails here rather than passing.
+it('draws the focused field as a card and drops the rule above it, and draws nothing at rest', async () => {
   const t = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
   const styles = makeStyles('light');
-  // `t.root` and not `queryAll`: this component's own root IS the row, and `queryAll` walks
-  // descendants only — it never returns the instance it is called on, so a query for the row
-  // finds nothing and every `not.toContain` below would pass on an empty array.
-  const row = () => stylesOn(t.root ?? undefined);
+  // `t.root` for the field itself: `queryAll` walks descendants only and never returns the
+  // instance it is called on.
+  const field = () => stylesOn(t.root ?? undefined);
+  const wearing = (style: unknown) => (t.root ? t.root.queryAll((n) => stylesOn(n).includes(style)) : []);
   const input = inputsOf(t)[0];
   if (!input) throw new Error('no TextInput found');
 
-  expect(row()).toContain(styles.formField);
-  expect(row()).not.toContain(styles.formFieldFocused);
+  expect(field()).toContain(styles.formField);
+  expect(field()).not.toContain(styles.formFieldFocused);
+  expect(wearing(styles.formFieldCardFocused)).toHaveLength(0);
   await fireEvent(input, 'focus');
-  expect(row()).toContain(styles.formFieldFocused);
+  expect(field()).toContain(styles.formFieldFocused);
+  expect(wearing(styles.formFieldCardFocused)).toHaveLength(1);
   await fireEvent(input, 'blur');
-  expect(row()).not.toContain(styles.formFieldFocused);
-  // The fill is `surface` and nothing else — §0.6 gives the affordance to one token, and a
-  // border or a radius here would be the box coming back by another name.
-  expect(styles.formFieldFocused).toEqual({ backgroundColor: themeFor('light').surface });
+  expect(field()).not.toContain(styles.formFieldFocused);
+  expect(wearing(styles.formFieldCardFocused)).toHaveLength(0);
+
+  // The card's GEOMETRY is worn at rest too, so focusing changes the fill and nothing else —
+  // a field that grew or shifted on focus would move the row out from under the finger.
+  expect(wearing(styles.formFieldCard)).toHaveLength(1);
+  expect(styles.formFieldCardFocused).toEqual({ backgroundColor: themeFor('light').surface });
 });
 
 // The blur that draws the fill must not swallow the blur the CALLER asked for:
@@ -533,7 +556,7 @@ it('draws nothing at all when there is nothing to suggest', async () => {
   const styles = makeStyles('light');
   const containers = t.root ? t.root.queryAll((n) => stylesOn(n).includes(styles.formSuggestions)) : [];
   expect(containers).toHaveLength(0);
-  expect(buttonsOf(t)).toHaveLength(0);
+  expect(offersOf(t)).toHaveLength(0);
 });
 
 // The whole `Suggestion`, not its text: the id is half of §6's snapshot pair, and a component
@@ -626,8 +649,9 @@ it('is unchanged by the new props when a caller passes neither', async () => {
   await focusInput(bare);
   const bareFocused = JSON.stringify(bare.toJSON());
 
-  // Focusing draws the fill and nothing else: no list, no control, no extra text.
-  expect(buttonsOf(bare)).toHaveLength(0);
+  // Focusing draws the card and the clear control a value being edited gets (2026-11-14), and
+  // nothing else: no list, no extra text.
+  expect(buttonsOf(bare).map((n) => n.props?.accessibilityLabel)).toEqual(['Clear Size']);
   expect(textIn(bare)).toEqual(['Size', 'l']);
 
   // ...and the same field GIVEN both props, with nothing to offer, renders the identical
@@ -740,17 +764,19 @@ it('gives the create offer §0.5\'s 48 dp floor', async () => {
   expect(stylesOn(findSuggestion(t, ADD_SITE))).toContain(styles.formSuggestion);
 });
 
-// §0.6 leaves "ink versus muted ink" as the only lever for telling two things apart without
-// new vocabulary, and this is where it is spent: a suggestion is muted because it is not yet a
-// value, and an act is not a value at all. Asserted on the two styles being DIFFERENT and on
-// which is which, so a version that drew the offer in the suggestion's own treatment — the
-// obvious way to write this — fails rather than looking tidy.
-it('separates the act from the names by ink alone', async () => {
+// **Names are records now, drawn the way a dive row draws a site** (2026-11-14, the design
+// canvas). A suggestion used to be muted because "an offer is not yet a value" — and a column
+// of muted names with no history under them read as greyed-out text rather than as places the
+// diver has been. The canvas draws each name in ink with what the diver has done there muted
+// beneath it, and that muted line is what says "a record to pick" now. The act keeps its own
+// style key and its own sentence, so a question can still never be drawn as a second act
+// (`draws a question as a name to pick` below), and in flight it still goes muted.
+it('draws a name and the act both in ink, each in its own treatment', async () => {
   const scheme = 'light';
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
   expect(styles.formSuggestionAdd.color).toBe(theme.fg);
-  expect(styles.formSuggestionText.color).toBe(theme.fgMuted);
+  expect(styles.formSuggestionText.color).toBe(theme.fg);
 
   const t = await render(
     <FormField label="Site" value="Blue" onChange={() => {}} scheme={scheme} suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
@@ -783,7 +809,7 @@ it('announces the act, never a fill', async () => {
     <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
   );
   await focusInput(t);
-  const announced = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  const announced = offersOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
   expect(announced).toEqual([ADD_SITE]);
 });
 
@@ -899,14 +925,13 @@ it('announces the question, never a fill', async () => {
     <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} addition={asked(() => {})} />,
   );
   await focusInput(t);
-  const announced = buttonsOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
+  const announced = offersOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
   expect(announced).toEqual([DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
 });
 
-// §0.5: "Tap targets never below 48 dp", and §0.6 leaves ink as the only lever — already spent
-// on "this is an act, not another name to pick". A question IS a name to pick, so it wears the
-// suggestion's own muted treatment; two full-ink rows would spend the lever twice and say
-// nothing with it.
+// A question IS a name to pick, so it wears the name's own treatment and never the act's — the
+// two share an ink since 2026-11-14, so what this guards is the act's style key, which is what
+// goes muted in flight and must never take a question with it.
 it('draws a question as a name to pick, not as a second act', async () => {
   const styles = makeStyles('light');
   const t = await render(
@@ -1031,4 +1056,185 @@ it('leaves the questions live whenever the act is not writing', async () => {
   await focusInput(t);
   await fireEvent.press(findSuggestion(t, DID_YOU_MEAN_SHARK)!);
   expect(onPick).toHaveBeenCalledTimes(1);
+});
+
+// ---------------------------------------------------------------------------------------
+// The 2026-11-14 design pass: a field behaves the way the design canvas draws it
+// ---------------------------------------------------------------------------------------
+
+/** A press on a node, delivered the way a finger delivers it: to the nearest ancestor that
+ * handles it. Throws when nothing handles it, so a label nobody wired fails loudly. */
+function labelOf(t: RenderResult, label: string) {
+  const node = textNodesOf(t).find((n) => n.children.includes(label));
+  if (!node) throw new Error(`no "${label}" label drawn`);
+  return node;
+}
+
+// Found on a phone: the label was plain text, so the leading third of every row — wider in
+// Czech, whose labels run 20–30 % longer — was dead to a tap, and only the value side focused
+// the field. The canvas treats the whole row as the field.
+it('focuses its input when the diver taps the label, not only the value', async () => {
+  const ref = createRef<TextInput>();
+  const t = await render(<FormField ref={ref} label="Site" value="" onChange={() => {}} scheme="light" />);
+  // The test double's `focus` is one spy shared by every instance, so count from here.
+  const focus = ref.current?.focus as unknown as jest.Mock | undefined;
+  if (!focus) throw new Error('the ref never reached the input');
+  const before = focus.mock.calls.length;
+
+  await fireEvent.press(labelOf(t, 'Site'));
+  expect(focus.mock.calls.length).toBe(before + 1);
+});
+
+// ...and the row that takes that press is not a second control to a screen reader: the input
+// already announces itself by the label, and a row announced as a button would be two stops
+// for one field.
+it('adds no control for a screen reader to land on twice', async () => {
+  const t = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  expect(buttonsOf(t)).toHaveLength(0);
+});
+
+// The return key moved nowhere: it closed the keyboard, so a diver walking down the form
+// re-opened it on every row. A caller that knows what comes next says so; this component hands
+// the key's press back and keeps the keyboard up while the caller moves focus.
+it('hands the return key to its caller as a step to the next field, keeping the keyboard up', async () => {
+  const onSubmit = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" returnKeyType="next" onSubmitEditing={onSubmit} />,
+  );
+  const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
+  expect(input.props.returnKeyType).toBe('next');
+  expect(input.props.submitBehavior).toBe('submit');
+  await fireEvent(input, 'submitEditing');
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+it('leaves the return key to the platform when its caller says nothing about it', async () => {
+  const t = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  const input = inputsOf(t)[0];
+  expect(input?.props.returnKeyType).toBeUndefined();
+  expect(input?.props.submitBehavior).toBeUndefined();
+});
+
+// The canvas puts a clear control inside the focused field whenever it holds something to
+// clear. The carried ring was the only one, and it went away the moment the diver typed, so a
+// diver who had typed a wrong site had to backspace it out letter by letter.
+it('offers a clear control while the diver edits a value of their own, and empties the field with it', async () => {
+  const onChange = jest.fn();
+  const t = await render(<FormField label="Site" value="Blue Hole" onChange={onChange} scheme="light" />);
+  expect(findSuggestion(t, 'Clear Site')).toBeUndefined();
+
+  await focusInput(t);
+  const ring = findSuggestion(t, 'Clear Site');
+  if (!ring) throw new Error('no clear control while editing');
+  await fireEvent.press(ring);
+  // An empty string, never a zero — the carried ring's own contract (`clears to an empty
+  // string, never a zero` above), and through the typing path, because emptying a value the
+  // diver typed IS an edit to it rather than a carry-over being thrown away.
+  expect(onChange).toHaveBeenLastCalledWith('');
+});
+
+it('offers nothing to clear on an empty field, and no second ring beside a carried one', async () => {
+  const empty = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
+  await focusInput(empty);
+  expect(findSuggestion(empty, 'Clear Site')).toBeUndefined();
+
+  const carried = await render(
+    <FormField label="Site" value="Blue Hole" carried onClear={() => {}} onChange={() => {}} scheme="light" />,
+  );
+  await focusInput(carried);
+  expect(findSuggestion(carried, 'Clear Site')).toBeUndefined();
+  expect(findSuggestion(carried, 'Clear carried Site')).toBeDefined();
+});
+
+// The caret is the one mark the system draws inside a field, and iOS draws it in its own blue —
+// the only hue anywhere in this app's chrome. §0.1 spends hue on depth; the canvas draws an
+// ink caret.
+it('draws its caret and selection in ink, not in the platform blue', async () => {
+  const t = await render(<FormField label="Site" value="" onChange={() => {}} scheme="dark" />);
+  expect(inputsOf(t)[0]?.props.selectionColor).toBe(themeFor('dark').fg);
+});
+
+// Found on a phone: the fourth suggestion for "K" sat behind the save button, which rides on
+// the keyboard, and nothing scrolled the list into view. The field cannot scroll its form, so
+// it tells the form which node to keep in view for as long as it holds focus.
+it('asks its form to keep it in view while focused, and lets go when it blurs', async () => {
+  const keep = jest.fn();
+  const t = await render(
+    <FormRevealContext.Provider value={keep}>
+      <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} />
+    </FormRevealContext.Provider>,
+  );
+  const input = await focusInput(t);
+  expect(keep).toHaveBeenCalled();
+  const [held, holding] = keep.mock.lastCall ?? [];
+  expect(held).toBeDefined();
+  expect(held).not.toBeNull();
+  expect(holding).toBe(true);
+
+  // Letting go names the node it is letting go OF. Moving from one field to the next can
+  // deliver the old field's blur after the new field's focus, and a bare "let go" would then
+  // drop the field the diver just moved into.
+  await fireEvent(input, 'blur');
+  expect(keep).toHaveBeenLastCalledWith(held, false);
+});
+
+const DESCRIBED: OfferedSuggestion[] = [
+  { value: 'Blue Hole', id: 'site-blue', meta: '4 dives · last 18 May 2026', figure: '34.6 m' },
+  { value: 'Silfra', id: null, meta: null, figure: null },
+];
+
+// The canvas's suggestion row: the name, what the diver has done there beneath it, and a figure
+// trailing — a list of places with history in them rather than a column of bare words.
+it('draws what the diver has done with a suggestion beneath its name, and its figure trailing', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={DESCRIBED} suggestionsTitle="Your sites · 2" onPickSuggestion={() => {}} />,
+  );
+  expect(textIn(t)).not.toContain('Your sites · 2');
+  await focusInput(t);
+
+  expect(textIn(t)).toEqual(['Site', 'Your sites · 2', 'Blue Hole', '4 dives · last 18 May 2026', '34.6 m', 'Silfra']);
+  const drawn = (text: string) => textNodesOf(t).find((n) => n.children.includes(text));
+  expect(stylesOn(drawn('Your sites · 2'))).toContain(styles.formSuggestionsTitle);
+  expect(stylesOn(drawn('Blue Hole'))).toContain(styles.formSuggestionText);
+  expect(stylesOn(drawn('4 dives · last 18 May 2026'))).toContain(styles.formSuggestionMeta);
+  expect(stylesOn(drawn('34.6 m'))).toContain(styles.formSuggestionFigure);
+  // Both muted: what was done there and how deep are facts ABOUT the name, never its rival.
+  expect(styles.formSuggestionMeta.color).toBe(themeFor('light').fgMuted);
+  expect(styles.formSuggestionFigure.color).toBe(themeFor('light').fgMuted);
+});
+
+// The pick still hands back the suggestion the caller gave — its details ride along untouched,
+// so nothing a caller pairs with a pick (§6's id) can be lost on the way through.
+it('hands the caller the whole described suggestion it pressed', async () => {
+  const onPick = jest.fn();
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={DESCRIBED} onPickSuggestion={onPick} />,
+  );
+  await focusInput(t);
+  await fireEvent.press(findSuggestion(t, 'Fill Site with Blue Hole')!);
+  expect(onPick).toHaveBeenLastCalledWith(DESCRIBED[0]);
+});
+
+// The list sits UNDER the card on the screen's own ground, as the canvas draws it, so the card
+// is the field and the rows below are the field's offers — not one white slab holding both.
+it('draws the list under the card rather than inside it', async () => {
+  const styles = makeStyles('light');
+  const t = await render(
+    <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={DESCRIBED} onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  const card = t.root?.queryAll((n) => stylesOn(n).includes(styles.formFieldCard))[0];
+  if (!card) throw new Error('no card drawn');
+  expect(card.queryAll((n) => stylesOn(n).includes(styles.formSuggestions))).toHaveLength(0);
+  expect(t.root?.queryAll((n) => stylesOn(n).includes(styles.formSuggestions))).toHaveLength(1);
+});
+
+it('draws nothing outside its own treatment with described rows showing (§0.4/§0.1)', async () => {
+  const t = await render(
+    <FormField label="Site" value="Blue" onChange={() => {}} scheme="dark" suggestions={DESCRIBED} suggestionsTitle="Your sites · 2" onPickSuggestion={() => {}} />,
+  );
+  await focusInput(t);
+  expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
 });
