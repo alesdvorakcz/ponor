@@ -164,11 +164,16 @@ const OPENS_SHOWING: readonly MapMarkKind[] = ['mine'];
  * the diver's own place where they have dived it, the community's dot where they have not
  * (`focusTarget`, domain/mapFocus.ts) — so both are switched on, and whichever of the two is the
  * site is drawn.
+ *
+ * **Each entry lists exactly the kinds that focus's mark can be**, and nothing for being the
+ * default: `'mine'` is under a dive and a site because their mark can be the diver's own, so they
+ * stay drawn whatever `OPENS_SHOWING` becomes; a centre's mark never is, so its entry does not
+ * repeat the default (#27's first review).
  */
 const FOCUS_SHOWS: Record<MapFocusKind, readonly MapMarkKind[]> = {
   dive: ['mine'],
   site: ['mine', 'community'],
-  center: ['mine', 'centers'],
+  center: ['centers'],
 };
 
 /**
@@ -355,7 +360,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
   const [shown, setShown] = useState<ReadonlySet<MapMarkKind>>(
     () => new Set<MapMarkKind>([...OPENS_SHOWING, ...(focus === undefined ? [] : FOCUS_SHOWS[focus.kind])]),
   );
-  const [chosen, setSelected] = useState<MapMarkRef | null | typeof FOCUSED>(focus === undefined ? null : FOCUSED);
+  const [chosen, setChosen] = useState<MapMarkRef | null | typeof FOCUSED>(focus === undefined ? null : FOCUSED);
   const [locatable, setLocatable] = useState(false);
 
   /**
@@ -384,7 +389,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
    * render saw, applied before the frame is painted, so no frame shows the stale selection. The
    * guard makes it settle in one extra pass.
    */
-  if (chosen === FOCUSED && focus !== undefined && target === null) setSelected(null);
+  if (chosen === FOCUSED && focus !== undefined && target === null) setChosen(null);
   const selected: MapMarkRef | null = chosen === FOCUSED ? (found?.mark ?? null) : chosen;
 
   /**
@@ -459,7 +464,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
     const next = new Set(shown);
     if (!next.delete(kind)) next.add(kind);
     setShown(next);
-    setSelected(null);
+    setChosen(null);
     refit(kind, next);
   };
 
@@ -827,7 +832,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
       openPage('site', mark.key, `/site/${mark.key}`);
       return;
     }
-    setSelected({ kind: mark.kind, key: mark.key });
+    setChosen({ kind: mark.kind, key: mark.key });
   };
 
   /** The sheet's way out — §0.6's one treatment for leaving, shared with the dive detail's back
@@ -835,7 +840,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
   const closeSheet = (label: string) => (
     <Pressable
       style={styles.mapSheetClose}
-      onPress={() => setSelected(null)}
+      onPress={() => setChosen(null)}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
