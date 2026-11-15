@@ -354,6 +354,19 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
 ) {
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
+
+  // **Backspace empties a password** (issue #29, owner's call). The diver cannot see what one press
+  // would take off a masked value, so a press starts it over — what iOS itself does to a secure
+  // field the diver comes back to. The key arrives before the text does (React Native fires
+  // `onKeyPress` ahead of `onChangeText`), so the press is noted and read by the change it caused.
+  // Only a change that SHORTENED the value counts: a backspace on an empty field changes nothing,
+  // and the password manager's fill that may follow it must arrive whole.
+  const backspaced = useRef(false);
+  const takeChange = (text: string) => {
+    const emptied = secureTextEntry === true && backspaced.current && text.length < value.length;
+    backspaced.current = false;
+    onChange(emptied ? '' : text);
+  };
   const keepInView = useKeepInView();
 
   // The input, held here as well as handed to the caller: the row focuses it when the diver
@@ -428,7 +441,14 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       ref={attachInput}
       style={[styles.formFieldInput, mono === true && styles.formFieldInputMono, stacked && styles.formFieldInputMultiline]}
       value={value}
-      onChangeText={onChange}
+      onChangeText={takeChange}
+      onKeyPress={
+        secureTextEntry === true
+          ? ({ nativeEvent }) => {
+              backspaced.current = nativeEvent.key === 'Backspace';
+            }
+          : undefined
+      }
       onFocus={() => {
         setFocused(true);
         hold(true);
@@ -485,16 +505,13 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
     </Text>
   ) : null;
 
-  // **A clear control while the diver edits a value of their own** (2026-11-14, the design
-  // canvas: a clear control inside the focused field whenever it holds something). The carried
-  // ring was the only one, and it went with the carried value the moment the diver typed — so
-  // a wrong site typed by hand could only be backspaced out letter by letter. Focused only, so
-  // a column of rings never appears down the form; never on a carried row, which already has
-  // its own ring and must not grow a second; never on notes, whose paragraph is not a value to
-  // throw away in one tap. It empties through `onChange('')` — the typing path — because
-  // emptying a value the diver typed IS an edit to it, not a carry-over being thrown away, and
-  // it never leaves `— cleared` behind for the same reason.
-  const clearable = focused && !stacked && carried !== true && value !== '';
+  // **No clear control while the diver edits a value of their own** (issue #29, owner's call,
+  // undoing 2026-11-14's). The canvas draws one inside the focused field; here it pushed the
+  // right-aligned value 60 pt left on every focus and back on every blur, so Next moved two rows
+  // at once. Reserving its place on every row and animating the slide were both prototyped and
+  // both turned down. The form's values are short and holding backspace empties them; a
+  // password empties on one press (`takeChange` above). The carried ring is a different act —
+  // throwing away what carry-over filled in — and stays.
 
   return (
     <View
@@ -555,9 +572,6 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
                 scheme={scheme}
               />
             </View>
-          )}
-          {clearable && (
-            <ClearFieldControl accessibilityLabel={t('field.clear', { label })} onPress={() => onChange('')} scheme={scheme} />
           )}
         </View>
         {stacked && input}

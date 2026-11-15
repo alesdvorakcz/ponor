@@ -33,8 +33,8 @@ function buttonsOf(t: RenderResult) {
   return t.root ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button') : [];
 }
 
-/** The controls the list itself offers — `buttonsOf` minus the focused field's own clear
- * control (2026-11-14), which is the field's rather than one of its offers. */
+/** The controls the list itself offers — `buttonsOf` minus a clear control (a carried row's
+ * ring), which is the field's rather than one of its offers. */
 function offersOf(t: RenderResult) {
   return buttonsOf(t).filter((n) => !String(n.props?.accessibilityLabel ?? '').startsWith('Clear '));
 }
@@ -649,9 +649,9 @@ it('is unchanged by the new props when a caller passes neither', async () => {
   await focusInput(bare);
   const bareFocused = JSON.stringify(bare.toJSON());
 
-  // Focusing draws the card and the clear control a value being edited gets (2026-11-14), and
-  // nothing else: no list, no extra text.
-  expect(buttonsOf(bare).map((n) => n.props?.accessibilityLabel)).toEqual(['Clear Size']);
+  // Focusing draws the card and nothing else: no list, no control, no extra text (the clear
+  // control a value being edited had from 2026-11-14 went with issue #29).
+  expect(buttonsOf(bare)).toHaveLength(0);
   expect(textIn(bare)).toEqual(['Size', 'l']);
 
   // ...and the same field GIVEN both props, with nothing to offer, renders the identical
@@ -1116,25 +1116,19 @@ it('leaves the return key to the platform when its caller says nothing about it'
   expect(input?.props.submitBehavior).toBeUndefined();
 });
 
-// The canvas puts a clear control inside the focused field whenever it holds something to
-// clear. The carried ring was the only one, and it went away the moment the diver typed, so a
-// diver who had typed a wrong site had to backspace it out letter by letter.
-it('offers a clear control while the diver edits a value of their own, and empties the field with it', async () => {
-  const onChange = jest.fn();
-  const t = await render(<FormField label="Site" value="Blue Hole" onChange={onChange} scheme="light" />);
-  expect(findSuggestion(t, 'Clear Site')).toBeUndefined();
-
+// **No clear control while the diver edits a value of their own** (issue #29, owner's call). One
+// was drawn inside the focused field from 2026-11-14, as the canvas draws it, and it pushed the
+// right-aligned value 60 pt left on every focus — and back on every blur, so Next moved two
+// rows at once. The form's values are short and holding backspace empties them; a password,
+// which the diver cannot see, empties on one press (below).
+it('draws no clear control while the diver edits a value of their own, so the value never moves', async () => {
+  const t = await render(<FormField label="Site" value="Blue Hole" onChange={() => {}} scheme="light" />);
   await focusInput(t);
-  const ring = findSuggestion(t, 'Clear Site');
-  if (!ring) throw new Error('no clear control while editing');
-  await fireEvent.press(ring);
-  // An empty string, never a zero — the carried ring's own contract (`clears to an empty
-  // string, never a zero` above), and through the typing path, because emptying a value the
-  // diver typed IS an edit to it rather than a carry-over being thrown away.
-  expect(onChange).toHaveBeenLastCalledWith('');
+  expect(findSuggestion(t, 'Clear Site')).toBeUndefined();
+  expect(buttonsOf(t)).toHaveLength(0);
 });
 
-it('offers nothing to clear on an empty field, and no second ring beside a carried one', async () => {
+it('keeps a carried row\'s own ring while focused, and adds no second one', async () => {
   const empty = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
   await focusInput(empty);
   expect(findSuggestion(empty, 'Clear Site')).toBeUndefined();
@@ -1254,4 +1248,50 @@ it('tells the platform what a field holds, for AutoFill, only when its caller sa
   const silent = await render(<FormField label="Site" value="" onChange={() => {}} scheme="light" />);
   expect(inputsOf(silent)[0]?.props.textContentType).toBeUndefined();
   expect(inputsOf(silent)[0]?.props.autoComplete).toBeUndefined();
+});
+
+// **Backspace empties a password** (issue #29, owner's call). The diver cannot see what one press
+// would take off a masked value, so a press starts the password over — which is also what iOS
+// itself does to a secure field the diver comes back to. Only a backspace that shortened the
+// value counts: a key press on an empty field changes nothing, and must not make the password
+// manager's fill that follows it arrive empty.
+describe('a password field', () => {
+  function password(value: string) {
+    const onChange = jest.fn();
+    const t = render(<FormField label="Password" value={value} onChange={onChange} scheme="light" secureTextEntry />);
+    return { t, onChange };
+  }
+
+  it('empties on backspace', async () => {
+    const { t, onChange } = password('hunter22');
+    const input = inputsOf(await t)[0];
+    await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+    await fireEvent.changeText(input, 'hunter2');
+    expect(onChange).toHaveBeenLastCalledWith('');
+  });
+
+  it('takes typing as typed', async () => {
+    const { t, onChange } = password('hunter2');
+    const input = inputsOf(await t)[0];
+    await fireEvent(input, 'keyPress', { nativeEvent: { key: '2' } });
+    await fireEvent.changeText(input, 'hunter22');
+    expect(onChange).toHaveBeenLastCalledWith('hunter22');
+  });
+
+  it('takes a fill or a paste as it arrives, even after a backspace that changed nothing', async () => {
+    const { t, onChange } = password('');
+    const input = inputsOf(await t)[0];
+    await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+    await fireEvent.changeText(input, 'S3cret-from-the-keychain');
+    expect(onChange).toHaveBeenLastCalledWith('S3cret-from-the-keychain');
+  });
+});
+
+it('backspaces one character at a time in a field that is not a password', async () => {
+  const onChange = jest.fn();
+  const t = await render(<FormField label="Site" value="Blue Hole" onChange={onChange} scheme="light" />);
+  const input = inputsOf(t)[0];
+  await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+  await fireEvent.changeText(input, 'Blue Hol');
+  expect(onChange).toHaveBeenLastCalledWith('Blue Hol');
 });
