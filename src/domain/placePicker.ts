@@ -1,10 +1,10 @@
 import { divesWithCenter } from './centerDives';
 import { compareDiveOrder } from './diveNumber';
 import { distanceKm } from './geo';
-import { logbookStats, sitesVisited } from './logbookStats';
 import { pointOf, type MapPoint } from './mapSites';
 import { browseCatalogue, foldForMatching } from './search';
 import { divesAtSite } from './siteDives';
+import { historyOf, type SuggestionHistory } from './suggest';
 import { type Dive, type DiveSite } from './types';
 
 /**
@@ -34,9 +34,10 @@ import { type Dive, type DiveSite } from './types';
  * own, a dive without an id belongs by its folded name, a plan is not a visit, and a merge's
  * repointed dives already point at the survivor — so the picker shows a diver the same history
  * the row's own page would. A hand-rolled `siteId === id` here would list a site the diver has
- * dived forty times, from before the catalogue, as never visited. The counts are
- * `suggestionHistory`'s (domain/suggest.ts): `logbookStats` for the number and the deepest, the
- * latest logged date, `sitesVisited` for the distinct places.
+ * dived forty times, from before the catalogue, as never visited. The counts are `historyOf`'s
+ * (domain/suggest.ts), the recipe the form's buddy and guide suggestions count with too:
+ * `logbookStats` for the number and the deepest, the latest logged date, `sitesVisited` for the
+ * distinct places.
  *
  * Nothing here throws on a malformed row. The picker is built during render over whatever the
  * database handed back, and the stance everywhere in `domain/` is that a row it cannot read
@@ -75,13 +76,8 @@ export interface PickerRow {
   name: string | null;
   country: string | null;
   provenance: Provenance;
-  /** Logged dives paired to this row; null when there are none. */
-  dived: {
-    dives: number;
-    lastDate: string | null;
-    deepestM: number | null;
-    sites: number;
-  } | null;
+  /** What the logged dives paired to this row add up to (`historyOf`); null when there are none. */
+  dived: SuggestionHistory | null;
   /** Only in the `'near'` and `'nearSite'` groups. */
   distanceKm: number | null;
   /** Whether this is the place the field already holds. */
@@ -150,19 +146,8 @@ function divesFor(
 
 /** The counts a dived row shows, or null when no logged dive is paired to it. */
 function divedOf(paired: readonly Dive[]): PickerRow['dived'] {
-  const stats = logbookStats(paired);
-  if (stats.dives === 0) return null;
-  let lastDate: string | null = null;
-  for (const d of paired) {
-    if (d.status !== 'logged' || typeof d.date !== 'string') continue;
-    if (lastDate === null || d.date > lastDate) lastDate = d.date;
-  }
-  return {
-    dives: stats.dives,
-    lastDate,
-    deepestM: stats.deepestM,
-    sites: sitesVisited(paired),
-  };
+  const history = historyOf(paired);
+  return history.dives === 0 ? null : history;
 }
 
 /**

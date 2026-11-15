@@ -285,18 +285,35 @@ export function suggestFrom(
  * histories rather than two spellings.
  *
  * **Matched the way `suggestFrom` tallies**, by the folded, trimmed name, so the history under a
- * row is the history of exactly the dives that put that row in the list. **Counted the way the
- * logbook counts**: `logbookStats` and `sitesVisited` (domain/logbookStats.ts) own the population
- * rule — logged dives only — and the deepest figure, so a row cannot say "3 dives" about a place
- * the Dives header and the Stats tab would count differently. `lastDate` is the newest logged
- * dive's own date; a planned dive at a place is not a dive done there, so a name only planned
- * dives carry reads as nothing done rather than as a date in the future.
+ * row is the history of exactly the dives that put that row in the list. Counted by `historyOf`.
  */
 export interface SuggestionHistory {
   dives: number;
   lastDate: string | null;
   deepestM: number | null;
   sites: number;
+}
+
+/**
+ * **The history of a set of dives, counted the way the logbook counts** — the one recipe behind
+ * `suggestionHistory` below (the dives under a typed name) and the site and centre picker's
+ * *Dived here* rows (`domain/placePicker.ts`: the dives paired to a catalogue row). Each caller
+ * decides which dives; this decides what is said about them, so the two cannot drift.
+ *
+ * `logbookStats` and `sitesVisited` (domain/logbookStats.ts) own the population rule — logged
+ * dives only — and the deepest figure, so a row cannot say "3 dives" about a place the Dives
+ * header and the Stats tab would count differently. `lastDate` is the newest logged dive's own
+ * date; a planned dive at a place is not a dive done there, so a set only planned dives make up
+ * reads as nothing done rather than as a date in the future.
+ */
+export function historyOf(dives: readonly Dive[]): SuggestionHistory {
+  const stats = logbookStats(dives);
+  let lastDate: string | null = null;
+  for (const d of dives) {
+    if (d.status !== 'logged' || typeof d.date !== 'string') continue;
+    if (lastDate === null || d.date > lastDate) lastDate = d.date;
+  }
+  return { dives: stats.dives, lastDate, deepestM: stats.deepestM, sites: sitesVisited(dives) };
 }
 
 export function suggestionHistory(dives: readonly Dive[], field: SuggestedField, value: string): SuggestionHistory {
@@ -306,13 +323,7 @@ export function suggestionHistory(dives: readonly Dive[], field: SuggestedField,
     const raw = d[field];
     return typeof raw === 'string' && foldForMatching(raw.trim()) === wanted;
   });
-  const stats = logbookStats(under);
-  let lastDate: string | null = null;
-  for (const d of under) {
-    if (d.status !== 'logged' || typeof d.date !== 'string') continue;
-    if (lastDate === null || d.date > lastDate) lastDate = d.date;
-  }
-  return { dives: stats.dives, lastDate, deepestM: stats.deepestM, sites: sitesVisited(under) };
+  return historyOf(under);
 }
 
 /**

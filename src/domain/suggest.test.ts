@@ -3,6 +3,7 @@ import {
   asInlineSuggestedField,
   nearMatches,
   SUGGESTED_FIELDS,
+  historyOf,
   SUGGESTION_LIMIT,
   suggestFrom,
   suggestionHistory,
@@ -523,6 +524,18 @@ it('counts the places a centre was dived at', () => {
     dive({ date: '2026-05-14', centerName: 'Nautica Vis', siteName: 'Stiniva' }),
   ];
   expect(suggestionHistory(dives, 'centerName', 'Nautica Vis').sites).toBe(2);
+});
+
+// The recipe on its own, as the picker hands it a row's paired dives: no name to match, the same
+// count — so `suggestionHistory` and *Dived here* cannot say two things about one set of dives.
+it('counts a set of dives the logbook’s way, whoever chose them', () => {
+  const dives = [
+    dive({ date: '2026-05-12', siteName: 'Vrak Teti', maxDepthM: 28.4 }),
+    dive({ date: '2026-05-18', siteName: 'Stiniva', maxDepthM: 34.6 }),
+    dive({ date: '2026-06-01', siteName: 'Vrak Teti', maxDepthM: 40, status: 'planned' }),
+  ];
+  expect(historyOf(dives)).toEqual({ dives: 2, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 });
+  expect(historyOf([])).toEqual({ dives: 0, lastDate: null, deepestM: null, sites: 0 });
 });
 
 // A name used only on planned dives has history in the form's sense — it is offered — but no

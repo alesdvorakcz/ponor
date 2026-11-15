@@ -360,8 +360,9 @@ export function formatSiteSummary(
  * **What the diver has done under a suggested name**, as the muted line beneath it in the dive
  * form's suggestion list — `"4 dives · last 18 kvě 2026"`, and for a centre the places it took
  * the diver to as well: `"12 dives · 5 sites · last …"` (2026-11-14, the design canvas's own
- * rows). The figures are `suggestionHistory`'s (domain/suggest.ts), which counts the way the
- * logbook counts; this owns the words and the order.
+ * rows), and the picker's *Dived here* rows read it too (`formatPickerMeta`). The figures are
+ * `historyOf`'s (domain/suggest.ts), which counts the way the logbook counts; this owns the words
+ * and the order.
  *
  * **Null for a name no logged dive carries** — a name only planned dives use is still offered,
  * and "0 dives" under a name the list is offering would read as a contradiction rather than as
