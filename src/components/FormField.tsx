@@ -60,15 +60,19 @@ export interface FormFieldProps {
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address';
   multiline?: boolean;
   /**
-   * Masks what is typed — the account screen's password row and nothing else in this app
-   * (M2e). It is the one field in Ponor whose value is a secret, and the three rules that
-   * follow from that live where they can be enforced (`cloud/auth.ts`): it is never logged,
-   * never wrapped into an error, and never persisted anywhere but the auth call.
+   * Masks what is typed — the account screen's password rows (signing in or up, and the new
+   * password after a reset) and nothing else in this app (M2e). A password is the one value in
+   * Ponor that is a secret, and the three rules that follow from that live where they can be
+   * enforced (`cloud/auth.ts`): it is never logged, never wrapped into an error, and never
+   * persisted anywhere but the auth call.
    *
    * **This component adds no rule of its own for it, deliberately.** A "clear the value on
-   * blur" or "never hand it to `onChange`" here would break the field for its one caller
-   * while protecting nothing: the value has to live in the caller's state to be typed at all.
-   * What this prop does is exactly what its name says.
+   * blur" or "never hand it to `onChange`" here would break the field for its callers while
+   * protecting nothing: the value has to live in the caller's state to be typed at all. Nor
+   * does it add a rule about editing one (issue #29, owner's call): each platform's own secure
+   * field already has one — iOS's empties on the first backspace after the diver comes back,
+   * Android's takes a character per press — and the field hands on what it sends. What this
+   * prop does is exactly what its name says.
    *
    * Never combined with `multiline` — React Native ignores masking on a multiline input, and
    * a password that renders in the clear because a second prop was set is precisely the kind
@@ -485,16 +489,13 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
     </Text>
   ) : null;
 
-  // **A clear control while the diver edits a value of their own** (2026-11-14, the design
-  // canvas: a clear control inside the focused field whenever it holds something). The carried
-  // ring was the only one, and it went with the carried value the moment the diver typed — so
-  // a wrong site typed by hand could only be backspaced out letter by letter. Focused only, so
-  // a column of rings never appears down the form; never on a carried row, which already has
-  // its own ring and must not grow a second; never on notes, whose paragraph is not a value to
-  // throw away in one tap. It empties through `onChange('')` — the typing path — because
-  // emptying a value the diver typed IS an edit to it, not a carry-over being thrown away, and
-  // it never leaves `— cleared` behind for the same reason.
-  const clearable = focused && !stacked && carried !== true && value !== '';
+  // **No clear control while the diver edits a value of their own** (issue #29, owner's call,
+  // undoing 2026-11-14's). The canvas draws one inside the focused field; here it pushed the
+  // right-aligned value 60 pt left on every focus and back on every blur, so Next moved two rows
+  // at once. Reserving its place on every row and animating the slide were both prototyped and
+  // both turned down. The form's values are short and holding backspace empties them; a
+  // password is left to the platform's own secure field (`secureTextEntry`). The carried ring
+  // is a different act — throwing away what carry-over filled in — and stays.
 
   return (
     <View
@@ -555,9 +556,6 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
                 scheme={scheme}
               />
             </View>
-          )}
-          {clearable && (
-            <ClearFieldControl accessibilityLabel={t('field.clear', { label })} onPress={() => onChange('')} scheme={scheme} />
           )}
         </View>
         {stacked && input}
