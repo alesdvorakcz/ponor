@@ -918,7 +918,8 @@ function build(scheme: ColorScheme) {
   const FOCUS_CARD_INSET = 8;
 
   // The suggestion row's name — Archivo Medium 16 in full ink, the canvas's own treatment and
-  // the weight a dive row gives a site. One definition, because the create offer wears it too.
+  // the weight a dive row gives a site. One definition, because the picker's rows and the form's
+  // Site and Centre rows wear it too.
   const suggestionName: TextStyle = {
     fontFamily: fonts['sans-medium'],
     fontSize: 16,
@@ -3567,6 +3568,41 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       color: theme.fgMuted,
     },
+    // **The Site and Centre rows' value slot** (issue #19) — the press behind a place the diver
+    // chooses on a page of its own rather than types. `formFieldPicker`'s slot (`flex: 1`, the 48
+    // floor, the value trailing) holding a column: the name, and the caption under it, 3 apart as
+    // a picker row's are. The vertical 6 keeps a name long enough to wrap off the hairlines; one
+    // line still sits in the 48.
+    formFieldPlace: {
+      flex: 1,
+      minHeight: 48,
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      paddingVertical: 6,
+      gap: 3,
+    },
+    // The name: Archivo Medium 16 in ink — `suggestionName`, the face the picker gives the same
+    // place — trailing like every value in the column, and wrapping against that edge rather than
+    // clipping (§0.5: never `numberOfLines`).
+    formFieldPlaceName: {
+      ...suggestionName,
+      textAlign: 'right',
+    },
+    // *Choose a site* while the row holds nothing: the name's face in muted ink, §0.6's one lever
+    // between "not yet an answer" and an answer.
+    formFieldPlaceNameUnset: {
+      ...suggestionName,
+      textAlign: 'right',
+      color: theme.fgMuted,
+    },
+    // Under a paired name — `on this phone only`, or the country's ISO code: a picker row's own
+    // meta line (`pickerRowMeta`), because it is the same line about the same place.
+    formFieldPlaceCaption: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+      textAlign: 'right',
+    },
     // The native picker itself, once the trigger opens it — in the slot §0.6 fixes for
     // anything a field puts under its own row. `alignSelf: 'flex-start'` keeps the OS control
     // at its own intrinsic width instead of stretching it across the form.
@@ -3664,19 +3700,6 @@ function build(scheme: ColorScheme) {
       fontFamily: fonts.mono,
       fontSize: 13.5,
       fontVariant: ['tabular-nums'],
-      color: theme.fgMuted,
-    },
-    // §2.3's *add this to the catalogue* offer, in the list's own rows (M2o). Ink, in the
-    // name's own treatment: since the names went to ink this no longer differs by ink alone —
-    // what separates the act from a name is its sentence ("Add “K” as a new site"), its place
-    // at the end of the list, and the absence of any history beneath it. It keeps its own style
-    // key so a question can never be drawn as a second act.
-    formSuggestionAdd: { ...suggestionName },
-    // The same row while the write is in flight, muted — the pairing `formFieldPickerText` /
-    // `formFieldPickerTextUnset` already draws for a value that is not there yet, and what says
-    // "this control has gone quiet and will come back" rather than "this control is dead".
-    formSuggestionAddBusy: {
-      ...suggestionName,
       color: theme.fgMuted,
     },
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`

@@ -182,19 +182,19 @@ export interface FormFieldProps {
    */
   onClear?: (value: string) => void;
   /**
-   * DESIGN.md §2.3's autocomplete, for the four fields that have it — what `suggestFrom`
-   * (domain/suggest.ts) offered for this field's current text. **Optional, and omitted at
-   * every other call site**: a field given neither this nor `onPickSuggestion` renders
-   * exactly what it rendered before either existed, which is what lets the 24 other fields on
-   * the dive form, both fields on Settings, and the cylinder-preset work landing beside this
-   * one go on passing neither.
+   * DESIGN.md §2.3's autocomplete, for the fields that have it inline — the dive form's buddy and
+   * guide — what `suggestFrom` (domain/suggest.ts) offered for this field's current text.
+   * **Optional, and omitted at every other call site**: a field given neither this nor
+   * `onPickSuggestion` renders exactly what it rendered before either existed, which is what
+   * lets every other field on the dive form, both fields on Settings, and the place pages go on
+   * passing neither.
    *
    * This component decides only WHERE the list goes and WHEN it is drawn; it has no opinion
    * on what belongs in it or in what order — the same split `carried` above draws, where the
    * caller knows WHY a value is carried and this knows how to show that it is. §0.6 makes the
    * position a fact about the row ("The list belongs directly under the focused row"), which
    * is why it is drawn here at all rather than by the screen: a list positioned by the caller
-   * would be positioned four times.
+   * would be positioned once per field.
    */
   suggestions?: readonly OfferedSuggestion[];
   /**
@@ -230,95 +230,15 @@ export interface FormFieldProps {
    */
   editable?: boolean;
   /**
-   * Fired with the **whole** `Suggestion` the diver tapped, never just its text.
-   *
-   * The id half is DESIGN.md §6's `site_id` + `site_name` snapshot pair, and handing back the
-   * text alone would leave the caller with a name and no way to know which site record it
-   * named — §10, for this task: "picking a suggestion sets both together... otherwise a dive
-   * carries one site's id under another's name."
+   * Fired with the **whole** `Suggestion` the diver tapped, never just its text — its id
+   * included, so a caller that pairs a name with a record is never left holding a name and no
+   * way to know which record it named (§10: *"otherwise a dive carries one site's id under
+   * another's name"*).
    *
    * Deliberately NOT routed through `onChange`, exactly as `onClear` above is not: a caller
-   * that has to tell "the diver typed this" from "the diver picked this" still can, and
-   * DiveFormScreen does — typing over a site name CLEARS the paired id, so delivering a pick
-   * through the typing path would set the id and clear it again in one gesture.
+   * that has to tell "the diver typed this" from "the diver picked this" still can.
    */
   onPickSuggestion?: (suggestion: Suggestion) => void;
-  /**
-   * DESIGN.md §2.3's *"creating a new site asks only for a name"*, as the one gesture that
-   * does it (M2o) — offered **in the slot the suggestion list already owns**, and drawn by
-   * this component for exactly the reason the list is: §0.6 makes the position a fact about
-   * the row, and a caller placing it would place it twice.
-   *
-   * It belongs there rather than beside the row because it is the same question's other
-   * answer. A diver types a name; the list says *"one of these is what you mean"* and this
-   * says *"none of them is — publish this one"*. §0.6's own words for why it is not a button
-   * bolted onto a field: the form has a grammar, and this is a row of it.
-   *
-   * **This component decides only where the offer goes and when it is drawn — never whether
-   * there is one.** Who may create a catalogue row (§5: signed in), and whether creating one
-   * would duplicate something, are the screen's (`DiveFormScreen.tsx`); it hands this
-   * `undefined` when the answer is no, and a field given `undefined` renders exactly what it
-   * rendered before this prop existed. The same split `carried` and `suggestions` above draw.
-   */
-  addition?: FieldAddition;
-}
-
-/**
- * One offer to create something the field's text names — the label the diver reads, what
- * pressing it does, and whether it is in flight.
- *
- * `busy` is a state and not a second control: the row stays where it is, says what it is
- * doing, and refuses a second press — `ControlledPositionField`'s *Locating…* is the same
- * shape for the same reason, and both are how a control that has gone quiet says it will come
- * back rather than looking dead.
- */
-export interface FieldAddition {
-  /** What the row reads, including while `busy` — the caller owns both wordings, since only
-   * it knows what is being added. */
-  label: string;
-  onPress: () => void;
-  busy: boolean;
-  /**
-   * DESIGN.md §2.3's fuzzy check, once it has run and found something: *"a fuzzy check
-   * suggests near-matches: **Did you mean Shark Point?** One tap picks the existing site
-   * instead."* (M2p).
-   *
-   * **They hang off the addition rather than standing beside it**, because they only exist
-   * because of it: a field with nothing to add can have nothing to be a duplicate of, and the
-   * two disappear together the instant the dive holds a paired id. A separate prop would let
-   * a caller draw one without the other, which is a screen asking a question with no way to
-   * answer it either way.
-   *
-   * Drawn **above** the addition and below the diver's own history, which is the order of
-   * increasing commitment: names you have used, then a name the catalogue already has, then
-   * making a new one. The caller re-words its `label` for that last row when this list is
-   * non-empty — §2.3's "no, add mine" has to look different from the press that produced the
-   * question.
-   */
-  matches?: readonly FieldMatch[];
-}
-
-/**
- * One near-match the diver is being asked about: the whole sentence the row reads, and the
- * suggestion picking it delivers.
- *
- * **The suggestion goes back through `onPickSuggestion`, not through a second callback.**
- * §2.3's *"one tap picks the existing site instead"* is precisely what picking a suggestion
- * already does — it writes the catalogue's own spelling into the field and sets §6's paired
- * id — so a second path would be a second answer to the question §10 spent this milestone
- * settling: a dive must never carry one site's id under another's name.
- *
- * The row announces its own `question` rather than a suggestion's `Fill … with …`, on the
- * addition's own reasoning one field up: the diver pressed a control and this is the answer
- * they were given, and a screen reader hearing "Fill Site with Shark Point" would hear the
- * ordinary list and never learn that anything had interrupted them.
- */
-export interface FieldMatch {
-  /** §2.3's own words, with the existing site's spelling in them. The caller's, since only it
-   * knows what kind of record is being matched. */
-  readonly question: string;
-  /** What the tap fills the field with — the same pair every other pick carries. */
-  readonly suggestion: Suggestion;
 }
 
 /*
@@ -361,7 +281,7 @@ export interface FieldMatch {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -404,36 +324,12 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // full width beneath it, in the slot §0.6 gives a field's second line.
   const stacked = multiline === true;
 
-  // §2.3's create offer, under the same `focused` gate the list is under and in the same
-  // container — one slot, one rule about where a field's second line goes. It is drawn whether
-  // or not there are suggestions above it, because the common case for a brand-new site is
-  // that the diver's history matched nothing at all and the list is empty.
-  const offeredAddition = focused ? addition : undefined;
-
-  // §2.3's fuzzy check, once it has answered (M2p). Read off the addition **as drawn**, so
-  // the questions and the act they belong to cannot disagree about whether this row is the
-  // focused one.
-  //
-  // **No test can tell this from `addition?.matches`, and that is worth saying rather than
-  // claiming otherwise.** The container below is itself gated on `offeredAddition`, so an
-  // unfocused row draws none of this either way; the mutation that swaps the two stays green
-  // and always will. It is written this way because there is then only one expression of the
-  // focus rule, not because a second one is being enforced here.
-  const matched = offeredAddition?.matches ?? [];
-
   // §0.6 gives the list to the FOCUSED row, and the same `focused` state the fill already
-  // reads is what says which row that is — so a form with four autocompleting fields shows
-  // one list, under the field the diver is actually in, rather than four stacked lists. An
-  // empty array draws nothing at all rather than an empty container: a field holding its
-  // carried value matches nothing but itself, which is most of a logging session.
-  //
-  // **A pending question takes the slot to itself**, and that is a rule about the slot rather
-  // than about either list, which is why it is here. The diver has committed to a name, been
-  // interrupted, and asked one question; putting their own history back underneath it offers
-  // a third answer to something they already answered, and — the concrete failure — the same
-  // site can legitimately appear in both, once as `Shark Point` and once as *Did you mean
-  // “Shark Point”?*. One question at a time, with the way out drawn under it.
-  const offered = focused && suggestions !== undefined && matched.length === 0 ? suggestions : [];
+  // reads is what says which row that is — so a form with several autocompleting fields shows
+  // one list, under the field the diver is actually in, rather than a stack of them. An empty
+  // array draws nothing at all rather than an empty container: a field holding its carried
+  // value matches nothing but itself, which is most of a logging session.
+  const offered = focused && suggestions !== undefined ? suggestions : [];
 
   const input = (
     <TextInput
@@ -582,12 +478,11 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           input would blur first, `focused` would go false, and this list would unmount out
           from under the finger that was pressing it. It is a property of the hosts, not of
           this component, which is why it is named here rather than assumed. */}
-      {(offered.length > 0 || offeredAddition !== undefined) && (
+      {offered.length > 0 && (
         <View style={styles.formSuggestions}>
-          {/* "YOUR SITES · 3" — over the diver's own history only, and only while there is
-              some: a header over nothing, or over a question, would name a group that is not
-              there. */}
-          {offered.length > 0 && suggestionsTitle !== undefined && (
+          {/* "YOUR BUDDIES · 3" — over the diver's own history, and only while there is some: a
+              header over nothing would name a group that is not there. */}
+          {suggestionsTitle !== undefined && (
             <Text style={styles.formSuggestionsTitle}>{suggestionsTitle}</Text>
           )}
           {offered.map((suggestion) => (
@@ -601,8 +496,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               // must not be split, and why this is not `onChange`.
               onPress={() => onPickSuggestion?.(suggestion)}
               accessibilityRole="button"
-              // Names the field as well as the value: the form has four autocompleting
-              // fields, and "Blue Hole, button" on its own says nothing about where a pick
+              // Names the field as well as the value: the form has two autocompleting fields
+              // side by side, and "Petr, button" on its own says nothing about where a pick
               // would land.
               accessibilityLabel={t('field.fillWith', { label, value: suggestion.value })}
             >
@@ -620,64 +515,6 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               )}
             </Pressable>
           ))}
-          {/* §2.3's fuzzy check, between the names and the act (M2p), in the suggestion's own
-              row and the name's own treatment, because that is exactly what one is: picking it
-              fills the field with a name and pairs §6's id. What carries the interruption is
-              the sentence.
-
-              **The whole question is the announcement**, unlike a suggestion's `Fill … with
-              …`: the diver pressed a control, and a screen reader that read this row as an
-              ordinary fill would never say that anything had answered them. */}
-          {offeredAddition !== undefined && matched.map((match) => (
-            <Pressable
-              // The id, which every candidate has by construction (`nearMatches` drops one
-              // that does not) and which is what makes two catalogue rows spelled alike two
-              // rows here rather than one.
-              key={match.suggestion.id ?? match.question}
-              style={styles.formSuggestion}
-              onPress={() => onPickSuggestion?.(match.suggestion)}
-              accessibilityRole="button"
-              accessibilityLabel={match.question}
-              // **While the act is in flight the whole slot is inert, not just the act.** The
-              // diver has answered the question by pressing *…anyway*, and the write can take
-              // seconds (§2.3's country lookup waits on the network). A question left live
-              // through that window is a tap that pairs the dive with the existing site and is
-              // then silently overwritten by the row the write is about to create — the answer
-              // taken and thrown away, with nothing on screen to say so. The row beneath is
-              // already saying what is happening, which is what keeps this from reading dead.
-              disabled={offeredAddition.busy}
-              accessibilityState={{ disabled: offeredAddition.busy, busy: offeredAddition.busy }}
-            >
-              <Text style={styles.formSuggestionText}>{match.question}</Text>
-            </Pressable>
-          ))}
-          {/* Last in the list, always: the offers are what the diver most likely meant, and
-              publishing a new record is what is left when none of them was. In ink like the
-              names since 2026-11-14 — what tells it apart is its sentence, its place at the end
-              and the absence of any history under it. While in flight it goes muted, exactly
-              as `formFieldPickerTextUnset` reads for a value that is not there yet.
-
-              **Both `disabled` and `accessibilityState`**, never one: the first stops the
-              press, the second stops a screen reader announcing an available control that
-              ignores taps — the save control's own rule, and `busy` is the word for a control
-              that will come back. */}
-          {offeredAddition !== undefined && (
-            <Pressable
-              style={styles.formSuggestion}
-              onPress={offeredAddition.onPress}
-              accessibilityRole="button"
-              // The label itself, not a `Fill ... with ...` sentence: this row does not fill
-              // the field, it publishes a record, and the two must not read alike to anyone
-              // who only hears them.
-              accessibilityLabel={offeredAddition.label}
-              disabled={offeredAddition.busy}
-              accessibilityState={{ disabled: offeredAddition.busy, busy: offeredAddition.busy }}
-            >
-              <Text style={offeredAddition.busy ? styles.formSuggestionAddBusy : styles.formSuggestionAdd}>
-                {offeredAddition.label}
-              </Text>
-            </Pressable>
-          )}
         </View>
       )}
     </View>

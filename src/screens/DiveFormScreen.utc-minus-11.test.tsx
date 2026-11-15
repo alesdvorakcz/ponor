@@ -34,6 +34,12 @@ jest.mock('../db/dives', () => ({ createDive: jest.fn(), updateDive: jest.fn() }
 // file exercises presets — it exists for the date default alone — so the stub simply reports
 // that the diver has none, which is what draws no preset row at all.
 jest.mock('../db/useGearPresets', () => ({ useGearPresets: jest.fn(() => ({ presets: [], error: undefined })) }));
+// The catalogue the Site and Centre rows read their caption from (issue #19) — live reads, mocked
+// for the same reason, and empty: nothing here is paired to a place.
+jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn(() => ({ sites: [], resolved: true, error: undefined })) }));
+jest.mock('../db/useDiveCenters', () => ({
+  useDiveCenters: jest.fn(() => ({ centers: [], resolved: true, error: undefined })),
+}));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({})),

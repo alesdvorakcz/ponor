@@ -30,22 +30,23 @@ import { useKeyboardShown } from '../hooks/useKeyboardShown';
 
 import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
-import { CarriedMark } from '../components/CarriedMark';
+import { CarriedMark, clearedAnnouncement, clearedTag } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
 import { EntryIcon } from '../components/EntryIcon';
 import { FocusChainProvider, useFocusChainStep } from '../components/FocusChain';
 import { RevealingScrollView } from '../components/FormReveal';
-import { FormField, type FieldAddition, type FieldMatch, type OfferedSuggestion } from '../components/FormField';
+import { FormField, type OfferedSuggestion } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
-import { addCenter, addSite, findSiteTwins } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { getDiveSite } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
+import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
+import { useDiveSites } from '../db/useDiveSites';
 import { useGearPresets } from '../db/useGearPresets';
 import { setOpenFormGroups } from '../db/settings';
 import { useOpenFormGroups } from '../db/useOpenFormGroups';
@@ -56,9 +57,10 @@ import {
   carryOverFrom,
 } from '../domain/carryOver';
 import { todayCalendarDate } from '../domain/datetime';
+import { pointOf } from '../domain/mapSites';
+import { type PlaceKind } from '../domain/placePicker';
 import {
   TANK_FIELDS,
-  centerFactsFrom,
   diveFormSchema,
   siteFactsFrom,
   toDisplayTank,
@@ -77,12 +79,10 @@ import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/prese
 import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asSuggestedField,
-  hasPairedId,
   pairedIdField,
   suggestFrom,
   suggestionHistory,
   type SuggestedField,
-  type Suggestion,
 } from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
@@ -112,7 +112,6 @@ import {
   formatEntry,
   formatEquipmentToken,
   formatSalinity,
-  formatSuggestionFigure,
   formatSuggestionMeta,
   formatSuggestionsTitle,
   formatSurge,
@@ -125,11 +124,14 @@ import {
   formatWeightsFeel,
   HE_LABEL,
   O2_LABEL,
+  unnamedCenter,
+  unnamedSite,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
 import { unitLabel, type UnitSystem } from '../format/units';
 import { t, useT, type TranslationKey } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
+import { openPlacePicker, type DiveContext, type PlacePick } from '../navigation/placePick';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { currentPosition } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
@@ -420,7 +422,7 @@ interface SeedState {
    * and lose the sentence explaining it, which is precisely the state this set exists to end.
    *
    * Every gesture that puts a value into a field takes the field back out of here (typing, a
-   * picked suggestion, an applied preset, a chosen chip), because the tag is a claim about
+   * picked suggestion or place, an applied preset, a chosen chip), because the tag is a claim about
    * what the row holds and a claim about a row holding a value is false. `FormField` and
    * `OptionChips` refuse to draw the tag over a non-empty value regardless — see either's own
    * render body — so the two halves of that guarantee sit on both sides of the boundary.
@@ -496,9 +498,8 @@ interface SeedState {
    * and it cannot protect this. It keeps a field react-hook-form has RECORDED as dirty, and a
    * write whose value equals the current seed's records nothing at all (`setPairedId`, for the
    * mechanism read out of 7.87). So the one write that can never be recorded is the one that
-   * spells a name the seed already holds — publishing a carried site name the diver never
-   * typed, or answering §2.3's *Did you mean …?* with a row spelled exactly as the field
-   * already reads, which is the same write through the other door.
+   * spells a name the seed already holds — a pick, on the *Choose a site* page, of the catalogue
+   * row whose name carry-over already put in the row with no id beside it.
    *
    * The id half of the pair IS recorded (`setPairedId` flags it), so without this the reseed
    * kept the id and re-synced the name, and the dive was saved holding one site's id under
@@ -509,14 +510,13 @@ interface SeedState {
    * **Substituted into the seed rather than written over the form**, which is what makes it a
    * member of this state and not an effect: `seedStateFor` puts the pinned name into the
    * values react-hook-form resets to, so the field is simply seeded with it and no repair has
-   * to race the reset that caused the problem. §0.6's mark goes with it — but only where the
-   * substitution actually replaced something, since a seed that says the same name is still a
-   * seed the mark tells the truth about.
+   * to race the reset that caused the problem. §0.6's mark needs nothing from it: the pick that
+   * set the pin dropped the mark and recorded the field in `typed`, which no reseed re-marks.
    *
-   * **Revisable, like `fromSite` and unlike `typed`**: every gesture that unsets an id
-   * (typing over the name, clearing it, picking again) rewrites this in the same breath, so it
-   * can only ever hold the name of a pair the form is actually holding. `buddy` and `guide`
-   * never appear — they have no id column to pair with (`pairedIdField`).
+   * **Revisable, like `fromSite` and unlike `typed`**: every gesture that unsets an id (the
+   * clear ring, *No centre*, picking again) rewrites this in the same breath, so it can only
+   * ever hold the name of a pair the form is actually holding. `buddy` and `guide` never
+   * appear — they have no id column to pair with (`pairedIdField`).
    */
   pairedNames: ReadonlyMap<SuggestedField, string>;
 }
@@ -526,31 +526,20 @@ interface SeedState {
  * `SeedState.pairedNames` half of a reseed, and the only place a seed is overruled by
  * something the diver did rather than by something the seed said.
  *
- * It answers two questions at once, which is why it hands back both halves: what the field is
- * seeded WITH, and whether §0.6's mark still tells the truth about it. A seed that already
- * spells the pinned name has not been overruled at all — a diver whose last two dives are at
- * the same site — and its mark stays, because the value really did come from that dive. A seed
- * that spelled a different name has been, and the mark would then be a caption naming a dive
- * this value has never been near, which is `SeedState.fromSite`'s own complaint one field up.
+ * Values only, and §0.6's mark has nothing to ask of it: every pin is set by a pick, and the
+ * pick has already dropped the mark and recorded the field in `typed`, which no reseed re-marks.
  *
  * `values` is returned unchanged when nothing is pinned, so the ordinary reseed allocates
  * nothing and `useForm`'s `values` reference is exactly what `seedStateFor` built.
  */
-function pinPairedNames(
-  values: DiveFormInput,
-  pairedNames: ReadonlyMap<SuggestedField, string>,
-): { values: DiveFormInput; replaced: ReadonlySet<string> } {
-  const replaced = new Set<string>();
-  if (pairedNames.size === 0) return { values, replaced };
-  // The same keyed-write `Record` `applyPreset` uses, and for the same reason: these four
-  // fields are named by a value rather than written literally, and `DiveFormInput` has no
-  // index signature to write them through.
+function pinPairedNames(values: DiveFormInput, pairedNames: ReadonlyMap<SuggestedField, string>): DiveFormInput {
+  if (pairedNames.size === 0) return values;
+  // The same keyed-write `Record` `applyPreset` uses, and for the same reason: these fields are
+  // named by a value rather than written literally, and `DiveFormInput` has no index signature
+  // to write them through.
   const pinned = { ...values } as Record<string, unknown>;
-  for (const [field, name] of pairedNames) {
-    if (toInputString(pinned[field]) !== name) replaced.add(field);
-    pinned[field] = name;
-  }
-  return { values: pinned as DiveFormInput, replaced };
+  for (const [field, name] of pairedNames) pinned[field] = name;
+  return pinned as DiveFormInput;
 }
 
 /**
@@ -619,20 +608,14 @@ function seedStateFor(
       // Pinned here too, and it is not a formality: edit mode reseeds whenever the dive object
       // or the unit preference changes underneath it, so a diver who corrects a site name on a
       // stored dive and pairs it to a catalogue row can have that pair split by the same race
-      // create mode can. Nothing else in this branch reads `pairedNames` — edit mode marks
-      // nothing, so there is no mark for a substitution to have to drop.
-      values: pinPairedNames(
-        seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)),
-        pairedNames,
-      ).values,
+      // create mode can.
+      values: pinPairedNames(seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)), pairedNames),
       paths: new Set<string>(),
-      // **Both diver-side sets pass straight through here, and `cleared` is empty in edit mode
-      // by consequence rather than by decree.** It could only gain a member from a clear
-      // control, a clear control is drawn only on a marked row, and `paths` above is empty —
-      // so there is nothing to blank and blanking it would be a second statement of a rule the
-      // line above already makes. (It was written as an explicit `new Set()` first; deleting
-      // that line changed no test, which is what an unreachable branch looks like, and §10's
-      // remedy for one is to remove it rather than to defend it.)
+      // **Both diver-side sets pass straight through here.** No row is marked in edit mode, so
+      // no ring is drawn, and the one gesture that can still put a field in `cleared` is *No
+      // centre* — the picker's empty pick, which takes the ring's path (issue #19). A centre the
+      // diver emptied on purpose reads `— cleared` on a stored dive for the same reason it does
+      // on a new one, and a reseed must not take that sentence away.
       cleared,
       typed,
       fromSite,
@@ -646,11 +629,9 @@ function seedStateFor(
   // is not a row that came from the diver's last dive — whatever the seed values still say
   // about it. Second, and after `typed`, because the two can never name the same field.
   for (const field of fromSite) marked.delete(field);
-  // §6's pair outranks carry-over's name for the same reason, and the marks are read off the
-  // seed BEFORE the substitution so this can be the narrow claim it should be: only a name the
-  // pin actually replaced stops being a name the last dive gave.
-  const { values, replaced } = pinPairedNames(seeded, pairedNames);
-  for (const field of replaced) marked.delete(field);
+  // §6's pair outranks carry-over's name for the same reason. Its row is already unmarked: the
+  // pick that pinned it is in `typed`.
+  const values = pinPairedNames(seeded, pairedNames);
   return { sourceId, units, values, paths: marked, cleared, typed, fromSite, pairedNames };
 }
 
@@ -837,8 +818,8 @@ export const FORM_FIELD_ORDER: readonly FieldPath<DiveFormInput>[] = [
  * `status` is §2.4's Logged/Planned control, which sits beside the heading and is emphatically
  * not a slot in the core strip — that strip identifies the dive, and a status is not one of the
  * things that says which dive this is. `siteId` and `centerId` are §6's half of the site
- * snapshot, written by picking
- * a suggestion and never typed (`setPairedId`), so there is nothing for a diver to open.
+ * snapshot, written by the pick the *Site* and *Centre* rows hand back (`setPairedId`) and
+ * shown as the name on those rows, so there is nothing for a diver to open.
  *
  * **`latitude` and `longitude` were here for two milestones and are not any more** (M2l).
  * M1i took their two decimal keypads off this form because nobody has ever typed a coordinate
@@ -969,11 +950,11 @@ type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
  * without `onDropCarried`, so its mark could be shown and never dropped, and the suite was
  * green — the same "per-call-site prop hole" the screen's own tests now name.
  *
- * **Handed to every `ControlledTextField` and `ControlledOptionField`, not only the carried
- * ones.** Which fields carry is `CARRIED_FIELDS`' answer (domain/carryOver.ts, §2.1) and
- * `computeCarriedPaths` is what asks it; a row is marked exactly when its own `name` is in
- * `paths`, so a fresh field passed this renders precisely what it rendered before the prop
- * existed. Opting in per call site would be a second, hand-written copy of §2.1's split — the
+ * **Handed to every `ControlledTextField`, `ControlledOptionField` and `ControlledPlaceField`,
+ * not only the carried ones.** Which fields carry is `CARRIED_FIELDS`' answer
+ * (domain/carryOver.ts, §2.1) and `computeCarriedPaths` is what asks it; a row is marked exactly
+ * when its own `name` is in `paths`, so a fresh field passed this renders precisely what it
+ * rendered before the prop existed. Opting in per call site would be a second, hand-written copy of §2.1's split — the
  * "hand-maintained second list" `carryOver.ts`'s own docblock warns against, one call site
  * over from the file that draws the line — and it is the copy that goes stale the day a field
  * moves from fresh to carried.
@@ -985,93 +966,13 @@ type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 interface CarryOverControls {
   /** Every path carry-over filled that the diver has not since touched — `SeedState.paths`. */
   paths: ReadonlySet<string>;
-  /** Every path the diver emptied with the clear control — `SeedState.cleared`. */
+  /** Every path the diver emptied on purpose — `SeedState.cleared`. */
   cleared: ReadonlySet<string>;
   /** The diver put a value here (typed, picked, applied, chose). */
   onDrop: (name: FieldPath<DiveFormInput>) => void;
-  /** The diver emptied this with the clear control. */
+  /** The diver emptied this on purpose: the clear control, or the picker's *No centre*. */
   onClear: (name: FieldPath<DiveFormInput>) => void;
 }
-
-/**
- * **§2.3's *"any signed-in user can add a site or center"*, as the two rows it can be and the
- * sentence each one reads** (M2o).
- *
- * Keyed by the **id column** rather than by the name field, and that is what keeps one rule in
- * one place. `pairedIdField` (domain/suggest.ts) already owns "which of §2.3's four fields
- * pairs with a catalogue row"; `buddy` and `guide` answer `null` there because they *"stay
- * private text, not user accounts"*. Keyed by the name field this record would need two `null`
- * members restating that, and a fifth suggested field would then have two places to be
- * forgotten in. Keyed this way it is total by construction: every key here is a catalogue
- * table, and the gate that decides whether a field has one is somebody else's.
- *
- * **The wording says *what it makes*, not *where it goes*.** "Catalogue" is this project's
- * word for the table, not a diver's word for anything, and §1's own sentence for the feature
- * is *"the map grows itself"*. So the row reads `Add “Kotelna” as a new site` — the name the
- * diver typed, quoted back, and the thing that will exist afterwards.
- */
-interface CatalogueAddition {
-  /** The offer, with the name the diver is looking at quoted into it. */
-  readonly offer: (name: string) => string;
-  /** The same row while the write is in flight — the shape `ControlledPositionField`'s
-   * *Locating…* already uses, and it names the noun rather than saying a bare "Adding…",
-   * because a screen reader meets this sentence with no row around it. */
-  readonly busy: () => string;
-  /**
-   * Makes the row and answers with its id, which is what the dive's `site_id`/`center_id`
-   * is then set to (§6's pairing).
-   *
-   * Every rule about **what the row holds** is elsewhere and deliberately so: `siteFactsFrom`
-   * / `centerFactsFrom` (domain/diveFormSchema.ts) decide what a dive may tell a community
-   * record about the place it happened at, `platform/geocode.ts` infers the country from the
-   * pin and from nothing else (§2.3), and `db/catalogue.ts` writes the row — dirty, with a
-   * client-generated UUIDv7, `status` active, and `created_by` left to `push_changes`, which
-   * stamps `auth.uid()` and ignores whatever a client sent (§5, §6, §7).
-   */
-  readonly create: (name: string, values: DiveFormInput) => Promise<string>;
-  /**
-   * **§2.3's fuzzy check, run between the diver asking and the row existing** — *"before
-   * saving a new entry, a fuzzy check suggests near-matches: **Did you mean Shark Point?**"*
-   * (M2p) — or **absent**, which is the whole answer for one of these two tables.
-   *
-   * **A dive centre gets no check at all, and the absence is where that is said.** §5 asks for
-   * the fuzzy check about a *site*: there is no `similar_centers` RPC and DESIGN.md §5 already
-   * records that gap as deliberate rather than unfinished ("a centre twin would be inventing a
-   * requirement rather than filling a hole"). Writing a `similar` here that always answered
-   * `[]` would put that decision in a function body where it reads as an unimplemented one;
-   * leaving the key off makes it a fact about the shape, and the row above skips the whole
-   * phase rather than pausing on a question nobody is going to ask. What a diver adding a
-   * centre gets is therefore exactly what M2o shipped: the press creates the row.
-   *
-   * Takes the same `(name, values)` pair `create` does, and for the same reason — the check
-   * has to be about the row that would be created, pin and all, or it is a check on something
-   * else.
-   */
-  readonly similar?: (name: string, values: DiveFormInput) => Promise<Suggestion[]>;
-}
-
-const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
-  siteId: {
-    offer: (name) => t('form.addSite', { name }),
-    busy: () => t('form.addingSite'),
-    // Both sources, asked together, and the row's own pin goes with the question — the check
-    // and its reasoning live in `cloud/addToCatalogue.ts`, shared with the New dive site page.
-    // Reading the pin through `siteFactsFrom` keeps "both or neither" in its one place.
-    similar: async (name, values) => {
-      const { latitude, longitude } = siteFactsFrom(name, values);
-      return findSiteTwins(name, latitude !== null && longitude !== null ? { latitude, longitude } : null);
-    },
-    // Country is awaited before the insert — why is `addSite`'s to say.
-    create: (name, values) => addSite(siteFactsFrom(name, values)),
-  },
-  centerId: {
-    offer: (name) => t('form.addCentre', { name }),
-    busy: () => t('form.addingCentre'),
-    // No country and no pin — `centerFactsFrom` carries the whole of why a dive knows the
-    // site it happened at and knows nothing about the shop on shore but its name.
-    create: (name) => addCenter({ ...centerFactsFrom(name), latitude: null, longitude: null, website: null }),
-  },
-};
 
 /**
  * **The catalogue row a dive is paired to, or `null` for every way of not having one** — the
@@ -1083,11 +984,10 @@ const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
  * has nothing to tell this dive*, and §6's `site_name` snapshot is why the dive goes on reading
  * correctly regardless.
  *
- * **The catch is §1 arriving through a by-product**, and it is the same shape
- * `catalogueOffer`'s own check uses: the dive is the thing being logged, a prefill is a
- * convenience, and a database that could not answer must produce the answer a diver at sea
- * gets anyway rather than an error with nowhere to be shown. Nothing here reaches the save
- * path.
+ * **The catch is §1 arriving through a by-product**: the dive is the thing being logged, a
+ * prefill is a convenience, and a database that could not answer must produce the answer a
+ * diver at sea gets anyway rather than an error with nowhere to be shown. Nothing here reaches
+ * the save path.
  */
 async function pairedSite(id: string): Promise<SiteDefaults | null> {
   try {
@@ -1095,104 +995,6 @@ async function pairedSite(id: string): Promise<SiteDefaults | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * What the row says when the write did not happen.
- *
- * **§1 is the whole sentence**: *"never block a save"*, and the brief's own reading of it —
- * the dive is the thing being logged and the catalogue row is a by-product. So this reports a
- * failure and immediately says what it did **not** cost, because the diver's next question is
- * whether their dive is in trouble. It is not: the name snapshot is what §6 stores beside every
- * `site_id` for exactly this, and the save path never sees this failure at all.
- *
- * One sentence for both tables. The row it appears under says which one, and a second copy of
- * this differing only in the noun would be two strings to keep in step for no reader's benefit.
- */
-function catalogueAddFailed(): string {
-  return t('form.addFailed');
-}
-
-/**
- * §2.3's own sentence, with the catalogue's own spelling in it: *"a fuzzy check suggests
- * near-matches: **Did you mean Shark Point?**"*
- *
- * DESIGN.md's wording rather than one of mine, and it is kept for the case where it reads
- * oddly as well as the case where it reads well. A near-match found by the *device* is an
- * exact folded match (`nearMatches`, domain/suggest.ts), so a diver who typed `Kotelna` into a
- * logbook whose catalogue already holds `Kotelna` is asked *Did you mean “Kotelna”?* about a
- * name identical to the one on screen. That is still the right question — the name they typed
- * already names a community row and one tap points the dive at it instead of publishing a
- * second — but it is a sentence written for the near case answering the exact one. Reported
- * for §2.3 rather than quietly rewritten here.
- *
- * One sentence, not one per table: only sites are ever checked (see `CatalogueAddition.similar`).
- */
-function didYouMean(name: string): string {
-  return t('form.didYouMean', { name });
-}
-
-/**
- * The same offer after the check has asked its question — §2.3's *"one tap picks the existing
- * site instead"* needs its other half, which is **"no, add mine"**.
- *
- * §5 lets any signed-in diver add a site, two real sites can have similar names, and the diver
- * is standing at one of them: a near-match is a suggestion and never a refusal, so the act
- * must stay pressable throughout. What changes is only the wording, because the press that
- * produced the question and the press that commits must not look identical — a diver who
- * pressed *Add “Sharks Point” as a new site*, got a question, and saw the same row unchanged
- * would have no way to know that pressing it again does something different.
- *
- * **Derived from the offer rather than written a second time per table** (§4.1: derive, or tie
- * at compile time). Two hand-written pairs would agree today and drift the day either noun
- * changes, and there is no reading of "no, add mine" that needs different words for a site and
- * a centre — which is also why this survives if `similar_centers` ever arrives (§5).
- */
-function addAnyway(offer: string): string {
-  return t('form.addAnyway', { offer });
-}
-
-/**
- * What the row says while the check is out — and it says *checking*, not *adding*, because at
- * that moment nothing is being added and the answer may well be that nothing will be.
- *
- * One sentence rather than one per table, on `catalogueAddFailed`'s own reasoning: the row it
- * appears under says which field is being checked, and only sites are checked at all.
- */
-function lookingForAMatch(): string {
-  return t('form.lookingForMatch');
-}
-
-/**
- * One live offer to publish what a field's text names: what the row reads, what it reads while
- * writing, and the write itself.
- *
- * **`add` answers the same way `savePreset` does** — the sentence to show, or `null` when it
- * went through — so the row that draws it decides where a problem is said and nothing about
- * what the problem is. Success is deliberately silent: the offer simply stops being offered,
- * because the dive now holds the id and there is nothing left to add. That is `PresetCapture`'s
- * behaviour on the same screen (the naming row closes; *Save as preset* disappears once the
- * cylinders match a preset), and §0.6's rule that accepting costs nothing.
- */
-interface CatalogueOffer {
-  readonly label: string;
-  /** The same offer once the check has put a question on screen — `addAnyway`'s wording. */
-  readonly insistLabel: string;
-  readonly busyLabel: string;
-  /**
-   * §2.3's fuzzy check, or **absent for a field that has none** (a dive centre — see
-   * `CatalogueAddition.similar`). Answers the near-matches to put to the diver, and `[]` for
-   * *"nothing like it"* and *"could not ask"* alike.
-   *
-   * **It never throws, and that is what keeps §1 whole.** `similarSites` (cloud/similarSites.ts)
-   * already guarantees it for the network half — a device at sea has no server to ask and the
-   * site is created anyway — and the `catch` in the implementation covers the other two things
-   * that can fail here: reading the device's own catalogue, and parsing the form. A check that
-   * threw would reach `runAddition` as an unhandled rejection and leave the diver holding a
-   * control that has gone quiet for good, which is the exact opposite of what the check is for.
-   */
-  readonly check?: () => Promise<Suggestion[]>;
-  readonly add: () => Promise<string | null>;
 }
 
 interface ControlledTextFieldProps {
@@ -1206,7 +1008,7 @@ interface ControlledTextFieldProps {
   /**
    * **The keyboard's opinion about a word, switched off for the fields that hold names** (M3n).
    *
-   * Forwarded straight to `FormField`, and set explicitly at the four call sites that need it
+   * Forwarded straight to `FormField`, and set explicitly at the two call sites that need it
    * rather than inferred from `history` — that prop says a field autocompletes, which is a
    * different question, and `FormFieldProps.autoCapitalize` already records why these look
    * joined and are not.
@@ -1225,53 +1027,21 @@ interface ControlledTextFieldProps {
   carryOver?: CarryOverControls;
   /**
    * The dives DESIGN.md §2.3's autocomplete draws on — `useDives()`'s own list, minus the
-   * dive being edited (see the render body). Passed at the four call sites §2.3 names and
-   * omitted at the other twenty-four.
+   * dive being edited (see the render body). Passed at `buddy` and `guide` and omitted
+   * everywhere else: §2.3's other two fields, site and centre, are `ControlledPlaceField`s and
+   * are chosen on a page of their own (issue #19).
    *
    * **Which column it draws from is decided by `name` alone**, through `asSuggestedField`
    * (domain/suggest.ts), never by a second prop spelling the field's name out again beside
    * the `name` this row already has — the same reasoning `CarryOverControls` above records
    * for its two callbacks. So a call site cannot ask for autocomplete on a field §2.3 does
    * not name, and cannot wire a row to the wrong column.
+   *
+   * **A pick fills the text and nothing else.** Buddies and guides *"stay private text, not
+   * user accounts"* (§2.3), so a suggestion's id is always `null` here and there is no pair for
+   * this row to keep — §6's pair belongs to the two place rows.
    */
   history?: Dive[];
-  /**
-   * Sets, or clears, the id paired with this field's name — DESIGN.md §6's `site_id` +
-   * `site_name` snapshot pair, and §10's own note on this task: "picking a suggestion sets
-   * both together and typing over a name clears the id — otherwise a dive carries one
-   * site's id under another's name."
-   *
-   * Both directions run through this one callback rather than through two, because they are
-   * one rule: the id belongs to whatever gesture last set the name. A no-op for `buddy` and
-   * `guide`, which have no id column (`pairedIdField` returns `null`), so this row does not
-   * have to know which of the four it is.
-   *
-   * **`name` is the whole pair, not a convenience.** Every gesture here hands over the
-   * spelling it is leaving in the field beside the id it is setting, so the screen holds §6's
-   * two halves as one fact rather than reading one of them back out of the form a moment
-   * later — which, for the two gestures that write the name and the id in different orders,
-   * would read back a name belonging to the gesture before. `SeedState.pairedNames` is what
-   * it feeds and what it is for. On the two clearing paths the id is `null` and this is simply
-   * the text the field now holds; nothing is pinned to a pair that no longer exists.
-   */
-  onPairedId?: (field: SuggestedField, id: string | null, name: string) => void;
-  /**
-   * §2.3's *add this to the catalogue* offer, asked of this row's own field and its own live
-   * text — `undefined` back when there is nothing to offer, which is most of the time and for
-   * several different reasons (§5's signed-in rule, an empty name, a name that already names a
-   * row). **Which reasons those are is the screen's**, exactly as `history` above leaves the
-   * ranking to `suggestFrom`: this row asks the question and draws the answer.
-   *
-   * Passed at the same four call sites `history` is, and gated inside by `pairedIdField`
-   * rather than by a second list of which fields have a catalogue — so a row can no more offer
-   * to publish a buddy than it can suggest one from the wrong column.
-   */
-  catalogue?: (field: SuggestedField, text: string) => CatalogueOffer | undefined;
-  /**
-   * The diver's units, for the one figure a suggestion row carries — a site's deepest dive
-   * (2026-11-14, the design canvas's suggestion row). Passed where `history` is.
-   */
-  units?: UnitSystem;
 }
 
 /**
@@ -1300,125 +1070,15 @@ function ControlledTextField({
   unit,
   carryOver,
   history,
-  onPairedId,
-  catalogue,
-  units,
 }: ControlledTextFieldProps) {
-  // Which of §2.3's four fields this row is, if it is one at all — read off the `name` this
-  // row already carries. See `history` above for why it is not a prop.
+  // Which of §2.3's fields this row is, if it is one at all — read off the `name` this row
+  // already carries. See `history` above for why it is not a prop.
   const suggested = asSuggestedField(name);
 
   // This row's place in the form's return-key walk (2026-11-14; components/FocusChain.tsx).
   // Every text field is a place the walk can land; notes takes no step of its own, because its
   // return key writes a new line.
   const step = useFocusChainStep(name, multiline !== true);
-
-  // §2.3's create offer, in flight and afterwards. Held HERE rather than in the screen, and
-  // rather than inside the `Controller` render prop below, for two different reasons: the
-  // render prop is a plain function call where a hook would be illegal, and the screen has no
-  // business knowing which of its rows is currently writing — `PresetCapture` keeps its own
-  // `saving` and its own note for the same reason.
-  /**
-   * What the row is doing, as one value rather than two booleans.
-   *
-   * The gesture has two waits in it now (M2p) — §2.3's fuzzy check, then the write — and they
-   * say different things: *Looking for a match…* and *Adding the site…*. Two flags would allow
-   * a fourth state that means nothing (checking **and** adding), and the row would have to
-   * decide which sentence wins. There is one thing happening at a time, so there is one value.
-   */
-  const [phase, setPhase] = useState<'idle' | 'checking' | 'adding'>('idle');
-  const [note, setNote] = useState<string | null>(null);
-
-  /**
-   * §2.3's near-matches, once the check has found some — held here, beside the row they are
-   * drawn under, exactly as `note` is and for the same reason: the screen has no business
-   * knowing which of its rows is currently asking a question.
-   *
-   * **Their presence is also the memory of "the diver has already been asked"**, which is what
-   * makes the second press mean *"no, add mine"* (§5) rather than another check. A separate
-   * `asked` flag would be a second answer to one question, able to disagree with the list on
-   * screen.
-   */
-  const [matches, setMatches] = useState<readonly Suggestion[]>([]);
-
-  /**
-   * Everything the offer has said about the name that was in the box. Both the refusal and the
-   * question describe **one particular spelling**, so both are dropped by every gesture that
-   * changes it — the rule `PresetCapture` follows for its own note, applied to the pair rather
-   * than to the sentence alone. A question about `Sharks Point` left standing over a field now
-   * reading `Sharks Point II` would be the app answering a question nobody asked.
-   *
-   * **Three callers, and only one of them can be caught dropping the question.** A keystroke
-   * can: the offer is still on screen afterwards under a new name, so a stale question would be
-   * visible. The other two — picking a name, and clearing the field — end with the offer *gone*
-   * (an answered question holds §6's id; an emptied field names nothing), so the question half
-   * is unobservable there and only the note half can fail. That is what the two tests for those
-   * paths assert, and it is why they assert the sentence rather than the question. The call
-   * stays whole on all three because the pair is one fact about one spelling, not because
-   * anything can catch two thirds of it.
-   */
-  const forgetOffer = () => {
-    setNote(null);
-    setMatches([]);
-  };
-
-  /**
-   * The press, which is now two acts in a fixed order: ask, then add.
-   *
-   * **The check runs once per name, and the second press is the diver's answer to it.** §5
-   * makes a near-match a suggestion and never a refusal — two real sites can have similar
-   * names and the diver is standing at one of them — so the way out is always the same control
-   * they already pressed, re-worded (`addAnyway`). Re-running the check on that press would
-   * put the same question back on screen and leave them no way through at all, which is the
-   * dead control §0.6 objects to, built out of a live one.
-   *
-   * **A found question leaves the note alone and the matches standing.** A failed *add* does
-   * too: the diver has already said "add anyway", and re-asking them on the retry would make a
-   * transient write failure cost them the answer they gave.
-   *
-   * **No ref latch, unlike the dive's own save, and that is a decision rather than an
-   * oversight** — the same one `ControlledPositionField` records: nothing here is async before
-   * the flag, `setPhase` runs inside the press handler itself, React flushes a discrete
-   * event's updates before delivering the next event, so a second tap always meets a shut
-   * control. `onValid` needs its ref because `handleSubmit` runs an async resolver ahead of it.
-   * A latch here would be a guard nothing could ever catch failing, and §10 declines those.
-   */
-  const runAddition = async (offer: CatalogueOffer) => {
-    // Cleared at the START of the attempt, never on a timer or a dismiss tap, so the sentence
-    // reads as "still true" for exactly as long as it still is — the rule `saveError` and
-    // `ControlledPositionField`'s own note both follow.
-    setNote(null);
-    try {
-      if (offer.check !== undefined && matches.length === 0) {
-        setPhase('checking');
-        const found = await offer.check();
-        if (found.length > 0) {
-          setMatches(found);
-          return;
-        }
-      }
-      setPhase('adding');
-      setNote(await offer.add());
-    } finally {
-      // Released on every path — the question, the failure and the row that now exists alike.
-      // One that left this shut would strand the diver on a control they cannot press again,
-      // which is the dead control the sentence above exists to prevent, from the other side.
-      setPhase('idle');
-    }
-  };
-
-  /**
-   * What the one row reads, in the order the states can be in.
-   *
-   * Written as a function rather than a nested ternary in the JSX because it is four sentences
-   * and the reason for each is different: two of them are what the row is *doing*, one is the
-   * act, and the last is the act after the diver has been asked a question about it.
-   */
-  const additionLabel = (offer: CatalogueOffer): string => {
-    if (phase === 'checking') return lookingForAMatch();
-    if (phase === 'adding') return offer.busyLabel;
-    return matches.length > 0 ? offer.insistLabel : offer.label;
-  };
 
   return (
     <Controller
@@ -1436,38 +1096,16 @@ function ControlledTextField({
         // Each one is drawn with what the diver has done under it (2026-11-14, the design
         // canvas's row): `suggestionHistory` counts the same dives the list is drawn from, the
         // way the logbook counts, and `display.ts` owns the words. Only for the few rows the
-        // list actually shows, so it is a pass per row over the same few thousand dives.
+        // list actually shows, so it is a pass per row over the same few thousand dives. No
+        // trailing figure: the canvas draws one for a site alone, and a site is chosen on its
+        // own page.
         const suggestions: OfferedSuggestion[] | undefined =
           suggested !== null && history !== undefined
-            ? suggestFrom(history, suggested, text).map((suggestion) => {
-                const done = suggestionHistory(history, suggested, suggestion.value);
-                return {
-                  ...suggestion,
-                  meta: formatSuggestionMeta(done, suggested),
-                  figure: units === undefined ? null : formatSuggestionFigure(done, suggested, units),
-                };
-              })
+            ? suggestFrom(history, suggested, text).map((suggestion) => ({
+                ...suggestion,
+                meta: formatSuggestionMeta(suggestionHistory(history, suggested, suggestion.value), suggested),
+              }))
             : undefined;
-        // §2.3's other answer to the same question the list answers — see `catalogue` above.
-        // Asked on every render off this field's live text, so the offer names what the diver
-        // is looking at and disappears the moment the dive holds the id.
-        const offer = suggested === null ? undefined : catalogue?.(suggested, text);
-        const addition: FieldAddition | undefined =
-          offer === undefined
-            ? undefined
-            : {
-                label: additionLabel(offer),
-                busy: phase !== 'idle',
-                onPress: () => void runAddition(offer),
-                // §2.3's near-matches, given their sentence here rather than in the check: what
-                // a diver is *asked* is a wording, and `similar_sites` returns rows. The
-                // suggestion travels whole, so the tap that answers the question goes through
-                // `onPickSuggestion` — the one path that sets §6's pair.
-                matches: matches.map((suggestion): FieldMatch => ({
-                  question: didYouMean(suggestion.value),
-                  suggestion,
-                })),
-              };
         return (
           <>
             <FormField
@@ -1478,21 +1116,8 @@ function ControlledTextField({
               // drops the chip") — dropping first, then forwarding, so a field currently
               // showing `carried` never renders even one frame of the new text beside a mark
               // that no longer describes it.
-              //
-              // It also clears the paired id: a name the diver typed no longer refers to the
-              // site the carried id names, and leaving the id behind is how a dive ends up
-              // carrying one site's id under another's name (§10). Nothing on screen would
-              // ever show that, which is why it happens on the same keystroke rather than
-              // being reconciled later.
               onChange={(newText) => {
                 carryOver?.onDrop(name);
-                if (suggested !== null) onPairedId?.(suggested, null, newText);
-                // A refusal — and, since M2p, a question — described the name that was in the
-                // box, and either one about a name the diver has already changed is a stale
-                // sentence: `PresetCapture` clears its own note on the same keystroke and for
-                // the same reason. It also puts the offer back to `Add …` from `… anyway`,
-                // which is right: the next press is about a new name and has not been checked.
-                forgetOffer();
                 field.onChange(newText);
               }}
               onBlur={field.onBlur}
@@ -1513,15 +1138,9 @@ function ControlledTextField({
               // `''` — never this field's current (possibly numeric-looking) value — so a
               // cleared cylinder size reaches `field.onChange` (and from there
               // `diveFormSchema.ts`'s coercion contract) as the same empty string
-              // `optionalNumber` turns into `null`, not a derived `0`. An emptied name refers
-              // to no site at all, so the paired id goes with it for the same reason typing
-              // clears it.
+              // `optionalNumber` turns into `null`, not a derived `0`.
               onClear={(emptied) => {
                 carryOver?.onClear(name);
-                if (suggested !== null) onPairedId?.(suggested, null, emptied);
-                // An emptied field names nothing, so a standing question about what it used to
-                // name goes with it — the same rule the keystroke above follows.
-                forgetOffer();
                 field.onChange(emptied);
               }}
               suggestions={suggestions}
@@ -1532,41 +1151,203 @@ function ControlledTextField({
               }
               returnKeyType={step?.returnKeyType}
               onSubmitEditing={step?.onSubmitEditing}
-              // Picking is the one gesture that SETS the pair, and it sets both halves from
-              // the same suggestion — which `suggestFrom` already guarantees came from one
-              // dive. Deliberately not routed through `onChange` above, which would clear the
-              // id in the same breath as setting it.
-              // ...and, since M2p, the one gesture that ANSWERS §2.3's fuzzy check: *"one tap
-              // picks the existing site instead"* is this exact path, which is why the check
-              // hands its near-matches back as `Suggestion`s rather than growing a second way
-              // to set a pair. The question goes when it has been answered — the field now
-              // holds the catalogue's own spelling and the id that goes with it, so there is
-              // nothing left to ask and nothing left to add.
+              // Picking is overwriting by another gesture, so it drops the mark exactly as
+              // typing does.
               onPickSuggestion={
                 suggested === null
                   ? undefined
                   : (suggestion) => {
                       carryOver?.onDrop(name);
-                      onPairedId?.(suggested, suggestion.id, suggestion.value);
-                      forgetOffer();
                       field.onChange(suggestion.value);
                     }
               }
-              addition={addition}
             />
-            {/* One note under one row, so one sentence — the `??` chain
-                `ControlledOptionField` below already uses to join a field's own refusal to a
-                second sentence about the same row.
-
-                **The order is not a rule, and saying so is the point.** The two cannot both be
-                set: no field with a blocking rule is offered a catalogue row, and `siteName`
-                and `centerName` have none, so nothing can reach the branch where one outranks
-                the other. It was written as a precedence with a paragraph defending it, and
-                the mutation that swaps the two sides stays green — which is what a claim
-                nothing can falsify looks like. The chain stays because it is the idiom; the
-                claim goes. */}
-            <FieldNote message={fieldState.error?.message ?? note ?? undefined} scheme={scheme} />
+            <FieldNote message={fieldState.error?.message} scheme={scheme} />
           </>
+        );
+      }}
+    />
+  );
+}
+
+/** What an empty place row reads — §0.6's call to action for a value that is *taken* rather than
+ * typed, in the words of the page it opens. */
+function choosePlaceLabel(kind: PlaceKind): string {
+  return t(kind === 'site' ? 'form.chooseSite' : 'form.chooseCentre');
+}
+
+/** The two columns of a catalogue row its caption is made of — a site or a centre alike. */
+type CaptionedPlace = { id: string; country: string | null; dirty: boolean };
+
+/**
+ * The muted line under a paired name: where its catalogue row lives. **On this phone only** for a
+ * guest's row, which nothing pushes until they sign in (§5; issue #19, where a guest creates rows
+ * too); otherwise the row's country as the stored ISO code, the way `formatCenterRow` shows one;
+ * and nothing for a row this device does not hold or that knows no country.
+ *
+ * A signed-in diver's unpushed row reads its country like any other: it is on its way to the
+ * community, and a pending push is §7.5's indicator's to show rather than this row's.
+ */
+function placeCaption(place: CaptionedPlace | undefined, signedIn: boolean): string | null {
+  if (place === undefined) return null;
+  if (place.dirty && !signedIn) return t('form.onThisPhoneOnly');
+  return place.country !== null && place.country !== '' ? place.country : null;
+}
+
+interface ControlledPlaceFieldProps {
+  control: FormControl;
+  name: 'siteName' | 'centerName';
+  label: string;
+  scheme: ColorScheme;
+  /** §0.6's carried treatment — see `CarryOverControls`. */
+  carryOver: CarryOverControls;
+  /**
+   * Sets, or clears, the id paired with this row's name — DESIGN.md §6's `site_id` + `site_name`
+   * pair, and §10's rule that the two move together: *"otherwise a dive carries one site's id
+   * under another's name."* The screen's `setPairedId`, which also runs §2.1's site defaults.
+   *
+   * **`name` is the whole pair, not a convenience.** A pick hands over the spelling it is leaving
+   * in the row beside the id it is setting, so the screen holds §6's two halves as one fact
+   * rather than reading the name back out of the form before the `Controller` has delivered it.
+   * `SeedState.pairedNames` is what it feeds.
+   */
+  onPairedId: (field: SuggestedField, id: string | null, name: string) => void;
+  /** What the picker needs to know about this dive, read at the press — the pin, water and entry
+   * a new site inherits, and the paired site a centre is ranked near. */
+  diveContext: () => DiveContext;
+  /** Whether anyone is signed in, for the caption's *on this phone only*. */
+  signedIn: boolean;
+}
+
+/**
+ * **The Site and Centre rows** (issue #19): a row that opens *Choose a site* / *Choose a centre*
+ * rather than a box to type into. Every name on a dive is a picked or created catalogue row, so
+ * there is no way to leave a typed name in the field — #19's fifth defect, closed by having no
+ * keyboard here at all.
+ *
+ * `DateTimeField`'s and the GPS row's anatomy: the label leading, the value trailing in the name's
+ * own face (Archivo Medium 16, wrapping and never truncated), a hairline on the top edge, the press
+ * behind the value slot, and the `label: value` announcement every read-back row on this form
+ * makes. Empty, the value is the call to action, muted. Paired, the caption sits under the name.
+ * Carried, the return mark and the ring stand at the trailing edge exactly as on a carried text
+ * row, and the ring empties name and id together and leaves `— cleared`.
+ *
+ * **A pick goes through the one path that sets §6's pair** (`onPairedId`, the screen's
+ * `setPairedId`, which applies §2.1's site defaults), and *No centre* — the empty pick — through
+ * the ring's. The picker is a page pushed over this form, which stays mounted underneath; the pick
+ * comes back through `navigation/placePick.ts`, which is why this row hands it a callback.
+ *
+ * Each row reads its own catalogue table for the caption and never the other's — hence one small
+ * component per table in front of `PlaceField`, rather than both hooks in every row.
+ */
+function ControlledPlaceField(props: ControlledPlaceFieldProps) {
+  return props.name === 'siteName' ? <SitePlaceField {...props} /> : <CentrePlaceField {...props} />;
+}
+
+function SitePlaceField(props: ControlledPlaceFieldProps) {
+  const { sites } = useDiveSites();
+  return <PlaceField {...props} kind="site" places={sites} />;
+}
+
+function CentrePlaceField(props: ControlledPlaceFieldProps) {
+  const { centers } = useDiveCenters();
+  return <PlaceField {...props} kind="center" places={centers} />;
+}
+
+function PlaceField({
+  control,
+  name,
+  label,
+  scheme,
+  carryOver,
+  onPairedId,
+  diveContext,
+  signedIn,
+  kind,
+  places,
+}: ControlledPlaceFieldProps & { kind: PlaceKind; places: readonly CaptionedPlace[] }) {
+  const styles = makeStyles(scheme);
+  // The id half of the pair, watched rather than read once: a pick, the ring and carry-over's
+  // reseed all move it, and the caption has to follow. `toInputString` is the one owner of
+  // reading a raw form value as text.
+  const heldId = toInputString(useWatch({ control, name: kind === 'site' ? 'siteId' : 'centerId' })).trim();
+  const id = heldId === '' ? null : heldId;
+  // Nothing for a name without an id — a carried value from old data names no row.
+  const caption = id === null ? null : placeCaption(places.find((row) => row.id === id), signedIn);
+
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const text = toInputString(field.value);
+        // A catalogue row with no name is still a place (§6 lets the column be null), so a pair
+        // with no spelling reads as the picker's *Selected* line reads it, never as an empty row.
+        const unnamed = kind === 'site' ? unnamedSite : unnamedCenter;
+        const placeName = text.trim() !== '' ? text : id !== null ? unnamed() : null;
+        // `FormField`'s own guard: the tag is a claim about what the row holds, so it is drawn
+        // only over a row that holds nothing.
+        const cleared = carryOver.cleared.has(name) && placeName === null;
+        const shown = placeName ?? (cleared ? clearedAnnouncement() : choosePlaceLabel(kind));
+
+        // The ring's gesture, and *No centre*'s: name and id together, and `— cleared` left.
+        const empty = () => {
+          carryOver.onClear(name);
+          onPairedId(name, null, '');
+          field.onChange('');
+        };
+        const pick = (place: PlacePick) => {
+          if (place.id === null) {
+            empty();
+            return;
+          }
+          carryOver.onDrop(name);
+          onPairedId(name, place.id, place.name);
+          field.onChange(place.name);
+        };
+
+        return (
+          <View style={styles.formField}>
+            <View style={[styles.formFieldRow, styles.formFieldCard]}>
+              <Text style={styles.formFieldLabel}>{label}</Text>
+              <Pressable
+                style={styles.formFieldPlace}
+                onPress={() =>
+                  openPlacePicker({
+                    kind,
+                    // What the row holds, so the picker can mark it — as it reads, not tidied.
+                    selected: placeName === null ? null : { id, name: text },
+                    dive: diveContext(),
+                    onPick: pick,
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={t('field.labelValue', { label, value: shown })}
+                // The label hides what is drawn inside the press, so the caption is said here —
+                // a screen reader hears where the row lives as a sighted diver reads it.
+                accessibilityHint={caption ?? undefined}
+              >
+                {placeName !== null ? (
+                  <Text style={styles.formFieldPlaceName}>{placeName}</Text>
+                ) : cleared ? (
+                  <Text style={styles.formFieldCleared}>{clearedTag()}</Text>
+                ) : (
+                  <Text style={styles.formFieldPlaceNameUnset}>{shown}</Text>
+                )}
+                {caption !== null && <Text style={styles.formFieldPlaceCaption}>{caption}</Text>}
+              </Pressable>
+              {carryOver.paths.has(name) && (
+                <View style={styles.formFieldCarryState}>
+                  <CarriedMark scheme={scheme} />
+                  <ClearFieldControl
+                    accessibilityLabel={t('field.clearCarried', { label })}
+                    onPress={empty}
+                    scheme={scheme}
+                  />
+                </View>
+              )}
+            </View>
+          </View>
         );
       }}
     />
@@ -2644,8 +2425,8 @@ function carriedFromLabel(sourceNumber: number | undefined): string {
  * The three fields `computeCarriedPaths` marks that **no row can show a mark for**, and
  * therefore the three that must not make the caption above appear.
  *
- * `siteId` and `centerId` are §6's half of the site snapshot: written by picking a suggestion,
- * never typed, so they have no row at all (`OFF_FORM_FIELDS` already says so for a different
+ * `siteId` and `centerId` are §6's half of the site snapshot: written by a pick on the Site or
+ * Centre row, never typed, so they have no row at all (`OFF_FORM_FIELDS` already says so for a different
  * rule). `equipment` has five rows and no single one of them: it is a token set of Yes/No
  * chips, so there is nowhere for one mark and one clear to sit, and `[]` is itself a real
  * carried answer meaning "no accessories" that a clear control could not distinguish itself
@@ -3198,9 +2979,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   };
 
   // The id half of DESIGN.md §6's `site_id` + `site_name` snapshot pair, moved by whatever
-  // gesture last set the name: a picked suggestion's own id, or `null` when the diver typed
-  // or cleared the name by hand. Shared by all four autocompleting fields, like `dropCarried`
-  // above, so there is one place that can get the pairing wrong rather than four.
+  // gesture last set the name: a pick's own id, or `null` when the diver emptied the row (the
+  // ring, or *No centre*). Shared by the Site and Centre rows, like `dropCarried` above, so there
+  // is one place that can get the pairing wrong rather than two.
   //
   // **`siteId` and `centerId` gain no visible row from this.** They are not fields a diver
   // types — §6 stores them as the app's half of a snapshot — so they are written straight
@@ -3212,16 +2993,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // no `Controller` of its own to record one — a flagged `setValue` is the only thing that
   // ever can.
   //
-  // **One test in this suite used to answer for the flag, and it was answering for the wrong
-  // thing.** `applySiteDefaults` runs on this same tap, and a flagged write whose value happens
-  // to EQUAL the seed's makes react-hook-form re-derive the whole dirty set from the
-  // values/seed diff instead of recording the one field — which sweeps this id in behind it.
-  // A site that answers for none of its three columns writes exactly such values, so *keeps a
-  // picked paired id when carry-over resolves again afterwards* is rescued by the fill and
-  // stays green with this flag deleted; it takes the fill's flag as well to turn it red. What
-  // does pin this one alone is *keeps the pair when a newer dive lands while the row is still
-  // being written*, whose diver has answered the three water rows — so the fill writes nothing
-  // on that tap, nothing re-derives, and this flag is the only thing holding the id.
+  // **Two tests reach this flag, and only one of them can fail on it.** The pick writes the
+  // name through the `Controller` straight after this, and a write that differs from the seed's
+  // on a form this id has just made dirty makes react-hook-form re-derive the whole dirty set
+  // from the values/seed diff instead of recording the one field — which sweeps this id in
+  // behind it. So *keeps a picked paired id when carry-over resolves again afterwards* stays
+  // green with this flag deleted. What pins it is *keeps both halves of the pair when a newer
+  // dive lands on a picked name*: the name it picks is the one the seed already holds, so that
+  // write is pristine, nothing re-derives, and this flag is the only thing holding the id.
   //
   // **The name half cannot be kept by a flag at all, and that is what `name` is here for.**
   // A gesture that spells the name the seed already holds records nothing — the write is
@@ -3237,31 +3016,33 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // a chip for an id today (`computeCarriedPaths` marks it, nothing reads that mark), but a
   // set that still called the id carried after the diver replaced it would be wrong in the
   // quiet way that only shows up the day something does read it.
-  /**
-   * **§5: *"any signed-in user can add a site or center"* — and a guest is told nothing.**
-   *
-   * The offer below is simply absent without a session, which is the whole of what the form
-   * says about it. §1 makes the account optional (*"an account is only needed to back up, sync
-   * a second device, and contribute named sites"*), and the two alternatives both break it: a
-   * row that says *"sign in to add this"* is a control that cannot act — the dead control §0.6
-   * complains about in four places — and it would sit under the site field of the app's
-   * most-used gesture, on every dive, which is a nag by any reading. The place a diver asks
-   * what an account is for is the account screen, which answers there in one sentence and
-   * gates nothing.
-   *
-   * `session === null` rather than `resolved`, deliberately: a keychain that has not answered
-   * yet is a form drawn with no offer, and the offer appears when the answer arrives. Nothing
-   * is claimed in the meantime — the absence of a control states nothing, which is exactly the
-   * distinction M1f's waiting frame turns on.
-   */
+
+  // Whether anyone is signed in — for the place rows' caption alone, which says *on this phone
+  // only* under a guest's own unpublished row (issue #19). `session === null` rather than
+  // `resolved`: a keychain that has not answered yet reads as a guest for a frame, which costs a
+  // caption, never a gesture.
   const signedIn = useAuthSession().session !== null;
 
-  // The id half of §6's pair, watched rather than read once: it is written by `setPairedId`
-  // below (and by carry-over through a reseed), and the offer has to disappear the instant the
-  // dive holds one. `useWatch`, for `chosenStatus`' own reason — `getValues` would produce the
-  // right answer once and then never change.
-  const heldSiteId = useWatch({ control, name: 'siteId' });
-  const heldCenterId = useWatch({ control, name: 'centerId' });
+  /**
+   * **What the *Choose a site / Choose a centre* page is told about this dive**, read at the
+   * press so the chips and the pin the diver set a moment ago are in it.
+   *
+   * The pin, water and entry are `siteFactsFrom`'s answer (domain/diveFormSchema.ts) — §2.3's
+   * one owner of what a dive may hand a new site, pin both-or-neither, values coerced the way the
+   * save path coerces them — so the *New dive site* page prefills from exactly what that rule
+   * allows and from nothing else. Its name half is not the picker's business (the page names the
+   * row from what the diver typed into its search) and is dropped here. `pointOf` then answers
+   * whether the pair is a place at all. `siteId` is the dive's paired site, which the centre
+   * picker ranks centres near.
+   *
+   * A plain function: it is called on a press, and nothing holds on to its identity.
+   */
+  const diveContext = (): DiveContext => {
+    const values = getValues();
+    const { latitude, longitude, entry, salinity, waterBody } = siteFactsFrom(toInputString(values.siteName), values);
+    const siteId = toInputString(values.siteId).trim();
+    return { pin: pointOf({ latitude, longitude }), entry, salinity, waterBody, siteId: siteId === '' ? null : siteId };
+  };
 
   /**
    * **DESIGN.md §2.1's site defaults, applied to the three rows §2.2 calls properties of the
@@ -3280,7 +3061,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * re-decide those three rows on every new dive at a site the diver has dived before — the
    * site's generic answer overwriting the answer their own last dive at that very site gave,
    * which is worse evidence, not better. §2.1's sentence says *picking*, and this is wired to
-   * the two gestures that pair a dive to a site rather than to the field's value.
+   * the gesture that pairs a dive to a site — a pick on the *Site* row — rather than to the
+   * field's value.
    *
    * **Create mode only.** Edit mode shows a dive's OWN stored data (`seedStateFor`), and those
    * three columns are then the diver's record of the water they were actually in. Filling them
@@ -3296,22 +3078,22 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * to answer. **Following a merge is deliberately not done here**: M2r owns where a merged row
    * sends a dive, it does it on the pull that delivers the merge, and a second implementation
    * on this screen is the defect that report's own §8 warns whoever builds the merge screen
-   * about. A pick can barely produce one anyway — `nearMatches` reads `pickable` rows and
-   * `suggestFrom` reads dives the repair has already repointed.
+   * about. A pick can barely produce one anyway — the picker lists only `pickable` rows
+   * (`diveSiteRowsQuery`).
    *
    * §1, *never block a save*: the read is a by-product, so a rejection is the same answer as a
-   * row that says nothing rather than something the diver has to deal with — the shape
-   * `catalogueOffer`'s own check already uses two functions down, for the same reason.
+   * row that says nothing rather than something the diver has to deal with (`pairedSite`).
    *
    * ── The marks ────────────────────────────────────────────────────────────────────────────
    *
    * §0.6's return mark says *this came from your last dive*, and it is dropped exactly where
    * that stops being true: on a row whose value the site replaced (`SiteDefaultFill.fromSite`),
    * and never on one where the site merely agrees with carry-over. That second half is what
-   * makes adding a site (§2.3, M2o) leave this form exactly as it found it — the row was seeded
-   * *from this dive* by `siteFactsFrom`, so reading it back can only say what carry-over
-   * already said, and a rule keyed on "the site supplied a value" rather than on "the site
-   * replaced one" would silently strip three marks for no change in value at all.
+   * makes creating a site from the picker (issue #19) leave this form exactly as it found it —
+   * the *New dive site* page prefilled the row *from this dive* (`diveContext`, through
+   * `siteFactsFrom`), so reading it back can only say what carry-over already said unless the
+   * diver changed it there, and a rule keyed on "the site supplied a value" rather than on "the
+   * site replaced one" would silently strip three marks for no change in value at all.
    *
    * **A site default gets no mark of its own, and that is the decision** rather than a gap; the
    * report for this task carries the argument. The short of it: the mark's legend names a dive
@@ -3334,14 +3116,13 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     async (id: string | null) => {
       if (mode !== 'create') return;
       // Unpairing is the same rule with nothing in tier 2, so it needs no branch of its own —
-      // but it reaches here on every keystroke in the site name field, and there is nothing to
-      // recompute once the site has stopped answering for anything. A narrowing, not a rule:
-      // removing it writes the same values.
+      // and there is nothing to recompute while no site is answering for anything, which is
+      // every time the ring unpairs a carried site (a pick drops the ring with the mark). A
+      // narrowing, not a rule: removing it writes the same values.
       if (id === null && carriedRef.current.fromSite.size === 0) return;
       const site = id === null ? null : await pairedSite(id);
-      // The diver moved on while the read was out — picked another site, or typed over the
-      // name, which is `siteId` back to null. Either way this answer is about a site the dive
-      // is no longer at.
+      // The diver moved on while the read was out — picked another site, so this answer is
+      // about a site the dive is no longer at.
       if (toInputString(getValues('siteId')).trim() !== (id ?? '')) return;
       const { typed, values } = carriedRef.current;
       const fills = siteDefaultFills(site, values, typed);
@@ -3356,10 +3137,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // and without the flag all three rows go back to carry-over's answers while the diver is
       // looking at the site they picked. `keepDirtyValues` does NOT preserve the union of the
       // fields it was told are dirty and the fields whose value merely differs from the
-      // defaults: 7.87 keeps what is recorded in `dirtyFields` and nothing else. `setPairedId`
-      // above names the one side effect that reading was seeing — and this loop is where that
-      // side effect comes from, since a site with nothing to say writes carry-over's own values
-      // straight back.
+      // defaults: 7.87 keeps what is recorded in `dirtyFields` and nothing else — `setPairedId`
+      // above names the re-derivation that reading was seeing.
       for (const fill of fills) setValue(fill.field, fill.value, { shouldDirty: true });
       setCarried((prev) => {
         const paths = new Set(prev.paths);
@@ -3394,158 +3173,27 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       dropCarried(idField);
       setCarried((prev) => {
         const pairedNames = new Map(prev.pairedNames);
-        // The name is the caller's rather than `getValues(field)`, because the two gestures
-        // that set a pair write the name at different moments — a pick sets the id first and
-        // lets the `Controller` deliver the spelling after, an add writes the spelling first
-        // and pairs it after — so reading the form here would capture the previous name for
-        // one of them. It is also the trimmed spelling in the `add` case, which is the string
-        // §6's snapshot actually stores.
+        // The name is the caller's rather than `getValues(field)`, because a pick sets the id
+        // first and lets the `Controller` deliver the spelling after — so reading the form here
+        // would capture the name the row held before the pick.
         //
         // **The unpairing half is honesty rather than a guard, and no test can falsify it.**
-        // Every gesture that reaches here with a `null` id is the diver typing over the name
-        // or emptying it, and both go through the `Controller` — which records the field, so
-        // `keepDirtyValues` keeps what they left there and a stale pin could never win a
-        // reseed anyway. It is deleted because a map that still claimed a pair the form no
+        // Every gesture that reaches here with a `null` id — the ring, *No centre* — writes `''`
+        // through the `Controller` straight after, and a seed holds an absent name as `null`, so
+        // the field is recorded and `keepDirtyValues` keeps the blank; a stale pin could never
+        // win a reseed. It is deleted because a map that still claimed a pair the form no
         // longer holds would be wrong in the quiet way `dropCarried` above is deleted for.
         if (id === null) pairedNames.delete(field);
         else pairedNames.set(field, name);
         return { ...prev, pairedNames };
       });
-      // **Only the site half**, and the asymmetry is `centerFactsFrom`'s own, read backwards:
-      // a dive knows a great deal about the site it happened at and nothing about the shop on
-      // shore, so §2.3 gives a new centre its name alone and a centre has nothing to give back.
+      // **Only the site half**, and the asymmetry is §2.3's own, read backwards: a dive knows a
+      // great deal about the site it happened at and nothing about the shop on shore, so a new
+      // centre inherits its name alone and a centre has nothing to give back.
       if (idField === 'siteId') void applySiteDefaults(id);
     },
     [setValue, dropCarried, applySiteDefaults],
   );
-
-  /**
-   * **Whether this field's text is worth publishing, and the sentence to publish it with** —
-   * `ControlledTextField`'s `catalogue` prop, asked once per row per render.
-   *
-   * Four things keep the offer away, and each is a different question:
-   *
-   * 1. **The field has no catalogue at all.** `pairedIdField` (domain/suggest.ts) owns that,
-   *    and answering it here rather than at the call sites is what stops a buddy ever being
-   *    offered up as a community record.
-   * 2. **Nobody is signed in** (§5) — see `signedIn` above for what a guest is told.
-   * 3. **There is no name.** An empty field names no place; the offer appears with the first
-   *    character and the trimmed spelling is what the row would carry.
-   * 4. **The name already names a row.** Twice over, because there are two ways to know: the
-   *    dive in front of the diver already holds a paired id (they picked a suggestion, or
-   *    carry-over brought both halves across), or some dive in their own history pairs this
-   *    same name with an id (`hasPairedId`). Either way a second row would be a duplicate of
-   *    something this logbook can already see.
-   *
-   * **What is deliberately NOT a reason, and this is where M2p landed.** The community
-   * catalogue — the device's copy of it, and the server's — is *not* one of the four gates.
-   * A diver typing the name of a site they have never dived is still offered the row, and what
-   * happens instead is that pressing it asks §2.3's fuzzy check first (`check` below).
-   *
-   * That is the shape rather than a stage on the way to suppressing the offer, and the reason
-   * is what M2o found when it declined to half-build this: an offer that simply *vanished* on
-   * a catalogue hit would take the diver's only gesture away and put nothing on screen to say
-   * why. §2.3's own answer is a question with a row to tap — *"Did you mean Shark Point?"*,
-   * one tap picks the existing site — and a question can only be asked by something that is
-   * still there to ask it. §5 agrees from the other side: two real sites can have similar
-   * names and the diver is standing at one of them, so this must end in a suggestion and never
-   * in a refusal.
-   *
-   * **What is still not built** is §5's other half — *"when a site created offline is pushed,
-   * the server reruns the fuzzy check and flags likely duplicates for a one-tap merge by the
-   * creator"*. `push_changes` makes no similarity call, and §6 gives `dive_sites` nowhere to
-   * put such a flag: `status` and `merged_into` describe a merge that has already happened,
-   * not a suspicion about one.
-   *
-   * A plain function rather than a `useCallback`, unlike `dropCarried` and `setPairedId`
-   * above: nothing depends on its identity, and every value it closes over — `history`, the two
-   * watched ids — is rebuilt each render anyway, so memoising it would buy a stale answer at
-   * best. Same reasoning `carryOver` above records for being rebuilt each render.
-   */
-  const catalogueOffer = (field: SuggestedField, text: string): CatalogueOffer | undefined => {
-    const idField = pairedIdField(field);
-    if (idField === null) return undefined;
-    if (!signedIn) return undefined;
-    const name = text.trim();
-    if (name === '') return undefined;
-    // `toInputString` (diveFormSchema.ts) rather than a cast or a truthiness test: this is a
-    // raw form value, which is a string when this screen wrote it and whatever a seeded dive
-    // held otherwise, and there is one owner of reading one as text.
-    if (toInputString(idField === 'siteId' ? heldSiteId : heldCenterId).trim() !== '') return undefined;
-    if (hasPairedId(history, field, name)) return undefined;
-    const kind = CATALOGUE_ADDITIONS[idField];
-    const label = kind.offer(name);
-    const similar = kind.similar;
-    return {
-      label,
-      insistLabel: addAnyway(label),
-      busyLabel: kind.busy(),
-      // Only built when the table has a check at all (§5: there is no `similar_centers`), so a
-      // centre's press goes straight to the write and never pauses on a question that cannot
-      // be asked. `undefined` rather than a function answering `[]`, so the row can tell the
-      // two apart.
-      check:
-        similar === undefined
-          ? undefined
-          : async () => {
-              try {
-                // The same `getValues()` the write below uses, for the same reason: the check
-                // has to be about the row that would be created, pin included.
-                return await similar(name, getValues());
-              } catch {
-                // §1, in the direction this whole feature has to hold in: the check is a
-                // by-product of the by-product. `similarSites` already answers `[]` for every
-                // way of failing to reach a server; this covers the two that are local — the
-                // device's own catalogue read, and parsing the form — and turns them into the
-                // same answer, which is the answer a diver at sea gets anyway. Anything that
-                // escaped here would strand the row mid-gesture with nothing on screen.
-                return [];
-              }
-            },
-      add: async () => {
-        try {
-          // `getValues()` rather than a watched copy: the row is made from the dive as it
-          // stands at the moment of the press, and `siteFactsFrom` reads five fields this
-          // screen does not otherwise subscribe to.
-          const id = await kind.create(name, getValues());
-          // The trimmed spelling goes back into the field, so §6's snapshot and the row it
-          // points at are the same string — the same thing picking a suggestion does when it
-          // writes the catalogue's own spelling.
-          //
-          // **This write carried `{ shouldDirty: true }` until the pin below existed, and it
-          // does not any more.** The flag was for one path — this write landing after an
-          // await, onto a field a reseed has already re-synced — where a recorded value is
-          // what survives the NEXT reseed (`setPairedId` above, for what `keepDirtyValues`
-          // actually keeps). It could never cover the path beside it: a spelling equal to the
-          // one the seed already holds records nothing at all, so publishing a *carried* name
-          // left the id behind under the next source's name, which is §10's own autocomplete
-          // defect arriving through a race.
-          //
-          // `setPairedId` below now pins the name into the seed (`SeedState.pairedNames`), and
-          // it pins it on both paths, in the same call that sets the id — so the flag guarded
-          // nothing the pin does not already guard, and no mutation could tell it from a
-          // no-op. §10's remedy for a guard nothing can falsify is to remove it rather than to
-          // defend it. *keeps the pair when a newer dive lands while the row is still being
-          // written* is the mid-flight path, tested against the pin instead.
-          //
-          // The carried mark is deliberately NOT dropped here. §0.6 drops it on
-          // *overwriting*, and nothing was overwritten: a carried site name that the diver has
-          // now published is still the name their last dive had. The pin does not change that
-          // — it drops the mark only on a reseed that would have replaced the name, which is
-          // the moment the mark stops being true. Clearing the row afterwards still unsets the
-          // id, because `onClear` routes through `onPairedId` like any other gesture that
-          // empties a name.
-          setValue(field, name);
-          setPairedId(field, id, name);
-          return null;
-        } catch {
-          // §1: the dive is the thing being logged and the row is a by-product. Nothing here
-          // reaches the save path, and the dive goes on holding its name snapshot (§6).
-          return catalogueAddFailed();
-        }
-      },
-    };
-  };
 
   /**
    * §2.1's "apply the whole cylinders-and-gas block in one tap".
@@ -3910,36 +3558,28 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               — and a control that cannot produce `31.8.2026` removes that case rather than
               adjudicating it. Required (§2.2), so no `optional`, and therefore no `×`. */}
           <ControlledDateTimeField control={control} name="date" label={t('field.date')} mode="date" scheme={scheme} />
-          {/* Two of §2.3's four autocompleting fields. `history` and `onPairedId` are what
-              turn autocomplete on here; which column each draws from, and which id pairs
-              with it, come from the `name` above — see `ControlledTextFieldProps.history`. */}
-          <ControlledTextField
+          {/* Chosen on a page of their own rather than typed (issue #19): each row opens *Choose
+              a site* / *Choose a centre*, and the pick comes back through `setPairedId`, the one
+              path that sets §6's pair and §2.1's site defaults. */}
+          <ControlledPlaceField
             control={control}
             name="siteName"
             label={t('field.site')}
             scheme={scheme}
             carryOver={carryOver}
-            history={history}
-            units={units}
             onPairedId={setPairedId}
-            catalogue={catalogueOffer}
-            autoCapitalize="words"
-            autoCorrect={false}
-            spellCheck={false}
+            diveContext={diveContext}
+            signedIn={signedIn}
           />
-          <ControlledTextField
+          <ControlledPlaceField
             control={control}
             name="centerName"
             label={t('field.centre')}
             scheme={scheme}
             carryOver={carryOver}
-            history={history}
-            units={units}
             onPairedId={setPairedId}
-            catalogue={catalogueOffer}
-            autoCapitalize="words"
-            autoCorrect={false}
-            spellCheck={false}
+            diveContext={diveContext}
+            signedIn={signedIn}
           />
         </View>
 
@@ -4344,13 +3984,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
 
         <FormGroup {...groupProps('people')}>
           {/* §2.3's other two: "Buddies and guides autocomplete from your own past entries
-              only — they stay private text, not user accounts." So they autocomplete exactly
-              as site and centre do, and `onPairedId` finds no id column to move. **They are
-              handed `catalogue` for the same reason they are handed `onPairedId`**: the answer
-              comes from the field's own name through `pairedIdField`, so a row can no more
-              offer to publish a buddy than it can suggest one from the wrong column — and the
-              alternative, passing it at two call sites out of four, is the hand-maintained
-              second list §4.1 warns about. */}
+              only — they stay private text, not user accounts." So they keep the inline list
+              under the row, from their own column of the diver's history (`history`), and
+              nothing on them pairs with a catalogue row. */}
           <ControlledTextField
             control={control}
             name="buddy"
@@ -4358,9 +3994,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
-            units={units}
-            onPairedId={setPairedId}
-            catalogue={catalogueOffer}
             autoCapitalize="words"
             autoCorrect={false}
             spellCheck={false}
@@ -4372,9 +4005,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             carryOver={carryOver}
             history={history}
-            units={units}
-            onPairedId={setPairedId}
-            catalogue={catalogueOffer}
             autoCapitalize="words"
             autoCorrect={false}
             spellCheck={false}

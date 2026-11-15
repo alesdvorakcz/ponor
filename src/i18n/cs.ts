@@ -604,16 +604,12 @@ export const cs = {
       ratingLevel: '{{label}}: {{level}} z {{max}}',
       saveFailed: 'Tento ponor se nepodařilo uložit. Zkuste to znovu.',
       missingDive: 'Ten ponor se nepodařilo najít — možná byl smazán.',
-      addSite: 'Přidat „{{name}}“ jako novou lokalitu',
-      addCentre: 'Přidat „{{name}}“ jako nové potápěčské centrum',
-      addingSite: 'Přidávám lokalitu…',
-      addingCentre: 'Přidávám centrum…',
-      addFailed: 'Teď se to nepodařilo přidat — ponor si název ponechá.',
-      /** *i tak* goes at the END in Czech, where English's *anyway* also does — so the offer
-       * can still be interpolated whole rather than written out a second time per table. */
-      addAnyway: '{{offer}} i tak',
+      /** The infinitive, as *Použít moji polohu* on the GPS row: what pressing the row does. The
+       * page it opens is titled in the imperative (`picker.titleSite`). */
+      chooseSite: 'Vybrat lokalitu',
+      chooseCentre: 'Vybrat centrum',
+      onThisPhoneOnly: 'jen v tomto telefonu',
       didYouMean: 'Nemysleli jste „{{name}}“?',
-      lookingForMatch: 'Hledám shodu…',
       dateInvalid: 'Zadejte skutečné datum (RRRR-MM-DD).',
       unknownOption:
         'Tato hodnota pochází z novější verze Ponoru. Ukládá se tak, jak je — nahradíte ji výběrem některé z možností.',

@@ -701,8 +701,9 @@ export const en = {
       gas: 'Gas',
     },
 
-    /** §2.2's dive form — its own chrome, its refusals, and §2.3's catalogue offers. Every field
-     * label it draws is `field.*` above, shared with the detail it will be read back on. */
+    /** §2.2's dive form — its own chrome, its refusals, and what its Site and Centre rows read.
+     * Every field label it draws is `field.*` above, shared with the detail it will be read back
+     * on. */
     form: {
       headingNewDive: 'New dive',
       headingNewPlan: 'New plan',
@@ -748,14 +749,14 @@ export const en = {
       ratingLevel: '{{label}}: {{level}} of {{max}}',
       saveFailed: "Couldn't save this dive. Try again.",
       missingDive: "Couldn't find that dive — it may have been deleted.",
-      addSite: 'Add “{{name}}” as a new site',
-      addCentre: 'Add “{{name}}” as a new dive centre',
-      addingSite: 'Adding the site…',
-      addingCentre: 'Adding the centre…',
-      addFailed: 'Could not add that just now — the dive keeps the name.',
-      addAnyway: '{{offer}} anyway',
+      /** The Site and Centre rows while they hold nothing — each opens the page of that name
+       * (issue #19). */
+      chooseSite: 'Choose a site',
+      chooseCentre: 'Choose a centre',
+      /** The caption under a guest's own place, which joins the community when they sign in. */
+      onThisPhoneOnly: 'on this phone only',
+      /** §2.3's near-match question, asked on the *New dive site* page. */
       didYouMean: 'Did you mean “{{name}}”?',
-      lookingForMatch: 'Looking for a match…',
       dateInvalid: 'Enter a real date (YYYY-MM-DD).',
       unknownOption:
         'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.',
