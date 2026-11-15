@@ -55,6 +55,7 @@ import {
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   type Dive,
+  type DiveCenter,
   type DiveSite,
   type GearPreset,
   type Tank,
@@ -5660,8 +5661,8 @@ it('leaves the notes return key writing a new line', async () => {
 // **What this can and cannot fail on.** Stated because the obvious reading is wrong twice
 // over, and both readings were checked by mutation rather than reasoned about.
 //
-// A row draws a list only when BOTH gates open: `asSuggestedField(name)` names it one of
-// §2.3's four, and its call site passed `history`. So this cannot catch a screen that handed
+// A row draws a list only when BOTH gates open: `asInlineSuggestedField(name)` names it one of
+// the two §2.3 fields still suggested under their own row, and its call site passed `history`. So this cannot catch a screen that handed
 // every `ControlledTextField` a list (the name still decides), and it cannot catch `title`
 // being added to `SUGGESTED_FIELDS` either — that mutation was run, and this test stayed
 // green, because the `Title` call site passes no `history` for the new membership to act on.
@@ -6699,6 +6700,8 @@ it("an empty Site row reads Choose a site and opens the site picker with the div
     siteId: null,
   });
 
+  // The site picker closes with nothing picked, which frees the form for the next one.
+  await regainFocus();
   const centre = await openPlace(t, 'Centre');
   expect(centre.kind).toBe('center');
 });
@@ -6799,6 +6802,93 @@ it('opens one picker for one press, and opens again once the form is back in foc
   await regainFocus();
   await fireEvent.press(findPickerField(t, 'Site')!);
   expect(mockOpenPicker).toHaveBeenCalledTimes(2);
+});
+
+// ...and one claim for the two rows, not one each: a tap on Site and a tap on Centre before the
+// page has covered the form would otherwise stack two pickers.
+it('opens one picker between the two rows until the form is back in focus', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  await fireEvent.press(findPickerField(t, 'Centre')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+
+  await regainFocus();
+  await fireEvent.press(findPickerField(t, 'Centre')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(2);
+  expect((mockOpenPicker.mock.calls[1]?.[0] as PlacePickRequest).kind).toBe('center');
+});
+
+// §0.6: "the whole row is the field". A press on the label opens the picker as a press on the
+// value does — delivered the way a finger delivers it, to the nearest thing that handles it —
+// while the row is still ONE control to a screen reader, and the ring inside it is its own: a
+// press there empties the row and opens nothing.
+it('opens the picker from a press on the label, and empties rather than opens from the ring', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const label = textNodesOf(t).find((n) => n.children.includes('Site'));
+  if (!label) throw new Error('no Site label drawn');
+
+  await fireEvent.press(label);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+  expect((mockOpenPicker.mock.calls[0]?.[0] as PlacePickRequest).kind).toBe('site');
+  expect(
+    buttonsOf(t)
+      .map((n) => String(n.props?.accessibilityLabel ?? ''))
+      .filter((announced) => announced.startsWith('Site')),
+  ).toEqual(['Site: Silfra']);
+
+  await regainFocus();
+  await pressClear(t, 'Site');
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+  expect(clearedRowLabels(t)).toEqual(['Site']);
+});
+
+// Whether emptying leaves `— cleared` is decided by the row as it stands when the gesture
+// LANDS. *No centre* comes back from a page that can stay open while a newer dive lands; here
+// that dive has no centre, so carry-over has already taken the carried one away, and what the
+// pick empties is no longer a carried value to leave the tag for.
+it('decides the cleared tag by the row as it stands when No centre arrives', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', centerName: 'Aqua Divers', centerId: 'centre-aqua', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  const request = await openPlace(t, 'Centre');
+
+  stubDives({ dives: [dive({ date: '2026-08-21', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  await act(async () => {
+    request.onPick({ id: null, name: '' });
+  });
+  await regainFocus();
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
+});
+
+// The centre row reads its own table for the caption, exactly as the site row reads its own.
+it('shows a paired centre’s country under its name', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', centerName: 'Aqua Divers', centerId: 'centre-aqua' })] });
+  const centre: DiveCenter = {
+    id: 'centre-aqua',
+    name: 'Aqua Divers',
+    country: 'EG',
+    latitude: null,
+    longitude: null,
+    website: null,
+    createdBy: null,
+    status: 'active',
+    mergedInto: null,
+    createdAt: '2026-08-16T00:00:00.000Z',
+    updatedAt: '2026-08-16T00:00:00.000Z',
+    deletedAt: null,
+    dirty: false,
+  };
+  mockUseDiveCenters.mockReturnValue({ centers: [centre], resolved: true, error: undefined });
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  expect(shownIn(t, 'Centre')).toBe('Aqua Divers');
+  expect(textIn(t)).toContain('EG');
+  expect(findPickerField(t, 'Centre')?.props.accessibilityHint).toBe('EG');
 });
 
 // *No centre* is the empty pick, and it is the ring's gesture: name and id go together, and the

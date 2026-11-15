@@ -14,7 +14,7 @@ import type { WaterTempRange } from '../domain/mapSites';
 // Types again, and for the same reason: `domain/placePicker.ts` reaches this module through
 // `logbookStats`, so only the shape of a picker row may come back.
 import type { PickerGroupKey, PickerRow, PlaceKind, Provenance } from '../domain/placePicker';
-import type { SuggestedField, SuggestionHistory } from '../domain/suggest';
+import type { InlineSuggestedField, SuggestedField, SuggestionHistory } from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
   CONFIGURATION_VALUES,
@@ -386,9 +386,10 @@ export function formatSuggestionFigure(history: SuggestionHistory, field: Sugges
   return field === 'siteName' ? formatDepth(history.deepestM, system) : null;
 }
 
-/** The group header over a field's own suggestions — "Your sites · 3", uppercased by the
- * cluster label it is drawn in. */
-export function formatSuggestionsTitle(field: SuggestedField, count: number): string {
+/** The group header over a field's own suggestions — "Your buddies · 3", uppercased by the
+ * cluster label it is drawn in. Only the fields still suggested under their own row have one;
+ * the place picker titles its groups itself (`formatPickerGroupTitle`). */
+export function formatSuggestionsTitle(field: InlineSuggestedField, count: number): string {
   return `${t(`suggest.${field}`)}${METADATA_SEPARATOR}${count}`;
 }
 

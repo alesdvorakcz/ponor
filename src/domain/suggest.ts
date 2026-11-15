@@ -53,12 +53,24 @@ export interface Suggestion {
  * else's id. That is §4.1's "derive, or tie at compile time" — the tie, since which column
  * pairs with which cannot be computed from the name.
  */
-const PAIRED_ID_FIELD: Record<SuggestedField, 'siteId' | 'centerId' | null> = {
+const PAIRED_ID_FIELD = {
   siteName: 'siteId',
   centerName: 'centerId',
   buddy: null,
   guide: null,
-};
+} as const satisfies Record<SuggestedField, 'siteId' | 'centerId' | null>;
+
+/**
+ * **The fields still suggested in a list under their own row** — buddy and guide, the two with
+ * no catalogue to pick from. Site and centre pair with a catalogue row, so since issue #19 they
+ * are chosen on a page of their own instead of being typed and suggested.
+ *
+ * Derived from `PAIRED_ID_FIELD` rather than listed, because it is the same fact read the other
+ * way round: a field gets an inline list exactly when it has no id column.
+ */
+export type InlineSuggestedField = {
+  [F in SuggestedField]: (typeof PAIRED_ID_FIELD)[F] extends null ? F : never;
+}[SuggestedField];
 
 const SUGGESTED_FIELD_SET: ReadonlySet<string> = new Set(SUGGESTED_FIELDS);
 
@@ -78,6 +90,13 @@ const SUGGESTED_FIELD_SET: ReadonlySet<string> = new Set(SUGGESTED_FIELDS);
  */
 export function asSuggestedField(name: string): SuggestedField | null {
   return SUGGESTED_FIELD_SET.has(name) ? (name as SuggestedField) : null;
+}
+
+/** `asSuggestedField`, narrowed to the fields whose suggestions are a list under their own row
+ * (`InlineSuggestedField`) — `null` for site and centre, which are chosen on their own page. */
+export function asInlineSuggestedField(name: string): InlineSuggestedField | null {
+  const field = asSuggestedField(name);
+  return field !== null && pairedIdField(field) === null ? (field as InlineSuggestedField) : null;
 }
 
 /**

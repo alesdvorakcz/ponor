@@ -13,6 +13,7 @@ import type {
   WeightsFeel,
 } from '../domain/types';
 import type { Provenance } from '../domain/placePicker';
+import type { InlineSuggestedField } from '../domain/suggest';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -441,11 +442,9 @@ export const cs = {
     },
 
     suggest: {
-      siteName: 'Vaše lokality',
-      centerName: 'Vaše centra',
       buddy: 'Vaši buddy',
       guide: 'Vaši průvodci',
-    },
+    } satisfies Record<InlineSuggestedField, string>,
 
     /**
      * **A field name interpolated into a sentence stays in the nominative**, and that is a

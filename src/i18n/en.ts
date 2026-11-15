@@ -13,6 +13,7 @@ import type {
   WeightsFeel,
 } from '../domain/types';
 import type { Provenance } from '../domain/placePicker';
+import type { InlineSuggestedField } from '../domain/suggest';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -541,15 +542,14 @@ export const en = {
 
     /**
      * The group header over a field's own history in its suggestion list (2026-11-14, the
-     * design canvas's "YOUR SITES · 2"), one per autocompleting field — keyed by the field's
-     * name so `formatSuggestionsTitle` reads it straight off `SuggestedField`.
+     * design canvas's "YOUR BUDDIES · 2"), one per field still suggested under its own row —
+     * keyed by the field's name so `formatSuggestionsTitle` reads it straight off
+     * `InlineSuggestedField`. Site and centre are chosen on a page whose groups are `picker.*`.
      */
     suggest: {
-      siteName: 'Your sites',
-      centerName: 'Your centres',
       buddy: 'Your buddies',
       guide: 'Your guides',
-    },
+    } satisfies Record<InlineSuggestedField, string>,
 
     /**
      * **§4.1's one deliberate exception, discharged.** That table has said since M1e that

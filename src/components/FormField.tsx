@@ -86,8 +86,8 @@ export interface FormFieldProps {
    * Set **explicitly at the two call sites that need `'none'`** rather than inferred from
    * `keyboardType` or from `secureTextEntry`, on `mono`'s own reasoning above: the two
    * questions look joined and are not. An address and a password must not be capitalised or
-   * corrected; a site name, a buddy and a dive centre — every other text field in this app —
-   * must, and they reach this component through the same props.
+   * corrected; a name — a buddy, a guide, a new site or centre on its own page — must still be
+   * capitalised as one, and they reach this component through the same props.
    *
    * Omitted everywhere else, which leaves React Native's own defaults exactly as they were
    * before this prop existed.
@@ -197,7 +197,7 @@ export interface FormFieldProps {
    */
   suggestions?: readonly OfferedSuggestion[];
   /**
-   * The group header over the suggestions — "Your sites · 3", the design canvas's cluster
+   * The group header over the suggestions — "Your buddies · 3", the design canvas's cluster
    * label (2026-11-14). The caller's whole phrase, count included, for the reason `meta` is
    * the caller's: only it knows what kind of thing is being offered. Drawn only while there is
    * a suggestion under it.

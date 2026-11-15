@@ -926,6 +926,16 @@ function build(scheme: ColorScheme) {
     lineHeight: 20,
     color: theme.fg,
   };
+  // The muted line under such a name — what the diver has done there, or where the place lives
+  // ("4 dives · last 18 kvě 2026", "community · HR", "on this phone only"). Mono 11.5 muted, a
+  // dive row's own metadata treatment (§0.6's type table). One definition for the form's
+  // suggestion rows, the picker's rows and the form's Site and Centre caption, so three lines of
+  // one kind cannot drift into three sizes.
+  const nameMeta: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
+  };
 
   // **How wide a line of prose is allowed to get** (M1l, the owner: *"the text lines should
   // not go for full width"*). The first-run screen is the only place in Ponor that sets running
@@ -3598,9 +3608,7 @@ function build(scheme: ColorScheme) {
     // Under a paired name — `on this phone only`, or the country's ISO code: a picker row's own
     // meta line (`pickerRowMeta`), because it is the same line about the same place.
     formFieldPlaceCaption: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
+      ...nameMeta,
       textAlign: 'right',
     },
     // The native picker itself, once the trigger opens it — in the slot §0.6 fixes for
@@ -3640,16 +3648,16 @@ function build(scheme: ColorScheme) {
     //
     // §0.6 held this list at "the least this can be" until M2 reworked site search, on the
     // grounds that designing it earlier meant designing it twice. M2 has landed and the canvas
-    // is that design, so the rows now carry what makes them choosable — the name in ink, what
-    // the diver has done there muted beneath it, a figure trailing — instead of a column of
-    // muted words that read as disabled text.
+    // is that design, so the rows now carry what makes them choosable — the name in ink, and
+    // what the diver has done with it muted beneath — instead of a column of muted words that
+    // read as disabled text.
     //
     // The negative margin takes the list to the screen edge, so each row's hairline is
     // full-bleed exactly as a dive row's is; each row brings `CONTENT_INSET` back as padding.
     formSuggestions: {
       marginHorizontal: -CONTENT_INSET,
     },
-    // "YOUR SITES · 3" — the cluster label, the canvas's group header over the diver's own
+    // "YOUR BUDDIES · 3" — the cluster label, the canvas's group header over the diver's own
     // history. The top padding plus the field's own `gap` is the canvas's 16 from the card;
     // the bottom is its 8 to the first hairline.
     formSuggestionsTitle: {
@@ -3659,7 +3667,7 @@ function build(scheme: ColorScheme) {
       paddingBottom: 8,
     },
     // One offer: a full-bleed row with a hairline on its top edge, "the same rule dive rows
-    // follow", the name and its history leading and a figure trailing. `minHeight` is §0.5's
+    // follow", the name over its history. `minHeight` is §0.5's
     // floor — a suggestion is a control a diver taps with wet hands — and a row with history
     // under its name comes out at the canvas's 64 through the padding and the two lines.
     formSuggestion: {
@@ -3683,14 +3691,8 @@ function build(scheme: ColorScheme) {
     // way a dive row draws a site, and it is the muted line BENEATH it that says "a record to
     // pick" rather than "a value you entered".
     formSuggestionText: suggestionName,
-    // What the diver has done with this name — "4 dives · last 18 kvě 2026". Mono 11.5 muted,
-    // a dive row's own metadata treatment (§0.6's type table), because it is the same kind of
-    // line.
-    formSuggestionMeta: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-    },
+    // What the diver has done with this name — "4 dives · last 18 kvě 2026" (`nameMeta`).
+    formSuggestionMeta: nameMeta,
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this
@@ -4507,12 +4509,8 @@ function build(scheme: ColorScheme) {
     },
     // Archivo Medium 16 in ink, wrapping — the suggestion row's own name (`suggestionName`).
     pickerRowName: suggestionName,
-    // `4 dives · last 18 May 2026`, `community · HR` — a dive row's metadata treatment.
-    pickerRowMeta: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-    },
+    // `4 dives · last 18 May 2026`, `community · HR` — `nameMeta`, a dive row's metadata treatment.
+    pickerRowMeta: nameMeta,
     // The deepest dive at a place: Plex Mono **in ink and never in a band colour** — it is a
     // deepest-of-a-set, which §0.6 has ruled takes no band (the Dives header and the map's site
     // summary say the same). Ink, because it is the row's one figure and the canvas draws it as

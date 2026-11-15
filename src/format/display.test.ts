@@ -1872,10 +1872,8 @@ describe('a suggestion row', () => {
     expect(formatSuggestionFigure({ ...visited, deepestM: null }, 'siteName', 'metric')).toBeNull();
   });
 
-  // The cluster label over the diver's own history: "YOUR SITES · 3" once the style uppercases it.
+  // The cluster label over the diver's own history: "YOUR BUDDIES · 2" once the style uppercases it.
   it('heads the list with what kind of thing it is and how many are offered', () => {
-    expect(formatSuggestionsTitle('siteName', 3)).toBe('Your sites · 3');
-    expect(formatSuggestionsTitle('centerName', 1)).toBe('Your centres · 1');
     expect(formatSuggestionsTitle('buddy', 2)).toBe('Your buddies · 2');
     expect(formatSuggestionsTitle('guide', 2)).toBe('Your guides · 2');
   });

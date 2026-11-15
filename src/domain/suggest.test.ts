@@ -1,5 +1,6 @@
 import { dive } from './diveFixture';
 import {
+  asInlineSuggestedField,
   nearMatches,
   SUGGESTED_FIELDS,
   SUGGESTION_LIMIT,
@@ -37,6 +38,15 @@ it('covers exactly the four fields, and not the prose ones', () => {
   expect([...SUGGESTED_FIELDS]).toHaveLength(4);
   expect([...SUGGESTED_FIELDS]).not.toContain('title');
   expect([...SUGGESTED_FIELDS]).not.toContain('notes');
+});
+
+// Of the four, only the two with no id column keep a list under their own row: site and centre
+// pair with a catalogue row and are chosen on a page of their own (issue #19). A prose field, or
+// any other name, is not suggested at all.
+it('suggests inline exactly the fields that pair with no catalogue row', () => {
+  expect(SUGGESTED_FIELDS.map(asInlineSuggestedField)).toEqual([null, null, 'buddy', 'guide']);
+  expect(asInlineSuggestedField('title')).toBeNull();
+  expect(asInlineSuggestedField('siteId')).toBeNull();
 });
 
 // --- Ranking, tier by tier ---

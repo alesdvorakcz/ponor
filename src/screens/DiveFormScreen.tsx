@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   Controller,
   useForm,
@@ -78,7 +78,7 @@ import {
 import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/presets';
 import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
 import {
-  asSuggestedField,
+  asInlineSuggestedField,
   pairedIdField,
   suggestFrom,
   suggestionHistory,
@@ -404,9 +404,9 @@ interface SeedState {
    * below. */
   paths: ReadonlySet<string>;
   /**
-   * Every field the diver **emptied with the clear control**, which is the third state §0.6
-   * asks this form to show: `— cleared`, where a field carry-over never filled shows nothing
-   * at all.
+   * Every field whose carried value the diver **threw away** — with the clear control, or with
+   * *No centre* over a carried centre — which is the third state §0.6 asks this form to show:
+   * `— cleared`, where a field carry-over never filled shows nothing at all.
    *
    * **It is not the complement of `paths`, and that is the whole point.** A field can be
    * unmarked for three different reasons — nothing was carried into it, the diver typed over
@@ -1034,11 +1034,12 @@ interface ControlledTextFieldProps {
    * everywhere else: §2.3's other two fields, site and centre, are `ControlledPlaceField`s and
    * are chosen on a page of their own (issue #19).
    *
-   * **Which column it draws from is decided by `name` alone**, through `asSuggestedField`
-   * (domain/suggest.ts), never by a second prop spelling the field's name out again beside
-   * the `name` this row already has — the same reasoning `CarryOverControls` above records
-   * for its two callbacks. So a call site cannot ask for autocomplete on a field §2.3 does
-   * not name, and cannot wire a row to the wrong column.
+   * **Which column it draws from is decided by `name` alone**, through
+   * `asInlineSuggestedField` (domain/suggest.ts), never by a second prop spelling the field's
+   * name out again beside the `name` this row already has — the same reasoning
+   * `CarryOverControls` above records for its two callbacks. So a call site cannot ask for an
+   * inline list on a field §2.3 does not name, or on one chosen on its own page, and cannot
+   * wire a row to the wrong column.
    *
    * **A pick fills the text and nothing else.** Buddies and guides *"stay private text, not
    * user accounts"* (§2.3), so a suggestion's id is always `null` here and there is no pair for
@@ -1074,9 +1075,9 @@ function ControlledTextField({
   carryOver,
   history,
 }: ControlledTextFieldProps) {
-  // Which of §2.3's fields this row is, if it is one at all — read off the `name` this row
-  // already carries. See `history` above for why it is not a prop.
-  const suggested = asSuggestedField(name);
+  // Which of §2.3's inline-suggested fields this row is, if it is one at all — read off the
+  // `name` this row already carries. See `history` above for why it is not a prop.
+  const suggested = asInlineSuggestedField(name);
 
   // This row's place in the form's return-key walk (2026-11-14; components/FocusChain.tsx).
   // Every text field is a place the walk can land; notes takes no step of its own, because its
@@ -1220,6 +1221,9 @@ interface ControlledPlaceFieldProps {
   diveContext: () => DiveContext;
   /** Whether anyone is signed in, for the caption's *on this phone only*. */
   signedIn: boolean;
+  /** The screen's one claim on the picker, shared by both rows — `true` from a press until the
+   * form is focused again. See the screen's `pickerOpenRef`. */
+  pickerOpenRef: RefObject<boolean>;
 }
 
 /**
@@ -1229,9 +1233,15 @@ interface ControlledPlaceFieldProps {
  * keyboard here at all.
  *
  * `DateTimeField`'s and the GPS row's anatomy: the label leading, the value trailing in the name's
- * own face (Archivo Medium 16, wrapping and never truncated), a hairline on the top edge, the press
- * behind the value slot, and the `label: value` announcement every read-back row on this form
- * makes. Empty, the value is the call to action, muted. Paired, the caption sits under the name.
+ * own face (Archivo Medium 16, wrapping and never truncated), a hairline on the top edge, and the
+ * `label: value` announcement every read-back row on this form makes. Empty, the value is the
+ * call to action, muted. Paired, the caption sits under the name.
+ *
+ * **The whole row is the press** (§0.6: "the whole row is the field") — label and value alike,
+ * as `FormField`'s card is. The card takes a press nothing inside it takes and is no control of
+ * its own to a screen reader (`accessible={false}`); the value slot is the one button, carrying
+ * the announcement; the ring inside the card is its own control, so a press on it empties the
+ * row rather than opening the picker.
  *
  * **The ring stands at the trailing edge whenever the row holds a place** — carried or picked —
  * because a place that can only be replaced, never emptied, would make a mistaken pick
@@ -1245,11 +1255,9 @@ interface ControlledPlaceFieldProps {
  * which stays mounted underneath; the pick comes back through `navigation/placePick.ts`, which is
  * why this row hands it a callback.
  *
- * **One press, one picker.** A second tap before the page has covered the form would push a
- * second picker over the first, so a press claims the row and the form regaining focus — the
- * picker closing by any of its ways out — releases it. The claim lives here rather than in the
- * registry: a request the registry never heard forgotten would wedge a lock there until reload,
- * while focus always comes back.
+ * **One press, one picker** — for the two rows together, through the screen's `pickerOpenRef`:
+ * a second tap, on this row or the other, before the page has covered the form would push a
+ * second picker over the first.
  *
  * Each row reads its own catalogue table for the caption and never the other's — hence one small
  * component per table in front of `PlaceField`, rather than both hooks in every row.
@@ -1277,6 +1285,7 @@ function PlaceField({
   onPairedId,
   diveContext,
   signedIn,
+  pickerOpenRef,
   kind,
   places,
 }: ControlledPlaceFieldProps & { kind: PlaceKind; places: readonly CaptionedPlace[] }) {
@@ -1288,14 +1297,13 @@ function PlaceField({
   const id = heldId === '' ? null : heldId;
   // Nothing for a name without an id — a carried value from old data names no row.
   const caption = id === null ? null : placeCaption(places.find((row) => row.id === id), signedIn);
-  // The press's claim on the row — see the docblock. A ref rather than state, because two taps
-  // can land before the re-render a state would need; released whenever this screen is focused.
-  const opening = useRef(false);
-  useFocusEffect(
-    useCallback(() => {
-      opening.current = false;
-    }, []),
-  );
+  // §0.6's carried state as it stands when a gesture LANDS, not as it stood when the row was last
+  // drawn: *No centre* arrives from a page that can stay open across a reseed, and a value that
+  // carry-over has since taken away is no longer a carried value to leave `— cleared` for.
+  const carryOverRef = useRef(carryOver);
+  useEffect(() => {
+    carryOverRef.current = carryOver;
+  });
 
   return (
     <Controller
@@ -1315,10 +1323,12 @@ function PlaceField({
         const carried = carryOver.paths.has(name);
         // The ring's gesture, and *No centre*'s: name and id together. Throwing a carried value
         // away leaves `— cleared` (`onClear`); emptying one the diver put there is an edit, so it
-        // takes the typing path and leaves the call to action (`onDrop`).
+        // takes the typing path and leaves the call to action (`onDrop`). Decided from the latest
+        // carried state (`carryOverRef`), not from this render's.
         const empty = () => {
-          if (carried) carryOver.onClear(name);
-          else carryOver.onDrop(name);
+          const latest = carryOverRef.current;
+          if (latest.paths.has(name)) latest.onClear(name);
+          else latest.onDrop(name);
           onPairedId(name, null, '');
           field.onChange('');
         };
@@ -1327,28 +1337,29 @@ function PlaceField({
             empty();
             return;
           }
-          carryOver.onDrop(name);
+          carryOverRef.current.onDrop(name);
           onPairedId(name, place.id, place.name);
           field.onChange(place.name);
+        };
+        const open = () => {
+          if (pickerOpenRef.current) return;
+          pickerOpenRef.current = true;
+          openPlacePicker({
+            kind,
+            // What the row holds, so the picker can mark it — as it reads, not tidied.
+            selected: placeName === null ? null : { id, name: text },
+            dive: diveContext(),
+            onPick: pick,
+          });
         };
 
         return (
           <View style={styles.formField}>
-            <View style={[styles.formFieldRow, styles.formFieldCard]}>
+            <Pressable style={[styles.formFieldRow, styles.formFieldCard]} onPress={open} accessible={false}>
               <Text style={styles.formFieldLabel}>{label}</Text>
               <Pressable
                 style={styles.formFieldPlace}
-                onPress={() => {
-                  if (opening.current) return;
-                  opening.current = true;
-                  openPlacePicker({
-                    kind,
-                    // What the row holds, so the picker can mark it — as it reads, not tidied.
-                    selected: placeName === null ? null : { id, name: text },
-                    dive: diveContext(),
-                    onPick: pick,
-                  });
-                }}
+                onPress={open}
                 accessibilityRole="button"
                 accessibilityLabel={t('field.labelValue', { label, value: shown })}
                 // The label hides what is drawn inside the press, so the caption is said here —
@@ -1378,7 +1389,7 @@ function PlaceField({
                   <ClearFieldControl accessibilityLabel={t('field.clear', { label })} onPress={empty} scheme={scheme} />
                 )
               )}
-            </View>
+            </Pressable>
           </View>
         );
       }}
@@ -2985,15 +2996,16 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   }, []);
 
   /** The diver put a value in this field — typed it, picked it, applied a preset over it, or
-   * chose a chip. Drops the mark and any cleared tag. */
+   * chose a chip — or emptied a value of their own, which is an edit too. Drops the mark and any
+   * cleared tag. */
   const dropCarried = useCallback(
     (name: FieldPath<DiveFormInput>) => noteTouched(name, false),
     [noteTouched],
   );
 
-  /** The diver emptied this field with the clear control. Drops the mark and leaves §0.6's
-   * `— cleared` behind, which is the one thing that distinguishes it from the gesture above
-   * landing on an already-empty field. */
+  /** The diver threw a carried value away — the clear control, or *No centre* over a carried
+   * centre. Drops the mark and leaves §0.6's `— cleared` behind, which is the one thing that
+   * distinguishes it from the gesture above landing on an already-empty field. */
   const clearCarried = useCallback(
     (name: FieldPath<DiveFormInput>) => noteTouched(name, true),
     [noteTouched],
@@ -3054,6 +3066,22 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // `resolved`: a keychain that has not answered yet reads as a guest for a frame, which costs a
   // caption, never a gesture.
   const signedIn = useAuthSession().session !== null;
+
+  /**
+   * **One picker at a time, for both place rows.** A press on Site or Centre claims this; the form
+   * being focused again — the picker closed, by any of its ways out — releases it. A ref rather
+   * than state, because two taps can land before the re-render a state would need; one claim for
+   * the screen rather than one per row, because a tap on Site and a tap on Centre before the page
+   * has covered the form would otherwise stack two pickers. It lives on the screen rather than in
+   * `navigation/placePick.ts`'s registry: a request the registry never heard forgotten would wedge
+   * a lock there until reload, while focus always comes back.
+   */
+  const pickerOpenRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      pickerOpenRef.current = false;
+    }, []),
+  );
 
   /**
    * **What the *Choose a site / Choose a centre* page is told about this dive**, read at the
@@ -3603,6 +3631,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             onPairedId={setPairedId}
             diveContext={diveContext}
             signedIn={signedIn}
+            pickerOpenRef={pickerOpenRef}
           />
           <ControlledPlaceField
             control={control}
@@ -3613,6 +3642,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             onPairedId={setPairedId}
             diveContext={diveContext}
             signedIn={signedIn}
+            pickerOpenRef={pickerOpenRef}
           />
         </View>
 
