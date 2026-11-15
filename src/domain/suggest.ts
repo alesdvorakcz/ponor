@@ -135,45 +135,6 @@ function pairedId(dive: Dive, field: SuggestedField): string | null {
 }
 
 /**
- * **Whether the diver has already dived this name at a place the catalogue knows** — that is,
- * whether any dive in `dives` spells `name` the same way (folded) *and* carries a paired id
- * for it.
- *
- * §5 lets any signed-in diver add a site, and M2o gives the form the gesture. This is the half
- * that keeps that gesture from manufacturing the duplicate §2.3's fuzzy check exists to
- * prevent: a name the diver has used before **with an id** already names a community row, so
- * offering to create a second one would publish a duplicate of a site this very logbook can
- * see. A name used before with **no** id is the opposite case and gets no answer from here —
- * it is exactly the site worth adding, and every dive logged before M2o is one of them.
- *
- * ── The sibling, named because §4.1 asks a near-duplicate to name one ─────────────────────
- *
- * `suggestFrom` below walks the same column of the same dives and answers a different
- * question, so the two must not be merged. It asks *which spelling and which id win* — newest
- * dive first, one tally per folded value — because an offer has to be one row with one id.
- * This asks *does any dive at all pair this name*, which is deliberately the stricter reading:
- * a duplicate guard that only consulted the most recent dive would let an older, paired dive
- * be re-created because a newer unpaired one spelled the name the same way.
- *
- * Folding is `foldForMatching`'s (domain/search.ts), so `zelezna` and `Železná` are the same
- * place here exactly as they are everywhere else (§2.3, M2j). An empty or whitespace-only
- * name pairs nothing: there is no such site, and folding it would match every row.
- *
- * Runs during render over the diver's own logbook, like `suggestFrom`, so it may not throw on
- * a row it cannot read — a null entry or a column holding something that is not a string costs
- * one dive's opinion rather than the form.
- */
-export function hasPairedId(dives: readonly Dive[], field: SuggestedField, name: string): boolean {
-  const wanted = foldForMatching(name);
-  if (wanted === '') return false;
-  return dives.some((d) => {
-    if (d === null || d === undefined) return false;
-    const raw = d[field];
-    return typeof raw === 'string' && foldForMatching(raw) === wanted && pairedId(d, field) !== null;
-  });
-}
-
-/**
  * DESIGN.md §2.3's autocomplete, over the diver's own history and nothing else — the one
  * place that decides what a suggestion is and what order suggestions come in.
  *
@@ -388,24 +349,16 @@ export function suggestionHistory(dives: readonly Dive[], field: SuggestedField,
  * rather than kept: the whole point of the one tap is to pair the dive with §6's `site_id`,
  * and a row that cannot supply one has nothing to offer.
  *
- * Capped at `SUGGESTION_LIMIT` for that constant's own reason — these rows sit in the slot the
- * suggestion list owns (§0.6), so how many fit under a focused row is one layout judgement,
- * not two.
+ * Capped at `SUGGESTION_LIMIT` for that constant's own reason: a short list of names to choose
+ * between is one layout judgement wherever it is drawn, not one per screen.
  *
- * ── Its siblings, named because §4.1 asks a near-duplicate to name them ───────────────────
+ * ── Its sibling, named because §4.1 asks a near-duplicate to name one ─────────────────────
  *
- * `hasPairedId` above asks the *same shape* of question — "does this name already name a
- * community row?" — of the diver's **own history**, and is what decides whether the offer to
- * create appears at all. This asks it of the **catalogue**, and is what happens after the
- * diver has pressed that offer. They must not be merged: a name the diver has dived with an
- * id needs no question asked, and a name the catalogue holds needs one asked *and answered
- * with a row to tap*.
- *
- * `suggestFrom` below matches on a **substring** and this on **equality**, over different
- * populations, and that difference is the paragraph above.
+ * `suggestFrom` above matches on a **substring** and this on **equality**, over different
+ * populations — the diver's own history there, the catalogue here.
  *
  * Runs over rows the database handed back, so a row it cannot read costs one candidate rather
- * than the whole gesture — the rule `suggestFrom` and `hasPairedId` both follow.
+ * than the whole gesture — the rule `suggestFrom` follows too.
  */
 export function nearMatches(
   name: string,
@@ -414,8 +367,7 @@ export function nearMatches(
   limit: number = SUGGESTION_LIMIT,
 ): Suggestion[] {
   const wanted = foldForMatching(name);
-  // An empty name names no site, and folding it would equal every empty stored name. The same
-  // guard `hasPairedId` carries, for the same reason.
+  // An empty name names no site, and folding it would equal every empty stored name.
   if (wanted === '') return [];
 
   const local: Suggestion[] = [];

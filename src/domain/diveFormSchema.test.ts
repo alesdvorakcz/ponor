@@ -1,7 +1,6 @@
 import { setActiveLanguage } from '../i18n';
 import { dive } from './diveFixture';
 import {
-  centerFactsFrom,
   diveFormSchema,
   siteFactsFrom,
   toDisplayUnits,
@@ -926,16 +925,6 @@ describe('siteFactsFrom', () => {
   it('is unaffected by a date the whole schema would refuse', () => {
     const facts = siteFactsFrom('Blue Hole', { date: 'not a date', entry: 'shore' });
     expect(facts.entry).toBe('shore');
-  });
-});
-
-describe('centerFactsFrom', () => {
-  // The asymmetry with a site is the decision. A dive happened AT the site and knows its
-  // entry, its water and where it is; the centre is a shop on shore that the dive knows the
-  // name of and nothing more. Seeding the dive's pin would file the dive site as the centre's
-  // address, and inferring a country from that pin would be a guess.
-  it('takes the name and nothing else — not the pin, not a country', () => {
-    expect(centerFactsFrom('Emperor')).toEqual({ name: 'Emperor' });
   });
 });
 

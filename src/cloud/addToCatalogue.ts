@@ -10,8 +10,8 @@ import { cloud } from './supabase';
 /**
  * **The catalogue's writes and its duplicate check, owned in one place** — they lived inside
  * `DiveFormScreen` until the *New dive site* / *New dive centre* pages needed the same three
- * things without a dive form around them. The form's *Add “…” as a new site* row and those pages
- * now call the same functions, so "what a new row holds" has one author.
+ * things without a dive form around them. Those pages are their callers, so "what a new row
+ * holds" has one author.
  *
  * Every rule about what a row holds is still elsewhere: `siteFactsFrom` (domain/diveFormSchema.ts)
  * decides what a dive may tell a community record, `platform/geocode.ts` infers the country from
@@ -82,9 +82,10 @@ function hasPin(input: NewCenterInput): boolean {
  * Makes the centre and answers with its id; a write failure rejects, as `addSite`'s does.
  *
  * **The country comes from the centre's own pin and from nothing else** (§2.3), so a centre with
- * no pin has none — in particular it never borrows the dive's or the site's. The dive form's own
- * add still passes a name only, which is why that row stays exactly what it was — and why a
- * missing pin skips the geocoder altogether rather than asking it a question with no point.
+ * no pin has none — in particular it never borrows the dive's or the site's: the dive's pin is
+ * where the diver entered the water, not the shop, so a centre's position starts empty
+ * (`NewPlaceScreen`). A missing pin skips the geocoder altogether rather than asking it a
+ * question with no point.
  */
 export async function addCenter(input: NewCenterInput): Promise<string> {
   const country = hasPin(input) ? await countryFor(input.latitude, input.longitude) : null;
