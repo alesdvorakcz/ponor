@@ -162,8 +162,13 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   // pair is handed a blank query or no point when it is not this page's, which asks nothing.
   useCatalogueSupplement(kind === 'site' ? query : '', searchSites, applyPulledDiveSites);
   useCatalogueSupplement(kind === 'center' ? query : '', searchCenters, applyPulledDiveCenters);
-  useNearbySupplement(kind === 'site' ? fix : null, searchSitesNearMe, applyPulledDiveSites);
-  useNearbySupplement(kind === 'center' ? fix : null, searchCentersNearMe, applyPulledDiveCenters);
+  const askingSitesNear = useNearbySupplement(kind === 'site' ? fix : null, searchSitesNearMe, applyPulledDiveSites);
+  const askingCentersNear = useNearbySupplement(
+    kind === 'center' ? fix : null,
+    searchCentersNearMe,
+    applyPulledDiveCenters,
+  );
+  const askingNear = askingSitesNear || askingCentersNear;
 
   const catalogue = kind === 'site' ? siteCatalogue : centerCatalogue;
   const places: readonly PickerPlace[] = kind === 'site' ? siteCatalogue.sites : centerCatalogue.centers;
@@ -272,6 +277,8 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   // whatever the read last held (Review Focus 4). "Nothing near" only when the catalogue has
   // answered with rows: an unread table and an empty one are the same `[]`, and a failed read is
   // `resolved` too (db/liveQuery.ts), so a page that could not read it must not also call it empty.
+  // And only once the server has answered about this fix: until then the community's rows may be on
+  // their way, so the page says it is looking instead. Out of signal the server "answers" at once.
   const notes: string[] = [];
   if (catalogue.error !== undefined) notes.push(catalogueUnreadable());
   if (
@@ -282,7 +289,11 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   ) {
     const distance = formatDistance(NEAR_ME_RADIUS_KM, units);
     notes.push(
-      typed === '' ? t('picker.nothingNear', { distance }) : t('picker.nothingNearMatches', { distance, query: typed }),
+      askingNear
+        ? t('picker.lookingNear', { distance })
+        : typed === ''
+          ? t('picker.nothingNear', { distance })
+          : t('picker.nothingNearMatches', { distance, query: typed }),
     );
   }
   // A page with no place to list — a diver with no dives yet, nothing typed, *Near me* off — says

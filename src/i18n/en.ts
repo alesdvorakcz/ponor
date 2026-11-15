@@ -957,6 +957,9 @@ export const en = {
       dived: 'dived',
       nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
       nothingNear: 'Nothing within {{distance}}.',
+      /** In place of *Nothing within…* while the server is still being asked about the fix: nothing
+       * on this phone is in range, and the community's rows may yet arrive. */
+      lookingNear: 'Looking for places within {{distance}}…',
       /** Where rows would be on a page with none — a diver with no dives, nothing typed, *Near me*
        * off — which otherwise opened on a title, a search and a pill with nothing saying that
        * typing is the way in. `search.prompt`'s job, on this page. */

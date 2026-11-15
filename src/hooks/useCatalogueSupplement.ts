@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { cloud, type Cloud } from '../cloud/supabase';
 import { db } from '../db/client';
@@ -60,28 +60,8 @@ export function useCatalogueSupplement<T>(
   search: (cloud: Cloud, query: string) => Promise<T[]>,
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): void {
-  useEffect(() => {
-    const wanted = query.trim();
-    if (wanted === '') return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const rows = await search(cloud, wanted);
-          if (cancelled || rows.length === 0) return;
-          await apply(db, rows);
-        } catch {
-          // The read cannot throw (those modules' own contract); the write can, and a catalogue
-          // that refused a write is the same outcome as a server that never answered — the
-          // device's own rows, already on screen.
-        }
-      })();
-    }, LIVE_SEARCH_DELAY_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [query, search, apply]);
+  const wanted = query.trim();
+  useSupplement(wanted === '' ? null : wanted, wanted, LIVE_SEARCH_DELAY_MS, search, apply);
 }
 
 /**
@@ -91,9 +71,11 @@ export function useCatalogueSupplement<T>(
  * value, so there is nothing to wait out), and **`null` means "no fix yet" and does nothing**
  * (the list is the device's own rows until one arrives).
  *
- * The contract is otherwise the same and is not restated: nothing here throws, nothing is
- * reported, an answer that lands after the point changed or the screen closed is dropped, and the
- * rows go to the catalogue's own writer so the list's live query re-renders with them in it.
+ * **It answers whether the server is still being asked about this point** — `true` from the fix
+ * until the answer has been written or has failed, `false` with no point. Nothing waits on it; the
+ * picker reads it so it never says *"Nothing within 50 km"* while the community's rows may be on
+ * their way (an absent answer is not an empty one). A server that cannot be reached answers at
+ * once (`searchCatalogue` turns every failure into `[]`), so out of signal the sentence still comes.
  *
  * The effect depends on the two coordinates rather than the `point` object, so a caller that
  * rebuilds an equal point on every render does not ask the server again.
@@ -102,24 +84,56 @@ export function useNearbySupplement<T>(
   point: MapPoint | null,
   search: (cloud: Cloud, point: MapPoint) => Promise<T[]>,
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
-): void {
-  const latitude = point?.latitude;
-  const longitude = point?.longitude;
+): boolean {
+  const key = point === null ? null : `${point.latitude},${point.longitude}`;
+  return useSupplement(key, point, 0, search, apply);
+}
+
+/**
+ * **The one body behind both supplements** — the contract stated once: after `delayMs`, `search`
+ * is asked `question` and any rows go to `apply`; nothing throws (the read cannot, a write that
+ * refuses is swallowed — the same outcome as a server that never answered, the device's own rows
+ * already on screen); and an answer that lands after `key` changed or the screen closed is
+ * dropped, written or not.
+ *
+ * `key` is what identifies the question — the trimmed query, or the point's two coordinates — and
+ * is the only thing the effect re-runs on, so a caller handing in an equal question rebuilt on
+ * every render does not ask again; `null` asks nothing. `question` is read when the effect runs,
+ * from a ref. Answers whether the question under the current `key` is still out.
+ */
+function useSupplement<Q, T>(
+  key: string | null,
+  question: Q,
+  delayMs: number,
+  search: (cloud: Cloud, question: NonNullable<Q>) => Promise<T[]>,
+  apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
+): boolean {
+  const asked = useRef(question);
+  asked.current = question;
+  // The key whose question has come back — written, empty, or refused.
+  const [answered, setAnswered] = useState<string | null>(null);
+
   useEffect(() => {
-    if (latitude === undefined || longitude === undefined) return;
+    const wanted = asked.current;
+    if (key === null || wanted === null || wanted === undefined) return;
     let cancelled = false;
-    void (async () => {
+    const ask = async () => {
       try {
-        const rows = await search(cloud, { latitude, longitude });
+        const rows = await search(cloud, wanted);
         if (cancelled || rows.length === 0) return;
         await apply(db, rows);
       } catch {
-        // As above: the read cannot throw; a refused write is the same outcome as a server that
-        // never answered.
+        // See the docblock: a refused write is the same outcome as no answer.
+      } finally {
+        if (!cancelled) setAnswered(key);
       }
-    })();
+    };
+    const timer = setTimeout(() => void ask(), delayMs);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [latitude, longitude, search, apply]);
+  }, [key, delayMs, search, apply]);
+
+  return key !== null && answered !== key;
 }

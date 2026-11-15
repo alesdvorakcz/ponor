@@ -792,6 +792,7 @@ export const cs = {
       dived: 'navštíveno',
       nothingNearMatches: 'V okruhu {{distance}} nic neodpovídá „{{query}}“.',
       nothingNear: 'V okruhu {{distance}} nic není.',
+      lookingNear: 'Hledám místa v okruhu {{distance}}…',
       /** *Novou* / *nové*: the adjective agrees with the noun it leaves out — lokalita is feminine,
        * centrum neuter — which is why the two are whole sentences rather than one with a noun in it. */
       promptSite: 'Napište název a najděte lokalitu, nebo vytvořte novou.',

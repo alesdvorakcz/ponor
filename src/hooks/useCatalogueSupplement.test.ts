@@ -62,3 +62,55 @@ it('swallows a write that refuses', async () => {
 
   await waitFor(() => expect(apply).toHaveBeenCalled());
 });
+
+// --- Whether the server is still being asked (the picker's "Nothing within 50 km" waits on it) ---
+
+it('says it is asking from the point until the rows are written, then not', async () => {
+  let answer: (rows: { id: string }[]) => void = () => {};
+  const search = jest.fn().mockReturnValue(new Promise((r) => (answer = r)));
+  let written: () => void = () => {};
+  const apply = jest.fn().mockReturnValue(new Promise<void>((r) => (written = r)));
+
+  const { result } = await renderHook(() => useNearbySupplement(POINT, search, apply));
+  expect(result.current).toBe(true);
+  await waitFor(() => expect(search).toHaveBeenCalled());
+  answer([{ id: 'a' }]);
+  await waitFor(() => expect(apply).toHaveBeenCalled());
+  // Still out while the rows are being written: the list has not got them yet.
+  expect(result.current).toBe(true);
+  written();
+  await waitFor(() => expect(result.current).toBe(false));
+});
+
+it('stops asking once the server answers with nothing, and once a write refuses', async () => {
+  const empty = jest.fn().mockResolvedValue([]);
+  const none = await renderHook(() => useNearbySupplement(POINT, empty, jest.fn()));
+  await waitFor(() => expect(none.result.current).toBe(false));
+
+  const refused = jest.fn().mockRejectedValue(new Error('disk full'));
+  const failing = await renderHook(() =>
+    useNearbySupplement(POINT, jest.fn().mockResolvedValue([{ id: 'a' }]), refused),
+  );
+  await waitFor(() => expect(failing.result.current).toBe(false));
+});
+
+it('is not asking without a point, and asks again for a new one', async () => {
+  let answer: (rows: { id: string }[]) => void = () => {};
+  const search = jest.fn().mockReturnValueOnce(Promise.resolve([])).mockReturnValue(new Promise((r) => (answer = r)));
+  const apply = jest.fn();
+  let point: typeof POINT | null = null;
+
+  const { result, rerender } = await renderHook(() => useNearbySupplement(point, search, apply));
+  expect(result.current).toBe(false);
+
+  point = POINT;
+  await rerender({});
+  await waitFor(() => expect(result.current).toBe(false));
+
+  point = { latitude: 43.1, longitude: 16.2 };
+  await rerender({});
+  expect(result.current).toBe(true);
+  answer([]);
+  await waitFor(() => expect(result.current).toBe(false));
+  expect(search).toHaveBeenCalledTimes(2);
+});

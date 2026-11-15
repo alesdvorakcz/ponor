@@ -162,6 +162,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/** Lets the fix land and the server's answer about it come back (the supplement asks on a timer). */
+async function settleNearMe() {
+  await act(async () => {});
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockUseDiveSites.mockReturnValue(sitesState([]));
@@ -308,7 +316,7 @@ describe('the prompt', () => {
     mockRough.mockResolvedValue({ found: true, latitude: 43, longitude: 16 });
     const t = await showSite();
     await press(t, 'Near me');
-    await act(async () => {});
+    await settleNearMe();
     expect(textIn(t)).not.toContain(SITE_PROMPT);
     expect(textIn(t)).toContain('Nothing within 50 km.');
   });
@@ -504,12 +512,30 @@ describe('Near me', () => {
     expect(nearMe(t).props.accessibilityState).toMatchObject({ selected: false });
   });
 
+  // The phone holds nothing near yet, and the community's rows are on their way: the page must not
+  // say nothing is near and then be contradicted a moment later.
+  it('says it is looking while the server is asked, and that nothing is near only once it has answered', async () => {
+    mockRough.mockResolvedValue({ found: true, ...fix });
+    const asked = deferred<Awaited<ReturnType<typeof searchSitesNear>>>();
+    mockSearchSitesNear.mockReturnValue(asked.promise);
+    const t = await showSite();
+    await press(t, 'Near me');
+    await settleNearMe();
+    expect(mockSearchSitesNear).toHaveBeenCalled();
+    expect(textIn(t)).toContain('Looking for places within 50 km…');
+    expect(textIn(t).join(' ')).not.toContain('Nothing within');
+    await act(async () => asked.resolve([]));
+    await settleNearMe();
+    expect(textIn(t)).toContain('Nothing within 50 km.');
+    expect(textIn(t).join(' ')).not.toContain('Looking for places');
+  });
+
   it('says so when nothing is in range, and keeps Create while something is typed', async () => {
     mockRough.mockResolvedValue({ found: true, ...fix });
     mockUseDiveSites.mockReturnValue(sitesState([site({ name: 'Vis', latitude: 44, longitude: 16 })]));
     const t = await showSite();
     await press(t, 'Near me');
-    await act(async () => {});
+    await settleNearMe();
     expect(textIn(t)).toContain('Nothing within 50 km.');
     await type(t, 'vis');
     expect(textIn(t)).toContain('Nothing within 50 km matches “vis”.');
