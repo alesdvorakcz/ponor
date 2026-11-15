@@ -789,7 +789,7 @@ export default function AccountScreen() {
           <FieldNote message={noteFor('password')} scheme={scheme} />
           {/* **The way back from a forgotten password** (2026-11-14), with the row it is
               about — the toggle in the footer is about the BUTTON and stays there; this is
-              about the password ROW, the way a field's clear control is. Sign-in only: a new
+              about the password ROW, so it sits under that row. Sign-in only: a new
               account has no password to forget. Left-aligned on the content column, which is
               §0.6's rule for a control inside a left-aligned block. */}
           {mode === 'signIn' && (

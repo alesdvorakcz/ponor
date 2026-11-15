@@ -60,15 +60,17 @@ export interface FormFieldProps {
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address';
   multiline?: boolean;
   /**
-   * Masks what is typed — the account screen's password row and nothing else in this app
-   * (M2e). It is the one field in Ponor whose value is a secret, and the three rules that
+   * Masks what is typed — the account screen's password rows (signing in or up, and the new
+   * password after a reset) and nothing else in this app (M2e). It is the one field in Ponor whose value is a secret, and the three rules that
    * follow from that live where they can be enforced (`cloud/auth.ts`): it is never logged,
    * never wrapped into an error, and never persisted anywhere but the auth call.
    *
-   * **This component adds no rule of its own for it, deliberately.** A "clear the value on
-   * blur" or "never hand it to `onChange`" here would break the field for its one caller
-   * while protecting nothing: the value has to live in the caller's state to be typed at all.
-   * What this prop does is exactly what its name says.
+   * **This component adds one rule of its own for it, and only one** (issue #29, owner's
+   * call): a deletion empties the field, because the diver cannot see what it would take off
+   * (`isDeletion`, below — for a new password too, where a typo cannot be found either). It
+   * adds no rule about the secret: a "clear the value on blur" or "never hand it to `onChange`"
+   * here would break the field for its callers while protecting nothing, since the value has to
+   * live in the caller's state to be typed at all.
    *
    * Never combined with `multiline` — React Native ignores masking on a multiline input, and
    * a password that renders in the clear because a second prop was set is precisely the kind
@@ -322,6 +324,26 @@ export interface FieldMatch {
  */
 
 /**
+ * Whether `next` is `prev` with one run of characters taken out and nothing put in — what a
+ * backspace, a forward delete or deleting a selection does, wherever the caret was, and what a
+ * fill, a paste or a keystroke never does.
+ *
+ * **Why a password field asks this, and asks the text rather than the keyboard** (issue #29,
+ * owner's call). The diver cannot see what one press would take off a masked value, so a
+ * deletion starts the password over. A key event cannot say it: an Android hardware keyboard
+ * sends none, some soft keyboards send it after the text rather than before, and a Backspace
+ * that changed nothing (an empty field, a caret at the start) leaves no change to pair it with —
+ * which, read from a key, once made a password manager's shorter fill arrive empty. The text
+ * says it the same way on every keyboard.
+ */
+export function isDeletion(prev: string, next: string): boolean {
+  if (next.length >= prev.length) return false;
+  let kept = 0;
+  while (kept < next.length && next[kept] === prev[kept]) kept++;
+  return prev.endsWith(next.slice(kept));
+}
+
+/**
  * One form field (DESIGN.md §2.2, restyled to §0.6): **a row, not a box** — the label at the
  * leading edge, the typed value trailing, and a hairline on the row's own top edge. It is
  * `DiveDetailScreen`'s `Row` made typeable, which is the whole point of §0.6's form section:
@@ -355,18 +377,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
 
-  // **Backspace empties a password** (issue #29, owner's call). The diver cannot see what one press
-  // would take off a masked value, so a press starts it over — what iOS itself does to a secure
-  // field the diver comes back to. The key arrives before the text does (React Native fires
-  // `onKeyPress` ahead of `onChangeText`), so the press is noted and read by the change it caused.
-  // Only a change that SHORTENED the value counts: a backspace on an empty field changes nothing,
-  // and the password manager's fill that may follow it must arrive whole.
-  const backspaced = useRef(false);
-  const takeChange = (text: string) => {
-    const emptied = secureTextEntry === true && backspaced.current && text.length < value.length;
-    backspaced.current = false;
-    onChange(emptied ? '' : text);
-  };
+  // **Backspace empties a password** (issue #29, owner's call; `isDeletion` below).
+  const takeChange = (text: string) => onChange(secureTextEntry === true && isDeletion(value, text) ? '' : text);
   const keepInView = useKeepInView();
 
   // The input, held here as well as handed to the caller: the row focuses it when the diver
@@ -442,13 +454,6 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       style={[styles.formFieldInput, mono === true && styles.formFieldInputMono, stacked && styles.formFieldInputMultiline]}
       value={value}
       onChangeText={takeChange}
-      onKeyPress={
-        secureTextEntry === true
-          ? ({ nativeEvent }) => {
-              backspaced.current = nativeEvent.key === 'Backspace';
-            }
-          : undefined
-      }
       onFocus={() => {
         setFocused(true);
         hold(true);
@@ -510,7 +515,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // right-aligned value 60 pt left on every focus and back on every blur, so Next moved two rows
   // at once. Reserving its place on every row and animating the slide were both prototyped and
   // both turned down. The form's values are short and holding backspace empties them; a
-  // password empties on one press (`takeChange` above). The carried ring is a different act —
+  // password empties on one (`isDeletion`). The carried ring is a different act —
   // throwing away what carry-over filled in — and stays.
 
   return (

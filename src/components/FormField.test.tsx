@@ -6,7 +6,7 @@ import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { FormField, type FieldMatch, type OfferedSuggestion } from './FormField';
+import { FormField, isDeletion, type FieldMatch, type OfferedSuggestion } from './FormField';
 import { FormRevealContext } from './FormReveal';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
@@ -1251,43 +1251,63 @@ it('tells the platform what a field holds, for AutoFill, only when its caller sa
 });
 
 // **Backspace empties a password** (issue #29, owner's call). The diver cannot see what one press
-// would take off a masked value, so a press starts the password over — which is also what iOS
-// itself does to a secure field the diver comes back to. Only a backspace that shortened the
-// value counts: a key press on an empty field changes nothing, and must not make the password
-// manager's fill that follows it arrive empty.
+// would take off a masked value, so a press starts the password over. It is read from the text
+// alone — a change that only took characters away — because a key event is not something every
+// keyboard sends (an Android hardware keyboard sends none) or sends first. A fill or a paste puts
+// characters in, so it arrives as it came, whatever the field held and whatever key came before.
 describe('a password field', () => {
-  function password(value: string) {
+  async function password(value: string) {
     const onChange = jest.fn();
-    const t = render(<FormField label="Password" value={value} onChange={onChange} scheme="light" secureTextEntry />);
-    return { t, onChange };
+    const t = await render(<FormField label="Password" value={value} onChange={onChange} scheme="light" secureTextEntry />);
+    const input = inputsOf(t)[0];
+    if (!input) throw new Error('no TextInput found');
+    return { input, onChange };
   }
 
   it('empties on backspace', async () => {
-    const { t, onChange } = password('hunter22');
-    const input = inputsOf(await t)[0];
-    if (!input) throw new Error('no TextInput found');
-    await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+    const { input, onChange } = await password('hunter22');
     await fireEvent.changeText(input, 'hunter2');
     expect(onChange).toHaveBeenLastCalledWith('');
   });
 
+  it('empties when the character taken out is in the middle', async () => {
+    const { input, onChange } = await password('hunter22');
+    await fireEvent.changeText(input, 'huner22');
+    expect(onChange).toHaveBeenLastCalledWith('');
+  });
+
   it('takes typing as typed', async () => {
-    const { t, onChange } = password('hunter2');
-    const input = inputsOf(await t)[0];
-    if (!input) throw new Error('no TextInput found');
-    await fireEvent(input, 'keyPress', { nativeEvent: { key: '2' } });
+    const { input, onChange } = await password('hunter2');
     await fireEvent.changeText(input, 'hunter22');
     expect(onChange).toHaveBeenLastCalledWith('hunter22');
   });
 
-  it('takes a fill or a paste as it arrives, even after a backspace that changed nothing', async () => {
-    const { t, onChange } = password('');
-    const input = inputsOf(await t)[0];
-    if (!input) throw new Error('no TextInput found');
-    await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+  it('takes a fill into an empty field as it arrives', async () => {
+    const { input, onChange } = await password('');
     await fireEvent.changeText(input, 'S3cret-from-the-keychain');
     expect(onChange).toHaveBeenLastCalledWith('S3cret-from-the-keychain');
   });
+
+  it('takes a fill shorter than what it replaces as it arrives, even after a backspace that changed nothing', async () => {
+    const { input, onChange } = await password('hunter22');
+    await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
+    await fireEvent.changeText(input, 'S3cret');
+    expect(onChange).toHaveBeenLastCalledWith('S3cret');
+  });
+});
+
+it.each([
+  ['the last character', 'hunter22', 'hunter2', true],
+  ['the first character', 'hunter22', 'unter22', true],
+  ['one of a repeated pair', 'aab', 'ab', true],
+  ['a selected run', 'hunter22', 'hun22', true],
+  ['everything', 'hunter22', '', true],
+  ['nothing, the text unchanged', 'hunter22', 'hunter22', false],
+  ['nothing, a character added', 'hunter2', 'hunter22', false],
+  ['nothing, a shorter value put in its place', 'hunter22', 'S3cret', false],
+  ['nothing, a same-length value put in its place', 'hunter22', 'hunter23', false],
+])('isDeletion reads a change that took out %s', (_, prev, next, expected) => {
+  expect(isDeletion(prev, next)).toBe(expected);
 });
 
 it('backspaces one character at a time in a field that is not a password', async () => {
