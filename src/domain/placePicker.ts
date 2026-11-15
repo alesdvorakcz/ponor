@@ -1,4 +1,5 @@
 import { divesWithCenter } from './centerDives';
+import { compareDiveOrder } from './diveNumber';
 import { distanceKm } from './geo';
 import { logbookStats, sitesVisited } from './logbookStats';
 import { pointOf, type MapPoint } from './mapSites';
@@ -165,12 +166,27 @@ function divedOf(paired: readonly Dive[]): PickerRow['dived'] {
 }
 
 /**
+ * A row's latest logged dive in the logbook's own order — `compareDiveOrder`, §2.5's one owner:
+ * date, then time in, then hand order, then the order they were logged. What *most recently
+ * dived* sorts on, so two sites dived on one boat day stand in the order the dive numbers put
+ * them rather than in the alphabet's.
+ */
+function latestOf(paired: readonly Dive[]): Dive | null {
+  let latest: Dive | null = null;
+  for (const d of paired) {
+    if (latest === null || compareDiveOrder(d, latest) > 0) latest = d;
+  }
+  return latest;
+}
+
+/**
  * The picker's groups, empty ones omitted.
  *
  * - **Near me on** → one `'near'` group: every row with a position within 50 km of the fix,
  *   dived or not, nearest first, and the query still filters. A row with no usable position
  *   cannot be placed on a distance list and is left out; it is still found by typing.
- * - **Something typed** → `'dived'` (dived rows whose name matches, most recent first), then
+ * - **Something typed** → `'dived'` (dived rows whose name matches, most recent first — by each
+ *   row's latest dive in the logbook's order, so a same-day tie goes to the later dive), then
  *   `'other'` (every other matching row at any distance: name-prefix matches first, then the
  *   catalogue's own alphabetical order from `browseCatalogue`).
  * - **Nothing typed** → `'dived'` alone — and, for the centre picker with the dive's site
@@ -236,13 +252,21 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
 
   const groups: PickerGroup[] = [];
 
-  // `matching` is alphabetical and `sort` is stable, so equal dates keep that order.
+  // Latest dive first (`latestOf`). Two rows tie only when their latest dive is the same dive —
+  // one with no id belongs to every row its name matches — and then `matching`'s own order, the
+  // catalogue's alphabet, decides: by position, so it never rests on `sort` being stable.
   const dived = matching
-    .map((place) => row(place, pairedOf.get(place.id) ?? [], null))
-    .filter((r) => r.dived !== null)
-    .sort((a, b) =>
-      (b.dived?.lastDate ?? '').localeCompare(a.dived?.lastDate ?? ''),
-    );
+    .flatMap((place, index) => {
+      const paired = pairedOf.get(place.id) ?? [];
+      const latest = latestOf(paired);
+      const r = row(place, paired, null);
+      return r.dived === null || latest === null ? [] : [{ row: r, latest, index }];
+    })
+    .sort((a, b) => {
+      const order = compareDiveOrder(b.latest, a.latest);
+      return order !== 0 ? order : a.index - b.index;
+    })
+    .map((entry) => entry.row);
   if (dived.length > 0) groups.push({ key: 'dived', rows: dived });
   const divedIds = new Set(dived.map((r) => r.id));
 

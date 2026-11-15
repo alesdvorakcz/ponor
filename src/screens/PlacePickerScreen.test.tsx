@@ -278,6 +278,64 @@ it('opens with Dived here, most recently dived first, and the search focused', a
   expect(labelled(t, 'Search sites').props.autoFocus).toBe(true);
 });
 
+// A new diver opened a page holding a title, a search and a pill and nothing else — no row, no
+// sentence, nothing saying that typing is the way in. One muted line says it, and only there.
+describe('the prompt', () => {
+  const SITE_PROMPT = 'Type a name to find a site or create one.';
+  const CENTRE_PROMPT = 'Type a name to find a centre or create one.';
+  const notes = (t: RenderResult) => hosts(t, styles.pickerNoteText).map(textOf);
+
+  it('stands where rows would be for a diver with nothing to list, and goes once a name is typed', async () => {
+    const t = await showSite();
+    expect(notes(t)).toEqual([SITE_PROMPT]);
+    expect(rowNames(t)).toEqual([]);
+    await type(t, 'Vis');
+    expect(textIn(t)).not.toContain(SITE_PROMPT);
+    expect(rowNames(t)).toEqual(['Create “Vis”']);
+  });
+
+  it('is not shown once Dived here lists something', async () => {
+    mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-a', name: 'Alpha' })]));
+    mockUseDives.mockReturnValue(divesState([dive({ siteId: 's-a', date: '2026-01-10' })]));
+    const t = await showSite();
+    expect(rowNames(t)).toEqual(['Alpha']);
+    expect(textIn(t)).not.toContain(SITE_PROMPT);
+  });
+
+  it('is not shown under Near me', async () => {
+    mockRough.mockResolvedValue({ found: true, latitude: 43, longitude: 16 });
+    const t = await showSite();
+    await press(t, 'Near me');
+    await act(async () => {});
+    expect(textIn(t)).not.toContain(SITE_PROMPT);
+    expect(textIn(t)).toContain('Nothing within 50 km.');
+  });
+
+  // A read that has not answered states nothing — the dived rows may be a moment away.
+  it('says nothing before the logbook and the catalogue have answered', async () => {
+    mockUseDives.mockReturnValue({ ...divesState([]), resolved: false });
+    const t = await showSite();
+    expect(textIn(t)).not.toContain(SITE_PROMPT);
+    await t.unmount();
+    mockUseDives.mockReturnValue(divesState([]));
+    mockUseDiveSites.mockReturnValue(sitesState([], { resolved: false }));
+    const again = await showSite();
+    expect(textIn(again)).not.toContain(SITE_PROMPT);
+  });
+
+  // The centre picker always ends in *Or · No centre* while nothing is typed; the prompt is what
+  // gives that *Or* something to be the alternative to.
+  it('in the centre picker, stands above Or · No centre', async () => {
+    mockRequest.mockReturnValue(request({ kind: 'center' }));
+    const t = await showCenter();
+    expect(notes(t)).toEqual([CENTRE_PROMPT]);
+    expect(groupTitles(t)).toEqual(['Or']);
+    expect(rowNames(t)).toEqual(['No centre']);
+    await type(t, 'Ponorka', 'Search centres');
+    expect(textIn(t)).not.toContain(CENTRE_PROMPT);
+  });
+});
+
 it('shows Selected: and the name, and checks that row', async () => {
   mockRequest.mockReturnValue(request({ selected: { id: 's-b', name: 'Bravo' } }));
   mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-a', name: 'Alpha' }), site({ id: 's-b', name: 'Bravo' })]));
@@ -694,6 +752,7 @@ describe('in Czech', () => {
   it('titles the page and words the create row in Czech', async () => {
     const t = await showSite();
     expect(textIn(t)).toContain('Vyberte lokalitu');
+    expect(textIn(t)).toContain('Napište název a najděte lokalitu, nebo vytvořte novou.');
     await type(t, 'Vis', 'Hledat lokality');
     expect(rowNames(t)).toEqual(['Vytvořit „Vis“']);
     expect(textIn(t)).not.toContain('Choose a site');

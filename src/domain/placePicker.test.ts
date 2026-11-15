@@ -42,6 +42,47 @@ describe('pickerGroups', () => {
     expect(ids(groups[0])).toEqual(['b', 'c', 'a']);
   });
 
+  // Two sites on one boat day: the second dive's site is the one most recently dived, and the
+  // list sorted them by the alphabet because it compared dates alone.
+  it('dived the same day, the place of the later dive comes first', () => {
+    const places = [place({ id: 'alpha', name: 'Alpha' }), place({ id: 'mike', name: 'Mike' }), place({ id: 'zeta', name: 'Zeta' })];
+    const dives = [
+      dive({ siteId: 'mike', date: '2026-05-17', timeIn: '18:00' }),
+      dive({ siteId: 'alpha', date: '2026-05-18', timeIn: '09:00' }),
+      dive({ siteId: 'zeta', date: '2026-05-18', timeIn: '14:00' }),
+    ];
+    expect(ids(pickerGroups(input({ places, dives }))[0])).toEqual(['zeta', 'alpha', 'mike']);
+  });
+
+  it('a place dived twice that day ranks by its later dive', () => {
+    const places = [place({ id: 'alpha', name: 'Alpha' }), place({ id: 'zeta', name: 'Zeta' })];
+    const dives = [
+      dive({ siteId: 'zeta', date: '2026-05-18', timeIn: '07:00' }),
+      dive({ siteId: 'alpha', date: '2026-05-18', timeIn: '14:00' }),
+      dive({ siteId: 'zeta', date: '2026-05-18', timeIn: '16:30' }),
+    ];
+    expect(ids(pickerGroups(input({ places, dives }))[0])).toEqual(['zeta', 'alpha']);
+  });
+
+  // §2.5's order, which the dive numbers follow: with no times, the dive logged second is the
+  // later one. The picker agrees with the logbook rather than with the alphabet.
+  it('same-day dives with no time keep the logbook’s own order', () => {
+    const places = [place({ id: 'alpha', name: 'Alpha' }), place({ id: 'zeta', name: 'Zeta' })];
+    const dives = [
+      dive({ siteId: 'zeta', date: '2026-05-18', createdAt: '2026-05-18T19:00:00.000Z' }),
+      dive({ siteId: 'alpha', date: '2026-05-18', createdAt: '2026-05-18T18:00:00.000Z' }),
+    ];
+    expect(ids(pickerGroups(input({ places, dives }))[0])).toEqual(['zeta', 'alpha']);
+  });
+
+  // A dive with no site id belongs to every row its folded name matches, so two rows can share
+  // their latest dive exactly; then the catalogue's own order (folded name, then id) decides.
+  it('rows whose latest dive is the same dive keep the catalogue’s order', () => {
+    const places = [place({ id: 'k-2', name: 'Kotelna' }), place({ id: 'k-1', name: 'kotelna' })];
+    const dives = [dive({ siteName: 'Kotelna', siteId: null })];
+    expect(ids(pickerGroups(input({ places, dives }))[0])).toEqual(['k-1', 'k-2']);
+  });
+
   it("dived rows carry the logbook's counts", () => {
     const dives = [
       dive({ siteId: 's', date: '2026-02-01', maxDepthM: 20 }),

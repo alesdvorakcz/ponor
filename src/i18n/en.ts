@@ -948,6 +948,11 @@ export const en = {
       dived: 'dived',
       nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
       nothingNear: 'Nothing within {{distance}}.',
+      /** Where rows would be on a page with none — a diver with no dives, nothing typed, *Near me*
+       * off — which otherwise opened on a title, a search and a pill with nothing saying that
+       * typing is the way in. `search.prompt`'s job, on this page. */
+      promptSite: 'Type a name to find a site or create one.',
+      promptCenter: 'Type a name to find a centre or create one.',
       /** Near me's refusals, worded for a list rather than for the form's GPS row — nothing here
        * is being pinned, so *"too rough to pin a dive site"* would be a reason that is not one.
        * `timedOut` and `failed` share a sentence: the diver's next move is the same. */

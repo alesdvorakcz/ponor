@@ -4470,8 +4470,9 @@ function build(scheme: ColorScheme) {
     },
     pickerNearMeLabelOn: selectedInk,
     // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
-    // km*, the unreadable catalogue. `captionBlock`/`captionText`, the sentence-under-a-block
-    // Settings and a site's page already speak in.
+    // km*, the unreadable catalogue, and the prompt a page with nothing to list opens on.
+    // `captionBlock`/`captionText`, the sentence-under-a-block Settings and a site's page already
+    // speak in.
     pickerNote: {
       ...captionBlock,
       paddingBottom: 6,

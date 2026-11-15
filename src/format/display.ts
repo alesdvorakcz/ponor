@@ -399,13 +399,32 @@ export function formatSuggestionsTitle(field: InlineSuggestedField, count: numbe
  */
 const KILOMETRES_PER_MILE = 1.609344;
 
+/** 5280 international feet to the international mile — the definition `KILOMETRES_PER_MILE` is built on. */
+const FEET_PER_MILE = 5280;
+
 /**
- * **How far away a place is, e.g. "7.6 km", "13 km", "4.7 mi"** — the site picker's Near lists
- * and their headings (issue #19).
+ * Where a distance stops being written in the long unit: a kilometre, or half a mile — the
+ * distance at which a tenth of the long unit is the step a diver can actually tell apart.
+ */
+const SHORT_DISTANCE: Record<UnitSystem, { below: number; perLong: number }> = {
+  metric: { below: 1000, perLong: 1000 },
+  imperial: { below: FEET_PER_MILE / 2, perLong: FEET_PER_MILE },
+};
+
+/**
+ * **How far away a place is, e.g. "40 m", "7.6 km", "13 km", "4.7 mi", "130 ft"** — the site
+ * picker's Near lists and their headings (issue #19).
  *
  * A tenth while a tenth is a real difference on a list sorted by distance, and the whole unit
  * from ten on, where `13.2 km` against `13.4 km` is precision nobody walks. The precision is
  * decided on the ROUNDED figure, so `9.96` reads `10 km` rather than `10.0 km`.
+ *
+ * **Under a kilometre (half a mile) the figure is metres (feet), to the nearest ten and never under
+ * ten.** A diver standing at the site read `0.0 km`, which says the place is nowhere; a fix is
+ * not good to a metre, so `0 m` and `4 m` would be the same false precision in a smaller unit,
+ * and ten is the floor. Again decided on the rounded figure: `996 m` rounds to `1000 m`, which
+ * reads `1.0 km`. The short unit is the word a depth is written in (`unitLabel`), so the two
+ * cannot name a metre or a foot differently.
  *
  * Written here rather than as a fifth pair in `format/units.ts`, whose `UnitSpec` reads every
  * figure to one fixed number of decimals: this one's precision depends on its size, which that
@@ -417,6 +436,9 @@ const KILOMETRES_PER_MILE = 1.609344;
  */
 export function formatDistance(km: number, system: UnitSystem): string {
   const value = system === 'imperial' ? km / KILOMETRES_PER_MILE : km;
+  const short = SHORT_DISTANCE[system];
+  const tens = Math.max(10, Math.round((value * short.perLong) / 10) * 10);
+  if (tens < short.below) return `${figureText(tens, 0)} ${unitLabel('depth', system)}`;
   const unit = system === 'imperial' ? 'mi' : 'km';
   const tenths = Math.round(value * 10) / 10;
   const figure = tenths < 10 ? figureText(tenths, 1) : figureText(Math.round(value), 0);

@@ -1902,11 +1902,41 @@ describe('the place picker', () => {
   it('reads a distance to a tenth under ten and whole from ten, in the diver’s units', () => {
     expect(formatDistance(7.62, 'metric')).toBe('7.6 km');
     expect(formatDistance(13.2, 'metric')).toBe('13 km');
-    expect(formatDistance(0.04, 'metric')).toBe('0.0 km');
+    expect(formatDistance(1, 'metric')).toBe('1.0 km');
     // Rounds before it decides, so 9.96 is not drawn as `10.0 km`.
     expect(formatDistance(9.96, 'metric')).toBe('10 km');
     expect(formatDistance(7.6, 'imperial')).toBe('4.7 mi');
     expect(formatDistance(50, 'imperial')).toBe('31 mi');
+    expect(formatDistance(1, 'imperial')).toBe('0.6 mi');
+    expect(formatDistance(0.95, 'imperial')).toBe('0.6 mi');
+    expect(formatDistance(9.96, 'imperial')).toBe('6.2 mi');
+  });
+
+  // A diver standing at the site read `0.0 km` — a distance that says "nowhere". Under a kilometre
+  // (half a mile) the figure is metres (feet) to the nearest ten, and never less than ten: the
+  // fix is not good to a metre, and `0 m` would be the same false claim in a smaller unit.
+  it('reads a short distance in metres or feet, to the nearest ten and never under ten', () => {
+    expect(formatDistance(0.004, 'metric')).toBe('10 m');
+    expect(formatDistance(0, 'metric')).toBe('10 m');
+    expect(formatDistance(0.04, 'metric')).toBe('40 m');
+    expect(formatDistance(0.95, 'metric')).toBe('950 m');
+    // Decided on the rounded figure, so 996 m is not drawn as `1000 m`.
+    expect(formatDistance(0.996, 'metric')).toBe('1.0 km');
+    expect(formatDistance(0.004, 'imperial')).toBe('10 ft');
+    expect(formatDistance(0.04, 'imperial')).toBe('130 ft');
+    expect(formatDistance(0.8, 'imperial')).toBe('2620 ft');
+    // Half a mile exactly is 2640 ft, which reads as the mile figure it rounds to.
+    expect(formatDistance(0.5 * 1.609344, 'imperial')).toBe('0.5 mi');
+  });
+
+  it('writes a decimal comma in Czech, and the short figures the same', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatDistance(7.62, 'metric')).toBe('7,6 km');
+      expect(formatDistance(0.04, 'metric')).toBe('40 m');
+    } finally {
+      setActiveLanguage('en');
+    }
   });
 
   it('heads each group, and counts it while something is typed', () => {

@@ -152,7 +152,7 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
 
   const siteCatalogue = useDiveSites();
   const centerCatalogue = useDiveCenters();
-  const { dives } = useDives();
+  const { dives, resolved: divesResolved } = useDives();
   const { session } = useAuthSession();
   const [query, setQuery] = useState('');
   const [nearMe, setNearMe] = useState<NearMe>({ state: 'off', refusal: null });
@@ -282,6 +282,14 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
     notes.push(
       typed === '' ? t('picker.nothingNear', { distance }) : t('picker.nothingNearMatches', { distance, query: typed }),
     );
+  }
+  // A page with no place to list — a diver with no dives yet, nothing typed, *Near me* off — says
+  // that typing is the way in, as the Search screen's empty field does; it opened on a title, a
+  // search and a pill otherwise. Not before both reads have answered, so it never stands for a
+  // moment over the *Dived here* rows about to arrive. The centre picker's *Or · No centre* is not a
+  // place, so the line stands above it there.
+  if (typed === '' && nearMe.state === 'off' && groups.length === 0 && divesResolved && catalogue.resolved) {
+    notes.push(t(kind === 'site' ? 'picker.promptSite' : 'picker.promptCenter'));
   }
 
   const selected = request?.selected ?? null;
