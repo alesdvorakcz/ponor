@@ -955,6 +955,32 @@ export const en = {
       locationFailed: 'Couldn’t find where you are. Try again.',
     },
 
+    /**
+     * The *New dive site / New dive centre* pages (issue #19), pushed from the picker's *Create
+     * “…”* row. Only the page's own words: its rows that are fields elsewhere too — *Country*,
+     * *Website*, the chips' *Salinity*, *Water body* and *Entry* — are `field.*`, the same words a
+     * site's and a centre's own pages read back; a refused fix says the GPS row's `form.position*`,
+     * and §2.3's question is `form.didYouMean`.
+     */
+    newPlace: {
+      titleSite: 'New dive site',
+      titleCenter: 'New dive centre',
+      required: 'the name is the only thing required',
+      guestNote: 'Kept on this phone. It joins the community map when you sign in.',
+      name: 'Name',
+      position: 'Position',
+      useCurrentPosition: 'Use current position',
+      asksThePhone: 'asks the phone where you are',
+      fromThisDive: 'from this dive',
+      optional: 'optional',
+      saveSite: 'Save site',
+      saveCenter: 'Save centre',
+      saveAnyway: 'Save as a new site anyway',
+      saving: 'Saving…',
+      /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
+      sameName: '“{{name}}” is already a site.',
+    },
+
     /** §5's auth screen and §7.4's sign-out. */
     account: {
       heading: 'Account',

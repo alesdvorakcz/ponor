@@ -800,6 +800,24 @@ export const cs = {
       locationFailed: 'Nepodařilo se zjistit, kde jste. Zkuste to znovu.',
     },
 
+    newPlace: {
+      titleSite: 'Nová potápěčská lokalita',
+      titleCenter: 'Nové potápěčské centrum',
+      required: 'povinný je jen název',
+      guestNote: 'Zůstane v tomto telefonu. Do komunitní mapy se dostane, až se přihlásíte.',
+      name: 'Název',
+      position: 'Poloha',
+      useCurrentPosition: 'Použít aktuální polohu',
+      asksThePhone: 'zeptá se telefonu, kde jste',
+      fromThisDive: 'z tohoto ponoru',
+      optional: 'nepovinné',
+      saveSite: 'Uložit lokalitu',
+      saveCenter: 'Uložit centrum',
+      saveAnyway: 'Přesto uložit jako novou lokalitu',
+      saving: 'Ukládám…',
+      sameName: 'Lokalita „{{name}}“ už existuje.',
+    },
+
     account: {
       heading: 'Účet',
       signInHeading: 'Přihlášení',

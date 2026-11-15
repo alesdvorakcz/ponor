@@ -102,6 +102,14 @@ export interface OptionChipsProps<T extends string | number> {
    * Omitted wherever `carried` is false; the control is drawn only for a carried row.
    */
   onClear?: () => void;
+  /**
+   * A muted word about where the value came from, at the label row's trailing edge — the *New
+   * dive site* page's *from this dive* (issue #19), on a chip the page prefilled from the dive
+   * being logged. The caller decides when it is still true (it drops it once the diver chooses
+   * something else); this only draws it, in the slot the `— cleared` tag takes, and never beside
+   * that tag, which says the row is empty.
+   */
+  caption?: string;
 }
 
 /**
@@ -124,7 +132,7 @@ export interface OptionChipsProps<T extends string | number> {
  * react-hook-form's `handleSubmit` would refuse to call `onValid` for the WHOLE form —
  * exactly the "never block a save" (§1) failure that screen exists to avoid.
  */
-export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear }: OptionChipsProps<T>) {
+export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear, caption }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   // The same guard `FormField` applies to its own tag, for the same reason and against the
   // same lie: `cleared` is a claim about a gesture, `— cleared` is a claim about what the row
@@ -157,6 +165,11 @@ export function OptionChips<T extends string | number>({ label, value, options, 
             <Text style={styles.formFieldCleared} accessibilityLabel={clearedAnnouncement()}>
               {clearedTag()}
             </Text>
+          </View>
+        )}
+        {caption !== undefined && !showCleared && (
+          <View style={styles.formFieldValue}>
+            <Text style={styles.formFieldCaption}>{caption}</Text>
           </View>
         )}
         {/* And the mark and its ring as one object at the row's trailing edge —

@@ -5,6 +5,7 @@ import { jsTabItems, nativeTabItems, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
+import { CURRENT_POSITION_GLYPH } from '../screens/NewPlaceScreen';
 import { CREATE_PLACE_GLYPH, PICKED_PLACE_GLYPH, PICKER_SEARCH_GLYPH } from '../screens/PlacePickerScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
@@ -216,17 +217,20 @@ it('gives a centre’s map mark an Android and a web name, not just an iOS one',
   expect(name?.ios).toBe(CENTERS_GLYPH.ios);
 });
 
-// --- The site and centre picker's three glyphs (issue #19) ---
+// --- The site and centre picker's three glyphs, and its create page's one (issue #19) ---
 //
 // Drawn by the page's own `Glyph`, which passes each through `symbolName`; asserted on the
 // constants here because rendering that page means mocking its catalogue, logbook and session
 // reads, which `PlacePickerScreen.test.tsx` already does and this file deliberately does not. A
 // missing Material name would leave the browser's and Android's picker with no magnifier, no
-// check on the chosen row and no `+` on *Create*.
+// check on the chosen row and no `+` on *Create* — and the *New dive site* page's position card
+// with no arrow.
 it.each([
   ['picker’s magnifier', PICKER_SEARCH_GLYPH, 'search'],
   ['picker’s chosen-row check', PICKED_PLACE_GLYPH, 'check'],
   ['picker’s create plus', CREATE_PLACE_GLYPH, 'add'],
+  // The *New dive site* page's *Use current position* card.
+  ['new place’s current-position arrow', CURRENT_POSITION_GLYPH, 'near_me'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
   const name = symbolName(symbol);
   expect(name.android).toBe(material);

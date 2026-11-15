@@ -73,12 +73,10 @@ const searchCentersNearMe = (cloud: Cloud, point: MapPoint) => searchCentersNear
 
 /**
  * The create page for `kind`, carrying the form's token and the typed name — `/site/new` or
- * `/center/new`, which complete the same request two screens up. Asserted rather than checked
- * while those routes do not exist yet: typed routes only know the paths on disk. The assertion
- * should go when they land.
+ * `/center/new`, which complete the same request two screens up. Checked by typed routes.
  */
 function newPlaceHref(kind: PlaceKind, token: string, name: string): Href {
-  return { pathname: kind === 'site' ? '/site/new' : '/center/new', params: { token, name } } as unknown as Href;
+  return { pathname: kind === 'site' ? '/site/new' : '/center/new', params: { token, name } };
 }
 
 /** *Near me*: off (perhaps having just said why), asking the device, or on with a fix. */

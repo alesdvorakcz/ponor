@@ -743,6 +743,15 @@ function build(scheme: ColorScheme) {
     fontSize: 15,
     color: theme.fgMuted,
   };
+  // A small word about a row, in the row's trailing slot — muted mono 11, the treatment a dive
+  // number wears in §0.6's type table. Two say it: the `— cleared` tag (`formFieldCleared`) and
+  // the *New dive site* page's *from this dive* (`formFieldCaption`, issue #19). One definition,
+  // so the two cannot come apart into two sizes of the same aside.
+  const rowTag: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: theme.fgMuted,
+  };
   /**
    * **The dive detail's cards** — "Show on map" (issue #3) and §0.4's profile — share one frame:
    * a `surface` fill, radius 12, standing on the app's column with 14 beneath it before the next
@@ -758,6 +767,36 @@ function build(scheme: ColorScheme) {
     marginBottom: 14,
     borderRadius: 12,
     backgroundColor: theme.surface,
+  };
+  /**
+   * **A card that holds a place** — a glyph, a line of words, and the coordinates muted under
+   * them. Two screens draw one: the dive detail's *Show on map* (issue #3, `detailMapCard`) and
+   * the *New dive site* page's *Use current position* (issue #19, `newPlacePositionCard`), which
+   * the spec asks to look the same. Hoisted so they are one definition rather than two that agree
+   * today; the canvas's 56 is the height it gives every such card.
+   */
+  const placeCard: ViewStyle = {
+    ...detailCardFrame,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  };
+  const placeCardText: ViewStyle = {
+    flex: 1,
+    gap: 2,
+  };
+  const placeCardTitle: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 15,
+    color: theme.fg,
+  };
+  const placeCardMeta: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
   };
   /**
    * A dive's number as a label above its site (§0.6's table: "Plex Mono 11, muted, above the
@@ -2567,29 +2606,10 @@ function build(scheme: ColorScheme) {
     // **No chevron, where the canvas draws one** (§0.6: the chevron is spent on in-place
     // disclosure and "never on navigation"). The words say what a press does, and a card is
     // already the thing on this screen that is pressed rather than read.
-    detailMapCard: {
-      ...detailCardFrame,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      minHeight: 56,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-    },
-    detailMapCardText: {
-      flex: 1,
-      gap: 2,
-    },
-    detailMapCardTitle: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 15,
-      color: theme.fg,
-    },
-    detailMapCardMeta: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-    },
+    detailMapCard: placeCard,
+    detailMapCardText: placeCardText,
+    detailMapCardTitle: placeCardTitle,
+    detailMapCardMeta: placeCardMeta,
     // DiveDetailScreen's scroll content (§3's clusters: date & time, site & centre, depth &
     // duration, conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not
     // a SectionList: this is one fixed dive's worth of content, not a long reflowing collection.
@@ -3366,11 +3386,12 @@ function build(scheme: ColorScheme) {
     // alike. Muted mono 11 — the same treatment a dive number wears in the §0.6 type table,
     // which is what this is: a small piece of metadata about the row, in the row's own value
     // slot.
-    formFieldCleared: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      color: theme.fgMuted,
-    },
+    formFieldCleared: rowTag,
+    // Where a row's value came from — the *New dive site* page's *from this dive* over a field it
+    // prefilled from the dive (issue #19). The cleared tag's own treatment and slot, because it
+    // is the same kind of aside about the row; `OptionChips` never draws the two together.
+    // Spread rather than shared, so a test can tell the two apart by the style they wear.
+    formFieldCaption: { ...rowTag },
     // **A row's trailing state slot: the return mark and the control that clears it, as one
     // object** (M1h, the owner's ruling after the first build).
     //
@@ -4504,6 +4525,82 @@ function build(scheme: ColorScheme) {
     },
     pickerGlyphMuted: {
       color: theme.fgMuted,
+    },
+    // ------------------------------------------------------------------------------------
+    // The *New dive site / New dive centre* page (issue #19, `NewPlaceScreen`)
+    // ------------------------------------------------------------------------------------
+    // Pushed from the picker's *Create “…”* row, and written in the dive form's grammar: a way out
+    // pinned above a scroll of §0.6 rows, and the inverted save in `formFooter` beneath it, lifted
+    // with the keyboard. Its fields are the form's own (`formField*`, `OptionChips`), the position
+    // is the dive detail's place card, and the suggestion rows are the form's. What is the page's
+    // own is its header — the canvas's mono lines under the title — and the *POSITION* label.
+    //
+    // The way out: `backControl` on the column, exactly as the picker's `‹ Cancel` is.
+    newPlaceBack: {
+      ...backControl,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    newPlaceBackLabel: backControlLabel,
+    newPlaceScroll: rowScroll,
+    // The title's line is `SCREEN_HEADING_TOP` below the way out, as on every screen; 40 at the end
+    // is `formScrollContent`'s run-out above a footer that clears the device edge itself.
+    newPlaceContent: {
+      paddingTop: SCREEN_HEADING_TOP,
+      paddingBottom: 40,
+    },
+    // *New dive site* and the lines under it: what is required, and — for a guest — where the row
+    // will live. 14 before the first row, the canvas's.
+    newPlaceHeader: {
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 14,
+      gap: 4,
+    },
+    newPlaceHeading: screenHeading,
+    // The canvas draws both lines in muted mono, a note about the page rather than a sentence of it.
+    newPlaceHeaderNote: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 17,
+      color: theme.fgMuted,
+    },
+    // *POSITION* over its card — the cluster label every group header wears — with *from this
+    // dive* trailing it while the pin is the dive's own.
+    newPlaceSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 22,
+      paddingBottom: 8,
+    },
+    newPlaceSectionTitle: clusterLabel,
+    // *Use current position*: the dive detail's *Show on map* card, as the spec asks.
+    newPlacePositionCard: placeCard,
+    newPlacePositionText: placeCardText,
+    newPlacePositionTitle: placeCardTitle,
+    newPlacePositionMeta: placeCardMeta,
+    // The card's glyph tint (`SymbolView` takes a colour, not a style): ink, monochrome (§0.1).
+    newPlaceGlyph: {
+      color: theme.fg,
+    },
+    // *Country*: the stored ISO code is a figure, so mono; `—` muted while there is no position to
+    // derive one from — the row's value slot while it is not yet an answer.
+    newPlaceCountry: rowValueMono,
+    newPlaceCountryNone: {
+      ...rowValueMono,
+      color: theme.fgMuted,
+    },
+    // A failed write, above the button: the sentence-under-a-block the picker's notes speak in.
+    newPlaceNote: {
+      ...captionBlock,
+      paddingBottom: 6,
+    },
+    newPlaceNoteText: captionText,
+    // The save while there is no name to save: the same inverted button, dimmed — the opacity
+    // `reorderButtonDisabled` uses, rather than a second colour for "not now" (§0.1).
+    newPlaceSaveUnavailable: {
+      opacity: 0.35,
     },
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
