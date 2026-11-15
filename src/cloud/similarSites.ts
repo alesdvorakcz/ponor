@@ -11,8 +11,8 @@ import { fromWireRow } from './sync';
  * the client).
  *
  * §2.3: *"Before saving a new entry, a fuzzy check suggests near-matches: **Did you mean Shark
- * Point?** One tap picks the existing site instead."* This is the asking half. What is done
- * with the answer is `DiveFormScreen`'s, and what counts as a near-match once the device's own
+ * Point?**"* This is the asking half. What is done with the answer is `findSiteTwins`' and the
+ * create page's (`cloud/addToCatalogue.ts`, `NewPlaceScreen`), and what counts as a near-match once the device's own
  * catalogue has had its say is `domain/suggest.ts`'s `nearMatches`.
  *
  * ── **No round trip has ever been performed from this repository** ────────────────────────

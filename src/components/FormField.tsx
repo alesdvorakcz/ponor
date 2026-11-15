@@ -86,8 +86,10 @@ export interface FormFieldProps {
    * Set **explicitly at the two call sites that need `'none'`** rather than inferred from
    * `keyboardType` or from `secureTextEntry`, on `mono`'s own reasoning above: the two
    * questions look joined and are not. An address and a password must not be capitalised or
-   * corrected; a name — a buddy, a guide, a new site or centre on its own page — must still be
-   * capitalised as one, and they reach this component through the same props.
+   * corrected; a name must still be capitalised — a buddy's or a guide's word by word (`'words'`),
+   * a new site's or centre's on its own page by its first letter only (`'sentences'`, owner's call
+   * on PR #35: most languages do not title-case a place, and the name joins a shared catalogue) —
+   * and they reach this component through the same props.
    *
    * Omitted everywhere else, which leaves React Native's own defaults exactly as they were
    * before this prop existed.

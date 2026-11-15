@@ -503,7 +503,8 @@ function Glyph({
 /**
  * The search field at the top of the page: a magnifier, the input — focused on open, so the
  * keyboard is up — and the clear ring once it holds text (`ClearFieldControl`, the form's own).
- * Typed names become new places through *Create*, so it capitalises words and never autocorrects.
+ * Typed names become new places through *Create*, so it capitalises the first letter only (see the
+ * input) and never autocorrects.
  */
 function SearchField({
   scheme,
@@ -529,7 +530,10 @@ function SearchField({
         placeholderTextColor={theme.fgMuted}
         accessibilityLabel={placeholder}
         autoFocus
-        autoCapitalize="words"
+        // The first letter only (owner's call, PR #35): what is typed here can become a new place's
+        // name in a catalogue divers everywhere read, and most languages do not title-case place
+        // names — `Kamena vrata`, `Divoká Šárka`. The New place page's *Name* field does the same.
+        autoCapitalize="sentences"
         autoCorrect={false}
         returnKeyType="search"
       />

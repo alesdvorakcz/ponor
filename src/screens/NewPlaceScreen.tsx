@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,12 +10,12 @@ import { FormField } from '../components/FormField';
 import { RevealingScrollView } from '../components/FormReveal';
 import { OptionChips } from '../components/OptionChips';
 import { symbolName, type PlatformSymbol } from '../components/symbolName';
-import { addCenter, addSite, findSiteTwins, type KnownCountry } from '../cloud/addToCatalogue';
+import { addCenter, addSite, findSiteTwins, type KnownCountry, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
 import { foldForMatching } from '../domain/search';
-import { type Suggestion } from '../domain/suggest';
 import {
   ENTRY_VALUES,
   SALINITY_VALUES,
@@ -24,7 +24,14 @@ import {
   type Salinity,
   type WaterBody,
 } from '../domain/types';
-import { formatCoordinates, formatEntry, formatSalinity, formatWaterBody, NO_FIGURE } from '../format/display';
+import {
+  formatCoordinates,
+  formatEntry,
+  formatSalinity,
+  formatSiteTwinMeta,
+  formatWaterBody,
+  NO_FIGURE,
+} from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
@@ -37,6 +44,8 @@ import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../t
 /** The position card's glyph, monochrome, through `symbolName` like every other in the app. Exported
  * so `symbolName.test.tsx` can pin its Android and web names. */
 export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android: 'near_me' };
+/** The chevron trailing a near-match, which opens that site's page (owner's call, PR #35). */
+export const SITE_TWIN_GLYPH: PlatformSymbol = { ios: 'chevron.right', android: 'chevron_right' };
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
@@ -51,10 +60,18 @@ function fromDive<T>(value: T | null, dives: T | null | undefined): string | und
  * (*“Lom Leštinka” is already a site.*); anything else is *Did you mean …?*. Both are the one tap
  * that picks the existing row instead.
  */
-function matchSentence(match: Suggestion, typed: string): string {
+function matchSentence(match: SiteTwin, typed: string): string {
   return foldForMatching(match.value) === foldForMatching(typed)
     ? t('newPlace.sameName', { name: match.value })
     : t('form.didYouMean', { name: match.value });
+}
+
+/**
+ * A near-match's own page, opened over this one with the form's token as `pick`, so the page can
+ * offer *Use this site* (`DiveSiteScreen`). Checked by typed routes.
+ */
+function twinHref(id: string, token: string): Href {
+  return { pathname: '/site/[id]', params: { id, pick: token } };
 }
 
 /**
@@ -76,16 +93,21 @@ function matchSentence(match: Suggestion, typed: string): string {
  *
  * ── Saving, once ──────────────────────────────────────────────────────────────────────────
  *
- * A site asks §2.3's question first (`findSiteTwins`); its matches stand above the button, each one a
- * tap that picks the existing site, and the button becomes *Save as a new site anyway*. A centre
+ * A site asks §2.3's question first (`findSiteTwins`); its matches stand above the button, each with
+ * its country and how far it is from the position on screen, and the button becomes *Save as a new
+ * site anyway*. **A tap on a match opens that site's own page** (owner's call on PR #35: *"so he can
+ * check if it's really a duplicate"*), whose *Use this site* picks it through the same
+ * `completePlacePick` and closes all three pages; `‹ Back` there returns here exactly as it was left. A centre
  * saves straight away. The row is then written, handed to the form two screens down and both pages
  * close (`completePlacePick(…, 2)`) — or, for a token the registry lost to a reload, the row is
  * written and this page just goes back. A failed write says so and changes nothing on the dive.
  *
  * Three refs keep each press to one outcome (Review Focus 1, 2): `inFlight` shuts Save from the
  * moment it is pressed — before any re-render could disable it — until a question or a failure hands
- * it back; `leaving` lets exactly one way off happen (`‹ Back`, a match, or a save that went
- * through); `alive` drops any answer that lands after the page has closed. A write already out when
+ * it back; `leaving` lets exactly one way off happen (`‹ Back`, opening a match, or a save that went
+ * through) and is released when the page is focused again, since a match's page comes back here, as
+ * the picker releases its own for *Create*; `alive` drops any answer that lands after the page has
+ * closed. A write already out when
  * the page closes still makes its row — it is the diver's own place, and the picker underneath lists
  * it — but nothing reaches the form.
  *
@@ -103,6 +125,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const insets = useSafeAreaInsets();
   const keyboardShown = useKeyboardShown();
   const { session, resolved } = useAuthSession();
+  const units = useUnitSystem();
   const params = useLocalSearchParams<{ token?: string | string[]; name?: string | string[] }>();
   const token = firstParam(params.token) ?? '';
   // Read once, as the picker reads it: completing forgets the token.
@@ -122,7 +145,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const [saving, setSaving] = useState(false);
   // §2.3's near-matches once the check has found some; their presence is also "the diver has been
   // asked", which is what makes the next press mean *anyway*.
-  const [matches, setMatches] = useState<readonly Suggestion[]>([]);
+  const [matches, setMatches] = useState<readonly SiteTwin[]>([]);
   const [failed, setFailed] = useState(false);
 
   const alive = useRef(true);
@@ -135,6 +158,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       alive.current = false;
     };
   }, []);
+  // A match's page is the one way off that comes back: `‹ Back` there returns to this page as it was.
+  useFocusEffect(
+    useCallback(() => {
+      leaving.current = false;
+    }, []),
+  );
 
   // *Country*, for whatever position is on screen. An answer is kept with the point it is for, so one
   // about a position since replaced is never shown, and the cleanup drops one landing after the page
@@ -257,9 +286,10 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     deliver({ id, name: trimmed });
   };
 
-  const pickMatch = (match: Suggestion) => {
-    if (inFlight.current || match.id === null) return;
-    deliver({ id: match.id, name: match.value });
+  // Opens the match's own page; *Use this site* there picks it (`DiveSiteScreen`).
+  const openMatch = (match: SiteTwin) => {
+    if (inFlight.current) return;
+    leave(() => router.push(twinHref(match.id, token)));
   };
 
   const unavailable = trimmed === '';
@@ -297,7 +327,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           value={name}
           onChange={rename}
           scheme={scheme}
-          autoCapitalize="words"
+          // The first letter only, as the picker's search (whose text arrives here): see there.
+          autoCapitalize="sentences"
           autoCorrect={false}
           spellCheck={false}
           editable={!saving}
@@ -378,21 +409,28 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       </RevealingScrollView>
 
       {/* §2.3's answer stands above the button, outside the scroll, so the diver who pressed Save
-          sees it without looking for it. Inert while a write is out: a pick then would be thrown
-          away by the row the write is about to hand the form. */}
+          sees it without looking for it: the sentence, then the match's country and how far it is
+          from the position on screen, and a chevron for the page a tap opens. Inert while a write
+          is out: a pick then would be thrown away by the row the write is about to hand the form. */}
       {matches.map((match) => {
         const sentence = matchSentence(match, trimmed);
+        const meta = formatSiteTwinMeta(match, position, units);
         return (
           <Pressable
-            key={match.id ?? match.value}
+            key={match.id}
             style={styles.formSuggestion}
-            onPress={() => pickMatch(match)}
+            onPress={() => openMatch(match)}
             accessibilityRole="button"
             accessibilityLabel={sentence}
+            accessibilityHint={meta ?? undefined}
             disabled={saving}
             accessibilityState={{ disabled: saving }}
           >
-            <Text style={styles.formSuggestionText}>{sentence}</Text>
+            <View style={styles.formSuggestionBody}>
+              <Text style={styles.formSuggestionText}>{sentence}</Text>
+              {meta !== null && <Text style={styles.formSuggestionMeta}>{meta}</Text>}
+            </View>
+            <SymbolView name={symbolName(SITE_TWIN_GLYPH)} size={14} tintColor={styles.newPlaceTwinChevron.color} />
           </Pressable>
         );
       })}

@@ -1,11 +1,10 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
-import { addCenter, addSite, findSiteTwins } from '../cloud/addToCatalogue';
+import { addCenter, addSite, findSiteTwins, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { type Suggestion } from '../domain/suggest';
 import { setActiveLanguage } from '../i18n';
 import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
 import { countryFor } from '../platform/geocode';
@@ -21,7 +20,9 @@ jest.mock('../cloud/useAuthSession', () => ({
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), dismiss: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({ token: 'tok', name: 'Lom Leštinka' })),
+  useFocusEffect: jest.fn(),
 }));
+jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
 // The hand-back registry at its own seam, as `PlacePickerScreen.test.tsx` mocks it: its suite proves
 // what completing does to the form and the stack; what is left here is when the page completes and
 // with what.
@@ -54,12 +55,22 @@ const mockAddSite = addSite as jest.MockedFunction<typeof addSite>;
 const mockAddCenter = addCenter as jest.MockedFunction<typeof addCenter>;
 const mockPosition = currentPosition as jest.MockedFunction<typeof currentPosition>;
 const mockCountry = countryFor as jest.MockedFunction<typeof countryFor>;
+const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEffect>;
 
 const styles = makeStyles('light');
 
 const pin = { latitude: 43.06, longitude: 16.18 };
 const diveAt = { pin, entry: 'boat', salinity: 'salt', waterBody: 'ocean', siteId: null } as const;
 const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null };
+
+/** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless told. */
+const twin = (value: string, id: string, over: Partial<SiteTwin> = {}): SiteTwin => ({
+  value,
+  id,
+  country: null,
+  point: null,
+  ...over,
+});
 
 const request = (over: Partial<PlacePickRequest> = {}): PlacePickRequest => ({
   kind: 'site',
@@ -175,6 +186,8 @@ it('prefills the typed name, the dive’s pin, salinity, water body and entry', 
   expect(textIn(t)).toContain('New dive site');
   expect(textIn(t)).toContain('the name is the only thing required');
   expect(labelled(t, 'Name').props.value).toBe('Lom Leštinka');
+  // A capital on the first letter only — most languages do not title-case a place's name.
+  expect(labelled(t, 'Name').props.autoCapitalize).toBe('sentences');
   // The dive's own pin, and the country it answers to.
   expect(textIn(t)).toContain('43.06000, 16.18000');
   expect(mockCountry).toHaveBeenCalledWith(43.06, 16.18);
@@ -276,7 +289,7 @@ it('Save is shut while Locating…, and saves the fix once it lands', async () =
 
 // The server's check was asked around the old position, so a new one is a new question.
 it('a new position forgets the question', async () => {
-  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
   const t = await showSite();
   await press(t, 'Save site');
@@ -391,7 +404,7 @@ it('Save is disabled while the name is blank', async () => {
 });
 
 it('a near match is asked first; the second press creates anyway', async () => {
-  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
@@ -406,7 +419,7 @@ it('a near match is asked first; the second press creates anyway', async () => {
 
 it('an exact device match gets its own sentence, not a question', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'lom lestinka' });
-  mockTwins.mockResolvedValue([{ value: 'Lom Leštinka', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   expect(textIn(t)).toContain('“Lom Leštinka” is already a site.');
@@ -414,26 +427,86 @@ it('an exact device match gets its own sentence, not a question', async () => {
   expect(has(t, 'Save as a new site anyway')).toBe(true);
 });
 
-it('tapping a match picks the existing site', async () => {
-  const twins: Suggestion[] = [
-    { value: 'Lom Leštinka', id: 's-same' },
-    { value: 'Lom Leština', id: 's-twin' },
-  ];
-  mockTwins.mockResolvedValue(twins);
+// Owner's call on PR #35: a diver checks a match is really the same place before using it, so a tap
+// opens the site's own page — carrying the form's token, for its *Use this site* — and picks nothing.
+it('tapping a match opens that site’s page with the pick token, and picks nothing', async () => {
+  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   await press(t, 'Did you mean “Lom Leština”?');
-  expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's-twin', name: 'Lom Leština' }, 2);
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]', params: { id: 's-twin', pick: 'tok' } });
+  expect(mockComplete).not.toHaveBeenCalled();
   expect(mockAddSite).not.toHaveBeenCalled();
-  // One way off: a second tap, on the other match or on Save, does nothing more.
+  // One way off while that page opens: a second tap, on the other match, on Save or on Back, does
+  // nothing more.
   await press(t, '“Lom Leštinka” is already a site.');
   await act(async () => onPressOf(labelled(t, 'Save as a new site anyway'))());
-  expect(mockComplete).toHaveBeenCalledTimes(1);
+  await press(t, 'Go back');
+  expect(router.push).toHaveBeenCalledTimes(1);
+  expect(router.back).not.toHaveBeenCalled();
   expect(mockAddSite).not.toHaveBeenCalled();
 });
 
+// `‹ Back` on the match's page returns here exactly as it was left — the name, the chips, the
+// position and the question still standing — and the page is usable again.
+it('comes back from a match’s page as it was left, and can open another or save anyway', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
+  const t = await showSite();
+  await press(t, 'Salinity: Fresh');
+  await press(t, 'Save site');
+  await press(t, 'Did you mean “Lom Leština”?');
+  const focused = mockFocusEffect.mock.calls[mockFocusEffect.mock.calls.length - 1]?.[0];
+  expect(focused).toBeDefined();
+  await act(async () => {
+    focused?.();
+  });
+  expect(labelled(t, 'Name').props.value).toBe('Lom Leštinka');
+  expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).toMatchObject({ selected: true });
+  expect(textIn(t)).toContain('43.06000, 16.18000');
+  expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
+  await press(t, '“Lom Leštinka” is already a site.');
+  expect(router.push).toHaveBeenLastCalledWith({ pathname: '/site/[id]', params: { id: 's-same', pick: 'tok' } });
+  await act(async () => {
+    focused?.();
+  });
+  await press(t, 'Save as a new site anyway');
+  expect(mockAddSite).toHaveBeenCalledTimes(1);
+  expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka' }, 2);
+});
+
+// The owner's call on PR #35: the match's country and how far it is from the position on the page,
+// so a diver can judge it before opening it; a chevron for the page a tap opens.
+it('words a match with its country and its distance from the position on the page', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  // 0.0011° of latitude north of the dive's pin: about 122 m, read to the nearest ten.
+  mockTwins.mockResolvedValue([
+    twin('Lom Leština', 's-twin', { country: 'HR', point: { latitude: 43.0611, longitude: 16.18 } }),
+  ]);
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('HR · 120 m away');
+  expect(labelled(t, 'Did you mean “Lom Leština”?').props.accessibilityHint).toBe('HR · 120 m away');
+});
+
+it('leaves out the distance when either place has no position, and the line when nothing is known', async () => {
+  mockTwins.mockResolvedValue([
+    twin('Lom Leština', 's-twin', { country: 'HR', point: { latitude: 43.0611, longitude: 16.18 } }),
+    twin('Lom Leštinka', 's-same'),
+  ]);
+  // No position on the page: the dive has no pin.
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('HR');
+  expect(textIn(t).join(' ')).not.toContain('away');
+  // The second match knows neither, so it is the sentence alone.
+  const same = labelled(t, '“Lom Leštinka” is already a site.');
+  expect(same.props.accessibilityHint).toBeUndefined();
+  expect(same.queryAll((n) => n.type === 'Text').map(textOf)).toEqual(['“Lom Leštinka” is already a site.']);
+});
+
 it('editing the name forgets the question', async () => {
-  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
@@ -452,7 +525,7 @@ it('editing the name forgets the question', async () => {
 // What is written is what is on screen: from Save until a question or a failure hands them back,
 // the name and the chips cannot change underneath the check or the write.
 it('holds the name and the chips still while the check is out', async () => {
-  const checked = deferred<Suggestion[]>();
+  const checked = deferred<SiteTwin[]>();
   mockTwins.mockReturnValue(checked.promise);
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   const t = await showSite();
@@ -464,7 +537,7 @@ it('holds the name and the chips still while the check is out', async () => {
   expect(labelled(t, 'Name').props.value).toBe('Lom Leštinka');
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
 
-  await act(async () => checked.resolve([{ value: 'Lom Leština', id: 's-twin' }]));
+  await act(async () => checked.resolve([twin('Lom Leština', 's-twin')]));
   // The question hands them back.
   expect(labelled(t, 'Name').props.editable).not.toBe(false);
   expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).not.toMatchObject({ disabled: true });
@@ -488,7 +561,7 @@ it('a failed write shows the failed line and does not complete', async () => {
 // Review Focus 1: both presses land before the page re-renders, so `disabled` cannot be what stops
 // the second — they are delivered from the same render, as a real double tap can be.
 it('Save pressed twice while saving creates one row', async () => {
-  const checked = deferred<Suggestion[]>();
+  const checked = deferred<SiteTwin[]>();
   const written = deferred<string>();
   mockTwins.mockReturnValue(checked.promise);
   mockAddSite.mockReturnValue(written.promise);
@@ -517,7 +590,7 @@ it('Save pressed twice while saving creates one row', async () => {
 // the outcome — nothing written, nothing delivered, nothing logged — rather than the guard itself.
 it('closing the page while the check is out delivers nothing', async () => {
   const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const checked = deferred<Suggestion[]>();
+  const checked = deferred<SiteTwin[]>();
   mockTwins.mockReturnValue(checked.promise);
   const t = await showSite();
   await press(t, 'Save site');
@@ -560,7 +633,7 @@ it('‹ Back goes back once, and a write landing after it delivers nothing', asy
 });
 
 it('‹ Back while the check is out writes nothing', async () => {
-  const checked = deferred<Suggestion[]>();
+  const checked = deferred<SiteTwin[]>();
   mockTwins.mockReturnValue(checked.promise);
   const t = await showSite();
   await press(t, 'Save site');
@@ -575,13 +648,14 @@ it('‹ Back while the check is out writes nothing', async () => {
 // the dive with the old site and then be overwritten by the new row.
 it('a match is inert while the write it was answered with is out', async () => {
   const written = deferred<string>();
-  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   mockAddSite.mockReturnValue(written.promise);
   const t = await showSite();
   await press(t, 'Save site');
   await press(t, 'Save as a new site anyway');
   await act(async () => onPressOf(labelled(t, 'Did you mean “Lom Leština”?'))());
   expect(mockComplete).not.toHaveBeenCalled();
+  expect(router.push).not.toHaveBeenCalled();
   await act(async () => written.resolve('new-id'));
   expect(mockComplete).toHaveBeenCalledTimes(1);
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka' }, 2);
@@ -707,7 +781,7 @@ it('‹ Back goes back without saving anything', async () => {
 // §0.1's sweep: every colour on the page is the sheet's.
 it('paints nothing of its own', async () => {
   mockRequest.mockReturnValue(request({ dive: diveAt }));
-  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
@@ -727,5 +801,16 @@ describe('in Czech', () => {
     expect(textIn(t)).toContain('Nová potápěčská lokalita');
     expect(has(t, 'Uložit lokalitu')).toBe(true);
     expect(textIn(t)).not.toContain('New dive site');
+  });
+
+  it('words a match’s distance in Czech', async () => {
+    mockRequest.mockReturnValue(request({ dive: diveAt }));
+    mockTwins.mockResolvedValue([
+      twin('Lom Leština', 's-twin', { country: 'HR', point: { latitude: 43.0611, longitude: 16.18 } }),
+    ]);
+    const t = await showSite();
+    await press(t, 'Uložit lokalitu');
+    expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
+    expect(textIn(t)).toContain('HR · 120 m odtud');
   });
 });

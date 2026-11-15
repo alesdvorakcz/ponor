@@ -735,6 +735,7 @@ export const cs = {
       noneMember:
         'Zatím žádné potápěčské lokality. U ponoru klepněte na „Lokalita“ a napište název — lokalitu najdete, nebo vytvoříte novou. Další synchronizace stáhne ty komunitní.',
       noMatches: 'Hledání neodpovídá žádná lokalita.',
+      useThisSite: 'Použít tuto lokalitu',
     },
 
     centre: {
@@ -775,7 +776,6 @@ export const cs = {
       otherCenters: 'Další centra',
       nearYou: 'Ve vašem okolí · do {{distance}}',
       nearSite: 'U lokality {{name}}',
-      fromSite: '{{distance}} od lokality {{name}}',
       or: 'Nebo',
       noCenter: 'Bez centra',
       noCenterMeta: 'potápěli jste se bez něj',
@@ -819,6 +819,7 @@ export const cs = {
       saving: 'Ukládám…',
       saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
       sameName: 'Lokalita „{{name}}“ už existuje.',
+      away: '{{distance}} odtud',
     },
 
     account: {

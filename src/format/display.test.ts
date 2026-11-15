@@ -1864,7 +1864,8 @@ describe('a suggestion row', () => {
   });
 
   // A site's trailing figure is its deepest dive, in the diver's own units. Nothing trails a
-  // centre or a person: the canvas draws none, and no figure is true of a buddy.
+  // centre (its heading already says what the canvas's `used` would) or a person, of whom no
+  // figure is true.
   it('trails a site with its deepest dive in the diver’s units, and nothing else with anything', () => {
     expect(formatSuggestionFigure(visited, 'siteName', 'metric')).toBe(formatDepth(34.6, 'metric'));
     expect(formatSuggestionFigure(visited, 'siteName', 'imperial')).toBe(formatDepth(34.6, 'imperial'));
@@ -1972,15 +1973,19 @@ describe('the place picker', () => {
     );
   });
 
-  it('says dived or where it came from near you, and how far from the site near a site', () => {
+  it('says dived or where it came from near you, and where it came from near a site', () => {
     expect(formatPickerMeta(row({ dived: visited, distanceKm: 3 }), 'near', 'site', wording)).toBe('dived · 4 dives');
     expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3 }), 'near', 'site', wording)).toBe(
       'added by you',
     );
-    expect(formatPickerMeta(row({ distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe('3.4 km from Vrak Teti');
+    // The distance trails the row and the heading names the site, so the line says neither again.
+    expect(formatPickerMeta(row({ distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe('community');
+    expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe(
+      'added by you',
+    );
   });
 
-  // Deepest in the diver's units for a dived site, nothing for a centre (the canvas draws none),
+  // Deepest in the diver's units for a dived site, nothing for a centre (its heading says it),
   // a distance on either near list, and nothing on a row that is only a match.
   it('trails a dived site with its deepest dive and a near row with its distance', () => {
     expect(formatPickerFigure(row({ dived: visited }), 'dived', 'site', 'metric')).toBe('34.6 m');

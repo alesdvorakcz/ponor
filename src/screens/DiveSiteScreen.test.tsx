@@ -18,6 +18,7 @@ import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { SITE_DEFAULT_FIELDS } from '../domain/siteDefaults';
 import { type Dive, type DiveSite } from '../domain/types';
 import { setActiveLanguage } from '../i18n';
+import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
 import { unnamedSite } from '../format/display';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
@@ -30,6 +31,13 @@ jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 // above is: a live database read this screen must be renderable without.
 jest.mock('../db/useDiveSampleShapes', () => ({ useDiveSampleShapes: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
+// The hand-back registry at its own seam, as the picker's and the create page's suites mock it:
+// `placePick.test.ts` proves what completing does to the form and the stack.
+jest.mock('../navigation/placePick', () => ({
+  placePickRequest: jest.fn(),
+  completePlacePick: jest.fn(),
+  firstParam: jest.requireActual('../navigation/placePick').firstParam,
+}));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn() },
   useLocalSearchParams: jest.fn(),
@@ -40,6 +48,8 @@ const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
 const mockUseDiveSampleShapes = useDiveSampleShapes as jest.MockedFunction<typeof useDiveSampleShapes>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const mockParams = useLocalSearchParams as jest.MockedFunction<typeof useLocalSearchParams>;
+const mockRequest = placePickRequest as jest.MockedFunction<typeof placePickRequest>;
+const mockComplete = completePlacePick as jest.MockedFunction<typeof completePlacePick>;
 
 /**
  * **A site in the shape §2.3 actually writes: a name, and whatever the dive that created it
@@ -93,6 +103,9 @@ beforeEach(() => {
   mockUseUnitSystem.mockReturnValue('metric');
   mockParams.mockReturnValue({ id: 's1' });
   (router.push as jest.Mock).mockClear();
+  (router.back as jest.Mock).mockClear();
+  mockRequest.mockReset();
+  mockComplete.mockReset();
 });
 
 // Task 6's row sparkline: a small hand-rolled series, enough to prove the wiring reaches the
@@ -591,4 +604,88 @@ it('puts the card under the page’s own lines and above the site’s facts', as
   const lines = textIn(await show());
   expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Kotelna'));
   expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Site'));
+});
+
+// --- Opened from a near-match on *New dive site* (owner's call, PR #35) -------------------------
+
+describe('opened from a near-match', () => {
+  const pickRequest: PlacePickRequest = {
+    kind: 'site',
+    selected: null,
+    dive: { pin: null, entry: null, salinity: null, waterBody: null, siteId: null },
+    onPick: jest.fn(),
+  };
+  const labelled = (t: RenderResult, label: string) => allNodes(t).find((n) => n.props?.accessibilityLabel === label);
+
+  beforeEach(() => {
+    mockParams.mockReturnValue({ id: 's1', pick: 'tok' });
+    mockRequest.mockImplementation((token) => (token === 'tok' ? pickRequest : null));
+  });
+
+  it('offers Use this site, which picks it and closes this page, the create page and the picker', async () => {
+    const t = await show();
+    expect(textIn(t)).toContain('Use this site');
+    await fireEvent.press(labelled(t, 'Use this site')!);
+    expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's1', name: 'Kotelna' }, 3);
+  });
+
+  // The pick's dismiss and a `‹ Back` landing during it would pop the dive form too, and a second
+  // `‹ Back` would leave the create page as well as this one.
+  it('lets one way off happen: Use this site or ‹ Back, once', async () => {
+    const t = await show();
+    await fireEvent.press(labelled(t, 'Use this site')!);
+    await fireEvent.press(labelled(t, 'Go back')!);
+    await fireEvent.press(labelled(t, 'Use this site')!);
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(router.back).not.toHaveBeenCalled();
+
+    await cleanup();
+    mockComplete.mockClear();
+    const again = await show();
+    await fireEvent.press(labelled(again, 'Go back')!);
+    await fireEvent.press(labelled(again, 'Go back')!);
+    await fireEvent.press(labelled(again, 'Use this site')!);
+    expect(router.back).toHaveBeenCalledTimes(1);
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it('a site with no name is picked as none, as the picker picks one', async () => {
+    mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: null })]));
+    const t = await show();
+    await fireEvent.press(labelled(t, 'Use this site')!);
+    expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's1', name: '' }, 3);
+  });
+
+  // Nothing to answer: the request was settled or lost to a reload, so the page is just the site's.
+  it('offers nothing to use when the registry no longer holds the request', async () => {
+    mockRequest.mockReturnValue(null);
+    const t = await show();
+    expect(textIn(t)).not.toContain('Use this site');
+  });
+
+  it('offers nothing to use when it was not opened from a near-match', async () => {
+    mockParams.mockReturnValue({ id: 's1' });
+    const t = await show();
+    expect(textIn(t)).not.toContain('Use this site');
+    // And `‹ Back` is the page's own, unclaimed: each press leaves.
+    await fireEvent.press(labelled(t, 'Go back')!);
+    await fireEvent.press(labelled(t, 'Go back')!);
+    expect(router.back).toHaveBeenCalledTimes(2);
+  });
+
+  it('paints nothing of its own', async () => {
+    const t = await show();
+    expect(unexpectedGraphics(t, 'light')).toEqual([]);
+  });
+
+  it('words the button in Czech', async () => {
+    setActiveLanguage('cs');
+    try {
+      const t = await show();
+      expect(textIn(t)).toContain('Použít tuto lokalitu');
+    } finally {
+      await cleanup();
+      setActiveLanguage('en');
+    }
+  });
 });

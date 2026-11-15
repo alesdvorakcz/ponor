@@ -10,7 +10,9 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // A type, on the same terms and for the same reason as `LogbookStats` above: `domain/
 // mapSites.ts` imports `diveSiteLabel` from this module (a map place is called what a dive row
 // calls it), so only the shape of its answer may come back the other way.
-import type { WaterTempRange } from '../domain/mapSites';
+import type { MapPoint, WaterTempRange } from '../domain/mapSites';
+// A value this time, and safe as one: `domain/geo.ts` imports nothing from the app but a type.
+import { distanceKm } from '../domain/geo';
 // Types again, and for the same reason: `domain/placePicker.ts` reaches this module through
 // `logbookStats`, so only the shape of a picker row may come back.
 import type { PickerGroupKey, PickerRow, PlaceKind, Provenance } from '../domain/placePicker';
@@ -378,8 +380,9 @@ export function formatSuggestionMeta(history: SuggestionHistory, field: Suggeste
 
 /**
  * **A suggested site's trailing figure: its deepest dive**, in the diver's units — null for
- * anything that is not a site (no figure is true of a centre or a person, and the canvas draws
- * none) and for a site with no depth logged. Drawn unbanded on the picker's rows
+ * anything that is not a site and for a site with no depth logged. No figure is true of a person,
+ * and none of a centre: the canvas draws a muted `used` in that slot on a centre row, left out on
+ * purpose because the *Dived with* heading above the row already says it (owner's call, PR #35). Drawn unbanded on the picker's rows
  * (`pickerRowFigure`, theme/styles.ts): a deepest-of-a-set takes no band, `formatSiteSummary`'s
  * own rule above.
  */
@@ -502,7 +505,8 @@ export function formatPickerGroupTitle(
  *   centre adding its sites).
  * - `other`: where it came from, in words, then its country when the catalogue knows one.
  * - `near`: `dived · 4 dives`, or where it came from — the distance trails, so no country.
- * - `nearSite`: how far it is from the dive's site, `3.4 km from Vrak Teti`.
+ * - `nearSite`: where it came from. The distance trails the row and the heading names the site, so
+ *   `3.4 km from Vrak Teti` said both a second time (owner's call, PR #35).
  */
 export function formatPickerMeta(
   row: PickerRow,
@@ -523,16 +527,14 @@ export function formatPickerMeta(
         ? formatPlaceProvenance(row.provenance)
         : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
     case 'nearSite':
-      return row.distanceKm === null
-        ? null
-        : t('picker.fromSite', { distance: formatDistance(row.distanceKm, wording.system), name: wording.siteName });
+      return formatPlaceProvenance(row.provenance);
   }
 }
 
 /**
  * **What trails a picker row**: a dived site's deepest dive (`formatSuggestionFigure` — nothing
- * for a centre, which the canvas draws none for), a distance on either Near list, and nothing on a
- * row that is only a name match. The screen draws the deepest dive in ink and the distance muted;
+ * for a centre, whose *Dived with* heading already says what the canvas's `used` would), a
+ * distance on either Near list, and nothing on a row that is only a name match. The screen draws the deepest dive in ink and the distance muted;
  * neither takes a band colour (an aggregate, §0.6).
  */
 export function formatPickerFigure(
@@ -548,6 +550,25 @@ export function formatPickerFigure(
     return formatSuggestionFigure(row.dived, kind === 'site' ? 'siteName' : 'centerName', system);
   }
   return null;
+}
+
+/**
+ * **The muted line under a near-match on the create page** — the match's country, then how far it is
+ * from the position on screen (`HR · 120 m away`), so a diver can judge it before opening it (owner's
+ * call, PR #35). Each half is left out when it is not known — the distance whenever either place has
+ * no position — and the line is null when neither is.
+ */
+export function formatSiteTwinMeta(
+  twin: { country: string | null; point: MapPoint | null },
+  at: MapPoint | null,
+  system: UnitSystem,
+): string | null {
+  const parts: string[] = [];
+  if (twin.country !== null && twin.country !== '') parts.push(twin.country);
+  if (twin.point !== null && at !== null) {
+    parts.push(t('newPlace.away', { distance: formatDistance(distanceKm(at, twin.point), system) }));
+  }
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
 /**

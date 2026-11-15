@@ -9,11 +9,11 @@ import type { Entry, Salinity, WaterBody } from '../domain/types';
  * Handing a pick back to the dive form — the one place that makes a pushed screen *return a
  * value*, which expo-router routes cannot do.
  *
- * The picker (and the *New dive site / centre* pages stacked on it) are routes pushed over the
- * dive form, which stays mounted underneath with its half-typed values. A route's params are
+ * The picker (and the *New dive site / centre* pages stacked on it, and a near-match's own site
+ * page stacked on *New dive site*) are routes pushed over the dive form, which stays mounted underneath with its half-typed values. A route's params are
  * strings in a URL, so a callback cannot travel through them; instead the form registers a
  * request here under a fresh token, pushes the picker with only that token as its param, and the
- * picker (or the create page two screens up) completes the token. Completing calls the form's
+ * picker (or a page stacked above it) completes the token. Completing calls the form's
  * `onPick` once and closes the screens that were pushed for the pick.
  *
  * **The registry is module state on purpose.** A request holds a function and the form's live
@@ -85,11 +85,12 @@ export function placePickRequest(token: string): PlacePickRequest | null {
 
 /**
  * Delivers the pick to the form once, settles the token, and closes `screensToClose` screens —
- * 1 from the picker itself, 2 from a create page stacked on it. A token already settled does
+ * 1 from the picker itself, 2 from a create page stacked on it, 3 from a near-match's site page
+ * stacked on that (*Use this site*, PR #35). A token already settled does
  * nothing; one this module never saw (a reload) still closes the screens. The screens close even
  * when `onPick` throws, so a failure in the form cannot leave the picker standing over it.
  */
-export function completePlacePick(token: string, pick: PlacePick, screensToClose: 1 | 2): void {
+export function completePlacePick(token: string, pick: PlacePick, screensToClose: 1 | 2 | 3): void {
   if (settled.has(token)) return;
   const request = requests.get(token);
   requests.delete(token);

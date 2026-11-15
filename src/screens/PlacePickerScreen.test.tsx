@@ -286,6 +286,8 @@ it('opens with Dived here, most recently dived first, and the search focused', a
   expect(groupTitles(t)).toEqual(['Dived here']);
   expect(rowNames(t)).toEqual(['Bravo', 'Alpha']);
   expect(labelled(t, 'Search sites').props.autoFocus).toBe(true);
+  // What is typed can become a new place's name: a capital on its first letter only.
+  expect(labelled(t, 'Search sites').props.autoCapitalize).toBe('sentences');
 });
 
 // A new diver opened a page holding a title, a search and a pill and nothing else — no row, no
@@ -604,7 +606,8 @@ it('centre: Near Vrak Teti leaves out centres already under Dived with; No centr
   expect(groupTitles(t)).toEqual(['Dived with', 'Near Vrak Teti', 'Or']);
   expect(rowNames(t)).toEqual(['Dived Shop', 'Near Shop', 'No centre']);
   expect(metaOf(rowFor(t, 'Dived Shop'))).toBe('1 dive · 1 site · last 18 May 2026');
-  expect(metaOf(rowFor(t, 'Near Shop'))).toBe('3.3 km from Vrak Teti');
+  // Where it came from, as on every other row; the distance trails it and the heading names the site.
+  expect(metaOf(rowFor(t, 'Near Shop'))).toBe('community');
   expect(within(rowFor(t, 'Near Shop'), styles.pickerRowDistance)).toBe('3.3 km');
   expect(metaOf(rowFor(t, 'No centre'))).toBe('you dived without one');
 

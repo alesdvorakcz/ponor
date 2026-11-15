@@ -27,8 +27,17 @@ const makeSite = jest.mocked(createDiveSite);
 const makeCenter = jest.mocked(createDiveCenter);
 const country = jest.mocked(countryFor);
 
-function site(id: string, name: string): DiveSite {
-  return { id, name, status: 'active', mergedInto: null } as unknown as DiveSite;
+function site(id: string, name: string, over: Partial<DiveSite> = {}): DiveSite {
+  return {
+    id,
+    name,
+    country: null,
+    latitude: null,
+    longitude: null,
+    status: 'active',
+    mergedInto: null,
+    ...over,
+  } as unknown as DiveSite;
 }
 
 /** A whole row the server sent, as `similarSites` hands it back for storing. */
@@ -52,7 +61,9 @@ beforeEach(() => {
 
 describe('findSiteTwins', () => {
   it("joins the device's exact folded match and the server's near matches, device first, no duplicates", async () => {
-    listSites.mockResolvedValue([site('s-local', 'Kotelna'), site('s-other', 'Zátoka')]);
+    const onDevice = [site('s-local', 'Kotelna'), site('s-other', 'Zátoka')];
+    // The read before the server's rows are written, then the read back after it.
+    listSites.mockResolvedValueOnce(onDevice).mockResolvedValueOnce([...onDevice, site('s-far', 'Kotelna 2')]);
     askServer.mockResolvedValue(
       answer([
         { value: 'Kotelna', id: 's-local' },
@@ -82,16 +93,63 @@ describe('findSiteTwins', () => {
     await expect(findSiteTwins('Kotelna', null)).resolves.toEqual([]);
   });
 
-  // A tap on a match pairs the dive with it, so the match has to be a site the phone holds: the
-  // server's rows are written first, the way live search writes its answers.
+  // *Use this site* on a match's page pairs the dive with it, so the match has to be a site the
+  // phone holds: the server's rows are written first, the way live search writes its answers.
   it('writes the server’s rows to the device before offering them', async () => {
-    listSites.mockResolvedValue([]);
+    listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([site('s-far', 'Kotelna 2')]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
     const twins = await findSiteTwins('kotelna', null);
 
     expect(storeSites).toHaveBeenCalledWith(expect.anything(), [pulled('s-far', 'Kotelna 2')]);
+    // Read back after the write, so what is offered is what the phone holds.
+    expect(listSites).toHaveBeenCalledTimes(2);
+    expect(storeSites.mock.invocationCallOrder[0]).toBeLessThan(listSites.mock.invocationCallOrder[1] ?? 0);
     expect(twins.map((s) => s.id)).toEqual(['s-far']);
+  });
+
+  // `applyPulledRows` lands a row only where it may safely replace what is here; the read back is
+  // what says whether the phone holds it.
+  it('does not offer a written match the phone still does not hold', async () => {
+    listSites.mockResolvedValue([]);
+    askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(storeSites).toHaveBeenCalled();
+    expect(twins).toEqual([]);
+  });
+
+  it('offers only what the phone held when the read back fails', async () => {
+    listSites.mockResolvedValueOnce([site('s-local', 'Kotelna')]).mockRejectedValueOnce(new Error('disk'));
+    askServer.mockResolvedValue(
+      answer([
+        { value: 'Kotelna', id: 's-local' },
+        { value: 'Kotelna 2', id: 's-far' },
+      ]),
+    );
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(twins.map((s) => s.id)).toEqual(['s-local']);
+  });
+
+  // The create page shows each match's country and how far it is, so a diver can judge it there
+  // (owner's call, PR #35): both are the phone's own row's — the row a tap opens.
+  it('carries the phone’s row’s country and position with each match', async () => {
+    const local = site('s-local', 'Kotelna', { country: 'CZ', latitude: 49.75, longitude: 14.36 });
+    listSites
+      .mockResolvedValueOnce([local])
+      .mockResolvedValueOnce([local, site('s-far', 'Kotelna 2', { country: '', latitude: 49.8, longitude: null })]);
+    askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(twins).toEqual([
+      { value: 'Kotelna', id: 's-local', country: 'CZ', point: { latitude: 49.75, longitude: 14.36 } },
+      // An empty country is none, and half a position is no position.
+      { value: 'Kotelna 2', id: 's-far', country: null, point: null },
+    ]);
   });
 
   it('does not offer a server match whose row could not be stored, unless the phone already holds it', async () => {

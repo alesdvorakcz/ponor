@@ -891,6 +891,9 @@ export const en = {
       noneMember:
         'No dive sites yet. On a dive, tap “Site” and type a name to find or create one; your next sync brings the community’s.',
       noMatches: 'No sites match your search.',
+      /** The button on a site's page opened from a near-match on *New dive site*: picks this site
+       * for the dive instead, as tapping the match once did (owner's call, PR #35). */
+      useThisSite: 'Use this site',
     },
 
     /** A dive centre's own page (§3, M3c) and the directory that lists them. */
@@ -940,7 +943,6 @@ export const en = {
       otherCenters: 'Other centres',
       nearYou: 'Near you · within {{distance}}',
       nearSite: 'Near {{name}}',
-      fromSite: '{{distance}} from {{name}}',
       or: 'Or',
       noCenter: 'No centre',
       noCenterMeta: 'you dived without one',
@@ -1000,6 +1002,8 @@ export const en = {
       saveFailed: "Couldn't save that just now. Nothing on the dive has changed.",
       /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
       sameName: '“{{name}}” is already a site.',
+      /** How far a near-match is from the position on the page, after its country: `HR · 120 m away`. */
+      away: '{{distance}} away',
     },
 
     /** §5's auth screen and §7.4's sign-out. */

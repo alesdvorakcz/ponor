@@ -1,8 +1,9 @@
 import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
 import { db } from '../db/client';
 import { type NewSiteFacts } from '../domain/diveFormSchema';
-import { type MapPoint } from '../domain/mapSites';
+import { pointOf, type MapPoint } from '../domain/mapSites';
 import { nearMatches, type Suggestion } from '../domain/suggest';
+import { type DiveSite } from '../domain/types';
 import { countryFor } from '../platform/geocode';
 import { withTimeout } from '../platform/withTimeout';
 import { similarSites } from './similarSites';
@@ -32,6 +33,18 @@ import { cloud } from './supabase';
  * would be logging itself held up (§1).
  */
 export const TWIN_CHECK_TIMEOUT_MS = 4_000;
+
+/**
+ * **One of §2.3's near-matches, as the create page offers it** — the name and id a pick needs, and
+ * the two facts that let a diver judge it without leaving the page: its country and where it is
+ * (owner's call on PR #35, *"so he can check if it's really a duplicate"*). Both are the phone's own
+ * row's, because the phone's row is what a tap opens and what the dive is then paired with.
+ */
+export interface SiteTwin extends Suggestion {
+  id: string;
+  country: string | null;
+  point: MapPoint | null;
+}
 
 export interface NewCenterInput {
   name: string;
@@ -64,30 +77,41 @@ export interface NewCenterInput {
  * cannot turn into `[]`, so its half is raced against `TWIN_CHECK_TIMEOUT_MS`; out of time, the
  * device's matches stand alone — the answer a diver out of signal gets anyway.
  *
- * **It offers only sites the phone holds.** A tap on a match pairs the dive with it, and a dive
- * paired with a site the phone has no row for shows no country, gets no site defaults and is
- * missing from the picker's *Dived here* until some later sync. So the server's rows are written
+ * **It offers only sites the phone holds.** A match opens that site's page, whose *Use this site*
+ * pairs the dive with it — a page that would read *Site not found* for a row the phone lacks, and a
+ * dive paired with such a site shows no country, gets no site defaults and is missing from the
+ * picker's *Dived here* until some later sync. So the server's rows are written
  * to the device's catalogue first (`applyPulledDiveSites`, as live search writes its answers —
- * clean, never over a local edit), and a server match is offered only when its row is on the
- * phone afterwards. A write that refuses leaves the matches the phone already held.
+ * clean, never over a local edit), the catalogue is read again, and a server match is offered only
+ * when its row is on the phone in that read. A write — or a read back — that refuses leaves the
+ * matches the phone already held.
+ *
+ * **Each match carries the phone's row's country and position** (`SiteTwin`), from that same read:
+ * the row a tap on it opens, and the one the dive is paired with.
  */
-export async function findSiteTwins(name: string, at: MapPoint | null): Promise<Suggestion[]> {
+export async function findSiteTwins(name: string, at: MapPoint | null): Promise<SiteTwin[]> {
   try {
     const [onDevice, answer] = await Promise.all([
       listDiveSites(db),
       withTimeout(similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null), TWIN_CHECK_TIMEOUT_MS),
     ]);
-    const held = new Set(onDevice.map((site) => site.id));
+    let onPhone: readonly DiveSite[] = onDevice;
     if (answer !== null && answer.rows.length > 0) {
       try {
         await applyPulledDiveSites(db, answer.rows);
-        for (const row of answer.rows) if (typeof row.id === 'string') held.add(row.id);
+        onPhone = await listDiveSites(db);
       } catch {
-        // Not written: only the matches already on the phone are offered.
+        // Not written, or not read back: only the matches already on the phone are offered.
       }
     }
+    const held = new Map(onPhone.map((site) => [site.id, site]));
     const fromServer = (answer?.matches ?? []).filter((match) => match.id !== null && held.has(match.id));
-    return nearMatches(name, onDevice, fromServer);
+    return nearMatches(name, onDevice, fromServer).flatMap((match) => {
+      const site = match.id === null ? undefined : held.get(match.id);
+      if (site === undefined) return [];
+      const country = site.country !== null && site.country !== '' ? site.country : null;
+      return [{ value: match.value, id: site.id, country, point: pointOf(site) }];
+    });
   } catch {
     return [];
   }

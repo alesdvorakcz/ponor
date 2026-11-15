@@ -56,6 +56,15 @@ it('complete hands the pick to onPick once, forgets the token and closes the giv
   expect(mockDismiss).toHaveBeenCalledWith(2);
 });
 
+// *Use this site* on a near-match's page: that page, the create page under it and the picker.
+it('closes three screens from a site page stacked on the create page', () => {
+  const req = request();
+  openPlacePicker(req);
+  completePlacePick(pushedToken(), { id: 'a', name: 'Blue Hole' }, 3);
+  expect(req.onPick).toHaveBeenCalledWith({ id: 'a', name: 'Blue Hole' });
+  expect(mockDismiss).toHaveBeenCalledWith(3);
+});
+
 // A second dismiss would pop the dive form under the picker and lose the half-typed dive.
 it('a second complete for the same token does nothing at all — one onPick, one dismiss', () => {
   const req = request();

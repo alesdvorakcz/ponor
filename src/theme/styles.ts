@@ -4598,6 +4598,12 @@ function build(scheme: ColorScheme) {
     newPlaceGlyph: {
       color: theme.fg,
     },
+    // The chevron trailing a near-match above Save, muted as the picker's trailing marks are: a tap
+    // opens the match's own page (owner's call on PR #35, and a deliberate exception to §0.6's
+    // "never on navigation" — see §10).
+    newPlaceTwinChevron: {
+      color: theme.fgMuted,
+    },
     // *Country*: the stored ISO code is a figure, so mono; `—` muted while there is no position to
     // derive one from — the row's value slot while it is not yet an answer.
     newPlaceCountry: rowValueMono,
