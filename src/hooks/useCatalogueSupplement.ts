@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { cloud, type Cloud } from '../cloud/supabase';
 import { db } from '../db/client';
@@ -61,8 +61,11 @@ export function useCatalogueSupplement<T>(
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): void {
   const wanted = query.trim();
-  useSupplement(wanted === '' ? null : wanted, wanted, LIVE_SEARCH_DELAY_MS, search, apply);
+  useSupplement(wanted === '' ? null : wanted, queryOf, LIVE_SEARCH_DELAY_MS, search, apply);
 }
+
+/** The name search's question is its key, the trimmed query. */
+const queryOf = (key: string): string => key;
 
 /**
  * **The same supplement, asked around a point instead of for a name** — the site picker's *Near
@@ -86,8 +89,14 @@ export function useNearbySupplement<T>(
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): boolean {
   const key = point === null ? null : `${point.latitude},${point.longitude}`;
-  return useSupplement(key, point, 0, search, apply);
+  return useSupplement(key, pointOf, 0, search, apply);
 }
+
+/** The point back out of its key — a number printed and read back is the same number. */
+const pointOf = (key: string): MapPoint => {
+  const [latitude, longitude] = key.split(',');
+  return { latitude: Number(latitude), longitude: Number(longitude) };
+};
 
 /**
  * **The one body behind both supplements** — the contract stated once: after `delayMs`, `search`
@@ -97,25 +106,24 @@ export function useNearbySupplement<T>(
  * dropped, written or not.
  *
  * `key` is what identifies the question — the trimmed query, or the point's two coordinates — and
- * is the only thing the effect re-runs on, so a caller handing in an equal question rebuilt on
- * every render does not ask again; `null` asks nothing. `question` is read when the effect runs,
- * from a ref. Answers whether the question under the current `key` is still out.
+ * is the only value the effect re-runs on, so a caller handing in an equal question rebuilt on
+ * every render does not ask again; `null` asks nothing. `questionOf` rebuilds the question from the
+ * key inside the effect (a module-level function, so it is stable). Answers whether the question
+ * under the current `key` is still out.
  */
 function useSupplement<Q, T>(
   key: string | null,
-  question: Q,
+  questionOf: (key: string) => Q,
   delayMs: number,
-  search: (cloud: Cloud, question: NonNullable<Q>) => Promise<T[]>,
+  search: (cloud: Cloud, question: Q) => Promise<T[]>,
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): boolean {
-  const asked = useRef(question);
-  asked.current = question;
   // The key whose question has come back — written, empty, or refused.
   const [answered, setAnswered] = useState<string | null>(null);
 
   useEffect(() => {
-    const wanted = asked.current;
-    if (key === null || wanted === null || wanted === undefined) return;
+    if (key === null) return;
+    const wanted = questionOf(key);
     let cancelled = false;
     const ask = async () => {
       try {
@@ -133,7 +141,7 @@ function useSupplement<Q, T>(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [key, delayMs, search, apply]);
+  }, [key, questionOf, delayMs, search, apply]);
 
   return key !== null && answered !== key;
 }
