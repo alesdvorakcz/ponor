@@ -1265,6 +1265,7 @@ describe('a password field', () => {
   it('empties on backspace', async () => {
     const { t, onChange } = password('hunter22');
     const input = inputsOf(await t)[0];
+    if (!input) throw new Error('no TextInput found');
     await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
     await fireEvent.changeText(input, 'hunter2');
     expect(onChange).toHaveBeenLastCalledWith('');
@@ -1273,6 +1274,7 @@ describe('a password field', () => {
   it('takes typing as typed', async () => {
     const { t, onChange } = password('hunter2');
     const input = inputsOf(await t)[0];
+    if (!input) throw new Error('no TextInput found');
     await fireEvent(input, 'keyPress', { nativeEvent: { key: '2' } });
     await fireEvent.changeText(input, 'hunter22');
     expect(onChange).toHaveBeenLastCalledWith('hunter22');
@@ -1281,6 +1283,7 @@ describe('a password field', () => {
   it('takes a fill or a paste as it arrives, even after a backspace that changed nothing', async () => {
     const { t, onChange } = password('');
     const input = inputsOf(await t)[0];
+    if (!input) throw new Error('no TextInput found');
     await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
     await fireEvent.changeText(input, 'S3cret-from-the-keychain');
     expect(onChange).toHaveBeenLastCalledWith('S3cret-from-the-keychain');
@@ -1291,6 +1294,7 @@ it('backspaces one character at a time in a field that is not a password', async
   const onChange = jest.fn();
   const t = await render(<FormField label="Site" value="Blue Hole" onChange={onChange} scheme="light" />);
   const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
   await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
   await fireEvent.changeText(input, 'Blue Hol');
   expect(onChange).toHaveBeenLastCalledWith('Blue Hol');
