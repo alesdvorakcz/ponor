@@ -12,6 +12,7 @@ import type {
   Weather,
   WeightsFeel,
 } from '../domain/types';
+import type { Provenance } from '../domain/placePicker';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -903,6 +904,55 @@ export const en = {
     search: {
       close: 'Close search',
       prompt: 'Search your dives by site, centre, buddy or notes.',
+    },
+
+    /**
+     * The *Choose a site* / *Choose a centre* page the dive form's two place rows open (issue
+     * #19). The row meta lines are composed by `format/display.ts` (`formatPickerMeta` and its
+     * siblings), which is also what reads `provenance` — the three words for where a row came
+     * from, tied to `domain/placePicker.ts`'s list at compile time like every vocabulary above.
+     */
+    picker: {
+      titleSite: 'Choose a site',
+      titleCenter: 'Choose a centre',
+      /** What a screen reader is told `‹ Cancel` does here — nothing is saved on this page, so
+       * the form's *Leave without saving* would name the wrong loss. */
+      leave: 'Leave without choosing',
+      selected: 'Selected:',
+      searchSites: 'Search sites',
+      searchCenters: 'Search centres',
+      clearSearch: 'Clear search',
+      nearMe: 'Near me',
+      locating: 'Locating…',
+      divedHere: 'Dived here',
+      divedWith: 'Dived with',
+      otherSites: 'Other sites',
+      otherCenters: 'Other centres',
+      nearYou: 'Near you · within {{distance}}',
+      nearSite: 'Near {{name}}',
+      fromSite: '{{distance}} from {{name}}',
+      or: 'Or',
+      noCenter: 'No centre',
+      noCenterMeta: 'you dived without one',
+      create: 'Create “{{name}}”',
+      createSite: 'new site · details next',
+      createCenter: 'new centre · details next',
+      createSiteGuest: 'new site · kept on this phone until you sign in',
+      createCenterGuest: 'new centre · kept on this phone until you sign in',
+      provenance: {
+        community: 'community',
+        yours: 'added by you',
+        phoneOnly: 'on this phone only · not shared yet',
+      } satisfies Record<Provenance, string>,
+      dived: 'dived',
+      nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
+      nothingNear: 'Nothing within {{distance}}.',
+      /** Near me's refusals, worded for a list rather than for the form's GPS row — nothing here
+       * is being pinned, so *"too rough to pin a dive site"* would be a reason that is not one.
+       * `timedOut` and `failed` share a sentence: the diver's next move is the same. */
+      locationDenied: 'Location is off for Ponor. Turn it on in the device’s Settings.',
+      locationServicesOff: 'Location Services are off for this device.',
+      locationFailed: 'Couldn’t find where you are. Try again.',
     },
 
     /** §5's auth screen and §7.4's sign-out. */

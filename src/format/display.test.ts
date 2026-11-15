@@ -13,6 +13,11 @@ import {
   formatSuggestionFigure,
   formatSuggestionMeta,
   formatSuggestionsTitle,
+  formatCreatePlaceMeta,
+  formatDistance,
+  formatPickerFigure,
+  formatPickerGroupTitle,
+  formatPickerMeta,
   certificationLabel,
   formatCertificationSummary,
   untitledCertification,
@@ -83,6 +88,7 @@ import {
 } from './display';
 import { UNIT_SYSTEMS } from './units';
 import { setActiveLanguage } from '../i18n';
+import { type PickerRow } from '../domain/placePicker';
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
@@ -1872,5 +1878,95 @@ describe('a suggestion row', () => {
     expect(formatSuggestionsTitle('centerName', 1)).toBe('Your centres · 1');
     expect(formatSuggestionsTitle('buddy', 2)).toBe('Your buddies · 2');
     expect(formatSuggestionsTitle('guide', 2)).toBe('Your guides · 2');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The site and centre picker's words (issue #19)
+// ---------------------------------------------------------------------------------------
+
+describe('the place picker', () => {
+  const row = (over: Partial<PickerRow> = {}): PickerRow => ({
+    id: 'r',
+    name: 'Vis',
+    country: null,
+    provenance: 'community',
+    dived: null,
+    distanceKm: null,
+    selected: false,
+    ...over,
+  });
+  const visited = { dives: 4, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 };
+  const wording = { siteName: 'Vrak Teti', nearRadiusKm: 50, system: 'metric' as const };
+
+  // A distance on a list sorted by it: a tenth while a tenth is a real difference, whole once it
+  // is not — `7.6 km`, `13 km` — and the same in miles.
+  it('reads a distance to a tenth under ten and whole from ten, in the diver’s units', () => {
+    expect(formatDistance(7.62, 'metric')).toBe('7.6 km');
+    expect(formatDistance(13.2, 'metric')).toBe('13 km');
+    expect(formatDistance(0.04, 'metric')).toBe('0.0 km');
+    // Rounds before it decides, so 9.96 is not drawn as `10.0 km`.
+    expect(formatDistance(9.96, 'metric')).toBe('10 km');
+    expect(formatDistance(7.6, 'imperial')).toBe('4.7 mi');
+    expect(formatDistance(50, 'imperial')).toBe('31 mi');
+  });
+
+  it('heads each group, and counts it while something is typed', () => {
+    expect(formatPickerGroupTitle('dived', 'site', null, wording)).toBe('Dived here');
+    expect(formatPickerGroupTitle('dived', 'site', 2, wording)).toBe('Dived here · 2');
+    expect(formatPickerGroupTitle('dived', 'center', null, wording)).toBe('Dived with');
+    expect(formatPickerGroupTitle('other', 'site', 3, wording)).toBe('Other sites · 3');
+    expect(formatPickerGroupTitle('other', 'center', 1, wording)).toBe('Other centres · 1');
+    expect(formatPickerGroupTitle('near', 'site', null, wording)).toBe('Near you · within 50 km');
+    expect(formatPickerGroupTitle('near', 'site', null, { ...wording, system: 'imperial' })).toBe(
+      'Near you · within 31 mi',
+    );
+    expect(formatPickerGroupTitle('nearSite', 'center', null, wording)).toBe('Near Vrak Teti');
+  });
+
+  it('says what the diver has done at a dived row, the logbook’s way', () => {
+    expect(formatPickerMeta(row({ dived: visited }), 'dived', 'site', wording)).toBe(
+      `4 dives · last ${formatDiveDate('2026-05-18')}`,
+    );
+    expect(formatPickerMeta(row({ dived: visited }), 'dived', 'center', wording)).toBe(
+      `4 dives · 2 sites · last ${formatDiveDate('2026-05-18')}`,
+    );
+  });
+
+  it('says where any other row came from, in words, and its country when it has one', () => {
+    expect(formatPickerMeta(row({ country: 'HR' }), 'other', 'site', wording)).toBe('community · HR');
+    expect(formatPickerMeta(row({ provenance: 'yours', country: 'HR' }), 'other', 'site', wording)).toBe(
+      'added by you · HR',
+    );
+    expect(formatPickerMeta(row({ provenance: 'yours' }), 'other', 'site', wording)).toBe('added by you');
+    expect(formatPickerMeta(row({ provenance: 'phoneOnly' }), 'other', 'site', wording)).toBe(
+      'on this phone only · not shared yet',
+    );
+  });
+
+  it('says dived or where it came from near you, and how far from the site near a site', () => {
+    expect(formatPickerMeta(row({ dived: visited, distanceKm: 3 }), 'near', 'site', wording)).toBe('dived · 4 dives');
+    expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3 }), 'near', 'site', wording)).toBe(
+      'added by you',
+    );
+    expect(formatPickerMeta(row({ distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe('3.4 km from Vrak Teti');
+  });
+
+  // Deepest in the diver's units for a dived site, nothing for a centre (the canvas draws none),
+  // a distance on either near list, and nothing on a row that is only a match.
+  it('trails a dived site with its deepest dive and a near row with its distance', () => {
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'site', 'metric')).toBe('34.6 m');
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'site', 'imperial')).toBe('114 ft');
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'center', 'metric')).toBeNull();
+    expect(formatPickerFigure(row({ dived: visited, distanceKm: 12.4 }), 'near', 'site', 'metric')).toBe('12 km');
+    expect(formatPickerFigure(row({ distanceKm: 3.36 }), 'nearSite', 'center', 'metric')).toBe('3.4 km');
+    expect(formatPickerFigure(row({ country: 'HR' }), 'other', 'site', 'metric')).toBeNull();
+  });
+
+  it('words the create row for a diver and for a guest', () => {
+    expect(formatCreatePlaceMeta('site', true)).toBe('new site · details next');
+    expect(formatCreatePlaceMeta('center', true)).toBe('new centre · details next');
+    expect(formatCreatePlaceMeta('site', false)).toBe('new site · kept on this phone until you sign in');
+    expect(formatCreatePlaceMeta('center', false)).toBe('new centre · kept on this phone until you sign in');
   });
 });

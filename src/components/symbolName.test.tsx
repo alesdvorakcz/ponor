@@ -5,6 +5,7 @@ import { jsTabItems, nativeTabItems, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
+import { CREATE_PLACE_GLYPH, PICKED_PLACE_GLYPH, PICKER_SEARCH_GLYPH } from '../screens/PlacePickerScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
 import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
@@ -213,6 +214,23 @@ it('gives a centre’s map mark an Android and a web name, not just an iOS one',
   expect(name?.android).toBe('storefront');
   expect(name?.web).toBe('storefront');
   expect(name?.ios).toBe(CENTERS_GLYPH.ios);
+});
+
+// --- The site and centre picker's three glyphs (issue #19) ---
+//
+// Drawn by the page's own `Glyph`, which passes each through `symbolName`; asserted on the
+// constants here because rendering that page means mocking its catalogue, logbook and session
+// reads, which `PlacePickerScreen.test.tsx` already does and this file deliberately does not. A
+// missing Material name would leave the browser's and Android's picker with no magnifier, no
+// check on the chosen row and no `+` on *Create*.
+it.each([
+  ['picker’s magnifier', PICKER_SEARCH_GLYPH, 'search'],
+  ['picker’s chosen-row check', PICKED_PLACE_GLYPH, 'check'],
+  ['picker’s create plus', CREATE_PLACE_GLYPH, 'add'],
+] as const)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
+  const name = symbolName(symbol);
+  expect(name.android).toBe(material);
+  expect(name.web).toBe(material);
 });
 
 // --- The two tab glyphs, which are the one call site with no render to observe ---

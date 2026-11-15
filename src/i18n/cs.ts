@@ -12,6 +12,7 @@ import type {
   Weather,
   WeightsFeel,
 } from '../domain/types';
+import type { Provenance } from '../domain/placePicker';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -755,6 +756,48 @@ export const cs = {
     search: {
       close: 'Zavřít hledání',
       prompt: 'Hledejte ve svých ponorech podle lokality, centra, buddyho nebo poznámek.',
+    },
+
+    /** **Every place name is interpolated in the nominative**, so the two headings that name one
+     * hang it off a noun instead of a preposition: *U lokality Vrak Teti*, *3,4 km od lokality
+     * Vrak Teti* — *poblíž* would want a genitive no template can give a name. *Přidáno vámi* is
+     * passive for the same reason one sentence serves a lokalita and a centrum. */
+    picker: {
+      titleSite: 'Vyberte lokalitu',
+      titleCenter: 'Vyberte centrum',
+      leave: 'Odejít bez výběru',
+      selected: 'Vybráno:',
+      searchSites: 'Hledat lokality',
+      searchCenters: 'Hledat centra',
+      clearSearch: 'Vymazat hledání',
+      nearMe: 'V okolí',
+      locating: 'Zjišťuji polohu…',
+      divedHere: 'Potápěli jste se tu',
+      divedWith: 'Potápěli jste se s nimi',
+      otherSites: 'Další lokality',
+      otherCenters: 'Další centra',
+      nearYou: 'Ve vašem okolí · do {{distance}}',
+      nearSite: 'U lokality {{name}}',
+      fromSite: '{{distance}} od lokality {{name}}',
+      or: 'Nebo',
+      noCenter: 'Bez centra',
+      noCenterMeta: 'potápěli jste se bez něj',
+      create: 'Vytvořit „{{name}}“',
+      createSite: 'nová lokalita · podrobnosti v dalším kroku',
+      createCenter: 'nové centrum · podrobnosti v dalším kroku',
+      createSiteGuest: 'nová lokalita · zůstane v tomto telefonu, dokud se nepřihlásíte',
+      createCenterGuest: 'nové centrum · zůstane v tomto telefonu, dokud se nepřihlásíte',
+      provenance: {
+        community: 'komunitní',
+        yours: 'přidáno vámi',
+        phoneOnly: 'jen v tomto telefonu · zatím nesdíleno',
+      } satisfies Record<Provenance, string>,
+      dived: 'navštíveno',
+      nothingNearMatches: 'V okruhu {{distance}} nic neodpovídá „{{query}}“.',
+      nothingNear: 'V okruhu {{distance}} nic není.',
+      locationDenied: 'Poloha je pro Ponor vypnutá. Zapněte ji v Nastavení zařízení.',
+      locationServicesOff: 'Polohové služby jsou pro toto zařízení vypnuté.',
+      locationFailed: 'Nepodařilo se zjistit, kde jste. Zkuste to znovu.',
     },
 
     account: {

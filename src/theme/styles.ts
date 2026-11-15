@@ -4333,6 +4333,179 @@ function build(scheme: ColorScheme) {
     siteDefaultsCaption: captionBlock,
     siteDefaultsCaptionText: captionText,
     // ------------------------------------------------------------------------------------
+    // The site and centre picker (issue #19, `PlacePickerScreen`)
+    // ------------------------------------------------------------------------------------
+    // A pushed page over the dive form: `‹ Cancel`, a title, the *Selected* line, the search,
+    // the *Near me* pill and one grouped list. Nearly every piece is a definition this sheet
+    // already holds under a name that says where it is placed — `detailBack`/`formBack`'s
+    // precedent — and the few new values are the canvas's own (the search field's 12 radius,
+    // the pill's 36, the row's 64).
+    //
+    // The way out: `backControl` on the column, exactly as the form's own `‹ Cancel` is.
+    pickerBack: {
+      ...backControl,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    pickerBackLabel: backControlLabel,
+    // *Choose a site* — `screenHeading` on the column, the composition every screen title makes.
+    pickerHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // *✓ Selected: Vrak Teti — jižní ostroh* — what the field holds, always visible while it holds
+    // something. A row so the small check leads; the sentence wraps beside it and never clips
+    // (no `numberOfLines` at the call site), and the check is held to the first line.
+    pickerSelected: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 6,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 6,
+    },
+    // Archivo 14, the name in ink; `pickerSelectedLabel` mutes the word *Selected:* inside it.
+    pickerSelectedText: {
+      flex: 1,
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      lineHeight: 19,
+      color: theme.fg,
+    },
+    pickerSelectedLabel: {
+      color: theme.fgMuted,
+    },
+    // The check's 12 pt glyph sits 3.5 below the line's top, which centres it on a 19 pt line.
+    pickerSelectedCheck: {
+      marginTop: 3.5,
+    },
+    // The search field — the canvas's own object, not the Dives capsule: a `surface` field at the
+    // top of the page, 48 tall with a 12 radius and no shadow, because nothing floats here. The
+    // margin is the column; the leading padding is the magnifier's air INSIDE the field, and
+    // there is no trailing padding because the clear ring's own 48 dp box (`clearFieldControl`)
+    // is the trailing edge once the field holds text.
+    pickerSearch: {
+      height: 48,
+      marginHorizontal: CONTENT_INSET,
+      marginTop: 12,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingLeft: 14,
+    },
+    // Typed UI text in Archivo, at the size of the names it finds.
+    pickerSearchInput: {
+      flex: 1,
+      alignSelf: 'stretch',
+      padding: 0,
+      fontFamily: fonts.sans,
+      fontSize: 16,
+      color: theme.fg,
+    },
+    // The row of toggle pills under the field — *Near me* today, *Map* with #30.
+    pickerPills: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 4,
+    },
+    // *Near me*: a 36 tall pill inside §0.5's 48 dp box — `mapAction`'s "small visible control,
+    // generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to.
+    pickerNearMe: {
+      minHeight: 48,
+      minWidth: 48,
+      justifyContent: 'center',
+    },
+    // Fully rounded, a hairline outline; while on, the inverted ink of every chosen thing in the
+    // app (`selectedFill`/`selectedInk` — the form's chips, the Map's switched-on glyph).
+    pickerNearMePill: {
+      minHeight: 36,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pickerNearMePillOn: selectedFill,
+    pickerNearMeLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 13.5,
+      color: theme.fg,
+    },
+    pickerNearMeLabelOn: selectedInk,
+    // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
+    // km*, the unreadable catalogue. `captionBlock`/`captionText`, the sentence-under-a-block
+    // Settings and a site's page already speak in.
+    pickerNote: {
+      ...captionBlock,
+      paddingBottom: 6,
+    },
+    pickerNoteText: captionText,
+    pickerList: rowScroll,
+    // `paddingBottom` composed at the call site from `screenBottomInset`: the page is pushed over
+    // the tab bar, so the list runs to the bottom of the display.
+    pickerListContent: {
+      paddingTop: 4,
+    },
+    // *DIVED HERE · 2*, *NEAR VRAK TETI*, *OR* — §0.6's one treatment for a group header.
+    pickerGroupTitle: {
+      ...clusterLabel,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 16,
+      paddingBottom: 8,
+    },
+    // One place: the canvas's 64 tall row with the hairline on its top edge, the name over its
+    // meta leading and a figure or a glyph trailing — the inline suggestion row's design
+    // (`formSuggestion`) at the height the canvas gives a list you scroll rather than glance at.
+    pickerRow: {
+      minHeight: 64,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: CONTENT_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    pickerRowBody: {
+      flex: 1,
+      gap: 3,
+    },
+    // Archivo Medium 16 in ink, wrapping — the suggestion row's own name (`suggestionName`).
+    pickerRowName: suggestionName,
+    // `4 dives · last 18 May 2026`, `community · HR` — a dive row's metadata treatment.
+    pickerRowMeta: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: theme.fgMuted,
+    },
+    // The deepest dive at a place: Plex Mono **in ink and never in a band colour** — it is a
+    // deepest-of-a-set, which §0.6 has ruled takes no band. Ink where the form's suggestion figure
+    // is muted, because here it is the row's one figure and the canvas draws it as data.
+    pickerRowFigure: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fg,
+    },
+    // A distance on a Near list, and *No centre*'s `—`: the same figure, muted — the canvas draws
+    // a distance as context rather than as data about the place.
+    pickerRowDistance: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fgMuted,
+    },
+    // The tints the page's glyphs take (`SymbolView` takes a colour, not a style): the selected
+    // row's check in ink, the *Selected* check and *Create*'s `+` muted. Monochrome, §0.1.
+    pickerGlyphInk: {
+      color: theme.fg,
+    },
+    pickerGlyphMuted: {
+      color: theme.fgMuted,
+    },
+    // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------
     // **One key, and that is the point.** The bar is the platform's own — `NativeTabs`

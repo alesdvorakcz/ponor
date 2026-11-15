@@ -11,6 +11,9 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 // mapSites.ts` imports `diveSiteLabel` from this module (a map place is called what a dive row
 // calls it), so only the shape of its answer may come back the other way.
 import type { WaterTempRange } from '../domain/mapSites';
+// Types again, and for the same reason: `domain/placePicker.ts` reaches this module through
+// `logbookStats`, so only the shape of a picker row may come back.
+import type { PickerGroupKey, PickerRow, PlaceKind, Provenance } from '../domain/placePicker';
 import type { SuggestedField, SuggestionHistory } from '../domain/suggest';
 import {
   CONDITION_SCALE_VALUES,
@@ -386,6 +389,149 @@ export function formatSuggestionFigure(history: SuggestionHistory, field: Sugges
  * cluster label it is drawn in. */
 export function formatSuggestionsTitle(field: SuggestedField, count: number): string {
   return `${t(`suggest.${field}`)}${METADATA_SEPARATOR}${count}`;
+}
+
+/**
+ * The international mile in kilometres — 5280 international feet of 0.3048 m, so exact by
+ * definition rather than a rounded factor (`format/units.ts`' own rule for its constants).
+ */
+const KILOMETRES_PER_MILE = 1.609344;
+
+/**
+ * **How far away a place is, e.g. "7.6 km", "13 km", "4.7 mi"** — the site picker's Near lists
+ * and their headings (issue #19).
+ *
+ * A tenth while a tenth is a real difference on a list sorted by distance, and the whole unit
+ * from ten on, where `13.2 km` against `13.4 km` is precision nobody walks. The precision is
+ * decided on the ROUNDED figure, so `9.96` reads `10 km` rather than `10.0 km`.
+ *
+ * Written here rather than as a fifth pair in `format/units.ts`, whose `UnitSpec` reads every
+ * figure to one fixed number of decimals: this one's precision depends on its size, which that
+ * table has no way to say. The unit marks are the same in both languages, as every other mark
+ * this module writes beside a figure (`min`, `s`, `mm`) is.
+ *
+ * Takes and returns non-null: every caller hands it a distance `domain/geo.ts` computed between
+ * two points `pointOf` already accepted, or a radius constant.
+ */
+export function formatDistance(km: number, system: UnitSystem): string {
+  const value = system === 'imperial' ? km / KILOMETRES_PER_MILE : km;
+  const unit = system === 'imperial' ? 'mi' : 'km';
+  const tenths = Math.round(value * 10) / 10;
+  const figure = tenths < 10 ? figureText(tenths, 1) : figureText(Math.round(value), 0);
+  return `${figure} ${unit}`;
+}
+
+/**
+ * The values a picker row's meta and headings are worded from. `siteName` is the display name of
+ * the site the dive is paired to — the centre picker's *Near Vrak Teti* — and `''` where there is
+ * none, which no group that reads it can then be drawn for. `nearRadiusKm` is Near me's radius,
+ * handed in rather than imported: `domain/placePicker.ts` owns it and reaches this module at
+ * runtime, so a value import back would be the cycle the type imports above avoid.
+ */
+export interface PickerWording {
+  siteName: string;
+  nearRadiusKm: number;
+  system: UnitSystem;
+}
+
+/** Where a picker row came from, as the diver reads it — `community`, `added by you`, or a
+ * guest's `on this phone only · not shared yet`. */
+export function formatPlaceProvenance(provenance: Provenance): string {
+  return t(`picker.provenance.${provenance}`);
+}
+
+/**
+ * **A picker group's header** — "Dived here", "Other sites · 3", "Near you · within 50 km",
+ * "Near Vrak Teti" — uppercased by the cluster label it is drawn in. `count` is the number of
+ * rows while something is typed (the design's *DIVED HERE · 2*) and `null` otherwise, when a
+ * count would be a figure about a list the diver did not ask for.
+ */
+export function formatPickerGroupTitle(
+  group: PickerGroupKey,
+  kind: PlaceKind,
+  count: number | null,
+  wording: PickerWording,
+): string {
+  const title = (() => {
+    switch (group) {
+      case 'dived':
+        return t(kind === 'site' ? 'picker.divedHere' : 'picker.divedWith');
+      case 'other':
+        return t(kind === 'site' ? 'picker.otherSites' : 'picker.otherCenters');
+      case 'near':
+        return t('picker.nearYou', { distance: formatDistance(wording.nearRadiusKm, wording.system) });
+      case 'nearSite':
+        return t('picker.nearSite', { name: wording.siteName });
+    }
+  })();
+  return count === null ? title : `${title}${METADATA_SEPARATOR}${count}`;
+}
+
+/**
+ * **The muted line under a picker row's name**, by the group it is drawn in — the same row reads
+ * differently under *Dived here* and under *Near you*, because each group answers a different
+ * question about it.
+ *
+ * - `dived`: what the diver has done there, the logbook's way — `formatSuggestionMeta`, so the
+ *   picker and the form's own suggestion rows cannot drift (`4 dives · last 18 May 2026`, a
+ *   centre adding its sites).
+ * - `other`: where it came from, in words, then its country when the catalogue knows one.
+ * - `near`: `dived · 4 dives`, or where it came from — the distance trails, so no country.
+ * - `nearSite`: how far it is from the dive's site, `3.4 km from Vrak Teti`.
+ */
+export function formatPickerMeta(
+  row: PickerRow,
+  group: PickerGroupKey,
+  kind: PlaceKind,
+  wording: PickerWording,
+): string | null {
+  switch (group) {
+    case 'dived':
+      return row.dived === null ? null : formatSuggestionMeta(row.dived, kind === 'site' ? 'siteName' : 'centerName');
+    case 'other': {
+      const parts = [formatPlaceProvenance(row.provenance)];
+      if (row.country !== null && row.country !== '') parts.push(row.country);
+      return parts.join(METADATA_SEPARATOR);
+    }
+    case 'near':
+      return row.dived === null
+        ? formatPlaceProvenance(row.provenance)
+        : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
+    case 'nearSite':
+      return row.distanceKm === null
+        ? null
+        : t('picker.fromSite', { distance: formatDistance(row.distanceKm, wording.system), name: wording.siteName });
+  }
+}
+
+/**
+ * **What trails a picker row**: a dived site's deepest dive (`formatSuggestionFigure` — nothing
+ * for a centre, which the canvas draws none for), a distance on either Near list, and nothing on a
+ * row that is only a name match. The screen draws the deepest dive in ink and the distance muted;
+ * neither takes a band colour (an aggregate, §0.6).
+ */
+export function formatPickerFigure(
+  row: PickerRow,
+  group: PickerGroupKey,
+  kind: PlaceKind,
+  system: UnitSystem,
+): string | null {
+  if (group === 'near' || group === 'nearSite') {
+    return row.distanceKm === null ? null : formatDistance(row.distanceKm, system);
+  }
+  if (group === 'dived' && row.dived !== null) {
+    return formatSuggestionFigure(row.dived, kind === 'site' ? 'siteName' : 'centerName', system);
+  }
+  return null;
+}
+
+/**
+ * The line under *Create "…"*: what the row makes and what happens next — for a guest, that the
+ * new place stays on this phone until they sign in (the design's one note to a guest here).
+ */
+export function formatCreatePlaceMeta(kind: PlaceKind, signedIn: boolean): string {
+  if (kind === 'site') return t(signedIn ? 'picker.createSite' : 'picker.createSiteGuest');
+  return t(signedIn ? 'picker.createCenter' : 'picker.createCenterGuest');
 }
 
 /**
