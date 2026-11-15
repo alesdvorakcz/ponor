@@ -1,12 +1,12 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { createRef, useState } from 'react';
+import { createRef } from 'react';
 import { Platform, type TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { FormField, takesOneOut, type FieldMatch, type OfferedSuggestion } from './FormField';
+import { FormField, type FieldMatch, type OfferedSuggestion } from './FormField';
 import { FormRevealContext } from './FormReveal';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
@@ -1250,170 +1250,30 @@ it('tells the platform what a field holds, for AutoFill, only when its caller sa
   expect(inputsOf(silent)[0]?.props.autoComplete).toBeUndefined();
 });
 
-// **Backspace empties a password the way iOS's own secure field does** (issue #29, owner's call:
-// "match iOS exactly"). iOS starts a secure field over on the first edit after the diver comes
-// back to it — a backspace empties it, a typed letter replaces it — and takes one character per
-// backspace while they type, because each character shows for a moment as it goes in. On iOS
-// the platform does all of that itself, so the field takes what it sends as it comes; a rule of
-// Ponor's on top once read iOS's own replacement (`hunter2` → `h`) as a deletion and dropped the
-// retyped first letter. Off iOS, Ponor does the backspace half: a single backspace into a
-// password the diver did not watch go in — one they came back to, or one a password manager
-// filled — empties it. Read from the text alone, because a key event is not something every
-// keyboard sends (an Android hardware keyboard sends none) or sends first.
-describe('a password field', () => {
-  async function password(value: string) {
+// **A password behaves as each platform's own secure field does** (issue #29, owner's call).
+// iOS's empties on the first backspace after the diver comes back to it and replaces it with the
+// first letter they type; Android's takes one character per press. Ponor adds no rule on top:
+// one it had read iOS's replacement (`hunter2` → `h`) as a backspace and dropped the letter, and
+// its copy of iOS's rule elsewhere was not how Android's own field behaves. So the field hands on
+// exactly what the platform sends, on either.
+describe.each(['ios', 'android'] as const)('a password field on %s', (os) => {
+  let replaced: jest.ReplaceProperty<typeof Platform.OS>;
+  beforeEach(() => {
+    replaced = jest.replaceProperty(Platform, 'OS', os);
+  });
+  afterEach(() => replaced.restore());
+
+  it.each([
+    ['a backspace', 'hunter2'],
+    ['a letter typed over the whole value', 'h'],
+    ['a password manager\'s fill', 'S3cret-from-the-keychain'],
+  ])('hands on %s as the platform sends it, after the diver comes back', async (_, sent) => {
     const onChange = jest.fn();
-    const t = await render(<FormField label="Password" value={value} onChange={onChange} scheme="light" secureTextEntry />);
+    const t = await render(<FormField label="Password" value="hunter22" onChange={onChange} scheme="light" secureTextEntry />);
     const input = inputsOf(t)[0];
     if (!input) throw new Error('no TextInput found');
-    return { input, onChange };
-  }
-
-  /** The same field held the way a screen holds it, so what the diver types becomes the value
-   * the next keystroke is read against. */
-  async function heldPassword(initial: string) {
-    const onChange = jest.fn();
-    function Held() {
-      const [value, setValue] = useState(initial);
-      return (
-        <FormField
-          label="Password"
-          value={value}
-          onChange={(text) => {
-            onChange(text);
-            setValue(text);
-          }}
-          scheme="light"
-          secureTextEntry
-        />
-      );
-    }
-    const t = await render(<Held />);
-    const input = inputsOf(t)[0];
-    if (!input) throw new Error('no TextInput found');
-    return { input, onChange };
-  }
-
-  describe('on iOS, which starts it over itself', () => {
-    it('takes a retyped first letter as typed, the platform having already replaced the rest', async () => {
-      const { input, onChange } = await password('hunter2');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'h');
-      expect(onChange).toHaveBeenLastCalledWith('h');
-    });
-
-    it('takes a backspace as the platform sends it', async () => {
-      const { input, onChange } = await password('hunter2');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'hunter');
-      expect(onChange).toHaveBeenLastCalledWith('hunter');
-    });
+    await fireEvent(input, 'focus');
+    await fireEvent.changeText(input, sent);
+    expect(onChange).toHaveBeenLastCalledWith(sent);
   });
-
-  describe('off iOS, which does not', () => {
-    let os: jest.ReplaceProperty<typeof Platform.OS>;
-    beforeEach(() => {
-      os = jest.replaceProperty(Platform, 'OS', 'android');
-    });
-    afterEach(() => os.restore());
-
-    it('empties on the first backspace into a value it already held', async () => {
-      const { input, onChange } = await password('hunter22');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'hunter2');
-      expect(onChange).toHaveBeenLastCalledWith('');
-    });
-
-    it('empties when that backspace takes out a character in the middle', async () => {
-      const { input, onChange } = await password('hunter22');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'huner22');
-      expect(onChange).toHaveBeenLastCalledWith('');
-    });
-
-    it('takes one character per backspace while the diver is still typing', async () => {
-      const { input, onChange } = await heldPassword('');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'h');
-      await fireEvent.changeText(input, 'hu');
-      await fireEvent.changeText(input, 'hux');
-      await fireEvent.changeText(input, 'hu');
-      expect(onChange).toHaveBeenLastCalledWith('hu');
-    });
-
-    it('empties on the first backspace after the diver leaves and comes back', async () => {
-      const { input, onChange } = await heldPassword('');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'h');
-      await fireEvent.changeText(input, 'hu');
-      await fireEvent(input, 'blur');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'h');
-      expect(onChange).toHaveBeenLastCalledWith('');
-    });
-
-    it('takes one character per backspace again once it has started over', async () => {
-      const { input, onChange } = await heldPassword('hunter22');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'hunter2');
-      await fireEvent.changeText(input, 'p');
-      await fireEvent.changeText(input, 'pw');
-      await fireEvent.changeText(input, 'p');
-      expect(onChange.mock.calls.map(([text]) => text)).toEqual(['', 'p', 'pw', 'p']);
-    });
-
-    it('empties on the first backspace after a fill, which the diver did not watch go in', async () => {
-      const { input, onChange } = await heldPassword('');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'S3cret-from-the-keychain');
-      await fireEvent.changeText(input, 'S3cret-from-the-keychai');
-      expect(onChange).toHaveBeenLastCalledWith('');
-    });
-
-    it('takes a value typed over a selected one as typed, even when it is the first letter', async () => {
-      const { input, onChange } = await password('hunter2');
-      await fireEvent(input, 'focus');
-      await fireEvent.changeText(input, 'h');
-      expect(onChange).toHaveBeenLastCalledWith('h');
-    });
-
-    it('takes a fill as it arrives, into an empty field or over a longer value', async () => {
-      const empty = await password('');
-      await fireEvent(empty.input, 'focus');
-      await fireEvent.changeText(empty.input, 'S3cret-from-the-keychain');
-      expect(empty.onChange).toHaveBeenLastCalledWith('S3cret-from-the-keychain');
-
-      const held = await password('hunter22');
-      await fireEvent(held.input, 'focus');
-      await fireEvent(held.input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
-      await fireEvent.changeText(held.input, 'S3cret');
-      expect(held.onChange).toHaveBeenLastCalledWith('S3cret');
-    });
-  });
-});
-
-it.each([
-  ['the last character', 'hunter22', 'hunter2', true],
-  ['the first character', 'hunter22', 'unter22', true],
-  ['one of a repeated pair', 'aab', 'ab', true],
-  ['one in the middle', 'hunter22', 'huner22', true],
-  ['a selected run', 'hunter22', 'hun22', false],
-  ['everything', 'hunter22', '', false],
-  ['nothing, the text unchanged', 'hunter22', 'hunter22', false],
-  ['nothing, a character added', 'hunter2', 'hunter22', false],
-  ['nothing, a letter typed over the whole value', 'hunter2', 'h', false],
-  ['nothing, a shorter value put in its place', 'hunter22', 'S3cret', false],
-  ['nothing, a same-length value put in its place', 'hunter22', 'hunter23', false],
-])('takesOneOut reads a change that took out %s', (_, prev, next, expected) => {
-  expect(takesOneOut(prev, next)).toBe(expected);
-});
-
-it('backspaces one character at a time in a field that is not a password', async () => {
-  const onChange = jest.fn();
-  const t = await render(<FormField label="Site" value="Blue Hole" onChange={onChange} scheme="light" />);
-  const input = inputsOf(t)[0];
-  if (!input) throw new Error('no TextInput found');
-  await fireEvent(input, 'keyPress', { nativeEvent: { key: 'Backspace' } });
-  await fireEvent.changeText(input, 'Blue Hol');
-  expect(onChange).toHaveBeenLastCalledWith('Blue Hol');
 });

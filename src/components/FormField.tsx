@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useRef, useState } from 'react';
-import { Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
 import { t } from '../i18n';
@@ -66,13 +66,13 @@ export interface FormFieldProps {
    * enforced (`cloud/auth.ts`): it is never logged, never wrapped into an error, and never
    * persisted anywhere but the auth call.
    *
-   * **This component adds one rule of its own for it, and only one** (issue #29, owner's
-   * call): off iOS, the first backspace into a password the diver did not watch go in empties
-   * it, as iOS's own secure field does by itself, because they cannot see what it would take
-   * off; while they are typing, one press takes one character (`takeChange` and `takesOneOut`,
-   * below). It adds no rule about the secret: a "clear the value on blur" or "never hand it to
-   * `onChange`" here would break the field for its callers while protecting nothing, since the
-   * value has to live in the caller's state to be typed at all.
+   * **This component adds no rule of its own for it, deliberately.** A "clear the value on
+   * blur" or "never hand it to `onChange`" here would break the field for its callers while
+   * protecting nothing: the value has to live in the caller's state to be typed at all. Nor
+   * does it add a rule about editing one (issue #29, owner's call): each platform's own secure
+   * field already has one — iOS's empties on the first backspace after the diver comes back,
+   * Android's takes a character per press — and the field hands on what it sends. What this
+   * prop does is exactly what its name says.
    *
    * Never combined with `multiline` — React Native ignores masking on a multiline input, and
    * a password that renders in the clear because a second prop was set is precisely the kind
@@ -326,26 +326,6 @@ export interface FieldMatch {
  */
 
 /**
- * Whether `next` is `prev` with exactly one character taken out and nothing put in — what one
- * backspace or one forward delete does, wherever the caret was. Read the other way round,
- * `takesOneOut(next, prev)`, it is one character put in: a keystroke. A fill, a paste of more
- * than one character, or a letter typed over a selection is neither.
- *
- * **Why a password field asks this, and asks the text rather than the keyboard** (issue #29,
- * owner's call). See `takeChange` for the rule. A key event cannot say it: an Android hardware
- * keyboard sends none, some soft keyboards send it after the text rather than before, and a
- * Backspace that changed nothing leaves no change to pair it with. And it is exactly one
- * character, not any shortening, because a letter typed over the whole value (`hunter2` → `h`)
- * also leaves a shorter text that begins like the old one, and is not a backspace.
- */
-export function takesOneOut(prev: string, next: string): boolean {
-  if (next.length !== prev.length - 1) return false;
-  let kept = 0;
-  while (kept < next.length && next[kept] === prev[kept]) kept++;
-  return prev.slice(kept + 1) === next.slice(kept);
-}
-
-/**
  * One form field (DESIGN.md §2.2, restyled to §0.6): **a row, not a box** — the label at the
  * leading edge, the typed value trailing, and a hairline on the row's own top edge. It is
  * `DiveDetailScreen`'s `Row` made typeable, which is the whole point of §0.6's form section:
@@ -378,26 +358,6 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
 ) {
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
-
-  // **Backspace empties a password the way iOS's own secure field does** (issue #29, owner's call:
-  // "match iOS exactly"). On iOS the platform does it and is left to: the first edit after the
-  // diver comes back empties the field or replaces it with the letter typed, and a rule here on
-  // top once read that replacement (`hunter2` → `h`) as a backspace and dropped the letter.
-  // Elsewhere Ponor does the backspace half: one backspace (`takesOneOut`, below) into a password
-  // the diver did not watch go in — one they came back to, or one a password manager filled —
-  // empties it, and one they typed loses a character per press, because each character shows for
-  // a moment as it is typed.
-  const watched = useRef(false);
-  const takeChange = (text: string) => {
-    if (secureTextEntry !== true || Platform.OS === 'ios') {
-      onChange(text);
-      return;
-    }
-    const backspace = takesOneOut(value, text);
-    const startOver = backspace && !watched.current;
-    if (!backspace) watched.current = takesOneOut(text, value);
-    onChange(startOver ? '' : text);
-  };
   const keepInView = useKeepInView();
 
   // The input, held here as well as handed to the caller: the row focuses it when the diver
@@ -472,9 +432,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       ref={attachInput}
       style={[styles.formFieldInput, mono === true && styles.formFieldInputMono, stacked && styles.formFieldInputMultiline]}
       value={value}
-      onChangeText={takeChange}
+      onChangeText={onChange}
       onFocus={() => {
-        watched.current = false;
         setFocused(true);
         hold(true);
       }}
@@ -535,8 +494,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // right-aligned value 60 pt left on every focus and back on every blur, so Next moved two rows
   // at once. Reserving its place on every row and animating the slide were both prototyped and
   // both turned down. The form's values are short and holding backspace empties them; a
-  // password empties on the first press after the diver comes back (`takeChange`). The carried
-  // ring is a different act — throwing away what carry-over filled in — and stays.
+  // password is left to the platform's own secure field (`secureTextEntry`). The carried ring
+  // is a different act — throwing away what carry-over filled in — and stays.
 
   return (
     <View
