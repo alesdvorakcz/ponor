@@ -48,6 +48,8 @@ jest.mock('expo-router', () => ({
   // than the guard — `DiveFormScreen.test.tsx` owns that — so the listener is accepted and
   // dropped, and the unsubscribe it returns is real enough to run on unmount.
   useNavigation: jest.fn(() => ({ addListener: () => () => {}, dispatch: jest.fn(), setOptions: jest.fn() })),
+  // The place rows release their one-shot claim on focus (issue #19); nothing here presses one.
+  useFocusEffect: jest.fn(),
 }));
 
 /**

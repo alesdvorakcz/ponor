@@ -12,13 +12,12 @@ import { useKeepInView } from './FormReveal';
 /**
  * A suggestion as the list draws it (2026-11-14, the design canvas): the suggestion itself, and
  * what the diver has done with it — `meta`, the muted line under the name ("4 dives · last
- * 18 kvě 2026"), and `figure`, the trailing figure (a site's deepest dive). Both are the
- * caller's words, already formatted: this component decides where they go, never what they say.
- * A pick hands back the whole object, details and all, so nothing a caller pairs with it is lost.
+ * 18 kvě 2026"). The caller's words, already formatted: this component decides where they go,
+ * never what they say. A pick hands back the whole object, details and all, so nothing a caller
+ * pairs with it is lost.
  */
 export interface OfferedSuggestion extends Suggestion {
   readonly meta?: string | null;
-  readonly figure?: string | null;
 }
 
 export interface FormFieldProps {
@@ -501,18 +500,15 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
               // would land.
               accessibilityLabel={t('field.fillWith', { label, value: suggestion.value })}
             >
-              {/* The canvas's row: the name over what the diver has done with it, and a figure
-                  trailing. Each line drawn only when the caller has something to say — an
-                  empty `Text` would still take its line. */}
+              {/* The canvas's row: the name over what the diver has done with it. The second line
+                  is drawn only when the caller has something to say — an empty `Text` would
+                  still take its line. */}
               <View style={styles.formSuggestionBody}>
                 <Text style={styles.formSuggestionText}>{suggestion.value}</Text>
                 {suggestion.meta != null && suggestion.meta !== '' && (
                   <Text style={styles.formSuggestionMeta}>{suggestion.meta}</Text>
                 )}
               </View>
-              {suggestion.figure != null && suggestion.figure !== '' && (
-                <Text style={styles.formSuggestionFigure}>{suggestion.figure}</Text>
-              )}
             </Pressable>
           ))}
         </View>

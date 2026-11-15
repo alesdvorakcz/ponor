@@ -3691,17 +3691,6 @@ function build(scheme: ColorScheme) {
       fontSize: 11.5,
       color: theme.fgMuted,
     },
-    // The trailing figure — a site's deepest dive. **Muted and unbanded**, where the canvas
-    // draws it in a band colour: it is a deepest-of-a-set, and §0.6 already ruled for the
-    // Dives header and the map's site summary that an aggregate takes no band, since one band
-    // would be a claim about a set no single band is true of. Mono 13.5 is the canvas's own
-    // size for the figure it draws muted (a distance).
-    formSuggestionFigure: {
-      fontFamily: fonts.mono,
-      fontSize: 13.5,
-      fontVariant: ['tabular-nums'],
-      color: theme.fgMuted,
-    },
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this
@@ -4525,8 +4514,9 @@ function build(scheme: ColorScheme) {
       color: theme.fgMuted,
     },
     // The deepest dive at a place: Plex Mono **in ink and never in a band colour** — it is a
-    // deepest-of-a-set, which §0.6 has ruled takes no band. Ink where the form's suggestion figure
-    // is muted, because here it is the row's one figure and the canvas draws it as data.
+    // deepest-of-a-set, which §0.6 has ruled takes no band (the Dives header and the map's site
+    // summary say the same). Ink, because it is the row's one figure and the canvas draws it as
+    // data.
     pickerRowFigure: {
       fontFamily: fonts.mono,
       fontSize: 13.5,

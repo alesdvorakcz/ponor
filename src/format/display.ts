@@ -378,8 +378,9 @@ export function formatSuggestionMeta(history: SuggestionHistory, field: Suggeste
 /**
  * **A suggested site's trailing figure: its deepest dive**, in the diver's units — null for
  * anything that is not a site (no figure is true of a centre or a person, and the canvas draws
- * none) and for a site with no depth logged. Drawn muted and unbanded (`formSuggestionFigure`,
- * theme/styles.ts): a deepest-of-a-set takes no band, `formatSiteSummary`'s own rule above.
+ * none) and for a site with no depth logged. Drawn unbanded on the picker's rows
+ * (`pickerRowFigure`, theme/styles.ts): a deepest-of-a-set takes no band, `formatSiteSummary`'s
+ * own rule above.
  */
 export function formatSuggestionFigure(history: SuggestionHistory, field: SuggestedField, system: UnitSystem): string | null {
   return field === 'siteName' ? formatDepth(history.deepestM, system) : null;

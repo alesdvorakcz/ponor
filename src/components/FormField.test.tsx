@@ -840,13 +840,13 @@ it('asks its form to keep it in view while focused, and lets go when it blurs', 
 });
 
 const DESCRIBED: OfferedSuggestion[] = [
-  { value: 'Blue Hole', id: 'site-blue', meta: '4 dives · last 18 May 2026', figure: '34.6 m' },
-  { value: 'Silfra', id: null, meta: null, figure: null },
+  { value: 'Blue Hole', id: 'site-blue', meta: '4 dives · last 18 May 2026' },
+  { value: 'Silfra', id: null, meta: null },
 ];
 
-// The canvas's suggestion row: the name, what the diver has done there beneath it, and a figure
-// trailing — a list of places with history in them rather than a column of bare words.
-it('draws what the diver has done with a suggestion beneath its name, and its figure trailing', async () => {
+// The canvas's suggestion row: the name, and what the diver has done with it beneath — a list
+// of names with history in them rather than a column of bare words.
+it('draws what the diver has done with a suggestion beneath its name', async () => {
   const styles = makeStyles('light');
   const t = await render(
     <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={DESCRIBED} suggestionsTitle="Your sites · 2" onPickSuggestion={() => {}} />,
@@ -854,15 +854,13 @@ it('draws what the diver has done with a suggestion beneath its name, and its fi
   expect(textIn(t)).not.toContain('Your sites · 2');
   await focusInput(t);
 
-  expect(textIn(t)).toEqual(['Site', 'Your sites · 2', 'Blue Hole', '4 dives · last 18 May 2026', '34.6 m', 'Silfra']);
+  expect(textIn(t)).toEqual(['Site', 'Your sites · 2', 'Blue Hole', '4 dives · last 18 May 2026', 'Silfra']);
   const drawn = (text: string) => textNodesOf(t).find((n) => n.children.includes(text));
   expect(stylesOn(drawn('Your sites · 2'))).toContain(styles.formSuggestionsTitle);
   expect(stylesOn(drawn('Blue Hole'))).toContain(styles.formSuggestionText);
   expect(stylesOn(drawn('4 dives · last 18 May 2026'))).toContain(styles.formSuggestionMeta);
-  expect(stylesOn(drawn('34.6 m'))).toContain(styles.formSuggestionFigure);
-  // Both muted: what was done there and how deep are facts ABOUT the name, never its rival.
+  // Muted: what was done with a name is a fact ABOUT the name, never its rival.
   expect(styles.formSuggestionMeta.color).toBe(themeFor('light').fgMuted);
-  expect(styles.formSuggestionFigure.color).toBe(themeFor('light').fgMuted);
 });
 
 // The pick still hands back the suggestion the caller gave — its details ride along untouched,

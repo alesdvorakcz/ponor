@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // M3m's discard guard. `useNavigation` is expo-router's own public re-export of the
 // navigation object; `leaveScreen.ts` still owns where a save GOES, and this owns whether a
 // departure happens at all — two different questions about the same act.
-import { useNavigation } from 'expo-router';
+import { useFocusEffect, useNavigation } from 'expo-router';
 // M3m: whether the keyboard is covering the bottom edge, which is what decides whether the
 // save footer still has a home indicator to clear (`liftedBottomInset`).
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
@@ -611,11 +611,13 @@ function seedStateFor(
       // create mode can.
       values: pinPairedNames(seedValues(seed === null ? blankFormValues() : diveToFormValues(seed)), pairedNames),
       paths: new Set<string>(),
-      // **Both diver-side sets pass straight through here.** No row is marked in edit mode, so
-      // no ring is drawn, and the one gesture that can still put a field in `cleared` is *No
-      // centre* — the picker's empty pick, which takes the ring's path (issue #19). A centre the
-      // diver emptied on purpose reads `— cleared` on a stored dive for the same reason it does
-      // on a new one, and a reseed must not take that sentence away.
+      // **Both diver-side sets pass straight through here, and `cleared` is empty in edit mode
+      // by consequence rather than by decree.** It could only gain a member by emptying a carried
+      // value — the ring on a marked row, or *No centre* over a carried centre — and `paths`
+      // above is empty, so there is nothing to blank and blanking it would be a second statement
+      // of a rule the line above already makes. (It was written as an explicit `new Set()` first;
+      // deleting that line changed no test, which is what an unreachable branch looks like, and
+      // §10's remedy for one is to remove it rather than to defend it.)
       cleared,
       typed,
       fromSite,
@@ -966,11 +968,12 @@ type FormControl = Control<DiveFormInput, unknown, DiveFormValues>;
 interface CarryOverControls {
   /** Every path carry-over filled that the diver has not since touched — `SeedState.paths`. */
   paths: ReadonlySet<string>;
-  /** Every path the diver emptied on purpose — `SeedState.cleared`. */
+  /** Every path whose carried value the diver threw away — `SeedState.cleared`. */
   cleared: ReadonlySet<string>;
-  /** The diver put a value here (typed, picked, applied, chose). */
+  /** The diver put a value here (typed, picked, applied, chose), or emptied one of their own. */
   onDrop: (name: FieldPath<DiveFormInput>) => void;
-  /** The diver emptied this on purpose: the clear control, or the picker's *No centre*. */
+  /** The diver threw a carried value away: the clear control on a carried row, or the picker's
+   * *No centre* over a carried centre. */
   onClear: (name: FieldPath<DiveFormInput>) => void;
 }
 
@@ -1229,13 +1232,24 @@ interface ControlledPlaceFieldProps {
  * own face (Archivo Medium 16, wrapping and never truncated), a hairline on the top edge, the press
  * behind the value slot, and the `label: value` announcement every read-back row on this form
  * makes. Empty, the value is the call to action, muted. Paired, the caption sits under the name.
- * Carried, the return mark and the ring stand at the trailing edge exactly as on a carried text
- * row, and the ring empties name and id together and leaves `— cleared`.
+ *
+ * **The ring stands at the trailing edge whenever the row holds a place** — carried or picked —
+ * because a place that can only be replaced, never emptied, would make a mistaken pick
+ * permanent. Beside a carried value it wears the return mark, exactly as on a carried text row.
+ * Either way it empties name and id together, and it leaves `— cleared` only where the value was
+ * carried: §0.6's rule that emptying your own value is an edit, not a carry-over thrown away.
+ * *No centre* — the empty pick — empties by the same rule.
  *
  * **A pick goes through the one path that sets §6's pair** (`onPairedId`, the screen's
- * `setPairedId`, which applies §2.1's site defaults), and *No centre* — the empty pick — through
- * the ring's. The picker is a page pushed over this form, which stays mounted underneath; the pick
- * comes back through `navigation/placePick.ts`, which is why this row hands it a callback.
+ * `setPairedId`, which applies §2.1's site defaults). The picker is a page pushed over this form,
+ * which stays mounted underneath; the pick comes back through `navigation/placePick.ts`, which is
+ * why this row hands it a callback.
+ *
+ * **One press, one picker.** A second tap before the page has covered the form would push a
+ * second picker over the first, so a press claims the row and the form regaining focus — the
+ * picker closing by any of its ways out — releases it. The claim lives here rather than in the
+ * registry: a request the registry never heard forgotten would wedge a lock there until reload,
+ * while focus always comes back.
  *
  * Each row reads its own catalogue table for the caption and never the other's — hence one small
  * component per table in front of `PlaceField`, rather than both hooks in every row.
@@ -1274,6 +1288,14 @@ function PlaceField({
   const id = heldId === '' ? null : heldId;
   // Nothing for a name without an id — a carried value from old data names no row.
   const caption = id === null ? null : placeCaption(places.find((row) => row.id === id), signedIn);
+  // The press's claim on the row — see the docblock. A ref rather than state, because two taps
+  // can land before the re-render a state would need; released whenever this screen is focused.
+  const opening = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      opening.current = false;
+    }, []),
+  );
 
   return (
     <Controller
@@ -1290,9 +1312,13 @@ function PlaceField({
         const cleared = carryOver.cleared.has(name) && placeName === null;
         const shown = placeName ?? (cleared ? clearedAnnouncement() : choosePlaceLabel(kind));
 
-        // The ring's gesture, and *No centre*'s: name and id together, and `— cleared` left.
+        const carried = carryOver.paths.has(name);
+        // The ring's gesture, and *No centre*'s: name and id together. Throwing a carried value
+        // away leaves `— cleared` (`onClear`); emptying one the diver put there is an edit, so it
+        // takes the typing path and leaves the call to action (`onDrop`).
         const empty = () => {
-          carryOver.onClear(name);
+          if (carried) carryOver.onClear(name);
+          else carryOver.onDrop(name);
           onPairedId(name, null, '');
           field.onChange('');
         };
@@ -1312,15 +1338,17 @@ function PlaceField({
               <Text style={styles.formFieldLabel}>{label}</Text>
               <Pressable
                 style={styles.formFieldPlace}
-                onPress={() =>
+                onPress={() => {
+                  if (opening.current) return;
+                  opening.current = true;
                   openPlacePicker({
                     kind,
                     // What the row holds, so the picker can mark it — as it reads, not tidied.
                     selected: placeName === null ? null : { id, name: text },
                     dive: diveContext(),
                     onPick: pick,
-                  })
-                }
+                  });
+                }}
                 accessibilityRole="button"
                 accessibilityLabel={t('field.labelValue', { label, value: shown })}
                 // The label hides what is drawn inside the press, so the caption is said here —
@@ -1336,7 +1364,7 @@ function PlaceField({
                 )}
                 {caption !== null && <Text style={styles.formFieldPlaceCaption}>{caption}</Text>}
               </Pressable>
-              {carryOver.paths.has(name) && (
+              {carried ? (
                 <View style={styles.formFieldCarryState}>
                   <CarriedMark scheme={scheme} />
                   <ClearFieldControl
@@ -1345,6 +1373,10 @@ function PlaceField({
                     scheme={scheme}
                   />
                 </View>
+              ) : (
+                placeName !== null && (
+                  <ClearFieldControl accessibilityLabel={t('field.clear', { label })} onPress={empty} scheme={scheme} />
+                )
               )}
             </View>
           </View>
@@ -3116,13 +3148,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     async (id: string | null) => {
       if (mode !== 'create') return;
       // Unpairing is the same rule with nothing in tier 2, so it needs no branch of its own —
-      // and there is nothing to recompute while no site is answering for anything, which is
-      // every time the ring unpairs a carried site (a pick drops the ring with the mark). A
-      // narrowing, not a rule: removing it writes the same values.
+      // but there is nothing to recompute once no site is answering for anything, which is the
+      // case whenever the ring empties a site carry-over brought. A narrowing, not a rule:
+      // removing it writes the same values.
       if (id === null && carriedRef.current.fromSite.size === 0) return;
       const site = id === null ? null : await pairedSite(id);
-      // The diver moved on while the read was out — picked another site, so this answer is
-      // about a site the dive is no longer at.
+      // The diver moved on while the read was out — picked another site, or emptied the row,
+      // which is `siteId` back to null. Either way this answer is about a site the dive is no
+      // longer at.
       if (toInputString(getValues('siteId')).trim() !== (id ?? '')) return;
       const { typed, values } = carriedRef.current;
       const fills = siteDefaultFills(site, values, typed);

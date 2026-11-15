@@ -11,7 +11,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { Alert, TextInput } from 'react-native';
-import { router, useNavigation } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { useAuthSession } from '../cloud/useAuthSession';
@@ -162,6 +162,9 @@ jest.mock('expo-router', () => ({
   // is before any `const` in this module has initialised, so an object built here and
   // referenced there would be read in its temporal dead zone.
   useNavigation: jest.fn(),
+  // The place rows release their one-shot claim when the form is focused again (issue #19).
+  // Recorded rather than run, so a test says when the form regains focus (`regainFocus`).
+  useFocusEffect: jest.fn(),
 }));
 
 /**
@@ -228,6 +231,7 @@ const mockPosition = currentPosition as jest.Mock;
 const mockUseAuthSession = useAuthSession as jest.Mock;
 const mockGetSite = getDiveSite as jest.Mock;
 const mockOpenPicker = openPlacePicker as jest.Mock;
+const mockUseFocusEffect = useFocusEffect as jest.Mock;
 const mockUseDiveSites = useDiveSites as jest.Mock;
 const mockUseDiveCenters = useDiveCenters as jest.Mock;
 
@@ -5689,8 +5693,8 @@ it('offers nothing to the fields §2.3 does not name', async () => {
 // §6's pair in an edit, both ways at once: a pick writes the new site's id beside its name, and
 // *No centre* writes the centre's two halves as a real `null` — not absent, which means "don't
 // touch" to the repository (db/dives.ts's patch contract) and would leave the old centre's id
-// under no name at all. Edit mode marks nothing, and the emptied centre still says it was emptied
-// on purpose.
+// under no name at all. Edit mode marks nothing, so emptying the centre there is an edit: the
+// row reads its call to action again, never `— cleared`.
 it('writes a new pair whole in an edit, and No centre as a real null', async () => {
   const target = dive({
     id: 'target', date: '2026-08-16',
@@ -5703,7 +5707,8 @@ it('writes a new pair whole in an edit, and No centre as a real null', async () 
 
   await pickPlace(t, 'Site', { id: 'site-silfra', name: 'Silfra' });
   await pickPlace(t, 'Centre', { id: null, name: '' });
-  expect(clearedRowLabels(t)).toEqual(['Centre']);
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
 
@@ -5957,9 +5962,10 @@ it('keeps both halves of the pair when a newer dive lands on a picked name', asy
 });
 
 /**
- * ***No centre* survives the reseed a newer dive brings**, `— cleared` and all. The empty name
- * goes through the row's `Controller`, which records it against the seed's `null`, so
- * `keepDirtyValues` keeps the blank; and `SeedState.cleared` keeps the sentence beside it.
+ * ***No centre* survives the reseed a newer dive brings.** The empty name goes through the row's
+ * `Controller`, which records it against the seed's `null`, so `keepDirtyValues` keeps the
+ * blank — and the centre was the diver's own pick, so the row reads its call to action rather
+ * than `— cleared`.
  */
 it('keeps No centre through a reseed after a pick', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
@@ -5973,7 +5979,8 @@ it('keeps No centre through a reseed after a pick', async () => {
   await openGroup(t, 'People');
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
 
-  expect(clearedRowLabels(t)).toEqual(['Centre']);
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   expect(Object.keys(writtenInput())).not.toContain('centerName');
@@ -6616,11 +6623,31 @@ async function openPlace(t: RenderResult, label: string): Promise<PlacePickReque
 }
 
 /** Picks a place on a row the way the picker hands one back: press the row, then deliver. */
+/** The form becoming the focused screen again — the picker closing by any of its ways out. Runs
+ * every focus effect the form has registered, as React Navigation does on focus. */
+async function regainFocus() {
+  const effects = new Set(mockUseFocusEffect.mock.calls.map(([effect]) => effect as () => void));
+  await act(async () => {
+    for (const effect of effects) effect();
+  });
+}
+
+/** Picks a place on a row the way the picker hands one back: press the row, deliver the pick,
+ * and the picker closes back to the form. */
 async function pickPlace(t: RenderResult, label: string, pick: PlacePick) {
   const request = await openPlace(t, label);
   await act(async () => {
     request.onPick(pick);
   });
+  await regainFocus();
+}
+
+/** A place row's own ring while it holds a value the diver put there — `Clear Site`, not
+ * `Clear carried Site`, which `findClearCarried` finds. */
+async function pressPlaceRing(t: RenderResult, label: string) {
+  const ring = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear ${label}`);
+  if (!ring) throw new Error(`no ring on the ${label} row`);
+  await fireEvent.press(ring);
 }
 
 /** A catalogue row as the device holds it. Only the columns a test names carry a meaningful
@@ -6740,6 +6767,38 @@ it('picking replaces a carried site and drops its mark', async () => {
   expect(shownIn(t, 'Site')).toBe('Blue Hole');
   expect(findClearCarried(t, 'Site')).toBeUndefined();
   expect(clearedRowLabels(t)).toEqual([]);
+});
+
+// The ring is on every row that holds a place, not only a carried one — a mistaken pick must be
+// undoable — and emptying a place the diver put there is an edit (§0.6): the row goes back to
+// its call to action, with no `— cleared`, and neither half of the pair is written.
+it('empties a picked site with its own ring, and leaves no cleared tag', async () => {
+  stubReturningDiver();
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
+
+  await pressPlaceRing(t, 'Site');
+
+  expect(shownIn(t, 'Site')).toBe('Choose a site');
+  expect(clearedRowLabels(t)).toEqual([]);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(Object.keys(writtenInput())).not.toContain('siteName');
+  expect(Object.keys(writtenInput())).not.toContain('siteId');
+});
+
+// A second tap before the page has covered the form must not stack a second picker over the
+// first; the form being focused again — the picker closed, by any of its ways out — frees it.
+it('opens one picker for one press, and opens again once the form is back in focus', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+
+  await regainFocus();
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(2);
 });
 
 // *No centre* is the empty pick, and it is the ring's gesture: name and id go together, and the
@@ -6920,6 +6979,24 @@ it('falls back to carry-over, not to the site the diver has left', async () => {
   await pickSite(t, 'Kotelna', 'site-kotelna');
   // `entry` is back to the diver's last dive's answer rather than still reading Blue Hole's.
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
+});
+
+// The same rule with tier 2 emptied: the diver empties the site they picked with the row's own
+// ring (`setPairedId(field, null)`), so no site is answering for these rows and carry-over gets
+// the question back. Without this the form would go on showing a site's answers for a dive that
+// is no longer at it — and would hand them to whatever site the diver creates next.
+it('hands the rows back to carry-over when the diver empties the site', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await pickSite(t, 'Blue Hole', 'site-blue');
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
+
+  await pressPlaceRing(t, 'Site');
+  await act(async () => {});
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
 });
 
 // §0.6's third state is a diver's gesture, and `SeedState.typed` records it as one — so a water
