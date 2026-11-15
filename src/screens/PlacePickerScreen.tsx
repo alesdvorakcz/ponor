@@ -50,7 +50,7 @@ import {
 } from '../format/display';
 import { useCatalogueSupplement, useNearbySupplement } from '../hooks/useCatalogueSupplement';
 import { t, useT } from '../i18n';
-import { completePlacePick, forgetPlacePick, placePickRequest } from '../navigation/placePick';
+import { completePlacePick, firstParam, forgetPlacePick, placePickRequest } from '../navigation/placePick';
 import { roughPosition, type PositionOutcome, type PositionRefusal } from '../platform/location';
 import { themeFor, resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -145,7 +145,7 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   const insets = useSafeAreaInsets();
   const units = useUnitSystem();
   const params = useLocalSearchParams<{ token?: string | string[] }>();
-  const token = (Array.isArray(params.token) ? params.token[0] : params.token) ?? '';
+  const token = firstParam(params.token) ?? '';
   // Read once: completing the request forgets it, and the page should not lose its *Selected*
   // line in the moment between the pick and the page closing.
   const [request] = useState(() => placePickRequest(token));
@@ -195,12 +195,14 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
     };
   }, [token]);
 
-  // **The first way off the page wins.** A second tap on a row would complete again, and its
-  // second `dismiss` would pop the dive form itself; a second tap on *Create* would stack two
-  // create pages. So a pick, *No centre*, `‹ Cancel` and *Create* each claim this before acting
-  // and do nothing once it is claimed. *Create* is the one way off that can come back — `‹ Back`
-  // on the create page returns here with the query intact — so the claim is released whenever the
-  // page is focused again.
+  // **The first way off the page wins.** A second completion is already nothing — the registry
+  // settles a token once (`navigation/placePick.ts`) — but the other ways off are plain navigation
+  // and are not: `‹ Cancel` landing while a pick's dismiss is under way would `back()` past the
+  // form, a pick landing while *Create* is pushing would dismiss the create page and leave this one
+  // standing on a settled token, and a second *Create* would stack two create pages. So a pick, *No
+  // centre*, `‹ Cancel` and *Create* each claim this before acting and do nothing once it is
+  // claimed. *Create* is the one way off that can come back — `‹ Back` on the create page returns
+  // here with the query intact — so the claim is released whenever the page is focused again.
   const leaving = useRef(false);
   useFocusEffect(
     useCallback(() => {

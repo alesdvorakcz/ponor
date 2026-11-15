@@ -1,7 +1,7 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { searchCenters, searchCentersNear } from '../cloud/searchCenters';
 import { searchSites, searchSitesNear } from '../cloud/searchSites';
@@ -49,6 +49,7 @@ jest.mock('../navigation/placePick', () => ({
   placePickRequest: jest.fn(),
   completePlacePick: jest.fn(),
   forgetPlacePick: jest.fn(),
+  firstParam: jest.requireActual('../navigation/placePick').firstParam,
 }));
 // Near me's question to the device, answered by each test.
 jest.mock('../platform/location', () => ({ roughPosition: jest.fn() }));
@@ -84,6 +85,7 @@ const mockSearchCenters = searchCenters as jest.MockedFunction<typeof searchCent
 const mockSearchCentersNear = searchCentersNear as jest.MockedFunction<typeof searchCentersNear>;
 const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEffect>;
 const actualPlacePick = jest.requireActual<typeof import('../navigation/placePick')>('../navigation/placePick');
+const mockParams = useLocalSearchParams as jest.Mock;
 
 const styles = makeStyles('light');
 const theme = themeFor('light');
@@ -671,10 +673,20 @@ it('Cancel forgets the request and goes back without a pick', async () => {
 // --- One way off per tap ------------------------------------------------------------------------
 //
 // The real `completePlacePick` here, so what is counted is what reaches the stack: a second
-// completion's `dismiss(1)` would pop the dive form itself.
+// completion's `dismiss(1)` would pop the dive form itself. The real registry settles a token for
+// good, so each test gets a token of its own.
 describe('a double tap', () => {
-  beforeEach(() => mockComplete.mockImplementation(actualPlacePick.completePlacePick));
-  afterEach(() => mockComplete.mockReset());
+  let token = 'tok';
+  let tests = 0;
+  beforeEach(() => {
+    token = `tok-double-${(tests += 1)}`;
+    mockParams.mockReturnValue({ token });
+    mockComplete.mockImplementation(actualPlacePick.completePlacePick);
+  });
+  afterEach(() => {
+    mockComplete.mockReset();
+    mockParams.mockReturnValue({ token: 'tok' });
+  });
 
   it('on a row completes once and closes one screen', async () => {
     mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-a', name: 'Alpha' })]));
@@ -720,7 +732,7 @@ describe('a double tap', () => {
       focused?.();
     });
     await press(t, 'Vis');
-    expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's-vis', name: 'Vis' }, 1);
+    expect(mockComplete).toHaveBeenCalledWith(token, { id: 's-vis', name: 'Vis' }, 1);
   });
 });
 

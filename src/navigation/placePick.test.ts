@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 
 import {
   completePlacePick,
+  firstParam,
   forgetPlacePick,
   openPlacePicker,
   placePickRequest,
@@ -55,16 +56,20 @@ it('complete hands the pick to onPick once, forgets the token and closes the giv
   expect(mockDismiss).toHaveBeenCalledWith(2);
 });
 
-it('a second complete for the same token does nothing but close', () => {
+// A second dismiss would pop the dive form under the picker and lose the half-typed dive.
+it('a second complete for the same token does nothing at all — one onPick, one dismiss', () => {
   const req = request();
   openPlacePicker(req);
   const token = pushedToken();
   completePlacePick(token, { id: 'a', name: 'A' }, 1);
   completePlacePick(token, { id: 'b', name: 'B' }, 1);
   expect(req.onPick).toHaveBeenCalledTimes(1);
-  expect(mockDismiss).toHaveBeenCalledTimes(2);
+  expect(req.onPick).toHaveBeenCalledWith({ id: 'a', name: 'A' });
+  expect(mockDismiss).toHaveBeenCalledTimes(1);
 });
 
+// A JS reload under an open picker: the registry never saw this token, and the diver must be put
+// back on the form rather than left on a picker that can do nothing.
 it('an unknown token completes without throwing and still closes', () => {
   expect(() => completePlacePick('nope', { id: null, name: '' }, 2)).not.toThrow();
   expect(mockDismiss).toHaveBeenCalledWith(2);
@@ -75,4 +80,34 @@ it('forget drops the request', () => {
   const token = pushedToken();
   forgetPlacePick(token);
   expect(placePickRequest(token)).toBeNull();
+});
+
+// A pick that lands while ‹ Cancel is already taking the page away.
+it('a complete after forget delivers nothing and closes nothing', () => {
+  const req = request();
+  openPlacePicker(req);
+  const token = pushedToken();
+  forgetPlacePick(token);
+  completePlacePick(token, { id: 'a', name: 'A' }, 1);
+  expect(req.onPick).not.toHaveBeenCalled();
+  expect(mockDismiss).not.toHaveBeenCalled();
+});
+
+it('closes the screens even when onPick throws, and lets the error through', () => {
+  const req = request();
+  req.onPick.mockImplementation(() => {
+    throw new Error('form refused');
+  });
+  openPlacePicker(req);
+  const token = pushedToken();
+  expect(() => completePlacePick(token, { id: 'a', name: 'A' }, 2)).toThrow('form refused');
+  expect(mockDismiss).toHaveBeenCalledWith(2);
+  completePlacePick(token, { id: 'a', name: 'A' }, 2);
+  expect(mockDismiss).toHaveBeenCalledTimes(1);
+});
+
+it('firstParam reads a route param sent as one string or as several', () => {
+  expect(firstParam('a')).toBe('a');
+  expect(firstParam(['a', 'b'])).toBe('a');
+  expect(firstParam(undefined)).toBeUndefined();
 });

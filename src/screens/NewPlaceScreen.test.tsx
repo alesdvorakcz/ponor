@@ -28,6 +28,7 @@ jest.mock('expo-router', () => ({
 jest.mock('../navigation/placePick', () => ({
   placePickRequest: jest.fn(),
   completePlacePick: jest.fn(),
+  firstParam: jest.requireActual('../navigation/placePick').firstParam,
 }));
 // The catalogue's writes and §2.3's duplicate check, at their own seam: `addToCatalogue.test.ts` proves
 // what each writes and asks. This file owns which of them the page calls, when, and with what.

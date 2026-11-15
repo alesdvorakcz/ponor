@@ -28,7 +28,7 @@ import { formatCoordinates, formatEntry, formatSalinity, formatWaterBody, NO_FIG
 import { positionRefusalSentence } from '../format/positionRefusal';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
-import { completePlacePick, placePickRequest, type PlacePick } from '../navigation/placePick';
+import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
 import { countryFor } from '../platform/geocode';
 import { currentPosition } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
@@ -40,8 +40,6 @@ export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
-
-const first = (param: string | string[] | undefined) => (Array.isArray(param) ? param[0] : param);
 
 /** *from this dive* while a value is still the one the dive handed the page; nothing once it is not. */
 function fromDive<T>(value: T | null, dives: T | null | undefined): string | undefined {
@@ -106,12 +104,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const keyboardShown = useKeyboardShown();
   const { session, resolved } = useAuthSession();
   const params = useLocalSearchParams<{ token?: string | string[]; name?: string | string[] }>();
-  const token = first(params.token) ?? '';
+  const token = firstParam(params.token) ?? '';
   // Read once, as the picker reads it: completing forgets the token.
   const [request] = useState(() => placePickRequest(token));
   const dive = request?.dive ?? null;
 
-  const [name, setName] = useState(() => first(params.name) ?? '');
+  const [name, setName] = useState(() => firstParam(params.name) ?? '');
   const [position, setPosition] = useState<Position | null>(() =>
     kind === 'site' && dive !== null && dive.pin !== null ? { ...dive.pin, from: 'dive' } : null,
   );
@@ -162,7 +160,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const trimmed = name.trim();
   const guest = resolved && session === null;
 
-  /** The first way off the page wins; every later one is a no-op. */
+  /**
+   * The first way off the page wins; every later one is a no-op. A second delivery would already be
+   * nothing (the registry settles a token once), but `‹ Back` is plain navigation: a second one
+   * would leave the picker too, and a save landing after it would close two screens from a stack
+   * that has already lost one.
+   */
   const leave = (go: () => void) => {
     if (leaving.current) return;
     leaving.current = true;
