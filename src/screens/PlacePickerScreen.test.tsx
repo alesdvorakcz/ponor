@@ -1,7 +1,7 @@
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { searchCenters, searchCentersNear } from '../cloud/searchCenters';
 import { searchSites, searchSitesNear } from '../cloud/searchSites';
@@ -39,6 +39,8 @@ jest.mock('../cloud/useAuthSession', () => ({
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), dismiss: jest.fn() },
   useLocalSearchParams: jest.fn(() => ({ token: 'tok' })),
+  // Inert: a test that needs the page to regain focus calls the registered effect itself.
+  useFocusEffect: jest.fn(),
 }));
 // The hand-back registry at its own seam: its suite proves what completing and forgetting do to
 // the form and the stack. What is left for this file is which of the three the page calls, when,
@@ -80,6 +82,8 @@ const mockSearchSites = searchSites as jest.MockedFunction<typeof searchSites>;
 const mockSearchSitesNear = searchSitesNear as jest.MockedFunction<typeof searchSitesNear>;
 const mockSearchCenters = searchCenters as jest.MockedFunction<typeof searchCenters>;
 const mockSearchCentersNear = searchCentersNear as jest.MockedFunction<typeof searchCentersNear>;
+const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEffect>;
+const actualPlacePick = jest.requireActual<typeof import('../navigation/placePick')>('../navigation/placePick');
 
 const styles = makeStyles('light');
 const theme = themeFor('light');
@@ -425,6 +429,11 @@ describe('Near me', () => {
     expect(metaOf(rowFor(t, 'Far'))).toBe('dived · 1 dive');
     expect(metaOf(rowFor(t, 'Near'))).toBe('community');
     expect(nearMe(t).props.accessibilityState).toMatchObject({ selected: true });
+    // The query still filters, and *Near you* takes no count: its heading already states a bound.
+    await type(t, 'ar');
+    expect(groupTitles(t)).toEqual(['Near you · within 50 km']);
+    expect(rowNames(t)).toEqual(['Near', 'Far', 'Create “ar”']);
+    await type(t, '');
     // The same RPC, asked around the fix (§2.3's supplement, by position).
     expect(mockSearchSitesNear).toHaveBeenCalledWith(expect.anything(), fix, 50_000);
     expect(mockSearchCentersNear).not.toHaveBeenCalled();
@@ -473,6 +482,9 @@ describe('Near me', () => {
     expect(mockRough).toHaveBeenCalledTimes(1);
   });
 
+  // Pins the OUTCOME, not the `alive` guard: under React 19 a state update after unmount is a
+  // silent no-op, so this stays green with the guard removed (checked). The guard is kept for
+  // Review Focus 2 all the same; what this asserts is that nothing reaches the server or the form.
   it('a fix arriving after the page closed changes nothing', async () => {
     const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
     const located = deferred<PositionOutcome>();
@@ -545,6 +557,26 @@ it('a failed catalogue read still lists Dived here, shows the unreadable message
   expect(textIn(t)).toContain(catalogueUnreadable());
 });
 
+// The other half of a failed read: the FIRST read failed, so there are no rows at all. The page
+// says it could not read the catalogue, and never also says that nothing is near — a failed read
+// counts as resolved (db/liveQuery.ts), so "resolved" alone would let the false empty through.
+it('a first catalogue read that failed says so, never calls the catalogue empty, and offers Create', async () => {
+  mockRough.mockResolvedValue({ found: true, latitude: 43, longitude: 16 });
+  mockUseDiveSites.mockReturnValue(sitesState([], { error: new Error('nope') }));
+  mockUseDives.mockReturnValue(divesState([dive({ siteId: 's-a' })]));
+  const t = await showSite();
+  expect(rowNames(t)).toEqual([]);
+  expect(textIn(t)).toContain(catalogueUnreadable());
+  await press(t, 'Near me');
+  await act(async () => {});
+  expect(nearMe(t).props.accessibilityState).toMatchObject({ selected: true });
+  expect(textIn(t)).toContain(catalogueUnreadable());
+  expect(textIn(t).join(' ')).not.toContain('Nothing within');
+  await type(t, 'Vis');
+  expect(rowNames(t)).toEqual(['Create “Vis”']);
+  expect(textIn(t).join(' ')).not.toContain('Nothing within');
+});
+
 it('a token the registry no longer knows still lists, searches and creates, and a pick just closes', async () => {
   mockRequest.mockReturnValue(null);
   mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-vis', name: 'Vis' })]));
@@ -576,6 +608,62 @@ it('Cancel forgets the request and goes back without a pick', async () => {
   expect(mockForget).toHaveBeenCalledWith('tok');
   expect(router.back).toHaveBeenCalled();
   expect(mockComplete).not.toHaveBeenCalled();
+});
+
+// --- One way off per tap ------------------------------------------------------------------------
+//
+// The real `completePlacePick` here, so what is counted is what reaches the stack: a second
+// completion's `dismiss(1)` would pop the dive form itself.
+describe('a double tap', () => {
+  beforeEach(() => mockComplete.mockImplementation(actualPlacePick.completePlacePick));
+  afterEach(() => mockComplete.mockReset());
+
+  it('on a row completes once and closes one screen', async () => {
+    mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-a', name: 'Alpha' })]));
+    mockUseDives.mockReturnValue(divesState([dive({ siteId: 's-a' })]));
+    const t = await showSite();
+    await press(t, 'Alpha');
+    await press(t, 'Alpha');
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(router.dismiss).toHaveBeenCalledTimes(1);
+    expect(router.dismiss).toHaveBeenCalledWith(1);
+  });
+
+  it('on No centre completes once and closes one screen', async () => {
+    mockRequest.mockReturnValue(request({ kind: 'center' }));
+    const t = await showCenter();
+    await press(t, 'No centre');
+    await press(t, 'No centre');
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(router.dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('on Cancel goes back once', async () => {
+    const t = await showSite();
+    await fireEvent.press(labelled(t, 'Leave without choosing'));
+    await fireEvent.press(labelled(t, 'Leave without choosing'));
+    expect(router.back).toHaveBeenCalledTimes(1);
+  });
+
+  it('on Create pushes one create page, and coming back from it lets the diver pick', async () => {
+    mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-vis', name: 'Vis' })]));
+    const t = await showSite();
+    await type(t, 'Vis');
+    await press(t, 'Create “Vis”');
+    await press(t, 'Create “Vis”');
+    expect(router.push).toHaveBeenCalledTimes(1);
+    // Nothing else leaves while the create page is the way off…
+    await press(t, 'Vis');
+    expect(mockComplete).not.toHaveBeenCalled();
+    // …until `‹ Back` on the create page brings the diver here again.
+    const focused = mockFocusEffect.mock.calls[mockFocusEffect.mock.calls.length - 1]?.[0];
+    expect(focused).toBeDefined();
+    await act(async () => {
+      focused?.();
+    });
+    await press(t, 'Vis');
+    expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's-vis', name: 'Vis' }, 1);
+  });
 });
 
 // Swipe-back leaves the same way Cancel does: the page unmounts and the request goes with it.

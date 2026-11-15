@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams, type Href } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import {
   FlatList,
@@ -197,6 +197,24 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
     };
   }, [token]);
 
+  // **The first way off the page wins.** A second tap on a row would complete again, and its
+  // second `dismiss` would pop the dive form itself; a second tap on *Create* would stack two
+  // create pages. So a pick, *No centre*, `‹ Cancel` and *Create* each claim this before acting
+  // and do nothing once it is claimed. *Create* is the one way off that can come back — `‹ Back`
+  // on the create page returns here with the query intact — so the claim is released whenever the
+  // page is focused again.
+  const leaving = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      leaving.current = false;
+    }, []),
+  );
+  const once = (go: () => void) => {
+    if (leaving.current) return;
+    leaving.current = true;
+    go();
+  };
+
   const toggleNearMe = () => {
     // A second press while the device is still answering asks nothing (Review Focus 1); the ref
     // rather than the state, because two taps can land before the re-render that would show it.
@@ -237,7 +255,8 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
     items.push({
       type: 'title',
       key: `title-${group.key}`,
-      text: formatPickerGroupTitle(group.key, kind, typed === '' ? null : group.rows.length, wording),
+      // Counted while something is typed — except *Near you*, whose heading already states a bound.
+      text: formatPickerGroupTitle(group.key, kind, typed === '' || group.key === 'near' ? null : group.rows.length, wording),
     });
     for (const row of group.rows) items.push({ type: 'place', key: `${group.key}-${row.id}`, group: group.key, row });
   }
@@ -250,11 +269,17 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   if (typed !== '') items.push({ type: 'create', key: 'create', name: typed });
 
   // What stands where rows would be. A failed read is said and the list is still drawn from
-  // whatever the read last held (Review Focus 4); "nothing near" only once the catalogue has
-  // answered, since an unread table and an empty one are the same `[]`.
+  // whatever the read last held (Review Focus 4). "Nothing near" only when the catalogue has
+  // answered with rows: an unread table and an empty one are the same `[]`, and a failed read is
+  // `resolved` too (db/liveQuery.ts), so a page that could not read it must not also call it empty.
   const notes: string[] = [];
   if (catalogue.error !== undefined) notes.push(catalogueUnreadable());
-  if (fix !== null && catalogue.resolved && !groups.some((group) => group.key === 'near')) {
+  if (
+    fix !== null &&
+    catalogue.resolved &&
+    catalogue.error === undefined &&
+    !groups.some((group) => group.key === 'near')
+  ) {
     const distance = formatDistance(NEAR_ME_RADIUS_KM, units);
     notes.push(
       typed === '' ? t('picker.nothingNear', { distance }) : t('picker.nothingNearMatches', { distance, query: typed }),
@@ -265,12 +290,14 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   const selectedName =
     selected === null ? null : selected.name !== '' ? selected.name : selected.id !== null ? unnamed() : null;
 
-  const pick = (row: PickerRow) => completePlacePick(token, { id: row.id, name: row.name ?? '' }, 1);
-  const leave = () => {
-    forgetPlacePick(token);
-    router.back();
-  };
-  const create = (name: string) => router.push(newPlaceHref(kind, token, name));
+  const pick = (row: PickerRow) => once(() => completePlacePick(token, { id: row.id, name: row.name ?? '' }, 1));
+  const pickNoCenter = () => once(() => completePlacePick(token, { id: null, name: '' }, 1));
+  const leave = () =>
+    once(() => {
+      forgetPlacePick(token);
+      router.back();
+    });
+  const create = (name: string) => once(() => router.push(newPlaceHref(kind, token, name)));
 
   const on = nearMe.state === 'on';
   const busy = nearMe.state === 'locating';
@@ -296,7 +323,7 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
         return (
           <Pressable
             style={styles.pickerRow}
-            onPress={() => completePlacePick(token, { id: null, name: '' }, 1)}
+            onPress={pickNoCenter}
             accessibilityRole="button"
           >
             <View style={styles.pickerRowBody}>
