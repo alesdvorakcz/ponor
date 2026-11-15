@@ -718,31 +718,37 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
     if (shown.has('community') && catalogue.resolved && !catalogue.error) {
       if (catalogue.sites.length === 0) {
         // **Two sentences, because a guest is not waiting for the same thing a signed-in diver
-        // is.** The catalogue reaches a device only through a pull (§5, §7), and §7.4 erases it
-        // on the way out precisely because "a guest never had them" — so telling a guest their
-        // next sync will bring sites would be pointing at something that cannot happen.
+        // is.** Community rows reach a device only through a pull (§5, §7), and §7.4 erases them
+        // on the way out precisely because "a guest never had them" — so a guest's table holds
+        // only the places they created (issue #19), and a guest who has none is told that sites
+        // arrive with an account rather than that their next sync will bring them.
         reasons.push(t(session === null ? 'map.noSitesGuest' : 'map.noSitesMember'));
       } else {
         // **The device holds sites and none of them can be drawn, which is a different sentence
         // from "there are none"** — and it did not exist before M3e, though the state always
         // did: the community layer said "No community sites here yet" over a device holding
-        // thirty of them, because it only ever counted the ones it could position. §5 asks a new
-        // site for a name and `siteFactsFrom` passes a pin only when the dive carried one, so a
-        // catalogue of nameless-place rows is ordinary. The centres layer has had its own version
-        // of this sentence since M3c; this is the sibling it should always have had.
+        // thirty of them, because it only ever counted the ones it could position. A new site
+        // needs nothing but a name (§5): it takes the dive's pin when the dive has one, or the
+        // phone's when the diver presses *Use current position* on the create page, so a catalogue
+        // of rows with no position is ordinary — and the sentence names both ways to give the next
+        // one a position. *On this phone* rather than *community*: a guest's own sites are drawn
+        // in this layer too. The centres layer has had its own version of this sentence since M3c;
+        // this is the sibling it should always have had.
         reasons.push(t('map.noSitePositions', { count: catalogue.sites.length }));
       }
     }
     if (shown.has('centers') && centres.resolved && !centres.error) {
       if (centres.centers.length === 0) {
-        // **The same guest/member split**, and for the same reason: a centre reaches this table
-        // through a pull or through §2.3's *add a centre*, and §5 puts an account behind both.
+        // **The same guest/member split**, and for the same reason: community centres reach this
+        // table only through a pull, which §5 puts behind an account; a guest's table holds only
+        // the centres they created (issue #19).
         reasons.push(t(session === null ? 'map.noCentresGuest' : 'map.noCentresMember'));
       } else {
         // §2.3 is why: *"a centre inherits its name alone — the form's pin is where the diver
         // entered the water, so writing it to a centre files a dive site as the shop's address"*.
-        // So a centre only ever gets a position from a catalogue that surveyed it, and the honest
-        // answer is to send the diver to the list, where a centre with no position is still a row.
+        // So a centre has a position only when someone gave it one — a catalogue that surveyed it,
+        // or a diver pressing *Use current position* on the create page — and the honest answer is
+        // to send the diver to the list, where a centre with no position is still a row.
         // This one used to compose `formatCenterCount`'s phrase into the sentence, which is
         // the exact shape Czech breaks — so the sentence declines the noun itself, in both
         // languages, and the two forms are byte-identical to what that composition produced.

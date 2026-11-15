@@ -338,13 +338,15 @@ export const cs = {
        * dive". The brand steps aside in the one sentence where it collides with its own
        * subject. And `Nastavení systému` rather than bare `Nastavení`, for the reason the
        * English twin records — this sentence sits on a screen called *Nastavení*. */
-      locationGrantedNote: 'Aplikace může připnout ponor tam, kde jste. Změníte to v Nastavení systému.',
+      locationGrantedNote:
+        'Aplikace může připnout ponor nebo nové místo tam, kde jste, a ukázat místa ve vašem okolí. Změníte to v Nastavení systému.',
       locationDenied: 'Nepovoleno',
       locationDeniedNote:
         'Ponor nesmí používat vaši polohu. iOS se zeptá jednou a nikdy víc, takže Nastavení je jediné místo, kde to jde změnit.',
       locationUndetermined: 'Zatím nedotázáno',
+      /** `aplikace`, for `locationGrantedNote`'s reason: the sentence now says *připnete ponor*. */
       locationUndeterminedNote:
-        'Nikdo se zatím neptal — Ponor se zeptá, až to poprvé použijete u ponoru.',
+        'Nikdo se zatím neptal — aplikace se zeptá, až poprvé připnete ponor nebo nové místo, nebo klepnete na „V okolí“.',
       locationServicesOff: 'Polohové služby vypnuté',
       locationServicesOffNote:
         'Polohové služby jsou vypnuté pro celé zařízení, takže na něm nelze nic lokalizovat. Ten přepínač patří zařízení, ne Ponoru.',
@@ -690,13 +692,13 @@ export const cs = {
       noSitesMember:
         'Zatím tu nejsou žádné komunitní lokality. Lokality přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
       noSitePositions_one:
-        'Vaše jediná komunitní lokalita zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Jediná potápěčská lokalita v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_few:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_many:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_other:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noCentresGuest: 'Zatím tu nejsou žádná potápěčská centra. Přijdou s účtem, při první synchronizaci.',
       noCentresMember:
         'Zatím tu nejsou žádná potápěčská centra. Centra přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
@@ -729,9 +731,9 @@ export const cs = {
       searchPlaceholder: 'Hledat lokality',
       close: 'Zavřít lokality',
       noneGuest:
-        'Zatím žádné potápěčské lokality. Přijdou s účtem — při první synchronizaci a když nějakou přidáte u ponoru.',
+        'Zatím žádné potápěčské lokality. Novou vytvoříte u ponoru: klepněte na „Lokalita“ a napište název. Zůstane v tomto telefonu, dokud se nepřihlásíte.',
       noneMember:
-        'Zatím žádné potápěčské lokality. Pojmenujte lokalitu u ponoru a klepněte na „Přidat“; další synchronizace stáhne ty komunitní.',
+        'Zatím žádné potápěčské lokality. U ponoru klepněte na „Lokalita“ a napište název — lokalitu najdete, nebo vytvoříte novou. Další synchronizace stáhne ty komunitní.',
       noMatches: 'Hledání neodpovídá žádná lokalita.',
     },
 
@@ -742,9 +744,9 @@ export const cs = {
       searchPlaceholder: 'Hledat centra',
       close: 'Zavřít centra',
       noneGuest:
-        'Zatím žádná potápěčská centra. Přijdou s účtem — při první synchronizaci a když nějaké přidáte u ponoru.',
+        'Zatím žádná potápěčská centra. Nové vytvoříte u ponoru: klepněte na „Centrum“ a napište název. Zůstane v tomto telefonu, dokud se nepřihlásíte.',
       noneMember:
-        'Zatím žádná potápěčská centra. Pojmenujte centrum u ponoru a klepněte na „Přidat“; další synchronizace stáhne ta komunitní.',
+        'Zatím žádná potápěčská centra. U ponoru klepněte na „Centrum“ a napište název — centrum najdete, nebo vytvoříte nové. Další synchronizace stáhne ta komunitní.',
       noMatches: 'Hledání neodpovídá žádné centrum.',
     },
 

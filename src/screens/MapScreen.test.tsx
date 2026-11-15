@@ -628,8 +628,10 @@ it('tells an empty catalogue apart from a catalogue with no positions in it', as
   await press(t, 'Show community sites');
   const said = textIn(t).join(' ');
   expect(said).not.toContain('No community sites here yet');
-  expect(said).toContain('None of your 2 community sites has a position yet');
+  expect(said).toContain('None of the 2 dive sites on this phone has a position yet');
+  // Both ways a new site gets a position: the dive's pin, and the create page's own button.
   expect(said).toContain('Use my location');
+  expect(said).toContain('Use current position');
 });
 
 // "Couldn't read the catalogue" and "there are no community sites yet" are different sentences,
@@ -1753,13 +1755,13 @@ describe('in Czech', () => {
     mockUseDiveSites.mockReturnValue(catalogueState([site({ name: 'Vis' })]));
     const one = await show();
     await press(one, 'Zobrazit komunitní lokality');
-    expect(textIn(one).join(' ')).toContain('Vaše jediná komunitní lokalita zatím nemá polohu.');
+    expect(textIn(one).join(' ')).toContain('Jediná potápěčská lokalita v tomto telefonu zatím nemá polohu.');
     await cleanup();
 
     mockUseDiveSites.mockReturnValue(catalogueState([site({ name: 'Vis' }), site({ name: 'Kotelna' })]));
     const two = await show();
     await press(two, 'Zobrazit komunitní lokality');
-    expect(textIn(two).join(' ')).toContain('Žádná z vašich 2 komunitních lokalit zatím nemá polohu.');
+    expect(textIn(two).join(' ')).toContain('Žádná z 2 potápěčských lokalit v tomto telefonu zatím nemá polohu.');
   });
 
   /** The one that used to compose `formatCenterCount`'s phrase — *"z vašich 2 centra"* is what
