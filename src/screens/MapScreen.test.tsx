@@ -1569,6 +1569,17 @@ describe('pointed at one place', () => {
     expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
   });
 
+  // #27's second review: the camera centres on the mark, which stands at the place's first pinned
+  // dive; Directions goes to THIS dive's own pin, the one its card shows.
+  it('centres on the place’s mark and gives directions to the dive’s own pin', async () => {
+    const drifted = dive({ id: 'drifted', siteId: 'blue', siteName: 'Blue Hole', latitude: 43.0381, longitude: 16.1492 });
+    mockUseDives.mockReturnValue(divesState([blueDeep, drifted]));
+    const t = await showFocused({ kind: 'dive', id: 'drifted' });
+    expectCamera(t, 43.0328, 16.1489);
+    await press(t, 'Directions to Blue Hole');
+    expect(openURL).toHaveBeenLastCalledWith('https://maps.apple.com/?ll=43.0381,16.1492&q=Blue%20Hole');
+  });
+
   // The pill is about the place, not the filter: switching the diver's dives off takes the mark
   // away and leaves the way to the place where it was.
   it('keeps the directions whatever is switched on', async () => {
@@ -1614,7 +1625,7 @@ describe('pointed at one place', () => {
     it('goes back from a site’s own page link in the sheet', async () => {
       mockUseDives.mockReturnValue(divesState([blueDeep, split]));
       mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
-      const t = await showFocused({ kind: 'site', id: 'blue' });
+      const t = await showFocused({ kind: 'site', id: 'blue', overItsPage: true });
       await press(t, 'Open Blue Hole');
       expect(router.back).toHaveBeenCalledTimes(1);
       expect(router.push).not.toHaveBeenCalled();
@@ -1623,7 +1634,7 @@ describe('pointed at one place', () => {
     it('still pushes a site’s page from a dive’s map', async () => {
       mockUseDives.mockReturnValue(divesState([blueDeep, split]));
       mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
-      const t = await showFocused({ kind: 'dive', id: 'blue-deep' });
+      const t = await showFocused({ kind: 'dive', id: 'blue-deep', overItsPage: true });
       await press(t, 'Open Blue Hole');
       expect(router.push).toHaveBeenCalledWith('/site/blue');
       expect(router.back).not.toHaveBeenCalled();
@@ -1635,7 +1646,7 @@ describe('pointed at one place', () => {
       const twin = dive({ id: 'blue', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE, maxDepthM: 18.2 });
       mockUseDives.mockReturnValue(divesState([twin]));
       mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
-      const t = await showFocused({ kind: 'dive', id: 'blue' });
+      const t = await showFocused({ kind: 'dive', id: 'blue', overItsPage: true });
       await press(t, 'Open Blue Hole');
       expect(router.push).toHaveBeenCalledWith('/site/blue');
       expect(router.back).not.toHaveBeenCalled();
@@ -1643,7 +1654,7 @@ describe('pointed at one place', () => {
 
     it('goes back from the dive it came from in the sheet, and pushes the others', async () => {
       mockUseDives.mockReturnValue(divesState([blueDeep, blueShallow, split]));
-      const t = await showFocused({ kind: 'dive', id: 'blue-deep' });
+      const t = await showFocused({ kind: 'dive', id: 'blue-deep', overItsPage: true });
       const styles = makeStyles('light');
       const rows = allNodes(t).filter(
         (n) => typeof n.type === 'string' && [n.props?.style].flat(5).includes(styles.diveRow),
@@ -1656,7 +1667,7 @@ describe('pointed at one place', () => {
 
     it('goes back from the centre’s own mark', async () => {
       mockUseDiveCenters.mockReturnValue(centresState([centre({ id: 'ponorka', name: 'Ponorka', ...SPLIT })]));
-      const t = await showFocused({ kind: 'center', id: 'ponorka' });
+      const t = await showFocused({ kind: 'center', id: 'ponorka', overItsPage: true });
       await tapMark(t, 'Ponorka, dive centre');
       expect(router.back).toHaveBeenCalledTimes(1);
       expect(router.push).not.toHaveBeenCalled();
@@ -1666,11 +1677,36 @@ describe('pointed at one place', () => {
       mockUseDiveSites.mockReturnValue(
         catalogueState([site({ id: 'vis', name: 'Vis', ...BLUE_HOLE }), site({ id: 'bisevo', name: 'Biševo', ...SPLIT })]),
       );
-      const t = await showFocused({ kind: 'site', id: 'vis' });
+      const t = await showFocused({ kind: 'site', id: 'vis', overItsPage: true });
       await tapMark(t, 'Vis, dive site');
       await tapMark(t, 'Biševo, dive site');
       expect(router.back).toHaveBeenCalledTimes(1);
       expect((router.push as jest.Mock).mock.calls).toEqual([['/site/bisevo']]);
+    });
+  });
+
+  // #27's second review: a map focused on a record but NOT pushed over its page — a planned dive's
+  // map, pointed at the plan's site but sitting over the plan, or a link into a running app — must
+  // push that page. Going back would land on the plan (or whatever was showing) and leave the
+  // site's page unreachable from its own map.
+  describe('a link from a map that is not over that page', () => {
+    beforeEach(() => (router.back as jest.Mock).mockClear());
+
+    it('pushes the site’s page from the sheet', async () => {
+      mockUseDives.mockReturnValue(divesState([blueDeep, split]));
+      mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'blue', name: 'Blue Hole', ...BLUE_HOLE })]));
+      const t = await showFocused({ kind: 'site', id: 'blue' });
+      await press(t, 'Open Blue Hole');
+      expect(router.push).toHaveBeenCalledWith('/site/blue');
+      expect(router.back).not.toHaveBeenCalled();
+    });
+
+    it('pushes the site’s page from its own mark', async () => {
+      mockUseDiveSites.mockReturnValue(catalogueState([site({ id: 'vis', name: 'Vis', ...BLUE_HOLE })]));
+      const t = await showFocused({ kind: 'site', id: 'vis', overItsPage: false });
+      await tapMark(t, 'Vis, dive site');
+      expect(router.push).toHaveBeenCalledWith('/site/vis');
+      expect(router.back).not.toHaveBeenCalled();
     });
   });
 

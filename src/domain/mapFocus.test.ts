@@ -79,7 +79,23 @@ describe('focusTarget — a dive', () => {
     const newer = dive({ id: 'newer', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
     const older = dive({ id: 'older', siteId: 'blue', siteName: 'Blue Hole', latitude: 43.0381, longitude: 16.1492 });
     const target = focusTarget({ kind: 'dive', id: 'older' }, answered({ dives: [newer, older] }));
-    expect(target).toMatchObject({ point: BLUE_HOLE, mark: { kind: 'mine', key: 'site:blue' } });
+    expect(target).toMatchObject({ markAt: BLUE_HOLE, mark: { kind: 'mine', key: 'site:blue' } });
+  });
+
+  // …while Directions still goes to the dive's OWN pin — what its card shows (#27's second review).
+  it('keeps the dive’s own pin as its point, for Directions', () => {
+    const newer = dive({ id: 'newer', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
+    const older = dive({ id: 'older', siteId: 'blue', siteName: 'Blue Hole', latitude: 43.0381, longitude: 16.1492 });
+    const target = focusTarget({ kind: 'dive', id: 'older' }, answered({ dives: [newer, older] }));
+    expect(target).toMatchObject({ point: { latitude: 43.0381, longitude: 16.1492 } });
+  });
+
+  // A dive with no pin at a site where others have pins: its place IS drawn, but the dive is not —
+  // `drawsOnMap` says so, and its page shows no card to open the map from (#27's second review).
+  it('finds nothing for a pinless dive, even where its place is drawn by others', () => {
+    const pinned = dive({ id: 'pinned', siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
+    const pinless = dive({ id: 'pinless', siteId: 'blue', siteName: 'Blue Hole' });
+    expect(focusTarget({ kind: 'dive', id: 'pinless' }, answered({ dives: [pinned, pinless] }))).toBeNull();
   });
 
   it('is a place of its own for a dive at no named site', () => {
@@ -146,16 +162,20 @@ describe('focusTarget — a site', () => {
     const row = site({ id: 'blue', name: 'Blue Hole', latitude: 43.06, longitude: 16.2 });
     const been = dive({ siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
     expect(focusTarget({ kind: 'site', id: 'blue' }, answered({ dives: [been], sites: [row] }))).toMatchObject({
-      point: BLUE_HOLE,
+      // Camera on the mark; Directions to the row's own position, what the site's card shows.
+      markAt: BLUE_HOLE,
+      point: { latitude: 43.06, longitude: 16.2 },
       mark: { kind: 'mine', key: 'site:blue' },
     });
   });
 
-  // …and so a dived site needs no position of its own: the mark is the diver's, drawn at their pin.
+  // …and so a dived site needs no position of its own: the mark is the diver's, drawn at their pin,
+  // and Directions goes there too, having nowhere else.
   it('finds a dived site that has no position of its own, at the diver’s mark', () => {
     const row = site({ id: 'blue', name: 'Blue Hole' });
     const been = dive({ siteId: 'blue', siteName: 'Blue Hole', ...BLUE_HOLE });
     expect(focusTarget({ kind: 'site', id: 'blue' }, answered({ dives: [been], sites: [row] }))).toMatchObject({
+      markAt: BLUE_HOLE,
       point: BLUE_HOLE,
     });
   });

@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { mapFocusFromParams } from '../../../navigation/mapFocusLink';
+import { mapFocusFromParams, type MapFocusParams } from '../../../navigation/mapFocusLink';
 import MapScreen from '../../../screens/MapScreen';
 
 /**
@@ -12,6 +12,6 @@ import MapScreen from '../../../screens/MapScreen';
  * tree into the bundle, so a colocated test would ship with the app.
  */
 export default function SiteOnMapRoute() {
-  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const params = useLocalSearchParams<MapFocusParams>();
   return <MapScreen focus={mapFocusFromParams('site', params)} />;
 }

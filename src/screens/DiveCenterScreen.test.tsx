@@ -445,7 +445,8 @@ it('pushes the map pointed at this centre', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([centre({ latitude: 43.0611, longitude: 16.1834 })]));
   const t = await show();
   await fireEvent.press(labelled(t, 'Show on map'));
-  expect(router.push).toHaveBeenCalledWith({ pathname: '/center/[id]/map', params: { id: 'c1' } });
+  // `over: 'page'`: the map is pushed over this page, so a link back to it from the map goes back.
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/center/[id]/map', params: { id: 'c1', over: 'page' } });
 });
 
 it('offers no map for a centre with no position, which is every centre this app creates', async () => {

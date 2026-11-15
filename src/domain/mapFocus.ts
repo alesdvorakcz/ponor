@@ -32,10 +32,21 @@ import { type Dive, type DiveCenter, type DiveSite } from './types';
 export const MAP_FOCUS_KINDS = ['dive', 'site', 'center'] as const;
 export type MapFocusKind = (typeof MAP_FOCUS_KINDS)[number];
 
-/** The route's half of a focus: what kind of record, and which one. */
+/** The route's half of a focus: what kind of record, which one, and what the map was opened over. */
 export interface MapFocus {
   kind: MapFocusKind;
   id: string;
+  /**
+   * **Whether the map was pushed over this record's own page** — the dive's detail, the site's
+   * page, the centre's page — said by the page that pushed it (#27's second review).
+   *
+   * Only then is "this record's page" the page beneath the map, so only then may a link to it go
+   * back instead of pushing a copy (`MapScreen`'s `openPage`). A planned dive's map is pointed at
+   * the plan's SITE but pushed over the plan, and a link into a running app is pushed over
+   * whatever was showing: going back from either would land on the wrong page, so neither sets
+   * it. Absent means no — a link from outside the app never claims it.
+   */
+  overItsPage?: boolean;
 }
 
 /**
@@ -45,16 +56,22 @@ export interface MapFocus {
 export type FocusMarkKind = 'mine' | 'community' | 'centers';
 
 /**
- * A focus that has been found on the map: the record, where the camera goes, and which drawn
- * mark is that record.
+ * A focus that has been found on the map: the record, which drawn mark is that record, and two
+ * points that need not be the same one (#27's two reviews).
  *
- * `point` is the **record's own** position, not its mark's. They differ for a dive that shares a
- * place with an earlier one — §3's place is positioned at its first pinned dive — and the done-when
- * for #21 is a map centred on *the dive's* position. The two are a few metres apart in practice
- * (the same site), so the mark is still on screen and still the one that is selected.
+ * - `point` is the **record's own** position — what its page's card shows, and where *Directions*
+ *   goes. A dive's own pin; a site's or a centre's catalogue position.
+ * - `markAt` is **where its mark is drawn**, and the camera centres there. A place of the diver's
+ *   own stands at one dive's pin for the whole group (`groupDivesByPlace`), so a dive that shares
+ *   a site with an earlier one, or a site the diver has dived, has a mark that need not sit on its
+ *   own position — later dives drift by the GPS's own error, and an admin can move a row. Centring
+ *   on the record's own point could open with the selected mark at the edge or under its sheet;
+ *   routing to the mark's point would send the diver to a different pin from the one their card
+ *   shows. So each question gets its own answer.
  */
 export type FocusTarget = {
   point: MapPoint;
+  markAt: MapPoint;
   mark: { kind: FocusMarkKind; key: string };
 } & ({ kind: 'dive'; dive: Dive } | { kind: 'site'; site: DiveSite } | { kind: 'center'; center: DiveCenter });
 
@@ -91,11 +108,8 @@ export interface FocusSources {
  * filter currently draws, so switching *your dives* off does not make a focus disappear — the
  * Directions pill is about the place, not about what is switched on.
  *
- * **The point is always the selected mark's own** (#27's review). A place of the diver's own is
- * drawn where `groupDivesByPlace` puts it — one dive's pin standing for the group — and neither the
- * focused dive's own pin nor the catalogue's position for the site has to be that one: later dives
- * at a site drift by the GPS's own error, and an admin can move a catalogue row. Centring on any
- * other point could open with the selected mark at the edge of the screen or under its own sheet.
+ * **The camera's point (`markAt`) is always the selected mark's own; `point` is the record's**
+ * (see `FocusTarget`).
  */
 export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget | 'pending' | null {
   switch (focus.kind) {
@@ -103,12 +117,17 @@ export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget
       if (sources.dives === null) return 'pending';
       const dive = sources.dives.find((row) => row?.id === focus.id);
       if (dive === undefined) return null;
-      // A dive with no position, or a plan, is in no place — `groupDivesByPlace` owns both rules.
+      // **A dive with no pin of its own is not focusable**, even where others at its site have
+      // pins and its place is drawn: `drawsOnMap` says the map does not draw it, and the dive's
+      // page shows no card to open it from (#27's second review).
+      const point = pointOf(dive);
+      if (point === null) return null;
+      // A plan is in no place — `groupDivesByPlace` owns that rule.
       const place = groupDivesByPlace(sources.dives).find((group) =>
         group.dives.some((member) => member.id === dive.id),
       );
       if (place === undefined) return null;
-      return { kind: 'dive', dive, point: place.point, mark: { kind: 'mine', key: place.key } };
+      return { kind: 'dive', dive, point, markAt: place.point, mark: { kind: 'mine', key: place.key } };
     }
     case 'site': {
       if (sources.sites === null || sources.dives === null) return 'pending';
@@ -119,10 +138,14 @@ export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget
       // centres on that mark rather than on the catalogue's position for the row.
       const identity = catalogueSiteIdentity(site.id);
       const yours = groupDivesByPlace(sources.dives).find((group) => group.key === identity);
-      if (yours !== undefined) return { kind: 'site', site, point: yours.point, mark: { kind: 'mine', key: yours.key } };
-      const point = pointOf(site);
-      if (point === null) return null;
-      return { kind: 'site', site, point, mark: { kind: 'community', key: site.id } };
+      const own = pointOf(site);
+      if (yours !== undefined) {
+        // Directions goes to the row's own position where it has one, and to the diver's mark
+        // where it has none — a dived site is findable without a catalogue position.
+        return { kind: 'site', site, point: own ?? yours.point, markAt: yours.point, mark: { kind: 'mine', key: yours.key } };
+      }
+      if (own === null) return null;
+      return { kind: 'site', site, point: own, markAt: own, mark: { kind: 'community', key: site.id } };
     }
     case 'center': {
       if (sources.centers === null) return 'pending';
@@ -130,7 +153,7 @@ export function focusTarget(focus: MapFocus, sources: FocusSources): FocusTarget
       if (center === undefined) return null;
       const point = pointOf(center);
       if (point === null) return null;
-      return { kind: 'center', center, point, mark: { kind: 'centers', key: center.id } };
+      return { kind: 'center', center, point, markAt: point, mark: { kind: 'centers', key: center.id } };
     }
   }
 }

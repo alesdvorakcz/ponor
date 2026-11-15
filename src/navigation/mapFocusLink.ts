@@ -20,13 +20,16 @@ import { type MapFocus, type MapFocusKind } from '../domain/mapFocus';
  * route tree on its own.
  */
 export function mapFocusHref(focus: MapFocus): Href {
+  // `over=page` says the map is pushed over the record's own page (`MapFocus.overItsPage`); it is
+  // left off otherwise, so the address of an ordinary focused map stays just its id.
+  const params = focus.overItsPage === true ? { id: focus.id, over: OVER_ITS_PAGE } : { id: focus.id };
   switch (focus.kind) {
     case 'dive':
-      return { pathname: '/dive/[id]/map', params: { id: focus.id } };
+      return { pathname: '/dive/[id]/map', params };
     case 'site':
-      return { pathname: '/site/[id]/map', params: { id: focus.id } };
+      return { pathname: '/site/[id]/map', params };
     case 'center':
-      return { pathname: '/center/[id]/map', params: { id: focus.id } };
+      return { pathname: '/center/[id]/map', params };
   }
 }
 
@@ -60,7 +63,17 @@ export function mapFocusOrigin(focus: MapFocus): Href {
  * — the map then opens framing everything, still with its way back, which is the right screen to
  * have pushed either way.
  */
-export function mapFocusFromParams(kind: MapFocusKind, params: { id?: string | string[] }): MapFocus {
+export function mapFocusFromParams(kind: MapFocusKind, params: MapFocusParams): MapFocus {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  return { kind, id: id ?? '' };
+  const over = Array.isArray(params.over) ? params.over[0] : params.over;
+  return { kind, id: id ?? '', overItsPage: over === OVER_ITS_PAGE };
 }
+
+/** What the three focused-map routes read off their address. */
+export type MapFocusParams = {
+  id?: string | string[];
+  over?: string | string[];
+};
+
+/** The one value of `over` that means anything — see `MapFocus.overItsPage`. */
+const OVER_ITS_PAGE = 'page';

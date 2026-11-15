@@ -388,14 +388,19 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
   const selected: MapMarkRef | null = chosen === FOCUSED ? (found?.mark ?? null) : chosen;
 
   /**
-   * **A page this map links to, or — when it is the page the map was pointed from — the way back
-   * to it** (#27's review). A focused map is pushed over a dive, a site or a centre, and its sheet
-   * and marks link to exactly those kinds of page; pushing the one it came from again would stack
-   * site → map → site → map, and Back would walk the repeats. Every other page is pushed as on the
-   * Map tab.
+   * **A page this map links to, or — when it is the very page beneath the map — the way back to
+   * it** (#27's two reviews). A focused map is pushed over a dive, a site or a centre, and its sheet
+   * and marks link to exactly those kinds of page; pushing the one beneath again would stack
+   * site → map → site → map, and Back would walk the repeats.
+   *
+   * **Only when the map says it was pushed over that page** (`overItsPage`), never inferred from
+   * the focus alone: a planned dive's map is focused on the plan's SITE but sits over the plan, and
+   * a link into a running app sits over whatever was showing — going back from either would land
+   * on the wrong page and leave the site's own page unreachable from its map. Every other page is
+   * pushed as on the Map tab.
    */
   const openPage = (kind: MapFocusKind, id: string, href: Href) => {
-    if (focus !== undefined && focus.kind === kind && focus.id === id) leaveTo(mapFocusOrigin(focus));
+    if (focus?.overItsPage === true && focus.kind === kind && focus.id === id) leaveTo(mapFocusOrigin(focus));
     else router.push(href);
   };
 
@@ -521,7 +526,7 @@ export default function MapScreen({ focus }: { focus?: MapFocus } = {}) {
     marks.length === 0 || target === 'pending'
       ? null
       : found !== null
-        ? focusRegion(found.point, opensSheet(found.mark.kind))
+        ? focusRegion(found.markAt, opensSheet(found.mark.kind))
         : regionFor(marks.map((mark) => mark.point));
 
   /**

@@ -573,7 +573,8 @@ it('pushes the map pointed at this site', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ latitude: 49.72134, longitude: 16.20311 })]));
   const t = await show();
   await fireEvent.press(mapCard(t)!);
-  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 's1' } });
+  // `over: 'page'`: the map is pushed over this page, so a link back to it from the map goes back.
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 's1', over: 'page' } });
 });
 
 // §5 asks a new site for a name and nothing else, so this is the ordinary site, not an edge.

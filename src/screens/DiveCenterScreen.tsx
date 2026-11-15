@@ -212,7 +212,7 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           styles={styles}
           scheme={scheme}
           coordinates={coordinates}
-          onPress={() => showOnMap({ kind: 'center', id: center.id }, point, centerLabel(center))}
+          onPress={() => showOnMap({ kind: 'center', id: center.id, overItsPage: true }, point, centerLabel(center))}
         />
       )}
       {hasFacts && (

@@ -180,12 +180,18 @@ export async function listDiveCenters(db: Db): Promise<DiveCenter[]> {
   return diveCenterRowsQuery(db);
 }
 
-export async function getDiveSite(db: Db, id: string): Promise<DiveSite | null> {
-  const rows = await db
+/** One site by id, under the same `pickable` filter as the list — `getDiveSite` awaits it and
+ * `useDiveSite` subscribes to it, so the two cannot read one row two ways. */
+export function diveSiteRowQuery(db: Db, id: string) {
+  return db
     .select()
     .from(diveSites)
     .where(and(eq(diveSites.id, id), pickable(diveSites)))
     .limit(1);
+}
+
+export async function getDiveSite(db: Db, id: string): Promise<DiveSite | null> {
+  const rows = await diveSiteRowQuery(db, id);
   return rows.at(0) ?? null;
 }
 

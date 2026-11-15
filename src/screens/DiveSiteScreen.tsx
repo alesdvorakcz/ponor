@@ -249,7 +249,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           styles={styles}
           scheme={scheme}
           coordinates={coordinates}
-          onPress={() => showOnMap({ kind: 'site', id: site.id }, point, siteLabel(site))}
+          onPress={() => showOnMap({ kind: 'site', id: site.id, overItsPage: true }, point, siteLabel(site))}
         />
       )}
       <SiteFacts site={site} units={units} styles={styles} />
