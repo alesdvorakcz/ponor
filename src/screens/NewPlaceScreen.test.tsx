@@ -244,7 +244,12 @@ it('a site prefilled with the dive’s pin takes the phone’s once asked, and s
   expect(count(t, 'from this dive')).toBe(3);
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', { latitude: 50.1, longitude: 14.4 });
-  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }));
+  // The country handed on is the phone's position's, never the dive pin's it replaced.
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }), {
+    latitude: 50.1,
+    longitude: 14.4,
+    country: null,
+  });
 });
 
 // `currentPosition` can take its full 20 s. A Save pressed meanwhile would write the row without the
@@ -262,7 +267,10 @@ it('Save is shut while Locating…, and saves the fix once it lands', async () =
   await act(async () => located.resolve({ found: true, latitude: 50.1, longitude: 14.4 }));
   expect(saveButton(t).props.accessibilityState).toMatchObject({ disabled: false });
   await press(t, 'Save site');
-  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }));
+  expect(mockAddSite).toHaveBeenCalledWith(
+    expect.objectContaining({ latitude: 50.1, longitude: 14.4 }),
+    { latitude: 50.1, longitude: 14.4, country: null },
+  );
 });
 
 // The server's check was asked around the old position, so a new one is a new question.
@@ -335,14 +343,18 @@ it('Save with no near match creates the site and returns its id and name to the 
   const t = await showSite();
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', pin);
-  expect(mockAddSite).toHaveBeenCalledWith({
-    name: 'Lom Leštinka',
-    latitude: 43.06,
-    longitude: 16.18,
-    entry: 'boat',
-    salinity: 'salt',
-    waterBody: 'ocean',
-  });
+  expect(mockAddSite).toHaveBeenCalledWith(
+    {
+      name: 'Lom Leštinka',
+      latitude: 43.06,
+      longitude: 16.18,
+      entry: 'boat',
+      salinity: 'salt',
+      waterBody: 'ocean',
+    },
+    // The *Country* row's answer for this very pin (`—`, here), so Save asks the geocoder nothing.
+    { ...pin, country: null },
+  );
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka' }, 2);
   expect(router.back).not.toHaveBeenCalled();
 });
@@ -353,14 +365,18 @@ it('saves the name as trimmed, and a site with no position and no water as nulls
   await type(t, 'Name', '  Nová Kotelna  ');
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledWith('Nová Kotelna', null);
-  expect(mockAddSite).toHaveBeenCalledWith({
-    name: 'Nová Kotelna',
-    latitude: null,
-    longitude: null,
-    entry: null,
-    salinity: null,
-    waterBody: null,
-  });
+  expect(mockAddSite).toHaveBeenCalledWith(
+    {
+      name: 'Nová Kotelna',
+      latitude: null,
+      longitude: null,
+      entry: null,
+      salinity: null,
+      waterBody: null,
+    },
+    // No position, so nothing was looked up and nothing is handed over.
+    undefined,
+  );
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Nová Kotelna' }, 2);
 });
 
@@ -590,12 +606,15 @@ it('a centre saves straight away with its website and no check', async () => {
   await press(t, 'Save centre');
   expect(mockTwins).not.toHaveBeenCalled();
   expect(mockAddSite).not.toHaveBeenCalled();
-  expect(mockAddCenter).toHaveBeenCalledWith({
-    name: 'Ponorka',
-    latitude: null,
-    longitude: null,
-    website: 'https://ponorka.example',
-  });
+  expect(mockAddCenter).toHaveBeenCalledWith(
+    {
+      name: 'Ponorka',
+      latitude: null,
+      longitude: null,
+      website: 'https://ponorka.example',
+    },
+    undefined,
+  );
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-centre-id', name: 'Ponorka' }, 2);
 });
 
@@ -617,7 +636,60 @@ it('a centre with a position and no website saves both halves of the pin and a n
   const t = await showCenter();
   await press(t, 'Use current position');
   await press(t, 'Save centre');
-  expect(mockAddCenter).toHaveBeenCalledWith({ name: 'Ponorka', latitude: 43.1, longitude: 16.2, website: null });
+  expect(mockAddCenter).toHaveBeenCalledWith(
+    { name: 'Ponorka', latitude: 43.1, longitude: 16.2, website: null },
+    { latitude: 43.1, longitude: 16.2, country: null },
+  );
+});
+
+// --- The country, asked once ----------------------------------------------------------------------
+
+// The *Country* row asked the geocoder about the position on screen; Save hands that answer on with
+// the point it is for, rather than `addSite` asking the same question again (up to four seconds more
+// of *Saving…* offline).
+it('Save hands on the country the page shows for the position it saves', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  mockCountry.mockResolvedValue('HR');
+  const t = await showSite();
+  expect(rowValue(t, 'Country')).toBe('HR');
+  await press(t, 'Save site');
+  expect(mockCountry).toHaveBeenCalledTimes(1);
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 43.06, longitude: 16.18 }), {
+    ...pin,
+    country: 'HR',
+  });
+});
+
+it('a centre hands on the country shown for the position it asked for', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Ponorka' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockPosition.mockResolvedValue({ found: true, latitude: 43.1, longitude: 16.2 });
+  mockCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  await press(t, 'Use current position');
+  expect(rowValue(t, 'Country')).toBe('HR');
+  await press(t, 'Save centre');
+  expect(mockAddCenter).toHaveBeenCalledWith(expect.objectContaining({ latitude: 43.1, longitude: 16.2 }), {
+    latitude: 43.1,
+    longitude: 16.2,
+    country: 'HR',
+  });
+});
+
+// An answer about the dive's pin is not an answer about the phone's position that replaced it, and
+// one still on its way is not on screen: either way `addSite` asks for itself.
+it('hands on nothing while the position on screen has no answer yet', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const forPhone = deferred<string | null>();
+  mockCountry.mockImplementation(async (latitude) => (latitude === 50.1 ? forPhone.promise : 'HR'));
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+  const t = await showSite();
+  expect(rowValue(t, 'Country')).toBe('HR');
+  await press(t, 'Use current position');
+  expect(rowValue(t, 'Country')).toBe('—');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }), undefined);
+  await act(async () => forPhone.resolve('CZ'));
 });
 
 // --- The page itself ----------------------------------------------------------------------------

@@ -77,16 +77,41 @@ export async function findSiteTwins(name: string, at: MapPoint | null): Promise<
 }
 
 /**
+ * **A country already looked up, and the point it is the answer for** — the create page's
+ * *Country* row, which asked `countryFor` about the position on screen before Save was pressed.
+ * Handed to `addSite` / `addCenter` so Save does not ask the geocoder the same question twice:
+ * offline, that was up to `GEOCODE_TIMEOUT_MS` more of *Saving…* for an answer already on screen.
+ * `country: null` is an answer too — the row then reads `—`, and is saved as it reads.
+ */
+export interface KnownCountry {
+  latitude: number;
+  longitude: number;
+  country: string | null;
+}
+
+/**
+ * The row's country: `known`'s answer when it is about **this very point**, `countryFor`'s
+ * otherwise. The point travels with the answer and is checked here, so an answer about a position
+ * since replaced can never be written to the row that replaced it, whoever hands it over.
+ */
+function countryAt(latitude: number | null, longitude: number | null, known: KnownCountry | undefined): Promise<string | null> {
+  if (known !== undefined && known.latitude === latitude && known.longitude === longitude) {
+    return Promise.resolve(known.country);
+  }
+  return countryFor(latitude, longitude);
+}
+
+/**
  * Makes the site and answers with its id — what a dive's `site_id` is then set to (§6's
  * pairing). A write failure **rejects**: the caller is the one that can say so on screen.
  */
-export async function addSite(facts: NewSiteFacts): Promise<string> {
+export async function addSite(facts: NewSiteFacts, known?: KnownCountry): Promise<string> {
   // Country is inferred from the row's own pin (§2.3), so this is awaited before the insert
   // rather than patched in afterwards: a second write would restamp `updated_at` on a row the
   // first one just created, which §7's last-push-wins is keyed on. It is bounded and it answers
   // `null` for every failure, so a site created on a boat with no signal is created — without a
   // country, and with the pin that is the evidence for one.
-  const country = await countryFor(facts.latitude, facts.longitude);
+  const country = await countryAt(facts.latitude, facts.longitude, known);
   const created = await createDiveSite(db, { ...facts, country });
   return created.id;
 }
@@ -104,8 +129,8 @@ function hasPin(input: NewCenterInput): boolean {
  * (`NewPlaceScreen`). A missing pin skips the geocoder altogether rather than asking it a
  * question with no point.
  */
-export async function addCenter(input: NewCenterInput): Promise<string> {
-  const country = hasPin(input) ? await countryFor(input.latitude, input.longitude) : null;
+export async function addCenter(input: NewCenterInput, known?: KnownCountry): Promise<string> {
+  const country = hasPin(input) ? await countryAt(input.latitude, input.longitude, known) : null;
   const created = await createDiveCenter(db, { ...input, country });
   return created.id;
 }

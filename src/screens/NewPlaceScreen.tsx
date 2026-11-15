@@ -10,7 +10,7 @@ import { FormField } from '../components/FormField';
 import { RevealingScrollView } from '../components/FormReveal';
 import { OptionChips } from '../components/OptionChips';
 import { symbolName, type PlatformSymbol } from '../components/symbolName';
-import { addCenter, addSite, findSiteTwins } from '../cloud/addToCatalogue';
+import { addCenter, addSite, findSiteTwins, type KnownCountry } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
@@ -71,8 +71,10 @@ function matchSentence(match: Suggestion, typed: string): string {
  * centre, the name alone and an empty position — the dive's pin is where the diver entered the
  * water, not the shop. **Never the phone's position unasked**: *Use current position* is the one
  * thing that asks, through `currentPosition`, the stored-pin request (100 m rule), because this one
- * is stored. *Country* is `countryFor`'s answer for the position on screen, for the diver to read;
- * `addSite`/`addCenter` derive the stored one from the row's own pin themselves.
+ * is stored. *Country* is `countryFor`'s answer for the position on screen, for the diver to read
+ * — and, once it has come back, the one stored: Save hands it to `addSite`/`addCenter` with the
+ * point it is for, so the geocoder is asked once. Saved before it answers, the row's country is
+ * theirs to derive from the row's own pin, as it always was.
  *
  * ── Saving, once ──────────────────────────────────────────────────────────────────────────
  *
@@ -141,7 +143,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // has closed.
   const latitude = position?.latitude ?? null;
   const longitude = position?.longitude ?? null;
-  const [looked, setLooked] = useState<{ latitude: number; longitude: number; country: string | null } | null>(null);
+  const [looked, setLooked] = useState<KnownCountry | null>(null);
   useEffect(() => {
     if (latitude === null || longitude === null) return;
     let current = true;
@@ -152,7 +154,10 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       current = false;
     };
   }, [latitude, longitude]);
-  const country = looked !== null && looked.latitude === latitude && looked.longitude === longitude ? looked.country : null;
+  // The answer for the position on screen, or none while that position has not been answered for:
+  // what the *Country* row reads, and what Save hands on.
+  const shown = looked !== null && looked.latitude === latitude && looked.longitude === longitude ? looked : null;
+  const country = shown?.country ?? null;
 
   const trimmed = name.trim();
   const guest = resolved && session === null;
@@ -207,6 +212,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     setFailed(false);
     // Both halves or neither — `position` holds a whole point or none.
     const at: MapPoint | null = position === null ? null : { latitude: position.latitude, longitude: position.longitude };
+    // The *Country* row's answer, about exactly `at` (the position cannot move while Save is out).
+    const known = shown ?? undefined;
 
     if (kind === 'site' && matches.length === 0) {
       const found = await findSiteTwins(trimmed, at);
@@ -222,13 +229,19 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     try {
       id =
         kind === 'site'
-          ? await addSite({ name: trimmed, latitude: at?.latitude ?? null, longitude: at?.longitude ?? null, entry, salinity, waterBody })
-          : await addCenter({
-              name: trimmed,
-              latitude: at?.latitude ?? null,
-              longitude: at?.longitude ?? null,
-              website: website.trim() === '' ? null : website.trim(),
-            });
+          ? await addSite(
+              { name: trimmed, latitude: at?.latitude ?? null, longitude: at?.longitude ?? null, entry, salinity, waterBody },
+              known,
+            )
+          : await addCenter(
+              {
+                name: trimmed,
+                latitude: at?.latitude ?? null,
+                longitude: at?.longitude ?? null,
+                website: website.trim() === '' ? null : website.trim(),
+              },
+              known,
+            );
     } catch {
       if (!alive.current || leaving.current) return;
       setFailed(true);

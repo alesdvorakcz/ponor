@@ -115,6 +115,43 @@ describe('addSite', () => {
 
     await expect(addSite({ name: 'Kotelna', latitude: null, longitude: null, ...NO_FACTS })).rejects.toThrow('disk');
   });
+
+  // The create page has already asked about the position it shows; asking again on Save cost a
+  // second geocode — up to four more seconds of *Saving…* offline — for the answer on screen.
+  it('takes a country already looked up for the same point, and asks nothing', async () => {
+    await addSite(
+      { name: 'Kotelna', latitude: 45.1, longitude: 14.2, ...NO_FACTS },
+      { latitude: 45.1, longitude: 14.2, country: 'HR' },
+    );
+
+    expect(country).not.toHaveBeenCalled();
+    expect(makeSite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'HR' }));
+  });
+
+  // `null` is an answer too: the page shows `—`, and the row is saved as shown.
+  it('takes a known "no country" for the same point as it is', async () => {
+    country.mockResolvedValue('HR');
+
+    await addSite(
+      { name: 'Kotelna', latitude: 45.1, longitude: 14.2, ...NO_FACTS },
+      { latitude: 45.1, longitude: 14.2, country: null },
+    );
+
+    expect(country).not.toHaveBeenCalled();
+    expect(makeSite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: null }));
+  });
+
+  it('asks for itself when the known answer is about another point', async () => {
+    country.mockResolvedValue('SI');
+
+    await addSite(
+      { name: 'Kotelna', latitude: 45.1, longitude: 14.2, ...NO_FACTS },
+      { latitude: 46.0, longitude: 14.5, country: 'HR' },
+    );
+
+    expect(country).toHaveBeenCalledWith(45.1, 14.2);
+    expect(makeSite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'SI' }));
+  });
 });
 
 describe('addCenter', () => {
@@ -138,5 +175,27 @@ describe('addCenter', () => {
     await addCenter({ name: 'Shop', latitude: null, longitude: null, website: null });
 
     expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: null }));
+  });
+
+  it('takes a country already looked up for its own pin, and asks nothing', async () => {
+    await addCenter(
+      { name: 'Blue Hole Divers', latitude: 28.57, longitude: 34.54, website: null },
+      { latitude: 28.57, longitude: 34.54, country: 'EG' },
+    );
+
+    expect(country).not.toHaveBeenCalled();
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  it('asks for itself when the known answer is about another point', async () => {
+    country.mockResolvedValue('EG');
+
+    await addCenter(
+      { name: 'Blue Hole Divers', latitude: 28.57, longitude: 34.54, website: null },
+      { latitude: 27.9, longitude: 34.3, country: 'XX' },
+    );
+
+    expect(country).toHaveBeenCalledWith(28.57, 34.54);
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
   });
 });
