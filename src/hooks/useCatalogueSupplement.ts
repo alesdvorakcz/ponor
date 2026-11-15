@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { cloud, type Cloud } from '../cloud/supabase';
 import { db } from '../db/client';
 import { type Db } from '../db/types';
+import { type MapPoint } from '../domain/mapSites';
 
 /**
  * **How long after the last keystroke the server is asked** (§2.3's *"live search adds anything
@@ -81,4 +82,44 @@ export function useCatalogueSupplement<T>(
       clearTimeout(timer);
     };
   }, [query, search, apply]);
+}
+
+/**
+ * **The same supplement, asked around a point instead of for a name** — the site picker's *Near
+ * me* list, whose "query" is the diver's fix. It differs from `useCatalogueSupplement` in exactly
+ * two ways, both because a point is not a keystroke: **there is no delay** (a fix is a settled
+ * value, so there is nothing to wait out), and **`null` means "no fix yet" and does nothing**
+ * (the list is the device's own rows until one arrives).
+ *
+ * The contract is otherwise the same and is not restated: nothing here throws, nothing is
+ * reported, an answer that lands after the point changed or the screen closed is dropped, and the
+ * rows go to the catalogue's own writer so the list's live query re-renders with them in it.
+ *
+ * The effect depends on the two coordinates rather than the `point` object, so a caller that
+ * rebuilds an equal point on every render does not ask the server again.
+ */
+export function useNearbySupplement<T>(
+  point: MapPoint | null,
+  search: (cloud: Cloud, point: MapPoint) => Promise<T[]>,
+  apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
+): void {
+  const latitude = point?.latitude;
+  const longitude = point?.longitude;
+  useEffect(() => {
+    if (latitude === undefined || longitude === undefined) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await search(cloud, { latitude, longitude });
+        if (cancelled || rows.length === 0) return;
+        await apply(db, rows);
+      } catch {
+        // As above: the read cannot throw; a refused write is the same outcome as a server that
+        // never answered.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [latitude, longitude, search, apply]);
 }
