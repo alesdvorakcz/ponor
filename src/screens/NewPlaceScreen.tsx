@@ -44,8 +44,6 @@ import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../t
 /** The position card's glyph, monochrome, through `symbolName` like every other in the app. Exported
  * so `symbolName.test.tsx` can pin its Android and web names. */
 export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android: 'near_me' };
-/** The chevron trailing a near-match, which opens that site's page (owner's call, PR #35). */
-export const SITE_TWIN_GLYPH: PlatformSymbol = { ios: 'chevron.right', android: 'chevron_right' };
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
@@ -410,8 +408,10 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
 
       {/* §2.3's answer stands above the button, outside the scroll, so the diver who pressed Save
           sees it without looking for it: the sentence, then the match's country and how far it is
-          from the position on screen, and a chevron for the page a tap opens. Inert while a write
-          is out: a pick then would be thrown away by the row the write is about to hand the form. */}
+          from the position on screen. No chevron, though a tap opens the site's page: §0.6 spends
+          the chevron on in-place disclosure and never on navigation, and #5 decides how a pressable
+          row shows itself (owner's call, PR #35). Inert while a write is out: a pick then would be
+          thrown away by the row the write is about to hand the form. */}
       {matches.map((match) => {
         const sentence = matchSentence(match, trimmed);
         const meta = formatSiteTwinMeta(match, position, units);
@@ -430,7 +430,6 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
               <Text style={styles.formSuggestionText}>{sentence}</Text>
               {meta !== null && <Text style={styles.formSuggestionMeta}>{meta}</Text>}
             </View>
-            <SymbolView name={symbolName(SITE_TWIN_GLYPH)} size={14} tintColor={styles.newPlaceTwinChevron.color} />
           </Pressable>
         );
       })}

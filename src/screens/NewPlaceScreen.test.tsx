@@ -135,6 +135,11 @@ function labelled(t: RenderResult, label: string): Node {
 
 const has = (t: RenderResult, label: string) => allNodes(t).some((n) => n.props?.accessibilityLabel === label);
 
+/** The symbols drawn inside a node (a real `SymbolView` resolves to `SymbolModule`). */
+function symbolsIn(node: Node): unknown[] {
+  return node.queryAll((c) => typeof c.type === 'string' && c.type.includes('SymbolModule')).map((c) => c.props.name);
+}
+
 /**
  * The `onPress` a node was rendered with, read off its fiber the way `fireEvent` itself finds it. A
  * test calls it to deliver taps from ONE render — two before the first one's re-render could disable
@@ -476,8 +481,10 @@ it('comes back from a match’s page as it was left, and can open another or sav
 });
 
 // The owner's call on PR #35: the match's country and how far it is from the position on the page,
-// so a diver can judge it before opening it; a chevron for the page a tap opens.
-it('words a match with its country and its distance from the position on the page', async () => {
+// so a diver can judge it before opening it — and no chevron, though a tap opens a page: §0.6 spends
+// the chevron on in-place disclosure and never on navigation, and #5 decides how a row says it can
+// be pressed.
+it('words a match with its country and its distance from the position on the page, and draws no chevron', async () => {
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   // 0.0011° of latitude north of the dive's pin: about 122 m, read to the nearest ten.
   mockTwins.mockResolvedValue([
@@ -487,6 +494,7 @@ it('words a match with its country and its distance from the position on the pag
   await press(t, 'Save site');
   expect(textIn(t)).toContain('HR · 120 m away');
   expect(labelled(t, 'Did you mean “Lom Leština”?').props.accessibilityHint).toBe('HR · 120 m away');
+  expect(symbolsIn(labelled(t, 'Did you mean “Lom Leština”?'))).toEqual([]);
 });
 
 it('leaves out the distance when either place has no position, and the line when nothing is known', async () => {

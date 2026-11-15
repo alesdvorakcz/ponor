@@ -5,7 +5,7 @@ import { jsTabItems, nativeTabItems, TAB_ROUTES } from '../navigation/tabs';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
-import { CURRENT_POSITION_GLYPH, SITE_TWIN_GLYPH } from '../screens/NewPlaceScreen';
+import { CURRENT_POSITION_GLYPH } from '../screens/NewPlaceScreen';
 import { CREATE_PLACE_GLYPH, PICKED_PLACE_GLYPH, PICKER_SEARCH_GLYPH } from '../screens/PlacePickerScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
 import { ActionCapsule } from './ActionCapsule';
@@ -231,8 +231,6 @@ it.each([
   ['picker’s create plus', CREATE_PLACE_GLYPH, 'add'],
   // The *New dive site* page's *Use current position* card.
   ['new place’s current-position arrow', CURRENT_POSITION_GLYPH, 'near_me'],
-  // The chevron on a near-match above its Save, which opens that site's page (PR #35).
-  ['new place’s near-match chevron', SITE_TWIN_GLYPH, 'chevron_right'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
   const name = symbolName(symbol);
   expect(name.android).toBe(material);
