@@ -6906,7 +6906,9 @@ it('hands a centre its name alone, with a pin sitting right there on the form', 
   await pressAddOffer(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
 
   await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
-  expect(centreCreated()).toEqual({ name: 'Emperor' });
+  // The row's other columns are named as null now that `addCenter` takes the pin and website
+  // a New dive centre page can supply; the dive form supplies neither, so the row is unchanged.
+  expect(centreCreated()).toEqual({ name: 'Emperor', latitude: null, longitude: null, website: null, country: null });
   expect(mockCountry).not.toHaveBeenCalled();
   expect(mockCreateSite).not.toHaveBeenCalled();
 });

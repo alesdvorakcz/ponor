@@ -39,10 +39,9 @@ import { FormField, type FieldAddition, type FieldMatch, type OfferedSuggestion 
 import { FormGroup } from '../components/FormGroup';
 import { OptionChips } from '../components/OptionChips';
 import { RatingDot, filledDotCount } from '../components/RatingDots';
-import { similarSites } from '../cloud/similarSites';
-import { cloud } from '../cloud/supabase';
+import { addCenter, addSite, findSiteTwins } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite, getDiveSite, listDiveSites } from '../db/catalogue';
+import { getDiveSite } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
@@ -79,7 +78,6 @@ import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asSuggestedField,
   hasPairedId,
-  nearMatches,
   pairedIdField,
   suggestFrom,
   suggestionHistory,
@@ -132,7 +130,6 @@ import { unitLabel, type UnitSystem } from '../format/units';
 import { t, useT, type TranslationKey } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
-import { countryFor } from '../platform/geocode';
 import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
@@ -1056,45 +1053,22 @@ const CATALOGUE_ADDITIONS: Record<'siteId' | 'centerId', CatalogueAddition> = {
   siteId: {
     offer: (name) => t('form.addSite', { name }),
     busy: () => t('form.addingSite'),
-    // Both sources, asked together (§5's "offline dedupe" and §2.3's fuzzy check are the same
-    // question asked of two catalogues). `nearMatches` (domain/suggest.ts) owns what counts as
-    // one and in what order; this owns only that both are asked and that the row's own pin
-    // goes with the question — a name check across the whole world and a name check within the
-    // function's own radius are different questions.
-    //
-    // `Promise.all`, so a device that is online pays one round trip rather than a round trip
-    // after a database read; and `listDiveSites` reads the same `pickable` rows autocomplete
-    // would offer, so a duplicate an admin has already merged away is never offered back as
-    // the survivor's rival.
+    // Both sources, asked together, and the row's own pin goes with the question — the check
+    // and its reasoning live in `cloud/addToCatalogue.ts`, shared with the New dive site page.
+    // Reading the pin through `siteFactsFrom` keeps "both or neither" in its one place.
     similar: async (name, values) => {
-      const facts = siteFactsFrom(name, values);
-      const [onDevice, fromServer] = await Promise.all([
-        listDiveSites(db),
-        similarSites(cloud, name, facts.latitude, facts.longitude),
-      ]);
-      return nearMatches(name, onDevice, fromServer);
+      const { latitude, longitude } = siteFactsFrom(name, values);
+      return findSiteTwins(name, latitude !== null && longitude !== null ? { latitude, longitude } : null);
     },
-    create: async (name, values) => {
-      const facts = siteFactsFrom(name, values);
-      // Country is inferred from the row's own pin (§2.3), so this is awaited before the
-      // insert rather than patched in afterwards: a second write would restamp `updated_at`
-      // on a row the first one just created, which §7's last-push-wins is keyed on. It is
-      // bounded and it answers `null` for every failure, so a site created on a boat with no
-      // signal is created — without a country, and with the pin that is the evidence for one.
-      const country = await countryFor(facts.latitude, facts.longitude);
-      const created = await createDiveSite(db, { ...facts, country });
-      return created.id;
-    },
+    // Country is awaited before the insert — why is `addSite`'s to say.
+    create: (name, values) => addSite(siteFactsFrom(name, values)),
   },
   centerId: {
     offer: (name) => t('form.addCentre', { name }),
     busy: () => t('form.addingCentre'),
     // No country and no pin — `centerFactsFrom` carries the whole of why a dive knows the
     // site it happened at and knows nothing about the shop on shore but its name.
-    create: async (name) => {
-      const created = await createDiveCenter(db, centerFactsFrom(name));
-      return created.id;
-    },
+    create: (name) => addCenter({ ...centerFactsFrom(name), latitude: null, longitude: null, website: null }),
   },
 };
 
