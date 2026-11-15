@@ -193,12 +193,19 @@ describe('pickerGroups', () => {
     ];
     const dives = [dive({ centerId: 'dived' })];
 
-    it("'nearSite' lists community centres within 10 km by distance and leaves out ones already in 'dived'", () => {
+    it("'nearSite' lists every centre with a position within 10 km by distance and leaves out ones already in 'dived'", () => {
       const groups = pickerGroups(input({ kind: 'center', places: centers, dives, nearSite: site }));
       expect(groups.map((g) => g.key)).toEqual(['dived', 'nearSite']);
       expect(ids(groups[0])).toEqual(['dived']);
-      expect(ids(groups[1])).toEqual(['near1', 'near2']);
-      expect(groups[1]?.rows[0]?.distanceKm).toBeCloseTo(2.2, 1);
+      expect(ids(groups[1])).toEqual(['mine', 'phone', 'near1', 'near2']);
+      expect(groups[1]?.rows[2]?.distanceKm).toBeCloseTo(2.2, 1);
+    });
+
+    it("a centre the diver added but never dived with appears in 'nearSite' within 10 km", () => {
+      const added = place({ id: 'added', name: 'Added Shop', latitude: 43.03, longitude: 16.0, createdBy: 'me' });
+      const groups = pickerGroups(input({ kind: 'center', places: [added], nearSite: site, viewer: me }));
+      expect(groups.map((g) => g.key)).toEqual(['nearSite']);
+      expect(groups[0]?.rows[0]).toMatchObject({ id: 'added', provenance: 'yours', dived: null });
     });
 
     it('is not offered once something is typed, and never for a site picker', () => {
