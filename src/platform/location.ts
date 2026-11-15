@@ -135,9 +135,8 @@ export const COARSEST_USABLE_FIX_M = 100;
  */
 export async function currentPosition(): Promise<PositionOutcome> {
   try {
-    const standing = await locationPermission();
-    const permission = standing === 'granted' ? standing : await requestLocationPermission();
-    if (permission !== 'granted') return { found: false, reason: refusalFor(permission) };
+    const refused = await permissionRefusal();
+    if (refused) return refused;
     const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }), POSITION_TIMEOUT_MS);
     if (fix === null) return { found: false, reason: 'timedOut' };
     const { latitude, longitude, accuracy } = fix.coords;
@@ -154,6 +153,66 @@ export async function currentPosition(): Promise<PositionOutcome> {
     // `getCurrentPositionAsync` is the one call left that can reject here — the permission
     // module answers `unknown` rather than throwing — and a receiver that gives up means the
     // same thing to the diver as one that never answers with a usable number.
+    return { found: false, reason: 'failed' };
+  }
+}
+
+/**
+ * **Read the permission, and ask for it only when it is not already held** — the one check
+ * `currentPosition` and `roughPosition` share, so the two cannot drift on what a refusal is.
+ * `null` means granted; anything else is the outcome to hand straight back.
+ */
+async function permissionRefusal(): Promise<PositionOutcome | null> {
+  const standing = await locationPermission();
+  const permission = standing === 'granted' ? standing : await requestLocationPermission();
+  return permission === 'granted' ? null : { found: false, reason: refusalFor(permission) };
+}
+
+/**
+ * How old a cached position may be for Near me to use it, ten minutes. The list it draws
+ * reaches 50 km, so where the phone was a few minutes ago is as good as where it is now, and
+ * taking it spares the diver a receiver warm-up.
+ */
+export const ROUGH_POSITION_MAX_AGE_MS = 600_000;
+
+/**
+ * How long Near me waits for a fresh fix before saying so. Half of `POSITION_TIMEOUT_MS`: a
+ * balanced fix comes from network and Wi-Fi in a second or two, so ten seconds with nothing is
+ * a receiver that is not going to answer, not one still warming up.
+ */
+export const ROUGH_POSITION_TIMEOUT_MS = 10_000;
+
+/**
+ * **A position good enough to sort a list by — the looser sibling of `currentPosition`.**
+ *
+ * `currentPosition` exists to store a dive's pin: it asks for `High` accuracy, waits twenty
+ * seconds and refuses anything rougher than `COARSEST_USABLE_FIX_M`, because a stored pin
+ * becomes a permanent one-metre claim. Near me stores nothing; it orders sites within 50 km,
+ * so a fix good to a few kilometres is all it needs and refusing one as `imprecise` would
+ * leave a diver on a ferry with a dead button. Hence a separate function rather than a flag
+ * on that one: the two disagree on every parameter and on what a refusal is.
+ *
+ * **A recent last-known position is used and a fresh one is not requested** — the opposite of
+ * `currentPosition`'s rule, for the opposite reason (see `ROUGH_POSITION_MAX_AGE_MS`).
+ *
+ * Like `currentPosition` it never throws, never resolves `imprecise`, and shares its
+ * permission handling.
+ */
+export async function roughPosition(): Promise<PositionOutcome> {
+  try {
+    const refused = await permissionRefusal();
+    if (refused) return refused;
+    const fix =
+      (await Location.getLastKnownPositionAsync({ maxAge: ROUGH_POSITION_MAX_AGE_MS })) ??
+      (await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        ROUGH_POSITION_TIMEOUT_MS,
+      ));
+    if (fix === null) return { found: false, reason: 'timedOut' };
+    const { latitude, longitude } = fix.coords;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return { found: false, reason: 'failed' };
+    return { found: true, latitude, longitude };
+  } catch {
     return { found: false, reason: 'failed' };
   }
 }

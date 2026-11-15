@@ -6,6 +6,9 @@ import {
   POSITION_ACCURACY,
   POSITION_REFUSALS,
   POSITION_TIMEOUT_MS,
+  ROUGH_POSITION_MAX_AGE_MS,
+  ROUGH_POSITION_TIMEOUT_MS,
+  roughPosition,
 } from './location';
 import { locationPermission, requestLocationPermission } from './locationPermission';
 
@@ -18,6 +21,7 @@ import { locationPermission, requestLocationPermission } from './locationPermiss
 jest.mock('expo-location', () => ({
   ...jest.requireActual('expo-location'),
   getCurrentPositionAsync: jest.fn(),
+  getLastKnownPositionAsync: jest.fn(),
 }));
 
 /**
@@ -33,6 +37,7 @@ jest.mock('./locationPermission', () => ({
 }));
 
 const mockFix = Location.getCurrentPositionAsync as jest.Mock;
+const mockLastKnown = Location.getLastKnownPositionAsync as jest.Mock;
 const mockStanding = locationPermission as jest.Mock;
 const mockRequest = requestLocationPermission as jest.Mock;
 
@@ -51,6 +56,7 @@ beforeEach(() => {
   mockStanding.mockResolvedValue('granted');
   mockRequest.mockResolvedValue('granted');
   mockFix.mockResolvedValue(fixAt(28.51234, 34.51234));
+  mockLastKnown.mockResolvedValue(null);
 });
 
 // Only the two timeout tests fake anything, and a faked clock leaking into the next test in
@@ -239,4 +245,59 @@ it('refuses only in the words it declares, and reaches every one of them', async
   // own tests above rather than left out of the completeness claim.
   refused.add('timedOut');
   expect([...refused].sort()).toEqual([...POSITION_REFUSALS].sort());
+});
+
+describe('a rough position for Near me', () => {
+  it('returns a recent last-known fix without asking for a new one', async () => {
+    // Near me draws a list and stores nothing, so a ten-minute-old position is as good as a
+    // fresh one and costs the diver no receiver warm-up.
+    mockLastKnown.mockResolvedValue(fixAt(43.06, 16.18));
+    expect(await roughPosition()).toEqual({ found: true, latitude: 43.06, longitude: 16.18 });
+    expect(mockLastKnown).toHaveBeenCalledWith({ maxAge: 600_000 });
+    expect(ROUGH_POSITION_MAX_AGE_MS).toBe(600_000);
+    expect(mockFix).not.toHaveBeenCalled();
+  });
+
+  it('asks for a balanced fix when there is no recent one', async () => {
+    await roughPosition();
+    expect(mockFix).toHaveBeenCalledWith({ accuracy: Location.Accuracy.Balanced });
+  });
+
+  it('accepts a coarse fix', async () => {
+    mockFix.mockResolvedValue(fixAt(43.06, 16.18, 3000));
+    expect(await roughPosition()).toEqual({ found: true, latitude: 43.06, longitude: 16.18 });
+  });
+
+  it('gives up after its own, shorter timeout', async () => {
+    jest.useFakeTimers();
+    mockFix.mockReturnValue(new Promise(() => {}));
+    const asked = roughPosition();
+    await jest.advanceTimersByTimeAsync(ROUGH_POSITION_TIMEOUT_MS);
+    expect(ROUGH_POSITION_TIMEOUT_MS).toBe(10_000);
+    await expect(asked).resolves.toEqual({ found: false, reason: 'timedOut' });
+  });
+
+  it('reports a device with Location Services off', async () => {
+    mockStanding.mockResolvedValue('servicesOff');
+    mockRequest.mockResolvedValue('servicesOff');
+    expect(await roughPosition()).toEqual({ found: false, reason: 'servicesOff' });
+    expect(mockFix).not.toHaveBeenCalled();
+  });
+
+  it('reports a denied permission', async () => {
+    mockStanding.mockResolvedValue('denied');
+    mockRequest.mockResolvedValue('denied');
+    expect(await roughPosition()).toEqual({ found: false, reason: 'denied' });
+    expect(mockFix).not.toHaveBeenCalled();
+  });
+
+  it('reports a receiver that threw as a failure', async () => {
+    mockFix.mockRejectedValue(new Error('location unavailable'));
+    await expect(roughPosition()).resolves.toEqual({ found: false, reason: 'failed' });
+  });
+
+  it('reports coordinates that are not numbers as a failure', async () => {
+    mockFix.mockResolvedValue(fixAt(Number.NaN, 16.18));
+    expect(await roughPosition()).toEqual({ found: false, reason: 'failed' });
+  });
 });
