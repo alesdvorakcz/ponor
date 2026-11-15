@@ -281,9 +281,10 @@ function MapPill({
  * A pin needs coordinates, and there are two sources. A dive's own `latitude`/`longitude` has
  * been settable since M2l's *use my location* and is **null on every dive logged before it**
  * (§10: "no dive logged in M1 can carry a GPS point"). `dive_sites.location` and
- * `dive_centers.location` reach the device only through a pull, and §2.3 gives a new centre its
- * name alone — so the state this screen was built for, and the one it will be in for a while, is
- * a handful of the diver's own pins over an empty catalogue. **Every one of the three filters
+ * `dive_centers.location` reach the device through a pull, or from the create page when the
+ * diver gives a new place one (issue #19) — and §2.3 gives a new centre no position unasked — so
+ * the state this screen was built for, and the one it will be in for a while, is a handful of the
+ * diver's own pins over an empty catalogue. **Every one of the three filters
  * therefore has an empty case, and §1 binds all of them**: no dives, no catalogue, no permission,
  * no network and no account each open a tab that says something true.
  *

@@ -416,9 +416,10 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
 }
 
 /**
- * *Use current position* — the dive detail's *Show on map* card (`MapCard`), pressed to ask the device
- * where it is. Under the words: what a press does, *Locating…* while it asks, or the coordinates once
- * the page holds a position, whoever's it is.
+ * *Use current position* — drawn as the *Show on map* card (`MapCard`, on the dive detail, site and
+ * centre pages) is, one `placeCard` style, and pressed to ask the device where it is. Under the
+ * words: what a press does, *Locating…* while it asks, or the coordinates once the page holds a
+ * position, whoever's it is.
  */
 function PositionCard({
   styles,

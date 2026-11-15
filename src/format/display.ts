@@ -1557,11 +1557,12 @@ function formatCoverage(onMap: number, known: number, count: (value: number) => 
  * mapSites.ts: a site's badge counts your dives there, not your fixes there). Calling them
  * "pinned" would make this line disagree with the numbers drawn beside it.
  *
- * **A centre almost never has a position, by design** (§2.3: *"a centre inherits its name alone —
+ * **A centre seldom has a position, by design** (§2.3: *"a centre inherits its name alone —
  * the form's pin is where the diver entered the water, so writing it to a centre files a dive
- * site as the shop's address"*), so `1 of 5 centres` is that clause's ordinary shape rather than
- * its exceptional one. Sites are the same story less severely: §5 asks a new site for a name and
- * `siteFactsFrom` passes a pin only when the dive carried one.
+ * site as the shop's address"*; the create page's *Use current position* is optional), so `1 of 5
+ * centres` is that clause's ordinary shape rather than its exceptional one. Sites are the same
+ * story less severely: §5 asks a new site for a name, and its position is the dive's pin when the
+ * dive carried one or the phone's when the diver asked for it.
  *
  * **The sites figure counts marks, so a site the diver has dived is not in it** — it is on the
  * map wearing their own badge instead (`sitesWithoutYourMark`, domain/mapSites.ts). The clause

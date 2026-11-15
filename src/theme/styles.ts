@@ -770,10 +770,11 @@ function build(scheme: ColorScheme) {
   };
   /**
    * **A card that holds a place** — a glyph, a line of words, and the coordinates muted under
-   * them. Two screens draw one: the dive detail's *Show on map* (issue #3, `detailMapCard`) and
-   * the *New dive site* page's *Use current position* (issue #19, `newPlacePositionCard`), which
-   * the spec asks to look the same. Hoisted so they are one definition rather than two that agree
-   * today; the canvas's 56 is the height it gives every such card.
+   * them. Two controls draw one: *Show on map* (issue #3, `detailMapCard`) — `MapCard`, on the dive
+   * detail and, since issue #21, a site's and a centre's pages too — and the *New dive site / New
+   * dive centre* page's *Use current position* (issue #19, `newPlacePositionCard`), which the spec
+   * asks to look the same. Hoisted so they are one definition rather than two that agree today; the
+   * canvas's 56 is the height it gives every such card.
    */
   const placeCard: ViewStyle = {
     ...detailCardFrame,
@@ -2609,10 +2610,11 @@ function build(scheme: ColorScheme) {
       fontSize: 11.5,
       color: theme.fgMuted,
     },
-    // "Show on map" (issue #3): the dive's position as a card the diver can press, in place of
-    // the GPS row that used to state the two numbers in Site & centre. The map glyph, the words,
-    // and the coordinates muted beneath them; the canvas's 56 is the height it gives every card
-    // that holds a place — this one and the new-site form's position card.
+    // "Show on map" (issue #3): a position as a card the diver can press — on the dive detail in
+    // place of the GPS row that used to state the two numbers in Site & centre, and since issue
+    // #21 on a site's and a centre's pages too (`MapCard`, one component on all three). The map
+    // glyph, the words, and the coordinates muted beneath them; the canvas's 56 is the height it
+    // gives every card that holds a place — this one and the new-place page's position card.
     //
     // **No chevron, where the canvas draws one** (§0.6: the chevron is spent on in-place
     // disclosure and "never on navigation"). The words say what a press does, and a card is
@@ -4587,7 +4589,7 @@ function build(scheme: ColorScheme) {
       paddingBottom: 8,
     },
     newPlaceSectionTitle: clusterLabel,
-    // *Use current position*: the dive detail's *Show on map* card, as the spec asks.
+    // *Use current position*: the *Show on map* card's look (`placeCard`), as the spec asks.
     newPlacePositionCard: placeCard,
     newPlacePositionText: placeCardText,
     newPlacePositionTitle: placeCardTitle,

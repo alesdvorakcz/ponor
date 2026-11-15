@@ -33,9 +33,11 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * §2.3 is explicit that **a centre inherits its name alone**: the dive form's pin is where the
  * diver got into the water, so writing it to a centre would file a dive site as the shop's
  * address, and there is no country either, because §2.3 derives a country from a pin and from
- * nothing else. **So the ordinary centre in this app is a name and nine nulls**, and a page that
- * only knew how to display catalogue facts would be an empty screen for every centre a diver has
- * ever created.
+ * nothing else. Since issue #19 the *New dive centre* page lets a diver give one a position
+ * (*Use current position*, and the country that comes with it) and a website, but only by asking —
+ * both are optional — **so the ordinary centre in this app is still mostly nulls**, and a page that
+ * only knew how to display catalogue facts would be an empty screen for most centres a diver
+ * creates.
  *
  * What makes it worth opening anyway is the half the catalogue does not hold: **the diver's own
  * dives with them**. That is a question nothing else in the app answers — the logbook groups by
@@ -191,8 +193,9 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
     ? null
     : formatSiteSummary(logbookStats(myDives), waterTempRange(myDives), units);
 
-  // §2.3 gives a centre this app creates its name alone, so the card is drawn only for a centre a
-  // catalogue surveyed — the same reason the Map tab draws so few of them.
+  // §2.3 gives a centre no position of its own, so the card is drawn only for one somebody placed:
+  // a catalogue that surveyed it, or a diver pressing *Use current position* on the create page —
+  // the same reason the Map tab draws so few of them.
   const point = pointOf(center);
   const coordinates = formatCoordinates(center.latitude, center.longitude);
 
