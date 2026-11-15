@@ -41,21 +41,35 @@ it('subscribes to that one row, keyed on its id', async () => {
 
 it('hands the row over once the read has answered', async () => {
   stubQuery({ data: [row], updatedAt: ANSWERED });
-  const { result } = await renderHook(() => useDiveSite('s1'));
-  expect(result.current).toEqual({ site: row, resolved: true });
+  expect((await renderHook(() => useDiveSite('s1'))).result.current).toBe(row);
 });
 
-it('says a row this device does not hold is not there — once it has looked', async () => {
+it('reads a row this device does not hold, or has not read yet, as no site', async () => {
   stubQuery({ data: [], updatedAt: ANSWERED });
-  expect((await renderHook(() => useDiveSite('gone'))).result.current).toEqual({ site: null, resolved: true });
+  expect((await renderHook(() => useDiveSite('gone'))).result.current).toBeNull();
   stubQuery({ data: [] });
-  expect((await renderHook(() => useDiveSite('gone'))).result.current).toEqual({ site: null, resolved: false });
+  expect((await renderHook(() => useDiveSite('gone'))).result.current).toBeNull();
 });
 
-// A dive with no site, or one that is not a plan, asks for nothing: no row, and nothing to wait for.
-it('reads no site for no id, and has nothing to wait for', async () => {
-  stubQuery({ data: [row] });
+// #27's third review: `useLiveQuery` keeps the previous id's rows until the new query returns, so
+// right after a plan's site is edited the read still holds the OLD site. That row is not an answer
+// for the new id — the map would be pointed at the place the plan no longer goes.
+it('does not hand over a row left from the id it was asked before', async () => {
+  stubQuery({ data: [row], updatedAt: ANSWERED });
+  const { result, rerender } = await renderHook(({ id }: { id: string }) => useDiveSite(id), {
+    initialProps: { id: 's1' },
+  });
+  expect(result.current).toBe(row);
+  await rerender({ id: 's2' });
+  expect(mockUseLiveQuery).toHaveBeenLastCalledWith('the one-row query', ['s2']);
+  expect(result.current).toBeNull();
+});
+
+// A dive with no site, or one that is not a plan, asks for nothing — even while the read still
+// holds the row from when it was a plan with a site.
+it('reads no site for no id', async () => {
+  stubQuery({ data: [row], updatedAt: ANSWERED });
   const { result } = await renderHook(() => useDiveSite(null));
-  expect(result.current).toEqual({ site: null, resolved: true });
+  expect(result.current).toBeNull();
   expect(mockRowQuery).toHaveBeenCalledWith(db, '');
 });

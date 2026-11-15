@@ -573,10 +573,11 @@ function RecordActionsSheet({
  * with the same logbook and the site's own row, so the card and the map cannot disagree — a site
  * the diver has dived is findable without a catalogue position, and a second rule here missed that
  * (#27's second review). The row is read live by the screen (`useDiveSite`, one row by id), so the
- * press decides with what it already holds: an awaited read at the press could open two maps on a
- * double tap, or open one over a page the diver had gone back to. Unlike the Site row's link
- * (`Field.opens` above), which trusts the id because the page it opens can say "not found" and a
- * map cannot. A read that has not answered yet, or failed, counts as a row that is not there.
+ * press decides with what it already holds: an awaited read at the press could open the map over a
+ * page the diver had already gone back from. Unlike the Site row's link (`Field.opens` above), which
+ * trusts the id because the page it opens can say "not found" and a map cannot. A read that has not
+ * answered yet, or failed, or still holds the plan's previous site, counts as a row that is not
+ * there.
  *
  * Whether the map draws the dive is `drawsOnMap`'s answer (domain/mapSites.ts), asked of the
  * function that does the drawing rather than restated here as a status check.
@@ -1129,7 +1130,7 @@ export default function DiveDetailScreen({
               styles={styles}
               scheme={scheme}
               coordinates={coordinates}
-              onPress={() => showDiveOnMap(dive, point, dives, planSite.site)}
+              onPress={() => showDiveOnMap(dive, point, dives, planSite)}
             />
           )}
 

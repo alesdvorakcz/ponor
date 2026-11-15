@@ -88,7 +88,7 @@ jest.mock('../db/useDiveSamples', () => ({
 jest.mock('../db/dives', () => ({ softDeleteDive: jest.fn() }));
 // A planned dive's *Show on map* reads its one site live (#27's two reviews); no site unless a test
 // hands one over.
-jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn(() => ({ site: null, resolved: true })) }));
+jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn(() => null) }));
 jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(),
   router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn(), push: jest.fn() },
@@ -2341,14 +2341,14 @@ describe('brought to the design canvas', () => {
     const plan = dive({ ...placed, status: 'planned', siteId: 'blue' });
 
     async function renderPlan(site: DiveSite | null, logbook: Dive[] = [plan]): Promise<RenderResult> {
-      (useDiveSite as jest.Mock).mockReturnValue({ site, resolved: true });
+      (useDiveSite as jest.Mock).mockReturnValue(site);
       stubDives({ dives: logbook, numbers: new Map(), error: undefined });
       mockUseLocalSearchParams.mockReturnValue({ id: plan.id });
       const screen = await render(<DiveDetailScreen id={plan.id} />);
       (router.push as jest.Mock).mockClear();
       return screen;
     }
-    afterEach(() => (useDiveSite as jest.Mock).mockReturnValue({ site: null, resolved: true }));
+    afterEach(() => (useDiveSite as jest.Mock).mockReturnValue(null));
 
     // §2.4 keeps a plan off the map, so a plan points the map at its SITE when it has one (the
     // owner's call on #21's PR) — the same map the site's own page opens. Pushed over the PLAN, so

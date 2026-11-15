@@ -63,7 +63,7 @@ jest.mock('../db/useDiveSamples', () => ({
 }));
 // The embedded detail's other live read — a planned dive's one site (#27's second review) — for the
 // same reason: no `useLiveQuery` under Jest. No site, which is what a logged dive reads anyway.
-jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn(() => ({ site: null, resolved: true })) }));
+jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn(() => null) }));
 // The unit preference (§3), mocked per module exactly as `useDives` is above and for the
 // same reason: it is a live database read, and this screen must be renderable in either
 // system without one. Left on its own default, `metric`, by every test that does not care
