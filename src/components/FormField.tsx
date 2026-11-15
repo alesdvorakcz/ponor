@@ -67,9 +67,10 @@ export interface FormFieldProps {
    * persisted anywhere but the auth call.
    *
    * **This component adds one rule of its own for it, and only one** (issue #29, owner's
-   * call): a deletion empties the field, because the diver cannot see what it would take off
-   * (`isDeletion`, below — for a new password too, where a typo cannot be found either). It
-   * adds no rule about the secret: a "clear the value on blur" or "never hand it to `onChange`"
+   * call): the first deletion after the diver comes to the field empties it, as iOS's own
+   * secure field does, because they cannot see what it would take off; while they are still
+   * typing, one press takes one character (`takeChange` and `isDeletion`, below). It adds no
+   * rule about the secret: a "clear the value on blur" or "never hand it to `onChange`"
    * here would break the field for its callers while protecting nothing, since the value has to
    * live in the caller's state to be typed at all.
    *
@@ -330,8 +331,8 @@ export interface FieldMatch {
  * fill, a paste or a keystroke never does.
  *
  * **Why a password field asks this, and asks the text rather than the keyboard** (issue #29,
- * owner's call). The diver cannot see what one press would take off a masked value, so a
- * deletion starts the password over. A key event cannot say it: an Android hardware keyboard
+ * owner's call). The diver cannot see what one press would take off a masked value they come
+ * back to, so the first deletion starts the password over. A key event cannot say it: an Android hardware keyboard
  * sends none, some soft keyboards send it after the text rather than before, and a Backspace
  * that changed nothing (an empty field, a caret at the start) leaves no change to pair it with —
  * which, read from a key, once made a password manager's shorter fill arrive empty. The text
@@ -378,8 +379,16 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   const styles = makeStyles(scheme);
   const [focused, setFocused] = useState(false);
 
-  // **Backspace empties a password** (issue #29, owner's call; `isDeletion` below).
-  const takeChange = (text: string) => onChange(secureTextEntry === true && isDeletion(value, text) ? '' : text);
+  // **Backspace empties a password the way iOS's own secure field does** (issue #29, owner's call:
+  // "match iOS exactly"; `isDeletion` below). Only the first edit since the diver came to the
+  // field can start it over: while they are still typing they saw each character go in, so one
+  // press takes one. Native iOS already does this itself; this makes Android do it too.
+  const editedSinceFocus = useRef(false);
+  const takeChange = (text: string) => {
+    const startOver = secureTextEntry === true && !editedSinceFocus.current && isDeletion(value, text);
+    editedSinceFocus.current = true;
+    onChange(startOver ? '' : text);
+  };
   const keepInView = useKeepInView();
 
   // The input, held here as well as handed to the caller: the row focuses it when the diver
@@ -456,6 +465,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       value={value}
       onChangeText={takeChange}
       onFocus={() => {
+        editedSinceFocus.current = false;
         setFocused(true);
         hold(true);
       }}
@@ -516,8 +526,8 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   // right-aligned value 60 pt left on every focus and back on every blur, so Next moved two rows
   // at once. Reserving its place on every row and animating the slide were both prototyped and
   // both turned down. The form's values are short and holding backspace empties them; a
-  // password empties on one (`isDeletion`). The carried ring is a different act —
-  // throwing away what carry-over filled in — and stays.
+  // password empties on the first press after the diver comes back (`takeChange`). The carried
+  // ring is a different act — throwing away what carry-over filled in — and stays.
 
   return (
     <View

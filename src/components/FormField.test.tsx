@@ -1,5 +1,5 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
-import { createRef } from 'react';
+import { createRef, useState } from 'react';
 import { type TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
@@ -1250,11 +1250,14 @@ it('tells the platform what a field holds, for AutoFill, only when its caller sa
   expect(inputsOf(silent)[0]?.props.autoComplete).toBeUndefined();
 });
 
-// **Backspace empties a password** (issue #29, owner's call). The diver cannot see what one press
-// would take off a masked value, so a press starts the password over. It is read from the text
-// alone — a change that only took characters away — because a key event is not something every
-// keyboard sends (an Android hardware keyboard sends none) or sends first. A fill or a paste puts
-// characters in, so it arrives as it came, whatever the field held and whatever key came before.
+// **Backspace empties a password the way iOS's own secure field does** (issue #29, owner's call:
+// "match iOS exactly"). The first deletion after the diver comes to the field starts the password
+// over, because they cannot see what it would take off; while they are still typing, one press
+// takes one character, because the platform shows each character for a moment as it is typed and
+// a wrong key is seen. The deletion is read from the text alone — a change that only took
+// characters away — because a key event is not something every keyboard sends (an Android
+// hardware keyboard sends none) or sends first. A fill or a paste puts characters in, so it
+// arrives as it came, whatever the field held and whatever key came before.
 describe('a password field', () => {
   async function password(value: string) {
     const onChange = jest.fn();
@@ -1264,7 +1267,62 @@ describe('a password field', () => {
     return { input, onChange };
   }
 
-  it('empties on backspace', async () => {
+  /** The same field held the way a screen holds it, so what the diver types becomes the value
+   * the next keystroke is read against. */
+  async function heldPassword(initial: string) {
+    const onChange = jest.fn();
+    function Held() {
+      const [value, setValue] = useState(initial);
+      return (
+        <FormField
+          label="Password"
+          value={value}
+          onChange={(text) => {
+            onChange(text);
+            setValue(text);
+          }}
+          scheme="light"
+          secureTextEntry
+        />
+      );
+    }
+    const t = await render(<Held />);
+    const input = inputsOf(t)[0];
+    if (!input) throw new Error('no TextInput found');
+    return { input, onChange };
+  }
+
+  it('takes one character per backspace while the diver is still typing', async () => {
+    const { input, onChange } = await heldPassword('');
+    await fireEvent(input, 'focus');
+    await fireEvent.changeText(input, 'h');
+    await fireEvent.changeText(input, 'hu');
+    await fireEvent.changeText(input, 'hux');
+    await fireEvent.changeText(input, 'hu');
+    expect(onChange).toHaveBeenLastCalledWith('hu');
+  });
+
+  it('empties on the first backspace after the diver leaves and comes back', async () => {
+    const { input, onChange } = await heldPassword('');
+    await fireEvent(input, 'focus');
+    await fireEvent.changeText(input, 'hunter22');
+    await fireEvent(input, 'blur');
+    await fireEvent(input, 'focus');
+    await fireEvent.changeText(input, 'hunter2');
+    expect(onChange).toHaveBeenLastCalledWith('');
+  });
+
+  it('takes one character per backspace again once it has started over', async () => {
+    const { input, onChange } = await heldPassword('hunter22');
+    await fireEvent(input, 'focus');
+    await fireEvent.changeText(input, 'hunter2');
+    await fireEvent.changeText(input, 'p');
+    await fireEvent.changeText(input, 'pw');
+    await fireEvent.changeText(input, 'p');
+    expect(onChange.mock.calls.map(([text]) => text)).toEqual(['', 'p', 'pw', 'p']);
+  });
+
+  it('empties on the first backspace into a value it already held', async () => {
     const { input, onChange } = await password('hunter22');
     await fireEvent.changeText(input, 'hunter2');
     expect(onChange).toHaveBeenLastCalledWith('');
