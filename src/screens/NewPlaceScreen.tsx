@@ -25,31 +25,18 @@ import {
   type WaterBody,
 } from '../domain/types';
 import { formatCoordinates, formatEntry, formatSalinity, formatWaterBody, NO_FIGURE } from '../format/display';
+import { positionRefusalSentence } from '../format/positionRefusal';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, placePickRequest, type PlacePick } from '../navigation/placePick';
 import { countryFor } from '../platform/geocode';
-import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
+import { currentPosition } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
 
 /** The position card's glyph, monochrome, through `symbolName` like every other in the app. Exported
  * so `symbolName.test.tsx` can pin its Android and web names. */
 export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android: 'near_me' };
-
-/**
- * Why the device gave no pin — **the dive form's GPS row's own sentences** (`form.position*`), because
- * this is the same act for the same purpose: `currentPosition` asks for a pin that will be stored,
- * and *"too rough to pin a dive site"* is exactly what a rough fix is here. A `Record` over the
- * refusals, as the form's `POSITION_REFUSAL_NOTES` is, so a new refusal cannot arrive without one.
- */
-const POSITION_REFUSALS: Record<PositionRefusal, () => string> = {
-  servicesOff: () => t('form.positionServicesOff'),
-  denied: () => t('form.positionDenied'),
-  timedOut: () => t('form.positionTimedOut'),
-  imprecise: () => t('form.positionImprecise', { metres: COARSEST_USABLE_FIX_M }),
-  failed: () => t('form.positionFailed'),
-};
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
@@ -101,6 +88,12 @@ function matchSentence(match: Suggestion, typed: string): string {
  * through); `alive` drops any answer that lands after the page has closed. A write already out when
  * the page closes still makes its row — it is the diver's own place, and the picker underneath lists
  * it — but nothing reaches the form.
+ *
+ * **What is saved is what is on screen.** Save is shut while the device is still being asked for a
+ * position (a fix that landed after the write would be a position the diver asked for and the row
+ * never got), and the name, the website and the chips are held still from Save until the question
+ * or the failure hands them back, so nothing typed meanwhile is left out of the row. A new position
+ * forgets a standing question, as a new name does: the server's check was asked around the old one.
  */
 export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // The subscription that repaints this screen when the diver changes the language (src/i18n).
@@ -136,8 +129,6 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const leaving = useRef(false);
   const inFlight = useRef(false);
   const asking = useRef(false);
-  // The name in the box now, for an answer that lands after the diver has typed on.
-  const nameNow = useRef(name);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -183,7 +174,6 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   };
 
   const rename = (text: string) => {
-    nameNow.current = text;
     setName(text);
     // A question, or a failure, was about the name that was in the box.
     setMatches([]);
@@ -199,12 +189,19 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     asking.current = false;
     if (!alive.current) return;
     setLocating(false);
-    if (outcome.found) setPosition({ latitude: outcome.latitude, longitude: outcome.longitude, from: 'phone' });
-    else setPositionNote(POSITION_REFUSALS[outcome.reason]());
+    if (outcome.found) {
+      setPosition({ latitude: outcome.latitude, longitude: outcome.longitude, from: 'phone' });
+      // A standing question was asked around the old position (`similar_sites` is narrowed by it).
+      setMatches([]);
+    } else {
+      setPositionNote(positionRefusalSentence(outcome.reason));
+    }
   };
 
   const save = async () => {
-    if (leaving.current || inFlight.current || trimmed === '') return;
+    // Not while the device is still answering *Use current position*: the row would be written
+    // without the position the diver asked for, and the fix would land on a page already closing.
+    if (leaving.current || inFlight.current || asking.current || trimmed === '') return;
     inFlight.current = true;
     setSaving(true);
     setFailed(false);
@@ -215,8 +212,6 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       const found = await findSiteTwins(trimmed, at);
       // Closed, or `‹ Back` pressed while the check was out: nothing is written.
       if (!alive.current || leaving.current) return;
-      // An answer about a name the diver has since changed answers nobody.
-      if (nameNow.current.trim() !== trimmed) return release();
       if (found.length > 0) {
         setMatches(found);
         return release();
@@ -252,7 +247,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   };
 
   const unavailable = trimmed === '';
-  const shut = saving || unavailable;
+  const shut = saving || locating || unavailable;
   const saveLabel = saving
     ? t('newPlace.saving')
     : matches.length > 0
@@ -289,6 +284,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           autoCapitalize="words"
           autoCorrect={false}
           spellCheck={false}
+          editable={!saving}
         />
         <View style={styles.newPlaceSectionHeader}>
           <Text style={styles.newPlaceSectionTitle}>{t('newPlace.position')}</Text>
@@ -317,6 +313,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
               onChange={(chosen) => setSalinity(chosen === '' ? null : chosen)}
               scheme={scheme}
               caption={fromDive(salinity, dive?.salinity)}
+              disabled={saving}
             />
             <OptionChips
               label={t('field.waterBody')}
@@ -326,6 +323,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
               onChange={(chosen) => setWaterBody(chosen === '' ? null : chosen)}
               scheme={scheme}
               caption={fromDive(waterBody, dive?.waterBody)}
+              disabled={saving}
             />
             <OptionChips
               label={t('field.entry')}
@@ -336,6 +334,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
               scheme={scheme}
               icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
               caption={fromDive(entry, dive?.entry)}
+              disabled={saving}
             />
           </>
         ) : (
@@ -345,9 +344,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
             onChange={setWebsite}
             scheme={scheme}
             placeholder={t('newPlace.optional')}
+            keyboardType="url"
+            textContentType="URL"
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
+            editable={!saving}
           />
         )}
         {/* Read-only: what the position says, in the stored ISO code a site's own page shows. */}
@@ -380,7 +382,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       })}
       {failed && (
         <View style={styles.newPlaceNote}>
-          <Text style={styles.newPlaceNoteText}>{t('form.addFailed')}</Text>
+          <Text style={styles.newPlaceNoteText}>{t('newPlace.saveFailed')}</Text>
         </View>
       )}
 

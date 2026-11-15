@@ -126,11 +126,12 @@ import {
   HE_LABEL,
   O2_LABEL,
 } from '../format/display';
+import { positionRefusalSentence } from '../format/positionRefusal';
 import { unitLabel, type UnitSystem } from '../format/units';
 import { t, useT, type TranslationKey } from '../i18n';
 import { backToDives } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
-import { COARSEST_USABLE_FIX_M, currentPosition, type PositionRefusal } from '../platform/location';
+import { currentPosition } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -1759,47 +1760,11 @@ function locatingLabel(): string {
   return t('form.locating');
 }
 
-/**
- * **What each way of failing to get a pin says to the diver** — one sentence per refusal, and
- * a `Record` over `POSITION_REFUSALS` so a refusal added to `platform/location.ts` cannot
- * arrive without one (§4.1's "derive, or tie at compile time"). A missing key is a build
- * error; a missing sentence would be a control that did nothing.
- *
- * **That a denial says something at all is the load-bearing part** (§10's "a local save
- * failure is shown to the diver", applied to the one other thing on this screen that can fail
- * without the diver having done anything wrong). iOS raises its permission sheet **once
- * ever**: a diver who declines it and later wants a pin gets no sheet on the second tap, so
- * without a sentence the control would simply stop working, silently and permanently. That is
- * the dead-control shape §0.6 has already recorded three times — the hidden pull-down search,
- * the invisible clear target over the word "carried", the form with no visible way out — and
- * each was found by using the app rather than by a test.
- *
- * So `denied` names the place the switch is and invites the next tap, which is the half a
- * sentence alone would not have: the row goes on asking every time it is pressed
- * (`platform/locationPermission.ts` caches nothing), so a diver who goes to Settings and comes
- * back gets a pin without reopening the form. **§3's Settings screen is where this stops being
- * a sentence and becomes a control** (the owner's call, M2l): a location row there shows the
- * standing permission and offers the way into the device's own Settings app. It is a separate
- * task, and `locationPermission()` — which reads the state without ever raising a prompt — is
- * the surface it will read.
- *
- * `imprecise` names the threshold rather than what the fix actually reported, because the
- * figure comes from the one place that owns it (`COARSEST_USABLE_FIX_M`) rather than being
- * retyped here, and because what the diver can act on is the standard, not the miss.
- *
- * §1 binds every one of these: they are text under a row, never a blocked save. A diver who
- * cannot get a pin logs the dive without one.
+/*
+ * What each way of failing to get a pin says is `positionRefusalSentence`'s
+ * (format/positionRefusal.ts) — the one owner this row shares with the *New dive site* page's *Use
+ * current position* (issue #19), which asks the device the same question for the same purpose.
  */
-const POSITION_REFUSAL_NOTES: Record<PositionRefusal, () => string> = {
-  servicesOff: () => t('form.positionServicesOff'),
-  denied: () => t('form.positionDenied'),
-  timedOut: () => t('form.positionTimedOut'),
-  // The threshold reaches the sentence as a value rather than as a template literal, so
-  // `COARSEST_USABLE_FIX_M` is still the one place that owns the figure and the comma a Czech
-  // reader expects still comes from `figure` (src/i18n).
-  imprecise: () => t('form.positionImprecise', { metres: COARSEST_USABLE_FIX_M }),
-  failed: () => t('form.positionFailed'),
-};
 
 /**
  * §2.3's *"a GPS pin can be set from the map or **use my location** — pressed right on the
@@ -1882,7 +1847,7 @@ function ControlledPositionField({
         setValue('latitude', outcome.latitude, { shouldDirty: true });
         setValue('longitude', outcome.longitude, { shouldDirty: true });
       } else {
-        setNote(POSITION_REFUSAL_NOTES[outcome.reason]());
+        setNote(positionRefusalSentence(outcome.reason));
       }
     } finally {
       // Released on both paths, exactly as the save control's own flag is: a refusal that left

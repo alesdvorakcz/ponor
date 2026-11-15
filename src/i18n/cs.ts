@@ -815,6 +815,7 @@ export const cs = {
       saveCenter: 'Uložit centrum',
       saveAnyway: 'Přesto uložit jako novou lokalitu',
       saving: 'Ukládám…',
+      saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
       sameName: 'Lokalita „{{name}}“ už existuje.',
     },
 

@@ -977,6 +977,9 @@ export const en = {
       saveCenter: 'Save centre',
       saveAnyway: 'Save as a new site anyway',
       saving: 'Saving…',
+      /** A failed write. The dive never received the name, so the form's *"the dive keeps the
+       * name"* would be false here; what is true is that nothing on it changed. */
+      saveFailed: "Couldn't save that just now. Nothing on the dive has changed.",
       /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
       sameName: '“{{name}}” is already a site.',
     },

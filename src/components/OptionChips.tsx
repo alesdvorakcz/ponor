@@ -110,6 +110,13 @@ export interface OptionChipsProps<T extends string | number> {
    * that tag, which says the row is empty.
    */
   caption?: string;
+  /**
+   * `true` while the value is being saved somewhere — the *New dive site* page holds its chips
+   * still from Save to the row existing (issue #19), so a choice made meanwhile is not silently
+   * left out of what was written. Every chip is shut and says so to a screen reader; omitted, the
+   * row is exactly what it was.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -132,7 +139,7 @@ export interface OptionChipsProps<T extends string | number> {
  * react-hook-form's `handleSubmit` would refuse to call `onValid` for the WHOLE form —
  * exactly the "never block a save" (§1) failure that screen exists to avoid.
  */
-export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear, caption }: OptionChipsProps<T>) {
+export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear, caption, disabled }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   // The same guard `FormField` applies to its own tag, for the same reason and against the
   // same lie: `cleared` is a claim about a gesture, `— cleared` is a claim about what the row
@@ -207,7 +214,10 @@ export function OptionChips<T extends string | number>({ label, value, options, 
               // label, so what a screen reader hears is exactly what it heard before — the
               // symbol adds nothing to say that the words do not already say.
               accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-              accessibilityState={{ selected }}
+              // `disabled` joins the state only when it is set, so every row that never passes it
+              // announces exactly what it always did.
+              disabled={disabled}
+              accessibilityState={disabled === true ? { selected, disabled } : { selected }}
             >
               {icon?.(option, ink)}
               <Text style={[styles.formChipText, selected && styles.formChipTextSelected]}>{displayLabel(option)}</Text>

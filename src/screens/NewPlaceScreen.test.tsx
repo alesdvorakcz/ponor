@@ -203,7 +203,10 @@ it('a centre’s position starts empty even when the dive has a pin', async () =
   // A centre inherits its name alone: no water, no entry; a website instead.
   expect(has(t, 'Salinity: Salt')).toBe(false);
   expect(textIn(t)).not.toContain('from this dive');
-  expect(labelled(t, 'Website').props.placeholder).toBe('optional');
+  const website = labelled(t, 'Website');
+  expect(website.props.placeholder).toBe('optional');
+  // An address, not prose: the URL keyboard and AutoFill hint, and no capital on the first letter.
+  expect(website.props).toMatchObject({ keyboardType: 'url', textContentType: 'URL', autoCapitalize: 'none' });
   expect(has(t, 'Save centre')).toBe(true);
 });
 
@@ -227,6 +230,57 @@ it('Use current position asks the device and shows the coordinates', async () =>
   expect(textIn(t)).not.toContain('from this dive');
   expect(mockCountry).toHaveBeenCalledWith(50.1, 14.4);
   expect(rowValue(t, 'Country')).toBe('CZ');
+});
+
+it('a site prefilled with the dive’s pin takes the phone’s once asked, and saves that', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+  const t = await showSite();
+  expect(count(t, 'from this dive')).toBe(4);
+  await press(t, 'Use current position');
+  expect(textIn(t)).toContain('50.10000, 14.40000');
+  expect(textIn(t)).not.toContain('43.06000, 16.18000');
+  // The position's caption goes; the three chips are still the dive's.
+  expect(count(t, 'from this dive')).toBe(3);
+  await press(t, 'Save site');
+  expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', { latitude: 50.1, longitude: 14.4 });
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }));
+});
+
+// `currentPosition` can take its full 20 s. A Save pressed meanwhile would write the row without the
+// position the diver asked for, so Save waits for the answer.
+it('Save is shut while Locating…, and saves the fix once it lands', async () => {
+  const located = deferred<PositionOutcome>();
+  mockPosition.mockReturnValue(located.promise);
+  const t = await showSite();
+  await press(t, 'Use current position');
+  expect(saveButton(t).props.accessibilityState).toMatchObject({ disabled: true });
+  await act(async () => onPressOf(saveButton(t))());
+  expect(mockTwins).not.toHaveBeenCalled();
+  expect(mockAddSite).not.toHaveBeenCalled();
+
+  await act(async () => located.resolve({ found: true, latitude: 50.1, longitude: 14.4 }));
+  expect(saveButton(t).props.accessibilityState).toMatchObject({ disabled: false });
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }));
+});
+
+// The server's check was asked around the old position, so a new one is a new question.
+it('a new position forgets the question', async () => {
+  mockTwins.mockResolvedValue([{ value: 'Lom Leština', id: 's-twin' }]);
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
+
+  await press(t, 'Use current position');
+  expect(textIn(t)).not.toContain('Did you mean “Lom Leština”?');
+  expect(has(t, 'Save site')).toBe(true);
+  mockTwins.mockResolvedValue([]);
+  await press(t, 'Save site');
+  expect(mockTwins).toHaveBeenCalledTimes(2);
+  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka', { latitude: 50.1, longitude: 14.4 });
+  expect(mockAddSite).toHaveBeenCalledTimes(1);
 });
 
 it('Use current position pressed twice at once asks the device once', async () => {
@@ -378,31 +432,40 @@ it('editing the name forgets the question', async () => {
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka II' }, 2);
 });
 
-it('an answer about a name the diver has since changed is dropped', async () => {
+// What is written is what is on screen: from Save until a question or a failure hands them back,
+// the name and the chips cannot change underneath the check or the write.
+it('holds the name and the chips still while the check is out', async () => {
   const checked = deferred<Suggestion[]>();
   mockTwins.mockReturnValue(checked.promise);
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
   const t = await showSite();
   await press(t, 'Save site');
+  expect(labelled(t, 'Name').props.editable).toBe(false);
+  expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).toMatchObject({ disabled: true });
   await type(t, 'Name', 'Lom Leštinka II');
-  await act(async () => checked.resolve([]));
-  // Neither a question nor a row about the old name.
-  expect(mockAddSite).not.toHaveBeenCalled();
-  expect(mockComplete).not.toHaveBeenCalled();
-  expect(has(t, 'Save site')).toBe(true);
+  await press(t, 'Salinity: Fresh');
+  expect(labelled(t, 'Name').props.value).toBe('Lom Leštinka');
+  expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
+
+  await act(async () => checked.resolve([{ value: 'Lom Leština', id: 's-twin' }]));
+  // The question hands them back.
+  expect(labelled(t, 'Name').props.editable).not.toBe(false);
+  expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).not.toMatchObject({ disabled: true });
 });
 
-it('a failed write shows the add-failed line and does not complete', async () => {
+it('a failed write shows the failed line and does not complete', async () => {
+  const failedLine = "Couldn't save that just now. Nothing on the dive has changed.";
   mockAddSite.mockRejectedValueOnce(new Error('disk full'));
   const t = await showSite();
   await press(t, 'Save site');
-  expect(textIn(t)).toContain('Could not add that just now — the dive keeps the name.');
+  expect(textIn(t)).toContain(failedLine);
   expect(mockComplete).not.toHaveBeenCalled();
   expect(router.back).not.toHaveBeenCalled();
   // The button comes back, and a retry goes through.
   expect(saveButton(t).props.accessibilityState).toMatchObject({ disabled: false });
   await press(t, 'Save site');
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka' }, 2);
-  expect(textIn(t)).not.toContain('Could not add that just now — the dive keeps the name.');
+  expect(textIn(t)).not.toContain(failedLine);
 });
 
 // Review Focus 1: both presses land before the page re-renders, so `disabled` cannot be what stops
@@ -534,6 +597,17 @@ it('a centre saves straight away with its website and no check', async () => {
     website: 'https://ponorka.example',
   });
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-centre-id', name: 'Ponorka' }, 2);
+});
+
+it('holds a centre’s website still while the write is out', async () => {
+  const written = deferred<string>();
+  mockAddCenter.mockReturnValue(written.promise);
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const t = await showCenter();
+  await press(t, 'Save centre');
+  expect(labelled(t, 'Website').props.editable).toBe(false);
+  expect(labelled(t, 'Name').props.editable).toBe(false);
+  await act(async () => written.resolve('new-centre-id'));
 });
 
 it('a centre with a position and no website saves both halves of the pin and a null website', async () => {

@@ -55,9 +55,10 @@ export interface FormFieldProps {
    * cylinder count it used to name will not find one.
    *
    * `'email-address'` is M2e's, for the account screen's one address row: a keyboard with
-   * `@` and `.` on it and no space bar to walk into the middle of an address.
+   * `@` and `.` on it and no space bar to walk into the middle of an address. `'url'` is the
+   * same for the *New dive centre* page's *Website* (issue #19): `/` and `.` on the keys.
    */
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address';
+  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address' | 'url';
   multiline?: boolean;
   /**
    * Masks what is typed — the account screen's password rows (signing in or up, and the new
@@ -219,8 +220,15 @@ export interface FormFieldProps {
    * which it is (`textContentType`), and Android reads the same answer from `autoComplete`.
    * Passed through where a caller says, and left to the platform everywhere else.
    */
-  textContentType?: 'username' | 'emailAddress' | 'password' | 'newPassword';
+  textContentType?: 'username' | 'emailAddress' | 'password' | 'newPassword' | 'URL';
   autoComplete?: 'email' | 'current-password' | 'new-password';
+  /**
+   * `false` while the value is being saved somewhere — the *New dive site* page holds its fields
+   * still from Save to the row existing (issue #19), so nothing typed meanwhile is silently left
+   * out of what was written. It shuts the input and the focused clear ring, the two ways this row
+   * edits its value; omitted, the field is editable as it always was.
+   */
+  editable?: boolean;
   /**
    * Fired with the **whole** `Suggestion` the diver tapped, never just its text.
    *
@@ -353,7 +361,7 @@ export interface FieldMatch {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing, textContentType, autoComplete },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, addition, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -452,6 +460,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       onSubmitEditing={onSubmitEditing}
       textContentType={textContentType}
       autoComplete={autoComplete}
+      editable={editable}
       // Kept up through a press that moves focus to the next field, so the keyboard does not
       // drop and rise again between two rows. Only where a caller handles the press.
       submitBehavior={onSubmitEditing === undefined ? undefined : 'submit'}
