@@ -1,4 +1,4 @@
-import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
+import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
 import { db } from '../db/client';
 import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
@@ -63,14 +63,31 @@ export interface NewCenterInput {
  * **And it always comes back.** A server that never answers is the one failure `similarSites`
  * cannot turn into `[]`, so its half is raced against `TWIN_CHECK_TIMEOUT_MS`; out of time, the
  * device's matches stand alone — the answer a diver out of signal gets anyway.
+ *
+ * **It offers only sites the phone holds.** A tap on a match pairs the dive with it, and a dive
+ * paired with a site the phone has no row for shows no country, gets no site defaults and is
+ * missing from the picker's *Dived here* until some later sync. So the server's rows are written
+ * to the device's catalogue first (`applyPulledDiveSites`, as live search writes its answers —
+ * clean, never over a local edit), and a server match is offered only when its row is on the
+ * phone afterwards. A write that refuses leaves the matches the phone already held.
  */
 export async function findSiteTwins(name: string, at: MapPoint | null): Promise<Suggestion[]> {
   try {
-    const [onDevice, fromServer] = await Promise.all([
+    const [onDevice, answer] = await Promise.all([
       listDiveSites(db),
       withTimeout(similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null), TWIN_CHECK_TIMEOUT_MS),
     ]);
-    return nearMatches(name, onDevice, fromServer ?? []);
+    const held = new Set(onDevice.map((site) => site.id));
+    if (answer !== null && answer.rows.length > 0) {
+      try {
+        await applyPulledDiveSites(db, answer.rows);
+        for (const row of answer.rows) if (typeof row.id === 'string') held.add(row.id);
+      } catch {
+        // Not written: only the matches already on the phone are offered.
+      }
+    }
+    const fromServer = (answer?.matches ?? []).filter((match) => match.id !== null && held.has(match.id));
+    return nearMatches(name, onDevice, fromServer);
   } catch {
     return [];
   }

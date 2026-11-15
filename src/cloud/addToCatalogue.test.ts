@@ -1,4 +1,4 @@
-import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
+import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites, type PulledSite } from '../db/catalogue';
 import { type Suggestion } from '../domain/suggest';
 import { type DiveSite } from '../domain/types';
 import { countryFor } from '../platform/geocode';
@@ -12,6 +12,7 @@ import { similarSites } from './similarSites';
 jest.mock('../db/client', () => ({ db: {} }));
 jest.mock('./supabase', () => ({ cloud: { configured: true } }));
 jest.mock('../db/catalogue', () => ({
+  applyPulledDiveSites: jest.fn(),
   createDiveSite: jest.fn(),
   createDiveCenter: jest.fn(),
   listDiveSites: jest.fn(),
@@ -20,6 +21,7 @@ jest.mock('./similarSites', () => ({ similarSites: jest.fn() }));
 jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
 
 const listSites = jest.mocked(listDiveSites);
+const storeSites = jest.mocked(applyPulledDiveSites);
 const askServer = jest.mocked(similarSites);
 const makeSite = jest.mocked(createDiveSite);
 const makeCenter = jest.mocked(createDiveCenter);
@@ -27,6 +29,16 @@ const country = jest.mocked(countryFor);
 
 function site(id: string, name: string): DiveSite {
   return { id, name, status: 'active', mergedInto: null } as unknown as DiveSite;
+}
+
+/** A whole row the server sent, as `similarSites` hands it back for storing. */
+function pulled(id: string, name: string): PulledSite {
+  return { id, name } as unknown as PulledSite;
+}
+
+/** The server's answer: the matches, and the rows whole — every match storable unless told. */
+function answer(matches: Suggestion[], rows: PulledSite[] = matches.map((m) => pulled(m.id ?? '', m.value))) {
+  return { matches, rows };
 }
 
 const NO_FACTS = { entry: null, salinity: null, waterBody: null };
@@ -41,10 +53,12 @@ beforeEach(() => {
 describe('findSiteTwins', () => {
   it("joins the device's exact folded match and the server's near matches, device first, no duplicates", async () => {
     listSites.mockResolvedValue([site('s-local', 'Kotelna'), site('s-other', 'Zátoka')]);
-    askServer.mockResolvedValue([
-      { value: 'Kotelna', id: 's-local' },
-      { value: 'Kotelna 2', id: 's-far' },
-    ]);
+    askServer.mockResolvedValue(
+      answer([
+        { value: 'Kotelna', id: 's-local' },
+        { value: 'Kotelna 2', id: 's-far' },
+      ]),
+    );
 
     const twins = await findSiteTwins('kotelna', { latitude: 49.75, longitude: 14.36 });
 
@@ -54,7 +68,7 @@ describe('findSiteTwins', () => {
 
   it('asks the server with no point when there is none', async () => {
     listSites.mockResolvedValue([]);
-    askServer.mockResolvedValue([]);
+    askServer.mockResolvedValue(answer([]));
 
     await findSiteTwins('Kotelna', null);
 
@@ -63,9 +77,54 @@ describe('findSiteTwins', () => {
 
   it('answers [] when the device read throws', async () => {
     listSites.mockRejectedValue(new Error('disk'));
-    askServer.mockResolvedValue([{ value: 'Kotelna', id: 's-far' }]);
+    askServer.mockResolvedValue(answer([{ value: 'Kotelna', id: 's-far' }]));
 
     await expect(findSiteTwins('Kotelna', null)).resolves.toEqual([]);
+  });
+
+  // A tap on a match pairs the dive with it, so the match has to be a site the phone holds: the
+  // server's rows are written first, the way live search writes its answers.
+  it('writes the server’s rows to the device before offering them', async () => {
+    listSites.mockResolvedValue([]);
+    askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(storeSites).toHaveBeenCalledWith(expect.anything(), [pulled('s-far', 'Kotelna 2')]);
+    expect(twins.map((s) => s.id)).toEqual(['s-far']);
+  });
+
+  it('does not offer a server match whose row could not be stored, unless the phone already holds it', async () => {
+    listSites.mockResolvedValue([site('s-local', 'Kotelna')]);
+    askServer.mockResolvedValue(
+      answer(
+        [
+          { value: 'Kotelna', id: 's-local' },
+          { value: 'Kotelna 2', id: 's-unreadable' },
+        ],
+        [],
+      ),
+    );
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(storeSites).not.toHaveBeenCalled();
+    expect(twins.map((s) => s.id)).toEqual(['s-local']);
+  });
+
+  it('offers only what the phone held when the write refuses', async () => {
+    listSites.mockResolvedValue([site('s-local', 'Kotelna')]);
+    askServer.mockResolvedValue(
+      answer([
+        { value: 'Kotelna', id: 's-local' },
+        { value: 'Kotelna 2', id: 's-far' },
+      ]),
+    );
+    storeSites.mockRejectedValue(new Error('disk full'));
+
+    const twins = await findSiteTwins('kotelna', null);
+
+    expect(twins.map((s) => s.id)).toEqual(['s-local']);
   });
 
   // Weak signal: the request is out and nothing comes back. The Supabase client sets no fetch
