@@ -303,6 +303,26 @@ const PROFILE_AXIS_LINE_HEIGHT = 13;
  */
 export const PROFILE_SPARK_HEIGHT = 16;
 
+/**
+ * **How big a map mark is** — the badge's height and minimum width, and the disc's diameter.
+ * 26 is a tap target rather than a styling choice (M3c, `mapMarkDot` below): an annotation is
+ * hit-tested over the mark it draws. One name, because three marks share it and a chosen one is
+ * measured from it.
+ */
+const MAP_MARK_SIZE = 26;
+
+/**
+ * **How much a chosen mark grows** — the design canvas's `pin.selected = +4 px and a floating
+ * shadow`, which answers every kind of mark at once (issue #21). See `mapMarkLifted`.
+ *
+ * **8, not the canvas's literal 4, and that was measured.** The canvas draws its pins at 14 and a
+ * chosen one at 18 — about 30% bigger. Ponor's marks are 26 because that is the tap target, and +4
+ * on 26 is 15%: on the simulator a focused community site beside two unchosen ones read as the
+ * same mark in light and barely different in dark, where the black floating shadow vanishes into a
+ * night-mode sea and size is the only thing left saying "chosen". +8 is the canvas's proportion.
+ */
+const MAP_MARK_LIFT = 8;
+
 function build(scheme: ColorScheme) {
   const theme = themeFor(scheme);
 
@@ -1730,9 +1750,9 @@ function build(scheme: ColorScheme) {
     // separate two surfaces of the app's own ground disappears over Apple's cartography, which
     // is neither. Ink against the map, ink inside the app.
     mapMarkBadge: {
-      minWidth: 26,
-      height: 26,
-      borderRadius: 13,
+      minWidth: MAP_MARK_SIZE,
+      height: MAP_MARK_SIZE,
+      borderRadius: MAP_MARK_SIZE / 2,
       paddingHorizontal: 7,
       alignItems: 'center',
       justifyContent: 'center',
@@ -1772,9 +1792,9 @@ function build(scheme: ColorScheme) {
     // centre's glyph sits in the middle of it exactly as the badge's numeral sits in the middle
     // of `mapMarkBadge`, so the two marks' interiors land on one optical centre.
     mapMarkDot: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: MAP_MARK_SIZE,
+      height: MAP_MARK_SIZE,
+      borderRadius: MAP_MARK_SIZE / 2,
       borderWidth: 1,
       borderColor: theme.fg,
       backgroundColor: theme.surface,
@@ -1802,15 +1822,39 @@ function build(scheme: ColorScheme) {
     // has several rows in a bay, which is M3c's "two overlapping squares read as one stacked
     // card" arriving on the other side of the ink.
     //
-    // **It carries no selected pair, and that is the reason it is the kind that gets the fill.**
-    // §0.1 leaves exactly one lever for "this one is chosen" and it is `selectedFill`'s inverted
-    // ink — but `action` IS `fg` in both themes (§0.2), so a mark already drawn at full ink has
-    // no ink left to say chosen. That is M2n's own finding about a coloured fill, one axis over.
-    // A community mark navigates to its page and is never selected (M3f), so it is the one kind
-    // that can spend the fill without spending the state; `DiveMap.tsx` carries the rest.
+    // **It carries no INVERTED pair, and that is the reason it is the kind that gets the fill.**
+    // `selectedFill`'s inverted ink is one way to say "this one is chosen" — but `action` IS `fg`
+    // in both themes (§0.2), so a mark already drawn at full ink has no ink left to invert into.
+    // That is M2n's own finding about a coloured fill, one axis over. A PRESS never chooses a
+    // community mark (it goes to the site's page, M3f), so the fill cost nothing when M3k spent
+    // it; a map pointed at a site (issue #21) is what can choose one, and `mapMarkLifted` below
+    // is how it shows — by size and lift, which needs no ink at all.
     mapMarkDotFilled: {
       backgroundColor: theme.fg,
       borderColor: theme.surface,
+    },
+    // **A chosen mark, of any kind: bigger, floating** (issue #21) — the design canvas's
+    // `pin.selected = +4 px and a floating shadow` at Ponor's scale (`MAP_MARK_LIFT` says why it
+    // is +8 here), composed onto whichever mark it is.
+    //
+    // **It says "chosen" without spending ink, which is why it reaches the one mark inversion
+    // could not.** A focused community site is drawn at full ink and has nowhere to invert to;
+    // size and lift work on it exactly as they work on the outlined marks, so every kind of mark
+    // now says "chosen" the same way. The two outlined marks keep their inversion as well: it is
+    // the stronger signal on them, and a place's badge and a centre's disc were already read that
+    // way.
+    //
+    // **`minWidth`, not `width`**, so one style fits both shapes: the badge grows with a
+    // three-digit count and only has a minimum, and on the disc a `minWidth` above its own 26
+    // `width` wins (checked on the simulator: a chosen disc draws at 34) — layout clamps a size to its minimum. The radius follows the height, so it
+    // stays a disc and a fully rounded pill. The shadow is `floatingShadow` itself — the capsule's
+    // and the "+"'s — rather than a mark's own, so "this floats" stays one treatment across the
+    // app.
+    mapMarkLifted: {
+      minWidth: MAP_MARK_SIZE + MAP_MARK_LIFT,
+      height: MAP_MARK_SIZE + MAP_MARK_LIFT,
+      borderRadius: (MAP_MARK_SIZE + MAP_MARK_LIFT) / 2,
+      ...floatingShadow,
     },
     // **The sheet a tapped mark opens** (§3: "tapping a site shows your dives there with a
     // depth/temp summary"), anchored over the bottom of the map.

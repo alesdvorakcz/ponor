@@ -3,14 +3,15 @@ import { Linking, Platform } from 'react-native';
 import { type MapPoint } from '../domain/mapSites';
 
 /**
- * **Where the dive detail's "Show on map" card sends a position** (issue #3, the owner's design
- * canvas), and why it leaves the app.
+ * **Handing a position to the device's maps app** — for directions to a place, and for the one
+ * place Ponor's own map cannot show.
  *
- * The canvas draws the card and not its destination. Ponor's own Map tab cannot be pointed at a
- * place yet — it frames every mark it draws and has no way to be asked for one — and teaching it
- * is issue #21, a change to that screen rather than something to slip in behind a card. Until
- * then the device's maps app does exactly what the words promise, offers directions to the site
- * on top, and is the same move iOS's own apps make with an address (DESIGN.md §10).
+ * Issue #3's *Show on map* card opened this for every dive, because Ponor's Map tab could not yet
+ * be pointed at a place. Issue #21 taught it (`platform/showOnMap.ts`), and this module kept three
+ * callers: a focused map's *Directions* pill, which is what the card used to give a diver for free;
+ * a **planned** dive's card when the plan has no site to point Ponor's map at (§2.4 keeps a plan
+ * itself off the map; a plan at a catalogue site opens that site); and the browser, whose map is
+ * a sentence (`showOnMap.web.ts`). DESIGN.md §10 has the reasoning for each.
  *
  * **One URL per platform, built here and nowhere else** (§4.1). iOS takes Apple's universal link,
  * which opens Maps rather than Safari; Android takes the `geo:` scheme its maps apps register,

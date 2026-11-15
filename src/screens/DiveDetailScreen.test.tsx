@@ -27,6 +27,7 @@ import { softDeleteDive } from '../db/dives';
 import { type DiveSample } from '../db/schema';
 import { useDives, type DiveListState } from '../db/useDives';
 import { useDiveSamples } from '../db/useDiveSamples';
+import { useDiveSite } from '../db/useDiveSite';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { suuntoJsonImporter } from '../domain/import/suunto';
 import { fixtureSeries } from '../testing/suuntoFixture';
@@ -35,7 +36,7 @@ import { fixtureSeries } from '../testing/suuntoFixture';
 // at runtime, via `Object.keys`, rather than a set of names typed into this file — see that
 // test's own comment for why.
 import * as derived from '../domain/derived';
-import { type Dive, type Tank } from '../domain/types';
+import { type Dive, type DiveSite, type Tank } from '../domain/types';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import { setActiveLanguage, t } from '../i18n';
 import { depthColor } from '../theme/depth';
@@ -85,6 +86,9 @@ jest.mock('../db/useDiveSamples', () => ({
 // test controls what the write resolves or rejects with and no real database is involved.
 // `router.push` joins the fake for the Edit control, which opens `/dive/[id]/edit`.
 jest.mock('../db/dives', () => ({ softDeleteDive: jest.fn() }));
+// A planned dive's *Show on map* reads its one site live (#27's two reviews); no site unless a test
+// hands one over.
+jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn(() => null) }));
 jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(),
   router: { back: jest.fn(), canGoBack: jest.fn(), replace: jest.fn(), push: jest.fn() },
@@ -2320,10 +2324,94 @@ describe('brought to the design canvas', () => {
       expect(lines.indexOf(t('detail.showOnMap'))).toBeLessThan(lines.indexOf(t('group.dateTime')));
     });
 
-    it('opens the position in the device’s maps', async () => {
+    // Issue #21: Ponor's own map, pointed at the dive, pushed over this screen so Back returns
+    // here. Where the map opens and what it selects is `MapScreen.test.tsx`'s.
+    it('opens Ponor’s map pointed at the dive, and not the device’s maps', async () => {
+      (router.push as jest.Mock).mockClear();
       const screen = await renderNumbered(placed, 6);
       await pressControl(screen, t('detail.showOnMap'));
+      // `over: 'page'`: pushed over this dive's own page, so the map's link back to it goes back.
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/dive/[id]/map', params: { id: 'placed', over: 'page' } });
+      expect(openURL).not.toHaveBeenCalled();
+    });
+
+    // A plan's site row, as `useDiveSite` would hand it over — only the fields the map reads.
+    const blueRow = (over: Partial<DiveSite> = {}) =>
+      ({ id: 'blue', name: 'Blue Hole', latitude: 43.0378, longitude: 16.1489, ...over }) as DiveSite;
+    const plan = dive({ ...placed, status: 'planned', siteId: 'blue' });
+
+    async function renderPlan(site: DiveSite | null, logbook: Dive[] = [plan]): Promise<RenderResult> {
+      (useDiveSite as jest.Mock).mockReturnValue(site);
+      stubDives({ dives: logbook, numbers: new Map(), error: undefined });
+      mockUseLocalSearchParams.mockReturnValue({ id: plan.id });
+      const screen = await render(<DiveDetailScreen id={plan.id} />);
+      (router.push as jest.Mock).mockClear();
+      return screen;
+    }
+    afterEach(() => (useDiveSite as jest.Mock).mockReturnValue(null));
+
+    // §2.4 keeps a plan off the map, so a plan points the map at its SITE when it has one (the
+    // owner's call on #21's PR) — the same map the site's own page opens. Pushed over the PLAN, so
+    // it does not claim to be over the site's page (#27's second review): no `over`.
+    it('opens Ponor’s map on a planned dive’s site, since the plan itself is not drawn', async () => {
+      const screen = await renderPlan(blueRow());
+      expect(useDiveSite).toHaveBeenLastCalledWith('blue');
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 'blue' } });
+      expect(openURL).not.toHaveBeenCalled();
+    });
+
+    // #27's second review: whether the map can show the site is the MAP's rule, asked here — and the
+    // map finds a site the diver has dived at their own mark, with or without a catalogue position.
+    it('opens Ponor’s map on a dived site that has no position of its own', async () => {
+      const been = dive({ id: 'been', siteId: 'blue', siteName: 'Blue Hole', latitude: 43.0378, longitude: 16.1489 });
+      const screen = await renderPlan(blueRow({ latitude: null, longitude: null }), [plan, been]);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]/map', params: { id: 'blue' } });
+    });
+
+    // #27's review: a map pointed at a site it cannot find opens on everything with nothing
+    // selected and no Directions — worse than the plan's own pin in the device's maps. So a site
+    // this device does not hold (or has not read yet), and one the map could not place, go there.
+    it.each([
+      ['is not on this device', null],
+      ['has no position and has not been dived', blueRow({ latitude: null, longitude: null })],
+    ])('opens the device’s maps for a plan whose site %s', async (_, row) => {
+      const screen = await renderPlan(row);
+      await pressControl(screen, t('detail.showOnMap'));
       expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
+      expect(router.push).not.toHaveBeenCalled();
+    });
+
+    // The decision is made from what the screen already holds, so a press does nothing it would
+    // have to wait for: a double tap cannot open two maps on a slow read, and nothing opens over a
+    // page the diver has since gone back to (#27's second review).
+    it('decides at the press, without waiting on a read', async () => {
+      const screen = await renderPlan(blueRow());
+      await pressControl(screen, t('detail.showOnMap'));
+      // No `act` flush between the press and the assertion: the push has already happened.
+      expect(router.push).toHaveBeenCalledTimes(1);
+    });
+
+    // A logged dive with a site still points at the DIVE — its place, with its sheet — not at the
+    // site: the site branch is for what the map does not draw, and must not shadow the dive's own.
+    it('points a logged dive at the dive, even when it has a site', async () => {
+      (router.push as jest.Mock).mockClear();
+      const screen = await renderNumbered(dive({ ...placed, siteId: 'blue' }), 6);
+      expect(useDiveSite).toHaveBeenLastCalledWith(null);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/dive/[id]/map', params: { id: 'placed', over: 'page' } });
+    });
+
+    // A plan at a place typed by hand has no mark anywhere, so the device's maps do what the words
+    // promise, as every dive's card did before #21.
+    it('opens a planned dive with no site in the device’s maps', async () => {
+      (router.push as jest.Mock).mockClear();
+      const screen = await renderNumbered(dive({ ...placed, status: 'planned' }), 6);
+      expect(useDiveSite).toHaveBeenLastCalledWith(null);
+      await pressControl(screen, t('detail.showOnMap'));
+      expect(openURL).toHaveBeenCalledWith('https://maps.apple.com/?ll=43.0378,16.1489&q=Blue%20Hole');
+      expect(router.push).not.toHaveBeenCalled();
     });
 
     // A pair no map can draw — finite, but off the globe — gets no card, and must not therefore

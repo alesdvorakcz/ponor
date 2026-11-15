@@ -6,17 +6,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
+import { MapCard } from '../components/MapCard';
 import { symbolName } from '../components/symbolName';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
 import { useDiveSamples } from '../db/useDiveSamples';
+import { useDiveSite } from '../db/useDiveSite';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { gasUsedLitres, mod, nitrogenPct, rmv, surfaceIntervalMin, timeOut, usedBar } from '../domain/derived';
 import { importerLabelFor } from '../domain/import/registry';
-import { pointOf, type MapPoint } from '../domain/mapSites';
+import { focusTarget, type MapFocus } from '../domain/mapFocus';
+import { drawsOnMap, pointOf, type MapPoint } from '../domain/mapSites';
 import { splitPlanned } from '../domain/trips';
-import { type Dive, type Tank } from '../domain/types';
+import { type Dive, type DiveSite, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/leaveScreen';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import {
@@ -59,6 +62,7 @@ import { type UnitSystem } from '../format/units';
 import { t, useT } from '../i18n';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { openInMaps } from '../platform/mapsLink';
+import { showOnMap } from '../platform/showOnMap';
 import { resolveScheme, themeFor } from '../theme/resolve';
 import { makeStyles, screenTopInset, type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
@@ -544,42 +548,57 @@ function RecordActionsSheet({
 }
 
 /**
- * **"Show on map"** (issue #3): the dive's position as a card, in place of the GPS row that used to
- * state the two numbers in Site & centre. The coordinates stay on screen, under the words.
+ * **Where the dive's "Show on map" card goes** (issue #3 drew the card; issue #21 gave it Ponor's
+ * own map). The card itself is `components/MapCard.tsx`, shared with a site's and a centre's page;
+ * it sits in place of the GPS row that used to state the two numbers in Site & centre.
  *
- * It opens the device's own maps (`platform/mapsLink.ts`, which says why that and not Ponor's Map
- * tab). Drawn only for a position `pointOf` accepts — the Map's own test of whether a pair is a
- * place at all — so the card never offers to show a point no map can draw; `whereFields` keeps a
- * pair it refuses as the plain row it always was, rather than letting it vanish.
+ * **A dive the map draws opens Ponor's map, pointed at it** (`platform/showOnMap.ts`), with its
+ * place selected and the place's sheet up.
+ *
+ * **A planned dive is not drawn** — §2.4 keeps a plan off the map — **so it points the map at its
+ * SITE instead, when it has one** (the owner's call on #21's PR). A plan at a catalogue site opens
+ * Ponor's map on that site's mark, exactly as the site's own page would: the community dot, or the
+ * diver's own mark with its sheet if they have dived there before. *Show on map* then means the
+ * same thing on every dive with a site, and Directions is still one tap away in the map's header.
+ * The plan itself stays undrawn; the map points at a place that is already on it.
+ *
+ * **A plan whose site the map cannot show still opens the device's maps**, as every dive did
+ * before #21: one with no site id (a place typed by hand and never published has no mark
+ * anywhere), and one whose row this device does not hold — not yet pulled, hidden by an admin — or
+ * that the map could not place. A map pointed at a site it cannot find opens on everything with
+ * nothing selected and no Directions, which is worse than what the plan's own pin gets from the
+ * device's maps (#27's review).
+ *
+ * **"Can the map show it" is asked of the map's own rule** (`focusTarget`, domain/mapFocus.ts),
+ * with the same logbook and the site's own row, so the card and the map cannot disagree — a site
+ * the diver has dived is findable without a catalogue position, and a second rule here missed that
+ * (#27's second review). The row is read live by the screen (`useDiveSite`, one row by id), so the
+ * press decides with what it already holds: an awaited read at the press could open the map over a
+ * page the diver had already gone back from. Unlike the Site row's link (`Field.opens` above), which
+ * trusts the id because the page it opens can say "not found" and a map cannot. A read that has not
+ * answered yet, or failed, or still holds the plan's previous site, counts as a row that is not
+ * there.
+ *
+ * Whether the map draws the dive is `drawsOnMap`'s answer (domain/mapSites.ts), asked of the
+ * function that does the drawing rather than restated here as a status check.
  */
-function MapCard({
-  styles,
-  scheme,
-  point,
-  coordinates,
-  label,
-}: {
-  styles: Styles;
-  scheme: ColorScheme;
-  point: MapPoint;
-  coordinates: string;
-  label: string;
-}) {
-  return (
-    <Pressable
-      style={styles.detailMapCard}
-      onPress={() => openInMaps(point, label)}
-      accessibilityRole="button"
-      accessibilityLabel={t('detail.showOnMap')}
-      accessibilityHint={coordinates}
-    >
-      <SymbolView name={symbolName({ ios: 'map', android: 'map' })} size={22} tintColor={themeFor(scheme).fg} />
-      <View style={styles.detailMapCardText}>
-        <Text style={styles.detailMapCardTitle}>{t('detail.showOnMap')}</Text>
-        <Text style={styles.detailMapCardMeta}>{coordinates}</Text>
-      </View>
-    </Pressable>
-  );
+function showDiveOnMap(dive: Dive, point: MapPoint, logbook: readonly Dive[], planSite: DiveSite | null): void {
+  const label = diveSiteLabel(dive);
+  // The map is pushed over this dive's own page, so a link back to it from the map goes back.
+  if (drawsOnMap(dive)) {
+    showOnMap({ kind: 'dive', id: dive.id, overItsPage: true }, point, label);
+    return;
+  }
+  // A plan's map is pointed at its SITE but pushed over the plan — not over the site's page.
+  if (planSite !== null) {
+    const focus: MapFocus = { kind: 'site', id: planSite.id };
+    const target = focusTarget(focus, { dives: logbook, sites: [planSite], centers: [] });
+    if (target !== null && target !== 'pending') {
+      showOnMap(focus, point, label);
+      return;
+    }
+  }
+  openInMaps(point, label);
 }
 
 /**
@@ -917,6 +936,9 @@ export default function DiveDetailScreen({
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const dive = dives.find((d) => d.id === id);
+  // A planned dive's site, read live for its *Show on map* (see `showDiveOnMap`). Only a plan asks;
+  // a logged dive reads nothing. Above the not-found return, as every hook here is.
+  const planSite = useDiveSite(dive?.status === 'planned' ? dive.siteId : null);
 
   if (dive === undefined) {
     return (
@@ -1107,9 +1129,8 @@ export default function DiveDetailScreen({
             <MapCard
               styles={styles}
               scheme={scheme}
-              point={point}
               coordinates={coordinates}
-              label={diveSiteLabel(dive)}
+              onPress={() => showDiveOnMap(dive, point, dives, planSite)}
             />
           )}
 

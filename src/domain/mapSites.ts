@@ -208,6 +208,19 @@ export function groupDivesByPlace(dives: readonly Dive[]): MapSite[] {
   return sites;
 }
 
+/**
+ * **Whether the map draws this dive at all** — a logged dive with a position a map can show.
+ *
+ * Asked of `groupDivesByPlace` itself rather than written as `status === 'logged' && pointOf(…)`,
+ * because that function is the owner of both halves (§2.4 keeps a plan off the map; `pointOf`
+ * decides what a position is), and the dive detail's *Show on map* has to agree with the map it
+ * opens about which dives it can point at (issue #21). A second statement of the rule is a second
+ * answer waiting to disagree with the first.
+ */
+export function drawsOnMap(dive: Dive): boolean {
+  return groupDivesByPlace([dive]).length > 0;
+}
+
 /** The first dive in the group that actually carries a point — see `groupDivesByPlace` on why
  * "first" is the caller's order and therefore the most recent dive. */
 function firstPoint(dives: readonly Dive[]): MapPoint | null {

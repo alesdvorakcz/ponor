@@ -477,6 +477,42 @@ describe('a map mark', () => {
     expect(sheet.mapMarkDot?.borderWidth).toBeGreaterThan(0);
     expect(sheet.mapMarkBadge?.borderWidth).toBe(sheet.mapMarkDot?.borderWidth);
   });
+
+  /**
+   * **A chosen mark is the same mark eight points bigger, floating** (issue #21) — the design
+   * canvas's `pin.selected = +4 px and a floating shadow`, scaled to Ponor's larger marks (+4 on the
+   * canvas's 14 pt pin is ~30%; on 26 that is 8 — `MAP_MARK_LIFT` has the measurement). Measured
+   * from the marks' own size, so a
+   * re-sized mark carries its chosen size with it; radius half the height, so the disc stays a
+   * disc and the badge a fully rounded pill; and the shadow the floating capsules' own, so "this
+   * floats" is one treatment across the app rather than a second one invented for the map.
+   */
+  it.each(['dark', 'light'] as const)('lifts a chosen mark by eight points and the floating shadow (%s)', (scheme) => {
+    const sheet = makeStyles(scheme) as unknown as Record<string, Record<string, unknown>>;
+    const lifted = sheet.mapMarkLifted;
+    const size = sheet.mapMarkDot?.height as number;
+    expect(lifted?.height).toBe(size + 8);
+    expect(lifted?.minWidth).toBe(size + 8);
+    expect(lifted?.borderRadius).toBe((size + 8) / 2);
+    for (const key of ['shadowColor', 'shadowOffset', 'shadowOpacity', 'shadowRadius', 'elevation']) {
+      expect(lifted?.[key]).toBeDefined();
+      expect(lifted?.[key]).toEqual(sheet.searchCapsuleGlass?.[key]);
+    }
+  });
+
+  /**
+   * **...and it spends no ink**, which is the whole reason it can reach the community site's solid
+   * disc: that mark is already at full ink and inverting it is impossible (`action` is `fg`). A
+   * lift that also wrote a fill or a border would override the mark's own ink for one kind and
+   * not another — a chosen community site redrawn as an outlined disc would read as a centre,
+   * the one confusion §3 says the map may not create.
+   */
+  it('lifts a mark without touching its ink', () => {
+    const sheet = makeStyles('dark') as unknown as Record<string, Record<string, unknown>>;
+    expect(Object.keys(sheet.mapMarkLifted ?? {}).sort()).toEqual(
+      ['borderRadius', 'elevation', 'height', 'minWidth', 'shadowColor', 'shadowOffset', 'shadowOpacity', 'shadowRadius'],
+    );
+  });
 });
 
 describe('the form field row', () => {

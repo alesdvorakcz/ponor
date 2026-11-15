@@ -675,6 +675,11 @@ export const cs = {
       allSites: 'Všechny lokality',
       allCentres: 'Všechna centra',
       sitePage: 'Stránka lokality',
+      /** *Trasa*, the plain Czech word for a route to somewhere. The announcement puts
+       * the name after a colon rather than after *do*: the preposition would govern the genitive,
+       * and a diver's own site name cannot be declined (§4.1's Czech case-government note). */
+      directions: 'Trasa',
+      directionsTo: 'Trasa: {{name}}',
       closeSheet: 'Zavřít {{name}}',
       noDives: 'Zatím žádný zaznamenaný ponor. Ponor se na mapě objeví, jakmile mu dáte bod.',
       noDivePins_one:

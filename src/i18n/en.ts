@@ -819,6 +819,11 @@ export const en = {
       allSites: 'All sites',
       allCentres: 'All centres',
       sitePage: 'Site page',
+      /** A focused map's way to the device's maps app (issue #21) — what *Show on map* did before it
+       * opened Ponor's own map, kept one tap away. The label is the iOS Maps word for the act;
+       * the announcement names the place, because "Directions" alone does not say to where. */
+      directions: 'Directions',
+      directionsTo: 'Directions to {{name}}',
       closeSheet: 'Close {{name}}',
       noDives: 'No dives logged yet. A dive joins the map when you give it a pin.',
       /**

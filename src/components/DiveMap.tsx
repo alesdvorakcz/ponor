@@ -250,14 +250,22 @@ export interface DiveMapHandle {
  * and every mark carrying it disappears — but it is no longer being asked to be the legend, and
  * this vocabulary does not need one.
  *
- * **The filled mark has no selected form, and that is why IT is the kind that is filled.** §0.1
- * leaves exactly one lever for "this one is chosen" and it is inverted ink, but `action` **is**
- * `fg` in both themes (§0.2) — so a mark already at full ink has nothing left to invert into.
- * M2n measured the identical thing one axis over ("a coloured fill has no ink left to say
- * selected"). Since M3f a catalogue row's mark **navigates to its page** and is never selected,
- * so a community mark can spend the fill without spending the state; the two marks that can be
- * chosen — a place of the diver's own, and a centre, which keeps its outlined disc for exactly
- * this reason — keep `selectedFill`'s inversion intact.
+ * **The filled mark has no inverted form, and that is why IT is the kind that is filled.** §0.1's
+ * lever for "this one is chosen" was inverted ink, but `action` **is** `fg` in both themes (§0.2)
+ * — so a mark already at full ink has nothing left to invert into. M2n measured the identical
+ * thing one axis over ("a coloured fill has no ink left to say selected"). Since M3f a catalogue
+ * row's mark **navigates to its page** and a press never selects it, so a community mark could
+ * spend the fill without spending the state; the two marks a press can choose — a place of the
+ * diver's own, and a centre, which keeps its outlined disc for exactly this reason — keep
+ * `selectedFill`'s inversion intact.
+ *
+ * **A chosen mark is also LIFTED, every kind of it** (issue #21). A map pointed at a site starts
+ * with that site's solid disc chosen, and a state nothing can show is a state the diver cannot
+ * find in a bay of sites. The design canvas answers every mark with one rule — `pin.selected =
+ * +4 px and a floating shadow` — and that rule spends no ink, so it reaches the filled disc
+ * exactly as it reaches the other two (`mapMarkLifted`, theme/styles.ts; +8 at Ponor's 26 pt marks,
+ * measured, for the canvas's proportion). The outlined marks invert as well; the solid one only
+ * grows and floats.
  *
  * **A tap does not mean the same thing on all three**, and since M3e the MARK has to carry that
  * rather than the layer: a catalogue row goes to its page and the diver's own dives open a sheet.
@@ -446,7 +454,7 @@ export const DiveMap = forwardRef<DiveMapHandle, DiveMapProps>(function DiveMap(
                 on whether some field happens to be null — which is what the union above buys:
                 a community site cannot acquire a badge and a place cannot lose one. */}
             {mark.kind === 'mine' ? (
-              <View style={[styles.mapMarkBadge, chosen && styles.mapMarkBadgeSelected]}>
+              <View style={[styles.mapMarkBadge, chosen && styles.mapMarkBadgeSelected, chosen && styles.mapMarkLifted]}>
                 <Text style={[styles.mapMarkBadgeLabel, chosen && styles.mapMarkBadgeLabelSelected]}>
                   {mark.badge}
                 </Text>
@@ -458,7 +466,7 @@ export const DiveMap = forwardRef<DiveMapHandle, DiveMapProps>(function DiveMap(
               // would be saying something the catalogue does not know. A centre says which kind
               // of row it is with the filter's own glyph instead, in the outlined disc it keeps
               // so that `selectedFill` still has somewhere to invert into.
-              <View style={[styles.mapMarkDot, chosen && styles.mapMarkDotSelected]}>
+              <View style={[styles.mapMarkDot, chosen && styles.mapMarkDotSelected, chosen && styles.mapMarkLifted]}>
                 <SymbolView
                   name={symbolName(CENTERS_GLYPH)}
                   size={MARK_GLYPH_SIZE}
@@ -469,9 +477,10 @@ export const DiveMap = forwardRef<DiveMapHandle, DiveMapProps>(function DiveMap(
               // **A community site: the same disc, drawn solid, and nothing inside it** (M3k).
               // The fill is what says which kind this is — see this file's note above for why an
               // empty interior could not, and why the kind that navigates is the kind that can
-              // afford to be drawn at full ink. `chosen` is deliberately not read here: there is
-              // no darker ink to move to, and no press on this map can produce the state.
-              <View style={[styles.mapMarkDot, styles.mapMarkDotFilled]} />
+              // afford to be drawn at full ink. Chosen, it keeps its ink (there is no darker one
+              // to move to) and is LIFTED instead — no press produces that, but a map pointed at
+              // a site does (issue #21).
+              <View style={[styles.mapMarkDot, styles.mapMarkDotFilled, chosen && styles.mapMarkLifted]} />
             )}
           </Marker>
         );
