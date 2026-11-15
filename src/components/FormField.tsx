@@ -224,8 +224,9 @@ export interface FormFieldProps {
   /**
    * `false` while the value is being saved somewhere — the *New dive site* page holds its fields
    * still from Save to the row existing (issue #19), so nothing typed meanwhile is silently left
-   * out of what was written. It shuts the input and the focused clear ring, the two ways this row
-   * edits its value; omitted, the field is editable as it always was.
+   * out of what was written. It shuts the input, the one way this row edits its value (the
+   * focused clear ring that was a second went with issue #29); omitted, the field is editable as
+   * it always was.
    */
   editable?: boolean;
   /**
