@@ -8,9 +8,14 @@
  * that has gone quiet, so both have to come back. §4.1: a second implementation is a defect,
  * and the details below are exactly the kind that get one right and the other subtly wrong.
  *
+ * Since issue #19 it also bounds a request to the server: §2.3's duplicate check on Save
+ * (`cloud/addToCatalogue.ts`), which the Supabase client would otherwise let hang as long as a
+ * socket on weak signal does — the same diver, watching the same quiet control.
+ *
  * **`null` rather than a rejection**, so the caller tells "it took too long" from "it failed"
  * by the value instead of by inspecting an error it did not raise. A timeout is not an error
- * here: on both call sites it is a sentence a diver reads, not an exception anybody handles.
+ * here: at every call site it is a sentence a diver reads or an answer the app goes on without,
+ * not an exception anybody handles.
  *
  * **The timer is cleared on every path, the winning one included**: a twenty-second timer left
  * running holds the timer queue open long after the answer is on screen, and under Jest's fake

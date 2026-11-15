@@ -4,6 +4,7 @@ import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
 import { nearMatches, type Suggestion } from '../domain/suggest';
 import { countryFor } from '../platform/geocode';
+import { withTimeout } from '../platform/withTimeout';
 import { similarSites } from './similarSites';
 import { cloud } from './supabase';
 
@@ -19,6 +20,18 @@ import { cloud } from './supabase';
  * client-generated UUIDv7, `status` active, and `created_by` left to `push_changes`, which stamps
  * `auth.uid()` and ignores whatever a client sent (§5, §6, §7).
  */
+
+/**
+ * **How long Save waits for the server's half of §2.3's check before going on without it.**
+ *
+ * `GEOCODE_TIMEOUT_MS`' four seconds, for that constant's reason: one round trip that has either
+ * happened or is not going to, asked while the diver watches *Saving…*. Its own name because it
+ * bounds a different question, and the two may part company. The Supabase client sets no fetch
+ * timeout, so without this a request on weak signal holds Save for as long as the OS lets a
+ * socket hang — and since issue #19 every site on a dive is made through this check, so that
+ * would be logging itself held up (§1).
+ */
+export const TWIN_CHECK_TIMEOUT_MS = 4_000;
 
 export interface NewCenterInput {
   name: string;
@@ -46,14 +59,18 @@ export interface NewCenterInput {
  * already answers `[]` for every way of failing to reach a server; the `catch` covers the one
  * that is local, the device's own catalogue read, and gives the answer a diver at sea gets
  * anyway. Anything that escaped would strand the row mid-gesture with nothing on screen.
+ *
+ * **And it always comes back.** A server that never answers is the one failure `similarSites`
+ * cannot turn into `[]`, so its half is raced against `TWIN_CHECK_TIMEOUT_MS`; out of time, the
+ * device's matches stand alone — the answer a diver out of signal gets anyway.
  */
 export async function findSiteTwins(name: string, at: MapPoint | null): Promise<Suggestion[]> {
   try {
     const [onDevice, fromServer] = await Promise.all([
       listDiveSites(db),
-      similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null),
+      withTimeout(similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null), TWIN_CHECK_TIMEOUT_MS),
     ]);
-    return nearMatches(name, onDevice, fromServer);
+    return nearMatches(name, onDevice, fromServer ?? []);
   } catch {
     return [];
   }

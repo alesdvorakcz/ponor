@@ -1,7 +1,8 @@
 import { createDiveCenter, createDiveSite, listDiveSites } from '../db/catalogue';
+import { type Suggestion } from '../domain/suggest';
 import { type DiveSite } from '../domain/types';
 import { countryFor } from '../platform/geocode';
-import { addCenter, addSite, findSiteTwins } from './addToCatalogue';
+import { addCenter, addSite, findSiteTwins, TWIN_CHECK_TIMEOUT_MS } from './addToCatalogue';
 import { similarSites } from './similarSites';
 
 // The collaborators are mocked at the boundaries the form's own test mocks them at, for the same
@@ -65,6 +66,29 @@ describe('findSiteTwins', () => {
     askServer.mockResolvedValue([{ value: 'Kotelna', id: 's-far' }]);
 
     await expect(findSiteTwins('Kotelna', null)).resolves.toEqual([]);
+  });
+
+  // Weak signal: the request is out and nothing comes back. The Supabase client sets no fetch
+  // timeout, so without a bound of its own Save would read *Saving…* for as long as the OS lets a
+  // socket hang — and every site on a dive is now made through this check.
+  describe('when the server never answers', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('answers the device’s matches once TWIN_CHECK_TIMEOUT_MS has passed', async () => {
+      listSites.mockResolvedValue([site('s-local', 'Kotelna')]);
+      askServer.mockReturnValue(new Promise(() => {}));
+
+      let answer: Suggestion[] | undefined;
+      void findSiteTwins('kotelna', null).then((found) => {
+        answer = found;
+      });
+
+      await jest.advanceTimersByTimeAsync(TWIN_CHECK_TIMEOUT_MS - 1);
+      expect(answer).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(answer?.map((s) => s.id)).toEqual(['s-local']);
+    });
   });
 });
 
