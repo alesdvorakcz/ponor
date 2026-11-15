@@ -61,9 +61,10 @@ export interface FormFieldProps {
   multiline?: boolean;
   /**
    * Masks what is typed — the account screen's password rows (signing in or up, and the new
-   * password after a reset) and nothing else in this app (M2e). It is the one field in Ponor whose value is a secret, and the three rules that
-   * follow from that live where they can be enforced (`cloud/auth.ts`): it is never logged,
-   * never wrapped into an error, and never persisted anywhere but the auth call.
+   * password after a reset) and nothing else in this app (M2e). A password is the one value in
+   * Ponor that is a secret, and the three rules that follow from that live where they can be
+   * enforced (`cloud/auth.ts`): it is never logged, never wrapped into an error, and never
+   * persisted anywhere but the auth call.
    *
    * **This component adds one rule of its own for it, and only one** (issue #29, owner's
    * call): a deletion empties the field, because the diver cannot see what it would take off
