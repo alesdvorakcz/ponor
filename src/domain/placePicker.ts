@@ -1,10 +1,10 @@
-import { divesWithCenter } from "./centerDives";
-import { distanceKm } from "./geo";
-import { logbookStats, sitesVisited } from "./logbookStats";
-import { pointOf, type MapPoint } from "./mapSites";
-import { browseCatalogue, foldForMatching } from "./search";
-import { divesAtSite } from "./siteDives";
-import { type Dive, type DiveSite } from "./types";
+import { divesWithCenter } from './centerDives';
+import { distanceKm } from './geo';
+import { logbookStats, sitesVisited } from './logbookStats';
+import { pointOf, type MapPoint } from './mapSites';
+import { browseCatalogue, foldForMatching } from './search';
+import { divesAtSite } from './siteDives';
+import { type Dive, type DiveSite } from './types';
 
 /**
  * **What the site and centre picker lists, and under which heading** (the site-picker design,
@@ -43,14 +43,14 @@ import { type Dive, type DiveSite } from "./types";
  */
 
 /** Which table the picker is choosing from. */
-export type PlaceKind = "site" | "center";
+export type PlaceKind = 'site' | 'center';
 
 /**
  * Where a row came from, in the terms the diver reads on its meta line: `'community'` (the
  * shared catalogue), `'yours'` (this diver contributed it — pushed or still waiting), or
  * `'phoneOnly'` (a guest's row, which nothing pushes until they sign in).
  */
-export type Provenance = "community" | "yours" | "phoneOnly";
+export type Provenance = 'community' | 'yours' | 'phoneOnly';
 
 /** Near me's radius (the design: **NEAR YOU · WITHIN 50 KM**). */
 export const NEAR_ME_RADIUS_KM = 50;
@@ -64,7 +64,7 @@ export const NEAR_SITE_RADIUS_KM = 10;
  */
 export type PickerPlace = Pick<
   DiveSite,
-  "id" | "name" | "country" | "latitude" | "longitude" | "createdBy" | "dirty"
+  'id' | 'name' | 'country' | 'latitude' | 'longitude' | 'createdBy' | 'dirty'
 >;
 
 /** One line of the list, as far as the rules go; wording and formatting belong to the screen. */
@@ -87,7 +87,7 @@ export interface PickerRow {
   selected: boolean;
 }
 
-export type PickerGroupKey = "dived" | "other" | "near" | "nearSite";
+export type PickerGroupKey = 'dived' | 'other' | 'near' | 'nearSite';
 export interface PickerGroup {
   key: PickerGroupKey;
   rows: PickerRow[];
@@ -117,23 +117,23 @@ export interface PickerInput {
  */
 export function provenanceOf(
   place: PickerPlace,
-  viewer: PickerInput["viewer"],
+  viewer: PickerInput['viewer'],
 ): Provenance {
-  if (place.dirty) return viewer.signedIn ? "yours" : "phoneOnly";
+  if (place.dirty) return viewer.signedIn ? 'yours' : 'phoneOnly';
   if (
     viewer.signedIn &&
     viewer.userId !== null &&
     place.createdBy === viewer.userId
   )
-    return "yours";
-  return "community";
+    return 'yours';
+  return 'community';
 }
 
 /** A catalogue row we can read: an object with a string id. Anything else is skipped. */
 function isReadable(
   place: PickerPlace | null | undefined,
 ): place is PickerPlace {
-  return !!place && typeof place.id === "string" && place.id !== "";
+  return !!place && typeof place.id === 'string' && place.id !== '';
 }
 
 /** The dive pairing for one row, by the rule the row's own page uses. */
@@ -142,18 +142,18 @@ function divesFor(
   dives: readonly Dive[],
   place: PickerPlace,
 ): Dive[] {
-  return kind === "site"
+  return kind === 'site'
     ? divesAtSite(dives, place)
     : divesWithCenter(dives, place);
 }
 
 /** The counts a dived row shows, or null when no logged dive is paired to it. */
-function divedOf(paired: readonly Dive[]): PickerRow["dived"] {
+function divedOf(paired: readonly Dive[]): PickerRow['dived'] {
   const stats = logbookStats(paired);
   if (stats.dives === 0) return null;
   let lastDate: string | null = null;
   for (const d of paired) {
-    if (d.status !== "logged" || typeof d.date !== "string") continue;
+    if (d.status !== 'logged' || typeof d.date !== 'string') continue;
     if (lastDate === null || d.date > lastDate) lastDate = d.date;
   }
   return {
@@ -190,10 +190,10 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
   // Prefiltering to logged dives is the same answer the helpers give (they refuse a plan), it
   // only spares them walking plans once per catalogue row.
   const logged = Array.isArray(input.dives)
-    ? input.dives.filter((d) => !!d && d.status === "logged")
+    ? input.dives.filter((d) => !!d && d.status === 'logged')
     : [];
-  const needle = foldForMatching(typeof query === "string" ? query : "");
-  const typed = needle !== "";
+  const needle = foldForMatching(typeof query === 'string' ? query : '');
+  const typed = needle !== '';
   const near = input.near ? pointOf(input.near) : null;
   const nearSite = input.nearSite ? pointOf(input.nearSite) : null;
 
@@ -203,8 +203,8 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     distance: number | null,
   ): PickerRow => ({
     id: place.id,
-    name: typeof place.name === "string" ? place.name : null,
-    country: typeof place.country === "string" ? place.country : null,
+    name: typeof place.name === 'string' ? place.name : null,
+    country: typeof place.country === 'string' ? place.country : null,
     provenance: provenanceOf(place, viewer),
     dived: divedOf(paired),
     distanceKm: distance,
@@ -230,7 +230,7 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     }
     rows.sort((a, b) => a.km - b.km);
     return rows.length > 0
-      ? [{ key: "near", rows: rows.map((r) => r.row) }]
+      ? [{ key: 'near', rows: rows.map((r) => r.row) }]
       : [];
   }
 
@@ -241,15 +241,15 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     .map((place) => row(place, pairedOf.get(place.id) ?? [], null))
     .filter((r) => r.dived !== null)
     .sort((a, b) =>
-      (b.dived?.lastDate ?? "").localeCompare(a.dived?.lastDate ?? ""),
+      (b.dived?.lastDate ?? '').localeCompare(a.dived?.lastDate ?? ''),
     );
-  if (dived.length > 0) groups.push({ key: "dived", rows: dived });
+  if (dived.length > 0) groups.push({ key: 'dived', rows: dived });
   const divedIds = new Set(dived.map((r) => r.id));
 
   if (typed) {
     const others = matching.filter((place) => !divedIds.has(place.id));
     const prefix = (place: PickerPlace) =>
-      typeof place.name === "string" &&
+      typeof place.name === 'string' &&
       foldForMatching(place.name).startsWith(needle);
     const ordered = [
       ...others.filter(prefix),
@@ -257,14 +257,14 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     ];
     if (ordered.length > 0) {
       groups.push({
-        key: "other",
+        key: 'other',
         rows: ordered.map((place) => row(place, [], null)),
       });
     }
     return groups;
   }
 
-  if (kind === "center" && nearSite !== null) {
+  if (kind === 'center' && nearSite !== null) {
     const rows: { row: PickerRow; km: number }[] = [];
     for (const place of matching) {
       if (divedIds.has(place.id)) continue;
@@ -274,7 +274,7 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     }
     rows.sort((a, b) => a.km - b.km);
     if (rows.length > 0)
-      groups.push({ key: "nearSite", rows: rows.map((r) => r.row) });
+      groups.push({ key: 'nearSite', rows: rows.map((r) => r.row) });
   }
 
   return groups;
