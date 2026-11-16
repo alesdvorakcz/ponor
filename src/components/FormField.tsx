@@ -232,6 +232,13 @@ export interface FormFieldProps {
    */
   editable?: boolean;
   /**
+   * **One row of a card of rows** (issue #24) — the account screen holds its address and
+   * password in one `surface` card, so this row draws no hairline over itself and no focus card
+   * inside a card that is already the fill. Focus still shows, as the caret. Omitted everywhere
+   * else, where a field is a row on the screen's own ground.
+   */
+  grouped?: boolean;
+  /**
    * Fired with the **whole** `Suggestion` the diver tapped, never just its text — its id
    * included, so a caller that pairs a name with a record is never left holding a name and no
    * way to know which record it named (§10: *"otherwise a dive carries one site's id under
@@ -283,7 +290,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable, grouped },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -407,7 +414,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
   return (
     <View
       ref={fieldRef}
-      style={[styles.formField, focused && styles.formFieldFocused]}
+      style={[styles.formField, focused && styles.formFieldFocused, grouped === true && styles.formFieldGrouped]}
       // While focused, every layout change — the list arriving, growing, shrinking — re-asks
       // the form to keep this field in view, so a list that grows under the keyboard is lifted
       // above it rather than left for the diver to find.
@@ -417,7 +424,10 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
           the label above all — focuses the input; `accessible={false}` so a screen reader
           still lands on the input alone, which announces itself by the label already. */}
       <Pressable
-        style={[styles.formFieldCard, focused && styles.formFieldCardFocused]}
+        style={[
+          styles.formFieldCard,
+          grouped === true ? styles.formFieldCardGrouped : focused && styles.formFieldCardFocused,
+        ]}
         onPress={() => inputRef.current?.focus()}
         accessible={false}
       >

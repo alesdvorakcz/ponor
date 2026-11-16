@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useColorScheme, type TextInput } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useColorScheme, type ImageSourcePropType, type TextInput } from 'react-native';
+import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 
+import { AccountPerks } from '../components/AccountPerks';
 import { FieldNote } from '../components/FieldNote';
 import { FormField } from '../components/FormField';
 import {
@@ -20,29 +21,16 @@ import { t, useT, type TranslationKey } from '../i18n';
 import { backToSettings } from '../navigation/leaveScreen';
 import { confirmDestructive } from '../platform/confirmDestructive';
 import { resolveScheme } from '../theme/resolve';
+import { type ColorScheme } from '../theme/tokens';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
 
 /**
- * §1, said to a diver rather than to a planner: "an account is only needed to back up, sync a
- * second device, and contribute named sites."
- *
- * **The third clause was missing until M2o, and it was missing because it was not yet true**:
- * nothing in the app could add a site, so a sentence promising it would have been the spec
- * asserting an unbuilt feature that §0.6 has already been caught doing twice. §2.3's *add this
- * to the catalogue* offer is that half arriving, and it is **the only place a guest is told
- * about it** — the offer is simply absent on the dive form, because a row there reading "sign
- * in to add this" would be a dead control and a nag on the app's most-used gesture, every
- * dive. This screen is where a diver comes to ask what an account is for, and it gates nothing.
- *
- * It leads the form because it is the answer to the question a diver arrives with, and because
- * §1 makes the answer *"you don't have to"* — this screen is reached from a Settings row and
- * never gates anything, and the sentence is what says so on the screen itself rather than only
- * in the navigation.
+ * The mark, monochrome and on a transparent ground — the first-run screen's (`EmptyState`), from
+ * the same `assets/mark.svg` the app icons come from. The account screen opens the way the
+ * first-run screen does, because the first-run card is now one of the two ways here (issue #24).
  */
-function whatAnAccountIsFor(): string {
-  return t('account.whatItIsFor');
-}
+const MARK: ImageSourcePropType = require('../../assets/images/mark-mono.png');
 
 /**
  * **What the form is doing, as its heading** (2026-11-14). Both modes used to sit under
@@ -77,9 +65,10 @@ const ACTION_LABEL: Record<AuthMode, TranslationKey> = {
 /**
  * The way to the other mode — **named for where it goes, not for where it is**.
  *
- * `mutedControl`'s treatment (theme/styles.ts): a deliberate act that is not the screen's
- * primary one, exactly as *Delete preset* and *Save as preset* are, and muted so it never
- * competes with the action it sits under.
+ * **The outlined button** (`secondaryAction`, theme/styles.ts — issue #24). It was
+ * `mutedControl`'s label, and the owner could not tell it from text: a control has to look like
+ * one. Outlined rather than filled, so the inverted primary above it is still the one thing this
+ * screen is for.
  *
  * **It is paired with that action rather than left at the end of the content** (M2f). What
  * this control says is *"the button below is the wrong verb for me"*, so it belongs to the
@@ -95,7 +84,7 @@ const ACTION_LABEL: Record<AuthMode, TranslationKey> = {
  * layout. The pinning that closed it is therefore about *containment* — the footer holds
  * both controls and the scroll holds neither (AccountScreen.test.tsx).
  *
- * A muted control rather than a chip row, though §0.6 has chips and this looks like a choice.
+ * A button rather than a chip row, though §0.6 has chips and this looks like a choice.
  * Two reasons. A chip row is a *field* — "a field is a row, label leading" — and this is not a
  * field of anything; giving it a label would have meant inventing a noun for "which of the two
  * things this screen is doing", and the heading and the button already say that. And it keeps
@@ -190,20 +179,24 @@ function noBackendMessage(): string {
  * lives outside expo-router's swept `src/app/` tree so its colocated test is not bundled into
  * the app, the same shape every other screen here has.
  *
- * **It is a screen stacked on Settings, not a tab and not a gate.** §1 is the constraint that
- * shapes the whole thing: "an account is only needed to back up, sync a second device, and
- * contribute named sites", and M1 shipped a complete logbook with no backend in existence. So
- * there is no launch screen, nothing to dismiss, and no route into this one but a row in
- * Settings (§3's "account & sync"). The way out is `‹ Settings`, present in every state
- * including the ones that have nothing else on them.
+ * **It is a stacked screen, not a tab and not a gate.** §1 is the constraint that shapes the
+ * whole thing: "an account is only needed to back up, sync a second device, and contribute named
+ * sites", and M1 shipped a complete logbook with no backend in existence. So there is no launch
+ * screen and nothing to dismiss. Two ways in since issue #24: the offer card a guest meets on the
+ * empty logbook and at the top of Settings, and Settings' *Account & sync* row for everyone else.
+ * The way out is `‹ Back`, present in every state including the ones that have nothing else on
+ * them.
  *
  * **Nothing here is a login-screen idiom.** §0.6 exists because a screen was once "built to
  * spec and then styled by default into a different language", and the sign-in screen is where
  * that happens by reflex — every app has one and they all look alike. This one is the dive
  * form's grammar with different words in it: fields are rows (`FormField`), what went wrong is
  * text under the row it belongs to (`FieldNote`), the primary action is filled inverted ink in
- * a fixed footer, the secondary ones are muted labels at the end of the content, and leaving
- * has the one treatment it has everywhere.
+ * a fixed footer, and leaving has the one treatment it has everywhere. **Since issue #24 it
+ * wears the design canvas's grouped layout** (the owner's pick): a head that opens like the
+ * first-run screen (`AccountHead`), both rows in one surface card, and every second control a
+ * button shape — the quiet pill, the outlined button — because as muted labels the owner could
+ * not tell them from text.
  *
  * **Five states, and each is drawn for a reason the next one is not.**
  *
@@ -325,9 +318,11 @@ export default function AccountScreen() {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <BackControl styles={styles} />
-        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
-        <View style={styles.accountCaption}>
-          <Text style={styles.accountCaptionText}>{noBackendMessage()}</Text>
+        <View style={styles.settingsContent}>
+          <AccountHead styles={styles} scheme={scheme} title={t('account.heading')} />
+          <View style={[styles.accountBody, styles.accountCaption]}>
+            <Text style={styles.accountCaptionText}>{noBackendMessage()}</Text>
+          </View>
         </View>
       </View>
     );
@@ -462,7 +457,9 @@ export default function AccountScreen() {
             `GearPresetScreen` both apply to their own not-found branches — a screen must not
             say "you are not signed in" before anything has looked. The heading stays put
             through all of it, so this is a screen filling in rather than one appearing. */}
-        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
+        <View style={styles.settingsContent}>
+          <AccountHead styles={styles} scheme={scheme} title={t('account.heading')} />
+        </View>
       </View>
     );
   }
@@ -474,9 +471,8 @@ export default function AccountScreen() {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
         <BackControl styles={styles} />
-        <Text style={styles.accountHeading}>{t('account.heading')}</Text>
-        <View style={styles.accountCaption}>
-          <Text style={styles.accountCaptionText}>{t('account.signingIn')}</Text>
+        <View style={styles.settingsContent}>
+          <AccountHead styles={styles} scheme={scheme} title={t('account.heading')} sub={t('account.signingIn')} />
         </View>
       </View>
     );
@@ -493,18 +489,18 @@ export default function AccountScreen() {
       >
         <BackControl styles={styles} />
         <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.accountHeading}>{t('account.newPasswordHeading')}</Text>
-          {session.user.email !== undefined && (
-            <View style={styles.formField}>
-              <View style={styles.formFieldRow}>
-                <Text style={styles.formFieldLabel}>{t('account.signedInAs')}</Text>
-                <Text style={styles.accountEmail}>{session.user.email}</Text>
-              </View>
-            </View>
-          )}
-          <View>
-            <FormField
-              label={t('account.newPassword')}
+          <AccountHead styles={styles} scheme={scheme} title={t('account.newPasswordHeading')} />
+          <View style={styles.accountBody}>
+            <View style={styles.accountFieldCard}>
+              {session.user.email !== undefined && (
+                <>
+                  <ReadRow styles={styles} label={t('account.signedInAs')} value={session.user.email} />
+                  <View style={styles.accountFieldDivider} />
+                </>
+              )}
+              <FormField
+                grouped
+                label={t('account.newPassword')}
               value={freshPassword}
               onChange={(text) => {
                 setFreshNote(null);
@@ -518,8 +514,9 @@ export default function AccountScreen() {
               autoComplete="new-password"
               returnKeyType="go"
               onSubmitEditing={() => void saveFreshPassword()}
-            />
-            <FieldNote message={freshNote ?? undefined} scheme={scheme} />
+              />
+              <FieldNote message={freshNote ?? undefined} scheme={scheme} />
+            </View>
           </View>
         </ScrollView>
         <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
@@ -560,30 +557,25 @@ export default function AccountScreen() {
           contentContainerStyle={styles.settingsContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.accountHeading}>{t('account.heading')}</Text>
+          <AccountHead styles={styles} scheme={scheme} title={t('account.heading')} sub={t('account.signedInSub')} />
 
-          {address !== null && (
-            <View style={styles.formField}>
-              <View style={styles.formFieldRow}>
-                <Text style={styles.formFieldLabel}>{t('account.signedInAs')}</Text>
-                <Text style={styles.accountEmail}>{address}</Text>
+          <View style={styles.accountBody}>
+            {address !== null && (
+              <View style={styles.accountFieldCard}>
+                <ReadRow styles={styles} label={t('account.signedInAs')} value={address} />
               </View>
-            </View>
-          )}
+            )}
 
-          {linkNews !== null && (
-            <View style={styles.accountCaption}>
-              <Text style={styles.accountCaptionText}>{linkNews}</Text>
-            </View>
-          )}
-
-          {/* §7.4's adoption message: a statement about what already happened, in the app's
-              own register, with nothing to dismiss and nothing blocked behind it. */}
-          {adoption !== null && (
-            <View style={styles.accountCaption}>
-              <Text style={styles.accountCaptionText}>{adoption}</Text>
-            </View>
-          )}
+            {/* What a mail link just did, and §7.4's adoption message: statements about what
+                already happened, in the app's own register, with nothing to dismiss and nothing
+                blocked behind them. */}
+            {(linkNews !== null || adoption !== null) && (
+              <View style={styles.accountCaption}>
+                {linkNews !== null && <Text style={styles.accountCaptionText}>{linkNews}</Text>}
+                {adoption !== null && <Text style={styles.accountCaptionText}>{adoption}</Text>}
+              </View>
+            )}
+          </View>
 
           {/* Kept in this branch on purpose. `signOut` removes the local session before
               returning its error whenever the server refused or could not be reached, so a
@@ -600,17 +592,21 @@ export default function AccountScreen() {
               occupy, for the reason those record: the one act that removes something should
               take a deliberate reach. There is no footer on this branch, because signing out
               is not this screen's primary action and putting it in the slot §0.5 reserves for
-              one would make the destructive control the easiest thing to hit. */}
-          <Pressable
-            style={styles.accountSecondaryAction}
-            onPress={confirmSignOut}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityLabel={t('account.signOut')}
-            accessibilityState={{ disabled: busy }}
-          >
-            <Text style={styles.accountSecondaryActionLabel}>{t('account.signOut')}</Text>
-          </Pressable>
+              one would make the destructive control the easiest thing to hit. Outlined since
+              issue #24, like every second button on this screen; the platform's own dialog is
+              still where the weight goes. */}
+          <View style={styles.accountBody}>
+            <Pressable
+              style={styles.accountSignOut}
+              onPress={confirmSignOut}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={t('account.signOut')}
+              accessibilityState={{ disabled: busy }}
+            >
+              <Text style={styles.secondaryActionLabel}>{t('account.signOut')}</Text>
+            </Pressable>
+          </View>
         </ScrollView>
       </View>
     );
@@ -618,51 +614,28 @@ export default function AccountScreen() {
 
   if (confirmationSentTo !== null) {
     return (
-      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-        <BackControl styles={styles} />
-        <ScrollView
-          style={styles.settingsScroll}
-          contentContainerStyle={styles.settingsContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* The one state where the heading changes, and it changes because the diver has
-              just acted and there is exactly one thing left for them to do. */}
-          <Text style={styles.accountHeading}>{t('account.checkEmail')}</Text>
-
-          {/* **The address, shown back.** A typo at registration is the failure confirmation
-              exists to catch, and it is caught only if the diver can see what was typed. It is
-              the normalised address the mail actually went to, not the raw text in the field —
-              those differ by the trim `authenticate` performs. */}
-          <View style={styles.formField}>
-            <View style={styles.formFieldRow}>
-              <Text style={styles.formFieldLabel}>{t('account.sentTo')}</Text>
-              <Text style={styles.accountEmail}>{confirmationSentTo}</Text>
-            </View>
-          </View>
-
-          <View style={styles.accountCaption}>
-            <Text style={styles.accountCaptionText}>{t('account.openTheLink')}</Text>
-            {/* The two ways no mail arrives, said without asserting either. The app cannot
-                tell them apart: with confirmation on, Supabase answers a sign-up against an
-                address that already has an account exactly as it answers a new one, on
-                purpose, so that nobody can test whether a given address is registered. */}
-            <Text style={styles.accountCaptionText}>{t('account.nothingArrives')}</Text>
-          </View>
-
-          <Pressable
-            style={styles.accountSecondaryAction}
-            onPress={() => {
-              setConfirmationSentTo(null);
-              setMode('signIn');
-              setNote(null);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t('account.backToSignIn')}
-          >
-            <Text style={styles.accountSecondaryActionLabel}>{t('account.backToSignIn')}</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
+      <MailSent
+        styles={styles}
+        scheme={scheme}
+        insets={insets}
+        keyboardShown={keyboardShown}
+        sub={t('account.openTheLink')}
+        // **The address, shown back.** A typo at registration is the failure confirmation exists
+        // to catch, and it is caught only if the diver can see what was typed. It is the
+        // normalised address the mail actually went to, not the raw text in the field — those
+        // differ by the trim `authenticate` performs.
+        address={confirmationSentTo}
+        // The two ways no mail arrives, said without asserting either. The app cannot tell them
+        // apart: with confirmation on, Supabase answers a sign-up against an address that already
+        // has an account exactly as it answers a new one, on purpose, so that nobody can test
+        // whether a given address is registered.
+        note={t('account.nothingArrives')}
+        onBack={() => {
+          setConfirmationSentTo(null);
+          setMode('signIn');
+          setNote(null);
+        }}
+      />
     );
   }
 
@@ -671,33 +644,19 @@ export default function AccountScreen() {
     // back for the same reason. Supabase answers an address with no account exactly as it
     // answers one with an account, so the sentence promises only what the app knows.
     return (
-      <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-        <BackControl styles={styles} />
-        <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
-          <Text style={styles.accountHeading}>{t('account.checkEmail')}</Text>
-          <View style={styles.formField}>
-            <View style={styles.formFieldRow}>
-              <Text style={styles.formFieldLabel}>{t('account.sentTo')}</Text>
-              <Text style={styles.accountEmail}>{resetSentTo}</Text>
-            </View>
-          </View>
-          <View style={styles.accountCaption}>
-            <Text style={styles.accountCaptionText}>{t('account.resetSent')}</Text>
-          </View>
-          <Pressable
-            style={styles.accountSecondaryAction}
-            onPress={() => {
-              setResetSentTo(null);
-              setMode('signIn');
-              setNote(null);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t('account.backToSignIn')}
-          >
-            <Text style={styles.accountSecondaryActionLabel}>{t('account.backToSignIn')}</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
+      <MailSent
+        styles={styles}
+        scheme={scheme}
+        insets={insets}
+        keyboardShown={keyboardShown}
+        sub={t('account.resetSent')}
+        address={resetSentTo}
+        onBack={() => {
+          setResetSentTo(null);
+          setMode('signIn');
+          setNote(null);
+        }}
+      />
     );
   }
 
@@ -723,7 +682,10 @@ export default function AccountScreen() {
         contentContainerStyle={styles.settingsContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.accountHeading}>{t(HEADING[mode])}</Text>
+        {/* The heading names the mode; under it, §7.4 said before anything is typed — the dives
+            on this phone come with you — and what an account adds, in the first-run card's
+            three, said in full. That it is optional is the card's to say: it led here. */}
+        <AccountHead styles={styles} scheme={scheme} title={t(HEADING[mode])} sub={t('account.divesComeWithYou')} perks />
 
         {/* What the last mail link could not do (cloud/authLinkState.ts) — over the form,
             because the form is the way on from it. */}
@@ -733,12 +695,12 @@ export default function AccountScreen() {
           </View>
         )}
 
-        <View style={styles.accountCaption}>
-          <Text style={styles.accountCaptionText}>{whatAnAccountIsFor()}</Text>
-        </View>
-
-        <View>
+        <View style={styles.accountBody}>
+          {/* **Both rows in one card** (issue #24): a block that is plainly the form. Each
+              refusal still stands under the row it is about — inside the card now. */}
+          <View style={styles.accountFieldCard}>
           <FormField
+            grouped
             label={t('account.email')}
             value={email}
             onChange={(text) => {
@@ -766,7 +728,9 @@ export default function AccountScreen() {
           />
           {/* Only ever the refusal this app made about THIS row — see `note` above. */}
           <FieldNote message={noteFor('email')} scheme={scheme} />
+          <View style={styles.accountFieldDivider} />
           <FormField
+            grouped
             ref={passwordRef}
             label={t('account.password')}
             value={password}
@@ -787,21 +751,25 @@ export default function AccountScreen() {
           {/* This row's own refusal, and everything the server said — which is about the pair
               and lands under the last row of it. */}
           <FieldNote message={noteFor('password')} scheme={scheme} />
-          {/* **The way back from a forgotten password** (2026-11-14), with the row it is
+          </View>
+          {/* **The way back from a forgotten password** (2026-11-14), under the card it is
               about — the toggle in the footer is about the BUTTON and stays there; this is
-              about the password ROW, so it sits under that row. Sign-in only: a new
-              account has no password to forget. Left-aligned on the content column, which is
-              §0.6's rule for a control inside a left-aligned block. */}
+              about the password, so it sits under the rows. Sign-in only: a new account has no
+              password to forget. **§0.6's quiet pill since issue #24**: as a muted label it
+              read as a third row, and a control has to look like one. Left-aligned on the
+              content column, §0.6's rule for a control inside a left-aligned block. */}
           {mode === 'signIn' && (
             <Pressable
-              style={styles.accountRowAction}
+              style={styles.accountForgot}
               onPress={() => void forgotPassword()}
               disabled={busy}
               accessibilityRole="button"
               accessibilityLabel={t('account.forgotPassword')}
               accessibilityState={{ disabled: busy }}
             >
-              <Text style={styles.accountSecondaryActionLabel}>{t('account.forgotPassword')}</Text>
+              <View style={styles.accountForgotPill}>
+                <Text style={styles.accountForgotLabel}>{t('account.forgotPassword')}</Text>
+              </View>
             </Pressable>
           )}
           {/* Said before the account is made rather than only after (2026-11-14): there is a
@@ -827,7 +795,7 @@ export default function AccountScreen() {
           (§0.5's floor met by geometry, never `hitSlop` — FormField.tsx keeps the account of
           what an invisible target cost when it was not), so its own centring is what sets
           the label off the button's bottom edge. */}
-      <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
+      <View style={[styles.formFooter, styles.accountFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
         <Pressable
           style={styles.action}
           onPress={() => void submit()}
@@ -843,7 +811,7 @@ export default function AccountScreen() {
         </Pressable>
 
         <Pressable
-          style={styles.accountSecondaryAction}
+          style={styles.secondaryAction}
           onPress={() => {
             setMode(otherMode(mode));
             forgetFailedLink();
@@ -857,7 +825,7 @@ export default function AccountScreen() {
           accessibilityLabel={t(SWITCH_TO[mode])}
           accessibilityState={{ disabled: busy }}
         >
-          <Text style={styles.accountSecondaryActionLabel}>{t(SWITCH_TO[mode])}</Text>
+          <Text style={styles.secondaryActionLabel}>{t(SWITCH_TO[mode])}</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -871,17 +839,14 @@ export default function AccountScreen() {
  * including the two that have nothing else on them: a screen with no backend, and one waiting
  * on a session read, are exactly the ones a diver most needs to leave.
  *
- * **It says `‹ Settings`, and it is the one page in the app still allowed to name where it
- * goes** (M3k). Nothing on this screen is a draft — there is no save, so there is nothing to
- * cancel — and the rule the other pages now follow is *a way out names a destination only when
- * the screen has exactly one way in*. This screen has exactly one: `/account` is pushed from
- * Settings and from nowhere else, so `backToSettings`' pop and its cold-deep-link fallback land
- * in the same place and the label is true on every entrance. That used to be justified by
- * pointing at the dive detail's `‹ Dives`, which was itself wrong on four of its five entrances.
+ * **It says `‹ Back`, and no longer `‹ Settings`** (issue #24). M3k's rule is that a way out names
+ * a destination only when the screen has exactly one way in, and the first-run card is a second
+ * one: a diver who came from the empty logbook and read *‹ Settings* would be told the wrong
+ * place. The pop goes wherever they came from.
  *
- * It writes NOTHING. `backToSettings` (navigation/leaveScreen.ts) pops the stack, or replaces
- * to Settings for a cold deep link — never to the dives list, which is not the screen this one
- * sits on top of.
+ * It writes NOTHING. `backToSettings` (navigation/leaveScreen.ts) pops the stack — to the Dives
+ * list or to Settings, whichever opened it — or, for a cold deep link with no history, replaces
+ * to Settings, where the account row lives.
  */
 function BackControl({ styles }: { styles: Styles }) {
   return (
@@ -892,9 +857,103 @@ function BackControl({ styles }: { styles: Styles }) {
       // Says what leaving does, and deliberately free of the words that name this screen's own
       // controls, so it can never be mistaken — by a screen reader or by a test query — for
       // *Sign in* or *Sign out*.
-      accessibilityLabel={t('back.settingsLabel')}
+      accessibilityLabel={t('back.anyLabel')}
     >
-      <Text style={styles.formBackLabel}>{t('back.settings')}</Text>
+      <Text style={styles.formBackLabel}>{t('back.any')}</Text>
     </Pressable>
+  );
+}
+
+/**
+ * **The head every state opens with** (issue #24, the canvas's screens 19–20): the mark at half
+ * strength, a large title, a line under it, and — on sign in and new account — what an account
+ * adds, in the first-run card's three said in full (`AccountPerks`, one list for both). The title
+ * is the one screen title larger than 20, and on purpose (theme/styles.ts, `accountTitle`).
+ */
+function AccountHead({
+  styles,
+  scheme,
+  title,
+  sub,
+  perks = false,
+}: {
+  styles: Styles;
+  scheme: ColorScheme;
+  title: string;
+  sub?: string;
+  perks?: boolean;
+}) {
+  return (
+    <View style={styles.accountHead}>
+      {/* Decorative: the title beside it says everything the mark does. */}
+      <Image source={MARK} style={styles.accountMark} accessible={false} />
+      <View style={styles.accountTitleBlock}>
+        <Text style={styles.accountTitle}>{title}</Text>
+        {sub !== undefined && <Text style={styles.accountSub}>{sub}</Text>}
+      </View>
+      {perks && <AccountPerks scheme={scheme} variant="sentences" />}
+    </View>
+  );
+}
+
+/** A row that is read, never typed — *Signed in as*, *Sent to* — at the grouped field's own
+ * geometry, inside the field card. A `Text`, not a `FormField`: nothing here can be edited, and a
+ * field that cannot be typed into must not look like one. */
+function ReadRow({ styles, label, value }: { styles: Styles; label: string; value: string }) {
+  return (
+    <View style={styles.accountReadRow}>
+      <Text style={styles.accountReadLabel}>{label}</Text>
+      <Text style={styles.accountEmail}>{value}</Text>
+    </View>
+  );
+}
+
+/**
+ * **"Check your email"** — after a sign-up that sent a confirmation, and after a reset mail. The
+ * heading becomes the one thing left to do, the line under it says how, and the address is shown
+ * back in the card. *Back to sign in* is the footer's one button, outlined: there is no primary
+ * action left here, so nothing on this screen is filled.
+ */
+function MailSent({
+  styles,
+  scheme,
+  insets,
+  keyboardShown,
+  sub,
+  address,
+  note,
+  onBack,
+}: {
+  styles: Styles;
+  scheme: ColorScheme;
+  insets: EdgeInsets;
+  keyboardShown: boolean;
+  sub: string;
+  address: string;
+  note?: string;
+  onBack: () => void;
+}) {
+  return (
+    <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
+      <BackControl styles={styles} />
+      <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
+        <AccountHead styles={styles} scheme={scheme} title={t('account.checkEmail')} sub={sub} />
+        <View style={styles.accountBody}>
+          <View style={styles.accountFieldCard}>
+            <ReadRow styles={styles} label={t('account.sentTo')} value={address} />
+          </View>
+          {note !== undefined && (
+            <View style={styles.accountCaption}>
+              <Text style={styles.accountCaptionText}>{note}</Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+      <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
+        <Pressable style={styles.secondaryAction} onPress={onBack} accessibilityRole="button" accessibilityLabel={t('account.backToSignIn')}>
+          <Text style={styles.secondaryActionLabel}>{t('account.backToSignIn')}</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }

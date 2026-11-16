@@ -1042,8 +1042,11 @@ export const en = {
       newPassword: 'New password',
       savePassword: 'Save password',
       passwordChanged: 'Your password is changed.',
-      whatItIsFor:
-        'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.',
+      /** Under the heading on sign-in and new account (issue #24): §7.4's adoption, said before
+       * anything is typed. That the account is optional is said by the offer that leads here. */
+      divesComeWithYou: 'Dives already on this phone come with you.',
+      /** Under the heading once signed in — what the account does, not a claim about its state. */
+      signedInSub: 'Your dives back up to this account and sync to your other devices.',
       signIn: 'Sign in',
       createAccount: 'Create account',
       switchToSignUp: 'Create an account',

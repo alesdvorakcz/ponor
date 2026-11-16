@@ -851,8 +851,8 @@ export const cs = {
       newPassword: 'Nové heslo',
       savePassword: 'Uložit heslo',
       passwordChanged: 'Heslo je změněné.',
-      whatItIsFor:
-        'Ponor funguje i bez účtu. S účtem se váš deník zálohuje, synchronizuje do dalších zařízení a můžete přidávat potápěčské lokality a centra, která použijí i ostatní.',
+      divesComeWithYou: 'Ponory, které už v telefonu máte, půjdou s vámi.',
+      signedInSub: 'Vaše ponory se zálohují do tohoto účtu a synchronizují do dalších zařízení.',
       signIn: 'Přihlásit se',
       createAccount: 'Vytvořit účet',
       switchToSignUp: 'Vytvořit si účet',
