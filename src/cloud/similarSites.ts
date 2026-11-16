@@ -62,22 +62,6 @@ interface SimilarSitesArgs {
 }
 
 /**
- * One row of the answer, read for the two things the one tap needs.
- *
- * **Deliberately not `fromWireRow` (cloud/sync.ts), and the difference is the direction.**
- * That reader is for a row on its way into a table, so a column missing from the payload is a
- * device running a schema this server has never heard of and it throws rather than writing a
- * partial row. This half is not on its way into a table: it is a name to show and an id to pair
- * a dive with (§6), and a response that is missing, say, `max_depth_m` is still a perfectly good
- * answer to *"did you mean Shark Point?"*. Refusing it here would turn a newer server into a
- * broken duplicate check. The half that is stored is `SimilarSitesAnswer.rows`, read strictly.
- *
- * A row that cannot supply both halves is dropped instead, because half of the pair is what
- * §10 spent this milestone making impossible: a dive carrying one site's id under another's
- * name. Names are trimmed for the same reason the offer publishes a trimmed one (M2o) — the
- * dive's `site_name` snapshot and the row it points at should be one string.
- */
-/**
  * **What the check answers: the one tap's halves, and the rows whole.** `matches` are read
  * loosely, as `candidateFrom` says. `rows` are the same answer read the strict way, through
  * `fromWireRow`, for one reason only: the create page pairs the dive with the match it taps, and
@@ -106,6 +90,22 @@ function storableFrom(row: unknown): PulledSite | null {
   }
 }
 
+/**
+ * One row of the answer, read for the two things the one tap needs.
+ *
+ * **Deliberately not `fromWireRow` (cloud/sync.ts), and the difference is the direction.**
+ * That reader is for a row on its way into a table, so a column missing from the payload is a
+ * device running a schema this server has never heard of and it throws rather than writing a
+ * partial row. This half is not on its way into a table: it is a name to show and an id to pair
+ * a dive with (§6), and a response that is missing, say, `max_depth_m` is still a perfectly good
+ * answer to *"did you mean Shark Point?"*. Refusing it here would turn a newer server into a
+ * broken duplicate check. The half that is stored is `SimilarSitesAnswer.rows`, read strictly.
+ *
+ * A row that cannot supply both halves is dropped instead, because half of the pair is what
+ * §10 spent this milestone making impossible: a dive carrying one site's id under another's
+ * name. Names are trimmed for the same reason the offer publishes a trimmed one (M2o) — the
+ * dive's `site_name` snapshot and the row it points at should be one string.
+ */
 function candidateFrom(row: unknown): Suggestion | null {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return null;
   const fields = row as Record<string, unknown>;
