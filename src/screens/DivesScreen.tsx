@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
 import { TripHeader } from '../components/TripHeader';
 import { syncEngine } from '../cloud/syncEngine';
+import { useAccountOffer } from '../cloud/useAccountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
@@ -236,6 +237,10 @@ export default function DivesScreen() {
    * records why it does not bind here either).
    */
   const signedIn = useAuthSession().session !== null;
+  // Issue #24: whether the empty logbook offers an account. `useAccountOffer` owns the answer —
+  // a guest, on a build with a backend, once the session read has answered — so this screen and
+  // Settings cannot come to disagree about who a guest is.
+  const offerAccount = useAccountOffer();
   // §7.5's "quiet indicator shows pending changes", live off the dirty flags
   // (cloud/usePendingChanges.ts). Read unconditionally — hooks are not optional — and turned
   // into a line, or into nothing, by `formatPendingChanges` below.
@@ -543,7 +548,14 @@ export default function DivesScreen() {
     return (
       <View style={root}>
         {heading}
-        <EmptyState scheme={scheme} system={units} onPress={logDive} />
+        {/* The offer opens the account screen, absolute for `logDive`'s own reason: typed routes
+            check an absolute path against the routes that exist. */}
+        <EmptyState
+          scheme={scheme}
+          system={units}
+          onPress={logDive}
+          onAccount={offerAccount ? () => router.push('/account') : undefined}
+        />
       </View>
     );
   }

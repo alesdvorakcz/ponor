@@ -1397,6 +1397,18 @@ function build(scheme: ColorScheme) {
       alignItems: 'flex-start',
       gap: 16,
     },
+    // **With the account offer the block sits at the top** (issue #24, the owner's call): the
+    // button, the rule and the card take the bottom of the screen, and centring would leave the
+    // scale's last line pressed against the button. Composed over `emptyStateContent`.
+    emptyStateContentTop: {
+      justifyContent: 'flex-start',
+      paddingTop: 10,
+    },
+    // The primary and, for a guest, the rule and the offer card under it — one block outside the
+    // scroll, so none of the three can scroll away.
+    emptyStateFooter: {
+      alignSelf: 'stretch',
+    },
     // **The mark, drawn once, monochrome — and the monochrome is §0.1 enforcing itself.**
     // §0.3 strokes this same shape in the depth gradient *on the app icon*, where the mark is
     // the only thing there is. On screen the identical gradient would be colour used as

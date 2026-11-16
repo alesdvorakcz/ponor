@@ -342,7 +342,7 @@ export const en = {
     empty: {
       label: 'NOTHING LOGGED YET',
       promise:
-        'Ponor keeps every dive on this phone. No account, no upload, works with the boat out of signal.',
+        'Ponor keeps every dive on this phone and works with the boat out of signal.',
       reasonColour: 'colour is depth',
       reasonNothingElse: 'nothing else in Ponor is coloured',
       reasonLight:

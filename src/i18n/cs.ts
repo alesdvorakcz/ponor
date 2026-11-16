@@ -303,7 +303,7 @@ export const cs = {
     empty: {
       label: 'ZATÍM NIC ZAZNAMENÁNO',
       promise:
-        'Ponor drží každý ponor v tomto telefonu. Žádný účet, žádné nahrávání, funguje i s lodí mimo signál.',
+        'Ponor drží každý ponor v tomto telefonu a funguje i s lodí mimo signál.',
       reasonColour: 'barva je hloubka',
       reasonNothingElse: 'nic jiného v Ponoru barvu nemá',
       reasonLight:

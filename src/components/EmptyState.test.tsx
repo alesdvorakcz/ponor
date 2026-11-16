@@ -8,6 +8,8 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
+import { StyleSheet } from 'react-native';
+
 import { UNIT_SYSTEMS } from '../format/units';
 import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -56,8 +58,10 @@ it('says what the app promises and why the scale is the sequence it is', async (
   // §0.6's cluster-label treatment, and the state of the logbook in the diver's own words.
   expect(text).toContain('NOTHING LOGGED YET');
   // §1's "Works at sea", said to a diver rather than to a planner.
-  expect(text).toContain('Ponor keeps every dive on this phone.');
-  expect(text).toContain('No account, no upload, works with the boat out of signal.');
+  // True for a guest and for a diver with an account alike (issue #24): it used to say *No
+  // account, no upload*, which the offer under the button would contradict.
+  expect(text).toContain('Ponor keeps every dive on this phone and works with the boat out of signal.');
+  expect(text).not.toContain('No account');
   // The rule, and then the physics that makes it a rule rather than a palette.
   expect(text).toContain('colour is depth');
   expect(text).toContain('nothing else in Ponor is coloured');
@@ -172,6 +176,93 @@ it('opens the form when that action is pressed', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// The account offer (issue #24) — drawn only when the screen is given somewhere to send it
+// ---------------------------------------------------------------------------------------
+
+/** Each `Text` as one line — whole lines, because `or` is also inside *Ponor*. */
+function linesIn(t: RenderResult): string[] {
+  return nodesIn(t)
+    .filter((n) => n.type === 'Text')
+    .map((n) => n.children.filter((c): c is string => typeof c === 'string').join(''));
+}
+
+function indexOfText(t: RenderResult, line: string): number {
+  const i = linesIn(t).indexOf(line);
+  if (i < 0) throw new Error(`EmptyState has no line “${line}”`);
+  return i;
+}
+
+function buttonNamed(t: RenderResult, name: string) {
+  const [node] = nodesIn(t).filter((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === name);
+  if (!node) throw new Error(`EmptyState drew no “${name}” button`);
+  return node;
+}
+
+function insideScroll(t: RenderResult, node: ReturnType<typeof markIn>): boolean {
+  const scrolls = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+  for (let a = node.parent; a; a = a.parent) if (scrolls.includes(a)) return true;
+  return false;
+}
+
+it('shows no offer when it is given nowhere to send one', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+  const lines = linesIn(t);
+  expect(lines).not.toContain('Better with an account');
+  expect(lines).not.toContain('Sign in or create an account');
+  expect(lines).not.toContain('or');
+});
+
+it('puts the primary first, then the rule, then the card', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  const primary = indexOfText(t, 'Log your first dive');
+  const rule = indexOfText(t, 'or');
+  const card = indexOfText(t, 'Better with an account');
+  expect(primary).toBeLessThan(rule);
+  expect(rule).toBeLessThan(card);
+});
+
+it('keeps the primary and the card out of the scroll, so neither can scroll away', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  expect(insideScroll(t, actionIn(t))).toBe(false);
+  expect(insideScroll(t, buttonNamed(t, 'Sign in or create an account'))).toBe(false);
+  expect(insideScroll(t, markIn(t))).toBe(true);
+});
+
+it('keeps the first action the inverted primary, with the card’s button under it', async () => {
+  const t = await render(<EmptyState scheme="light" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  const styles = makeStyles('light');
+  // The first button on the screen is still *Log your first dive*, filled; the card's is drawn.
+  expect(StyleSheet.flatten(actionIn(t).props.style)).toMatchObject(StyleSheet.flatten(styles.action));
+  expect(StyleSheet.flatten(buttonNamed(t, 'Sign in or create an account').props.style).backgroundColor).not.toBe(
+    StyleSheet.flatten(styles.action).backgroundColor,
+  );
+});
+
+it('sends the diver to the account screen from the card, and logs from the primary', async () => {
+  const onPress = jest.fn();
+  const onAccount = jest.fn();
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={onPress} onAccount={onAccount} />);
+  await fireEvent.press(buttonNamed(t, 'Sign in or create an account'));
+  expect(onAccount).toHaveBeenCalledTimes(1);
+  expect(onPress).not.toHaveBeenCalled();
+  await fireEvent.press(actionIn(t));
+  expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+it('lifts the teaching block to the top when the offer is drawn, and centres it when not', async () => {
+  const contentOf = (t: RenderResult) => {
+    const [scroll] = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+    if (!scroll) throw new Error('EmptyState drew no scroll');
+    return StyleSheet.flatten(scroll.props.contentContainerStyle);
+  };
+  const withOffer = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  // The air falls between the scale and the button, not above the mark (the owner's call).
+  expect(contentOf(withOffer).justifyContent).toBe('flex-start');
+  const without = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+  expect(contentOf(without).justifyContent).toBe('center');
+});
+
+// ---------------------------------------------------------------------------------------
 // Czech (M3g) — §0.6's first-run screen, the one that teaches §0.1
 // ---------------------------------------------------------------------------------------
 
@@ -192,12 +283,21 @@ describe('in Czech', () => {
     const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
     const text = textIn(t);
     expect(text).toContain('ZATÍM NIC ZAZNAMENÁNO');
-    expect(text).toContain('Ponor drží každý ponor v tomto telefonu.');
+    expect(text).toContain('Ponor drží každý ponor v tomto telefonu a funguje i s lodí mimo signál.');
     expect(text).toContain('barva je hloubka');
     expect(text).toContain('Zaznamenat první ponor');
     // And nothing is left in English behind it — the whole screen moves or none of it does.
     expect(text).not.toContain('NOTHING LOGGED YET');
     expect(text).not.toContain('Log your first dive');
+  });
+
+  it('offers the account in Czech', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    const lines = linesIn(t);
+    expect(lines).toContain('nebo');
+    expect(lines).toContain('S účtem je to lepší');
+    const text = textIn(t);
+    expect(text).toContain('Přihlásit se nebo vytvořit účet');
   });
 
   /**

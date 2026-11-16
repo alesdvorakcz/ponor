@@ -7,6 +7,7 @@ import { type UnitSystem } from '../format/units';
 import { deepestBandStartM, shallowestBandEndM } from '../theme/depth';
 import { makeStyles, screenBottomInset } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { AccountOfferCard, OrRule } from './AccountOfferCard';
 import { DepthLegend } from './DepthLegend';
 
 /**
@@ -35,6 +36,13 @@ interface EmptyStateProps {
    * decides once and its components stay pure (`useUnitSystem`'s docblock). */
   system: UnitSystem;
   onPress: () => void;
+  /**
+   * **Where the account offer sends the diver, or nothing** (issue #24). Present only while
+   * `useAccountOffer` says this diver is a guest — the caller asks, this component never does —
+   * and then the screen draws *or* and the offer card under *Log your first dive*. Absent, the
+   * screen is exactly the first-run screen it was before.
+   */
+  onAccount?: () => void;
 }
 
 /**
@@ -115,7 +123,7 @@ interface EmptyStateProps {
  * fragmented number/site/depth, this button's own visible text already says exactly what
  * it does.
  */
-export function EmptyState({ scheme, system, onPress }: EmptyStateProps) {
+export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStateProps) {
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
   return (
@@ -136,7 +144,13 @@ export function EmptyState({ scheme, system, onPress }: EmptyStateProps) {
     // where a device reports no inset at all: the browser's tab bar is a sibling below the
     // screen, nothing is obscured, and the empty state keeps the 48 it has had since M0.
     <View style={[styles.emptyStateWrap, { paddingBottom: screenBottomInset(insets.bottom + 24) }]}>
-      <ScrollView style={styles.emptyStateScroll} contentContainerStyle={styles.emptyStateContent}>
+      {/* **With the offer, the teaching block sits at the top** (the owner's call, 2026-11-16):
+          the card under the button would otherwise crowd the scale's last line, so the air goes
+          between the scale and the button instead of above the mark. */}
+      <ScrollView
+        style={styles.emptyStateScroll}
+        contentContainerStyle={[styles.emptyStateContent, onAccount !== undefined && styles.emptyStateContentTop]}
+      >
         {/* Decorative, and said so rather than left to a platform default: the sentence and
             the legend below carry every fact the mark carries, so a screen reader announcing
             it would only ever announce "image". */}
@@ -160,9 +174,26 @@ export function EmptyState({ scheme, system, onPress }: EmptyStateProps) {
           })}
         </Text>
       </ScrollView>
-      <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
-        <Text style={styles.actionLabel}>{t('empty.action')}</Text>
-      </Pressable>
+      {/* **The primary first, then the offer** (issue #24, the owner's order). Logging stays one
+          tap and stays the one inverted control here; the offer is an alternative under it, never
+          a step in front of it, and has nothing to dismiss. Outside the scroll, both: neither may
+          scroll away.
+
+          **§0.5 is bent here, knowingly.** With the card beneath it the primary sits mid-screen
+          rather than in the bottom third. The owner accepted that for this one screen, which a
+          diver sees once and mostly on land; without the card — signed in, or a build with no
+          backend — the button is back at the bottom. */}
+      <View style={styles.emptyStateFooter}>
+        <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
+          <Text style={styles.actionLabel}>{t('empty.action')}</Text>
+        </Pressable>
+        {onAccount !== undefined && (
+          <>
+            <OrRule scheme={scheme} />
+            <AccountOfferCard scheme={scheme} onPress={onAccount} />
+          </>
+        )}
+      </View>
     </View>
   );
 }
