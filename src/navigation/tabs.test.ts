@@ -103,7 +103,8 @@ it('shows no navigator header in the browser, matching every screen the device d
 // `xcasset` icon as a template only while its state has an icon colour — `iconColor` at rest,
 // `tintColor` selected — and react-native-screens then overrides the asset catalog's own
 // template flag (tabs.ts, `NativeTabIcon`). So the iOS half below is not only "which grey":
-// without `iconColor`, both glyphs draw their white whenever they are not selected.
+// without `iconColor` the resting and selected icons come out as different image types, which
+// react-native-screens refuses, and the tab bar throws at render.
 it('inverts the selected tab on Android and leaves iOS its own selection', () => {
   for (const scheme of ['light', 'dark'] as const) {
     const theme = themeFor(scheme);

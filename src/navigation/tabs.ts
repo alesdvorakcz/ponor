@@ -112,8 +112,10 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * react-native-screens then forces that mode on the image, overriding the asset catalog's
  * `template-rendering-intent`. The resting state's colour is `iconColor`; the selected state's
  * is `tintColor` (through the navigator's `selectedIconColor`). So `iconColor` on iOS is
- * load-bearing: drop it and both glyphs draw their own white placeholder whenever they are not
- * selected. `tabs.test.ts` pins both colours. Material tints every tab icon by itself.
+ * load-bearing: drop it and the resting icon becomes a plain image while the selected one stays
+ * a template, which react-native-screens refuses outright ("icon and selectedIcon must be same
+ * type") — the tab bar throws at render. `tabs.test.ts` pins both colours. Material tints every
+ * tab icon by itself.
  */
 export type NativeTabIcon =
   | ReturnType<typeof nativeTabSymbol>
