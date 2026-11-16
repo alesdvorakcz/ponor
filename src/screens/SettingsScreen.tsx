@@ -4,6 +4,7 @@ import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AccountOfferCard } from '../components/AccountOfferCard';
 import { FormField } from '../components/FormField';
 import { OptionChips } from '../components/OptionChips';
 import {
@@ -15,6 +16,7 @@ import {
 import { currentUserId } from '../cloud/currentUser';
 import { localLogbook } from '../cloud/localLogbook';
 import { cloud } from '../cloud/supabase';
+import { useAccountOffer } from '../cloud/useAccountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
@@ -744,6 +746,8 @@ export default function SettingsScreen() {
    * only when signed in", for the same shape of reason.
    */
   const { session, resolved: sessionResolved } = useAuthSession();
+  // Issue #24: a guest's Settings opens with the offer card, and its Account row steps aside.
+  const offerAccount = useAccountOffer();
   // Narrowed once here rather than inside each handler, exactly as `AccountScreen` does with
   // the same union: `cloud` is a module constant and the discriminated union is what makes
   // `client` reachable at all (cloud/supabase.ts).
@@ -971,6 +975,16 @@ export default function SettingsScreen() {
       >
         <Text style={styles.settingsHeading}>{t('settings.title')}</Text>
 
+        {/* **A guest's Settings opens with the account offer** (issue #24, the owner's call) —
+            the first-run screen's card, at the top, where a phone puts its own account. Whether
+            it shows is `useAccountOffer`'s answer, the same one the empty logbook reads. Nothing
+            to dismiss: signing in is what takes it away. */}
+        {offerAccount && (
+          <View style={styles.settingsAccountOffer}>
+            <AccountOfferCard scheme={scheme} onPress={() => router.push('/account')} />
+          </View>
+        )}
+
         <View>
           <OptionChips
             label={t('settings.units')}
@@ -1179,40 +1193,43 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* §3's **account & sync**, and the only way into the account screen — §1 makes an
-            account optional, so there is no launch screen, no prompt and no other route to it
-            (M2e).
+        {/* §3's **account & sync** — the way into the account screen for anyone who is not a
+            guest: signed in, not yet answered, or on a build with no backend (where the screen
+            it opens is what explains the missing backend). **A guest has the offer card at the
+            top of this screen instead** (issue #24), and one way in at a time: the same
+            destination offered twice on one screen would be two answers to one question.
 
             **One row and no section heading**, unlike the preset list above. A cluster label
             names a *group* of rows (§0.6), and this is one row; a heading over a single row
             would be the label written twice. It is separated from the presets by this
             scroll's own gap and by the row's own top hairline, which `formField` draws.
 
-            **It says nothing about who is signed in**, which is a decision and not a gap. That
-            would need a second live read of the session on a screen that is opened on every
-            app launch, and §4.1's whole subject is a second reader that is free to disagree
-            with the first — `useAuthSession` is the one owner of that answer, and the account
-            screen is where it is asked.
+            **It still says nothing about who is signed in** — the account screen is where that
+            is said; this row only goes there.
 
             **And a section of its own** (M3n), on `locationSection`'s reasoning one row-type
             above: this row was rendering under the certifications heading, so the way into a
             diver's account read as part of their card wallet. */}
-        <Text style={styles.settingsSectionTitle}>{t('settings.accountSection')}</Text>
-        <Pressable
-          style={styles.formField}
-          // Absolute and interpolated for `PresetRow`'s own recorded reason: expo-router's
-          // typed routes check an absolute path against the routes that actually exist on
-          // disk, where a relative one is resolved at runtime and checked against nothing.
-          onPress={() => router.push('/account')}
-          accessibilityRole="button"
-          // Says what pressing it does rather than merely what it is called, the same shape
-          // `Edit preset X` uses one row-type above.
-          accessibilityLabel={t('settings.openAccount')}
-        >
-          <View style={styles.formFieldRow}>
-            <Text style={styles.settingsAccountLabel}>{t('settings.account')}</Text>
-          </View>
-        </Pressable>
+        {!offerAccount && (
+          <>
+            <Text style={styles.settingsSectionTitle}>{t('settings.accountSection')}</Text>
+            <Pressable
+              style={styles.formField}
+              // Absolute and interpolated for `PresetRow`'s own recorded reason: expo-router's
+              // typed routes check an absolute path against the routes that actually exist on
+              // disk, where a relative one is resolved at runtime and checked against nothing.
+              onPress={() => router.push('/account')}
+              accessibilityRole="button"
+              // Says what pressing it does rather than merely what it is called, the same shape
+              // `Edit preset X` uses one row-type above.
+              accessibilityLabel={t('settings.openAccount')}
+            >
+              <View style={styles.formFieldRow}>
+                <Text style={styles.settingsAccountLabel}>{t('settings.account')}</Text>
+              </View>
+            </Pressable>
+          </>
+        )}
 
         {/* §3's **data export**, in the place §3 lists it: after account & sync, and before
             the two destructive acts below (M3j).

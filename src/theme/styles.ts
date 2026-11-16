@@ -4109,6 +4109,12 @@ function build(scheme: ColorScheme) {
     // heading. `paddingBottom` is what keeps it off the first row's own top hairline, which
     // that row draws for itself (`formField`); the row inset puts it in the column the names
     // beneath it land in.
+    // The account offer at the top of a guest's Settings (issue #24): the card on the content
+    // column, with the air under it the canvas draws before the first row.
+    settingsAccountOffer: {
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 18,
+    },
     settingsSectionTitle: {
       ...clusterLabel,
       paddingHorizontal: CONTENT_INSET,
