@@ -360,6 +360,11 @@ function build(scheme: ColorScheme) {
   // capsule's, and the `action` button's own label padding are distances INSIDE an object,
   // and they stay literals because they answer a different question.
   const CONTENT_INSET = 16;
+  // **A card of grouped rows' own inner inset** (issue #24, the account screen's field card) —
+  // where its rows' labels begin and their values end, its inner hairline starts, and a refusal
+  // under a row trails. One number for all four (review of PR #52): two of them drifting apart by
+  // 2 pt is exactly how a note stops standing under the value it is about.
+  const FIELD_CARD_INSET = 14;
 
   // M1c closing fixes, Important #5: `reorderNotice`/`settingsNotice` below (and their
   // `*Text` siblings) used to be two byte-identical object literals — DivesScreen.tsx shows
@@ -1408,6 +1413,13 @@ function build(scheme: ColorScheme) {
     // scroll, so none of the three can scroll away.
     emptyStateFooter: {
       alignSelf: 'stretch',
+    },
+    // **With the offer, the same block scrolls, pinned to the bottom of the content** (review of
+    // PR #52): `auto` takes whatever height the teaching block leaves, so where everything fits the
+    // screen is the pinned one, and where it does not — a large text size, a small phone — the
+    // block scrolls into reach instead of pushing the card's button under the tab bar.
+    emptyStateFooterInScroll: {
+      marginTop: 'auto',
     },
     // **The mark, drawn once, monochrome — and the monochrome is §0.1 enforcing itself.**
     // §0.3 strokes this same shape in the depth gradient *on the app icon*, where the mark is
@@ -3374,7 +3386,7 @@ function build(scheme: ColorScheme) {
     formFieldCardGrouped: {
       minHeight: 52,
       marginHorizontal: 0,
-      paddingHorizontal: 14,
+      paddingHorizontal: FIELD_CARD_INSET,
     },
     // The caret and the selection, in ink (2026-11-14). iOS draws a field's caret in its own
     // blue, which made it the only hue anywhere in the app's chrome; the canvas draws an ink
@@ -3977,6 +3989,11 @@ function build(scheme: ColorScheme) {
       paddingTop: 2,
       paddingBottom: 8,
     },
+    // The same note inside a card of grouped rows: on the card's inner inset (`FIELD_CARD_INSET`),
+    // the column its row's value ends on. Composed over `formFieldError`.
+    formFieldErrorGrouped: {
+      paddingHorizontal: FIELD_CARD_INSET,
+    },
     formFieldErrorText: {
       fontFamily: fonts['sans-medium'],
       fontSize: 12.5,
@@ -4318,7 +4335,7 @@ function build(scheme: ColorScheme) {
     },
     accountFieldDivider: {
       height: StyleSheet.hairlineWidth,
-      marginLeft: 14,
+      marginLeft: FIELD_CARD_INSET,
       backgroundColor: theme.border,
     },
     // A row that is read, never typed — *Signed in as*, *Sent to* — in the card, at the grouped
@@ -4329,7 +4346,7 @@ function build(scheme: ColorScheme) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: 12,
-      paddingHorizontal: 14,
+      paddingHorizontal: FIELD_CARD_INSET,
     },
     accountReadLabel: rowLabel,
     // The signed-in address, trailing its row. `rowValueSans` — §0.6's "Figures in mono,
@@ -4402,13 +4419,10 @@ function build(scheme: ColorScheme) {
       lineHeight: 18,
       color: theme.fgMuted,
     },
-    // The outlined button inside a card, its label a size down (15) as the canvas draws it. The
-    // canvas draws the box 44 tall; it stays 48 here, because §0.5's floor is met by the box
-    // itself in this app and never by `hitSlop`.
-    accountOfferButton: {
-      ...outlinedAction,
-      minHeight: 48,
-    },
+    // The outlined button inside a card — the one definition (`outlinedAction`), its label a size
+    // down (15) as the canvas draws it. The canvas draws the box 44 tall; it stays at the
+    // definition's 48, because §0.5's floor is met by the box itself here and never by `hitSlop`.
+    accountOfferButton: outlinedAction,
     accountOfferButtonLabel: {
       ...outlinedActionLabel,
       fontSize: 15,

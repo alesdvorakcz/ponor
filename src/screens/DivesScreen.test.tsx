@@ -18,7 +18,7 @@ import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { syncEngine } from '../cloud/syncEngine';
-import { useAccountOffer } from '../cloud/useAccountOffer';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { dive } from '../domain/diveFixture';
@@ -82,9 +82,9 @@ jest.mock('../cloud/usePendingChanges', () => ({ usePendingChanges: jest.fn(() =
 jest.mock('../cloud/useAuthSession', () => ({
   useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
 }));
-// Issue #24's offer is `useAccountOffer`'s to decide (its own suite pins the three halves); here
+// Issue #24's offer is `offersAccount`'s to decide (its own suite pins the three halves); here
 // it is a switch, off unless a test turns it on, so every older test sees the screen it always did.
-jest.mock('../cloud/useAccountOffer', () => ({ useAccountOffer: jest.fn(() => false) }));
+jest.mock('../cloud/accountOffer', () => ({ offersAccount: jest.fn(() => false) }));
 jest.mock('../cloud/syncEngine', () => ({
   syncEngine: { request: jest.fn(), requestAfterSave: jest.fn(), runExclusive: jest.fn(), stop: jest.fn() },
 }));
@@ -342,7 +342,7 @@ const mockUseDiveSampleShapes = useDiveSampleShapes as jest.Mock;
 // them returning `undefined`, which no render survives.
 const mockPendingChanges = usePendingChanges as jest.Mock;
 const mockAuthSession = useAuthSession as jest.Mock;
-const mockUseAccountOffer = useAccountOffer as jest.Mock;
+const mockOffersAccount = offersAccount as jest.Mock;
 const mockSyncRequest = syncEngine.request as jest.Mock;
 const mockSignedOut = () => mockAuthSession.mockReturnValue({ session: null, resolved: true });
 const mockSignedIn = () =>
@@ -376,14 +376,25 @@ afterEach(() => {
 });
 
 describe('the account offer on an empty logbook (issue #24)', () => {
-  afterEach(() => mockUseAccountOffer.mockReturnValue(false));
+  afterEach(() => mockOffersAccount.mockReturnValue(false));
 
   it('offers a guest an account, and opens the account screen from it', async () => {
-    mockUseAccountOffer.mockReturnValue(true);
+    mockOffersAccount.mockReturnValue(true);
     stubDives({ dives: [], numbers: new Map(), error: undefined });
     await render(<DivesScreen />);
     fireEvent.press(screen.getByRole('button', { name: 'Sign in or create an account' }));
     expect(mockRouterPush).toHaveBeenCalledWith('/account');
+  });
+
+  // One session read per screen (review of PR #52): the rule is asked of the read this screen
+  // already makes for its pending line, never of a second subscription of its own.
+  it('asks the offer rule of the one session read it already makes', async () => {
+    const read = { session: null, resolved: true };
+    mockAuthSession.mockReturnValue(read);
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    await render(<DivesScreen />);
+    // The same object, not an equal one: a copy would be a read of its own in disguise.
+    expect(mockOffersAccount.mock.calls.at(-1)?.[0]).toBe(read);
   });
 
   it('offers nothing when the hook says there is no guest to offer it to', async () => {
@@ -395,7 +406,7 @@ describe('the account offer on an empty logbook (issue #24)', () => {
   });
 
   it('never offers an account over a logbook that has dives', async () => {
-    mockUseAccountOffer.mockReturnValue(true);
+    mockOffersAccount.mockReturnValue(true);
     stubDives({ dives: [dive({ id: 'd1', date: '2026-09-01', siteName: 'Blue Hole' })], numbers: new Map([['d1', 1]]) });
     const t = await render(<DivesScreen />);
     expect(textIn(t)).not.toContain('Better with an account');

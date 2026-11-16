@@ -16,7 +16,7 @@ import {
 import { currentUserId } from '../cloud/currentUser';
 import { localLogbook } from '../cloud/localLogbook';
 import { cloud } from '../cloud/supabase';
-import { useAccountOffer } from '../cloud/useAccountOffer';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
@@ -405,12 +405,13 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * The certification wallet, data export and delete-account all belong to M3, and all three have
  * now landed — the last of them bringing §7.4's *start over* with it, since the two acts are
  * one decision and §3's own ordering (export, then deletion) is what makes offering them here
- * right. §3's **account & sync** arrived in M2e as the last item below — a row that opens `/account` and writes
- * nothing itself, which is this screen's second navigation row. Since issue #24 a guest gets the
- * offer card at the top of this screen instead, and the empty logbook carries the same card, so
- * this row is one of the account screen's ways in rather than the only one. §3's **location access** arrived in M2m, between the two: it writes
- * nothing either, and what it opens is not a screen of ours but the device's own Settings app,
- * which §3 makes the only place its answer can change.
+ * right. §3's **account & sync** arrived in M2e as the last item below — a row that opens
+ * `/account` and writes nothing itself, which is this screen's second navigation row. Since issue
+ * #24 a guest gets the offer card at the top of this screen instead, and the empty logbook carries
+ * the same card, so this row is one of the account screen's ways in rather than the only one.
+ * §3's **location access** arrived in M2m, between the two: it writes nothing either, and what it
+ * opens is not a screen of ours but the device's own Settings app, which §3 makes the only place
+ * its answer can change.
  *
  * §3 listed a **"Fields I use"** screen here until M1i dropped it: §2.2's collapse rule
  * already hides a group nobody fills, and a carried field that keeps one open can be
@@ -746,9 +747,12 @@ export default function SettingsScreen() {
    * affordance §10 has an entry about. §7.5's pending indicator is the precedent: it "appears
    * only when signed in", for the same shape of reason.
    */
-  const { session, resolved: sessionResolved } = useAuthSession();
+  const authSession = useAuthSession();
+  const { session, resolved: sessionResolved } = authSession;
   // Issue #24: a guest's Settings opens with the offer card, and its Account row steps aside.
-  const offerAccount = useAccountOffer();
+  // Asked of the one read above, never of a second subscription (§4.1, the review of PR #52):
+  // two reads could disagree for a moment and draw both the card and the row, or neither.
+  const offerAccount = offersAccount(authSession);
   // Narrowed once here rather than inside each handler, exactly as `AccountScreen` does with
   // the same union: `cloud` is a module constant and the discriminated union is what makes
   // `client` reachable at all (cloud/supabase.ts).
@@ -978,7 +982,7 @@ export default function SettingsScreen() {
 
         {/* **A guest's Settings opens with the account offer** (issue #24, the owner's call) —
             the first-run screen's card, at the top, where a phone puts its own account. Whether
-            it shows is `useAccountOffer`'s answer, the same one the empty logbook reads. Nothing
+            it shows is `offersAccount`'s answer, the same one the empty logbook reads. Nothing
             to dismiss: signing in is what takes it away. */}
         {offerAccount && (
           <View style={styles.settingsAccountOffer}>

@@ -227,6 +227,19 @@ describe('with no backend in this build', () => {
     expect(screenText(t)).toContain('Invalid supabaseUrl');
   });
 
+  /** Review of PR #52: the caption's own 4 pt (its offset inside the field card's column) had
+   * replaced the body's 16, and the sentence ran 4 pt from the screen edge. */
+  it('keeps the message on the content column', async () => {
+    mockCloud = { configured: false, missing: ['EXPO_PUBLIC_SUPABASE_URL'] };
+
+    const t = await render(<AccountScreen />);
+    const styles = makeStyles('light');
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && String(n.children.join('')).includes('EXPO_PUBLIC_SUPABASE_URL')) : [];
+    const caption = text?.parent;
+    expect(caption?.props.style).toBe(styles.accountCaption);
+    expect(caption?.parent?.props.style).toBe(styles.accountBody);
+  });
+
   /** A screen with nothing on it is exactly the one a diver most needs to leave. */
   it('still offers the way out', async () => {
     mockCloud = { configured: false, missing: ['EXPO_PUBLIC_SUPABASE_URL'] };
@@ -449,6 +462,22 @@ describe('signed out', () => {
    * `invalid_credentials`, on purpose, so pinning it to a row would be this app inventing the
    * answer the server withheld. It lands under the last row of the pair it is about.
    */
+  /** Review of PR #52: inside the field card a refusal trails into its value's column — the
+   * card's inner inset, not the screen's — or it stands 2 pt off the value it is about. */
+  it('trails a refusal in the card on the column its row’s value ends on', async () => {
+    mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({ kind: 'failed', message: credentialsRejected() }));
+    const t = await render(<AccountScreen />);
+    await typeCredentials(t, 'ales@example.com', 'wrong');
+    await pressControl(t, 'Sign in');
+
+    const styles = makeStyles('light');
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(credentialsRejected())) : [];
+    const note = StyleSheet.flatten(text?.parent?.props.style);
+    expect(note.paddingHorizontal).toBe(StyleSheet.flatten(styles.formFieldCardGrouped).paddingHorizontal);
+    expect(StyleSheet.flatten(styles.accountReadRow).paddingHorizontal).toBe(note.paddingHorizontal);
+    expect(StyleSheet.flatten(styles.accountFieldDivider).marginLeft).toBe(note.paddingHorizontal);
+  });
+
   it('puts what the server said under the pair, not under one row of it', async () => {
     mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({
       kind: 'failed',

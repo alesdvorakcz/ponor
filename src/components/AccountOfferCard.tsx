@@ -14,7 +14,7 @@ interface AccountOfferCardProps {
 /**
  * **The account offer** (issue #24) — one card, drawn in two places while nobody is signed in:
  * under *Log your first dive* on the empty logbook, and at the top of Settings. Whether it shows
- * at all is `useAccountOffer`'s to say, never this component's.
+ * at all is `offersAccount`'s to say, never this component's.
  *
  * **What it says, in the order the owner asked for it** (2026-11-16): that Ponor is better with an
  * account, that the account is optional and the app works fully without one, and what it adds.
@@ -55,11 +55,13 @@ export function AccountOfferCard({ scheme, onPress }: AccountOfferCardProps) {
  * *or*, between *Log your first dive* and the card: two hairlines and a muted word. It says the
  * two are alternatives — log now, or make the logbook an account's first — which air alone would
  * not, and it is what keeps the card off the teaching block above (the owner's call, 2026-11-16).
+ * A screen reader says the word too, and should: between the button and the card it says the
+ * same thing it says on screen.
  */
 export function OrRule({ scheme }: { scheme: ColorScheme }) {
   const styles = makeStyles(scheme);
   return (
-    <View style={styles.orRule} accessible={false}>
+    <View style={styles.orRule}>
       <View style={styles.orRuleLine} />
       <Text style={styles.orRuleLabel}>{t('accountOffer.or')}</Text>
       <View style={styles.orRuleLine} />

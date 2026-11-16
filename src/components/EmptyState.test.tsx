@@ -221,11 +221,24 @@ it('puts the primary first, then the rule, then the card', async () => {
   expect(rule).toBeLessThan(card);
 });
 
-it('keeps the primary and the card out of the scroll, so neither can scroll away', async () => {
+/**
+ * **With the offer, the button, the rule and the card scroll with the teaching block** (review of
+ * PR #52). Pinned outside the scroll, the three are ~260 pt in Czech and grow with the diver's text
+ * size, and nothing bounded them: on a 4.7" phone at a large size the block outgrew the screen, the
+ * scroll above it collapsed to nothing, and the card's button went under the tab bar where no
+ * gesture could reach it. In the scroll, everything is reachable at any size — and the block is
+ * pinned to the bottom of the content (`marginTop: 'auto'`), so on a phone where it fits the screen
+ * is exactly the one the owner signed off. Without the offer the primary stays pinned, as M1h set.
+ */
+it('scrolls the offer with the teaching block, so nothing can be pushed out of reach', async () => {
   const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
-  expect(insideScroll(t, actionIn(t))).toBe(false);
-  expect(insideScroll(t, buttonNamed(t, 'Sign in or create an account'))).toBe(false);
+  expect(insideScroll(t, actionIn(t))).toBe(true);
+  expect(insideScroll(t, buttonNamed(t, 'Sign in or create an account'))).toBe(true);
   expect(insideScroll(t, markIn(t))).toBe(true);
+  // ...and the block still stands at the bottom whenever it fits.
+  const footer = actionIn(t).parent;
+  if (!footer) throw new Error('the primary has no parent');
+  expect(StyleSheet.flatten(footer.props.style)).toMatchObject({ marginTop: 'auto' });
 });
 
 it('keeps the first action the inverted primary, with the card’s button under it', async () => {

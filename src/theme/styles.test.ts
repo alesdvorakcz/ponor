@@ -1247,6 +1247,8 @@ describe('the app content column', () => {
     'formFieldGrouped',
     'formFieldCardGrouped',
     'accountReadRow',
+    // A refusal under a grouped row, on the same inner inset (review of PR #52).
+    'formFieldErrorGrouped',
     // What is said under that card, on the card's own text edge rather than the screen's.
     'accountCaption',
     // *Forgot password?*'s quiet pill — the label's air inside the pill.

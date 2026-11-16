@@ -26,7 +26,7 @@ import {
 } from '../cloud/auth';
 import { currentUserId } from '../cloud/currentUser';
 import { localLogbook } from '../cloud/localLogbook';
-import { useAccountOffer } from '../cloud/useAccountOffer';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
@@ -98,9 +98,9 @@ jest.mock('../domain/datetime', () => ({
   todayCalendarDate: jest.fn(() => '2026-09-04'),
 }));
 // A preset row pushes `/preset/<id>`; nothing else here navigates.
-// Issue #24's offer is `useAccountOffer`'s to decide; a switch here, off unless a test turns it on,
+// Issue #24's offer is `offersAccount`'s to decide; a switch here, off unless a test turns it on,
 // so every older test sees the Settings it always did.
-jest.mock('../cloud/useAccountOffer', () => ({ useAccountOffer: jest.fn(() => false) }));
+jest.mock('../cloud/accountOffer', () => ({ offersAccount: jest.fn(() => false) }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
 }));
@@ -189,7 +189,7 @@ const mockImportFiles = importFiles as jest.Mock;
 const mockStartOver = startOver as unknown as jest.Mock;
 const mockDeleteAccount = deleteAccount as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
-const mockUseAccountOffer = useAccountOffer as unknown as jest.Mock;
+const mockOffersAccount = offersAccount as unknown as jest.Mock;
 
 /**
  * `../cloud/supabase` behind a getter, so each test decides what this build's one `cloud` looks
@@ -1342,12 +1342,12 @@ it('reads as a destination rather than as a setting with no value', async () => 
 // ---------------------------------------------------------------------------------------
 
 describe('the account offer', () => {
-  afterEach(() => mockUseAccountOffer.mockReturnValue(false));
+  afterEach(() => mockOffersAccount.mockReturnValue(false));
 
   // Where a phone puts its own account: above every setting, so a guest meets it on opening the
   // screen rather than at the bottom of a long scroll.
   it('heads the screen with the account card for a guest, above Units', async () => {
-    mockUseAccountOffer.mockReturnValue(true);
+    mockOffersAccount.mockReturnValue(true);
     stubSettings();
     const t = await render(<SettingsScreen />);
     const lines = textIn(t);
@@ -1358,7 +1358,7 @@ describe('the account offer', () => {
   // One way in at a time: the card IS the way in for a guest, and a second entry further down
   // would be the same destination offered twice on one screen.
   it('draws no Account row while the card is the way in', async () => {
-    mockUseAccountOffer.mockReturnValue(true);
+    mockOffersAccount.mockReturnValue(true);
     stubSettings();
     const t = await render(<SettingsScreen />);
     expect(textIn(t)).not.toContain('Account & sync');
@@ -1366,7 +1366,7 @@ describe('the account offer', () => {
   });
 
   it('opens the account screen from the card', async () => {
-    mockUseAccountOffer.mockReturnValue(true);
+    mockOffersAccount.mockReturnValue(true);
     stubSettings();
     const t = await render(<SettingsScreen />);
     const [button] = t.root
@@ -1377,7 +1377,18 @@ describe('the account offer', () => {
     expect(mockPush).toHaveBeenCalledWith('/account');
   });
 
-  it('draws no card for anyone the hook does not call a guest, and keeps the Account row', async () => {
+  // One session read per screen (review of PR #52): two subscriptions could disagree for a
+  // moment, and this screen would draw both the card and the row, or neither.
+  it('asks the offer rule of the one session read it already makes', async () => {
+    const read = { session: null, resolved: true };
+    mockUseAuthSession.mockReturnValue(read);
+    stubSettings();
+    await render(<SettingsScreen />);
+    // The same object, not an equal one: a copy would be a read of its own in disguise.
+    expect(mockOffersAccount.mock.calls.at(-1)?.[0]).toBe(read);
+  });
+
+  it('draws no card for anyone the rule does not call a guest, and keeps the Account row', async () => {
     stubSettings();
     const t = await render(<SettingsScreen />);
     expect(textIn(t)).not.toContain('Better with an account');

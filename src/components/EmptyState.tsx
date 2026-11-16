@@ -38,7 +38,7 @@ interface EmptyStateProps {
   onPress: () => void;
   /**
    * **Where the account offer sends the diver, or nothing** (issue #24). Present only while
-   * `useAccountOffer` says this diver is a guest — the caller asks, this component never does —
+   * `offersAccount` says this diver is a guest — the caller asks, this component never does —
    * and then the screen draws *or* and the offer card under *Log your first dive*. Absent, the
    * screen is exactly the first-run screen it was before.
    */
@@ -126,6 +126,38 @@ interface EmptyStateProps {
 export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStateProps) {
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
+  const offered = onAccount !== undefined;
+  /**
+   * **The primary first, then the offer** (issue #24, the owner's order). Logging stays one tap and
+   * stays the one inverted control here; the offer is an alternative under it, never a step in
+   * front of it, and has nothing to dismiss.
+   *
+   * **Without the offer the primary is pinned outside the scroll** (M1h): the one control a
+   * first-run diver has must never scroll away. **With it, the block scrolls with the teaching
+   * above it** (review of PR #52) — pinned, the button, the rule and the card are ~260 pt in Czech
+   * and grow with the diver's text size, and at a large size on a 4.7" phone they outgrew the
+   * screen, collapsed the scroll to nothing and put the card's button under the tab bar where no
+   * gesture could reach it. In the scroll it is pinned to the bottom of the content instead
+   * (`emptyStateFooterInScroll`), so on a phone where it fits the screen is unchanged.
+   *
+   * **§0.5 is bent here, knowingly.** With the card beneath it the primary sits mid-screen rather
+   * than in the bottom third. The owner accepted that for this one screen, which a diver sees once
+   * and mostly on land; without the card — signed in, or a build with no backend — the button is
+   * back at the bottom.
+   */
+  const footer = (
+    <View style={[styles.emptyStateFooter, offered && styles.emptyStateFooterInScroll]}>
+      <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
+        <Text style={styles.actionLabel}>{t('empty.action')}</Text>
+      </Pressable>
+      {onAccount !== undefined && (
+        <>
+          <OrRule scheme={scheme} />
+          <AccountOfferCard scheme={scheme} onPress={onAccount} />
+        </>
+      )}
+    </View>
+  );
   return (
     // `paddingBottom` composed here, not in the sheet: `screenBottomInset` is the app's one
     // owner of "how far above the bottom edge content may end" (§4.1), and what the device
@@ -149,7 +181,7 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
           between the scale and the button instead of above the mark. */}
       <ScrollView
         style={styles.emptyStateScroll}
-        contentContainerStyle={[styles.emptyStateContent, onAccount !== undefined && styles.emptyStateContentTop]}
+        contentContainerStyle={[styles.emptyStateContent, offered && styles.emptyStateContentTop]}
       >
         {/* Decorative, and said so rather than left to a platform default: the sentence and
             the legend below carry every fact the mark carries, so a screen reader announcing
@@ -173,27 +205,9 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
             deep: formatDepthBoundary(deepestBandStartM, system),
           })}
         </Text>
+        {offered && footer}
       </ScrollView>
-      {/* **The primary first, then the offer** (issue #24, the owner's order). Logging stays one
-          tap and stays the one inverted control here; the offer is an alternative under it, never
-          a step in front of it, and has nothing to dismiss. Outside the scroll, both: neither may
-          scroll away.
-
-          **§0.5 is bent here, knowingly.** With the card beneath it the primary sits mid-screen
-          rather than in the bottom third. The owner accepted that for this one screen, which a
-          diver sees once and mostly on land; without the card — signed in, or a build with no
-          backend — the button is back at the bottom. */}
-      <View style={styles.emptyStateFooter}>
-        <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
-          <Text style={styles.actionLabel}>{t('empty.action')}</Text>
-        </Pressable>
-        {onAccount !== undefined && (
-          <>
-            <OrRule scheme={scheme} />
-            <AccountOfferCard scheme={scheme} onPress={onAccount} />
-          </>
-        )}
-      </View>
+      {!offered && footer}
     </View>
   );
 }

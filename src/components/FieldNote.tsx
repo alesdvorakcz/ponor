@@ -49,11 +49,21 @@ import { type ColorScheme } from '../theme/tokens';
  * The row is where it belongs for the reason above — it is a message, not a field — and the
  * treatment is identical to the two kinds already described, which is the point.
  */
-export function FieldNote({ message, scheme }: { message: string | undefined; scheme: ColorScheme }) {
+export function FieldNote({
+  message,
+  scheme,
+  grouped = false,
+}: {
+  message: string | undefined;
+  scheme: ColorScheme;
+  /** Inside a card of grouped rows (the account screen's field card, issue #24): the note trails
+   * on the card's inner inset, the column its row's value ends on, rather than the screen's. */
+  grouped?: boolean;
+}) {
   const styles = makeStyles(scheme);
   if (message === undefined) return null;
   return (
-    <View style={styles.formFieldError}>
+    <View style={[styles.formFieldError, grouped && styles.formFieldErrorGrouped]}>
       <Text style={styles.formFieldErrorText}>{message}</Text>
     </View>
   );

@@ -1,5 +1,16 @@
 import { useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useColorScheme, type ImageSourcePropType, type TextInput } from 'react-native';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useColorScheme,
+  type ImageSourcePropType,
+  type TextInput,
+} from 'react-native';
 import { useSafeAreaInsets, type EdgeInsets } from 'react-native-safe-area-context';
 
 import { AccountPerks } from '../components/AccountPerks';
@@ -320,8 +331,11 @@ export default function AccountScreen() {
         <BackControl styles={styles} />
         <View style={styles.settingsContent}>
           <AccountHead styles={styles} scheme={scheme} title={t('account.heading')} />
-          <View style={[styles.accountBody, styles.accountCaption]}>
-            <Text style={styles.accountCaptionText}>{noBackendMessage()}</Text>
+          {/* The caption's own 4 pt is its offset inside the body's column, never instead of it. */}
+          <View style={styles.accountBody}>
+            <View style={styles.accountCaption}>
+              <Text style={styles.accountCaptionText}>{noBackendMessage()}</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -502,21 +516,21 @@ export default function AccountScreen() {
               <FormField
                 grouped
                 label={t('account.newPassword')}
-              value={freshPassword}
-              onChange={(text) => {
-                setFreshNote(null);
-                setFreshPassword(text);
-              }}
-              scheme={scheme}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              textContentType="newPassword"
-              autoComplete="new-password"
-              returnKeyType="go"
-              onSubmitEditing={() => void saveFreshPassword()}
+                value={freshPassword}
+                onChange={(text) => {
+                  setFreshNote(null);
+                  setFreshPassword(text);
+                }}
+                scheme={scheme}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="newPassword"
+                autoComplete="new-password"
+                returnKeyType="go"
+                onSubmitEditing={() => void saveFreshPassword()}
               />
-              <FieldNote message={freshNote ?? undefined} scheme={scheme} />
+              <FieldNote grouped message={freshNote ?? undefined} scheme={scheme} />
             </View>
           </View>
         </ScrollView>
@@ -711,58 +725,58 @@ export default function AccountScreen() {
           {/* **Both rows in one card** (issue #24): a block that is plainly the form. Each
               refusal still stands under the row it is about — inside the card now. */}
           <View style={styles.accountFieldCard}>
-          <FormField
-            grouped
-            label={t('account.email')}
-            value={email}
-            onChange={(text) => {
-              // Typing clears the note: it described the pair that was in the boxes, and a
-              // sentence about credentials the diver has already changed is a stale complaint.
-              // The same for a failed link's sentence — the diver has moved on from it.
-              setNote(null);
-              forgetFailedLink();
-              setEmail(text);
-            }}
-            scheme={scheme}
-            keyboardType="email-address"
-            // Both explicit, and both `'none'`/`false` for the same reason: an address the
-            // device capitalised or corrected is a different address, and the diver does not
-            // see it happen. §0.6 keeps names in sans, and an address is a name.
-            autoCapitalize="none"
-            autoCorrect={false}
-            // No placeholder (2026-11-14): a right-aligned hint put the caret on top of
-            // "you@example.com", and the label already says what belongs in the row.
-            textContentType="username"
-            autoComplete="email"
-            // The return key hands the keyboard to the password row rather than closing it.
-            returnKeyType="next"
-            onSubmitEditing={() => passwordRef.current?.focus()}
-          />
-          {/* Only ever the refusal this app made about THIS row — see `note` above. */}
-          <FieldNote message={noteFor('email')} scheme={scheme} />
-          <View style={styles.accountFieldDivider} />
-          <FormField
-            grouped
-            ref={passwordRef}
-            label={t('account.password')}
-            value={password}
-            onChange={(text) => {
-              setNote(null);
-              forgetFailedLink();
-              setPassword(text);
-            }}
-            scheme={scheme}
-            secureTextEntry
-            autoCapitalize="none"
-            autoCorrect={false}
-            {...PASSWORD_KIND[mode]}
-            // The last row's return key does what the button below does.
-            returnKeyType="go"
-            onSubmitEditing={() => void submit()}
-          />
-          {/* This row's own refusal, and everything the server said — which is about the pair
-              and lands under the last row of it. */}
-          <FieldNote message={noteFor('password')} scheme={scheme} />
+            <FormField
+              grouped
+              label={t('account.email')}
+              value={email}
+              onChange={(text) => {
+                // Typing clears the note: it described the pair that was in the boxes, and a
+                // sentence about credentials the diver has already changed is a stale complaint.
+                // The same for a failed link's sentence — the diver has moved on from it.
+                setNote(null);
+                forgetFailedLink();
+                setEmail(text);
+              }}
+              scheme={scheme}
+              keyboardType="email-address"
+              // Both explicit, and both `'none'`/`false` for the same reason: an address the
+              // device capitalised or corrected is a different address, and the diver does not
+              // see it happen. §0.6 keeps names in sans, and an address is a name.
+              autoCapitalize="none"
+              autoCorrect={false}
+              // No placeholder (2026-11-14): a right-aligned hint put the caret on top of
+              // "you@example.com", and the label already says what belongs in the row.
+              textContentType="username"
+              autoComplete="email"
+              // The return key hands the keyboard to the password row rather than closing it.
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+            />
+            {/* Only ever the refusal this app made about THIS row — see `note` above. */}
+            <FieldNote grouped message={noteFor('email')} scheme={scheme} />
+            <View style={styles.accountFieldDivider} />
+            <FormField
+              grouped
+              ref={passwordRef}
+              label={t('account.password')}
+              value={password}
+              onChange={(text) => {
+                setNote(null);
+                forgetFailedLink();
+                setPassword(text);
+              }}
+              scheme={scheme}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              {...PASSWORD_KIND[mode]}
+              // The last row's return key does what the button below does.
+              returnKeyType="go"
+              onSubmitEditing={() => void submit()}
+            />
+            {/* This row's own refusal, and everything the server said — which is about the pair
+                and lands under the last row of it. */}
+            <FieldNote grouped message={noteFor('password')} scheme={scheme} />
           </View>
           {/* **The way back from a forgotten password** (2026-11-14), under the card it is
               about — the toggle in the footer is about the BUTTON and stays there; this is
@@ -807,7 +821,9 @@ export default function AccountScreen() {
           met by geometry, never `hitSlop` — FormField.tsx keeps the account of what an invisible
           target cost when it was not), and `accountFooter`'s 10 pt gap is what keeps two boxes,
           one filled and one drawn, from reading as one. */}
-      <View style={[styles.formFooter, styles.accountFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
+      <View
+        style={[styles.formFooter, styles.accountFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}
+      >
         <Pressable
           style={styles.action}
           onPress={() => void submit()}
@@ -952,7 +968,11 @@ function MailSent({
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
       <BackControl styles={styles} />
-      <ScrollView style={styles.settingsScroll} contentContainerStyle={styles.settingsContent} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.settingsScroll}
+        contentContainerStyle={styles.settingsContent}
+        keyboardShouldPersistTaps="handled"
+      >
         <AccountHead styles={styles} scheme={scheme} title={t('account.checkEmail')} sub={sub} />
         <View style={styles.accountBody}>
           <View style={styles.accountFieldCard}>
@@ -966,7 +986,12 @@ function MailSent({
         </View>
       </ScrollView>
       <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
-        <Pressable style={styles.secondaryAction} onPress={onBack} accessibilityRole="button" accessibilityLabel={t('account.backToSignIn')}>
+        <Pressable
+          style={styles.secondaryAction}
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('account.backToSignIn')}
+        >
           <Text style={styles.secondaryActionLabel}>{t('account.backToSignIn')}</Text>
         </Pressable>
       </View>

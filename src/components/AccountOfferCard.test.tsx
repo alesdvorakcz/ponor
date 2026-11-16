@@ -40,6 +40,8 @@ it('draws its button outlined, never as the inverted primary', async () => {
   expect(button).toMatchObject(StyleSheet.flatten(styles.accountOfferButton));
   expect(button.backgroundColor).not.toBe(StyleSheet.flatten(styles.action).backgroundColor);
   expect(button.borderWidth).toBe(1);
+  // One outlined definition for every second button (review of PR #52) — not a near-copy.
+  expect(styles.accountOfferButton).toBe(styles.secondaryAction);
 });
 
 it('lets the three words wrap rather than clip', async () => {
@@ -56,6 +58,19 @@ it('lets the three words wrap rather than clip', async () => {
 it('says “or” between two rules', async () => {
   const t = await render(<OrRule scheme="dark" />);
   expect(textIn(t)).toBe('or');
+});
+
+// Review of PR #52: `accessible={false}` on a View hid nothing (it is a View's default), and
+// the word is worth hearing — it says the button before it and the card after it are
+// alternatives. So nothing on the rule claims to hide it.
+it('lets a screen reader say the “or”', async () => {
+  const t = await render(<OrRule scheme="dark" />);
+  if (t.root === null) throw new Error('no rule');
+  for (const node of [t.root, ...t.root.queryAll(() => true)]) {
+    expect(node.props.accessible).not.toBe(false);
+    expect(node.props.accessibilityElementsHidden).not.toBe(true);
+    expect(node.props.importantForAccessibility).toBeUndefined();
+  }
 });
 
 describe('in Czech', () => {

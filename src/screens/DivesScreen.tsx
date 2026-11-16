@@ -10,7 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { applyReorder, createReorderGate, ReorderControls, type ReorderGate } from '../components/ReorderControls';
 import { TripHeader } from '../components/TripHeader';
 import { syncEngine } from '../cloud/syncEngine';
-import { useAccountOffer } from '../cloud/useAccountOffer';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { reorderDivesForDate } from '../db/dives';
@@ -236,11 +236,13 @@ export default function DivesScreen() {
    * withhold (`db/liveQuery.ts` is the owner of that distinction, and `usePendingChanges.ts`
    * records why it does not bind here either).
    */
-  const signedIn = useAuthSession().session !== null;
-  // Issue #24: whether the empty logbook offers an account. `useAccountOffer` owns the answer —
-  // a guest, on a build with a backend, once the session read has answered — so this screen and
-  // Settings cannot come to disagree about who a guest is.
-  const offerAccount = useAccountOffer();
+  const authSession = useAuthSession();
+  const signedIn = authSession.session !== null;
+  // Issue #24: whether the empty logbook offers an account. `offersAccount` owns the rule — a
+  // guest, on a build with a backend, once the session read has answered — and is asked of this
+  // screen's ONE read above rather than of a second subscription of its own (§4.1; the review of
+  // PR #52), so the pending line and the offer can never be answering two different reads.
+  const offerAccount = offersAccount(authSession);
   // §7.5's "quiet indicator shows pending changes", live off the dirty flags
   // (cloud/usePendingChanges.ts). Read unconditionally — hooks are not optional — and turned
   // into a line, or into nothing, by `formatPendingChanges` below.

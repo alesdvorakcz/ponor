@@ -1,11 +1,16 @@
 import { cloud } from './supabase';
-import { useAuthSession } from './useAuthSession';
+import { type AuthSessionState } from './useAuthSession';
 
 /**
- * **Whether Ponor offers an account right now** (issue #24) — the one owner of that answer, read
- * by the first-run screen and by Settings, which carry the same card (`AccountOfferCard`). Two
- * screens asking it separately would be the second reader §4.1 exists to prevent, and the two
- * places would one day disagree about who is a guest.
+ * **Whether Ponor offers an account right now** (issue #24) — the one owner of that rule, asked
+ * by the first-run screen and by Settings, which carry the same card (`AccountOfferCard`).
+ *
+ * **A pure function of the screen's own session read, never a hook with a read of its own**
+ * (review of PR #52). Both screens already call `useAuthSession` — Dives for the pending line and
+ * pull-to-refresh, Settings for its destructive acts — and each call is its own `getSession()` and
+ * its own `onAuthStateChange` subscription. A second one here would be the second reader §4.1
+ * exists to prevent: for a moment the two could disagree, and Settings would draw both the card
+ * and the Account row, or neither. So the screen reads once and hands that answer in.
  *
  * Three halves, each there for a diver it would otherwise mislead:
  *
@@ -21,7 +26,6 @@ import { useAuthSession } from './useAuthSession';
  * remember and no count of how often it was shown — the offer simply stands for as long as these
  * three are true, and signing in is what takes it away.
  */
-export function useAccountOffer(): boolean {
-  const { session, resolved } = useAuthSession();
+export function offersAccount({ session, resolved }: AuthSessionState): boolean {
   return cloud.configured && resolved && session === null;
 }
