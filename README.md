@@ -6,11 +6,11 @@ A free, offline-first dive log that *fills itself in*: after the first dive of a
 
 | Dives | New dive | Choose a site | A dive |
 |---|---|---|---|
-| <img src="docs/screenshots/dives-dark-en.jpg" width="200" alt="The Dives tab in dark mode: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-light-en.png" width="200" alt="A new dive in light mode, with the site and centre carried over from dive 7"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site in dark mode: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-light-en.png" width="200" alt="An imported dive's detail page in light mode: its depth profile drawn in the depth colours, with gas consumption beneath"> |
+| <img src="docs/screenshots/dives-dark-en.png" width="200" alt="The Dives tab in dark mode: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-light-en.png" width="200" alt="A new dive in light mode, with the site carried over from dive 7"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site in dark mode: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-light-en.png" width="200" alt="An imported dive's detail page in light mode: its depth profile drawn in the depth colours, with gas consumption beneath"> |
 
-| Map | Ponory (Czech) | Nový ponor | Nastavení |
+| Map | Dives (light) | New dive (dark) | Settings |
 |---|---|---|---|
-| <img src="docs/screenshots/map-light-en.jpg" width="200" alt="The Map tab in light mode: your dives counted per site"> | <img src="docs/screenshots/dives-light-cs.jpg" width="200" alt="The Dives tab in Czech, light mode"> | <img src="docs/screenshots/new-dive-dark-cs.png" width="200" alt="A new dive in Czech, dark mode, with the site carried over"> | <img src="docs/screenshots/settings-dark-cs.jpg" width="200" alt="Settings in Czech, dark mode: units, language and earlier dives"> |
+| <img src="docs/screenshots/map-light-en.jpg" width="200" alt="The Map tab in light mode: your dives counted per site"> | <img src="docs/screenshots/dives-light-en.png" width="200" alt="The Dives tab in light mode"> | <img src="docs/screenshots/new-dive-dark-en.png" width="200" alt="A new dive in dark mode, with the site carried over"> | <img src="docs/screenshots/settings-dark-en.png" width="200" alt="Settings in dark mode: units, language, earlier dives and location access"> |
 
 <sub>iPhone simulator, invented demo dives.</sub>
 
