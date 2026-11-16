@@ -104,7 +104,7 @@ it('reads the scheme it is given, so a screen test compares against the sheet th
 
 const DEPTH_1 = depthScale.light[0];
 
-it('passes the one graphic the app draws — the mark, wearing the style that paints it', async () => {
+it('passes the one graphic a screen draws — the mark, wearing the style that paints it', async () => {
   // `EmptyState`'s own Image, exactly as it is written. Its tint and its half strength live in
   // `emptyStateMark`, which is what makes DESIGN.md §0.1 enforceable there in one edit.
   const t = await render(<Image source={{ uri: 'x' }} style={styles.emptyStateMark} />);

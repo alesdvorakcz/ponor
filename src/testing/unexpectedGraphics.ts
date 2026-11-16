@@ -326,7 +326,7 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
   // silently picking a winner.
   const imageCount = nodes.filter((n) => n.type === 'Image').length;
   return nodes.filter((n) => {
-    // **The one graphic Ponor draws, named** (M1h). The empty state renders the mark as an
+    // **The one graphic a screen draws, named** (M1h). The empty state renders the mark as an
     // `Image` — DESIGN.md §0.3's shape, monochrome, from the same `assets/mark.svg` the icons
     // are built from — so the blanket "nothing on screen draws a graphic" is no longer true
     // and this says the narrower thing that is: **a screen draws exactly one image, and it is

@@ -16,7 +16,8 @@
  * - **Android:** a `VectorDrawable` written from the same shapes. Material tints a tab icon by
  *   itself, so the drawing's own ink is a placeholder there too.
  *
- * Both are written from ONE parse of the SVG, so the two platforms cannot be handed two
+ * Both are written from the same SVG by the same parser — each platform's prebuild step reads
+ * and parses it for itself, deterministically — so the two platforms cannot be handed two
  * different drawings. The parser is deliberately small — it reads exactly the shapes and
  * attributes these glyphs use and **throws on anything else**: another element, an attribute
  * outside its list (a `transform`, an `opacity`, a `style`, an `ry`), a shape both stroked and

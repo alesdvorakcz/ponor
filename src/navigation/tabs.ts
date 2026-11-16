@@ -10,9 +10,9 @@ import { type ColorScheme } from '../theme/tokens';
 
 /**
  * The names `plugins/withTabGlyphs.js` installs Ponor's own glyphs under — an image set in the
- * iOS asset catalog and an Android drawable, one name for both. `withTabGlyphs.test.js` and
- * `tabs.test.ts` hold this list and the plugin's to each other: a name the binary does not
- * hold is a tab with no glyph, and nothing throws.
+ * iOS asset catalog and an Android drawable, one name for both. `tabs.test.ts` holds the names
+ * the tabs ask for to the plugin's list (and `withTabGlyphs.test.js` checks the spelling both
+ * platforms accept): a name the binary does not hold is a tab with no glyph, and nothing throws.
  */
 export type TabGlyphAssetName = 'tab_mark' | 'tab_sliders';
 

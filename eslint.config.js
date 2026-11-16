@@ -13,8 +13,9 @@ module.exports = defineConfig([
     // reports `'Buffer' is not defined` in build-icons.mjs — `expo lint` misses
     // it only because it does not reach outside the app source. Declaring the
     // globals for this one directory keeps no-undef enforced everywhere else,
-    // which is the opposite of switching the rule off.
-    files: ["scripts/**/*.mjs", "scripts/**/*.js"],
+    // which is the opposite of switching the rule off. Config plugins (`plugins/`) run under
+    // Node at prebuild for the same reason, and `.cjs` is a build script too (issue #2).
+    files: ["scripts/**/*.mjs", "scripts/**/*.js", "scripts/**/*.cjs", "plugins/**/*.js"],
     languageOptions: {
       globals: {
         Buffer: "readonly",
@@ -24,6 +25,25 @@ module.exports = defineConfig([
         process: "readonly",
         URL: "readonly",
         fetch: "readonly",
+      },
+    },
+  },
+  {
+    // Tests for the config plugins sit beside them, outside `src/`, so the Jest preset's own
+    // globals never reach them. Named here, one by one, for the same reason the Node block
+    // above names its globals: no-undef stays on for everything these files do not declare.
+    files: ["plugins/**/*.test.js"],
+    languageOptions: {
+      globals: {
+        describe: "readonly",
+        it: "readonly",
+        test: "readonly",
+        expect: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        jest: "readonly",
       },
     },
   },
