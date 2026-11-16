@@ -4124,10 +4124,10 @@ function build(scheme: ColorScheme) {
     // that row draws for itself (`formField`); the row inset puts it in the column the names
     // beneath it land in.
     // The account offer at the top of a guest's Settings (issue #24): the card on the content
-    // column, with the air under it the canvas draws before the first row.
+    // column. No air of its own under it — the scroll's own gap (20) is the canvas's 18, and the
+    // two together left 38 on a phone.
     settingsAccountOffer: {
       paddingHorizontal: CONTENT_INSET,
-      paddingBottom: 18,
     },
     settingsSectionTitle: {
       ...clusterLabel,
