@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import sharp from 'sharp';
@@ -143,3 +144,41 @@ describe.each(TAB_GLYPH_SETS)('the tab glyph %s', (...TAB_MARK) => {
     });
   });
 });
+
+// **The committed PNGs are the SVGs as they render now** (review round 2). The native apps read
+// the SVGs at every prebuild, and nothing runs `npm run icons:build` in CI — so an SVG redrawn
+// without rebuilding would change the phone's glyph and leave the browser on the old one, every
+// test above still green (right size, one colour). This renders each glyph through the very
+// function the build uses and compares the alpha, which is the glyph. A tolerance stands in for
+// a rasteriser that rounds an edge pixel differently on another machine; a redrawn glyph moves
+// far more than that.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- a CommonJS build helper
+const { renderTabGlyphPng } = require('../../scripts/renderTabGlyph.cjs') as {
+  renderTabGlyphPng: (svg: string, scale: number) => Promise<Buffer>;
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- the plugin is plain CommonJS
+const { TAB_GLYPHS } = require('../../plugins/withTabGlyphs') as { TAB_GLYPHS: { name: string; svg: string }[] };
+
+async function alphaOf(png: Buffer | string) {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const alpha: number[] = [];
+  for (let i = 3; i < data.length; i += info.channels) alpha.push(data[i] ?? 0);
+  return { alpha, width: info.width, height: info.height };
+}
+
+describe.each(TAB_GLYPHS.flatMap((entry) => [1, 2, 3].map((scale) => [entry.svg, scale] as const)))(
+  'the browser PNG of %s at %dx',
+  (svg, scale) => {
+    it('is that SVG as it renders now', async () => {
+      const root = path.join(__dirname, '..', '..');
+      const base = path.basename(svg, '.svg');
+      const file = path.join(root, 'assets', 'images', scale === 1 ? `${base}.png` : `${base}@${scale}x.png`);
+      const committed = await alphaOf(file);
+      const rendered = await alphaOf(await renderTabGlyphPng(fs.readFileSync(path.join(root, svg), 'utf8'), scale));
+      expect([committed.width, committed.height]).toEqual([rendered.width, rendered.height]);
+      const diffs = committed.alpha.map((a, i) => Math.abs(a - (rendered.alpha[i] ?? 0)));
+      expect(Math.max(...diffs)).toBeLessThanOrEqual(48);
+      expect(diffs.reduce((sum, d) => sum + d, 0) / diffs.length).toBeLessThan(1);
+    });
+  },
+);

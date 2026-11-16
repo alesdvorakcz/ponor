@@ -287,8 +287,9 @@ export function nativeTabsAppearance(
     tintColor: theme.fg,
     labelStyle: styles.tabBarLabel,
     // The ground behind the SELECTED tab, on the one platform that draws one: Android's
-    // Material indicator. Left unset it is expo-router's own hard-coded `#444444` — a literal
-    // that knows nothing about the scheme. It was `border`, a quiet grey step, until issue #2
+    // Material indicator. Left unset it is Material's dynamic `secondaryContainer`
+    // (expo-router's `appearance.android.js`) — a tone taken from the diver's wallpaper, so a hue
+    // the app never chose, on a bar §0.1 keeps monochrome. It was `border`, a quiet grey step, until issue #2
     // made it `action`: the selected tab is the inverted thing, as a selected chip already is
     // (§0.6, "the chosen thing is the inverted thing"). iOS ignores it: UIKit draws its own
     // selection there. **Not yet seen on an Android screen** — DESIGN.md §10 says so.

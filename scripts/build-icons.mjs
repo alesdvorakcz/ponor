@@ -176,7 +176,8 @@ console.log(
  * sliders. On a device they are vectors in the app itself — `plugins/withTabGlyphs.js` puts each
  * SVG into the iOS asset catalog and an Android drawable at prebuild — and the browser's JS bar
  * cannot read either, so it gets these PNGs, rendered from the same SVGs through the same
- * plugin's list and parser. One source, so the browser cannot draw a different glyph.
+ * plugin's list and parser. One source — and `markAsset.test.ts` re-renders the PNGs from the
+ * SVGs and compares, so the browser cannot quietly keep drawing an older glyph.
  *
  * Built like the mono mark above — the drawing in the alpha channel over one flat ink — because
  * it reaches the screen the same way: tinted, every opaque pixel repainted in the bar's own
@@ -186,26 +187,20 @@ console.log(
  * then draws the image at its own icon size (`TabBarGlyph` takes the navigator's `size`), so
  * there the PNG's size only sets how sharp the scaled glyph is.
  */
-const { TAB_GLYPHS, parseGlyph, toIosSvg } = require('../plugins/withTabGlyphs.js');
+const { TAB_GLYPHS } = require('../plugins/withTabGlyphs.js');
+const { renderTabGlyphPng } = require('./renderTabGlyph.cjs');
 for (const entry of TAB_GLYPHS) {
-  // `parseGlyph` refuses a second ink or a shape it cannot convert, and `toIosSvg` is the very
-  // drawing the iOS app holds, so the browser renders exactly what the device draws.
-  const glyph = parseGlyph(fs.readFileSync(path.join(root, entry.svg), 'utf8'));
-  const source = Buffer.from(toIosSvg(glyph));
+  // `renderTabGlyphPng` renders exactly the drawing the iOS app holds, and the parse inside it
+  // refuses a second ink or anything it cannot convert. `markAsset.test.ts` renders the same
+  // way and compares, so committed PNGs that fell behind their SVG fail CI.
+  const source = fs.readFileSync(path.join(root, entry.svg), 'utf8');
   const base = path.basename(entry.svg, '.svg');
   for (const scale of [1, 2, 3]) {
-    const px = glyph.size.width * scale;
     const file = scale === 1 ? `${base}.png` : `${base}@${scale}x.png`;
-    const drawn = await sharp(source, { density: (72 * px) / glyph.size.width })
-      .resize(px, px)
-      .png()
-      .toBuffer();
-    const alpha = await sharp(drawn).ensureAlpha().extractChannel('alpha').toBuffer();
-    await sharp({ create: { width: px, height: px, channels: 3, background: MONO } })
-      .joinChannel(alpha)
-      .png()
-      .toFile(path.join(out, file));
-    console.log(`wrote assets/images/${file} (${px}px, transparent, one colour)`);
+    const png = await renderTabGlyphPng(source, scale);
+    fs.writeFileSync(path.join(out, file), png);
+    const { width } = await sharp(png).metadata();
+    console.log(`wrote assets/images/${file} (${width}px, transparent, one colour)`);
   }
 }
 

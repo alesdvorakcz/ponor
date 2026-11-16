@@ -43,8 +43,10 @@ const TAB_GLYPHS = [
 const INK = '#FFFFFF';
 
 function num(value, what) {
+  // `Number('')` is 0, so a blank value would otherwise pass as a zero-sized shape.
+  if (value === undefined || value.trim() === '') throw new Error(`tab glyph: ${what} is missing`);
   const n = Number(value);
-  if (value === undefined || !Number.isFinite(n)) throw new Error(`tab glyph: ${what} is not a number (${value})`);
+  if (!Number.isFinite(n)) throw new Error(`tab glyph: ${what} is not a number (${value})`);
   return n;
 }
 
@@ -53,11 +55,31 @@ function fmt(n) {
   return String(Math.round(n * 1000) / 1000);
 }
 
+const PAIR = /\s([\w:-]+)="([^"]*)"/g;
+
+/**
+ * A tag's attributes — and only if the whole tag is `name="value"` pairs. Anything else in it
+ * (a single-quoted value, spaces around `=`, a bare word) is text this tokenizer would skip,
+ * and a skipped `transform` would be a silently different drawing, so it throws instead.
+ */
 function attributes(tag) {
   /** @type {Record<string, string>} */
   const out = {};
-  for (const [, key, value] of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) out[key] = value;
+  for (const [, key, value] of tag.matchAll(PAIR)) out[key] = value;
+  const rest = tag.replace(/^<[a-zA-Z][\w-]*/, '').replace(PAIR, '').replace(/\/?>$/, '');
+  if (rest.trim() !== '') {
+    throw new Error(`tab glyph: cannot read "${rest.trim()}" in ${tag} — write attributes as name="value"`);
+  }
   return out;
+}
+
+/** The stroke ends and corners both platforms draw the same way (Android allows no others). */
+const CAPS = ['butt', 'round', 'square'];
+const JOINS = ['miter', 'round', 'bevel'];
+
+function oneOf(value, allowed, what) {
+  if (!allowed.includes(value)) throw new Error(`tab glyph: ${what}="${value}" is not one of ${allowed.join(', ')}`);
+  return value;
 }
 
 /**
@@ -153,8 +175,8 @@ function parseGlyph(svgText) {
         d,
         stroke: true,
         width: num(attrs['stroke-width'] ?? '1', 'stroke-width'),
-        cap: attrs['stroke-linecap'] ?? 'butt',
-        join: attrs['stroke-linejoin'] ?? 'miter',
+        cap: oneOf(attrs['stroke-linecap'] ?? 'butt', CAPS, 'stroke-linecap'),
+        join: oneOf(attrs['stroke-linejoin'] ?? 'miter', JOINS, 'stroke-linejoin'),
       });
     } else if (fill) {
       shapes.push({ d, stroke: false });
@@ -255,6 +277,7 @@ function withTabGlyphs(config) {
 
 module.exports = withTabGlyphs;
 module.exports.TAB_GLYPHS = TAB_GLYPHS;
+module.exports.INK = INK;
 module.exports.parseGlyph = parseGlyph;
 module.exports.toIosSvg = toIosSvg;
 module.exports.iosContents = iosContents;

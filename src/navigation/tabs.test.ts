@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 import { jsTabItems, nativeTabItems, TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -110,6 +112,20 @@ it('inverts the selected tab on Android and leaves iOS its own selection', () =>
     const ios = nativeTabsAppearance(scheme, 'ios');
     expect(ios.iconColor).toBe(theme.fgMuted);
     expect(ios.tintColor).toBe(theme.fg);
+  }
+});
+
+// The layout calls `nativeTabsAppearance(scheme)` with no platform, so the DEFAULT is what a
+// phone actually gets; every test above names the platform. Without this, a default changed to
+// `'ios'` would drop Android's inverted pill with the whole suite green (review round 2).
+it.each(['ios', 'android'] as const)('reads the platform itself when the layout does not name one (%s)', (os) => {
+  const platform = jest.replaceProperty(Platform, 'OS', os);
+  try {
+    for (const scheme of ['light', 'dark'] as const) {
+      expect(nativeTabsAppearance(scheme)).toEqual(nativeTabsAppearance(scheme, os));
+    }
+  } finally {
+    platform.restore();
   }
 });
 

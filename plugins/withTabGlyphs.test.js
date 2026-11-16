@@ -60,6 +60,61 @@ it('keeps the mark two strokes with round ends, and the sliders four filled shap
   expect(sliders.shapes.every((s) => s.stroke === false && s.d.endsWith('Z'))).toBe(true);
 });
 
+// **The exact drawing each platform gets, pinned** (review round 2). Android was never seen on
+// a device, so this is the only thing that says its drawable paints at all: a converter that
+// dropped `strokeColor`, rounded the caps away or filled with transparent would keep every
+// count above green. Checked by hand against the SVGs' geometry when it was written — the
+// polylines' points as they are, each rounded rect traced corner by corner from x, y, w, h, rx —
+// so a change here means the drawing changed, and the SVG should say why.
+const GOLDEN = {
+  tab_mark: {
+    android: [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<!-- Written by plugins/withTabGlyphs.js at prebuild from the SVG in assets/. Edit that, not this. -->',
+      '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="22" android:viewportHeight="22">',
+      '  <path android:pathData="M2,5.4L5.5,3.6L9,5.4L12.5,3.6L16,5.4L19.5,3.9" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6" android:strokeLineCap="round" android:strokeLineJoin="round"/>',
+      '  <path android:pathData="M5,4.6L7.8,17L11.6,17L14,11.4L18.4,11.4" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round"/>',
+      '</vector>',
+      '',
+    ],
+    ios: [
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="28" height="28">',
+      '<path d="M2,5.4L5.5,3.6L9,5.4L12.5,3.6L16,5.4L19.5,3.9" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+      '<path d="M5,4.6L7.8,17L11.6,17L14,11.4L18.4,11.4" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+      '</svg>',
+      '',
+    ],
+  },
+  tab_sliders: {
+    android: [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<!-- Written by plugins/withTabGlyphs.js at prebuild from the SVG in assets/. Edit that, not this. -->',
+      '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="22" android:viewportHeight="22">',
+      '  <path android:pathData="M3.8,6.4H18.2A0.8,0.8 0 0 1 19,7.2V7.2A0.8,0.8 0 0 1 18.2,8H3.8A0.8,0.8 0 0 1 3,7.2V7.2A0.8,0.8 0 0 1 3.8,6.4Z" android:fillColor="#FFFFFFFF"/>',
+      '  <path android:pathData="M7.8,4.2H8.4A1.2,1.2 0 0 1 9.6,5.4V9A1.2,1.2 0 0 1 8.4,10.2H7.8A1.2,1.2 0 0 1 6.6,9V5.4A1.2,1.2 0 0 1 7.8,4.2Z" android:fillColor="#FFFFFFFF"/>',
+      '  <path android:pathData="M3.8,14H18.2A0.8,0.8 0 0 1 19,14.8V14.8A0.8,0.8 0 0 1 18.2,15.6H3.8A0.8,0.8 0 0 1 3,14.8V14.8A0.8,0.8 0 0 1 3.8,14Z" android:fillColor="#FFFFFFFF"/>',
+      '  <path android:pathData="M13.6,11.8H14.2A1.2,1.2 0 0 1 15.4,13V16.6A1.2,1.2 0 0 1 14.2,17.8H13.6A1.2,1.2 0 0 1 12.4,16.6V13A1.2,1.2 0 0 1 13.6,11.8Z" android:fillColor="#FFFFFFFF"/>',
+      '</vector>',
+      '',
+    ],
+    ios: [
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="28" height="28">',
+      '<path d="M3.8,6.4H18.2A0.8,0.8 0 0 1 19,7.2V7.2A0.8,0.8 0 0 1 18.2,8H3.8A0.8,0.8 0 0 1 3,7.2V7.2A0.8,0.8 0 0 1 3.8,6.4Z" fill="#FFFFFF"/>',
+      '<path d="M7.8,4.2H8.4A1.2,1.2 0 0 1 9.6,5.4V9A1.2,1.2 0 0 1 8.4,10.2H7.8A1.2,1.2 0 0 1 6.6,9V5.4A1.2,1.2 0 0 1 7.8,4.2Z" fill="#FFFFFF"/>',
+      '<path d="M3.8,14H18.2A0.8,0.8 0 0 1 19,14.8V14.8A0.8,0.8 0 0 1 18.2,15.6H3.8A0.8,0.8 0 0 1 3,14.8V14.8A0.8,0.8 0 0 1 3.8,14Z" fill="#FFFFFF"/>',
+      '<path d="M13.6,11.8H14.2A1.2,1.2 0 0 1 15.4,13V16.6A1.2,1.2 0 0 1 14.2,17.8H13.6A1.2,1.2 0 0 1 12.4,16.6V13A1.2,1.2 0 0 1 13.6,11.8Z" fill="#FFFFFF"/>',
+      '</svg>',
+      '',
+    ],
+  },
+};
+
+it.each(TAB_GLYPHS)('writes exactly the pinned drawing of $name for both platforms', (entry) => {
+  const glyph = parseGlyph(read(entry));
+  expect(toVectorDrawable(glyph)).toBe(GOLDEN[entry.name].android.join('\n'));
+  expect(toIosSvg(glyph)).toBe(GOLDEN[entry.name].ios.join('\n'));
+});
+
 it('turns a rounded rect into a closed path with its corners', () => {
   const glyph = parseGlyph(
     '<svg viewBox="0 0 22 22" width="28" height="28"><rect x="3" y="6" width="16" height="2" rx="1" fill="#FFFFFF"/></svg>',
@@ -85,6 +140,13 @@ it.each([
   ['a stroke opacity', '<polyline points="0,0 1,1" fill="none" stroke="#FFFFFF" stroke-opacity="0.5"/>', /stroke-opacity/],
   ['both a stroke and a fill', '<rect width="2" height="2" fill="#FFFFFF" stroke="#FFFFFF"/>', /both stroked and filled/],
   ['no word on fill', '<polyline points="0,0 1,1" stroke="#FFFFFF"/>', /fill="none"/],
+  // Written another way, an attribute never reaches the list above, so the tag itself must be
+  // nothing but name="value" pairs.
+  ['a single-quoted attribute', `<rect width="2" height="2" fill="#FFFFFF" transform='rotate(45 1 1)'/>`, /cannot read/],
+  ['spaces around =', '<rect width="2" height="2" fill="#FFFFFF" transform = "rotate(45)"/>', /cannot read/],
+  ['a blank number', '<rect width="" height="2" fill="#FFFFFF"/>', /width is missing/],
+  ['a corner Android cannot draw', '<polyline points="0,0 1,1" fill="none" stroke="#FFFFFF" stroke-linejoin="arcs"/>', /stroke-linejoin/],
+  ['an end Android cannot draw', '<polyline points="0,0 1,1" fill="none" stroke="#FFFFFF" stroke-linecap="triangle"/>', /stroke-linecap/],
 ])('refuses %s rather than dropping it', (_what, inner, message) => {
   expect(() => parseGlyph(glyph(inner))).toThrow(message);
 });
