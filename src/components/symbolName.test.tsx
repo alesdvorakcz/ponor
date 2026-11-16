@@ -295,7 +295,7 @@ const TAB_MATERIAL_NAMES = [
 // So the table is tied to the bar instead: same routes, same order. A tab added to
 // `navigation/tabs.ts` is red here until somebody writes down what it draws on the two
 // platforms the simulator cannot show them.
-it('pins a Material name for every tab in the bar, and for no tab that is not', () => {
+it('lists every tab in the bar, and no tab that is not, with its Material name or null for Ponor’s own glyphs', () => {
   expect(TAB_MATERIAL_NAMES.map(([name]) => name)).toEqual(TAB_ROUTES.map((route) => route.name));
 });
 

@@ -111,7 +111,9 @@ describe('the mark the first-run screen draws', () => {
 // in the bar's own ink — so they carry the same claim: one colour over a transparent ground.
 // The three scales must also be one drawing: the browser picks the @2x or @3x by the screen's
 // pixel ratio, and a stale one left behind by a redraw would show a different glyph on a
-// high-density screen only, where nothing else would notice.
+// high-density screen only, where nothing else would notice. The tests just below hold the
+// colour and the sizes; that each scale is the SAME drawing is held by the per-scale
+// comparison with a fresh render of the SVG, at the end of this file.
 const TAB_GLYPH_SETS = ['tab-mark', 'tab-sliders'].map((base) =>
   [`${base}.png`, `${base}@2x.png`, `${base}@3x.png`].map((file) =>
     path.join(__dirname, '..', '..', 'assets', 'images', file),
@@ -134,7 +136,7 @@ describe.each(TAB_GLYPH_SETS)('the tab glyph %s', (...TAB_MARK) => {
     expect([...inks]).toEqual(['255,255,255']);
   });
 
-  it('is one square drawing at 1×, 2× and 3×', async () => {
+  it('is square, and its @2x and @3x are exactly twice and three times the 1×', async () => {
     const sizes = await Promise.all(TAB_MARK.map(async (file) => sharp(file).metadata()));
     const base = sizes[0];
     if (!base) throw new Error('no 1× tab mark');
