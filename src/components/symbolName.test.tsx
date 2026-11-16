@@ -73,11 +73,13 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. **Thirteen symbols in seven places**: the search capsule's magnifier, the
-// two `entry` chips, the five capsule glyphs `DivesScreen`, `SearchScreen` and `MapScreen` hand
-// to `ActionCapsule`, `navigation/tabs.ts`' two (Map and Stats), M1h's carried treatment — the
-// return mark and the clear control's ring — and, since M3e, **the glyph inside a dive centre's
-// map mark**.
+// it can only be listed. **The places, in this file's order**: the search capsule's magnifier,
+// the two `entry` chips, M1h's carried treatment — the return mark and the clear control's ring
+// — the capsule glyphs the screens hand to `ActionCapsule` (the dive list, search, the map and,
+// since #19, the two directories' closes), since M3e **the glyph inside a dive centre's map
+// mark**, #19's picker and create page, and `navigation/tabs.ts`' two (Map and Stats). Each
+// block below is its own list; this note no longer keeps a running total, which had drifted
+// from those lists before issue #2 and is not issue #2's to recount.
 //
 // It was ten in six until M2n, and the three that joined are §3's Map tab: its own tab glyph, and
 // BOTH states of the layer toggle in the capsule — one control that renders a different symbol
@@ -86,8 +88,9 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // fifteenth cannot arrive without one. The Map's own count did not grow when M3e turned its
 // toggle into three switches — the same three symbols, drawn at once rather than one at a time —
 // but a **seventh place** did arrive, because one of those three is now also drawn on the map.
-// Issue #2 took it back to thirteen: Dives and Settings now draw Ponor's own glyphs rather than
-// symbols, and the tab block below lists them with `null` (tabs.test.ts pins the glyphs).
+// **Issue #2 took two symbols away**: Dives and Settings now draw Ponor's own glyphs rather than
+// symbols, so `navigation/tabs.ts` holds two (Map and Stats), and the tab block below lists the
+// other two with `null` (tabs.test.ts pins their glyphs).
 //
 // It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
 // condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
