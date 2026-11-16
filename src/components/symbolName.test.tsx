@@ -75,8 +75,8 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
 // it can only be listed. **The places, in this file's order**: the search capsule's magnifier,
 // the two `entry` chips, M1h's carried treatment — the return mark and the clear control's ring
-// — the capsule glyphs the screens hand to `ActionCapsule` (the dive list, search, the map and,
-// since #19, the two directories' closes), since M3e **the glyph inside a dive centre's map
+// — the capsule glyphs the screens hand to `ActionCapsule` (the dive list, search, the map and
+// the two directories' closes), since M3e **the glyph inside a dive centre's map
 // mark**, #19's picker and create page, and `navigation/tabs.ts`' two (Map and Stats). Each
 // block below is its own list; this note no longer keeps a running total, which had drifted
 // from those lists before issue #2 and is not issue #2's to recount.
