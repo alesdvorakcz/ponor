@@ -37,6 +37,11 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    // Ponor's own tab glyphs — the mark (Dives) and the canvas's two sliders (Settings) — as
+    // vectors in the iOS asset catalog and as Android vector drawables, from the SVGs in
+    // `assets/` (issue #2). Native configuration: a binary built before this plugin ran shows
+    // those two tabs with no glyph, because the bar asks for each image by name.
+    './plugins/withTabGlyphs',
     // The six .ttf paths are DERIVED from tokens.js's `fonts` map (see `fontFiles` there),
     // not listed again here: this array and that map have to agree, and until now nothing
     // made them. Same six files as before, in the same order — checked against the array

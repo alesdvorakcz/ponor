@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="28" height="28">
+  <!-- The Settings tab's glyph: two sliders, as the owner's design canvas draws
+       it (screen 01, note 11), chosen over iOS's three-slider symbol (issue #2).
+       One flat ink that the tab bar tints, like tab-mark.svg beside it; same
+       28 pt and the same route into the apps (plugins/withTabGlyphs.js). -->
+  <rect x="3" y="6.4" width="16" height="1.6" rx="0.8" fill="#FFFFFF"/>
+  <rect x="6.6" y="4.2" width="3" height="6" rx="1.2" fill="#FFFFFF"/>
+  <rect x="3" y="14" width="16" height="1.6" rx="0.8" fill="#FFFFFF"/>
+  <rect x="12.4" y="11.8" width="3" height="6" rx="1.2" fill="#FFFFFF"/>
+</svg>

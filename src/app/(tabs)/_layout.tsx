@@ -50,8 +50,9 @@ export default function TabsLayout() {
       {nativeTabItems().map((tab) => (
         <NativeTabs.Trigger key={tab.name} name={tab.name}>
           <NativeTabs.Trigger.Label>{tab.title}</NativeTabs.Trigger.Label>
-          {/* Already `{sf, md}` — or, for Dives, `{src, renderingMode: 'template'}`, Ponor's
-              mark as an image the bar tints like a symbol (issue #2). components/symbolName.ts
+          {/* Already `{sf, md}` — or, for Dives and Settings, `{xcasset, drawable}`: Ponor's
+              own glyphs, by the name `plugins/withTabGlyphs.js` installs them under in the
+              native apps, tinted by the bar like a symbol (issue #2). components/symbolName.ts
               is §4.1's owner of the per-platform key a symbol is asked for under, and the
               native tab bar spells those keys differently from `SymbolView`;
               navigation/tabs.ts is where that conversion is applied, so it sits inside the

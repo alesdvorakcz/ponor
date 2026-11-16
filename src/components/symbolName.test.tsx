@@ -264,10 +264,10 @@ it.each([
 // here, where re-deriving the answer from the source would only have proved the converters
 // still work.
 //
-// **Dives is in the table with `null`** (issue #2): it draws Ponor's mark, an image, on every
-// platform, so it has no Material name to pin — and it stays listed, because the check below
-// that ties this table to the bar is what would otherwise let a tab slip past unpinned.
-// `tabs.test.ts` pins the image itself.
+// **Dives and Settings are in the table with `null`** (issue #2): they draw Ponor's own glyphs —
+// the mark and the canvas's sliders — on every platform, so they have no Material name to pin.
+// They stay listed, because the check below that ties this table to the bar is what would
+// otherwise let a tab slip past unpinned. `tabs.test.ts` pins the glyphs themselves.
 const TAB_MATERIAL_NAMES = [
   ['index', null],
   // M2n. `map` is the same word in both vocabularies, which is exactly why it is pinned rather
@@ -277,8 +277,8 @@ const TAB_MATERIAL_NAMES = [
   // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most
   // (`chart.bar.fill` against `bar_chart`), which is the ordinary case this file exists for.
   ['stats', 'bar_chart'],
-  // Issue #2: sliders rather than a gear, as the canvas draws Settings.
-  ['settings', 'tune'],
+  // Issue #2: the canvas's own two sliders, an image like the mark — so no Material name either.
+  ['settings', null],
 ] as const;
 
 // **The half of "if you add a symbol, add it here" that was a sentence rather than a check**
@@ -313,11 +313,12 @@ it.each(TAB_MATERIAL_NAMES.filter(([, material]) => material !== null))(
   },
 );
 
-it('draws the tab with no Material name as an image in both bars, not as a blank symbol', () => {
+it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank symbols', () => {
   for (const [name] of TAB_MATERIAL_NAMES.filter(([, material]) => material === null)) {
     const native = nativeTabItems().find((tab) => tab.name === name);
     const js = jsTabItems().find((tab) => tab.name === name);
-    expect(native?.icon).toHaveProperty('src');
+    expect(native?.icon).toHaveProperty('xcasset');
+    expect(native?.icon).toHaveProperty('drawable');
     expect(js?.icon).toHaveProperty('image');
   }
 });

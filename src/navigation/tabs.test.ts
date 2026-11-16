@@ -86,6 +86,23 @@ it('shows no navigator header in the browser, matching every screen the device d
   expect(jsTabsAppearance('light').headerShown).toBe(false);
 });
 
+// **Android's selected tab is an inverted pill** (issue #2, the owner's call): Material draws
+// its indicator behind the selected icon, so the indicator is `action` and the glyph on it is
+// `action-fg` — Android only, because on iOS the same ink would sit dark on a pale glass bubble
+// in the dark theme and vanish. The word stays `fg` everywhere: Material sets it under the pill.
+it('inverts the selected tab on Android and leaves iOS its own selection', () => {
+  for (const scheme of ['light', 'dark'] as const) {
+    const theme = themeFor(scheme);
+    const android = nativeTabsAppearance(scheme, 'android');
+    expect(android.indicatorColor).toBe(theme.action);
+    expect(android.iconColor).toEqual({ default: theme.fgMuted, selected: theme.actionFg });
+    expect(android.tintColor).toBe(theme.fg);
+    const ios = nativeTabsAppearance(scheme, 'ios');
+    expect(ios.iconColor).toBe(theme.fgMuted);
+    expect(ios.tintColor).toBe(theme.fg);
+  }
+});
+
 // The native bar's ground is UIKit's, and that is the entire reason `(tabs)/_layout.tsx` uses
 // native tabs: naming a `backgroundColor` replaces iOS 26's Liquid Glass material with an
 // opaque fill. This used to be a `src/platform/tabBarSurface` split whose web half returned a
@@ -155,13 +172,13 @@ it('gives each navigator its icon under the keys that navigator actually reads',
   // — a missing key is a blank bar on the platform that reads it, and `web` is the one that
   // was actually missing in this app once, in both icons, until symbolName.ts existed.
   //
-  // Dives draws Ponor's mark as an image instead (issue #2), and an image has its own key on
-  // each side: `src` for the native bar, as a TEMPLATE so the bar tints it like the symbols —
-  // the default is `template` only while an icon colour is configured, so it is pinned here —
-  // and `image` for the browser's `TabBarGlyph`.
+  // Dives and Settings draw Ponor's own glyphs instead (issue #2), and those have their own
+  // keys: one name under both `xcasset` and `drawable` for the native bar — the vector the
+  // config plugin installed — and an `image` for the browser's `TabBarGlyph`.
   for (const tab of nativeTabItems()) {
-    if ('src' in tab.icon) {
-      expect(tab.icon).toEqual({ src: expect.anything(), renderingMode: 'template' });
+    if ('xcasset' in tab.icon) {
+      expect(Object.keys(tab.icon).sort()).toEqual(['drawable', 'xcasset']);
+      expect(tab.icon.drawable).toBe(tab.icon.xcasset);
     } else {
       expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
     }
@@ -175,14 +192,30 @@ it('gives each navigator its icon under the keys that navigator actually reads',
   }
 });
 
-it('draws Dives with Ponor’s mark, the same image in both bars', () => {
-  const native = nativeTabItems().find((tab) => tab.name === 'index');
-  const js = jsTabItems().find((tab) => tab.name === 'index');
-  if (!native || !js || !('src' in native.icon) || !('image' in js.icon)) {
-    throw new Error('the Dives tab should carry the mark as an image in both bars');
+// Which of Ponor's glyphs each tab draws, in both bars: the vector's name natively, and the
+// PNG rendered from the same SVG in the browser.
+it.each([
+  ['index', 'tab_mark', require('../../assets/images/tab-mark.png')],
+  ['settings', 'tab_sliders', require('../../assets/images/tab-sliders.png')],
+])('draws the %s tab with Ponor’s %s glyph in both bars', (name, asset, image) => {
+  const native = nativeTabItems().find((tab) => tab.name === name);
+  const js = jsTabItems().find((tab) => tab.name === name);
+  if (!native || !js || !('xcasset' in native.icon) || !('image' in js.icon)) {
+    throw new Error(`the ${name} tab should carry one of Ponor's glyphs in both bars`);
   }
-  expect(native.icon.src).toBe(require('../../assets/images/tab-mark.png'));
-  expect(js.icon.image).toBe(native.icon.src);
+  expect(native.icon.xcasset).toBe(asset);
+  expect(js.icon.image).toBe(image);
+});
+
+// **The name is the whole contract with the binary.** The bar asks iOS and Android for each
+// glyph by name, and a name the config plugin never installed is a tab with no glyph — no
+// error, no warning, just an empty slot on a device. So every name a tab asks for must be one
+// the plugin writes, and the plugin writes nothing no tab asks for.
+it('asks the native apps only for glyphs the config plugin installs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- the plugin is plain CommonJS, loaded by app.config.ts
+  const { TAB_GLYPHS } = require('../../plugins/withTabGlyphs') as { TAB_GLYPHS: { name: string }[] };
+  const asked = TAB_ROUTES.flatMap((route) => ('asset' in route.glyph ? [route.glyph.asset.name] : []));
+  expect([...asked].sort()).toEqual(TAB_GLYPHS.map((entry) => entry.name).sort());
 });
 
 // **The assertion that replaces a test neither layout can have.**

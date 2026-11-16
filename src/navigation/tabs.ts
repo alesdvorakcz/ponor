@@ -1,6 +1,6 @@
 import type { BottomTabNavigationOptions } from 'expo-router/js-tabs';
 import type { NativeTabsProps } from 'expo-router/unstable-native-tabs';
-import type { ImageSourcePropType } from 'react-native';
+import { Platform, type ImageSourcePropType } from 'react-native';
 
 import { nativeTabSymbol, symbolName, type PlatformSymbol } from '../components/symbolName';
 import { t, type TranslationKey } from '../i18n';
@@ -9,13 +9,24 @@ import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 
 /**
+ * The names `plugins/withTabGlyphs.js` installs Ponor's own glyphs under — an image set in the
+ * iOS asset catalog and an Android drawable, one name for both. `withTabGlyphs.test.js` and
+ * `tabs.test.ts` hold this list and the plugin's to each other: a name the binary does not
+ * hold is a tab with no glyph, and nothing throws.
+ */
+export type TabGlyphAssetName = 'tab_mark' | 'tab_sliders';
+
+/**
  * A tab's glyph: a platform symbol, or Ponor's own drawing (issue #2).
  *
- * `image` is a single-colour template — `assets/images/tab-mark.png`, built by
- * `scripts/build-icons.mjs` — that every bar repaints in its own ink, exactly as it tints a
- * symbol. It is one image on every platform, because the mark is not in either symbol set.
+ * An `asset` is a vector the native bars find by `name` and tint in their own ink, exactly as
+ * they tint a symbol; it reaches the binary through the config plugin, from the SVG in
+ * `assets/`. Its `image` is the same drawing as single-colour PNGs (`scripts/build-icons.mjs`),
+ * for the one bar that cannot read the native catalogue: the browser's.
  */
-export type TabGlyph = { symbol: PlatformSymbol } | { image: ImageSourcePropType };
+export type TabGlyph =
+  | { symbol: PlatformSymbol }
+  | { asset: { name: TabGlyphAssetName; image: ImageSourcePropType } };
 
 /** One entry in the tab bar. */
 export interface TabRoute {
@@ -51,8 +62,12 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // `water.waves`: the tab is the logbook, and the mark is a dive profile — the same shape a
   // logged dive draws once it has samples — so the first tab says "Ponor, your dives" rather
   // than "water". It is never the gradient mark: §0.1 spends colour on depth, so the moment the
-  // mark becomes chrome it is monochrome, tinted by the bar like the three symbols beside it.
-  { name: 'index', titleKey: 'tabs.dives', glyph: { image: require('../../assets/images/tab-mark.png') } },
+  // mark becomes chrome it is monochrome, tinted by the bar like the symbols beside it.
+  {
+    name: 'index',
+    titleKey: 'tabs.dives',
+    glyph: { asset: { name: 'tab_mark', image: require('../../assets/images/tab-mark.png') } },
+  },
   // §3's second tab (M2n). It sits between Dives and Settings because that is §3's own order —
   // Dives, Map, Stats, Settings — and M3's Stats tab goes in the gap this leaves rather than on
   // the end. `map`/`map` is the same word in both vocabularies, which is a coincidence of these
@@ -77,9 +92,13 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // #2**, as the canvas draws it; Material's `bar_chart` already was.
   { name: 'stats', titleKey: 'tabs.stats', glyph: { symbol: { ios: 'chart.bar.fill', android: 'bar_chart' } } },
   // **Sliders, not a gear** (issue #2, the canvas's note 11): Settings here is units, language
-  // and presets — values a diver sets — not machinery. iOS's three-slider symbol stands in for
-  // the canvas's two-slider drawing; Material's `tune` is the same idea.
-  { name: 'settings', titleKey: 'tabs.settings', glyph: { symbol: { ios: 'slider.horizontal.3', android: 'tune' } } },
+  // and presets — values a diver sets — not machinery. The canvas's own two sliders, chosen by
+  // the owner over iOS's three-slider symbol, so it is Ponor's drawing like the mark.
+  {
+    name: 'settings',
+    titleKey: 'tabs.settings',
+    glyph: { asset: { name: 'tab_sliders', image: require('../../assets/images/tab-sliders.png') } },
+  },
 ];
 
 /**
@@ -142,13 +161,13 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  */
 /**
  * What `NativeTabs.Trigger.Icon` is handed: a symbol under the native bar's `sf`/`md` keys, or
- * an image under `src`. `renderingMode: 'template'` is stated rather than left to the default,
- * which is `template` only while the bar has an icon colour configured — and a template is what
- * makes the bar repaint the mark in its own ink instead of drawing the PNG's white.
+ * one of Ponor's glyphs by name — `xcasset` on iOS, `drawable` on Android. Neither needs a
+ * rendering mode: the iOS image set declares itself a template and Material tints every tab
+ * icon, so both bars repaint the glyph in their own ink.
  */
 export type NativeTabIcon =
   | ReturnType<typeof nativeTabSymbol>
-  | { src: ImageSourcePropType; renderingMode: 'template' };
+  | { xcasset: TabGlyphAssetName; drawable: TabGlyphAssetName };
 
 /** What the browser's bar hands `TabBarGlyph` (components/TabBarGlyph.tsx): `name` is
  * exactly `SymbolView`'s `name` prop, already carrying its `web` key. */
@@ -168,11 +187,11 @@ export interface JsTabItem {
 
 /** The glyphs, resolved once — the half of each item that cannot change while the app runs. */
 const NATIVE_TAB_ICONS: readonly NativeTabIcon[] = TAB_ROUTES.map(({ glyph }) =>
-  'image' in glyph ? { src: glyph.image, renderingMode: 'template' } : nativeTabSymbol(glyph.symbol),
+  'asset' in glyph ? { xcasset: glyph.asset.name, drawable: glyph.asset.name } : nativeTabSymbol(glyph.symbol),
 );
 
 const JS_TAB_ICONS: readonly JsTabIcon[] = TAB_ROUTES.map(({ glyph }) =>
-  'image' in glyph ? { image: glyph.image } : { name: symbolName(glyph.symbol) },
+  'asset' in glyph ? { image: glyph.asset.image } : { name: symbolName(glyph.symbol) },
 );
 
 /** What `(tabs)/_layout.tsx` maps over. */
@@ -236,20 +255,31 @@ export function jsTabItems(): readonly JsTabItem[] {
  * shrinks as the list scrolls, which is the platform's own answer to the same question
  * §0.6 answers for the top capsule. Recorded rather than set, so the decision is visible.
  */
-export function nativeTabsAppearance(scheme: ColorScheme): NativeTabsProps {
+export function nativeTabsAppearance(
+  scheme: ColorScheme,
+  os: typeof Platform.OS = Platform.OS,
+): NativeTabsProps {
   const styles = makeStyles(scheme);
   const theme = themeFor(scheme);
   return {
-    iconColor: theme.fgMuted,
+    // **On Android the selected glyph sits on an inverted pill, so it takes the pill's ink**
+    // (issue #2, the owner's call). Material draws its indicator BEHIND the selected icon, and
+    // `indicatorColor` below makes that indicator `action` — the canvas's inverted pill, on the
+    // one platform whose native bar can draw it — so the glyph on it must be `action-fg` or it
+    // would vanish into it. iOS keeps one resting ink and `tintColor` for the selection: its
+    // bubble is a pale glass, and `action-fg` there would be dark-on-dark in the dark theme.
+    // The selected LABEL stays `fg` on both, through `tintColor`: Material draws the word
+    // under the pill, on the bar's own ground.
+    iconColor: os === 'android' ? { default: theme.fgMuted, selected: theme.actionFg } : theme.fgMuted,
     tintColor: theme.fg,
     labelStyle: styles.tabBarLabel,
-    // The ground behind the SELECTED tab, on the one platform left that draws one: Android's
+    // The ground behind the SELECTED tab, on the one platform that draws one: Android's
     // Material indicator. Left unset it is expo-router's own hard-coded `#444444` — a literal
-    // that knows nothing about the scheme, and the only colour on the bar the app was not
-    // choosing. `border` is the token the app already spends on "a quiet ground one step off
-    // the surface", which is exactly what a selection pill is. iOS ignores it: UIKit draws
-    // its own selection there.
-    indicatorColor: theme.border,
+    // that knows nothing about the scheme. It was `border`, a quiet grey step, until issue #2
+    // made it `action`: the selected tab is the inverted thing, as a selected chip already is
+    // (§0.6, "the chosen thing is the inverted thing"). iOS ignores it: UIKit draws its own
+    // selection there. **Not yet seen on an Android screen** — DESIGN.md §10 says so.
+    indicatorColor: theme.action,
   };
 }
 

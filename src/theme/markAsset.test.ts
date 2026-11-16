@@ -109,11 +109,17 @@ describe('the mark the first-run screen draws', () => {
 // image at the image's own size), so the three scales must also be one drawing at 1×, 2× and
 // 3×: a stale @3x left behind by a resize would put a different-sized mark on every phone that
 // reads it, and nothing else would notice.
-const TAB_MARK = ['tab-mark.png', 'tab-mark@2x.png', 'tab-mark@3x.png'].map((file) =>
-  path.join(__dirname, '..', '..', 'assets', 'images', file),
+//
+// Since the owner chose vectors for the device, these PNGs are the BROWSER's copy — the native
+// apps hold the SVG itself (`plugins/withTabGlyphs.js`) — and the Settings sliders are built
+// the same way, so both are held to the same claim.
+const TAB_GLYPH_SETS = ['tab-mark', 'tab-sliders'].map((base) =>
+  [`${base}.png`, `${base}@2x.png`, `${base}@3x.png`].map((file) =>
+    path.join(__dirname, '..', '..', 'assets', 'images', file),
+  ),
 );
 
-describe('the mark the Dives tab draws', () => {
+describe.each(TAB_GLYPH_SETS)('the tab glyph %s', (...TAB_MARK) => {
   it.each(TAB_MARK)('%s carries exactly one colour, over a transparent ground', async (file) => {
     const { data, info } = await sharp(file).raw().toBuffer({ resolveWithObject: true });
     expect(info.channels).toBe(4);
@@ -124,7 +130,7 @@ describe('the mark the Dives tab draws', () => {
       visible += 1;
       inks.add([data[i], data[i + 1], data[i + 2]].join(','));
     }
-    // Drawn at all: a fifth of the 28 pt square at 1× is about 150 pixels of ink.
+    // Drawn at all: a few strokes across the 28 pt square at 1× is over a hundred pixels of ink.
     expect(visible).toBeGreaterThan(100);
     expect([...inks]).toEqual(['255,255,255']);
   });

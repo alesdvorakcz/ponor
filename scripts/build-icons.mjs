@@ -172,49 +172,39 @@ console.log(
 );
 
 /**
- * **The Dives tab's glyph** (issue #2): `assets/tab-mark.svg`, the mark as the owner's design
- * canvas redraws it for a tab bar, built the same way as the mono mark above — the drawing in
- * the alpha channel over one flat ink — because it reaches the screen the same way: the native
- * tab bar renders it as a template image and repaints every opaque pixel in the bar's own
- * resting or selected ink. So the claim `markAsset.test.ts` makes about it is the mono mark's
- * claim, one colour over a transparent ground, and it is true by construction here.
+ * **Ponor's own tab glyphs, for the browser's bar** (issue #2): the Dives mark and the Settings
+ * sliders. On a device they are vectors in the app itself — `plugins/withTabGlyphs.js` puts each
+ * SVG into the iOS asset catalog and an Android drawable at prebuild — and the browser's JS bar
+ * cannot read either, so it gets these PNGs, rendered from the same SVGs through the same
+ * plugin's list and parser. One source, so the browser cannot draw a different glyph.
  *
- * **Unlike the mono mark it is a sprite, not a source:** `@1x`/`@2x`/`@3x` at a fixed point
- * size, because UIKit draws a tab bar image at the image's own size and nothing in the app can
- * scale it. 28 pt is measured, not taken from the canvas's 22: in iOS 26's bar the SF Symbols
- * beside it (`map`, `slider.horizontal.3`) draw about 23–24 pt wide, and at 28 the mark's ink
- * comes out the same width, so the four glyphs read as one set. DESIGN.md §10 records it.
- *
- * Both lines of the drawing keep one ink, as the canvas draws them; the mono mark's half-alpha
- * wave does not carry over. At this size the canvas already subordinates the wave by width
- * (1.6 against the profile's 2), and half of a muted resting ink would lose it on the glass.
+ * Built like the mono mark above — the drawing in the alpha channel over one flat ink — because
+ * it reaches the screen the same way: tinted, every opaque pixel repainted in the bar's own
+ * resting or selected ink. `markAsset.test.ts` holds them to that: one colour over a transparent
+ * ground, one drawing at 1×, 2× and 3×. The point size is each SVG's own `width` (28; DESIGN.md
+ * §0.6 has why), so it is stated once, in the file every platform reads.
  */
-const TAB_MARK_PT = 28;
-const TAB_MARK_VIEWBOX = 22;
-const tabMarkText = fs
-  .readFileSync(path.join(root, 'assets', 'tab-mark.svg'), 'utf8')
-  .replace(/<!--[\s\S]*?-->/g, '');
-const tabMarkStray = [...tabMarkText.matchAll(/#[0-9A-Fa-f]{3,8}\b/g)]
-  .map(([colour]) => colour)
-  .find((colour) => colour.toUpperCase() !== MONO);
-if (tabMarkStray) {
-  throw new Error(
-    `assets/tab-mark.svg carries ${tabMarkStray}; the tab glyph is one ink, tinted by the tab bar`,
-  );
-}
-for (const scale of [1, 2, 3]) {
-  const px = TAB_MARK_PT * scale;
-  const file = scale === 1 ? 'tab-mark.png' : `tab-mark@${scale}x.png`;
-  const drawn = await sharp(Buffer.from(tabMarkText), { density: (72 * px) / TAB_MARK_VIEWBOX })
-    .resize(px, px)
-    .png()
-    .toBuffer();
-  const alpha = await sharp(drawn).ensureAlpha().extractChannel('alpha').toBuffer();
-  await sharp({ create: { width: px, height: px, channels: 3, background: MONO } })
-    .joinChannel(alpha)
-    .png()
-    .toFile(path.join(out, file));
-  console.log(`wrote assets/images/${file} (${px}px, transparent, one colour)`);
+const { TAB_GLYPHS, parseGlyph, toIosSvg } = require('../plugins/withTabGlyphs.js');
+for (const entry of TAB_GLYPHS) {
+  // `parseGlyph` refuses a second ink or a shape it cannot convert, and `toIosSvg` is the very
+  // drawing the iOS app holds, so the browser renders exactly what the device draws.
+  const glyph = parseGlyph(fs.readFileSync(path.join(root, entry.svg), 'utf8'));
+  const source = Buffer.from(toIosSvg(glyph));
+  const base = path.basename(entry.svg, '.svg');
+  for (const scale of [1, 2, 3]) {
+    const px = glyph.size.width * scale;
+    const file = scale === 1 ? `${base}.png` : `${base}@${scale}x.png`;
+    const drawn = await sharp(source, { density: (72 * px) / glyph.size.width })
+      .resize(px, px)
+      .png()
+      .toBuffer();
+    const alpha = await sharp(drawn).ensureAlpha().extractChannel('alpha').toBuffer();
+    await sharp({ create: { width: px, height: px, channels: 3, background: MONO } })
+      .joinChannel(alpha)
+      .png()
+      .toFile(path.join(out, file));
+    console.log(`wrote assets/images/${file} (${px}px, transparent, one colour)`);
+  }
 }
 
 const targets = [
