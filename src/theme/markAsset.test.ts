@@ -134,6 +134,11 @@ describe.each(TAB_GLYPH_SETS)('the tab glyph %s', (...TAB_MARK) => {
     // Drawn at all: a few strokes across the 28 pt square at 1× is over a hundred pixels of ink.
     expect(visible).toBeGreaterThan(100);
     expect([...inks]).toEqual(['255,255,255']);
+    // ...over a transparent ground: a glyph is a few strokes, so most of its square is empty.
+    // An opaque ground would pass the colour check above (one ink, everywhere) and draw as a
+    // filled square in the browser's bar; the shipped glyphs leave about three quarters clear.
+    const pixels = info.width * info.height;
+    expect(pixels - visible).toBeGreaterThan(pixels / 2);
   });
 
   it('is square, and its @2x and @3x are exactly twice and three times the 1×', async () => {
