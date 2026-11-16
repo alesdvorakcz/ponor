@@ -257,7 +257,7 @@ it('opens create mode empty, and calls itself by a different name', async () => 
 });
 
 /**
- * §0.1: colour encodes depth and nothing else, and §0.4: the only graphic in this app is the
+ * §0.1: colour encodes depth and nothing else, and §0.4: the only graphic on a screen is the
  * mark. A screen of five rows and two controls has no business drawing either.
  */
 it('draws no graphic and paints nothing the theme did not hand out', async () => {

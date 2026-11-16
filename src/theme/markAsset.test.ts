@@ -5,7 +5,8 @@ import sharp from 'sharp';
 
 import { makeStyles } from './styles';
 
-// **The one graphic Ponor ships, checked as a graphic** (DESIGN.md §0.1/§0.3, M1h).
+// **The one graphic Ponor's screens draw, checked as a graphic** (DESIGN.md §0.1/§0.3, M1h).
+// The tab bar's glyphs are checked at the end of this file.
 //
 // It lives beside the theme because what it pins is a claim about COLOUR, and colour is this
 // directory's subject: `assets/images/mark-mono.png` is the mark `EmptyState` draws at 120 pt,

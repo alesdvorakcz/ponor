@@ -292,8 +292,8 @@ it('catches a raster inside an SVG even when its declared paint is sanctioned', 
   // react-native-svg's `Image` accepts `fill`/`stroke` like any other element whether or not
   // either paints anything visible. Judged on declared paint the way the cases above are, this
   // would be ADMITTED — a light `fg` is genuinely sanctioned — where the arm this file's own
-  // SVG rule replaced always reported any SVG on sight. No legitimate node in this app is a
-  // raster: the one image Ponor draws is the mark, and the `Image` arm far above this one
+  // SVG rule replaced always reported any SVG on sight. No legitimate node on a screen is a
+  // raster: the one image a screen draws is the mark, and the `Image` arm far above this one
   // already owns it.
   const t = await render(
     <Svg>

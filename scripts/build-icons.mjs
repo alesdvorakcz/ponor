@@ -31,7 +31,8 @@ const svg = Buffer.from(svgText);
 /**
  * **The same drawing with all of its paint replaced by one colour, on a
  * transparent ground** — the asset `EmptyState` draws at 120 pt on the
- * first-run screen, and the one graphic the app renders anywhere.
+ * first-run screen, and the one graphic any screen renders (the browser's
+ * tab bar draws Ponor's tab glyphs too; they are built further down).
  *
  * It exists because of DESIGN.md §0.1, not because of a file-size budget.
  * §0.3 strokes the mark in the depth gradient *on the app icon*, where the

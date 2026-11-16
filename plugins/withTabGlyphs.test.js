@@ -127,6 +127,15 @@ it('turns a rounded rect into a closed path with its corners', () => {
 // prebuild rather than shipping a glyph that differs from its SVG.
 const glyph = (inner) => `<svg viewBox="0 0 22 22" width="28" height="28">${inner}</svg>`;
 
+// Square, or the three outputs disagree: iOS would letterbox the SVG, Android stretch the
+// drawable, and the browser PNG be cropped square.
+it.each([
+  ['a size that is not square', '<svg viewBox="0 0 22 22" width="28" height="20"><rect width="2" height="2" fill="#FFFFFF"/></svg>'],
+  ['a viewBox that is not square', '<svg viewBox="0 0 22 16" width="28" height="28"><rect width="2" height="2" fill="#FFFFFF"/></svg>'],
+])('refuses %s', (_what, svg) => {
+  expect(() => parseGlyph(svg)).toThrow(/must be square/);
+});
+
 it('refuses a shape it cannot convert, and any ink but the placeholder', () => {
   expect(() => parseGlyph(glyph('<circle cx="1" cy="1" r="1" fill="#FFFFFF"/>'))).toThrow(/circle/);
   expect(() => parseGlyph(glyph('<rect width="2" height="2" fill="#FF6B4A"/>'))).toThrow(/one ink/);

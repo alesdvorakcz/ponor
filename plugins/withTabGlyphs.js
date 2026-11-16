@@ -150,6 +150,14 @@ function parseGlyph(svgText) {
     throw new Error(`tab glyph: viewBox must be "0 0 w h" (${rootAttrs.viewBox})`);
   }
   const size = { width: num(rootAttrs.width, 'width'), height: num(rootAttrs.height, 'height') };
+  // A tab glyph is square, and the three outputs each assume it differently if it is not: the
+  // SVG iOS reads would letterbox, Android's drawable would stretch, and the browser PNG would
+  // be cropped square. So a non-square size or viewBox fails here rather than in three ways.
+  if (size.width !== size.height || viewBox[2] !== viewBox[3]) {
+    throw new Error(
+      `tab glyph: must be square — width/height ${fmt(size.width)} × ${fmt(size.height)}, viewBox ${fmt(viewBox[2])} × ${fmt(viewBox[3])}`,
+    );
+  }
   const shapes = [];
   const body = text.slice(text.indexOf(root[0]) + root[0].length, text.lastIndexOf('</svg>'));
   for (const [tag, name] of body.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*\/?>/g)) {
