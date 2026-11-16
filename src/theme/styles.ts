@@ -474,17 +474,17 @@ function build(scheme: ColorScheme) {
   };
 
   // A sentence under a row or a heading, explaining what the thing IS — Settings'
-  // "Dives you logged before Ponor", and the account screen's line about what an account is
-  // for. §0.6's "a field error is text, not a field" turned around: that message trails, into
+  // "Dives you logged before Ponor", a site's defaults, the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
   // the column of the value it is about, because it names what went wrong with something the
   // diver typed; this one LEADS, under the label, because it is read before the value rather
   // than after it. Same absence of a box, for the reason `formFieldError` records — a
   // bordered, filled message under a row reads as a second, empty row.
   //
   // One definition rather than two, the same reasoning `noticeBanner`, `backControl` and
-  // `mutedControl` above each record. It was Settings' alone until §3's "account & sync"
-  // needed the identical sentence-under-a-row, and a second screen retyping five properties
-  // is exactly how `reorderNotice`/`settingsNotice` came to be two copies of one banner.
+  // `mutedControl` above each record: a second screen retyping five properties is exactly how
+  // `reorderNotice`/`settingsNotice` came to be two copies of one banner. (The account screen
+  // shared the block until issue #24 moved its sentences under the field card, on the card's own
+  // edge; it still shares `captionText`.)
   const captionBlock: ViewStyle = {
     paddingHorizontal: CONTENT_INSET,
     paddingTop: 6,
@@ -4110,10 +4110,15 @@ function build(scheme: ColorScheme) {
     // number moves with this", and the note shown when the stored value cannot be read.
     //
     // `captionBlock`/`captionText` at the top of this function, which carry the whole account
-    // of the treatment and of why the account screen shares this definition rather than
-    // retyping it.
+    // of the treatment.
     settingsCaption: captionBlock,
     settingsCaptionText: captionText,
+    // The account offer at the top of a guest's Settings (issue #24): the card on the content
+    // column. No air of its own under it — the scroll's own gap (20) is the canvas's 18, and the
+    // two together left 38 on a phone.
+    settingsAccountOffer: {
+      paddingHorizontal: CONTENT_INSET,
+    },
     // A named group of rows on this screen — §3's cylinder presets, which is the first thing
     // here that is a *list* rather than a setting and so needs saying what it is.
     //
@@ -4123,12 +4128,6 @@ function build(scheme: ColorScheme) {
     // heading. `paddingBottom` is what keeps it off the first row's own top hairline, which
     // that row draws for itself (`formField`); the row inset puts it in the column the names
     // beneath it land in.
-    // The account offer at the top of a guest's Settings (issue #24): the card on the content
-    // column. No air of its own under it — the scroll's own gap (20) is the canvas's 18, and the
-    // two together left 38 on a phone.
-    settingsAccountOffer: {
-      paddingHorizontal: CONTENT_INSET,
-    },
     settingsSectionTitle: {
       ...clusterLabel,
       paddingHorizontal: CONTENT_INSET,
@@ -4361,12 +4360,12 @@ function build(scheme: ColorScheme) {
     },
     accountForgotPill: actionPill,
     accountForgotLabel: actionPillLabel,
-    // *Sign out* — the outlined button, at the END of the content and never in a footer: the
-    // one act here that removes something takes a deliberate reach, and the platform's own
-    // dialog carries the weight (§10).
     // The form's footer holds the primary and the outlined mode switch under it; the gap is
     // what keeps two bordered-and-filled boxes from reading as one. Composed over `formFooter`.
     accountFooter: { gap: 10 },
+    // *Sign out* — the outlined button, at the END of the content and never in a footer: the
+    // one act here that removes something takes a deliberate reach, and the platform's own
+    // dialog carries the weight (§10).
     accountSignOut: {
       ...outlinedAction,
       marginTop: 18,
@@ -4493,8 +4492,7 @@ function build(scheme: ColorScheme) {
     // Liquid Glass.
     centerContent: rowScrollContent,
     // The centre's name, and the directory's own title. `screenHeading` plus the row inset —
-    // the composition `presetHeading`, `certificationHeading`, `accountHeading` and
-    // `settingsHeading` all make, and two keys rather than one shared across two screens on
+    // the composition `presetHeading`, `certificationHeading` and `settingsHeading` all make, and two keys rather than one shared across two screens on
     // `detailBack`/`formBack`'s precedent: the placement is per screen, the type is not.
     centerHeading: {
       ...screenHeading,

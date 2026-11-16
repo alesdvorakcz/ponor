@@ -530,15 +530,12 @@ export const en = {
      *
      * So the three that could not keep their promise are one pair — `any`, which names the act
      * instead, exactly as `cancel` already does for the three editors (the dive form, the preset
-     * editor, the certification editor). `settings` stays a destination because the account screen
-     * is reached from Settings and from nowhere else, which is the condition rather than an
-     * exception to it.
+     * editor, the certification editor). The account screen said *‹ Settings* while Settings was
+     * its only way in, and joined `any` when issue #24 gave it a second.
      */
     back: {
       any: '‹ Back',
       anyLabel: 'Go back',
-      settings: '‹ Settings',
-      settingsLabel: 'Back to Settings',
       cancel: '‹ Cancel',
       cancelLabel: 'Leave without saving',
     },

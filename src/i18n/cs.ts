@@ -437,8 +437,6 @@ export const cs = {
     back: {
       any: '‹ Zpět',
       anyLabel: 'Zpět',
-      settings: '‹ Nastavení',
-      settingsLabel: 'Zpět do Nastavení',
       cancel: '‹ Zrušit',
       cancelLabel: 'Odejít bez uložení',
     },

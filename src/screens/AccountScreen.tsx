@@ -436,9 +436,10 @@ export default function AccountScreen() {
   };
 
   // A confirmation drawn by the platform, not by this app (§10: "a destructive confirmation is
-  // OS chrome; the app's own control stays muted"). §0.1 reserves colour for depth, so there is
-  // nothing here to make a destructive control look destructive — the weight goes into a dialog
-  // this app does not draw, and `platform/confirmDestructive.ts` owns which one.
+  // OS chrome"). §0.1 reserves colour for depth, so there is nothing here to make a destructive
+  // control look destructive — the control is the plain outlined button since issue #24, never
+  // the filled primary, and the weight goes into a dialog this app does not draw;
+  // `platform/confirmDestructive.ts` owns which one.
   const confirmSignOut = () => {
     confirmDestructive({
       title: signOutTitle(),
@@ -685,7 +686,18 @@ export default function AccountScreen() {
         {/* The heading names the mode; under it, §7.4 said before anything is typed — the dives
             on this phone come with you — and what an account adds, in the first-run card's
             three, said in full. That it is optional is the card's to say: it led here. */}
-        <AccountHead styles={styles} scheme={scheme} title={t(HEADING[mode])} sub={t('account.divesComeWithYou')} perks />
+        <AccountHead
+          styles={styles}
+          scheme={scheme}
+          title={t(HEADING[mode])}
+          sub={t('account.divesComeWithYou')}
+          perks
+          // **Folded while the keyboard is up** (the review of #24): the full head is ~190 pt,
+          // and with the keyboard and the two-button footer up it pushed the password row — and a
+          // refusal under it — below the footer. The mark and the perks were read before typing
+          // began; the title and the line still say which form this is.
+          folded={keyboardShown}
+        />
 
         {/* What the last mail link could not do (cloud/authLinkState.ts) — over the form,
             because the form is the way on from it. */}
@@ -791,10 +803,10 @@ export default function AccountScreen() {
 
           **The first footer in the app with two children in it**, and the second is the
           mode toggle — see `SWITCH_TO` above for why it is here rather than at the end of
-          the content. It needs no gap of its own: `mutedControl` is a real 48 dp box
-          (§0.5's floor met by geometry, never `hitSlop` — FormField.tsx keeps the account of
-          what an invisible target cost when it was not), so its own centring is what sets
-          the label off the button's bottom edge. */}
+          the content. Since issue #24 it is the outlined button, a real 48 dp box (§0.5's floor
+          met by geometry, never `hitSlop` — FormField.tsx keeps the account of what an invisible
+          target cost when it was not), and `accountFooter`'s 10 pt gap is what keeps two boxes,
+          one filled and one drawn, from reading as one. */}
       <View style={[styles.formFooter, styles.accountFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, keyboardShown) }]}>
         <Pressable
           style={styles.action}
@@ -876,22 +888,26 @@ function AccountHead({
   title,
   sub,
   perks = false,
+  folded = false,
 }: {
   styles: Styles;
   scheme: ColorScheme;
   title: string;
   sub?: string;
   perks?: boolean;
+  /** The title and the line only — the sign-in form's head while the keyboard is up, so the
+   * rows and a refusal under them stay above the footer. */
+  folded?: boolean;
 }) {
   return (
     <View style={styles.accountHead}>
       {/* Decorative: the title beside it says everything the mark does. */}
-      <Image source={MARK} style={styles.accountMark} accessible={false} />
+      {!folded && <Image source={MARK} style={styles.accountMark} accessible={false} />}
       <View style={styles.accountTitleBlock}>
         <Text style={styles.accountTitle}>{title}</Text>
         {sub !== undefined && <Text style={styles.accountSub}>{sub}</Text>}
       </View>
-      {perks && <AccountPerks scheme={scheme} variant="sentences" />}
+      {perks && !folded && <AccountPerks scheme={scheme} variant="sentences" />}
     </View>
   );
 }

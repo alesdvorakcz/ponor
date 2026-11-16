@@ -28,6 +28,7 @@ import {
 import { authLinkState, setAuthLinkState } from '../cloud/authLinkState';
 import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
@@ -53,6 +54,9 @@ jest.mock('../cloud/auth', () => ({
   setNewPassword: jest.fn(),
 }));
 jest.mock('../cloud/useAuthSession', () => ({ useAuthSession: jest.fn() }));
+// The keyboard, as a switch: down unless a test raises it, so every older test sees the screen
+// at rest exactly as it did.
+jest.mock('../hooks/useKeyboardShown', () => ({ useKeyboardShown: jest.fn(() => false) }));
 // The way out. Nothing else on this screen navigates.
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn() },
@@ -76,6 +80,7 @@ const mockRequestReset = requestPasswordReset as unknown as jest.Mock;
 const mockSetNewPassword = setNewPassword as unknown as jest.Mock;
 const mockEndSession = endSession as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
+const mockKeyboardShown = useKeyboardShown as unknown as jest.Mock;
 
 const CLIENT = { itIsTheFakeClient: true };
 const SESSION = { access_token: 'fake', user: { id: 'u1', email: 'ales@example.com' } };
@@ -273,11 +278,11 @@ describe('signed out', () => {
   });
 
   /**
-   * **All three of §1's reasons, because since M2o all three are true** — and because this
-   * screen is the only place a guest is told the third one. §2.3's *add this to the catalogue*
-   * offer is absent for a guest by design (a row reading "sign in to add this" would be a dead
-   * control on the app's most-used gesture), so the sentence that answers "what would an
-   * account get me" has to carry it.
+   * **All three of §1's reasons, because since M2o all three are true.** §2.3's *add this to the
+   * catalogue* offer is absent for a guest by design (a row reading "sign in to add this" would be
+   * a dead control on the app's most-used gesture), so the screen that answers "what would an
+   * account get me" has to say all three — the offer card that leads here names them in a word
+   * each (*Community* for the third), and this screen says each in full.
    *
    * Each clause separately, rather than the whole sentence in one `toContain`: a rewording that
    * kept the words and dropped a reason is exactly the drift this is for.
@@ -642,8 +647,9 @@ describe('signed in', () => {
  */
 describe('signing out', () => {
   /**
-   * §10: "a destructive confirmation is OS chrome; the app's own control stays muted." §0.1
-   * reserves colour for depth, so the weight has to go into a dialog this app does not draw.
+   * §10: "a destructive confirmation is OS chrome." §0.1 reserves colour for depth, so the weight
+   * has to go into a dialog this app does not draw — the control itself is the plain outlined
+   * button since issue #24, never anything louder.
    */
   it('asks first, through the platform’s own dialog, in the words §7.4 requires', async () => {
     stubSession({ session: SESSION });
@@ -1021,6 +1027,35 @@ describe('the sign-in form', () => {
   it('draws no placeholder for the caret to sit on', async () => {
     const t = await render(<AccountScreen />);
     expect(findField(t, 'Email').props.placeholder).toBeUndefined();
+  });
+});
+
+/**
+ * **With the keyboard up, the head folds to its title and its line** (review of #24). The grouped
+ * head — mark, title, line and three perk sentences — is about 190 pt, and with the keyboard and
+ * the two-button footer up it pushed the password row, and a refusal under it, below the footer
+ * on an iPhone 17 Pro: a diver pressing *Sign in* with the keyboard still up saw nothing happen.
+ * The perks and the mark are what was read before typing began; the title and the line still say
+ * which form this is.
+ */
+describe('with the keyboard up', () => {
+  afterEach(() => mockKeyboardShown.mockReturnValue(false));
+
+  it('folds the head to its title and line, so the rows stay in reach', async () => {
+    mockKeyboardShown.mockReturnValue(true);
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('Sign in');
+    expect(textIn(t)).toContain('Dives already on this phone come with you.');
+    expect(textIn(t)).not.toContain('Your dives backed up as you log them');
+    expect(t.root ? t.root.queryAll((n) => n.type === 'Image') : []).toHaveLength(0);
+  });
+
+  it('opens it again once the keyboard is down', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('Your dives backed up as you log them');
+    expect(t.root ? t.root.queryAll((n) => n.type === 'Image') : []).toHaveLength(1);
   });
 });
 

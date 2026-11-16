@@ -406,8 +406,9 @@ function PresetRow({ preset, units, styles }: { preset: GearPreset; units: UnitS
  * now landed — the last of them bringing §7.4's *start over* with it, since the two acts are
  * one decision and §3's own ordering (export, then deletion) is what makes offering them here
  * right. §3's **account & sync** arrived in M2e as the last item below — a row that opens `/account` and writes
- * nothing itself, which is this screen's second navigation row and the only route into the
- * account screen at all. §3's **location access** arrived in M2m, between the two: it writes
+ * nothing itself, which is this screen's second navigation row. Since issue #24 a guest gets the
+ * offer card at the top of this screen instead, and the empty logbook carries the same card, so
+ * this row is one of the account screen's ways in rather than the only one. §3's **location access** arrived in M2m, between the two: it writes
  * nothing either, and what it opens is not a screen of ours but the device's own Settings app,
  * which §3 makes the only place its answer can change.
  *
