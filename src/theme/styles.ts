@@ -360,6 +360,11 @@ function build(scheme: ColorScheme) {
   // capsule's, and the `action` button's own label padding are distances INSIDE an object,
   // and they stay literals because they answer a different question.
   const CONTENT_INSET = 16;
+  // **A card of grouped rows' own inner inset** (issue #24, the account screen's field card) —
+  // where its rows' labels begin and their values end, its inner hairline starts, and a refusal
+  // under a row trails. One number for all four (review of PR #52): two of them drifting apart by
+  // 2 pt is exactly how a note stops standing under the value it is about.
+  const FIELD_CARD_INSET = 14;
 
   // M1c closing fixes, Important #5: `reorderNotice`/`settingsNotice` below (and their
   // `*Text` siblings) used to be two byte-identical object literals — DivesScreen.tsx shows
@@ -449,18 +454,42 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // **The outlined button** (issue #24, the design canvas's screens 02 and 19–21) — a real
+  // button that is not the screen's primary: the account offer's *Sign in or create an account*,
+  // the account screen's other mode, *Back to sign in* and *Sign out*. The owner found the muted
+  // label too quiet for these: on the account screen *Forgot password?* and the mode switch read
+  // as text, hard to tell from the rows above them. §0.1 still holds — no hue, the ink is the
+  // screen's own — so what tells it from the primary is that it is drawn rather than filled: a
+  // hairline in `border` round a box the primary's shape, with the label in full ink.
+  //
+  // One definition for all four, so the second button on a screen can never be drawn two ways.
+  const outlinedAction: ViewStyle = {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 20,
+  };
+  const outlinedActionLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 16,
+    color: theme.fg,
+  };
+
   // A sentence under a row or a heading, explaining what the thing IS — Settings'
-  // "Dives you logged before Ponor", and the account screen's line about what an account is
-  // for. §0.6's "a field error is text, not a field" turned around: that message trails, into
+  // "Dives you logged before Ponor", a site's defaults, the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
   // the column of the value it is about, because it names what went wrong with something the
   // diver typed; this one LEADS, under the label, because it is read before the value rather
   // than after it. Same absence of a box, for the reason `formFieldError` records — a
   // bordered, filled message under a row reads as a second, empty row.
   //
   // One definition rather than two, the same reasoning `noticeBanner`, `backControl` and
-  // `mutedControl` above each record. It was Settings' alone until §3's "account & sync"
-  // needed the identical sentence-under-a-row, and a second screen retyping five properties
-  // is exactly how `reorderNotice`/`settingsNotice` came to be two copies of one banner.
+  // `mutedControl` above each record: a second screen retyping five properties is exactly how
+  // `reorderNotice`/`settingsNotice` came to be two copies of one banner. (The account screen
+  // shared the block until issue #24 moved its sentences under the field card, on the card's own
+  // edge; it still shares `captionText`.)
   const captionBlock: ViewStyle = {
     paddingHorizontal: CONTENT_INSET,
     paddingTop: 6,
@@ -1372,6 +1401,25 @@ function build(scheme: ColorScheme) {
       justifyContent: 'center',
       alignItems: 'flex-start',
       gap: 16,
+    },
+    // **With the account offer the block sits at the top** (issue #24, the owner's call): the
+    // button, the rule and the card take the bottom of the screen, and centring would leave the
+    // scale's last line pressed against the button. Composed over `emptyStateContent`.
+    emptyStateContentTop: {
+      justifyContent: 'flex-start',
+      paddingTop: 10,
+    },
+    // The primary and, for a guest, the rule and the offer card under it — one block outside the
+    // scroll, so none of the three can scroll away.
+    emptyStateFooter: {
+      alignSelf: 'stretch',
+    },
+    // **With the offer, the same block scrolls, pinned to the bottom of the content** (review of
+    // PR #52): `auto` takes whatever height the teaching block leaves, so where everything fits the
+    // screen is the pinned one, and where it does not — a large text size, a small phone — the
+    // block scrolls into reach instead of pushing the card's button under the tab bar.
+    emptyStateFooterInScroll: {
+      marginTop: 'auto',
     },
     // **The mark, drawn once, monochrome — and the monochrome is §0.1 enforcing itself.**
     // §0.3 strokes this same shape in the depth gradient *on the app icon*, where the mark is
@@ -3326,6 +3374,20 @@ function build(scheme: ColorScheme) {
     formFieldCardFocused: {
       backgroundColor: theme.surface,
     },
+    // **A row inside a card of rows** (issue #24, the account screen's field card). The card is
+    // the fill, so the row draws no hairline across its top and no focus card of its own —
+    // chrome on chrome — and takes the card's inner inset rather than the screen's. Focus still
+    // shows, as the caret. Composed over `formField` and `formFieldCard`.
+    formFieldGrouped: {
+      minHeight: 52,
+      paddingHorizontal: 0,
+      borderTopWidth: 0,
+    },
+    formFieldCardGrouped: {
+      minHeight: 52,
+      marginHorizontal: 0,
+      paddingHorizontal: FIELD_CARD_INSET,
+    },
     // The caret and the selection, in ink (2026-11-14). iOS draws a field's caret in its own
     // blue, which made it the only hue anywhere in the app's chrome; the canvas draws an ink
     // caret, and §0.1 agrees. Read as `.color` at the call site, the way `formFieldPickerInk`
@@ -3927,6 +3989,11 @@ function build(scheme: ColorScheme) {
       paddingTop: 2,
       paddingBottom: 8,
     },
+    // The same note inside a card of grouped rows: on the card's inner inset (`FIELD_CARD_INSET`),
+    // the column its row's value ends on. Composed over `formFieldError`.
+    formFieldErrorGrouped: {
+      paddingHorizontal: FIELD_CARD_INSET,
+    },
     formFieldErrorText: {
       fontFamily: fonts['sans-medium'],
       fontSize: 12.5,
@@ -4060,10 +4127,15 @@ function build(scheme: ColorScheme) {
     // number moves with this", and the note shown when the stored value cannot be read.
     //
     // `captionBlock`/`captionText` at the top of this function, which carry the whole account
-    // of the treatment and of why the account screen shares this definition rather than
-    // retyping it.
+    // of the treatment.
     settingsCaption: captionBlock,
     settingsCaptionText: captionText,
+    // The account offer at the top of a guest's Settings (issue #24): the card on the content
+    // column. No air of its own under it — the scroll's own gap (20) is the canvas's 18, and the
+    // two together left 38 on a phone.
+    settingsAccountOffer: {
+      paddingHorizontal: CONTENT_INSET,
+    },
     // A named group of rows on this screen — §3's cylinder presets, which is the first thing
     // here that is a *list* rather than a setting and so needs saying what it is.
     //
@@ -4203,67 +4275,211 @@ function build(scheme: ColorScheme) {
     // ------------------------------------------------------------------------------------
     // The account screen (DESIGN.md §5's auth bullet and §7.4, M2e) — `AccountScreen`
     // ------------------------------------------------------------------------------------
-    // **Not one new shape between them.** §0.6's origin is "a screen that was built to spec
-    // and then styled by default into a different language", and a sign-in screen is where
-    // that happens by reflex: every app has one, they all look alike, and none of them looks
-    // like this app. So this screen is the form's own grammar — `formBack` out of it,
-    // `FormField` rows, `FieldNote` for what went wrong, `action` in a fixed footer — and the
-    // six keys below are the same six definitions the preset editor takes one screen over,
-    // each under a name that says which screen it is placed on.
+    // **Still the form's grammar, now in the canvas's grouped layout** (issue #24). §0.6's origin
+    // is "a screen that was built to spec and then styled by default into a different language",
+    // and a sign-in screen is where that happens by reflex — so the rows are still `FormField`
+    // rows, what went wrong is still `FieldNote` under the row it is about, the way out is
+    // `formBack` and the primary is `action` in a fixed footer. What changed is the owner's
+    // (2026-11-16, "boring", and inputs "hard to distinguish" from buttons): a head that opens
+    // like the first-run screen, both rows in one surface card, and every control a button shape
+    // — the quiet pill, the outlined button — so nothing that takes typing looks like something
+    // to press, and the other way round.
     //
-    // The title: `screenHeading` plus the row inset, exactly as `presetHeading` and
-    // `settingsHeading` are. Two keys from one definition rather than one key shared across
-    // screens, on `detailBack`/`formBack`'s precedent — the placement is per screen, the type
-    // is not.
-    accountHeading: {
+    // **The head every state opens with** (issue #24, the design canvas's screens 19–20): the
+    // mark at half strength, a large title, and one line under it. It opens the way the
+    // first-run screen does, because the first-run card is now one of the two ways here.
+    accountHead: {
+      paddingHorizontal: CONTENT_INSET,
+      gap: 14,
+    },
+    // The mark, monochrome and half strength, as on the first-run screen (`emptyStateMark`) and
+    // for its reason: on screen a gradient mark would be colour spent on brand (§0.1).
+    accountMark: {
+      width: 44,
+      height: 26,
+      resizeMode: 'contain',
+      tintColor: theme.fg,
+      opacity: 0.5,
+    },
+    accountTitleBlock: { gap: 6 },
+    // **The one screen title larger than every other** — and on purpose (the owner's pick of the
+    // canvas's grouped option, 2026-11-16). The account screen had every other title's 20 and
+    // the owner found it "boring"; a sign-in screen is a moment, entered from an offer, and the
+    // canvas draws it at 28 bold. `screenHeading`'s face and ink otherwise.
+    accountTitle: {
       ...screenHeading,
+      fontFamily: fonts['sans-bold'],
+      fontSize: 28,
+      lineHeight: 32,
+      letterSpacing: -0.6,
+    },
+    accountSub: {
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      lineHeight: 19,
+      color: theme.fgMuted,
+      maxWidth: 330,
+    },
+    // Everything under the head — the field card, what it says under it, and the controls that
+    // are not the footer's — on the content column.
+    accountBody: {
       paddingHorizontal: CONTENT_INSET,
     },
-    // What an account is for, and what signing out will do — `captionBlock`/`captionText` at
-    // the top of this function, the same sentence-under-a-row Settings uses.
-    accountCaption: captionBlock,
-    accountCaptionText: captionText,
+    // **The two rows in one card** (the owner: inputs were "hard to distinguish" from buttons).
+    // A `surface` block that is plainly the form; inside it the rows keep the form's grammar —
+    // label leading, value trailing — with a hairline between them rather than over them
+    // (`FormField`'s `grouped`).
+    accountFieldCard: {
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+    },
+    accountFieldDivider: {
+      height: StyleSheet.hairlineWidth,
+      marginLeft: FIELD_CARD_INSET,
+      backgroundColor: theme.border,
+    },
+    // A row that is read, never typed — *Signed in as*, *Sent to* — in the card, at the grouped
+    // field's own geometry so the two kinds of row stand on one line.
+    accountReadRow: {
+      minHeight: 52,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: FIELD_CARD_INSET,
+    },
+    accountReadLabel: rowLabel,
     // The signed-in address, trailing its row. `rowValueSans` — §0.6's "Figures in mono,
     // names in sans": an e-mail address is a name, not a data figure, however little it looks
-    // like one. It is read, never typed, so it is a `Text` in a `formFieldRow` rather than a
-    // `FormField`; the row it sits in is the form's.
-    accountEmail: rowValueSans,
-    // A failed sign-out, said plainly (§10: "a local save failure is shown to the diver").
-    // `noticeBanner`'s shape with its horizontal margin intact, exactly as `presetNotice`
-    // takes it and for the same reason: this screen's scroll content carries no horizontal
-    // padding of its own, so the banner has to bring its own.
+    // like one.
+    accountEmail: { ...rowValueSans, flexShrink: 1, textAlign: 'right' },
+    // What is said under the card — the confirmation note, *nothing arrives?*, the adoption
+    // sentence: `captionText`, Settings' sentence-under-a-row, on the card's own column.
+    accountCaption: {
+      paddingHorizontal: 4,
+      paddingTop: 8,
+      gap: 6,
+    },
+    accountCaptionText: captionText,
+    // A failed sign-out or a link that could not be used, said plainly (§10: "a local save
+    // failure is shown to the diver"). `noticeBanner`'s shape, exactly as `presetNotice` takes it.
     accountNotice: noticeBanner,
     accountNoticeText: noticeBannerText,
-    // The two controls on this screen that are deliberate acts rather than its primary one:
-    // switching between signing in and creating an account, and signing out. `mutedControl`
-    // at the top of this function — the object *Delete dive*, *Delete preset* and *Save as
-    // preset* already are.
-    //
-    // **The treatment is one thing and the placement is another, and only the treatment is
-    // here** (M2f). Sign-out is centred at the end of its branch's content, where the two
-    // deletes sit; the mode toggle is in the footer directly under the primary action,
-    // because it is about that action rather than about the page (AccountScreen.tsx's
-    // `SWITCH_TO`). Both are still this one definition: a `mutedControl` centres its label
-    // inside a real 48 dp box wherever it is put, which is what let one of them move without
-    // the sheet gaining a second spelling of the same six properties.
-    //
-    // **One pair for both, named for what they share rather than for either caller.** They
-    // are the same object doing the same job: §0.1 spends every hue on depth, so a control
-    // you should not hit by accident is a plain muted label, and the weight for the one that
-    // destroys something goes into the platform dialog this app does not draw (§10). A second
-    // key would be two spellings of one treatment, which is the drift `mutedControl` itself
-    // exists to have stopped three times already.
-    accountSecondaryAction: mutedControl,
-    accountSecondaryActionLabel: mutedControlLabel,
-    // *Forgot password?* (2026-11-14) — `mutedControl` with the row it belongs to rather than
-    // in the footer, so it hangs off the content column like the rows above it instead of
-    // centring itself: §0.6's "a pill in a left-aligned card is left-aligned", found three
-    // times before by looking. Same 48 dp box; the label is `mutedControlLabel`.
-    accountRowAction: {
-      ...mutedControl,
+    // *Forgot password?* — §0.6's quiet control, the bordered pill in tracked uppercase that
+    // "reads as a control rather than a label" (`actionPill`), under the card in its 48 dp box. It
+    // was a muted label under the password row, and the owner read it as a third row.
+    accountForgot: {
+      minHeight: 48,
+      minWidth: 48,
       alignSelf: 'flex-start',
-      alignItems: 'flex-start',
-      paddingHorizontal: CONTENT_INSET,
+      justifyContent: 'center',
+      marginTop: 4,
+    },
+    accountForgotPill: actionPill,
+    accountForgotLabel: actionPillLabel,
+    // The form's footer holds the primary and the outlined mode switch under it; the gap is
+    // what keeps two bordered-and-filled boxes from reading as one. Composed over `formFooter`.
+    accountFooter: { gap: 10 },
+    // *Sign out* — the outlined button, at the END of the content and never in a footer: the
+    // one act here that removes something takes a deliberate reach, and the platform's own
+    // dialog carries the weight (§10).
+    accountSignOut: {
+      ...outlinedAction,
+      marginTop: 18,
+    },
+    // `outlinedAction` above, under a name that does not belong to any one screen: the account
+    // screen's second button and the offer card's button are the same object.
+    secondaryAction: outlinedAction,
+    secondaryActionLabel: outlinedActionLabel,
+    // ------------------------------------------------------------------------------------
+    // The account offer (issue #24) — `AccountOfferCard`, on the empty logbook and at the top
+    // of Settings while nobody is signed in, and `AccountPerks`, which the card and the account
+    // screen share
+    // ------------------------------------------------------------------------------------
+    // A card because it is read as a whole — `surface`, radius 12, the dive detail's *Show on
+    // map* card's ground — and it holds its own button, so the offer is one object rather than a
+    // sentence with a control somewhere near it.
+    accountOfferCard: {
+      gap: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+    },
+    accountOfferHead: { gap: 3 },
+    accountOfferTitle: {
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 16,
+      lineHeight: 20,
+      color: theme.fg,
+    },
+    accountOfferLine: {
+      fontFamily: fonts.sans,
+      fontSize: 13,
+      lineHeight: 18,
+      color: theme.fgMuted,
+    },
+    // The outlined button inside a card — the one definition (`outlinedAction`), its label a size
+    // down (15) as the canvas draws it. The canvas draws the box 44 tall; it stays at the
+    // definition's 48, because §0.5's floor is met by the box itself here and never by `hitSlop`.
+    accountOfferButton: outlinedAction,
+    accountOfferButtonLabel: {
+      ...outlinedActionLabel,
+      fontSize: 15,
+    },
+    // The three perks as words, in one row. **`flexWrap`**, because Czech runs 20–30 % longer
+    // (§0.5): three words that fit in English must be free to take a second line rather than run
+    // off the card.
+    accountPerkWords: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      columnGap: 16,
+      rowGap: 6,
+    },
+    accountPerkWord: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    accountPerkWordLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 13.5,
+      color: theme.fg,
+    },
+    // The same three as sentences, one to a line — the account screen's head.
+    accountPerkList: { gap: 10 },
+    accountPerkSentence: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    accountPerkSentenceLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 14.5,
+      lineHeight: 19,
+      color: theme.fg,
+      flexShrink: 1,
+    },
+    // *or*, between *Log your first dive* and the card: two hairlines and a muted mono word.
+    // A rule rather than air, because it says the two are alternatives — log now, or first make
+    // the logbook an account's.
+    orRule: {
+      height: 32,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    orRuleLine: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: theme.border,
+    },
+    orRuleLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      color: theme.fgMuted,
     },
     // ------------------------------------------------------------------------------------
     // The catalogue's pages and directories (DESIGN.md §5's community model, §6's `dive_sites`
@@ -4290,8 +4506,7 @@ function build(scheme: ColorScheme) {
     // Liquid Glass.
     centerContent: rowScrollContent,
     // The centre's name, and the directory's own title. `screenHeading` plus the row inset —
-    // the composition `presetHeading`, `certificationHeading`, `accountHeading` and
-    // `settingsHeading` all make, and two keys rather than one shared across two screens on
+    // the composition `presetHeading`, `certificationHeading` and `settingsHeading` all make, and two keys rather than one shared across two screens on
     // `detailBack`/`formBack`'s precedent: the placement is per screen, the type is not.
     centerHeading: {
       ...screenHeading,

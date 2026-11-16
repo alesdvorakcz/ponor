@@ -26,6 +26,7 @@ import {
 } from '../cloud/auth';
 import { currentUserId } from '../cloud/currentUser';
 import { localLogbook } from '../cloud/localLogbook';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { db } from '../db/client';
 import { readExportSource } from '../db/exportSource';
@@ -97,6 +98,9 @@ jest.mock('../domain/datetime', () => ({
   todayCalendarDate: jest.fn(() => '2026-09-04'),
 }));
 // A preset row pushes `/preset/<id>`; nothing else here navigates.
+// Issue #24's offer is `offersAccount`'s to decide; a switch here, off unless a test turns it on,
+// so every older test sees the Settings it always did.
+jest.mock('../cloud/accountOffer', () => ({ offersAccount: jest.fn(() => false) }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn(), push: jest.fn() },
 }));
@@ -185,6 +189,7 @@ const mockImportFiles = importFiles as jest.Mock;
 const mockStartOver = startOver as unknown as jest.Mock;
 const mockDeleteAccount = deleteAccount as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
+const mockOffersAccount = offersAccount as unknown as jest.Mock;
 
 /**
  * `../cloud/supabase` behind a getter, so each test decides what this build's one `cloud` looks
@@ -1286,11 +1291,11 @@ it('spends the device bottom inset on its scroll, so the last row clears the tab
 // Account & sync (DESIGN.md §3, M2e)
 // ---------------------------------------------------------------------------------------
 
-// **The only route into the account screen at all.** §1 makes an account optional, so there is
-// deliberately no launch screen, no prompt and no other entry point — which means this one row
-// is the whole of "reachable". A screen nothing opens is the same defect as a control that does
-// nothing, and it is the harder one to see: every test of `AccountScreen` would stay green.
-it('opens the account screen, which nothing else in the app does', async () => {
+// **The way into the account screen for anyone who is not a guest** — signed in, before the
+// session read has answered, or on a build with no backend. A guest has the offer card instead
+// (issue #24, below). A screen nothing opens is the same defect as a control that does nothing,
+// and it is the harder one to see: every test of `AccountScreen` would stay green.
+it('opens the account screen from the Account row', async () => {
   stubSettings();
   const t = await render(<SettingsScreen />);
   const [row] = t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Open account & sync') : [];
@@ -1330,6 +1335,65 @@ it('reads as a destination rather than as a setting with no value', async () => 
 
   expect(labelStyleOf('Account & sync')).toBe(styles.settingsAccountLabel);
   expect(labelStyleOf('Account & sync')).not.toBe(labelStyleOf('Units'));
+});
+
+// ---------------------------------------------------------------------------------------
+// The account offer (issue #24) — a guest's Settings opens with the card
+// ---------------------------------------------------------------------------------------
+
+describe('the account offer', () => {
+  afterEach(() => mockOffersAccount.mockReturnValue(false));
+
+  // Where a phone puts its own account: above every setting, so a guest meets it on opening the
+  // screen rather than at the bottom of a long scroll.
+  it('heads the screen with the account card for a guest, above Units', async () => {
+    mockOffersAccount.mockReturnValue(true);
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const lines = textIn(t);
+    expect(lines.indexOf('Better with an account')).toBeGreaterThan(lines.indexOf('Settings'));
+    expect(lines.indexOf('Better with an account')).toBeLessThan(lines.indexOf('Units'));
+  });
+
+  // One way in at a time: the card IS the way in for a guest, and a second entry further down
+  // would be the same destination offered twice on one screen.
+  it('draws no Account row while the card is the way in', async () => {
+    mockOffersAccount.mockReturnValue(true);
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    expect(textIn(t)).not.toContain('Account & sync');
+    expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Open account & sync') : []).toHaveLength(0);
+  });
+
+  it('opens the account screen from the card', async () => {
+    mockOffersAccount.mockReturnValue(true);
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    const [button] = t.root
+      ? t.root.queryAll((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === 'Sign in or create an account')
+      : [];
+    if (!button) throw new Error('SettingsScreen drew no offer button');
+    await fireEvent.press(button);
+    expect(mockPush).toHaveBeenCalledWith('/account');
+  });
+
+  // One session read per screen (review of PR #52): two subscriptions could disagree for a
+  // moment, and this screen would draw both the card and the row, or neither.
+  it('asks the offer rule of the one session read it already makes', async () => {
+    const read = { session: null, resolved: true };
+    mockUseAuthSession.mockReturnValue(read);
+    stubSettings();
+    await render(<SettingsScreen />);
+    // The same object, not an equal one: a copy would be a read of its own in disguise.
+    expect(mockOffersAccount.mock.calls.at(-1)?.[0]).toBe(read);
+  });
+
+  it('draws no card for anyone the rule does not call a guest, and keeps the Account row', async () => {
+    stubSettings();
+    const t = await render(<SettingsScreen />);
+    expect(textIn(t)).not.toContain('Better with an account');
+    expect(textIn(t)).toContain('Account & sync');
+  });
 });
 
 // ---------------------------------------------------------------------------------------

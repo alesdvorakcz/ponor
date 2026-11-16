@@ -8,6 +8,7 @@ import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
 import { CURRENT_POSITION_GLYPH } from '../screens/NewPlaceScreen';
 import { CREATE_PLACE_GLYPH, PICKED_PLACE_GLYPH, PICKER_SEARCH_GLYPH } from '../screens/PlacePickerScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
+import { ACCOUNT_PERK_GLYPHS } from './AccountPerks';
 import { ActionCapsule } from './ActionCapsule';
 import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
 import { CarriedMark } from './CarriedMark';
@@ -237,6 +238,12 @@ it.each([
   ['picker’s create plus', CREATE_PLACE_GLYPH, 'add'],
   // The *New dive site* page's *Use current position* card.
   ['new place’s current-position arrow', CURRENT_POSITION_GLYPH, 'near_me'],
+  // What an account adds (issue #24) — the first-run card, Settings' card and the account
+  // screen draw these three beside their words. One missing would leave a word with a hole
+  // beside it on Android and in a browser.
+  ['account perk backup', ACCOUNT_PERK_GLYPHS[0], 'backup'],
+  ['account perk devices', ACCOUNT_PERK_GLYPHS[1], 'devices'],
+  ['account perk community', ACCOUNT_PERK_GLYPHS[2], 'map'],
 ] as const)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
   const name = symbolName(symbol);
   expect(name.android).toBe(material);

@@ -6,7 +6,9 @@
 // reason the screen tests record.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+
+import { Dimensions, StyleSheet } from 'react-native';
 
 import { UNIT_SYSTEMS } from '../format/units';
 import { setActiveLanguage } from '../i18n';
@@ -56,8 +58,10 @@ it('says what the app promises and why the scale is the sequence it is', async (
   // §0.6's cluster-label treatment, and the state of the logbook in the diver's own words.
   expect(text).toContain('NOTHING LOGGED YET');
   // §1's "Works at sea", said to a diver rather than to a planner.
-  expect(text).toContain('Ponor keeps every dive on this phone.');
-  expect(text).toContain('No account, no upload, works with the boat out of signal.');
+  // True for a guest and for a diver with an account alike (issue #24): it used to say *No
+  // account, no upload*, which the offer under the button would contradict.
+  expect(text).toContain('Ponor keeps every dive on this phone and works with the boat out of signal.');
+  expect(text).not.toContain('No account');
   // The rule, and then the physics that makes it a rule rather than a palette.
   expect(text).toContain('colour is depth');
   expect(text).toContain('nothing else in Ponor is coloured');
@@ -172,6 +176,228 @@ it('opens the form when that action is pressed', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
+// The account offer (issue #24) — drawn only when the screen is given somewhere to send it
+// ---------------------------------------------------------------------------------------
+
+/** Each `Text` as one line — whole lines, because `or` is also inside *Ponor*. */
+function linesIn(t: RenderResult): string[] {
+  return nodesIn(t)
+    .filter((n) => n.type === 'Text')
+    .map((n) => n.children.filter((c): c is string => typeof c === 'string').join(''));
+}
+
+function indexOfText(t: RenderResult, line: string): number {
+  const i = linesIn(t).indexOf(line);
+  if (i < 0) throw new Error(`EmptyState has no line “${line}”`);
+  return i;
+}
+
+function buttonNamed(t: RenderResult, name: string) {
+  const [node] = nodesIn(t).filter((n) => n.props?.accessibilityRole === 'button' && n.props?.accessibilityLabel === name);
+  if (!node) throw new Error(`EmptyState drew no “${name}” button`);
+  return node;
+}
+
+function insideScroll(t: RenderResult, node: ReturnType<typeof markIn>): boolean {
+  const scrolls = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+  for (let a = node.parent; a; a = a.parent) if (scrolls.includes(a)) return true;
+  return false;
+}
+
+it('shows no offer when it is given nowhere to send one', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+  const lines = linesIn(t);
+  expect(lines).not.toContain('Better with an account');
+  expect(lines).not.toContain('Sign in or create an account');
+  expect(lines).not.toContain('or');
+});
+
+it('puts the primary first, then the rule, then the card', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  const primary = indexOfText(t, 'Log your first dive');
+  const rule = indexOfText(t, 'or');
+  const card = indexOfText(t, 'Better with an account');
+  expect(primary).toBeLessThan(rule);
+  expect(rule).toBeLessThan(card);
+});
+
+/**
+ * **With the offer, the button, the rule and the card scroll with the teaching block** (review of
+ * PR #52). Pinned outside the scroll, the three are ~260 pt in Czech and grow with the diver's text
+ * size, and nothing bounded them: on a 4.7" phone at a large size the block outgrew the screen, the
+ * scroll above it collapsed to nothing, and the card's button went under the tab bar where no
+ * gesture could reach it. In the scroll, everything is reachable at any size — and the block is
+ * pinned to the bottom of the content (`marginTop: 'auto'`), so on a phone where it fits the screen
+ * is exactly the one the owner signed off. Without the offer the primary stays pinned, as M1h set.
+ */
+it('scrolls the offer with the teaching block, so nothing can be pushed out of reach', async () => {
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  expect(insideScroll(t, actionIn(t))).toBe(true);
+  expect(insideScroll(t, buttonNamed(t, 'Sign in or create an account'))).toBe(true);
+  expect(insideScroll(t, markIn(t))).toBe(true);
+  // ...and the block still stands at the bottom whenever it fits.
+  const footer = actionIn(t).parent;
+  if (!footer) throw new Error('the primary has no parent');
+  expect(StyleSheet.flatten(footer.props.style)).toMatchObject({ marginTop: 'auto' });
+});
+
+it('keeps the first action the inverted primary, with the card’s button under it', async () => {
+  const t = await render(<EmptyState scheme="light" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  const styles = makeStyles('light');
+  // The first button on the screen is still *Log your first dive*, filled; the card's is drawn.
+  expect(StyleSheet.flatten(actionIn(t).props.style)).toMatchObject(StyleSheet.flatten(styles.action));
+  expect(StyleSheet.flatten(buttonNamed(t, 'Sign in or create an account').props.style).backgroundColor).not.toBe(
+    StyleSheet.flatten(styles.action).backgroundColor,
+  );
+});
+
+it('sends the diver to the account screen from the card, and logs from the primary', async () => {
+  const onPress = jest.fn();
+  const onAccount = jest.fn();
+  const t = await render(<EmptyState scheme="dark" system="metric" onPress={onPress} onAccount={onAccount} />);
+  await fireEvent.press(buttonNamed(t, 'Sign in or create an account'));
+  expect(onAccount).toHaveBeenCalledTimes(1);
+  expect(onPress).not.toHaveBeenCalled();
+  await fireEvent.press(actionIn(t));
+  expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+it('lifts the teaching block to the top when the offer is drawn, and centres it when not', async () => {
+  const contentOf = (t: RenderResult) => {
+    const [scroll] = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+    if (!scroll) throw new Error('EmptyState drew no scroll');
+    return StyleSheet.flatten(scroll.props.contentContainerStyle);
+  };
+  const withOffer = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+  // The air falls between the scale and the button, not above the mark (the owner's call).
+  expect(contentOf(withOffer).justifyContent).toBe('flex-start');
+  const without = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+  expect(contentOf(without).justifyContent).toBe('center');
+});
+
+// ---------------------------------------------------------------------------------------
+// Keeping *Log your first dive* above the fold (review round 2 of PR #52, Aleš's call)
+// ---------------------------------------------------------------------------------------
+//
+// With the offer, the button scrolls with the teaching block, so at a large text size on a small
+// phone it can start below the fold. The screen then trims what it teaches — the two reason lines
+// first, then the mark — one step per measurement, never back up from a trimmed layout, and starts
+// again only when the viewport or the text size changes. The label, the promise and the legend's
+// bars stay at every step.
+
+function scrollNode(t: RenderResult) {
+  const [node] = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+  if (!node) throw new Error('EmptyState drew no scroll');
+  return node;
+}
+
+async function layout(node: ReturnType<typeof markIn>, { y = 0, height = 0 }: { y?: number; height?: number }) {
+  await fireEvent(node, 'layout', { nativeEvent: { layout: { x: 0, y, width: 375, height } } });
+}
+
+/** The three measurements the screen decides from: its viewport, the button, and where the
+ * footer starts inside the content. */
+async function measure(t: RenderResult, { viewport, footerY }: { viewport: number; footerY: number }) {
+  await layout(scrollNode(t), { height: viewport });
+  await layout(actionIn(t), { height: 52 });
+  const footer = actionIn(t).parent;
+  if (!footer) throw new Error('the primary has no parent');
+  await layout(footer, { y: footerY });
+}
+
+const teaches = (t: RenderResult) => ({
+  reasons: linesIn(t).some((line) => line.includes('colour is depth')),
+  mark: nodesIn(t).some((n) => n.type === 'Image'),
+  legend: linesIn(t).includes('0–6'),
+  promise: textIn(t).includes('Ponor keeps every dive on this phone'),
+});
+
+describe('keeping the first dive’s button above the fold', () => {
+  afterEach(async () => {
+    await act(() => {
+      Dimensions.set({ window: { ...Dimensions.get('window'), fontScale: 2 }, screen: Dimensions.get('screen') });
+    });
+  });
+
+  it('teaches in full when the button fits', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 400 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
+  it('drops the reasons when the button would start below the fold, then the mark', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: true, legend: true, promise: true });
+
+    // The trimmed layout is measured again and the button is still under the fold.
+    await layout(actionIn(t).parent!, { y: 620 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+
+    // Last step: still hidden, and the screen stops there — the content scrolls as before.
+    await layout(actionIn(t).parent!, { y: 590 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+  });
+
+  it('never comes back up from a trimmed layout', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    // Trimmed, the button now fits with room to spare — which would be a reason to come back up,
+    // and coming back up would push it under again: the flicker this rule exists to prevent.
+    await layout(actionIn(t).parent!, { y: 300 });
+    expect(teaches(t).reasons).toBe(false);
+  });
+
+  it('starts again in full when the viewport changes', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t).reasons).toBe(false);
+    await layout(scrollNode(t), { height: 900 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
+  it('starts again in full when the text size changes', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t).reasons).toBe(false);
+    const before = scrollNode(t);
+    await act(() => {
+      Dimensions.set({ window: { ...Dimensions.get('window'), fontScale: 3 }, screen: Dimensions.get('screen') });
+    });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+    // ...and the scroll is a fresh mount, so every text is measured at the new size. Re-rendering
+    // in place while iOS applied the size left the texts that stayed with their old heights, on
+    // the simulator.
+    expect(scrollNode(t)).not.toBe(before);
+  });
+
+  // Review round 3: the Dives tab stays mounted under /account, so a guest who trimmed, then
+  // signed in to an account with no dives, came back to the same EmptyState — offer gone, button
+  // pinned, and the reasons and the mark still hidden for no layout reason. And on sign-out the
+  // offer came back carrying that stale level.
+  it('teaches in full again when the offer goes, and starts afresh when it comes back', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    await layout(actionIn(t).parent!, { y: 620 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+
+    await t.rerender(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+
+    await t.rerender(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
+  it('trims nothing without the offer, where the button is pinned and never below the fold', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    await layout(scrollNode(t), { height: 300 });
+    await layout(actionIn(t), { height: 52 });
+    await layout(actionIn(t).parent!, { y: 700 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+});
+
+// ---------------------------------------------------------------------------------------
 // Czech (M3g) — §0.6's first-run screen, the one that teaches §0.1
 // ---------------------------------------------------------------------------------------
 
@@ -192,12 +418,21 @@ describe('in Czech', () => {
     const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
     const text = textIn(t);
     expect(text).toContain('ZATÍM NIC ZAZNAMENÁNO');
-    expect(text).toContain('Ponor drží každý ponor v tomto telefonu.');
+    expect(text).toContain('Ponor drží každý ponor v tomto telefonu a funguje i s lodí mimo signál.');
     expect(text).toContain('barva je hloubka');
     expect(text).toContain('Zaznamenat první ponor');
     // And nothing is left in English behind it — the whole screen moves or none of it does.
     expect(text).not.toContain('NOTHING LOGGED YET');
     expect(text).not.toContain('Log your first dive');
+  });
+
+  it('offers the account in Czech', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    const lines = linesIn(t);
+    expect(lines).toContain('nebo');
+    expect(lines).toContain('S účtem je to lepší');
+    const text = textIn(t);
+    expect(text).toContain('Přihlásit se nebo vytvořit účet');
   });
 
   /**

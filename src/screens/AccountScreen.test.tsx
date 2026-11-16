@@ -8,7 +8,7 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { router } from 'expo-router';
-import { Alert, TextInput } from 'react-native';
+import { Alert, StyleSheet, TextInput } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
@@ -28,6 +28,7 @@ import {
 import { authLinkState, setAuthLinkState } from '../cloud/authLinkState';
 import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { setActiveLanguage } from '../i18n';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
@@ -53,6 +54,9 @@ jest.mock('../cloud/auth', () => ({
   setNewPassword: jest.fn(),
 }));
 jest.mock('../cloud/useAuthSession', () => ({ useAuthSession: jest.fn() }));
+// The keyboard, as a switch: down unless a test raises it, so every older test sees the screen
+// at rest exactly as it did.
+jest.mock('../hooks/useKeyboardShown', () => ({ useKeyboardShown: jest.fn(() => false) }));
 // The way out. Nothing else on this screen navigates.
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), canGoBack: jest.fn(() => true), replace: jest.fn() },
@@ -76,6 +80,7 @@ const mockRequestReset = requestPasswordReset as unknown as jest.Mock;
 const mockSetNewPassword = setNewPassword as unknown as jest.Mock;
 const mockEndSession = endSession as unknown as jest.Mock;
 const mockUseAuthSession = useAuthSession as unknown as jest.Mock;
+const mockKeyboardShown = useKeyboardShown as unknown as jest.Mock;
 
 const CLIENT = { itIsTheFakeClient: true };
 const SESSION = { access_token: 'fake', user: { id: 'u1', email: 'ales@example.com' } };
@@ -222,12 +227,25 @@ describe('with no backend in this build', () => {
     expect(screenText(t)).toContain('Invalid supabaseUrl');
   });
 
+  /** Review of PR #52: the caption's own 4 pt (its offset inside the field card's column) had
+   * replaced the body's 16, and the sentence ran 4 pt from the screen edge. */
+  it('keeps the message on the content column', async () => {
+    mockCloud = { configured: false, missing: ['EXPO_PUBLIC_SUPABASE_URL'] };
+
+    const t = await render(<AccountScreen />);
+    const styles = makeStyles('light');
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && String(n.children.join('')).includes('EXPO_PUBLIC_SUPABASE_URL')) : [];
+    const caption = text?.parent;
+    expect(caption?.props.style).toBe(styles.accountCaption);
+    expect(caption?.parent?.props.style).toBe(styles.accountBody);
+  });
+
   /** A screen with nothing on it is exactly the one a diver most needs to leave. */
   it('still offers the way out', async () => {
     mockCloud = { configured: false, missing: ['EXPO_PUBLIC_SUPABASE_URL'] };
 
     const t = await render(<AccountScreen />);
-    await pressControl(t, 'Back to Settings');
+    await pressControl(t, 'Go back');
 
     expect(router.back).toHaveBeenCalledTimes(1);
   });
@@ -244,7 +262,7 @@ describe('before the session read has answered', () => {
 
     const t = await render(<AccountScreen />);
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings']);
+    expect(buttonLabels(t)).toEqual(['Go back']);
     expect(screenText(t)).not.toContain('Signed in as');
   });
 });
@@ -256,36 +274,69 @@ describe('signed out', () => {
     expect(findField(t, 'Email')).toBeDefined();
     expect(findField(t, 'Password')).toBeDefined();
     // ...and, since 2026-11-14, the way back from a forgotten password, under the password row.
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 
   /**
-   * §1's constraint, on the screen rather than only in the navigation: "an account is only
-   * needed to back up, sync a second device, and contribute named sites."
+   * §7.4, said before anything is typed: the dives already on this phone are kept, and join the
+   * account. **That the account is optional is no longer said here** (the owner, 2026-11-16) —
+   * the offer card that leads to this screen says it, and this screen is where a diver has
+   * already chosen to look.
    */
-  it('says an account is optional before it asks for one', async () => {
+  it('says the dives already on this phone come with it, before it asks for anything', async () => {
     const t = await render(<AccountScreen />);
 
-    expect(screenText(t)).toContain('Ponor works fully without an account');
+    expect(textIn(t)).toContain('Dives already on this phone come with you.');
+    expect(screenText(t)).not.toContain('optional');
   });
 
   /**
-   * **All three of §1's reasons, because since M2o all three are true** — and because this
-   * screen is the only place a guest is told the third one. §2.3's *add this to the catalogue*
-   * offer is absent for a guest by design (a row reading "sign in to add this" would be a dead
-   * control on the app's most-used gesture), so the sentence that answers "what would an
-   * account get me" has to carry it.
+   * **All three of §1's reasons, because since M2o all three are true.** §2.3's *add this to the
+   * catalogue* offer is absent for a guest by design (a row reading "sign in to add this" would be
+   * a dead control on the app's most-used gesture), so the screen that answers "what would an
+   * account get me" has to say all three — the offer card that leads here names them in a word
+   * each (*Community* for the third), and this screen says each in full.
    *
    * Each clause separately, rather than the whole sentence in one `toContain`: a rewording that
    * kept the words and dropped a reason is exactly the drift this is for.
    */
   it('names all three things §1 says an account is for', async () => {
     const t = await render(<AccountScreen />);
-    const said = screenText(t);
+    const said = textIn(t);
 
-    expect(said).toContain('backs your logbook up');
-    expect(said).toContain('syncs it to your other devices');
-    expect(said).toContain('add dive sites and centres other divers can use');
+    // The offer card's three words, each said in full (`AccountPerks`, one list for both).
+    expect(said).toContain('Your dives backed up as you log them');
+    expect(said).toContain('Your logbook on your other devices');
+    expect(said).toContain('Share new sites and centres with other divers');
+  });
+
+  /**
+   * **One card holds both rows** (the design canvas's screen 19; the owner: "hard to distinguish
+   * inputs from buttons"). A surface block that is plainly the form, with the row grammar kept
+   * inside it — and both inputs in the SAME card, or the block would be two boxes again.
+   */
+  it('groups both rows in one card', async () => {
+    const t = await render(<AccountScreen />);
+    const styles = makeStyles('light');
+    const cards = t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.accountFieldCard)) : [];
+    expect(cards).toHaveLength(1);
+    const card = cards[0];
+    if (!card) throw new Error('no field card');
+    const inside = card.queryAll((n) => n.type === 'TextInput').map((n) => n.props?.accessibilityLabel);
+    expect(inside).toEqual(['Email', 'Password']);
+  });
+
+  /** It was a muted label hanging under the password row, and read as a third row. */
+  it('draws Forgot password? as a pill, not as another row', async () => {
+    const t = await render(<AccountScreen />);
+    const forgot = findControl(t, 'Forgot password?');
+    if (!forgot) throw new Error('no Forgot password? control');
+    const styles = makeStyles('light');
+    const pill = forgot.queryAll((n) => [n.props?.style].flat(5).includes(styles.accountForgotPill));
+    expect(pill).toHaveLength(1);
+    // §0.6's quiet control — the same definition the day strip's *Reorder* and a planned dive's
+    // *Complete dive* wear, never a look-alike.
+    expect(styles.accountForgotPill).toBe(styles.dayStripActionPill);
   });
 
   /**
@@ -315,10 +366,10 @@ describe('signed out', () => {
 
     await pressControl(t, 'Create an account');
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Create account', 'I already have an account']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Create account', 'I already have an account']);
 
     await pressControl(t, 'I already have an account');
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 
   it('signs in with what was typed, in the mode on screen, through the app’s own seam', async () => {
@@ -411,6 +462,22 @@ describe('signed out', () => {
    * `invalid_credentials`, on purpose, so pinning it to a row would be this app inventing the
    * answer the server withheld. It lands under the last row of the pair it is about.
    */
+  /** Review of PR #52: inside the field card a refusal trails into its value's column — the
+   * card's inner inset, not the screen's — or it stands 2 pt off the value it is about. */
+  it('trails a refusal in the card on the column its row’s value ends on', async () => {
+    mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({ kind: 'failed', message: credentialsRejected() }));
+    const t = await render(<AccountScreen />);
+    await typeCredentials(t, 'ales@example.com', 'wrong');
+    await pressControl(t, 'Sign in');
+
+    const styles = makeStyles('light');
+    const [text] = t.root ? t.root.queryAll((n) => n.type === 'Text' && n.children.includes(credentialsRejected())) : [];
+    const note = StyleSheet.flatten(text?.parent?.props.style);
+    expect(note.paddingHorizontal).toBe(StyleSheet.flatten(styles.formFieldCardGrouped).paddingHorizontal);
+    expect(StyleSheet.flatten(styles.accountReadRow).paddingHorizontal).toBe(note.paddingHorizontal);
+    expect(StyleSheet.flatten(styles.accountFieldDivider).marginLeft).toBe(note.paddingHorizontal);
+  });
+
   it('puts what the server said under the pair, not under one row of it', async () => {
     mockAuthenticate.mockImplementation(async (): Promise<AuthOutcome> => ({
       kind: 'failed',
@@ -531,12 +598,18 @@ describe('after a sign-up that sent a confirmation', () => {
     expect(screenText(t)).not.toContain('added to your logbook');
   });
 
+  it('offers Back to sign in as the footer’s one button', async () => {
+    const t = await signUpSuccessfully();
+
+    expect(controlsUnder(footerOf(t))).toEqual(['Back to sign in']);
+  });
+
   it('offers a way back to the form, in sign-in mode', async () => {
     const t = await signUpSuccessfully();
 
     await pressControl(t, 'Back to sign in');
 
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Forgot password?', 'Sign in', 'Create an account']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Forgot password?', 'Sign in', 'Create an account']);
   });
 });
 
@@ -548,7 +621,7 @@ describe('signed in', () => {
 
     expect(screenText(t)).toContain('Signed in as');
     expect(textIn(t)).toContain('ales@example.com');
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign out']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Sign out']);
   });
 
   /**
@@ -568,7 +641,7 @@ describe('signed in', () => {
     expect(textIn(t)).toContain('4 dives from this phone were added to your logbook.');
     // A statement, not a dialog (§7.4).
     expect(alertSpy).not.toHaveBeenCalled();
-    expect(buttonLabels(t)).toEqual(['Back to Settings', 'Sign out']);
+    expect(buttonLabels(t)).toEqual(['Go back', 'Sign out']);
   });
 
   it('says nothing about adoption when there was nothing to adopt', async () => {
@@ -603,8 +676,9 @@ describe('signed in', () => {
  */
 describe('signing out', () => {
   /**
-   * §10: "a destructive confirmation is OS chrome; the app's own control stays muted." §0.1
-   * reserves colour for depth, so the weight has to go into a dialog this app does not draw.
+   * §10: "a destructive confirmation is OS chrome." §0.1 reserves colour for depth, so the weight
+   * has to go into a dialog this app does not draw — the control itself is the plain outlined
+   * button since issue #24, never anything louder.
    */
   it('asks first, through the platform’s own dialog, in the words §7.4 requires', async () => {
     stubSession({ session: SESSION });
@@ -738,8 +812,20 @@ describe('the app’s own visual language', () => {
   it('leaves by the same control the dive form and the dive detail leave by', async () => {
     const t = await render(<AccountScreen />);
 
-    const back = findControl(t, 'Back to Settings');
+    const back = findControl(t, 'Go back');
     expect(back?.props.style).toBe(makeStyles('light').formBack);
+  });
+
+  /**
+   * **‹ Back, not ‹ Settings** (issue #24). M3k's rule: a way out names a destination only when
+   * the screen has exactly one way in — and the first-run card is a second one. The pop goes
+   * wherever the diver came from; only a cold deep link falls back to Settings.
+   */
+  it('names no destination on its way out, because two screens open it', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('‹ Back');
+    expect(textIn(t)).not.toContain('‹ Settings');
   });
 
   /** The primary action is the app's one button treatment (§0.1: inverted ink, monochrome),
@@ -751,18 +837,28 @@ describe('the app’s own visual language', () => {
   });
 
   /**
-   * Sign-out is `mutedControl`'s treatment and **not** `action`'s. §0.5 reserves the bottom
-   * third for the primary action, and putting the one destructive act in the app there would
-   * make it the easiest thing on the screen to hit.
+   * Sign-out is the outlined button and **not** `action`'s fill, and it stands at the end of the
+   * content rather than in a footer. §0.5 reserves the bottom third for the primary action, and
+   * putting the one destructive act in the app there would make it the easiest thing on the
+   * screen to hit; the platform's own dialog carries the weight.
    */
-  it('keeps sign-out a muted control rather than the primary action', async () => {
+  it('keeps sign-out out of the footer, outlined at the end of the content', async () => {
     stubSession({ session: SESSION });
 
     const t = await render(<AccountScreen />);
 
     const styles = makeStyles('light');
-    expect(findControl(t, 'Sign out')?.props.style).toBe(styles.accountSecondaryAction);
-    expect(findControl(t, 'Sign out')?.props.style).not.toBe(styles.action);
+    expect(findControl(t, 'Sign out')?.props.style).toBe(styles.accountSignOut);
+    expect(StyleSheet.flatten(styles.accountSignOut)).toMatchObject({ borderWidth: 1 });
+    expect(t.root ? t.root.queryAll((n) => [n.props?.style].flat(5).includes(styles.formFooter)) : []).toHaveLength(0);
+  });
+
+  it('says what the account does for a diver who is signed in', async () => {
+    stubSession({ session: SESSION });
+
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('Your dives back up to this account and sync to your other devices.');
   });
 });
 
@@ -817,6 +913,14 @@ describe('the mode toggle and the action it belongs to', () => {
     expect(controlsUnder(footerOf(t))).toEqual(['Sign in', 'Create an account']);
   });
 
+  /** The toggle was a muted label the owner could not tell from text; it is a button now —
+   * outlined, so the filled primary above it is still the one thing the screen is for. */
+  it('switches mode with an outlined button under the primary', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(findControl(t, 'Create an account')?.props.style).toBe(makeStyles('light').secondaryAction);
+  });
+
   /** The other half, and not a restatement of it: the first would still pass with the toggle
    * drawn twice, once in each place. **One control does live in the content since 2026-11-14**
    * — *Forgot password?* — and it is the exception that proves the rule rather than a breach
@@ -852,7 +956,7 @@ describe('the mode toggle and the action it belongs to', () => {
     const t = await render(<AccountScreen />);
 
     expect(findControl(t, 'Create an account')?.props.hitSlop).toBeUndefined();
-    const toggle = makeStyles('light').accountSecondaryAction as Record<string, unknown>;
+    const toggle = StyleSheet.flatten(makeStyles('light').secondaryAction);
     expect(toggle.minHeight).toBe(48);
   });
 
@@ -952,6 +1056,35 @@ describe('the sign-in form', () => {
   it('draws no placeholder for the caret to sit on', async () => {
     const t = await render(<AccountScreen />);
     expect(findField(t, 'Email').props.placeholder).toBeUndefined();
+  });
+});
+
+/**
+ * **With the keyboard up, the head folds to its title and its line** (review of #24). The grouped
+ * head — mark, title, line and three perk sentences — is about 190 pt, and with the keyboard and
+ * the two-button footer up it pushed the password row, and a refusal under it, below the footer
+ * on an iPhone 17 Pro: a diver pressing *Sign in* with the keyboard still up saw nothing happen.
+ * The perks and the mark are what was read before typing began; the title and the line still say
+ * which form this is.
+ */
+describe('with the keyboard up', () => {
+  afterEach(() => mockKeyboardShown.mockReturnValue(false));
+
+  it('folds the head to its title and line, so the rows stay in reach', async () => {
+    mockKeyboardShown.mockReturnValue(true);
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('Sign in');
+    expect(textIn(t)).toContain('Dives already on this phone come with you.');
+    expect(textIn(t)).not.toContain('Your dives backed up as you log them');
+    expect(t.root ? t.root.queryAll((n) => n.type === 'Image') : []).toHaveLength(0);
+  });
+
+  it('opens it again once the keyboard is down', async () => {
+    const t = await render(<AccountScreen />);
+
+    expect(textIn(t)).toContain('Your dives backed up as you log them');
+    expect(t.root ? t.root.queryAll((n) => n.type === 'Image') : []).toHaveLength(1);
   });
 });
 
@@ -1108,8 +1241,9 @@ describe('in Czech', () => {
     const t = await render(<AccountScreen />);
     expect(textIn(t)).toContain('Přihlásit se');
     expect(textIn(t)).toContain('Vytvořit si účet');
-    expect(textIn(t).join(' ')).toContain('Ponor funguje i bez účtu.');
-    expect(textIn(t).join(' ')).not.toContain('Ponor works fully without an account.');
+    expect(textIn(t)).toContain('Ponory, které už v telefonu máte, půjdou s vámi.');
+    expect(textIn(t)).toContain('Ponory zálohované hned při zápisu');
+    expect(textIn(t)).not.toContain('Dives already on this phone come with you.');
   });
 
   /** The one destructive dialog in v1 (§7.4), and the sentence a diver reads before it. */

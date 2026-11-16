@@ -303,7 +303,7 @@ export const cs = {
     empty: {
       label: 'ZATÍM NIC ZAZNAMENÁNO',
       promise:
-        'Ponor drží každý ponor v tomto telefonu. Žádný účet, žádné nahrávání, funguje i s lodí mimo signál.',
+        'Ponor drží každý ponor v tomto telefonu a funguje i s lodí mimo signál.',
       reasonColour: 'barva je hloubka',
       reasonNothingElse: 'nic jiného v Ponoru barvu nemá',
       reasonLight:
@@ -437,8 +437,6 @@ export const cs = {
     back: {
       any: '‹ Zpět',
       anyLabel: 'Zpět',
-      settings: '‹ Nastavení',
-      settingsLabel: 'Zpět do Nastavení',
       cancel: '‹ Zrušit',
       cancelLabel: 'Odejít bez uložení',
     },
@@ -822,6 +820,22 @@ export const cs = {
       away: '{{distance}} odtud',
     },
 
+    accountOffer: {
+      title: 'S účtem je to lepší',
+      optional: 'Zcela volitelné — Ponor funguje i bez něj.',
+      action: 'Přihlásit se nebo vytvořit účet',
+      or: 'nebo',
+    },
+
+    accountPerks: {
+      backupWord: 'Zálohy',
+      devicesWord: 'Všechna zařízení',
+      communityWord: 'Komunita',
+      backup: 'Ponory zálohované hned při zápisu',
+      devices: 'Deník i na vašich dalších zařízeních',
+      community: 'Sdílejte nové lokality a centra s ostatními potápěči',
+    },
+
     account: {
       heading: 'Účet',
       signInHeading: 'Přihlášení',
@@ -835,8 +849,8 @@ export const cs = {
       newPassword: 'Nové heslo',
       savePassword: 'Uložit heslo',
       passwordChanged: 'Heslo je změněné.',
-      whatItIsFor:
-        'Ponor funguje i bez účtu. S účtem se váš deník zálohuje, synchronizuje do dalších zařízení a můžete přidávat potápěčské lokality a centra, která použijí i ostatní.',
+      divesComeWithYou: 'Ponory, které už v telefonu máte, půjdou s vámi.',
+      signedInSub: 'Vaše ponory se zálohují do tohoto účtu a synchronizují do dalších zařízení.',
       signIn: 'Přihlásit se',
       createAccount: 'Vytvořit účet',
       switchToSignUp: 'Vytvořit si účet',

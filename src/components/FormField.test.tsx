@@ -1,6 +1,6 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { createRef } from 'react';
-import { Platform, type TextInput, View } from 'react-native';
+import { Platform, StyleSheet, type TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
@@ -390,6 +390,22 @@ it('draws the focused field as a card and drops the rule above it, and draws not
   // a field that grew or shifted on focus would move the row out from under the finger.
   expect(wearing(styles.formFieldCard)).toHaveLength(1);
   expect(styles.formFieldCardFocused).toEqual({ backgroundColor: themeFor('light').surface });
+});
+
+// **A grouped row draws neither the hairline nor the focus card** (issue #24) — the account
+// screen holds its two rows in one `surface` card, so the card is the fill and a second card
+// inside it, or a rule across its top, would be chrome on chrome. Focus still shows: the caret.
+it('draws no hairline and no focus fill when grouped', async () => {
+  const t = await render(<FormField label="Email" value="" onChange={() => {}} scheme="light" grouped />);
+  const styles = makeStyles('light');
+  const wearing = (style: unknown) => (t.root ? t.root.queryAll((n) => stylesOn(n).includes(style)) : []);
+  const input = inputsOf(t)[0];
+  if (!input) throw new Error('no TextInput found');
+
+  expect(stylesOn(t.root ?? undefined)).toContain(styles.formFieldGrouped);
+  expect(StyleSheet.flatten(styles.formFieldGrouped)).toMatchObject({ borderTopWidth: 0 });
+  await fireEvent(input, 'focus');
+  expect(wearing(styles.formFieldCardFocused)).toHaveLength(0);
 });
 
 // The blur that draws the fill must not swallow the blur the CALLER asked for:

@@ -12,12 +12,13 @@
 // reports one.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor, type RenderResult } from '@testing-library/react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { syncEngine } from '../cloud/syncEngine';
+import { offersAccount } from '../cloud/accountOffer';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { usePendingChanges } from '../cloud/usePendingChanges';
 import { dive } from '../domain/diveFixture';
@@ -81,6 +82,9 @@ jest.mock('../cloud/usePendingChanges', () => ({ usePendingChanges: jest.fn(() =
 jest.mock('../cloud/useAuthSession', () => ({
   useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
 }));
+// Issue #24's offer is `offersAccount`'s to decide (its own suite pins the three halves); here
+// it is a switch, off unless a test turns it on, so every older test sees the screen it always did.
+jest.mock('../cloud/accountOffer', () => ({ offersAccount: jest.fn(() => false) }));
 jest.mock('../cloud/syncEngine', () => ({
   syncEngine: { request: jest.fn(), requestAfterSave: jest.fn(), runExclusive: jest.fn(), stop: jest.fn() },
 }));
@@ -338,6 +342,7 @@ const mockUseDiveSampleShapes = useDiveSampleShapes as jest.Mock;
 // them returning `undefined`, which no render survives.
 const mockPendingChanges = usePendingChanges as jest.Mock;
 const mockAuthSession = useAuthSession as jest.Mock;
+const mockOffersAccount = offersAccount as jest.Mock;
 const mockSyncRequest = syncEngine.request as jest.Mock;
 const mockSignedOut = () => mockAuthSession.mockReturnValue({ session: null, resolved: true });
 const mockSignedIn = () =>
@@ -368,6 +373,44 @@ afterEach(() => {
   mockPendingChanges.mockReturnValue(0);
   mockSignedOut();
   mockSyncRequest.mockReset();
+});
+
+describe('the account offer on an empty logbook (issue #24)', () => {
+  afterEach(() => mockOffersAccount.mockReturnValue(false));
+
+  it('offers a guest an account, and opens the account screen from it', async () => {
+    mockOffersAccount.mockReturnValue(true);
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    await render(<DivesScreen />);
+    fireEvent.press(screen.getByRole('button', { name: 'Sign in or create an account' }));
+    expect(mockRouterPush).toHaveBeenCalledWith('/account');
+  });
+
+  // One session read per screen (review of PR #52): the rule is asked of the read this screen
+  // already makes for its pending line, never of a second subscription of its own.
+  it('asks the offer rule of the one session read it already makes', async () => {
+    const read = { session: null, resolved: true };
+    mockAuthSession.mockReturnValue(read);
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    await render(<DivesScreen />);
+    // The same object, not an equal one: a copy would be a read of its own in disguise.
+    expect(mockOffersAccount.mock.calls.at(-1)?.[0]).toBe(read);
+  });
+
+  it('offers nothing when the hook says there is no guest to offer it to', async () => {
+    stubDives({ dives: [], numbers: new Map(), error: undefined });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t)).not.toContain('Better with an account');
+    // ...and the first-run screen is otherwise whole.
+    expect(textIn(t)).toContain('Log your first dive');
+  });
+
+  it('never offers an account over a logbook that has dives', async () => {
+    mockOffersAccount.mockReturnValue(true);
+    stubDives({ dives: [dive({ id: 'd1', date: '2026-09-01', siteName: 'Blue Hole' })], numbers: new Map([['d1', 1]]) });
+    const t = await render(<DivesScreen />);
+    expect(textIn(t)).not.toContain('Better with an account');
+  });
 });
 
 it('shows the empty state when there are no dives', async () => {
@@ -1009,7 +1052,7 @@ it('names the screen on an empty logbook, with no capsule beside it', async () =
 
   const text = textIn(t);
   expect(text).toContain('Dives');
-  expect(text.join(' ')).toContain('Ponor keeps every dive on this phone.');
+  expect(text.join(' ')).toContain('Ponor keeps every dive on this phone and works with the boat out of signal.');
   expect(text.join(' ')).toContain('Log your first dive');
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Log a dive') : []).toHaveLength(0);
   expect(t.root ? t.root.queryAll((n) => n.props?.accessibilityLabel === 'Search dives') : []).toHaveLength(0);

@@ -30,10 +30,10 @@ import { router, type Href } from 'expo-router';
  * link** — which means a control labelled with it is telling the truth on exactly one entrance
  * and guessing on the rest. Three screens were doing that (the dive detail, a site's page, a
  * centre's page, each reachable three ways or more), and their labels are `back.any` now — *‹
- * Back*, which names the act. The account screen still says *‹ Settings*, and that is the rule
- * holding rather than an exception to it: Settings is its only way in, so the pop and the
- * fallback land in the same place. **Nothing in this module changed**; the routes were right all
- * along and it was the words that were wrong.
+ * Back*, which names the act. The account screen kept *‹ Settings* while Settings was its only
+ * way in, and took *‹ Back* when issue #24 gave it a second (the first-run card); its fallback is
+ * still Settings, for a cold deep link. **Nothing in this module changed**; the routes were right
+ * all along and it was the words that were wrong.
  *
  * **`fallback` is the screen this one sits on top of, and it is the only thing the two exits
  * below differ in.** It was `/` outright while every stacked screen sat on the dives list;

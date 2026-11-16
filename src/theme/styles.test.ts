@@ -623,9 +623,6 @@ describe('a screen title', () => {
       styles.formHeading,
       styles.settingsHeading,
       styles.presetHeading,
-      // M2e. A sign-in screen is where a title quietly grows a size of its own, because every
-      // app has one and none of them is this app.
-      styles.accountHeading,
       // Issue #19's *Choose a site*, and the *New dive site* page it pushes.
       styles.pickerHeading,
       styles.newPlaceHeading,
@@ -646,7 +643,23 @@ describe('a screen title', () => {
     expect((styles.formHeading as Record<string, unknown>).flex).toBe(1);
     expect((styles.divesTitle as Record<string, unknown>).flex).toBeUndefined();
     expect((styles.settingsHeading as Record<string, unknown>).flex).toBeUndefined();
-    expect((styles.accountHeading as Record<string, unknown>).flex).toBeUndefined();
+    expect((styles.accountTitle as Record<string, unknown>).flex).toBeUndefined();
+  });
+
+  /**
+   * **The one exception, and it is the owner's** (issue #24, 2026-11-16). M2e kept the account
+   * screen's title at every other title's 20 on the argument that a sign-in screen is where a
+   * title quietly grows a size of its own. The owner found the screen "boring" and picked the
+   * design canvas's grouped option, which draws it at 28 — so the exception is pinned as an
+   * exception: one screen, the screen face and ink, a size of its own.
+   */
+  it('lets the account screen alone take a larger title, in the same ink', () => {
+    const styles = makeStyles('dark');
+    const account = styles.accountTitle as Record<string, unknown>;
+    const dives = styles.divesTitle as Record<string, unknown>;
+    expect(account.fontSize).toBe(28);
+    expect(account.fontSize).toBeGreaterThan(dives.fontSize as number);
+    expect(account.color).toBe(dives.color);
   });
 });
 
@@ -1223,6 +1236,23 @@ describe('the app content column', () => {
     // The *New dive site* page's position card (issue #19): `detailMapCard`'s own frame, whose
     // padding is a distance inside the card and whose margin is the column.
     'newPlacePositionCard',
+    // Issue #24. The outlined button — the label's air inside the box, exactly as `action`'s —
+    // under its shared name, inside the offer card, and as *Sign out*.
+    'secondaryAction',
+    'accountOfferButton',
+    'accountSignOut',
+    // The account screen's field card holds its rows on its own inner inset (14): a grouped row
+    // takes the card's inset rather than the screen's, and draws none of its own. The card itself
+    // sits on the column through `accountBody`, which is asserted with the column below.
+    'formFieldGrouped',
+    'formFieldCardGrouped',
+    'accountReadRow',
+    // A refusal under a grouped row, on the same inner inset (review of PR #52).
+    'formFieldErrorGrouped',
+    // What is said under that card, on the card's own text edge rather than the screen's.
+    'accountCaption',
+    // *Forgot password?*'s quiet pill — the label's air inside the pill.
+    'accountForgotPill',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -1300,6 +1330,9 @@ describe('the app content column', () => {
     'newPlaceHeader',
     'newPlaceSectionHeader',
     'newPlaceNote',
+    // The account screen (issue #24): its head and everything under it, on the form's column.
+    'accountHead',
+    'accountBody',
   ];
 
   // A focused field draws its card 8 in from the screen edge, and what the card holds — the label
@@ -1541,15 +1574,16 @@ describe('the account screen', () => {
     const styles = makeStyles(scheme);
 
     // The sentence under a row, shared with Settings — one definition, two names.
-    expect(styles.accountCaption).toBe(styles.settingsCaption);
     expect(styles.accountCaptionText).toBe(styles.settingsCaptionText);
     // The notice, shared with the preset editor's own failed save.
     expect(styles.accountNotice).toBe(styles.presetNotice);
     expect(styles.accountNoticeText).toBe(styles.presetNoticeText);
-    // The deliberate-reach control, shared with *Delete preset* — §10's "the app's own control
-    // stays muted", with the weight in a dialog this app does not draw.
-    expect(styles.accountSecondaryAction).toBe(styles.presetDelete);
-    expect(styles.accountSecondaryActionLabel).toBe(styles.presetDeleteLabel);
+    // *Forgot password?* is §0.6's quiet pill — the day strip's *Reorder* — not a look-alike.
+    expect(styles.accountForgotPill).toBe(styles.dayStripActionPill);
+    expect(styles.accountForgotLabel).toBe(styles.dayStripActionLabel);
+    // Issue #24: every second button is the ONE outlined definition — the mode switch and *Back
+    // to sign in* wear it as it is, *Sign out* adds only the air above it.
+    expect(styles.accountSignOut).toMatchObject(styles.secondaryAction as object);
   });
 
   /**

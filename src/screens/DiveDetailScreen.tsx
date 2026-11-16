@@ -334,7 +334,8 @@ function Cluster({
  * then cited it as the precedent for the centre page's *‹ Centres* and M3f for the site's, which
  * is how one screen's stale label became three. **A way out names a destination only when the
  * screen has exactly one way in**; `/` inside `backToDives` is the cold-deep-link fallback, not a
- * promise this control may make. The account screen keeps *‹ Settings* on exactly that test.
+ * promise this control may make. The account screen kept *‹ Settings* on exactly that test until
+ * issue #24 gave it a second way in, and says *‹ Back* now.
  */
 function BackButton({ styles }: { styles: Styles }) {
   return (

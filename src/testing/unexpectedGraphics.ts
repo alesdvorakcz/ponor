@@ -316,7 +316,9 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
   // component whose outermost View carried the literal was therefore exempt, which is the
   // second half of the same hole and free to close here.
   const nodes = [t.root, ...t.root.queryAll(() => true)];
-  const mark = makeStyles(scheme).emptyStateMark as unknown;
+  // The mark is the one sanctioned image, monochrome from the sheet: the first-run screen's,
+  // and since issue #24 the account screen's head, which opens the same way.
+  const marks = [makeStyles(scheme).emptyStateMark, makeStyles(scheme).accountMark] as unknown[];
   // **"Exactly one" is counted, not merely described.** Matching on `emptyStateMark` alone
   // says "every image is painted like the mark", which is not the same claim and leaves the
   // most plausible bad edit through: a SECOND `<Image>` reusing that very style with a
@@ -349,7 +351,7 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
     if (n.type === 'Image') {
       if (imageCount > 1) return true;
       const style = [n.props?.style].flat(5).filter(Boolean) as unknown[];
-      return style.length === 0 || !style.every((entry) => entry === mark);
+      return style.length === 0 || !style.every((entry) => marks.includes(entry));
     }
     // **A real SVG element, judged by what it was painted with** (M3p) — the decision this arm
     // was left holding open, and `isSanctionedSvg` above is where it is written and argued.

@@ -342,7 +342,7 @@ export const en = {
     empty: {
       label: 'NOTHING LOGGED YET',
       promise:
-        'Ponor keeps every dive on this phone. No account, no upload, works with the boat out of signal.',
+        'Ponor keeps every dive on this phone and works with the boat out of signal.',
       reasonColour: 'colour is depth',
       reasonNothingElse: 'nothing else in Ponor is coloured',
       reasonLight:
@@ -530,15 +530,12 @@ export const en = {
      *
      * So the three that could not keep their promise are one pair — `any`, which names the act
      * instead, exactly as `cancel` already does for the three editors (the dive form, the preset
-     * editor, the certification editor). `settings` stays a destination because the account screen
-     * is reached from Settings and from nowhere else, which is the condition rather than an
-     * exception to it.
+     * editor, the certification editor). The account screen said *‹ Settings* while Settings was
+     * its only way in, and joined `any` when issue #24 gave it a second.
      */
     back: {
       any: '‹ Back',
       anyLabel: 'Go back',
-      settings: '‹ Settings',
-      settingsLabel: 'Back to Settings',
       cancel: '‹ Cancel',
       cancelLabel: 'Leave without saving',
     },
@@ -1006,6 +1003,28 @@ export const en = {
       away: '{{distance}} away',
     },
 
+    /** Issue #24's offer — the card on the empty logbook and at the top of Settings while nobody
+     * is signed in. Its title promises no backup: where it first appears there is nothing to back
+     * up yet. */
+    accountOffer: {
+      title: 'Better with an account',
+      optional: 'Totally optional — Ponor works fully without one.',
+      action: 'Sign in or create an account',
+      /** The rule between *Log your first dive* and the card. */
+      or: 'or',
+    },
+
+    /** What an account adds, in one order everywhere: as words on the offer card, as sentences on
+     * the account screen. Each pair says the same thing at two lengths. */
+    accountPerks: {
+      backupWord: 'Backups',
+      devicesWord: 'Every device',
+      communityWord: 'Community',
+      backup: 'Your dives backed up as you log them',
+      devices: 'Your logbook on your other devices',
+      community: 'Share new sites and centres with other divers',
+    },
+
     /** §5's auth screen and §7.4's sign-out. */
     account: {
       heading: 'Account',
@@ -1020,8 +1039,11 @@ export const en = {
       newPassword: 'New password',
       savePassword: 'Save password',
       passwordChanged: 'Your password is changed.',
-      whatItIsFor:
-        'Ponor works fully without an account. One backs your logbook up, syncs it to your other devices, and lets you add dive sites and centres other divers can use.',
+      /** Under the heading on sign-in and new account (issue #24): §7.4's adoption, said before
+       * anything is typed. That the account is optional is said by the offer that leads here. */
+      divesComeWithYou: 'Dives already on this phone come with you.',
+      /** Under the heading once signed in — what the account does, not a claim about its state. */
+      signedInSub: 'Your dives back up to this account and sync to your other devices.',
       signIn: 'Sign in',
       createAccount: 'Create account',
       switchToSignUp: 'Create an account',
