@@ -27,8 +27,8 @@ import { resolveScheme } from '../../theme/resolve';
  * diver's phone; `navigation/tabs.test.ts` records that and it is why every screen in this app
  * lives outside this directory. This file used to call `nativeTabSymbol` itself, which made
  * the one expression in it that could be wrong also the one expression nothing could check.
- * `nativeTabItems()` arrives with the glyph already in the native bar's `{sf, md}` spelling
- * and with no raw symbol on it at all, so passing the unconverted value is not a mistake this
+ * `nativeTabItems()` arrives with the glyph already in the native bar's spelling — `{sf, md}`
+ * for a symbol, `{xcasset, drawable}` for Ponor's own glyphs — and with no raw glyph on it, so passing the unconverted value is not a mistake this
  * file can make — it does not compile. See that module for the measurement behind it.
  *
  * The dive form and the dive detail stay OUTSIDE this group, in the root Stack, which is
@@ -50,12 +50,15 @@ export default function TabsLayout() {
       {nativeTabItems().map((tab) => (
         <NativeTabs.Trigger key={tab.name} name={tab.name}>
           <NativeTabs.Trigger.Label>{tab.title}</NativeTabs.Trigger.Label>
-          {/* Already `{sf, md}`. components/symbolName.ts is §4.1's owner of the per-platform
-              key a symbol is asked for under, and the native tab bar spells those keys
-              differently from `SymbolView`; navigation/tabs.ts is where that conversion is
-              applied, so it sits inside the tested tree. There is no web key in it either
-              way: expo-router's browser implementation of NativeTabs renders each tab as its
-              title alone, which is half of why the browser gets a different navigator. */}
+          {/* Already `{sf, md}` — or, for Dives and Settings, `{xcasset, drawable}`: Ponor's
+              own glyphs, by the name `plugins/withTabGlyphs.js` installs them under in the
+              native apps, tinted by the bar like a symbol (issue #2). components/symbolName.ts
+              is §4.1's owner of the per-platform key a symbol is asked for under, and the
+              native tab bar spells those keys differently from `SymbolView`;
+              navigation/tabs.ts is where that conversion is applied, so it sits inside the
+              tested tree. There is no web key in it either way: expo-router's browser
+              implementation of NativeTabs renders each tab as its title alone, which is half
+              of why the browser gets a different navigator. */}
           <NativeTabs.Trigger.Icon {...tab.icon} />
         </NativeTabs.Trigger>
       ))}

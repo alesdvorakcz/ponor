@@ -1,10 +1,12 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 import sharp from 'sharp';
 
 import { makeStyles } from './styles';
 
-// **The one graphic Ponor ships, checked as a graphic** (DESIGN.md §0.1/§0.3, M1h).
+// **The one graphic Ponor's screens draw, checked as a graphic** (DESIGN.md §0.1/§0.3, M1h).
+// The tab bar's glyphs are checked at the end of this file.
 //
 // It lives beside the theme because what it pins is a claim about COLOUR, and colour is this
 // directory's subject: `assets/images/mark-mono.png` is the mark `EmptyState` draws at 120 pt,
@@ -101,3 +103,90 @@ describe('the mark the first-run screen draws', () => {
     expect(Math.abs((mark.height as number) - proportional)).toBeLessThan(1);
   });
 });
+
+// **Ponor's tab glyphs as the browser draws them** (issue #2): the mark and the canvas's two
+// sliders, `assets/images/tab-{mark,sliders}{,@2x,@3x}.png`. The native apps hold the SVGs
+// themselves as vectors (`plugins/withTabGlyphs.js`); these PNGs are the browser's copy, and
+// they reach the screen the way the first-run mark does — tinted, every opaque pixel repainted
+// in the bar's own ink — so they carry the same claim: one colour over a transparent ground.
+// The three scales must also be one drawing: the browser picks the @2x or @3x by the screen's
+// pixel ratio, and a stale one left behind by a redraw would show a different glyph on a
+// high-density screen only, where nothing else would notice. The tests just below hold the
+// colour and the sizes; that each scale is the SAME drawing is held by the per-scale
+// comparison with a fresh render of the SVG, at the end of this file.
+const TAB_GLYPH_SETS = ['tab-mark', 'tab-sliders'].map((base) =>
+  [`${base}.png`, `${base}@2x.png`, `${base}@3x.png`].map((file) =>
+    path.join(__dirname, '..', '..', 'assets', 'images', file),
+  ),
+);
+
+describe.each(TAB_GLYPH_SETS)('the tab glyph %s', (...TAB_MARK) => {
+  it.each(TAB_MARK)('%s carries exactly one colour, over a transparent ground', async (file) => {
+    const { data, info } = await sharp(file).raw().toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(4);
+    const inks = new Set<string>();
+    let visible = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      if (data[i + 3] === 0) continue;
+      visible += 1;
+      inks.add([data[i], data[i + 1], data[i + 2]].join(','));
+    }
+    // Drawn at all: a few strokes across the 28 pt square at 1× is over a hundred pixels of ink.
+    expect(visible).toBeGreaterThan(100);
+    expect([...inks]).toEqual(['255,255,255']);
+    // ...over a transparent ground: a glyph is a few strokes, so most of its square is empty.
+    // An opaque ground would pass the colour check above (one ink, everywhere) and draw as a
+    // filled square in the browser's bar; the shipped glyphs leave about three quarters clear.
+    const pixels = info.width * info.height;
+    expect(pixels - visible).toBeGreaterThan(pixels / 2);
+  });
+
+  it('is square, and its @2x and @3x are exactly twice and three times the 1×', async () => {
+    const sizes = await Promise.all(TAB_MARK.map(async (file) => sharp(file).metadata()));
+    const base = sizes[0];
+    if (!base) throw new Error('no 1× tab mark');
+    expect(base.width).toBe(base.height);
+    sizes.forEach((size, index) => {
+      expect(size.width).toBe(base.width * (index + 1));
+      expect(size.height).toBe(base.height * (index + 1));
+    });
+  });
+});
+
+// **The committed PNGs are the SVGs as they render now** (review round 2). The native apps read
+// the SVGs at every prebuild, and nothing runs `npm run icons:build` in CI — so an SVG redrawn
+// without rebuilding would change the phone's glyph and leave the browser on the old one, every
+// test above still green (right size, one colour). This renders each glyph through the very
+// function the build uses and compares the alpha, which is the glyph. A tolerance stands in for
+// a rasteriser that rounds an edge pixel differently on another machine; a redrawn glyph moves
+// far more than that.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- a CommonJS build helper
+const { renderTabGlyphPng } = require('../../scripts/renderTabGlyph.cjs') as {
+  renderTabGlyphPng: (svg: string, scale: number) => Promise<Buffer>;
+};
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- the plugin is plain CommonJS
+const { TAB_GLYPHS } = require('../../plugins/withTabGlyphs') as { TAB_GLYPHS: { name: string; svg: string }[] };
+
+async function alphaOf(png: Buffer | string) {
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const alpha: number[] = [];
+  for (let i = 3; i < data.length; i += info.channels) alpha.push(data[i] ?? 0);
+  return { alpha, width: info.width, height: info.height };
+}
+
+describe.each(TAB_GLYPHS.flatMap((entry) => [1, 2, 3].map((scale) => [entry.svg, scale] as const)))(
+  'the browser PNG of %s at %dx',
+  (svg, scale) => {
+    it('is that SVG as it renders now', async () => {
+      const root = path.join(__dirname, '..', '..');
+      const base = path.basename(svg, '.svg');
+      const file = path.join(root, 'assets', 'images', scale === 1 ? `${base}.png` : `${base}@${scale}x.png`);
+      const committed = await alphaOf(file);
+      const rendered = await alphaOf(await renderTabGlyphPng(fs.readFileSync(path.join(root, svg), 'utf8'), scale));
+      expect([committed.width, committed.height]).toEqual([rendered.width, rendered.height]);
+      const diffs = committed.alpha.map((a, i) => Math.abs(a - (rendered.alpha[i] ?? 0)));
+      expect(Math.max(...diffs)).toBeLessThanOrEqual(48);
+      expect(diffs.reduce((sum, d) => sum + d, 0) / diffs.length).toBeLessThan(1);
+    });
+  },
+);

@@ -104,7 +104,7 @@ it('reads the scheme it is given, so a screen test compares against the sheet th
 
 const DEPTH_1 = depthScale.light[0];
 
-it('passes the one graphic the app draws — the mark, wearing the style that paints it', async () => {
+it('passes the one graphic a screen draws — the mark, wearing the style that paints it', async () => {
   // `EmptyState`'s own Image, exactly as it is written. Its tint and its half strength live in
   // `emptyStateMark`, which is what makes DESIGN.md §0.1 enforceable there in one edit.
   const t = await render(<Image source={{ uri: 'x' }} style={styles.emptyStateMark} />);
@@ -292,8 +292,8 @@ it('catches a raster inside an SVG even when its declared paint is sanctioned', 
   // react-native-svg's `Image` accepts `fill`/`stroke` like any other element whether or not
   // either paints anything visible. Judged on declared paint the way the cases above are, this
   // would be ADMITTED — a light `fg` is genuinely sanctioned — where the arm this file's own
-  // SVG rule replaced always reported any SVG on sight. No legitimate node in this app is a
-  // raster: the one image Ponor draws is the mark, and the `Image` arm far above this one
+  // SVG rule replaced always reported any SVG on sight. No legitimate node on a screen is a
+  // raster: the one image a screen draws is the mark, and the `Image` arm far above this one
   // already owns it.
   const t = await render(
     <Svg>

@@ -73,10 +73,13 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // rather than a nicety.** The hole this file exists to close is invisible by construction —
 // the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
 // simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. **Fifteen symbols in seven places**: the search capsule's magnifier, the
-// two `entry` chips, the five capsule glyphs `DivesScreen`, `SearchScreen` and `MapScreen` hand
-// to `ActionCapsule`, `navigation/tabs.ts`' four, M1h's carried treatment — the return mark and
-// the clear control's ring — and, since M3e, **the glyph inside a dive centre's map mark**.
+// it can only be listed. **The places, in this file's order**: the search capsule's magnifier,
+// the two `entry` chips, M1h's carried treatment — the return mark and the clear control's ring
+// — the capsule glyphs the screens hand to `ActionCapsule` (the dive list, search, the map and
+// the two directories' closes), since M3e **the glyph inside a dive centre's map
+// mark**, #19's picker and create page, and `navigation/tabs.ts`' two (Map and Stats). Each
+// block below is its own list; this note no longer keeps a running total, which had drifted
+// from those lists before issue #2 and is not issue #2's to recount.
 //
 // It was ten in six until M2n, and the three that joined are §3's Map tab: its own tab glyph, and
 // BOTH states of the layer toggle in the capsule — one control that renders a different symbol
@@ -85,6 +88,9 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // fifteenth cannot arrive without one. The Map's own count did not grow when M3e turned its
 // toggle into three switches — the same three symbols, drawn at once rather than one at a time —
 // but a **seventh place** did arrive, because one of those three is now also drawn on the map.
+// **Issue #2 took two symbols away**: Dives and Settings now draw Ponor's own glyphs rather than
+// symbols, so `navigation/tabs.ts` holds two (Map and Stats), and the tab block below lists the
+// other two with `null` (tabs.test.ts pins their glyphs).
 //
 // It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
 // condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
@@ -237,17 +243,21 @@ it.each([
   expect(name.web).toBe(material);
 });
 
-// --- The two tab glyphs, which are the one call site with no render to observe ---
+// --- The tab glyphs, checked on the data both bars are handed ---
 //
 // The tabs' symbols reach the library in two different shapes on two different platforms:
 // `{sf, md}` for `NativeTabs.Trigger.Icon` in `(tabs)/_layout.tsx`, and `{ios, android, web}`
-// for an ordinary `SymbolView` in `(tabs)/_layout.web.tsx` — the browser gets the JS tab bar,
-// so the `md`/`web` split is not academic here, it is the only bar a browser draws.
+// for the `SymbolView` inside `components/TabBarGlyph.tsx`, which `(tabs)/_layout.web.tsx`
+// renders — the browser gets the JS tab bar, so the `md`/`web` split is not academic here, it
+// is the only bar a browser draws.
 //
-// **Asserted against the data rather than against a render, and that is forced rather than
-// chosen.** expo-router sweeps `src/app/` as the route tree, so a test file there would ship
-// to a diver's phone; nothing under it can be mounted. This is the same shape as this file's
-// very first test, which calls `symbolName` directly on a literal.
+// **Asserted against the data rather than against a render.** For the native half that is
+// forced: expo-router sweeps `src/app/` as the route tree, so a test file there would ship to
+// a diver's phone, and `NativeTabs.Trigger.Icon` in `_layout.tsx` cannot be mounted. The
+// browser half is rendered since issue #2 moved its glyph into `TabBarGlyph` — that file's own
+// test mounts it and checks its ink and size — so here the names are read off the data by
+// choice, the same shape as this file's very first test, which calls `symbolName` directly on
+// a literal.
 //
 // **What that used to leave uncovered, and what changed.** While the two layouts called the
 // converters themselves, dropping the call — `name={route.symbol}` — was green across the
@@ -263,16 +273,22 @@ it.each([
 // map over: a resolution that dropped a route, or resolved it with the wrong glyph, is caught
 // here, where re-deriving the answer from the source would only have proved the converters
 // still work.
+//
+// **Dives and Settings are in the table with `null`** (issue #2): they draw Ponor's own glyphs —
+// the mark and the canvas's sliders — on every platform, so they have no Material name to pin.
+// They stay listed, because the check below that ties this table to the bar is what would
+// otherwise let a tab slip past unpinned. `tabs.test.ts` pins the glyphs themselves.
 const TAB_MATERIAL_NAMES = [
-  ['index', 'waves'],
+  ['index', null],
   // M2n. `map` is the same word in both vocabularies, which is exactly why it is pinned rather
   // than skipped: an iOS name that happens to be a legal Material name is the case where a
   // missing conversion looks right on the only platform anyone runs.
   ['map', 'map'],
-  // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most (`chart.bar`
-  // against `bar_chart`), which is the ordinary case this file exists for.
+  // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most
+  // (`chart.bar.fill` against `bar_chart`), which is the ordinary case this file exists for.
   ['stats', 'bar_chart'],
-  ['settings', 'settings'],
+  // Issue #2: the canvas's own two sliders, an image like the mark — so no Material name either.
+  ['settings', null],
 ] as const;
 
 // **The half of "if you add a symbol, add it here" that was a sentence rather than a check**
@@ -285,21 +301,36 @@ const TAB_MATERIAL_NAMES = [
 // So the table is tied to the bar instead: same routes, same order. A tab added to
 // `navigation/tabs.ts` is red here until somebody writes down what it draws on the two
 // platforms the simulator cannot show them.
-it('pins a Material name for every tab in the bar, and for no tab that is not', () => {
+it('lists every tab in the bar, and no tab that is not, with its Material name or null for Ponor’s own glyphs', () => {
   expect(TAB_MATERIAL_NAMES.map(([name]) => name)).toEqual(TAB_ROUTES.map((route) => route.name));
 });
 
-it.each(TAB_MATERIAL_NAMES)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
-  const native = nativeTabItems().find((tab) => tab.name === name);
-  const js = jsTabItems().find((tab) => tab.name === name);
-  // The routes existing is part of the assertion: `.find` on a name nobody ships returns
-  // `undefined`, and every expectation below would then be checking `undefined?.android`
-  // against itself. A renamed or dropped tab must fail here rather than pass vacuously.
-  expect(native).toBeDefined();
-  expect(js).toBeDefined();
-  expect(js?.icon.android).toBe(material);
-  expect(js?.icon.web).toBe(material);
-  expect(native?.icon.md).toBe(material);
+it.each(TAB_MATERIAL_NAMES.filter(([, material]) => material !== null))(
+  'gives the %s tab an Android and a web name, not just an iOS one',
+  (name, material) => {
+    const native = nativeTabItems().find((tab) => tab.name === name);
+    const js = jsTabItems().find((tab) => tab.name === name);
+    // The routes existing is part of the assertion: `.find` on a name nobody ships returns
+    // `undefined`, and every expectation below would then be checking `undefined?.android`
+    // against itself. A renamed or dropped tab must fail here rather than pass vacuously —
+    // and so must a symbol tab that turned into an image, which has no name to check.
+    if (!native || !js || !('md' in native.icon) || !('name' in js.icon)) {
+      throw new Error(`the ${name} tab should be in both bars, drawn by a symbol`);
+    }
+    expect(js.icon.name.android).toBe(material);
+    expect(js.icon.name.web).toBe(material);
+    expect(native.icon.md).toBe(material);
+  },
+);
+
+it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank symbols', () => {
+  for (const [name] of TAB_MATERIAL_NAMES.filter(([, material]) => material === null)) {
+    const native = nativeTabItems().find((tab) => tab.name === name);
+    const js = jsTabItems().find((tab) => tab.name === name);
+    expect(native?.icon).toHaveProperty('xcasset');
+    expect(native?.icon).toHaveProperty('drawable');
+    expect(js?.icon).toHaveProperty('image');
+  }
 });
 
 // §0.6: "*other* does not [have a symbol]" — and the fix for the web gap must not have

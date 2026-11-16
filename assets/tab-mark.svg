@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="28" height="28">
+  <!-- The Dives tab's glyph: DESIGN.md §0.3's mark redrawn for 22 units, as the
+       owner's design canvas draws it (screen 01, note 16). One stop on the ascent
+       instead of two, and a shorter wave, because at tab size the full mark's
+       detail turns to a smudge. Flat single colour, as §0.3 asks of the mark below
+       ~32 px: the tab bar tints it, so the white here is a placeholder and never
+       seen. width/height are its size in points (DESIGN.md §0.6 has why 28):
+       plugins/withTabGlyphs.js puts it in the native apps as a vector at that
+       size, and build-icons.mjs renders the browser's PNGs from it. -->
+  <polyline points="2,5.4 5.5,3.6 9,5.4 12.5,3.6 16,5.4 19.5,3.9"
+            fill="none" stroke="#FFFFFF" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="5,4.6 7.8,17 11.6,17 14,11.4 18.4,11.4"
+            fill="none" stroke="#FFFFFF" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

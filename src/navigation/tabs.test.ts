@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 import { jsTabItems, nativeTabItems, TAB_ROUTES, jsTabsAppearance, nativeTabsAppearance } from './tabs';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -15,13 +17,19 @@ import { makeStyles } from '../theme/styles';
 // JS navigator built and discarded before native tabs landed.
 
 // The one thing the two bars must agree on, and the reason a diver never sees "two designs":
-// the ink. `iconColor`/`tintColor` are what the native bar spends; `tabBarInactiveTintColor`/
-// `tabBarActiveTintColor` are the same two values under the JS navigator's own names. Read
+// the ink. `iconColor`/`tintColor` are what the iPhone's native bar spends (Android's adds
+// `action-fg` for the glyph on its pill); `tabBarInactiveTintColor`/`tabBarActiveTintColor` are
+// the same two values under the JS navigator's own names. Read
 // off both functions rather than against a token literal, so a change to one bar's resting or
 // selected ink fails here instead of quietly making the browser look like a different app.
-it('spends the same two inks on both bars, so the browser and the device read as one design', () => {
+//
+// **iOS's bar, named explicitly** (issue #2's review): `nativeTabsAppearance` branches on the
+// platform, and on Android the selected glyph is deliberately `action-fg` on an inverted pill,
+// so this claim is about the iPhone's bar and says so rather than leaning on jest-expo's
+// default platform happening to be iOS.
+it('spends the same two inks on both bars, so the browser and the iPhone read as one design', () => {
   for (const scheme of ['light', 'dark'] as const) {
-    const native = nativeTabsAppearance(scheme);
+    const native = nativeTabsAppearance(scheme, 'ios');
     const js = jsTabsAppearance(scheme);
     expect(js.tabBarInactiveTintColor).toBe(native.iconColor);
     expect(js.tabBarActiveTintColor).toBe(native.tintColor);
@@ -86,6 +94,44 @@ it('shows no navigator header in the browser, matching every screen the device d
   expect(jsTabsAppearance('light').headerShown).toBe(false);
 });
 
+// **Android's selected tab is an inverted pill** (issue #2, the owner's call): Material draws
+// its indicator behind the selected icon, so the indicator is `action` and the glyph on it is
+// `action-fg` — Android only, because on iOS the same ink would sit dark on a pale glass bubble
+// in the dark theme and vanish. The word stays `fg` everywhere: Material sets it under the pill.
+//
+// On iOS these colours are also what make Ponor's own glyphs tint at all: expo-router renders an
+// `xcasset` icon as a template only while its state has an icon colour — `iconColor` at rest,
+// `tintColor` selected — and react-native-screens then overrides the asset catalog's own
+// template flag (tabs.ts, `NativeTabIcon`). So the iOS half below is not only "which grey":
+// without `iconColor` the resting and selected icons come out as different image types, which
+// react-native-screens refuses, and the tab bar throws at render.
+it('inverts the selected tab on Android and leaves iOS its own selection', () => {
+  for (const scheme of ['light', 'dark'] as const) {
+    const theme = themeFor(scheme);
+    const android = nativeTabsAppearance(scheme, 'android');
+    expect(android.indicatorColor).toBe(theme.action);
+    expect(android.iconColor).toEqual({ default: theme.fgMuted, selected: theme.actionFg });
+    expect(android.tintColor).toBe(theme.fg);
+    const ios = nativeTabsAppearance(scheme, 'ios');
+    expect(ios.iconColor).toBe(theme.fgMuted);
+    expect(ios.tintColor).toBe(theme.fg);
+  }
+});
+
+// The layout calls `nativeTabsAppearance(scheme)` with no platform, so the DEFAULT is what a
+// phone actually gets; every test above names the platform. Without this, a default changed to
+// `'ios'` would drop Android's inverted pill with the whole suite green (review round 2).
+it.each(['ios', 'android'] as const)('reads the platform itself when the layout does not name one (%s)', (os) => {
+  const platform = jest.replaceProperty(Platform, 'OS', os);
+  try {
+    for (const scheme of ['light', 'dark'] as const) {
+      expect(nativeTabsAppearance(scheme)).toEqual(nativeTabsAppearance(scheme, os));
+    }
+  } finally {
+    platform.restore();
+  }
+});
+
 // The native bar's ground is UIKit's, and that is the entire reason `(tabs)/_layout.tsx` uses
 // native tabs: naming a `backgroundColor` replaces iOS 26's Liquid Glass material with an
 // opaque fill. This used to be a `src/platform/tabBarSurface` split whose web half returned a
@@ -93,7 +139,9 @@ it('shows no navigator header in the browser, matching every screen the device d
 // guarantee is asserted here instead of resting on a deleted file's compile-time shape check.
 it('names no ground for the native bar, so iOS keeps drawing its own material', () => {
   for (const scheme of ['light', 'dark'] as const) {
-    expect(nativeTabsAppearance(scheme).backgroundColor).toBeUndefined();
+    for (const os of ['ios', 'android'] as const) {
+      expect(nativeTabsAppearance(scheme, os).backgroundColor).toBeUndefined();
+    }
   }
 });
 
@@ -154,12 +202,52 @@ it('gives each navigator its icon under the keys that navigator actually reads',
   // `sf`/`md`; the browser's `SymbolView` reads `ios`/`android`/`web`. Presence, not spelling
   // — a missing key is a blank bar on the platform that reads it, and `web` is the one that
   // was actually missing in this app once, in both icons, until symbolName.ts existed.
+  //
+  // Dives and Settings draw Ponor's own glyphs instead (issue #2), and those have their own
+  // keys: one name under both `xcasset` and `drawable` for the native bar — the vector the
+  // config plugin installed — and an `image` for the browser's `TabBarGlyph`.
   for (const tab of nativeTabItems()) {
-    expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
+    if ('xcasset' in tab.icon) {
+      expect(Object.keys(tab.icon).sort()).toEqual(['drawable', 'xcasset']);
+      expect(tab.icon.drawable).toBe(tab.icon.xcasset);
+    } else {
+      expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
+    }
   }
   for (const tab of jsTabItems()) {
-    expect(Object.keys(tab.icon).sort()).toEqual(['android', 'ios', 'web']);
+    if ('image' in tab.icon) {
+      expect(Object.keys(tab.icon)).toEqual(['image']);
+    } else {
+      expect(Object.keys(tab.icon.name).sort()).toEqual(['android', 'ios', 'web']);
+    }
   }
+});
+
+// Which of Ponor's glyphs each tab draws, in both bars: the vector's name natively, and the
+// PNG rendered from the same SVG in the browser.
+it.each([
+  ['index', 'tab_mark', require('../../assets/images/tab-mark.png')],
+  ['settings', 'tab_sliders', require('../../assets/images/tab-sliders.png')],
+])('draws the %s tab with Ponor’s %s glyph in both bars', (name, asset, image) => {
+  const native = nativeTabItems().find((tab) => tab.name === name);
+  const js = jsTabItems().find((tab) => tab.name === name);
+  if (!native || !js || !('xcasset' in native.icon) || !('image' in js.icon)) {
+    throw new Error(`the ${name} tab should carry one of Ponor's glyphs in both bars`);
+  }
+  expect(native.icon.xcasset).toBe(asset);
+  expect(js.icon.image).toBe(image);
+});
+
+// **The name is the whole contract with the binary.** The bar asks iOS and Android for each
+// glyph by name, and a name the config plugin never installed is a tab with no glyph — nothing
+// throws and nothing shows on screen; the only sign is a warning in Xcode's console or logcat.
+// So every name a tab asks for must be one the plugin writes, and the plugin writes nothing no
+// tab asks for.
+it('asks the native apps only for glyphs the config plugin installs', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- the plugin is plain CommonJS, loaded by app.config.ts
+  const { TAB_GLYPHS } = require('../../plugins/withTabGlyphs') as { TAB_GLYPHS: { name: string }[] };
+  const asked = TAB_ROUTES.flatMap((route) => ('asset' in route.glyph ? [route.glyph.asset.name] : []));
+  expect([...asked].sort()).toEqual(TAB_GLYPHS.map((entry) => entry.name).sort());
 });
 
 // **The assertion that replaces a test neither layout can have.**
@@ -167,14 +255,17 @@ it('gives each navigator its icon under the keys that navigator actually reads',
 // `tsc --noEmit` covers `src/app/` even though Jest cannot reach it, so the way to protect an
 // untestable file is to make the wrong edit fail to compile. Both layouts now map over these
 // items and nothing else, and the items are built field by field rather than spread from
-// `TAB_ROUTES` — so `tab.symbol` is not merely unused there, it does not exist, and a layout
-// passing the unconverted value is a type error rather than a silently blank tab bar.
+// `TAB_ROUTES` — so `tab.glyph` is not merely unused there, it does not exist, and a layout
+// passing the unconverted value is a type error rather than a silently blank tab bar. (The
+// raw field was `symbol` until issue #2 made it `glyph`; both are refused, so neither name
+// can come back through a spread.)
 //
 // That property is invisible in the layouts (it is the absence of an option) and it would
 // survive a well-meaning `...route` spread in `tabs.ts` looking like a tidy-up, which is
 // exactly how it would come back. Asserted at runtime, here, so the tidy-up is red.
-it('hands the layouts no raw symbol to pass by mistake', () => {
+it('hands the layouts no raw glyph to pass by mistake', () => {
   for (const tab of [...nativeTabItems(), ...jsTabItems()]) {
+    expect(tab).not.toHaveProperty('glyph');
     expect(tab).not.toHaveProperty('symbol');
   }
   // And the list is not empty, or the loop above proves nothing at all.
