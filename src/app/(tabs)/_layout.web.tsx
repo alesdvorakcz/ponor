@@ -1,7 +1,7 @@
 import { Tabs } from 'expo-router/js-tabs';
-import { SymbolView } from 'expo-symbols';
 import { useColorScheme } from 'react-native';
 
+import { TabBarGlyph } from '../../components/TabBarGlyph';
 import { useT } from '../../i18n';
 import { jsTabItems, jsTabsAppearance } from '../../navigation/tabs';
 import { resolveScheme } from '../../theme/resolve';
@@ -50,16 +50,15 @@ export default function WebTabsLayout() {
           name={tab.name}
           options={{
             title: tab.title,
-            // The glyph the native bar gets through `NativeTabs.Trigger.Icon`, drawn here by
-            // the same `SymbolView` the action capsule already uses in the browser. It arrives
-            // carrying the `web` key this navigator actually reads — `symbolName`
-            // (components/symbolName.ts) is §4.1's owner of that key and navigation/tabs.ts is
-            // where it is applied. `color` and `size` come from the navigator so the glyph
-            // tracks the selected/resting tint and the bar's own metrics, rather than this
-            // file naming either.
-            tabBarIcon: ({ color, size }) => (
-              <SymbolView name={tab.icon} size={size} tintColor={color} />
-            ),
+            // The glyph the native bar gets through `NativeTabs.Trigger.Icon`: a symbol drawn
+            // by the same `SymbolView` the action capsule already uses in the browser, or
+            // Ponor's mark as a tinted image (issue #2). `TabBarGlyph` makes that one choice,
+            // outside this untestable tree. A symbol arrives carrying the `web` key this
+            // navigator reads — `symbolName` (components/symbolName.ts) is §4.1's owner of
+            // that key and navigation/tabs.ts is where it is applied. `color` and `size` come
+            // from the navigator so the glyph tracks the selected/resting tint and the bar's
+            // own metrics, rather than this file naming either.
+            tabBarIcon: ({ color, size }) => <TabBarGlyph icon={tab.icon} color={color} size={size} />,
           }}
         />
       ))}

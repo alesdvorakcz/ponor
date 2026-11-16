@@ -263,16 +263,22 @@ it.each([
 // map over: a resolution that dropped a route, or resolved it with the wrong glyph, is caught
 // here, where re-deriving the answer from the source would only have proved the converters
 // still work.
+//
+// **Dives is in the table with `null`** (issue #2): it draws Ponor's mark, an image, on every
+// platform, so it has no Material name to pin — and it stays listed, because the check below
+// that ties this table to the bar is what would otherwise let a tab slip past unpinned.
+// `tabs.test.ts` pins the image itself.
 const TAB_MATERIAL_NAMES = [
-  ['index', 'waves'],
+  ['index', null],
   // M2n. `map` is the same word in both vocabularies, which is exactly why it is pinned rather
   // than skipped: an iOS name that happens to be a legal Material name is the case where a
   // missing conversion looks right on the only platform anyone runs.
   ['map', 'map'],
-  // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most (`chart.bar`
-  // against `bar_chart`), which is the ordinary case this file exists for.
+  // M3a. §3's fourth tab, and the one whose iOS and Material names diverge most
+  // (`chart.bar.fill` against `bar_chart`), which is the ordinary case this file exists for.
   ['stats', 'bar_chart'],
-  ['settings', 'settings'],
+  // Issue #2: sliders rather than a gear, as the canvas draws Settings.
+  ['settings', 'tune'],
 ] as const;
 
 // **The half of "if you add a symbol, add it here" that was a sentence rather than a check**
@@ -289,17 +295,31 @@ it('pins a Material name for every tab in the bar, and for no tab that is not', 
   expect(TAB_MATERIAL_NAMES.map(([name]) => name)).toEqual(TAB_ROUTES.map((route) => route.name));
 });
 
-it.each(TAB_MATERIAL_NAMES)('gives the %s tab an Android and a web name, not just an iOS one', (name, material) => {
-  const native = nativeTabItems().find((tab) => tab.name === name);
-  const js = jsTabItems().find((tab) => tab.name === name);
-  // The routes existing is part of the assertion: `.find` on a name nobody ships returns
-  // `undefined`, and every expectation below would then be checking `undefined?.android`
-  // against itself. A renamed or dropped tab must fail here rather than pass vacuously.
-  expect(native).toBeDefined();
-  expect(js).toBeDefined();
-  expect(js?.icon.android).toBe(material);
-  expect(js?.icon.web).toBe(material);
-  expect(native?.icon.md).toBe(material);
+it.each(TAB_MATERIAL_NAMES.filter(([, material]) => material !== null))(
+  'gives the %s tab an Android and a web name, not just an iOS one',
+  (name, material) => {
+    const native = nativeTabItems().find((tab) => tab.name === name);
+    const js = jsTabItems().find((tab) => tab.name === name);
+    // The routes existing is part of the assertion: `.find` on a name nobody ships returns
+    // `undefined`, and every expectation below would then be checking `undefined?.android`
+    // against itself. A renamed or dropped tab must fail here rather than pass vacuously —
+    // and so must a symbol tab that turned into an image, which has no name to check.
+    if (!native || !js || !('md' in native.icon) || !('name' in js.icon)) {
+      throw new Error(`the ${name} tab should be in both bars, drawn by a symbol`);
+    }
+    expect(js.icon.name.android).toBe(material);
+    expect(js.icon.name.web).toBe(material);
+    expect(native.icon.md).toBe(material);
+  },
+);
+
+it('draws the tab with no Material name as an image in both bars, not as a blank symbol', () => {
+  for (const [name] of TAB_MATERIAL_NAMES.filter(([, material]) => material === null)) {
+    const native = nativeTabItems().find((tab) => tab.name === name);
+    const js = jsTabItems().find((tab) => tab.name === name);
+    expect(native?.icon).toHaveProperty('src');
+    expect(js?.icon).toHaveProperty('image');
+  }
 });
 
 // §0.6: "*other* does not [have a symbol]" — and the fix for the web gap must not have

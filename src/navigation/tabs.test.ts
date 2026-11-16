@@ -154,12 +154,35 @@ it('gives each navigator its icon under the keys that navigator actually reads',
   // `sf`/`md`; the browser's `SymbolView` reads `ios`/`android`/`web`. Presence, not spelling
   // — a missing key is a blank bar on the platform that reads it, and `web` is the one that
   // was actually missing in this app once, in both icons, until symbolName.ts existed.
+  //
+  // Dives draws Ponor's mark as an image instead (issue #2), and an image has its own key on
+  // each side: `src` for the native bar, as a TEMPLATE so the bar tints it like the symbols —
+  // the default is `template` only while an icon colour is configured, so it is pinned here —
+  // and `image` for the browser's `TabBarGlyph`.
   for (const tab of nativeTabItems()) {
-    expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
+    if ('src' in tab.icon) {
+      expect(tab.icon).toEqual({ src: expect.anything(), renderingMode: 'template' });
+    } else {
+      expect(Object.keys(tab.icon).sort()).toEqual(['md', 'sf']);
+    }
   }
   for (const tab of jsTabItems()) {
-    expect(Object.keys(tab.icon).sort()).toEqual(['android', 'ios', 'web']);
+    if ('image' in tab.icon) {
+      expect(Object.keys(tab.icon)).toEqual(['image']);
+    } else {
+      expect(Object.keys(tab.icon.name).sort()).toEqual(['android', 'ios', 'web']);
+    }
   }
+});
+
+it('draws Dives with Ponor’s mark, the same image in both bars', () => {
+  const native = nativeTabItems().find((tab) => tab.name === 'index');
+  const js = jsTabItems().find((tab) => tab.name === 'index');
+  if (!native || !js || !('src' in native.icon) || !('image' in js.icon)) {
+    throw new Error('the Dives tab should carry the mark as an image in both bars');
+  }
+  expect(native.icon.src).toBe(require('../../assets/images/tab-mark.png'));
+  expect(js.icon.image).toBe(native.icon.src);
 });
 
 // **The assertion that replaces a test neither layout can have.**

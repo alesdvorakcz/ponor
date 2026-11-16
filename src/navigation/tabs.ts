@@ -1,11 +1,21 @@
 import type { BottomTabNavigationOptions } from 'expo-router/js-tabs';
 import type { NativeTabsProps } from 'expo-router/unstable-native-tabs';
+import type { ImageSourcePropType } from 'react-native';
 
 import { nativeTabSymbol, symbolName, type PlatformSymbol } from '../components/symbolName';
 import { t, type TranslationKey } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+
+/**
+ * A tab's glyph: a platform symbol, or Ponor's own drawing (issue #2).
+ *
+ * `image` is a single-colour template — `assets/images/tab-mark.png`, built by
+ * `scripts/build-icons.mjs` — that every bar repaints in its own ink, exactly as it tints a
+ * symbol. It is one image on every platform, because the mark is not in either symbol set.
+ */
+export type TabGlyph = { symbol: PlatformSymbol } | { image: ImageSourcePropType };
 
 /** One entry in the tab bar. */
 export interface TabRoute {
@@ -18,9 +28,9 @@ export interface TabRoute {
    * until the app was killed. `nativeTabItems`/`jsTabItems` below resolve it per call.
    */
   titleKey: TranslationKey;
-  /** Its glyph, in each platform's own vocabulary — `nativeTabSymbol` (components/symbolName.ts)
-   * owns which key the tab bar asks for each half under. */
-  symbol: PlatformSymbol;
+  /** Its glyph. A symbol is named in each platform's own vocabulary — `nativeTabSymbol`
+   * (components/symbolName.ts) owns which key the tab bar asks for each half under. */
+  glyph: TabGlyph;
 }
 
 /**
@@ -37,16 +47,22 @@ export interface TabRoute {
  * not translated; `titleKey` is what names the string a diver reads, and `src/i18n` holds it.
  */
 export const TAB_ROUTES: readonly TabRoute[] = [
-  // `water.waves` over `list.bullet`: the tab is the logbook, and §0.3 already spends the
-  // app's iconography on water rather than on documents — a list glyph would say "rows",
-  // which is the least interesting true thing about this screen.
-  { name: 'index', titleKey: 'tabs.dives', symbol: { ios: 'water.waves', android: 'waves' } },
+  // **Ponor's mark, in one ink** (issue #2, the owner's design canvas, note 16). It replaced
+  // `water.waves`: the tab is the logbook, and the mark is a dive profile — the same shape a
+  // logged dive draws once it has samples — so the first tab says "Ponor, your dives" rather
+  // than "water". It is never the gradient mark: §0.1 spends colour on depth, so the moment the
+  // mark becomes chrome it is monochrome, tinted by the bar like the three symbols beside it.
+  { name: 'index', titleKey: 'tabs.dives', glyph: { image: require('../../assets/images/tab-mark.png') } },
   // §3's second tab (M2n). It sits between Dives and Settings because that is §3's own order —
   // Dives, Map, Stats, Settings — and M3's Stats tab goes in the gap this leaves rather than on
   // the end. `map`/`map` is the same word in both vocabularies, which is a coincidence of these
   // two libraries and not a rule: `symbolName.test.tsx` pins the Material half like every other
   // glyph, because "they happen to agree today" is exactly the shape that stops being true.
-  { name: 'map', titleKey: 'tabs.map', symbol: { ios: 'map', android: 'map' } },
+  //
+  // **The folded map stays, though the canvas's note 11 says "the map tab is a pin"**: the
+  // canvas's own drawing of the bar is a folded map on every screen that has one, and a pin is
+  // what a single place wears on the map itself — the tab is all of them.
+  { name: 'map', titleKey: 'tabs.map', glyph: { symbol: { ios: 'map', android: 'map' } } },
   // §3's third tab (M3a), in the gap the entry above left for it rather than on the end — §3's
   // order is Dives, Map, Stats, Settings, and a tab appended after Settings would read as
   // correct in every other test in this file.
@@ -57,9 +73,13 @@ export const TAB_ROUTES: readonly TabRoute[] = [
   // field. A bar chart is what a diver's eye already looks for when it wants totals — the
   // vocabulary this tab is competing with is every other dive app's — and a tab glyph is a
   // signpost rather than a promise about what is behind it, with the word "Stats" beside it
-  // saying the rest. It is also still right the day §9's charts arrive.
-  { name: 'stats', titleKey: 'tabs.stats', symbol: { ios: 'chart.bar', android: 'bar_chart' } },
-  { name: 'settings', titleKey: 'tabs.settings', symbol: { ios: 'gearshape', android: 'settings' } },
+  // saying the rest. It is also still right the day §9's charts arrive. **Filled since issue
+  // #2**, as the canvas draws it; Material's `bar_chart` already was.
+  { name: 'stats', titleKey: 'tabs.stats', glyph: { symbol: { ios: 'chart.bar.fill', android: 'bar_chart' } } },
+  // **Sliders, not a gear** (issue #2, the canvas's note 11): Settings here is units, language
+  // and presets — values a diver sets — not machinery. iOS's three-slider symbol stands in for
+  // the canvas's two-slider drawing; Material's `tune` is the same idea.
+  { name: 'settings', titleKey: 'tabs.settings', glyph: { symbol: { ios: 'slider.horizontal.3', android: 'tune' } } },
 ];
 
 /**
@@ -120,25 +140,39 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * object: two Czech labels beside two English ones is a bar that looks broken, where four
  * Czech labels over two not-yet-translated screens looks like work in progress.
  */
+/**
+ * What `NativeTabs.Trigger.Icon` is handed: a symbol under the native bar's `sf`/`md` keys, or
+ * an image under `src`. `renderingMode: 'template'` is stated rather than left to the default,
+ * which is `template` only while the bar has an icon colour configured — and a template is what
+ * makes the bar repaint the mark in its own ink instead of drawing the PNG's white.
+ */
+export type NativeTabIcon =
+  | ReturnType<typeof nativeTabSymbol>
+  | { src: ImageSourcePropType; renderingMode: 'template' };
+
+/** What the browser's bar hands `TabBarGlyph` (components/TabBarGlyph.tsx): `name` is
+ * exactly `SymbolView`'s `name` prop, already carrying its `web` key. */
+export type JsTabIcon = { name: ReturnType<typeof symbolName> } | { image: ImageSourcePropType };
+
 export interface NativeTabItem {
   name: string;
   title: string;
-  icon: ReturnType<typeof nativeTabSymbol>;
+  icon: NativeTabIcon;
 }
 
 export interface JsTabItem {
   name: string;
   title: string;
-  icon: ReturnType<typeof symbolName>;
+  icon: JsTabIcon;
 }
 
 /** The glyphs, resolved once — the half of each item that cannot change while the app runs. */
-const NATIVE_TAB_ICONS: readonly ReturnType<typeof nativeTabSymbol>[] = TAB_ROUTES.map((route) =>
-  nativeTabSymbol(route.symbol),
+const NATIVE_TAB_ICONS: readonly NativeTabIcon[] = TAB_ROUTES.map(({ glyph }) =>
+  'image' in glyph ? { src: glyph.image, renderingMode: 'template' } : nativeTabSymbol(glyph.symbol),
 );
 
-const JS_TAB_ICONS: readonly ReturnType<typeof symbolName>[] = TAB_ROUTES.map((route) =>
-  symbolName(route.symbol),
+const JS_TAB_ICONS: readonly JsTabIcon[] = TAB_ROUTES.map(({ glyph }) =>
+  'image' in glyph ? { image: glyph.image } : { name: symbolName(glyph.symbol) },
 );
 
 /** What `(tabs)/_layout.tsx` maps over. */

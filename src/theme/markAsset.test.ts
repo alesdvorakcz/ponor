@@ -101,3 +101,42 @@ describe('the mark the first-run screen draws', () => {
     expect(Math.abs((mark.height as number) - proportional)).toBeLessThan(1);
   });
 });
+
+// **The Dives tab's glyph** (issue #2): the mark as the design canvas redraws it for a tab bar,
+// `assets/images/tab-mark{,@2x,@3x}.png`. It reaches the screen the way the first-run mark does
+// — tinted, every opaque pixel repainted in the bar's own ink — so it carries the same claim:
+// one colour over a transparent ground. It is a sprite rather than a source (UIKit draws a tab
+// image at the image's own size), so the three scales must also be one drawing at 1×, 2× and
+// 3×: a stale @3x left behind by a resize would put a different-sized mark on every phone that
+// reads it, and nothing else would notice.
+const TAB_MARK = ['tab-mark.png', 'tab-mark@2x.png', 'tab-mark@3x.png'].map((file) =>
+  path.join(__dirname, '..', '..', 'assets', 'images', file),
+);
+
+describe('the mark the Dives tab draws', () => {
+  it.each(TAB_MARK)('%s carries exactly one colour, over a transparent ground', async (file) => {
+    const { data, info } = await sharp(file).raw().toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(4);
+    const inks = new Set<string>();
+    let visible = 0;
+    for (let i = 0; i < data.length; i += info.channels) {
+      if (data[i + 3] === 0) continue;
+      visible += 1;
+      inks.add([data[i], data[i + 1], data[i + 2]].join(','));
+    }
+    // Drawn at all: a fifth of the 28 pt square at 1× is about 150 pixels of ink.
+    expect(visible).toBeGreaterThan(100);
+    expect([...inks]).toEqual(['255,255,255']);
+  });
+
+  it('is one square drawing at 1×, 2× and 3×', async () => {
+    const sizes = await Promise.all(TAB_MARK.map(async (file) => sharp(file).metadata()));
+    const base = sizes[0];
+    if (!base) throw new Error('no 1× tab mark');
+    expect(base.width).toBe(base.height);
+    sizes.forEach((size, index) => {
+      expect(size.width).toBe(base.width * (index + 1));
+      expect(size.height).toBe(base.height * (index + 1));
+    });
+  });
+});
