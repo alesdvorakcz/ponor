@@ -371,6 +371,23 @@ describe('keeping the first dive’s button above the fold', () => {
     expect(scrollNode(t)).not.toBe(before);
   });
 
+  // Review round 3: the Dives tab stays mounted under /account, so a guest who trimmed, then
+  // signed in to an account with no dives, came back to the same EmptyState — offer gone, button
+  // pinned, and the reasons and the mark still hidden for no layout reason. And on sign-out the
+  // offer came back carrying that stale level.
+  it('teaches in full again when the offer goes, and starts afresh when it comes back', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    await layout(actionIn(t).parent!, { y: 620 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+
+    await t.rerender(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+
+    await t.rerender(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
   it('trims nothing without the offer, where the button is pinned and never below the fold', async () => {
     const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
     await layout(scrollNode(t), { height: 300 });

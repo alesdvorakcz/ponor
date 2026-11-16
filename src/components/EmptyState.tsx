@@ -180,7 +180,10 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
   // starts where the teaching block ends whatever the viewport's height.
   const [footerAt, setFooterAt] = useState<{ y: number; level: TeachingLevel; fontScale: number } | null>(null);
   const [level, setLevel] = useState<TeachingLevel>(0);
-  const fitKey = `${viewport ?? '-'}|${fontScale}`;
+  // The offer is part of the key (review round 3): the Dives tab stays mounted under /account, so
+  // a guest who trimmed and then signed in comes back to this same component with no offer — and
+  // on sign-out the offer comes back. Either way the level starts again from full.
+  const fitKey = `${offered}|${viewport ?? '-'}|${fontScale}`;
   const [fittedFor, setFittedFor] = useState(fitKey);
   if (fittedFor !== fitKey) {
     // React's own pattern for state derived from a changed input: reset during render, so no
@@ -199,8 +202,9 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
   // Stepped down during render, like the reset above: the measurement that asked for it was taken
   // at the old level, so it stops counting the moment the level moves and cannot step it twice.
   if (buttonHidden && level < LAST_LEVEL) setLevel((level + 1) as TeachingLevel);
-  const showReasons = level < 1;
-  const showMark = level < 2;
+  // Without the offer nothing is ever hidden, whatever the level says: the button is pinned there.
+  const showReasons = !offered || level < 1;
+  const showMark = !offered || level < 2;
   // Measured only with the offer; without it nothing here is ever read.
   const onViewport = offered ? (e: LayoutChangeEvent) => setViewport(e.nativeEvent.layout.height) : undefined;
   const onButton = offered ? (e: LayoutChangeEvent) => setButtonHeight(e.nativeEvent.layout.height) : undefined;
@@ -278,21 +282,21 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
             fold (see `level` above); the bars above still say that colour is depth. */}
         {showReasons && (
           <>
-          <Text style={styles.emptyStateReason}>
-            {t('empty.reasonColour')}
-            {METADATA_SEPARATOR}
-            {t('empty.reasonNothingElse')}
-          </Text>
-          {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
-              so this sentence can never contradict the bars directly above it — see the
-              docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
-              way a dive's depth is. */}
-          <Text style={styles.emptyStateReason}>
-            {t('empty.reasonLight', {
-              shallow: formatDepthBoundary(shallowestBandEndM, system),
-              deep: formatDepthBoundary(deepestBandStartM, system),
-            })}
-          </Text>
+            <Text style={styles.emptyStateReason}>
+              {t('empty.reasonColour')}
+              {METADATA_SEPARATOR}
+              {t('empty.reasonNothingElse')}
+            </Text>
+            {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
+                so this sentence can never contradict the bars directly above it — see the
+                docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
+                way a dive's depth is. */}
+            <Text style={styles.emptyStateReason}>
+              {t('empty.reasonLight', {
+                shallow: formatDepthBoundary(shallowestBandEndM, system),
+                deep: formatDepthBoundary(deepestBandStartM, system),
+              })}
+            </Text>
           </>
         )}
         {offered && footer}
