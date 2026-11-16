@@ -1366,7 +1366,11 @@ function findLocationRow(t: RenderResult) {
  * exactly the failure worth catching. Distinct literals cannot be.
  */
 const LOCATION_LINES: [LocationPermissionState, string, string][] = [
-  ['granted', 'Allowed', 'Ponor can pin a dive where you are. Open the device’s Settings to change that.'],
+  [
+    'granted',
+    'Allowed',
+    'Ponor can pin a dive or a new place where you are, and list places near you. Open the device’s Settings to change that.',
+  ],
   [
     'denied',
     'Not allowed',
@@ -1375,7 +1379,7 @@ const LOCATION_LINES: [LocationPermissionState, string, string][] = [
   [
     'undetermined',
     'Not asked yet',
-    'Nobody has been asked yet — Ponor asks the first time you use it on a dive.',
+    'Nobody has been asked yet — Ponor asks the first time you pin a dive or a new place, or tap Near me.',
   ],
   [
     'servicesOff',
@@ -1451,7 +1455,9 @@ it('re-reads the permission when the diver comes back from Settings', async () =
   await returnToForeground();
 
   expect(locationStatus(t)).toBe('Allowed');
-  expect(textIn(t)).toContain('Ponor can pin a dive where you are. Open the device’s Settings to change that.');
+  expect(textIn(t)).toContain(
+    'Ponor can pin a dive or a new place where you are, and list places near you. Open the device’s Settings to change that.',
+  );
   // Twice: once on arrival, once on the return. Whether a given `AppState` event counts as a
   // return is `hooks/useForegroundReturn.ts`'s rule and is tested there rather than restated
   // here.

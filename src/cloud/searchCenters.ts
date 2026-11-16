@@ -1,5 +1,6 @@
 import { type PulledCenter } from '../db/catalogue';
 import { diveCenters } from '../db/schema';
+import { type MapPoint } from '../domain/mapSites';
 import { searchCatalogue } from './searchCatalogue';
 import { type Cloud } from './supabase';
 
@@ -29,4 +30,17 @@ export const SEARCH_CENTERS_RPC = 'search_centers';
  */
 export async function searchCenters(cloud: Cloud, query: string): Promise<PulledCenter[]> {
   return (await searchCatalogue(cloud, SEARCH_CENTERS_RPC, diveCenters, query)) as PulledCenter[];
+}
+
+/**
+ * Asks the server for the centres within `radiusM` metres of `point`, with no name — the site
+ * picker's *Near me* list, which has a fix and no query. Same rows, same contract as
+ * `searchCenters`: empty whenever the call could not be made or believed.
+ */
+export async function searchCentersNear(
+  cloud: Cloud,
+  point: MapPoint,
+  radiusM: number,
+): Promise<PulledCenter[]> {
+  return (await searchCatalogue(cloud, SEARCH_CENTERS_RPC, diveCenters, '', { point, radiusM })) as PulledCenter[];
 }

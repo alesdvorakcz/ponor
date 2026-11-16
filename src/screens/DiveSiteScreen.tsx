@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,10 +26,11 @@ import {
 } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToSites } from '../navigation/leaveScreen';
+import { completePlacePick, firstParam, placePickRequest } from '../navigation/placePick';
 import { showOnMap } from '../platform/showOnMap';
 import { type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
-import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
+import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
 
 /**
  * **One dive site's own page** (`/site/[id]`, M3f) — the screen `dive_sites` never had, and the
@@ -82,6 +84,16 @@ import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../t
  * `site_id`, and by the time the merge is on the device that id is the survivor's. What is left is
  * a stale deep link and a device that has been told about the merge but not yet given the
  * survivor — and for both of those, "not found" is true.
+ *
+ * ── Opened from a near-match, it can be picked ─────────────────────────────────────────────
+ *
+ * *New dive site* lists §2.3's near-matches above Save, and a tap opens the match here with the
+ * dive form's pick token as `pick` (owner's call on PR #35: a diver checks that it really is the
+ * same place before using it). Then, and only while the registry still holds that request, the
+ * page carries **Use this site** — the inverted primary button, in the form's footer — which hands
+ * the site to the form through `completePlacePick` and closes this page, the create page and the
+ * picker. `‹ Back` returns to the create page as it was left. Either one is the way off, once: the
+ * pick's dismiss and a `‹ Back` landing during it would otherwise pop the dive form too.
  */
 
 /** What this page calls the site it is showing — its name, or `unnamedSite`.
@@ -141,11 +153,11 @@ const SITE_DEFAULT_ROWS: Record<
  * make. M3c recorded the same thing about the centre page and read it as a precedent rather than
  * as a defect (*"consistent rather than new"*), which is how it reached a second page.
  */
-function BackButton({ styles }: { styles: Styles }) {
+function BackButton({ styles, onPress = backToSites }: { styles: Styles; onPress?: () => void }) {
   return (
     <Pressable
       style={styles.detailBack}
-      onPress={backToSites}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={t('back.anyLabel')}
     >
@@ -182,9 +194,21 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
   const styles = makeStyles(scheme);
   const units = useUnitSystem();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const params = useLocalSearchParams<{ id?: string | string[]; pick?: string | string[] }>();
   const routeId = Array.isArray(params.id) ? params.id[0] : params.id;
   const id = idProp ?? routeId;
+  // Opened from a near-match on *New dive site*: the form's token, and whether its request is still
+  // there to answer — read once, as the picker and the create page read theirs.
+  const pickToken = firstParam(params.pick);
+  const [picking] = useState(() => pickToken !== undefined && placePickRequest(pickToken) !== null);
+  const leaving = useRef(false);
+  const once = (go: () => void) => {
+    if (leaving.current) return;
+    leaving.current = true;
+    go();
+  };
+  // Only while picking is `‹ Back` claimed with *Use this site*; otherwise it is the page's own.
+  const back = picking ? () => once(backToSites) : backToSites;
 
   const catalogue = useDiveSites();
   const { dives, numbers, resolved: logbookResolved, error: logbookError } = useDives();
@@ -198,7 +222,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
   if (site === undefined) {
     return (
       <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-        <BackButton styles={styles} />
+        <BackButton styles={styles} onPress={back} />
         <View style={styles.centerFill}>
           {/* Three states, one branch each. A failed read must never read as "not found", and a
               read that has not answered says nothing at all — the frame is drawn, and the sentence
@@ -257,9 +281,14 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
     </View>
   );
 
+  const pickThisSite = () =>
+    once(() => {
+      if (pickToken !== undefined) completePlacePick(pickToken, { id: site.id, name: site.name ?? '' }, 3);
+    });
+
   return (
     <View style={[styles.screen, { paddingTop: screenTopInset(insets.top) }]}>
-      <BackButton styles={styles} />
+      <BackButton styles={styles} onPress={back} />
       <FlatList
         style={styles.siteScroll}
         data={myDives}
@@ -278,8 +307,21 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
         // The device's own clearance rather than a constant (`screenBottomInset`, theme/styles.ts):
         // this screen is pushed OVER the tab bar, so its list runs to the bottom of the display and
         // the last dive would otherwise scroll under the Liquid Glass.
-        contentContainerStyle={[styles.siteContent, { paddingBottom: screenBottomInset(insets.bottom) }]}
+        // While picking, the footer below clears the home indicator instead.
+        contentContainerStyle={[styles.siteContent, { paddingBottom: picking ? 24 : screenBottomInset(insets.bottom) }]}
       />
+      {picking && (
+        <View style={[styles.formFooter, { paddingBottom: liftedBottomInset(insets.bottom, 24, false) }]}>
+          <Pressable
+            style={styles.action}
+            onPress={pickThisSite}
+            accessibilityRole="button"
+            accessibilityLabel={t('site.useThisSite')}
+          >
+            <Text style={styles.actionLabel}>{t('site.useThisSite')}</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }

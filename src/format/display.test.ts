@@ -13,6 +13,11 @@ import {
   formatSuggestionFigure,
   formatSuggestionMeta,
   formatSuggestionsTitle,
+  formatCreatePlaceMeta,
+  formatDistance,
+  formatPickerFigure,
+  formatPickerGroupTitle,
+  formatPickerMeta,
   certificationLabel,
   formatCertificationSummary,
   untitledCertification,
@@ -83,6 +88,7 @@ import {
 } from './display';
 import { UNIT_SYSTEMS } from './units';
 import { setActiveLanguage } from '../i18n';
+import { type PickerRow } from '../domain/placePicker';
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
@@ -1858,7 +1864,8 @@ describe('a suggestion row', () => {
   });
 
   // A site's trailing figure is its deepest dive, in the diver's own units. Nothing trails a
-  // centre or a person: the canvas draws none, and no figure is true of a buddy.
+  // centre (its heading already says what the canvas's `used` would) or a person, of whom no
+  // figure is true.
   it('trails a site with its deepest dive in the diver’s units, and nothing else with anything', () => {
     expect(formatSuggestionFigure(visited, 'siteName', 'metric')).toBe(formatDepth(34.6, 'metric'));
     expect(formatSuggestionFigure(visited, 'siteName', 'imperial')).toBe(formatDepth(34.6, 'imperial'));
@@ -1866,11 +1873,133 @@ describe('a suggestion row', () => {
     expect(formatSuggestionFigure({ ...visited, deepestM: null }, 'siteName', 'metric')).toBeNull();
   });
 
-  // The cluster label over the diver's own history: "YOUR SITES · 3" once the style uppercases it.
+  // The cluster label over the diver's own history: "YOUR BUDDIES · 2" once the style uppercases it.
   it('heads the list with what kind of thing it is and how many are offered', () => {
-    expect(formatSuggestionsTitle('siteName', 3)).toBe('Your sites · 3');
-    expect(formatSuggestionsTitle('centerName', 1)).toBe('Your centres · 1');
     expect(formatSuggestionsTitle('buddy', 2)).toBe('Your buddies · 2');
     expect(formatSuggestionsTitle('guide', 2)).toBe('Your guides · 2');
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// The site and centre picker's words (issue #19)
+// ---------------------------------------------------------------------------------------
+
+describe('the place picker', () => {
+  const row = (over: Partial<PickerRow> = {}): PickerRow => ({
+    id: 'r',
+    name: 'Vis',
+    country: null,
+    provenance: 'community',
+    dived: null,
+    distanceKm: null,
+    selected: false,
+    ...over,
+  });
+  const visited = { dives: 4, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 };
+  const wording = { siteName: 'Vrak Teti', nearRadiusKm: 50, system: 'metric' as const };
+
+  // A distance on a list sorted by it: a tenth while a tenth is a real difference, whole once it
+  // is not — `7.6 km`, `13 km` — and the same in miles.
+  it('reads a distance to a tenth under ten and whole from ten, in the diver’s units', () => {
+    expect(formatDistance(7.62, 'metric')).toBe('7.6 km');
+    expect(formatDistance(13.2, 'metric')).toBe('13 km');
+    expect(formatDistance(1, 'metric')).toBe('1.0 km');
+    // Rounds before it decides, so 9.96 is not drawn as `10.0 km`.
+    expect(formatDistance(9.96, 'metric')).toBe('10 km');
+    expect(formatDistance(7.6, 'imperial')).toBe('4.7 mi');
+    expect(formatDistance(50, 'imperial')).toBe('31 mi');
+    expect(formatDistance(1, 'imperial')).toBe('0.6 mi');
+    expect(formatDistance(0.95, 'imperial')).toBe('0.6 mi');
+    expect(formatDistance(9.96, 'imperial')).toBe('6.2 mi');
+  });
+
+  // A diver standing at the site read `0.0 km` — a distance that says "nowhere". Under a kilometre
+  // (half a mile) the figure is metres (feet) to the nearest ten, and never less than ten: the
+  // fix is not good to a metre, and `0 m` would be the same false claim in a smaller unit.
+  it('reads a short distance in metres or feet, to the nearest ten and never under ten', () => {
+    expect(formatDistance(0.004, 'metric')).toBe('10 m');
+    expect(formatDistance(0, 'metric')).toBe('10 m');
+    expect(formatDistance(0.04, 'metric')).toBe('40 m');
+    expect(formatDistance(0.95, 'metric')).toBe('950 m');
+    // Decided on the rounded figure, so 996 m is not drawn as `1000 m`.
+    expect(formatDistance(0.996, 'metric')).toBe('1.0 km');
+    expect(formatDistance(0.004, 'imperial')).toBe('10 ft');
+    expect(formatDistance(0.04, 'imperial')).toBe('130 ft');
+    expect(formatDistance(0.8, 'imperial')).toBe('2620 ft');
+    // Half a mile exactly is 2640 ft, which reads as the mile figure it rounds to.
+    expect(formatDistance(0.5 * 1.609344, 'imperial')).toBe('0.5 mi');
+  });
+
+  it('writes a decimal comma in Czech, and the short figures the same', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatDistance(7.62, 'metric')).toBe('7,6 km');
+      expect(formatDistance(0.04, 'metric')).toBe('40 m');
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+
+  it('heads each group, and counts it while something is typed', () => {
+    expect(formatPickerGroupTitle('dived', 'site', null, wording)).toBe('Dived here');
+    expect(formatPickerGroupTitle('dived', 'site', 2, wording)).toBe('Dived here · 2');
+    expect(formatPickerGroupTitle('dived', 'center', null, wording)).toBe('Dived with');
+    expect(formatPickerGroupTitle('other', 'site', 3, wording)).toBe('Other sites · 3');
+    expect(formatPickerGroupTitle('other', 'center', 1, wording)).toBe('Other centres · 1');
+    expect(formatPickerGroupTitle('near', 'site', null, wording)).toBe('Near you · within 50 km');
+    expect(formatPickerGroupTitle('near', 'site', null, { ...wording, system: 'imperial' })).toBe(
+      'Near you · within 31 mi',
+    );
+    expect(formatPickerGroupTitle('nearSite', 'center', null, wording)).toBe('Near Vrak Teti');
+  });
+
+  it('says what the diver has done at a dived row, the logbook’s way', () => {
+    expect(formatPickerMeta(row({ dived: visited }), 'dived', 'site', wording)).toBe(
+      `4 dives · last ${formatDiveDate('2026-05-18')}`,
+    );
+    expect(formatPickerMeta(row({ dived: visited }), 'dived', 'center', wording)).toBe(
+      `4 dives · 2 sites · last ${formatDiveDate('2026-05-18')}`,
+    );
+  });
+
+  it('says where any other row came from, in words, and its country when it has one', () => {
+    expect(formatPickerMeta(row({ country: 'HR' }), 'other', 'site', wording)).toBe('community · HR');
+    expect(formatPickerMeta(row({ provenance: 'yours', country: 'HR' }), 'other', 'site', wording)).toBe(
+      'added by you · HR',
+    );
+    expect(formatPickerMeta(row({ provenance: 'yours' }), 'other', 'site', wording)).toBe('added by you');
+    expect(formatPickerMeta(row({ provenance: 'phoneOnly' }), 'other', 'site', wording)).toBe(
+      'on this phone only · not shared yet',
+    );
+  });
+
+  it('says dived or where it came from near you, and where it came from near a site', () => {
+    expect(formatPickerMeta(row({ dived: visited, distanceKm: 3 }), 'near', 'site', wording)).toBe('dived · 4 dives');
+    expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3 }), 'near', 'site', wording)).toBe(
+      'added by you',
+    );
+    // The distance trails the row and the heading names the site, so the line says neither again.
+    expect(formatPickerMeta(row({ distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe('community');
+    expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe(
+      'added by you',
+    );
+  });
+
+  // Deepest in the diver's units for a dived site, nothing for a centre (its heading says it),
+  // a distance on either near list, and nothing on a row that is only a match.
+  it('trails a dived site with its deepest dive and a near row with its distance', () => {
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'site', 'metric')).toBe('34.6 m');
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'site', 'imperial')).toBe('114 ft');
+    expect(formatPickerFigure(row({ dived: visited }), 'dived', 'center', 'metric')).toBeNull();
+    expect(formatPickerFigure(row({ dived: visited, distanceKm: 12.4 }), 'near', 'site', 'metric')).toBe('12 km');
+    expect(formatPickerFigure(row({ distanceKm: 3.36 }), 'nearSite', 'center', 'metric')).toBe('3.4 km');
+    expect(formatPickerFigure(row({ country: 'HR' }), 'other', 'site', 'metric')).toBeNull();
+  });
+
+  it('words the create row for a diver and for a guest', () => {
+    expect(formatCreatePlaceMeta('site', true)).toBe('new site · details next');
+    expect(formatCreatePlaceMeta('center', true)).toBe('new centre · details next');
+    expect(formatCreatePlaceMeta('site', false)).toBe('new site · kept on this phone until you sign in');
+    expect(formatCreatePlaceMeta('center', false)).toBe('new centre · kept on this phone until you sign in');
   });
 });

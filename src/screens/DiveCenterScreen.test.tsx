@@ -155,7 +155,8 @@ it("passes each dive its own series from useDiveSampleShapes() through to its ro
 // --- The centre with only a name, which is the common case by design (§2.3) ----------------
 
 /**
- * **The guard this whole screen turns on.** A centre that is a name and nine nulls has no
+ * **The guard this whole screen turns on.** A centre that is a name and nulls — still the common
+ * one, since the create page's position and website are optional (issue #19) — has no
  * catalogue facts to draw, so the page is worth opening only because of the half the catalogue
  * does not hold — the diver's own dives with them, which nothing else in the app lists.
  *
@@ -431,8 +432,9 @@ describe('in Czech', () => {
 
 // --- Show on map (issue #21) -------------------------------------------------------------------
 //
-// The dive detail's card, on a centre's page as the design canvas draws it. §2.3 gives a centre
-// this app creates its name alone, so the card appears only for a centre a catalogue surveyed.
+// The dive detail's card, on a centre's page as the design canvas draws it. §2.3 gives a centre no
+// position of its own, so the card appears only for one somebody placed — a catalogue that
+// surveyed it, or a diver pressing *Use current position* on the create page (issue #19).
 
 it('offers the centre on the map, with its position under the words', async () => {
   mockUseDiveCenters.mockReturnValue(catalogueState([centre({ latitude: 43.0611, longitude: 16.1834 })]));

@@ -12,6 +12,8 @@ import type {
   Weather,
   WeightsFeel,
 } from '../domain/types';
+import type { Provenance } from '../domain/placePicker';
+import type { InlineSuggestedField } from '../domain/suggest';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -336,13 +338,15 @@ export const cs = {
        * dive". The brand steps aside in the one sentence where it collides with its own
        * subject. And `Nastavení systému` rather than bare `Nastavení`, for the reason the
        * English twin records — this sentence sits on a screen called *Nastavení*. */
-      locationGrantedNote: 'Aplikace může připnout ponor tam, kde jste. Změníte to v Nastavení systému.',
+      locationGrantedNote:
+        'Aplikace může připnout ponor nebo nové místo tam, kde jste, a ukázat místa ve vašem okolí. Změníte to v Nastavení systému.',
       locationDenied: 'Nepovoleno',
       locationDeniedNote:
         'Ponor nesmí používat vaši polohu. iOS se zeptá jednou a nikdy víc, takže Nastavení je jediné místo, kde to jde změnit.',
       locationUndetermined: 'Zatím nedotázáno',
+      /** `aplikace`, for `locationGrantedNote`'s reason: the sentence now says *připnete ponor*. */
       locationUndeterminedNote:
-        'Nikdo se zatím neptal — Ponor se zeptá, až to poprvé použijete u ponoru.',
+        'Nikdo se zatím neptal — aplikace se zeptá, až poprvé připnete ponor nebo nové místo, nebo klepnete na „V okolí“.',
       locationServicesOff: 'Polohové služby vypnuté',
       locationServicesOffNote:
         'Polohové služby jsou vypnuté pro celé zařízení, takže na něm nelze nic lokalizovat. Ten přepínač patří zařízení, ne Ponoru.',
@@ -440,11 +444,9 @@ export const cs = {
     },
 
     suggest: {
-      siteName: 'Vaše lokality',
-      centerName: 'Vaše centra',
       buddy: 'Vaši buddy',
       guide: 'Vaši průvodci',
-    },
+    } satisfies Record<InlineSuggestedField, string>,
 
     /**
      * **A field name interpolated into a sentence stays in the nominative**, and that is a
@@ -603,16 +605,12 @@ export const cs = {
       ratingLevel: '{{label}}: {{level}} z {{max}}',
       saveFailed: 'Tento ponor se nepodařilo uložit. Zkuste to znovu.',
       missingDive: 'Ten ponor se nepodařilo najít — možná byl smazán.',
-      addSite: 'Přidat „{{name}}“ jako novou lokalitu',
-      addCentre: 'Přidat „{{name}}“ jako nové potápěčské centrum',
-      addingSite: 'Přidávám lokalitu…',
-      addingCentre: 'Přidávám centrum…',
-      addFailed: 'Teď se to nepodařilo přidat — ponor si název ponechá.',
-      /** *i tak* goes at the END in Czech, where English's *anyway* also does — so the offer
-       * can still be interpolated whole rather than written out a second time per table. */
-      addAnyway: '{{offer}} i tak',
+      /** The infinitive, as *Použít moji polohu* on the GPS row: what pressing the row does. The
+       * page it opens is titled in the imperative (`picker.titleSite`). */
+      chooseSite: 'Vybrat lokalitu',
+      chooseCentre: 'Vybrat centrum',
+      onThisPhoneOnly: 'jen v tomto telefonu',
       didYouMean: 'Nemysleli jste „{{name}}“?',
-      lookingForMatch: 'Hledám shodu…',
       dateInvalid: 'Zadejte skutečné datum (RRRR-MM-DD).',
       unknownOption:
         'Tato hodnota pochází z novější verze Ponoru. Ukládá se tak, jak je — nahradíte ji výběrem některé z možností.',
@@ -694,13 +692,13 @@ export const cs = {
       noSitesMember:
         'Zatím tu nejsou žádné komunitní lokality. Lokality přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
       noSitePositions_one:
-        'Vaše jediná komunitní lokalita zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Jediná potápěčská lokalita v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_few:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_many:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noSitePositions_other:
-        'Žádná z vašich {{count, figure}} komunitních lokalit zatím nemá polohu. Lokalita přebírá bod ponoru, který ji vytvořil, takže než nějakou přidáte, klepněte na „Použít moji polohu“.',
+        'Žádná z {{count, figure}} potápěčských lokalit v tomto telefonu zatím nemá polohu. Nová přebírá bod ponoru („Použít moji polohu“), nebo při vytváření klepněte na „Použít aktuální polohu“.',
       noCentresGuest: 'Zatím tu nejsou žádná potápěčská centra. Přijdou s účtem, při první synchronizaci.',
       noCentresMember:
         'Zatím tu nejsou žádná potápěčská centra. Centra přibývají, jak je potápěči přidávají, a další synchronizace je stáhne.',
@@ -733,10 +731,11 @@ export const cs = {
       searchPlaceholder: 'Hledat lokality',
       close: 'Zavřít lokality',
       noneGuest:
-        'Zatím žádné potápěčské lokality. Přijdou s účtem — při první synchronizaci a když nějakou přidáte u ponoru.',
+        'Zatím žádné potápěčské lokality. Novou vytvoříte u ponoru: klepněte na „Lokalita“ a napište název. Zůstane v tomto telefonu, dokud se nepřihlásíte.',
       noneMember:
-        'Zatím žádné potápěčské lokality. Pojmenujte lokalitu u ponoru a klepněte na „Přidat“; další synchronizace stáhne ty komunitní.',
+        'Zatím žádné potápěčské lokality. U ponoru klepněte na „Lokalita“ a napište název — lokalitu najdete, nebo vytvoříte novou. Další synchronizace stáhne ty komunitní.',
       noMatches: 'Hledání neodpovídá žádná lokalita.',
+      useThisSite: 'Použít tuto lokalitu',
     },
 
     centre: {
@@ -746,15 +745,81 @@ export const cs = {
       searchPlaceholder: 'Hledat centra',
       close: 'Zavřít centra',
       noneGuest:
-        'Zatím žádná potápěčská centra. Přijdou s účtem — při první synchronizaci a když nějaké přidáte u ponoru.',
+        'Zatím žádná potápěčská centra. Nové vytvoříte u ponoru: klepněte na „Centrum“ a napište název. Zůstane v tomto telefonu, dokud se nepřihlásíte.',
       noneMember:
-        'Zatím žádná potápěčská centra. Pojmenujte centrum u ponoru a klepněte na „Přidat“; další synchronizace stáhne ta komunitní.',
+        'Zatím žádná potápěčská centra. U ponoru klepněte na „Centrum“ a napište název — centrum najdete, nebo vytvoříte nové. Další synchronizace stáhne ta komunitní.',
       noMatches: 'Hledání neodpovídá žádné centrum.',
     },
 
     search: {
       close: 'Zavřít hledání',
       prompt: 'Hledejte ve svých ponorech podle lokality, centra, buddyho nebo poznámek.',
+    },
+
+    /** **Every place name is interpolated in the nominative**, so the two headings that name one
+     * hang it off a noun instead of a preposition: *U lokality Vrak Teti*, *3,4 km od lokality
+     * Vrak Teti* — *poblíž* would want a genitive no template can give a name. *Přidáno vámi* is
+     * passive for the same reason one sentence serves a lokalita and a centrum. */
+    picker: {
+      titleSite: 'Vyberte lokalitu',
+      titleCenter: 'Vyberte centrum',
+      leave: 'Odejít bez výběru',
+      selected: 'Vybráno:',
+      searchSites: 'Hledat lokality',
+      searchCenters: 'Hledat centra',
+      clearSearch: 'Vymazat hledání',
+      nearMe: 'V okolí',
+      locating: 'Zjišťuji polohu…',
+      divedHere: 'Potápěli jste se tu',
+      divedWith: 'Potápěli jste se s nimi',
+      otherSites: 'Další lokality',
+      otherCenters: 'Další centra',
+      nearYou: 'Ve vašem okolí · do {{distance}}',
+      nearSite: 'U lokality {{name}}',
+      or: 'Nebo',
+      noCenter: 'Bez centra',
+      noCenterMeta: 'potápěli jste se bez něj',
+      create: 'Vytvořit „{{name}}“',
+      createSite: 'nová lokalita · podrobnosti v dalším kroku',
+      createCenter: 'nové centrum · podrobnosti v dalším kroku',
+      createSiteGuest: 'nová lokalita · zůstane v tomto telefonu, dokud se nepřihlásíte',
+      createCenterGuest: 'nové centrum · zůstane v tomto telefonu, dokud se nepřihlásíte',
+      provenance: {
+        community: 'komunitní',
+        yours: 'přidáno vámi',
+        phoneOnly: 'jen v tomto telefonu · zatím nesdíleno',
+      } satisfies Record<Provenance, string>,
+      dived: 'navštíveno',
+      nothingNearMatches: 'V okruhu {{distance}} nic neodpovídá „{{query}}“.',
+      nothingNear: 'V okruhu {{distance}} nic není.',
+      lookingNear: 'Hledám místa v okruhu {{distance}}…',
+      /** *Novou* / *nové*: the adjective agrees with the noun it leaves out — lokalita is feminine,
+       * centrum neuter — which is why the two are whole sentences rather than one with a noun in it. */
+      promptSite: 'Napište název a najděte lokalitu, nebo vytvořte novou.',
+      promptCenter: 'Napište název a najděte centrum, nebo vytvořte nové.',
+      locationDenied: 'Poloha je pro Ponor vypnutá. Zapněte ji v Nastavení zařízení.',
+      locationServicesOff: 'Polohové služby jsou pro toto zařízení vypnuté.',
+      locationFailed: 'Nepodařilo se zjistit, kde jste. Zkuste to znovu.',
+    },
+
+    newPlace: {
+      titleSite: 'Nová potápěčská lokalita',
+      titleCenter: 'Nové potápěčské centrum',
+      required: 'povinný je jen název',
+      guestNote: 'Zůstane v tomto telefonu. Do komunitní mapy se dostane, až se přihlásíte.',
+      name: 'Název',
+      position: 'Poloha',
+      useCurrentPosition: 'Použít aktuální polohu',
+      asksThePhone: 'zeptá se telefonu, kde jste',
+      fromThisDive: 'z tohoto ponoru',
+      optional: 'nepovinné',
+      saveSite: 'Uložit lokalitu',
+      saveCenter: 'Uložit centrum',
+      saveAnyway: 'Přesto uložit jako novou lokalitu',
+      saving: 'Ukládám…',
+      saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
+      sameName: 'Lokalita „{{name}}“ už existuje.',
+      away: '{{distance}} odtud',
     },
 
     account: {

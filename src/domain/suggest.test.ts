@@ -1,8 +1,9 @@
 import { dive } from './diveFixture';
 import {
-  hasPairedId,
+  asInlineSuggestedField,
   nearMatches,
   SUGGESTED_FIELDS,
+  historyOf,
   SUGGESTION_LIMIT,
   suggestFrom,
   suggestionHistory,
@@ -38,6 +39,15 @@ it('covers exactly the four fields, and not the prose ones', () => {
   expect([...SUGGESTED_FIELDS]).toHaveLength(4);
   expect([...SUGGESTED_FIELDS]).not.toContain('title');
   expect([...SUGGESTED_FIELDS]).not.toContain('notes');
+});
+
+// Of the four, only the two with no id column keep a list under their own row: site and centre
+// pair with a catalogue row and are chosen on a page of their own (issue #19). A prose field, or
+// any other name, is not suggested at all.
+it('suggests inline exactly the fields that pair with no catalogue row', () => {
+  expect(SUGGESTED_FIELDS.map(asInlineSuggestedField)).toEqual([null, null, 'buddy', 'guide']);
+  expect(asInlineSuggestedField('title')).toBeNull();
+  expect(asInlineSuggestedField('siteId')).toBeNull();
 });
 
 // --- Ranking, tier by tier ---
@@ -336,101 +346,6 @@ it('refuses an id that is not a string at all', () => {
   expect(suggestFrom(dives, 'siteName', 'sil')).toEqual([{ value: 'Silfra', id: null }]);
 });
 
-// --- `hasPairedId`: the duplicate guard M2o's *add to the catalogue* offer is gated on ---
-//
-// The question is deliberately not `suggestFrom`'s — see that function's own note on why the
-// two walk the same column and must not be merged.
-
-it('says a name the diver has dived with a paired id is already a catalogue row', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: 'site-silfra' })];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(true);
-});
-
-// The case §5 exists for, and the state of every dive logged before M2o: the diver has used
-// this name for years and it names no community row at all. Offering to add it is the whole
-// point, so this must NOT report it as already catalogued.
-it('says a name the diver has dived with no id is not one', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra' })];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(false);
-});
-
-// Folded on both sides, exactly as matching is everywhere else (§2.3, M2j) — otherwise a
-// diver typing `zelezna` would be offered a second row for the `Železná` they already dive.
-it('folds accents and case on both sides, so one place is one place', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Železná', siteId: 'site-zel' })];
-  expect(hasPairedId(dives, 'siteName', 'zelezna')).toBe(true);
-  expect(hasPairedId(dives, 'siteName', '  ZELEZNÁ  ')).toBe(true);
-});
-
-// The stricter reading, and the reason this is not `suggestFrom`'s newest-wins tally: the
-// paired dive is the OLDER one, so an implementation that consulted only the most recent
-// spelling would answer `false` and publish a duplicate of a site this logbook can see.
-it('finds a pairing on any dive, not only on the most recent spelling', () => {
-  const dives = [
-    dive({ date: '2026-08-20', siteName: 'Silfra' }),
-    dive({ date: '2026-08-01', siteName: 'silfra', siteId: 'site-silfra' }),
-  ];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(true);
-});
-
-it('answers for the centre column too, and never crosses columns', () => {
-  const dives = [dive({ date: '2026-08-01', centerName: 'Emperor', centerId: 'centre-emperor' })];
-  expect(hasPairedId(dives, 'centerName', 'Emperor')).toBe(true);
-  expect(hasPairedId(dives, 'siteName', 'Emperor')).toBe(false);
-});
-
-// `buddy` and `guide` have no id column at all (§2.3: "they stay private text, not user
-// accounts"), so nothing about them is ever paired — the same `pairedIdField` answer the
-// offer itself is gated on, arriving from the other side.
-it('pairs nothing for the two fields that have no id column', () => {
-  const dives = [dive({ date: '2026-08-01', buddy: 'Anna', guide: 'Karel' })];
-  expect(hasPairedId(dives, 'buddy', 'Anna')).toBe(false);
-  expect(hasPairedId(dives, 'guide', 'Karel')).toBe(false);
-});
-
-// An empty name is not a site, whatever the logbook holds.
-//
-// **Written against a dive whose own name is whitespace, because the obvious version of this
-// test cannot fail** — checked by deleting the guard, which left a logbook of ordinary names
-// green: `''` folds to `''` and equals no real name anyway. A stored `'   '` beside a real id
-// is the only shape that reaches the line, and it is one a newer client could sync down. This
-// is the same near-miss `suggestFrom`'s own "`null` and whitespace-only stored values are
-// skipped, never coerced" note guards against, arriving from the query's side.
-it.each([[''], ['   ']])('pairs nothing for the empty name %p, whatever the logbook holds', (name) => {
-  const dives = [
-    dive({ date: '2026-08-02', siteName: '   ', siteId: 'site-junk' }),
-    dive({ date: '2026-08-01', siteName: 'Silfra', siteId: 'site-silfra' }),
-  ];
-  expect(hasPairedId(dives, 'siteName', name)).toBe(false);
-});
-
-// Called during render over whatever the database handed back, exactly as `suggestFrom` is.
-it('survives a hole in the list and a column that is not text', () => {
-  const dives = [
-    null,
-    dive({ date: '2026-08-02', siteName: 42 as unknown as string, siteId: 'site-odd' }),
-    dive({ date: '2026-08-01', siteName: 'Silfra', siteId: 'site-silfra' }),
-  ] as unknown as Dive[];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(true);
-});
-
-// The id column is read with the same `typeof` guard `suggestFrom` applies: a column holding
-// a number is not an id, so the name it sits beside is not catalogued.
-it('refuses an id that is not a string, so the name still counts as uncatalogued', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: 42 as unknown as string })];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(false);
-});
-
-// An id stored as `''` counts as stored here, exactly as `suggestFrom` hands it back verbatim
-// two tests above — one module, one reading of what a dive holds. §4.1's owner of "empty means
-// absent" is `diveFormSchema.ts`'s `optionalText` at the write boundary, so this client cannot
-// produce such a row; one arriving from a newer client through sync costs the diver an OFFER
-// to add a site, never a wrong site, which is the direction a duplicate guard should err in.
-it('counts an id stored as an empty string, on the same reading suggestFrom uses', () => {
-  const dives = [dive({ date: '2026-08-01', siteName: 'Silfra', siteId: '' })];
-  expect(hasPairedId(dives, 'siteName', 'Silfra')).toBe(true);
-});
-
 // =========================================================================================
 // `nearMatches` — §2.3's fuzzy check, as the list the diver is asked about (M2p)
 // =========================================================================================
@@ -544,8 +459,7 @@ it('drops a candidate with no usable id, from either source', () => {
   expect(nearMatches('Kotelna', [], [{ value: 'Kotelna', id: null }])).toEqual([]);
 });
 
-// An empty name names no site, and a fold of it would equal every empty stored name — the
-// same guard `hasPairedId` carries one function up, for the same reason.
+// An empty name names no site, and a fold of it would equal every empty stored name.
 it('answers nothing for an empty or whitespace-only name', () => {
   const catalogue = [site('Kotelna', { id: 'k' }), site('   ', { id: 'blank' })];
   expect(nearMatches('', catalogue, [found('Kotelna', 'k')])).toEqual([]);
@@ -560,7 +474,7 @@ it('skips a catalogue row with no name at all', () => {
 
 // These rows come out of the database during a gesture, so a hole or a column holding
 // something that is not text costs one candidate rather than the whole check — the rule
-// `suggestFrom` and `hasPairedId` both follow.
+// `suggestFrom` follows too.
 it('survives a hole in the catalogue and a name that is not text', () => {
   const catalogue = [
     null,
@@ -610,6 +524,18 @@ it('counts the places a centre was dived at', () => {
     dive({ date: '2026-05-14', centerName: 'Nautica Vis', siteName: 'Stiniva' }),
   ];
   expect(suggestionHistory(dives, 'centerName', 'Nautica Vis').sites).toBe(2);
+});
+
+// The recipe on its own, as the picker hands it a row's paired dives: no name to match, the same
+// count — so `suggestionHistory` and *Dived here* cannot say two things about one set of dives.
+it('counts a set of dives the logbook’s way, whoever chose them', () => {
+  const dives = [
+    dive({ date: '2026-05-12', siteName: 'Vrak Teti', maxDepthM: 28.4 }),
+    dive({ date: '2026-05-18', siteName: 'Stiniva', maxDepthM: 34.6 }),
+    dive({ date: '2026-06-01', siteName: 'Vrak Teti', maxDepthM: 40, status: 'planned' }),
+  ];
+  expect(historyOf(dives)).toEqual({ dives: 2, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 });
+  expect(historyOf([])).toEqual({ dives: 0, lastDate: null, deepestM: null, sites: 0 });
 });
 
 // A name used only on planned dives has history in the form's sense — it is offered — but no

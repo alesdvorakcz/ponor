@@ -743,6 +743,15 @@ function build(scheme: ColorScheme) {
     fontSize: 15,
     color: theme.fgMuted,
   };
+  // A small word about a row, in the row's trailing slot — muted mono 11, the treatment a dive
+  // number wears in §0.6's type table. Two say it: the `— cleared` tag (`formFieldCleared`) and
+  // the *New dive site* page's *from this dive* (`formFieldCaption`, issue #19). One definition,
+  // so the two cannot come apart into two sizes of the same aside.
+  const rowTag: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: theme.fgMuted,
+  };
   /**
    * **The dive detail's cards** — "Show on map" (issue #3) and §0.4's profile — share one frame:
    * a `surface` fill, radius 12, standing on the app's column with 14 beneath it before the next
@@ -758,6 +767,37 @@ function build(scheme: ColorScheme) {
     marginBottom: 14,
     borderRadius: 12,
     backgroundColor: theme.surface,
+  };
+  /**
+   * **A card that holds a place** — a glyph, a line of words, and the coordinates muted under
+   * them. Two controls draw one: *Show on map* (issue #3, `detailMapCard`) — `MapCard`, on the dive
+   * detail and, since issue #21, a site's and a centre's pages too — and the *New dive site / New
+   * dive centre* page's *Use current position* (issue #19, `newPlacePositionCard`), which the spec
+   * asks to look the same. Hoisted so they are one definition rather than two that agree today; the
+   * canvas's 56 is the height it gives every such card.
+   */
+  const placeCard: ViewStyle = {
+    ...detailCardFrame,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  };
+  const placeCardText: ViewStyle = {
+    flex: 1,
+    gap: 2,
+  };
+  const placeCardTitle: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 15,
+    color: theme.fg,
+  };
+  const placeCardMeta: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
   };
   /**
    * A dive's number as a label above its site (§0.6's table: "Plex Mono 11, muted, above the
@@ -879,12 +919,23 @@ function build(scheme: ColorScheme) {
   const FOCUS_CARD_INSET = 8;
 
   // The suggestion row's name — Archivo Medium 16 in full ink, the canvas's own treatment and
-  // the weight a dive row gives a site. One definition, because the create offer wears it too.
+  // the weight a dive row gives a site. One definition, because the picker's rows and the form's
+  // Site and Centre rows wear it too.
   const suggestionName: TextStyle = {
     fontFamily: fonts['sans-medium'],
     fontSize: 16,
     lineHeight: 20,
     color: theme.fg,
+  };
+  // The muted line under such a name — what the diver has done there, or where the place lives
+  // ("4 dives · last 18 kvě 2026", "community · HR", "on this phone only"). Mono 11.5 muted, a
+  // dive row's own metadata treatment (§0.6's type table). One definition for the form's
+  // suggestion rows, the picker's rows and the form's Site and Centre caption, so three lines of
+  // one kind cannot drift into three sizes.
+  const nameMeta: TextStyle = {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: theme.fgMuted,
   };
 
   // **How wide a line of prose is allowed to get** (M1l, the owner: *"the text lines should
@@ -2559,37 +2610,19 @@ function build(scheme: ColorScheme) {
       fontSize: 11.5,
       color: theme.fgMuted,
     },
-    // "Show on map" (issue #3): the dive's position as a card the diver can press, in place of
-    // the GPS row that used to state the two numbers in Site & centre. The map glyph, the words,
-    // and the coordinates muted beneath them; the canvas's 56 is the height it gives every card
-    // that holds a place — this one and the new-site form's position card.
+    // "Show on map" (issue #3): a position as a card the diver can press — on the dive detail in
+    // place of the GPS row that used to state the two numbers in Site & centre, and since issue
+    // #21 on a site's and a centre's pages too (`MapCard`, one component on all three). The map
+    // glyph, the words, and the coordinates muted beneath them; the canvas's 56 is the height it
+    // gives every card that holds a place — this one and the new-place page's position card.
     //
     // **No chevron, where the canvas draws one** (§0.6: the chevron is spent on in-place
     // disclosure and "never on navigation"). The words say what a press does, and a card is
     // already the thing on this screen that is pressed rather than read.
-    detailMapCard: {
-      ...detailCardFrame,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      minHeight: 56,
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-    },
-    detailMapCardText: {
-      flex: 1,
-      gap: 2,
-    },
-    detailMapCardTitle: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 15,
-      color: theme.fg,
-    },
-    detailMapCardMeta: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-    },
+    detailMapCard: placeCard,
+    detailMapCardText: placeCardText,
+    detailMapCardTitle: placeCardTitle,
+    detailMapCardMeta: placeCardMeta,
     // DiveDetailScreen's scroll content (§3's clusters: date & time, site & centre, depth &
     // duration, conditions, gas & cylinders, equipment & people, notes). A plain ScrollView, not
     // a SectionList: this is one fixed dive's worth of content, not a long reflowing collection.
@@ -3366,11 +3399,12 @@ function build(scheme: ColorScheme) {
     // alike. Muted mono 11 — the same treatment a dive number wears in the §0.6 type table,
     // which is what this is: a small piece of metadata about the row, in the row's own value
     // slot.
-    formFieldCleared: {
-      fontFamily: fonts.mono,
-      fontSize: 11,
-      color: theme.fgMuted,
-    },
+    formFieldCleared: rowTag,
+    // Where a row's value came from — the *New dive site* page's *from this dive* over a field it
+    // prefilled from the dive (issue #19). The cleared tag's own treatment and slot, because it
+    // is the same kind of aside about the row; `OptionChips` never draws the two together.
+    // Spread rather than shared, so a test can tell the two apart by the style they wear.
+    formFieldCaption: { ...rowTag },
     // **A row's trailing state slot: the return mark and the control that clears it, as one
     // object** (M1h, the owner's ruling after the first build).
     //
@@ -3546,6 +3580,39 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       color: theme.fgMuted,
     },
+    // **The Site and Centre rows' value slot** (issue #19) — the press behind a place the diver
+    // chooses on a page of its own rather than types. `formFieldPicker`'s slot (`flex: 1`, the 48
+    // floor, the value trailing) holding a column: the name, and the caption under it, 3 apart as
+    // a picker row's are. The vertical 6 keeps a name long enough to wrap off the hairlines; one
+    // line still sits in the 48.
+    formFieldPlace: {
+      flex: 1,
+      minHeight: 48,
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      paddingVertical: 6,
+      gap: 3,
+    },
+    // The name: Archivo Medium 16 in ink — `suggestionName`, the face the picker gives the same
+    // place — trailing like every value in the column, and wrapping against that edge rather than
+    // clipping (§0.5: never `numberOfLines`).
+    formFieldPlaceName: {
+      ...suggestionName,
+      textAlign: 'right',
+    },
+    // *Choose a site* while the row holds nothing: the name's face in muted ink, §0.6's one lever
+    // between "not yet an answer" and an answer.
+    formFieldPlaceNameUnset: {
+      ...suggestionName,
+      textAlign: 'right',
+      color: theme.fgMuted,
+    },
+    // Under a paired name — `on this phone only`, or the country's ISO code: a picker row's own
+    // meta line (`pickerRowMeta`), because it is the same line about the same place.
+    formFieldPlaceCaption: {
+      ...nameMeta,
+      textAlign: 'right',
+    },
     // The native picker itself, once the trigger opens it — in the slot §0.6 fixes for
     // anything a field puts under its own row. `alignSelf: 'flex-start'` keeps the OS control
     // at its own intrinsic width instead of stretching it across the form.
@@ -3583,16 +3650,16 @@ function build(scheme: ColorScheme) {
     //
     // §0.6 held this list at "the least this can be" until M2 reworked site search, on the
     // grounds that designing it earlier meant designing it twice. M2 has landed and the canvas
-    // is that design, so the rows now carry what makes them choosable — the name in ink, what
-    // the diver has done there muted beneath it, a figure trailing — instead of a column of
-    // muted words that read as disabled text.
+    // is that design, so the rows now carry what makes them choosable — the name in ink, and
+    // what the diver has done with it muted beneath — instead of a column of muted words that
+    // read as disabled text.
     //
     // The negative margin takes the list to the screen edge, so each row's hairline is
     // full-bleed exactly as a dive row's is; each row brings `CONTENT_INSET` back as padding.
     formSuggestions: {
       marginHorizontal: -CONTENT_INSET,
     },
-    // "YOUR SITES · 3" — the cluster label, the canvas's group header over the diver's own
+    // "YOUR BUDDIES · 3" — the cluster label, the canvas's group header over the diver's own
     // history. The top padding plus the field's own `gap` is the canvas's 16 from the card;
     // the bottom is its 8 to the first hairline.
     formSuggestionsTitle: {
@@ -3602,7 +3669,7 @@ function build(scheme: ColorScheme) {
       paddingBottom: 8,
     },
     // One offer: a full-bleed row with a hairline on its top edge, "the same rule dive rows
-    // follow", the name and its history leading and a figure trailing. `minHeight` is §0.5's
+    // follow", the name over its history. `minHeight` is §0.5's
     // floor — a suggestion is a control a diver taps with wet hands — and a row with history
     // under its name comes out at the canvas's 64 through the padding and the two lines.
     formSuggestion: {
@@ -3626,38 +3693,8 @@ function build(scheme: ColorScheme) {
     // way a dive row draws a site, and it is the muted line BENEATH it that says "a record to
     // pick" rather than "a value you entered".
     formSuggestionText: suggestionName,
-    // What the diver has done with this name — "4 dives · last 18 kvě 2026". Mono 11.5 muted,
-    // a dive row's own metadata treatment (§0.6's type table), because it is the same kind of
-    // line.
-    formSuggestionMeta: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
-      color: theme.fgMuted,
-    },
-    // The trailing figure — a site's deepest dive. **Muted and unbanded**, where the canvas
-    // draws it in a band colour: it is a deepest-of-a-set, and §0.6 already ruled for the
-    // Dives header and the map's site summary that an aggregate takes no band, since one band
-    // would be a claim about a set no single band is true of. Mono 13.5 is the canvas's own
-    // size for the figure it draws muted (a distance).
-    formSuggestionFigure: {
-      fontFamily: fonts.mono,
-      fontSize: 13.5,
-      fontVariant: ['tabular-nums'],
-      color: theme.fgMuted,
-    },
-    // §2.3's *add this to the catalogue* offer, in the list's own rows (M2o). Ink, in the
-    // name's own treatment: since the names went to ink this no longer differs by ink alone —
-    // what separates the act from a name is its sentence ("Add “K” as a new site"), its place
-    // at the end of the list, and the absence of any history beneath it. It keeps its own style
-    // key so a question can never be drawn as a second act.
-    formSuggestionAdd: { ...suggestionName },
-    // The same row while the write is in flight, muted — the pairing `formFieldPickerText` /
-    // `formFieldPickerTextUnset` already draws for a value that is not there yet, and what says
-    // "this control has gone quiet and will come back" rather than "this control is dead".
-    formSuggestionAddBusy: {
-      ...suggestionName,
-      color: theme.fgMuted,
-    },
+    // What the diver has done with this name — "4 dives · last 18 kvě 2026" (`nameMeta`).
+    formSuggestionMeta: nameMeta,
     // FormGroup.tsx's own root — one of §2.2's six collapsible groups. `borderTopWidth`
     // (not bottom) is the same "chrome the type scale does not cover" rule `diveRow`
     // above documents at length: a top edge draws the seam under whatever precedes this
@@ -4332,6 +4369,253 @@ function build(scheme: ColorScheme) {
     // new vocabulary for a single case, and this one has a sentence's worth to say.
     siteDefaultsCaption: captionBlock,
     siteDefaultsCaptionText: captionText,
+    // ------------------------------------------------------------------------------------
+    // The site and centre picker (issue #19, `PlacePickerScreen`)
+    // ------------------------------------------------------------------------------------
+    // A pushed page over the dive form: `‹ Cancel`, a title, the *Selected* line, the search,
+    // the *Near me* pill and one grouped list. Nearly every piece is a definition this sheet
+    // already holds under a name that says where it is placed — `detailBack`/`formBack`'s
+    // precedent — and the few new values are the canvas's own (the search field's 12 radius,
+    // the pill's 36, the row's 64).
+    //
+    // The way out: `backControl` on the column, exactly as the form's own `‹ Cancel` is.
+    pickerBack: {
+      ...backControl,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    pickerBackLabel: backControlLabel,
+    // *Choose a site* — `screenHeading` on the column, the composition every screen title makes.
+    pickerHeading: {
+      ...screenHeading,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    // *✓ Selected: Vrak Teti — jižní ostroh* — what the field holds, always visible while it holds
+    // something. A row so the small check leads; the sentence wraps beside it and never clips
+    // (no `numberOfLines` at the call site), and the check is held to the first line.
+    pickerSelected: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 6,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 6,
+    },
+    // Archivo 14, the name in ink; `pickerSelectedLabel` mutes the word *Selected:* inside it.
+    pickerSelectedText: {
+      flex: 1,
+      fontFamily: fonts.sans,
+      fontSize: 14,
+      lineHeight: 19,
+      color: theme.fg,
+    },
+    pickerSelectedLabel: {
+      color: theme.fgMuted,
+    },
+    // The check's 12 pt glyph sits 3.5 below the line's top, which centres it on a 19 pt line.
+    pickerSelectedCheck: {
+      marginTop: 3.5,
+    },
+    // The search field — the canvas's own object, not the Dives capsule: a `surface` field at the
+    // top of the page, 48 tall with a 12 radius and no shadow, because nothing floats here. The
+    // margin is the column; the leading padding is the magnifier's air INSIDE the field, and
+    // there is no trailing padding because the clear ring's own 48 dp box (`clearFieldControl`)
+    // is the trailing edge once the field holds text.
+    pickerSearch: {
+      height: 48,
+      marginHorizontal: CONTENT_INSET,
+      marginTop: 12,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingLeft: 14,
+    },
+    // Typed UI text in Archivo, at the size of the names it finds.
+    pickerSearchInput: {
+      flex: 1,
+      alignSelf: 'stretch',
+      padding: 0,
+      fontFamily: fonts.sans,
+      fontSize: 16,
+      color: theme.fg,
+    },
+    // The row of toggle pills under the field — *Near me* today, *Map* with #30.
+    pickerPills: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 4,
+    },
+    // *Near me*: a 36 tall pill inside §0.5's 48 dp box — `mapAction`'s "small visible control,
+    // generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to.
+    pickerNearMe: {
+      minHeight: 48,
+      minWidth: 48,
+      justifyContent: 'center',
+    },
+    // Fully rounded, a hairline outline; while on, the inverted ink of every chosen thing in the
+    // app (`selectedFill`/`selectedInk` — the form's chips, the Map's switched-on glyph).
+    pickerNearMePill: {
+      minHeight: 36,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pickerNearMePillOn: selectedFill,
+    pickerNearMeLabel: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 13.5,
+      color: theme.fg,
+    },
+    pickerNearMeLabelOn: selectedInk,
+    // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
+    // km*, the unreadable catalogue, and the prompt a page with nothing to list opens on.
+    // `captionBlock`/`captionText`, the sentence-under-a-block Settings and a site's page already
+    // speak in.
+    pickerNote: {
+      ...captionBlock,
+      paddingBottom: 6,
+    },
+    pickerNoteText: captionText,
+    pickerList: rowScroll,
+    // `paddingBottom` composed at the call site from `screenBottomInset`: the page is pushed over
+    // the tab bar, so the list runs to the bottom of the display.
+    pickerListContent: {
+      paddingTop: 4,
+    },
+    // *DIVED HERE · 2*, *NEAR VRAK TETI*, *OR* — §0.6's one treatment for a group header.
+    pickerGroupTitle: {
+      ...clusterLabel,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 16,
+      paddingBottom: 8,
+    },
+    // One place: the canvas's 64 tall row with the hairline on its top edge, the name over its
+    // meta leading and a figure or a glyph trailing — the inline suggestion row's design
+    // (`formSuggestion`) at the height the canvas gives a list you scroll rather than glance at.
+    pickerRow: {
+      minHeight: 64,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: CONTENT_INSET,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    pickerRowBody: {
+      flex: 1,
+      gap: 3,
+    },
+    // Archivo Medium 16 in ink, wrapping — the suggestion row's own name (`suggestionName`).
+    pickerRowName: suggestionName,
+    // `4 dives · last 18 May 2026`, `community · HR` — `nameMeta`, a dive row's metadata treatment.
+    pickerRowMeta: nameMeta,
+    // The deepest dive at a place: Plex Mono **in ink and never in a band colour** — it is a
+    // deepest-of-a-set, which §0.6 has ruled takes no band (the Dives header and the map's site
+    // summary say the same). Ink, because it is the row's one figure and the canvas draws it as
+    // data.
+    pickerRowFigure: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fg,
+    },
+    // A distance on a Near list, and *No centre*'s `—`: the same figure, muted — the canvas draws
+    // a distance as context rather than as data about the place.
+    pickerRowDistance: {
+      fontFamily: fonts.mono,
+      fontSize: 13.5,
+      fontVariant: ['tabular-nums'],
+      color: theme.fgMuted,
+    },
+    // The tints the page's glyphs take (`SymbolView` takes a colour, not a style): the selected
+    // row's check in ink, the *Selected* check and *Create*'s `+` muted. Monochrome, §0.1.
+    pickerGlyphInk: {
+      color: theme.fg,
+    },
+    pickerGlyphMuted: {
+      color: theme.fgMuted,
+    },
+    // ------------------------------------------------------------------------------------
+    // The *New dive site / New dive centre* page (issue #19, `NewPlaceScreen`)
+    // ------------------------------------------------------------------------------------
+    // Pushed from the picker's *Create “…”* row, and written in the dive form's grammar: a way out
+    // pinned above a scroll of §0.6 rows, and the inverted save in `formFooter` beneath it, lifted
+    // with the keyboard. Its fields are the form's own (`formField*`, `OptionChips`), the position
+    // is the dive detail's place card, and the suggestion rows are the form's. What is the page's
+    // own is its header — the canvas's mono lines under the title — and the *POSITION* label.
+    //
+    // The way out: `backControl` on the column, exactly as the picker's `‹ Cancel` is.
+    newPlaceBack: {
+      ...backControl,
+      paddingHorizontal: CONTENT_INSET,
+    },
+    newPlaceBackLabel: backControlLabel,
+    newPlaceScroll: rowScroll,
+    // The title's line is `SCREEN_HEADING_TOP` below the way out, as on every screen; 40 at the end
+    // is `formScrollContent`'s run-out above a footer that clears the device edge itself.
+    newPlaceContent: {
+      paddingTop: SCREEN_HEADING_TOP,
+      paddingBottom: 40,
+    },
+    // *New dive site* and the lines under it: what is required, and — for a guest — where the row
+    // will live. 14 before the first row, the canvas's.
+    newPlaceHeader: {
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 14,
+      gap: 4,
+    },
+    newPlaceHeading: screenHeading,
+    // The canvas draws both lines in muted mono, a note about the page rather than a sentence of it.
+    newPlaceHeaderNote: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 17,
+      color: theme.fgMuted,
+    },
+    // *POSITION* over its card — the cluster label every group header wears — with *from this
+    // dive* trailing it while the pin is the dive's own.
+    newPlaceSectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: 12,
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 22,
+      paddingBottom: 8,
+    },
+    newPlaceSectionTitle: clusterLabel,
+    // *Use current position*: the *Show on map* card's look (`placeCard`), as the spec asks.
+    newPlacePositionCard: placeCard,
+    newPlacePositionText: placeCardText,
+    newPlacePositionTitle: placeCardTitle,
+    newPlacePositionMeta: placeCardMeta,
+    // The card's glyph tint (`SymbolView` takes a colour, not a style): ink, monochrome (§0.1).
+    newPlaceGlyph: {
+      color: theme.fg,
+    },
+    // *Country*: the stored ISO code is a figure, so mono; `—` muted while there is no position to
+    // derive one from — the row's value slot while it is not yet an answer.
+    newPlaceCountry: rowValueMono,
+    newPlaceCountryNone: {
+      ...rowValueMono,
+      color: theme.fgMuted,
+    },
+    // A failed write, above the button: the sentence-under-a-block the picker's notes speak in.
+    newPlaceNote: {
+      ...captionBlock,
+      paddingBottom: 6,
+    },
+    newPlaceNoteText: captionText,
+    // The save while there is no name to save: the same inverted button, dimmed — the opacity
+    // `reorderButtonDisabled` uses, rather than a second colour for "not now" (§0.1).
+    newPlaceSaveUnavailable: {
+      opacity: 0.35,
+    },
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

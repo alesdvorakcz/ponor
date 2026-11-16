@@ -1,5 +1,8 @@
+import { type PulledSite } from '../db/catalogue';
+import { diveSites } from '../db/schema';
 import { type Suggestion } from '../domain/suggest';
 import { type Cloud } from './supabase';
+import { fromWireRow } from './sync';
 
 /**
  * **DESIGN.md §5's fuzzy duplicate check, on the client** — the one caller of
@@ -8,8 +11,8 @@ import { type Cloud } from './supabase';
  * the client).
  *
  * §2.3: *"Before saving a new entry, a fuzzy check suggests near-matches: **Did you mean Shark
- * Point?** One tap picks the existing site instead."* This is the asking half. What is done
- * with the answer is `DiveFormScreen`'s, and what counts as a near-match once the device's own
+ * Point?**"* This is the asking half. What is done with the answer is `findSiteTwins`' and the
+ * create page's (`cloud/addToCatalogue.ts`, `NewPlaceScreen`), and what counts as a near-match once the device's own
  * catalogue has had its say is `domain/suggest.ts`'s `nearMatches`.
  *
  * ── **No round trip has ever been performed from this repository** ────────────────────────
@@ -59,15 +62,44 @@ interface SimilarSitesArgs {
 }
 
 /**
+ * **What the check answers: the one tap's halves, and the rows whole.** `matches` are read
+ * loosely, as `candidateFrom` says. `rows` are the same answer read the strict way, through
+ * `fromWireRow`, for one reason only: the create page pairs the dive with the match it taps, and
+ * since issue #19 every new site goes through this check — so a match the phone does not hold
+ * would pair a dive with a site it cannot show (no country caption, no site defaults, no place in
+ * the picker's *Dived here*). `findSiteTwins` writes these rows to the device's catalogue, as
+ * live search writes its answers, and offers only matches the phone then holds. A row the strict
+ * reader refuses is left out of `rows` alone; its match still stands for the caller to judge.
+ */
+export interface SimilarSitesAnswer {
+  readonly matches: Suggestion[];
+  readonly rows: PulledSite[];
+}
+
+/** No answer — every way of failing to ask. A fresh object each time, so no caller can share one. */
+function noAnswer(): SimilarSitesAnswer {
+  return { matches: [], rows: [] };
+}
+
+/** One answered row the strict way, or null when `fromWireRow` refuses it (never a throw). */
+function storableFrom(row: unknown): PulledSite | null {
+  try {
+    return fromWireRow(diveSites, row) as PulledSite;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * One row of the answer, read for the two things the one tap needs.
  *
  * **Deliberately not `fromWireRow` (cloud/sync.ts), and the difference is the direction.**
  * That reader is for a row on its way into a table, so a column missing from the payload is a
  * device running a schema this server has never heard of and it throws rather than writing a
- * partial row. Here the row is never stored: it is a name to show and an id to pair a dive
- * with (§6), and a response that is missing, say, `max_depth_m` is still a perfectly good
- * answer to *"did you mean Shark Point?"*. Refusing it would turn a newer server into a
- * broken duplicate check.
+ * partial row. This half is not on its way into a table: it is a name to show and an id to pair
+ * a dive with (§6), and a response that is missing, say, `max_depth_m` is still a perfectly good
+ * answer to *"did you mean Shark Point?"*. Refusing it here would turn a newer server into a
+ * broken duplicate check. The half that is stored is `SimilarSitesAnswer.rows`, read strictly.
  *
  * A row that cannot supply both halves is dropped instead, because half of the pair is what
  * §10 spent this milestone making impossible: a dive carrying one site's id under another's
@@ -111,8 +143,8 @@ export async function similarSites(
   name: string,
   latitude: number | null,
   longitude: number | null,
-): Promise<Suggestion[]> {
-  if (!cloud.configured) return [];
+): Promise<SimilarSitesAnswer> {
+  if (!cloud.configured) return noAnswer();
 
   const args: SimilarSitesArgs = { p_name: name, p_latitude: latitude, p_longitude: longitude };
 
@@ -130,21 +162,24 @@ export async function similarSites(
     // A device with no signal, a DNS failure, a client that rejected before it reached the
     // network. See the module docblock: none of these may cost the diver the site they asked
     // to add, and none of them is a sentence worth putting on the form.
-    return [];
+    return noAnswer();
   }
 
   // A refusal is a refusal even when rows came with it — RLS said no (§5 gives this function
   // to `authenticated` alone), the name was empty, the server is a version behind. supabase-js
   // nulls `data` in every case it produces itself; believing rows that arrived beside an error
   // would mean deciding what a duplicate is from a response the server has disowned.
-  if (response.error !== null && response.error !== undefined) return [];
+  if (response.error !== null && response.error !== undefined) return noAnswer();
 
   // `similar_sites` returns `jsonb` and always an array — `coalesce(jsonb_agg(...), '[]')`.
   // Anything else is a server this build does not understand, and mapping over it would throw
   // out of a function that has promised not to.
-  if (!Array.isArray(response.data)) return [];
+  if (!Array.isArray(response.data)) return noAnswer();
 
-  return response.data
-    .map(candidateFrom)
-    .filter((candidate): candidate is Suggestion => candidate !== null);
+  return {
+    matches: response.data
+      .map(candidateFrom)
+      .filter((candidate): candidate is Suggestion => candidate !== null),
+    rows: response.data.map(storableFrom).filter((row): row is PulledSite => row !== null),
+  };
 }

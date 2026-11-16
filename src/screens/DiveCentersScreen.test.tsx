@@ -334,19 +334,25 @@ it('reports a failed read rather than an empty directory', async () => {
 
 /**
  * **Two sentences, because a guest is not waiting for the same thing a signed-in diver is** — the
- * split the Map's community layer already draws. A centre reaches this table through a pull or
- * through §2.3's *add a centre*, and §5 puts an account behind both, so telling a guest their
- * next sync will bring centres would point at something that cannot happen.
+ * split the Map's community layer already draws. Both name the way a centre is made since issue
+ * #19 (the dive form's *Centre* row, then *Create*), which a guest may use too; only a signed-in
+ * diver is promised a sync, because a pull needs an account (§5) and a guest's own centres stay on
+ * the phone until they sign in.
  */
 it('says why it is empty, and says it differently to a guest', async () => {
   const guest = textIn(await show()).join(' ');
   expect(guest).toContain('No dive centres yet');
-  expect(guest).toContain('an account');
+  expect(guest).toContain('tap “Centre”');
+  expect(guest).toContain('on this phone until you sign in');
+  expect(guest).not.toContain('sync');
+  expect(guest).not.toContain('“Add”');
 
   mockUseAuthSession.mockReturnValue({ session: { user: { id: 'u1' } } as never, resolved: true });
   const member = textIn(await show()).join(' ');
   expect(member).toContain('No dive centres yet');
-  expect(member).not.toContain('an account');
+  expect(member).toContain('tap “Centre”');
+  expect(member).not.toContain('on this phone');
+  expect(member).not.toContain('“Add”');
   expect(member).toContain('sync');
 });
 
@@ -381,7 +387,9 @@ describe('in Czech', () => {
 
   it('says an empty catalogue differently to a guest, in Czech', async () => {
     mockUseDiveCenters.mockReturnValue(catalogueState([]));
-    expect(textIn(await show()).join(' ')).toContain('Přijdou s účtem');
+    const said = textIn(await show()).join(' ');
+    expect(said).toContain('Zůstane v tomto telefonu, dokud se nepřihlásíte.');
+    expect(said).not.toContain('synchronizace');
   });
 
   /**

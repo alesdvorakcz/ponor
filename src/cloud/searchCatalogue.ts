@@ -1,4 +1,5 @@
 import { type PushableTable } from '../db/dirty';
+import { type MapPoint } from '../domain/mapSites';
 import { fromWireRow } from './sync';
 import { type Cloud } from './supabase';
 
@@ -62,14 +63,20 @@ import { type Cloud } from './supabase';
 
 /**
  * The arguments both functions declare, spelled once so a typo cannot reach the call and the
- * response differently. **Only the query is sent**: `p_latitude`/`p_longitude`/`p_radius_m` narrow
- * the search to a point, and a directory has no point — asking the device for one would spend §3's
- * one-and-only location permission on a list (M2m), which the Map tab itself is forbidden to do.
- * `p_limit` is left to each function's own default rather than restated here, exactly as
- * `similarSites` leaves its three.
+ * response differently. **The query is always sent; the point only when the caller asks for one.**
+ * `p_latitude`/`p_longitude`/`p_radius_m` narrow the search to a point, and a directory has no
+ * point — asking the device for one would spend §3's one-and-only location permission on a list
+ * (M2m), which the Map tab itself is forbidden to do. The site picker's *Near me* list is the one
+ * caller that already holds a fix, and passes it in (`near`); nothing here ever asks for one.
+ * `p_query` is `null` for a point-only search — the SQL accepts a null query beside a position and
+ * raises `22023` for neither. `p_limit` is left to each function's own default rather than
+ * restated here, exactly as `similarSites` leaves its three.
  */
 interface SearchCatalogueArgs {
-  readonly p_query: string;
+  readonly p_query: string | null;
+  readonly p_latitude?: number;
+  readonly p_longitude?: number;
+  readonly p_radius_m?: number;
 }
 
 /**
@@ -84,17 +91,32 @@ interface SearchCatalogueArgs {
  * silently. An empty or whitespace-only query is not sent at all — both functions raise `22023`
  * when given neither a query nor a position, so asking would be asking for an error, and
  * "everything in the catalogue" is what the device already has on screen.
+ *
+ * **With `near`, the empty query is allowed** and goes over as `null`: "everything within
+ * `radiusM` of here" is a question the device cannot answer for rows it has not pulled, which is
+ * exactly what the *Near me* list asks the server. The point is sent as given — validating a fix
+ * is the caller's business, and a server that dislikes it answers an error, which is `[]` here.
  */
 export async function searchCatalogue(
   cloud: Cloud,
   rpc: string,
   table: PushableTable,
   query: string,
+  near?: { readonly point: MapPoint; readonly radiusM: number },
 ): Promise<Record<string, unknown>[]> {
   if (!cloud.configured) return [];
-  if (query.trim() === '') return [];
+  const blank = query.trim() === '';
+  if (blank && near === undefined) return [];
 
-  const args: SearchCatalogueArgs = { p_query: query };
+  const args: SearchCatalogueArgs =
+    near === undefined
+      ? { p_query: query }
+      : {
+          p_query: blank ? null : query,
+          p_latitude: near.point.latitude,
+          p_longitude: near.point.longitude,
+          p_radius_m: near.radiusM,
+        };
 
   // **The `try` covers the call and nothing else, deliberately** — `similarSites` records the
   // whole argument: a block around the entire function makes every check below unfalsifiable,

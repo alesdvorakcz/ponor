@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { cloud, type Cloud } from '../cloud/supabase';
 import { db } from '../db/client';
 import { type Db } from '../db/types';
+import { type MapPoint } from '../domain/mapSites';
 
 /**
  * **How long after the last keystroke the server is asked** (§2.3's *"live search adds anything
@@ -59,26 +60,95 @@ export function useCatalogueSupplement<T>(
   search: (cloud: Cloud, query: string) => Promise<T[]>,
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): void {
+  const wanted = query.trim();
+  useSupplement(wanted === '' ? null : wanted, queryOf, LIVE_SEARCH_DELAY_MS, search, apply, false);
+}
+
+/** The name search's question is its key, the trimmed query. */
+const queryOf = (key: string): string => key;
+
+/**
+ * **The same supplement, asked around a point instead of for a name** — the site picker's *Near
+ * me* list, whose "query" is the diver's fix. It differs from `useCatalogueSupplement` in exactly
+ * two ways, both because a point is not a keystroke: **there is no delay** (a fix is a settled
+ * value, so there is nothing to wait out), and **`null` means "no fix yet" and does nothing**
+ * (the list is the device's own rows until one arrives).
+ *
+ * **It answers whether the server is still being asked about this point** — `true` from the fix
+ * until the answer has been written or has failed, `false` with no point. Nothing waits on it; the
+ * picker reads it so it never says *"Nothing within 50 km"* while the community's rows may be on
+ * their way (an absent answer is not an empty one). A server that cannot be reached answers at
+ * once (`searchCatalogue` turns every failure into `[]`), so out of signal the sentence still comes.
+ *
+ * The effect depends on the two coordinates rather than the `point` object, so a caller that
+ * rebuilds an equal point on every render does not ask the server again.
+ */
+export function useNearbySupplement<T>(
+  point: MapPoint | null,
+  search: (cloud: Cloud, point: MapPoint) => Promise<T[]>,
+  apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
+): boolean {
+  const key = point === null ? null : `${point.latitude},${point.longitude}`;
+  return useSupplement(key, pointOf, 0, search, apply, true);
+}
+
+/** The point back out of its key — a number printed and read back is the same number. */
+const pointOf = (key: string): MapPoint => {
+  const [latitude, longitude] = key.split(',');
+  return { latitude: Number(latitude), longitude: Number(longitude) };
+};
+
+/**
+ * **The one body behind both supplements** — the contract stated once: after `delayMs`, `search`
+ * is asked `question` and any rows go to `apply`; nothing throws (the read cannot, a write that
+ * refuses is swallowed — the same outcome as a server that never answered, the device's own rows
+ * already on screen); and an answer that lands after `key` changed or the screen closed is
+ * dropped, written or not.
+ *
+ * `key` is what identifies the question — the trimmed query, or the point's two coordinates — and
+ * is the only value the effect re-runs on, so a caller handing in an equal question rebuilt on
+ * every render does not ask again; `null` asks nothing. `questionOf` rebuilds the question from the
+ * key inside the effect (a module-level function, so it is stable).
+ *
+ * **`reports` decides whether it answers whether the question under the current `key` is still
+ * out**, and only Near me asks. Knowing costs a render when the answer lands — state set from the
+ * effect — and the name search runs on every pause in typing on Sites, Centres and the picker,
+ * where what it writes already reaches the screen through the live query and an empty answer
+ * changes nothing at all. So the name search keeps no state, and its screen renders for its rows
+ * and for nothing else; with `reports` off this answers `false`.
+ */
+function useSupplement<Q, T>(
+  key: string | null,
+  questionOf: (key: string) => Q,
+  delayMs: number,
+  search: (cloud: Cloud, question: Q) => Promise<T[]>,
+  apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
+  reports: boolean,
+): boolean {
+  // The key whose question has come back — written, empty, or refused. Only set when `reports`.
+  const [answered, setAnswered] = useState<string | null>(null);
+
   useEffect(() => {
-    const wanted = query.trim();
-    if (wanted === '') return;
+    if (key === null) return;
+    const wanted = questionOf(key);
     let cancelled = false;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const rows = await search(cloud, wanted);
-          if (cancelled || rows.length === 0) return;
-          await apply(db, rows);
-        } catch {
-          // The read cannot throw (those modules' own contract); the write can, and a catalogue
-          // that refused a write is the same outcome as a server that never answered — the
-          // device's own rows, already on screen.
-        }
-      })();
-    }, LIVE_SEARCH_DELAY_MS);
+    const ask = async () => {
+      try {
+        const rows = await search(cloud, wanted);
+        if (cancelled || rows.length === 0) return;
+        await apply(db, rows);
+      } catch {
+        // See the docblock: a refused write is the same outcome as no answer.
+      } finally {
+        if (reports && !cancelled) setAnswered(key);
+      }
+    };
+    const timer = setTimeout(() => void ask(), delayMs);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, search, apply]);
+  }, [key, questionOf, delayMs, search, apply, reports]);
+
+  return reports && key !== null && answered !== key;
 }

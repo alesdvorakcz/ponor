@@ -11,15 +11,16 @@ import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
 import { act, cleanup, fireEvent, render, waitFor, type RenderResult } from '@testing-library/react-native';
 import { Alert, TextInput } from 'react-native';
-import { router, useNavigation } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { similarSites } from '../cloud/similarSites';
 import { useAuthSession } from '../cloud/useAuthSession';
-import { createDiveCenter, createDiveSite, getDiveSite, listDiveSites } from '../db/catalogue';
+import { getDiveSite } from '../db/catalogue';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
+import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
+import { useDiveSites } from '../db/useDiveSites';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { useGearPresets } from '../db/useGearPresets';
 import { useOpenFormGroups } from '../db/useOpenFormGroups';
@@ -37,7 +38,6 @@ import {
   formatWaves,
   HE_LABEL,
   O2_LABEL,
-  formatDepth as formatDepthFigure,
   formatDiveDate as formatDiveDay,
 } from '../format/display';
 import {
@@ -55,12 +55,13 @@ import {
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
   type Dive,
+  type DiveCenter,
   type DiveSite,
   type GearPreset,
   type Tank,
 } from '../domain/types';
 import { setActiveLanguage, t as translated } from '../i18n';
-import { countryFor } from '../platform/geocode';
+import { openPlacePicker, type PlacePick, type PlacePickRequest } from '../navigation/placePick';
 import { COARSEST_USABLE_FIX_M, currentPosition, POSITION_REFUSALS } from '../platform/location';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
@@ -129,40 +130,27 @@ jest.mock('../platform/location', () => ({
   ...jest.requireActual('../platform/location'),
   currentPosition: jest.fn(),
 }));
-// M2o: §5's "any signed-in user can add a site or center" — so this screen now reads whether
-// anybody is signed in. Mocked per module exactly as the database reads above are, and for a
-// sharper reason: left real it answers off `cloud.configured`, which is a property of whether
-// the test machine happens to have the two EXPO_PUBLIC variables set. **Its default here is a
-// GUEST**, which is what keeps every test written before this one unchanged — and which makes
-// the signed-in path something a test has to ask for out loud.
+// Whether anybody is signed in — which the place rows' caption reads (*on this phone only* is a
+// guest's). Mocked per module exactly as the database reads above are, and for a sharper
+// reason: left real it answers off `cloud.configured`, which is a property of whether the test
+// machine happens to have the two EXPO_PUBLIC variables set. **Its default here is a GUEST**,
+// which makes the signed-in path something a test has to ask for out loud.
 jest.mock('../cloud/useAuthSession', () => ({
   useAuthSession: jest.fn(() => ({ session: null, resolved: true })),
 }));
-// The two catalogue writes. Mocked rather than left real for the reason `createDive` is: they
-// reach `db`, and what these tests assert about them is exactly what they were HANDED — a
-// screen that seeded the wrong facts into a community record would look identical on screen.
-// M2s adds the READ this list never had: §2.1's site defaults ask `getDiveSite` what the
-// paired row says about its own water. Mocked with the two writes rather than left real for
-// the identical reason — it reaches `db` — and what a `pickable` read actually returns for a
-// merged, hidden or tombstoned row is `db/catalogue.test.ts`'s, not this file's.
-jest.mock('../db/catalogue', () => ({
-  createDiveSite: jest.fn(),
-  createDiveCenter: jest.fn(),
-  getDiveSite: jest.fn(),
-  listDiveSites: jest.fn(),
-}));
-// M2p: §2.3's fuzzy check asks the server as well as the device, and this is the server half —
-// mocked at the same level `countryFor` is and for the same reason (a network round trip on a
-// machine with no credentials and no project to have them for). What the call itself does, and
-// that it answers nothing rather than throwing when it cannot be made, is
-// `cloud/similarSites.test.ts`'s; `nearMatches` (domain/suggest.ts) is left REAL below, because
-// what counts as a near-match is exactly what these tests are about.
-jest.mock('../cloud/similarSites', () => ({ similarSites: jest.fn() }));
-// §2.3's inferred country, mocked at the same level `currentPosition` is and for the same
-// reason: it is a call to the device (a network round trip through the platform's geocoder).
-// What a point's country IS, and that a missing pin yields none, is `platform/geocode.test.ts`'s
-// — what this file owns is that the screen asks about the row's own pin and stores the answer.
-jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
+// M2s: §2.1's site defaults ask `getDiveSite` what the paired row says about its own water.
+// Mocked rather than left real because it reaches `db`, and what a `pickable` read actually
+// returns for a merged, hidden or tombstoned row is `db/catalogue.test.ts`'s, not this file's.
+jest.mock('../db/catalogue', () => ({ getDiveSite: jest.fn() }));
+// Issue #19: the Site and Centre rows open the *Choose a site / Choose a centre* page, which is a
+// route pushed over this form. Mocked at the hand-off rather than at the router, so a test can
+// read the request the row made and answer it the way the picker (or the create page two screens
+// up) does — through `onPick`. What the registry does with a token is `placePick.test.ts`'s.
+jest.mock('../navigation/placePick', () => ({ openPlacePicker: jest.fn() }));
+// The catalogue rows a paired name's caption is read from — live reads, mocked per module for
+// `useDives`' reason. Both default to an empty catalogue in `beforeEach`.
+jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
+jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
 // canGoBack()-guarded pattern in that screen's BackButton.
@@ -175,6 +163,9 @@ jest.mock('expo-router', () => ({
   // is before any `const` in this module has initialised, so an object built here and
   // referenced there would be read in its temporal dead zone.
   useNavigation: jest.fn(),
+  // The place rows release their one-shot claim when the form is focused again (issue #19).
+  // Recorded rather than run, so a test says when the form regains focus (`regainFocus`).
+  useFocusEffect: jest.fn(),
 }));
 
 /**
@@ -239,12 +230,11 @@ const mockSetOpenGroups = setOpenFormGroups as jest.Mock;
 const mockCreatePreset = createGearPreset as jest.Mock;
 const mockPosition = currentPosition as jest.Mock;
 const mockUseAuthSession = useAuthSession as jest.Mock;
-const mockCreateSite = createDiveSite as jest.Mock;
-const mockCreateCentre = createDiveCenter as jest.Mock;
-const mockCountry = countryFor as jest.Mock;
-const mockCatalogue = listDiveSites as jest.Mock;
 const mockGetSite = getDiveSite as jest.Mock;
-const mockSimilar = similarSites as jest.Mock;
+const mockOpenPicker = openPlacePicker as jest.Mock;
+const mockUseFocusEffect = useFocusEffect as jest.Mock;
+const mockUseDiveSites = useDiveSites as jest.Mock;
+const mockUseDiveCenters = useDiveCenters as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -379,26 +369,18 @@ beforeEach(() => {
   mockPosition.mockResolvedValue(FOUND_HERE);
   // Set explicitly for the reason `canGoBack` and the unit system above are: `clearAllMocks`
   // clears calls but not return values, so one signed-in test would otherwise leak an account
-  // into every test declared after it. **A guest is the default**, which is what leaves every
-  // test written before M2o describing exactly the screen it always described.
+  // into every test declared after it. **A guest is the default.**
   mockUseAuthSession.mockReturnValue({ session: null, resolved: true });
-  // A geocoder that answers, on `mockPosition`'s own reasoning — the offline case is a test of
-  // its own and says so. What the answer MEANS is `platform/geocode.test.ts`'s.
-  mockCountry.mockResolvedValue('HR');
-  mockCreateSite.mockResolvedValue({ id: 'new-site' });
-  mockCreateCentre.mockResolvedValue({ id: 'new-centre' });
-  // **The default is a catalogue that holds nothing and a server that found nothing**, which
-  // is the world every test written before M2p was describing: pressing the offer creates the
-  // row. A test whose subject IS the check says so out loud, exactly as `signedIn()` does for
-  // the account.
-  mockCatalogue.mockResolvedValue([]);
-  mockSimilar.mockResolvedValue([]);
   // **A catalogue that has never heard of the site being paired**, which is the world every
   // test written before M2s was describing and — until a pull brings sites down — the world
   // most devices are actually in: the row is not there, so §2.1's site defaults leave
   // carry-over standing and nothing on the form moves. A test whose subject IS a site's own
   // defaults says so out loud, exactly as `signedIn()` does for the account.
   mockGetSite.mockResolvedValue(null);
+  // **An empty catalogue on the device**, so a paired name has no row to caption it — the world
+  // until a pull brings rows down. A test whose subject IS the caption says what the row holds.
+  mockUseDiveSites.mockReturnValue({ sites: [], resolved: true, error: undefined });
+  mockUseDiveCenters.mockReturnValue({ centers: [], resolved: true, error: undefined });
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -1179,7 +1161,7 @@ it('never carries a pin into the next dive, however recent the dive it came from
   expect(shownIn(t, 'GPS')).toBe('Use my location');
   // The seed really was that dive, so this is carry-over declining to bring the pin rather than
   // a form that was seeded from nothing.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
 
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
@@ -1200,7 +1182,7 @@ it('keeps a pin taken before carry-over landed, which is when a diver on a boat 
   await t.rerender(<DiveFormScreen mode="create" />);
 
   // The reseed really happened — the carried site is now in the form — and the pin survived it.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
   expect(shownIn(t, 'GPS')).toBe(PIN_TEXT);
 });
 
@@ -3006,8 +2988,8 @@ const CARRIED_ROWS: Record<string, { label: string; group?: FormGroupId; cylinde
  * each for a different reason — named here so "every carried field is covered" stays a
  * checkable claim rather than one with a silent exception.
  *
- * `siteId`/`centerId` are §6's half of the site snapshot: written by picking a suggestion,
- * never typed, so there is no row and nothing to clear (`computeCarriedPaths` marks them all
+ * `siteId`/`centerId` are §6's half of the site snapshot: written by a pick on the Site or
+ * Centre row, never typed, so there is no row and nothing to clear (`computeCarriedPaths` marks them all
  * the same, and nothing reads that mark). `equipment` is a token set rendered as five Yes/No
  * rows, so there is no single row for one mark and one clear to sit on — and `[]` is a real
  * carried answer meaning "no accessories", which a clear control could not distinguish itself
@@ -4562,12 +4544,12 @@ it('offers no free-text field for the date or the entry time', async () => {
   expect(findTextInput(t, 'Time in')).toBeUndefined();
   expect(findPickerField(t, 'Time in')).toBeDefined();
 
-  // And the fields either side of them ARE still text fields, so none of the above is
-  // passing merely because `findTextInput` stopped finding anything.
-  expect(findTextInput(t, 'Site')).toBeDefined();
-  // `Start pressure` rather than the `Avg depth` this used to name: both pickers sit in the
-  // core strip now (§2.2), and a neighbour that needed a group opened to be found would make
-  // this test's own sanity check depend on a group's disclosure state.
+  // And a field near them IS still a text field, so none of the above is passing merely
+  // because `findTextInput` stopped finding anything. `Start pressure` rather than the
+  // `Avg depth` this used to name: both pickers sit in the core strip now (§2.2), and a
+  // neighbour that needed a group opened to be found would make this test's own sanity check
+  // depend on a group's disclosure state. (The strip's other two rows, Site and Centre, are
+  // chosen on a page of their own since issue #19 and are no text fields either.)
   expect(findTextInput(t, 'Start pressure')).toBeDefined();
 });
 
@@ -4680,7 +4662,7 @@ it('loads and patches the dive the id names, not whichever dive happens to be fi
   // What the diver is looking at is the TARGET's data, not the newest dive's — in the core
   // strip and inside a collapsed group alike, so this covers the whole seeding path rather
   // than one field that might be special.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
   expect(findTextInput(t, 'Max depth')?.props?.value).toBe('32.4');
   expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
   await openGroup(t, 'Notes & rating');
@@ -4896,7 +4878,7 @@ it('marks nothing as carried in edit mode — a dive already holds its own value
 
   // Both halves matter. The value IS seeded (this is the dive's own data)...
   expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
   // ...but §0.6's chip means "this came from your LAST DIVE", which is not true of any
   // field here — and a `×` on it would offer to clear a value the diver actually stored.
   expect(findClearCarried(t, 'Buddy')).toBeUndefined();
@@ -4968,12 +4950,12 @@ it('seeds the form from a dive that only arrives after the first render', async 
   // fields MOUNTING late rather than merely being re-synced in place.
   stubDives({ resolved: false });
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  expect(findTextInput(t, 'Site')).toBeUndefined();
+  expect(findPickerField(t, 'Site')).toBeUndefined();
 
   stubLogbookFor(existing());
   await t.rerender(<DiveFormScreen mode="edit" diveId="target" />);
 
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
   expect(shownIn(t, 'Date')).toBe('16 Aug 2026');
 });
 
@@ -4995,7 +4977,7 @@ describe('before the dives read has answered', () => {
   it('draws no fields over a dive it has not read yet', async () => {
     stubDives({ resolved: false });
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    expect(findTextInput(t, 'Site')).toBeUndefined();
+    expect(findPickerField(t, 'Site')).toBeUndefined();
     expect(findTextInput(t, 'Max depth')).toBeUndefined();
     // Nor the control that would write them: there is nothing on screen for it to save, and
     // §1's "never block a save" is about a control that refuses, not about one that has no
@@ -5042,7 +5024,7 @@ describe('before the dives read has answered', () => {
     // that forgot `mode === 'edit'` would delay every new dive behind a database read.
     stubDives({ resolved: false });
     const t = await render(<DiveFormScreen mode="create" />);
-    expect(findTextInput(t, 'Site')).toBeDefined();
+    expect(findPickerField(t, 'Site')).toBeDefined();
     expect(findSaveControl(t)).toBeDefined();
   });
 });
@@ -5371,12 +5353,12 @@ it('saves a planned dive dated in the past without complaint', async () => {
   await waitFor(() => expect(router.back).toHaveBeenCalled());
 });
 
-it("leaves a planned dive planned when the diver only fixes its site name", async () => {
+it("leaves a planned dive planned when the diver only fixes its site", async () => {
   const planned = dive({ id: 'p1', date: '2026-09-05', status: 'planned', siteName: 'Sifra' });
   stubLogbookFor(planned);
   mockUpdate.mockResolvedValue(planned);
   const t = await render(<DiveFormScreen mode="edit" diveId="p1" />);
-  await typeInto(t, 'Site', 'Silfra');
+  await pickPlace(t, 'Site', { id: 'site-silfra', name: 'Silfra' });
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
 
@@ -5437,7 +5419,7 @@ it('opens on the state the route asked for, even when the dive arrives afterward
   await t.rerender(<DiveFormScreen mode="edit" diveId="p1" initialStatus="logged" />);
 
   // The dive really did arrive (otherwise "still on Logged" would be true of a blank form)...
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+  expect(shownIn(t, 'Site')).toBe('Silfra');
   // ...and the control still holds what the route asked for, over the dive's own status.
   expect(plannedIsOn(t)).toBe(false);
 });
@@ -5523,10 +5505,10 @@ describe('the unit setting', () => {
     stubLogbookFor(target);
     mockUpdate.mockResolvedValue(target);
     const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-    await typeInto(t, 'Site', 'Blue Hole II');
+    await pickPlace(t, 'Site', { id: 'site-blue-ii', name: 'Blue Hole II' });
     await pressSave(t);
 
-    expect(writtenPatch()).toEqual({ siteName: 'Blue Hole II' });
+    expect(writtenPatch()).toEqual({ siteName: 'Blue Hole II', siteId: 'site-blue-ii' });
     expect(Object.keys(writtenPatch())).not.toContain('maxDepthM');
   });
 
@@ -5562,9 +5544,9 @@ describe('the unit setting', () => {
 // --- §2.3: autocomplete from the diver's own history ---
 //
 // The list itself is FormField.test.tsx's, and the ranking is suggest.test.ts's. What is
-// this screen's, and is tested here, is the wiring: which four fields get a list, which
-// dives it is drawn from, and — the correctness half — that §6's `site_id` + `site_name`
-// snapshot pair moves together in both directions.
+// this screen's, and is tested here, is the wiring: which fields get a list — buddy and guide,
+// since issue #19 moved site and centre to the picker — which dives it is drawn from, and — the
+// correctness half — that §6's `site_id` + `site_name` snapshot pair moves together.
 
 /** Focuses a field the way a diver does, which is what draws its list (§0.6: the list
  * belongs under the FOCUSED row). `fireEvent(input, 'focus')` rather than a prop, so a
@@ -5601,17 +5583,11 @@ const historyOfTwo = () => [
   dive({ date: '2026-08-10', siteName: 'Blue Hole', centerName: 'Aqua Divers', buddy: 'Anna', guide: 'Karel' }),
 ];
 
-it('offers each of §2.3\'s four fields its own column of the diver\'s history', async () => {
+// §2.3's other two fields keep the inline list under the row (issue #19 moved only site and
+// centre to a page), each from its own column.
+it('buddy and guide still suggest from history inline', async () => {
   stubDives({ dives: historyOfTwo() });
   const t = await render(<DiveFormScreen mode="create" />);
-
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole']);
-
-  await focusField(t, 'Centre');
-  await typeInto(t, 'Centre', 'aq');
-  expect(suggestionsUnder(t, 'Centre')).toEqual(['Aqua Divers']);
 
   await openGroup(t, 'People');
   await focusField(t, 'Buddy');
@@ -5625,48 +5601,49 @@ it('offers each of §2.3\'s four fields its own column of the diver\'s history',
 
 // --- 2026-11-14: the design canvas's suggestion row, and a return key that walks the form ---
 
-// The canvas draws each suggestion with what the diver has done there beneath it and a site's
-// deepest dive trailing, under a "YOUR SITES · n" header. The words are display.test.ts's and
-// the counting suggest.test.ts's; what is this screen's is that every row gets its own history,
-// read from the same dives the list itself is drawn from.
-it('draws what the diver has done at each suggested site, and its deepest dive', async () => {
+// The canvas draws each suggestion with what the diver has done with it beneath it, under a
+// "YOUR BUDDIES · n" header. The words are display.test.ts's and the counting suggest.test.ts's;
+// what is this screen's is that every row gets its own history, read from the same dives the
+// list itself is drawn from.
+it('draws what the diver has done with each suggested buddy', async () => {
   stubDives({
     dives: [
-      dive({ date: '2026-08-20', siteName: 'Silfra', maxDepthM: 12 }),
-      dive({ date: '2026-08-12', siteName: 'Blue Hole', maxDepthM: 30.2 }),
-      dive({ date: '2026-08-10', siteName: 'Blue Hole', maxDepthM: 18 }),
+      dive({ date: '2026-08-20', buddy: 'Petr' }),
+      dive({ date: '2026-08-12', buddy: 'Anna' }),
+      dive({ date: '2026-08-10', buddy: 'Anna' }),
     ],
   });
   const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
+  await openGroup(t, 'People');
+  await focusField(t, 'Buddy');
+  await typeInto(t, 'Buddy', 'ann');
 
-  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole']);
-  expect(textIn(t)).toContain('Your sites · 1');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Anna']);
+  expect(textIn(t)).toContain('Your buddies · 1');
   expect(textIn(t)).toContain(`2 dives · last ${formatDiveDay('2026-08-12')}`);
-  expect(textIn(t)).toContain(formatDepthFigure(30.2, 'metric'));
 });
 
 // Found on a phone: the return key closed the keyboard, so walking down the form meant
 // re-opening it on every row. It reads "next" now and lands in the next text field on screen —
-// Site to Centre here — through react-hook-form's own focus, which is the input instance the
+// Buddy to Guide here — through react-hook-form's own focus, which is the input instance the
 // field handed over.
 it('gives a name field a return key that walks to the next field on screen', async () => {
   stubDives({ dives: historyOfTwo() });
   const t = await render(<DiveFormScreen mode="create" />);
-  const site = findTextInput(t, 'Site');
-  if (!site) throw new Error('no Site field');
-  expect(site.props.returnKeyType).toBe('next');
+  await openGroup(t, 'People');
+  const buddy = findTextInput(t, 'Buddy');
+  if (!buddy) throw new Error('no Buddy field');
+  expect(buddy.props.returnKeyType).toBe('next');
 
   // The test double's `focus` is one spy on the class every input shares; `contexts` records the
   // instance each call was made on, and an input instance carries its own props.
   const focus = (TextInput as unknown as { prototype: { focus: jest.Mock } }).prototype.focus;
   const before = focus.mock.calls.length;
-  await act(() => site.props.onSubmitEditing());
+  await act(() => buddy.props.onSubmitEditing());
   // react-hook-form's `setFocus` focuses on the next tick (a `setTimeout` inside it), so wait.
   await waitFor(() => expect(focus.mock.calls.length).toBe(before + 1));
   const focused = focus.mock.contexts.at(-1) as { props?: { accessibilityLabel?: string } } | undefined;
-  expect(focused?.props?.accessibilityLabel).toBe('Centre');
+  expect(focused?.props?.accessibilityLabel).toBe('Guide');
 });
 
 // Notes is a paragraph, so its return key is a new line, never a step.
@@ -5684,8 +5661,8 @@ it('leaves the notes return key writing a new line', async () => {
 // **What this can and cannot fail on.** Stated because the obvious reading is wrong twice
 // over, and both readings were checked by mutation rather than reasoned about.
 //
-// A row draws a list only when BOTH gates open: `asSuggestedField(name)` names it one of
-// §2.3's four, and its call site passed `history`. So this cannot catch a screen that handed
+// A row draws a list only when BOTH gates open: `asInlineSuggestedField(name)` names it one of
+// the two §2.3 fields still suggested under their own row, and its call site passed `history`. So this cannot catch a screen that handed
 // every `ControlledTextField` a list (the name still decides), and it cannot catch `title`
 // being added to `SUGGESTED_FIELDS` either — that mutation was run, and this test stayed
 // green, because the `Title` call site passes no `history` for the new membership to act on.
@@ -5714,43 +5691,12 @@ it('offers nothing to the fields §2.3 does not name', async () => {
   expect(suggestionsUnder(t, 'Notes')).toEqual([]);
 });
 
-// **The correctness half of this task** (DESIGN.md §10, written for it): "picking a
-// suggestion sets both together... otherwise a dive carries one site's id under another's
-// name, which is latent while every id is null and becomes wrong the day M2 fills them in."
-//
-// Asserted on the WRITE, not on the screen, because that is the level where it can fail:
-// `siteId` has no row of its own — it is not a field a diver types — so nothing on screen
-// would ever show the mismatch. The carried id belongs to a *different* site from the one
-// picked, which is what makes the assertion about provenance rather than about not-null.
-it('fills a site and its paired id from the same suggestion, not from carry-over', async () => {
-  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  stubDives({
-    dives: [
-      dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra' }),
-      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
-    ],
-  });
-  const t = await render(<DiveFormScreen mode="create" />);
-  // Carry-over opened the form on the most recent dive's site — name AND id.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
-
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSuggestion(t, 'Site', 'Blue Hole');
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
-
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Blue Hole');
-  // The id of the dive the NAME came from. `site-silfra` here — the id carry-over opened
-  // with, under a name the diver has since replaced — is the exact defect.
-  expect(writtenInput().siteId).toBe('site-blue');
-});
-
-// The other direction, and the one no existing test could fail on: a typed name no longer
-// refers to the carried id, so the id must be cleared rather than left pointing at a site
-// the dive is no longer at. Both pairs, so the rule is not wired to `site` alone.
-it('clears the paired id when a name is typed over by hand', async () => {
+// §6's pair in an edit, both ways at once: a pick writes the new site's id beside its name, and
+// *No centre* writes the centre's two halves as a real `null` — not absent, which means "don't
+// touch" to the repository (db/dives.ts's patch contract) and would leave the old centre's id
+// under no name at all. Edit mode marks nothing, so emptying the centre there is an edit: the
+// row reads its call to action again, never `— cleared`.
+it('writes a new pair whole in an edit, and No centre as a real null', async () => {
   const target = dive({
     id: 'target', date: '2026-08-16',
     siteName: 'Blue Hole', siteId: 'site-blue',
@@ -5760,16 +5706,15 @@ it('clears the paired id when a name is typed over by hand', async () => {
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
 
-  await typeInto(t, 'Site', 'Somewhere else');
-  await typeInto(t, 'Centre', 'Another centre');
+  await pickPlace(t, 'Site', { id: 'site-silfra', name: 'Silfra' });
+  await pickPlace(t, 'Centre', { id: null, name: '' });
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
 
-  expect(writtenPatch().siteName).toBe('Somewhere else');
-  expect(writtenPatch().centerName).toBe('Another centre');
-  // `null`, not absent: absent means "don't touch" to the repository (db/dives.ts's patch
-  // contract), which would leave one site's id under another site's name in the row.
-  expect(writtenPatch()).toHaveProperty('siteId', null);
+  expect(writtenPatch()).toMatchObject({ siteName: 'Silfra', siteId: 'site-silfra' });
+  expect(writtenPatch()).toHaveProperty('centerName', null);
   expect(writtenPatch()).toHaveProperty('centerId', null);
 });
 
@@ -5801,42 +5746,44 @@ it('drops the carried mark when a suggestion is picked, not only when one is typ
 // also be the most recent one, so it would decide how every other dive's version of that
 // name is displayed, which is the wrong dive to ask.
 it('does not offer the dive under edit its own values back', async () => {
-  const target = dive({ id: 'target', date: '2026-08-16', siteName: 'Blue Hole' });
-  stubDives({ dives: [target, dive({ date: '2026-08-01', siteName: 'Blue Lagoon' })] });
+  const target = dive({ id: 'target', date: '2026-08-16', buddy: 'Petr' });
+  stubDives({ dives: [target, dive({ date: '2026-08-01', buddy: 'Petra' })] });
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Lagoon']);
+  await openGroup(t, 'People');
+  await focusField(t, 'Buddy');
+  await typeInto(t, 'Buddy', 'pe');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Petra']);
 });
 
-// The case §2.3's own wiring is mostly FOR, end to end: carry-over fills the site, so a
-// diver changing sites clears it and is then looking at an empty field. That empty query is
+// The case §2.3's own wiring is mostly FOR, end to end: carry-over fills the buddy, so a diver
+// out with somebody else clears it and is then looking at an empty field. That empty query is
 // not "no suggestions" — it is §2.1's "the app learns: pickers order options by your usage
 // frequency" applied to a text field, and it is the only path where the list appears without
 // a single keystroke. Both halves are asserted in one test because they are one gesture: the
 // field holding its carried value offers nothing (it would be offering itself), and the same
-// field a tap later offers the diver's most-used sites.
-it('offers the most-used sites the moment a carried one is cleared', async () => {
+// field a tap later offers the diver's most-used buddies.
+it('offers the most-used buddies the moment a carried one is cleared', async () => {
   stubDives({
     dives: [
-      dive({ date: '2026-08-20', siteName: 'Silfra' }),
-      dive({ date: '2026-08-10', siteName: 'Blue Hole' }),
-      dive({ date: '2026-08-05', siteName: 'Blue Hole' }),
+      dive({ date: '2026-08-20', buddy: 'Petr' }),
+      dive({ date: '2026-08-10', buddy: 'Anna' }),
+      dive({ date: '2026-08-05', buddy: 'Anna' }),
     ],
   });
   const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
-  expect(suggestionsUnder(t, 'Site')).toEqual([]);
+  await openGroup(t, 'People');
+  await focusField(t, 'Buddy');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual([]);
 
-  const clear = findClearCarried(t, 'Site');
-  if (!clear) throw new Error('Site was not marked carried to begin with');
+  const clear = findClearCarried(t, 'Buddy');
+  if (!clear) throw new Error('Buddy was not marked carried to begin with');
   await fireEvent.press(clear);
 
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('');
   // Most-used first, most recent breaking the tie — not the order the dives arrived in.
-  expect(suggestionsUnder(t, 'Site')).toEqual(['Blue Hole', 'Silfra']);
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Anna', 'Petr']);
 });
 
 // --- §2.1: cylinder presets, applied and captured in the Gas & cylinders group (M1e) ---
@@ -5911,7 +5858,7 @@ async function addPresetNamed(t: RenderResult, name: string) {
  * only knows the diver moved anything because of `{ shouldDirty: true }` — and
  * `resetOptions.keepDirtyValues` protects nothing else. Without the flag the next `values`
  * re-sync replaces both from carry-over: the paired id reverts to the id of a site the diver
- * has already typed over (`siteName: "Blue Hole"` with `siteId: "site-silfra"`, which is
+ * has already picked over (`siteName: "Blue Hole"` with `siteId: "site-silfra"`, which is
  * verbatim the defect §10's autocomplete entry was amended for), and applied cylinders
  * silently become the previous dive's again.
  *
@@ -5931,19 +5878,17 @@ async function addPresetNamed(t: RenderResult, name: string) {
  * dirty on its own — so the two gestures that bypass the `Controller` are exactly the two the
  * suite never reached.
  *
- * **Since M2s the first of the two no longer pins its flag on its own**, and saying so here is
- * cheaper than the next reader discovering it: picking a site also runs `applySiteDefaults`,
- * whose fill can write a value equal to the seed's, and such a write makes react-hook-form
- * re-derive the whole dirty set from the values/seed diff rather than record one field —
- * sweeping `siteId` in whether or not `setPairedId` flagged it. Deleting `shouldDirty` from
- * `setPairedId` alone therefore leaves this test green; deleting it from the fill as well
- * turns it red. The cylinder test below is unaffected and still fails on its own flag.
+ * **The first of the two no longer pins its flag on its own**, and saying so here is cheaper
+ * than the next reader discovering it: a pick writes the name through the row's `Controller`
+ * straight after the id, and that write — differing from the seed's, on a form the id has just
+ * made dirty — makes react-hook-form re-derive the whole dirty set from the values/seed diff
+ * rather than record one field, sweeping `siteId` in whether or not `setPairedId` flagged it.
+ * Deleting `shouldDirty` from `setPairedId` therefore leaves this test green. The cylinder test
+ * below is unaffected and still fails on its own flag.
  *
- * The flag itself is pinned again, and elsewhere: *keeps the pair when a newer dive lands while
- * the row is still being written* (the M2o catalogue block) reaches it through a diver who has
- * already answered the three water rows, which leaves `applySiteDefaults` with nothing to write
- * and no dirty set to re-derive. This test keeps the shape it has — it is about a PICK, and a
- * pick fills — rather than being rewritten to dodge the masking it documents.
+ * The flag itself is pinned elsewhere: *keeps both halves of the pair when a newer dive lands
+ * on a picked name* (below) picks the very name the seed already holds, so the name's write is
+ * pristine, nothing re-derives, and the flag is the only thing holding the id.
  */
 
 it('keeps a picked paired id when carry-over resolves again afterwards', async () => {
@@ -5955,9 +5900,7 @@ it('keeps a picked paired id when carry-over resolves again afterwards', async (
     ],
   });
   const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSuggestion(t, 'Site', 'Blue Hole');
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
 
   // A newer dive lands, so carry-over re-derives from a different source — and differs in a
   // field nothing here touches, so the re-sync actually runs.
@@ -5977,10 +5920,72 @@ it('keeps a picked paired id when carry-over resolves again afterwards', async (
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   // Asserted on the WRITE, because `siteId` has no row of its own — nothing on screen would
-  // ever show the mismatch. The name is dirty from the typing and survives either way; the id
-  // is the half only `shouldDirty` keeps.
+  // ever show the mismatch. The name differs from the seed's, so the pick recorded it and it
+  // survives either way; the id is the half only `shouldDirty` keeps.
   expect(writtenInput().siteName).toBe('Blue Hole');
   expect(writtenInput().siteId).toBe('site-blue');
+});
+
+/**
+ * **§6's pair has to cross a reseed whole, and the half `shouldDirty` can keep is not the half
+ * at risk.**
+ *
+ * Carry-over put `Kotelna` in the row with no id, and the diver picks the catalogue's
+ * `Kotelna`. The name the pick writes is EQUAL to the seed's, and a pristine write records
+ * nothing however it is flagged — while the id beside it differs from the seed and is recorded
+ * like any other. So a newer dive landing afterwards kept the id and re-synced the name, and the
+ * dive was saved as this row's id under the newer source's name: verbatim §10's autocomplete
+ * defect, reached through a race, and invisible without the row to show it.
+ *
+ * `SeedState.pairedNames` is what closes it, by putting the paired name back into the seed the
+ * form resets to. Asserted on both the row and the write, because those are two different
+ * failures: a form that showed the right name and saved the wrong one would be the worse. It is
+ * also the one test that pins `setPairedId`'s own `shouldDirty`: the pristine name write
+ * re-derives nothing, so that flag alone holds the id.
+ */
+it('keeps both halves of the pair when a newer dive lands on a picked name', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickPlace(t, 'Site', { id: 'site-kotelna', name: 'Kotelna' });
+  await act(async () => {});
+
+  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Silfra', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(shownIn(t, 'Site')).toBe('Kotelna');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput().siteName).toBe('Kotelna');
+  expect(writtenInput().siteId).toBe('site-kotelna');
+});
+
+/**
+ * ***No centre* survives the reseed a newer dive brings.** The empty name goes through the row's
+ * `Controller`, which records it against the seed's `null`, so `keepDirtyValues` keeps the
+ * blank — and the centre was the diver's own pick, so the row reads its call to action rather
+ * than `— cleared`.
+ */
+it('keeps No centre through a reseed after a pick', async () => {
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  stubDives({ dives: [dive({ date: '2026-08-20', buddy: 'Petr' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await pickPlace(t, 'Centre', { id: 'centre-aqua', name: 'Aqua Divers' });
+  await pickPlace(t, 'Centre', { id: null, name: '' });
+
+  stubDives({ dives: [dive({ date: '2026-08-21', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(Object.keys(writtenInput())).not.toContain('centerName');
+  expect(Object.keys(writtenInput())).not.toContain('centerId');
 });
 
 it('keeps applied preset cylinders when carry-over resolves again afterwards', async () => {
@@ -6474,9 +6479,9 @@ it('applies every cylinder a preset holds, not just the one the form shows', asy
   expect(writtenTanks()?.[1]?.sizeL).toBe(7);
 });
 
-// The third gesture that moves §6's snapshot pair, and the one nothing defended until now:
-// the clear control. Typing and picking are pinned on the write payload above; clearing was
-// not, and deleting its `onPairedId` line left all 1012 tests green.
+// The other gesture that moves §6's snapshot pair: the clear control. Picking is pinned on the
+// write payload above; clearing was not, and deleting its `onPairedId` line once left all 1012
+// tests green.
 //
 // **Create mode, because that is the only mode the chip exists in** — it means "this came
 // from your last dive", so `seedStateFor` marks nothing at all under edit. That makes the
@@ -6484,7 +6489,7 @@ it('applies every cylinder a preset holds, not just the one the form shows', asy
 // a cleared pair leaves neither half in the payload. It is still exactly falsifiable — with
 // the clear removed the payload carries `siteId: 'site-blue'` under no site name at all,
 // which is the defect in its purest form: a dive that names no site while pointing at one.
-it('clears the paired id when the carried chip is cleared, not only when a name is typed', async () => {
+it('clears the paired id when the carried chip is cleared', async () => {
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   stubDives({
     dives: [dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue', centerName: 'Aqua Divers', centerId: 'centre-aqua' })],
@@ -6498,8 +6503,7 @@ it('clears the paired id when the carried chip is cleared, not only when a name 
   if (!clearCentre) throw new Error('Centre was not marked carried to begin with');
   await fireEvent.press(clearCentre);
 
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('');
-  expect(findTextInput(t, 'Centre')?.props?.value).toBe('');
+  expect(clearedRowLabels(t)).toEqual(['Site', 'Centre']);
 
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
@@ -6514,25 +6518,26 @@ it('clears the paired id when the carried chip is cleared, not only when a name 
 
 // §2.4 is why this is the right call, and a decision nothing defends is one an innocent
 // refactor deletes: adding `.filter(d => d.status === 'logged')` to the screen's `history`
-// used to leave every test green. A planned dive is a site the diver typed an hour ago on the
-// boat, which is the site they are most likely to type next.
+// used to leave every test green. A planned dive is a buddy the diver typed an hour ago on the
+// boat, which is the buddy they are most likely to type next.
 //
 // It also pins the deliberate DIFFERENCE from `carryOverSource`, which takes the most recent
-// LOGGED dive: the field opens on Silfra (carry-over skipped the planned dive) while the
-// planned dive's own site is still offered. One list, two questions, two answers.
-it('offers a site from a dive that is only planned, though carry-over skips it', async () => {
+// LOGGED dive: the field opens on Petr (carry-over skipped the planned dive) while the planned
+// dive's own buddy is still offered. One list, two questions, two answers.
+it('offers a buddy from a dive that is only planned, though carry-over skips it', async () => {
   stubDives({
     dives: [
-      dive({ status: 'planned', date: '2026-09-15', siteName: 'Kotelna' }),
-      dive({ status: 'logged', date: '2026-08-01', siteName: 'Silfra' }),
+      dive({ status: 'planned', date: '2026-09-15', buddy: 'Kamila' }),
+      dive({ status: 'logged', date: '2026-08-01', buddy: 'Petr' }),
     ],
   });
   const t = await render(<DiveFormScreen mode="create" />);
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Silfra');
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Petr');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'kot');
-  expect(suggestionsUnder(t, 'Site')).toEqual(['Kotelna']);
+  await focusField(t, 'Buddy');
+  await typeInto(t, 'Buddy', 'kam');
+  expect(suggestionsUnder(t, 'Buddy')).toEqual(['Kamila']);
 });
 
 // **The form is the screen that does NOT read the device at its bottom, and this is why**
@@ -6590,35 +6595,14 @@ it('leaves the form scroll indifferent to the device, and its footer is what spe
 });
 
 // =========================================================================================
-// M2o — §5's "any signed-in user can add a site or center", from the form
+// Issue #19 — the Site and Centre rows open the picker
 // =========================================================================================
 //
-// The catalogue write itself is `db/catalogue.ts`'s and was tested in M2d; what a new row
-// INHERITS from the dive is `diveFormSchema.test.ts`'s; what a point's country is, and that a
-// missing pin has none, is `platform/geocode.test.ts`'s. What is this screen's, and is tested
-// here, is the gesture: who is offered it, when it appears and disappears, what it hands the
-// two writers, and that §1 holds when it fails.
-
-/**
- * **The sentences this feature puts on screen, written out here and not read off the screen's
- * own table.**
- *
- * The same independent witness `FIELD_LABELS`, `CHIP_MARKS` and `REFUSAL_SENTENCES` are, for
- * the same reason: a sweep that asked the screen for its wording would agree with a screen
- * that said the wrong thing, or said one thing twice. Three properties are checked below and
- * none implies the others — that each row reads THIS, that a site and a centre never read
- * alike, and that the quoted name is the diver's own text rather than a fixed word.
- *
- * The offer names **what will exist afterwards**, not where it goes: "catalogue" is this
- * project's word for the table and not a diver's word for anything.
- */
-const CATALOGUE_SENTENCES = {
-  site: { offer: (name: string) => `Add “${name}” as a new site`, busy: 'Adding the site…' },
-  centre: { offer: (name: string) => `Add “${name}” as a new dive centre`, busy: 'Adding the centre…' },
-};
-
-/** §1, said in a row: the write failed and the dive did not. */
-const ADD_FAILED = 'Could not add that just now — the dive keeps the name.';
+// The two rows stopped being text inputs: a place on a dive is always a catalogue row, picked or
+// created on the *Choose a site / Choose a centre* page. The page, the list and the create page
+// are `PlacePickerScreen.test.tsx`'s and `NewPlaceScreen.test.tsx`'s, and the hand-off is
+// `placePick.test.ts`'s. What is this screen's, and is tested here, is the row: what it reads, what
+// it hands the picker, and that the pick lands through the one path that sets §6's pair.
 
 /** A signed-in diver. The session object is only ever compared against `null` by this screen
  * (§5 asks whether anyone is signed in, never who), so this is the smallest thing that is not
@@ -6627,571 +6611,49 @@ function signedIn() {
   mockUseAuthSession.mockReturnValue({ session: { user: { id: 'diver' } }, resolved: true });
 }
 
-/** Every *add* offer on screen, in the order it is drawn, read off the label each row
- * announces — so this sees exactly what a screen reader would, and can never mistake one of
- * §2.3's `Fill … with …` suggestions for one of these. */
-function addOffersIn(t: RenderResult): string[] {
-  return buttonsOf(t)
-    .map((n) => String(n.props?.accessibilityLabel ?? ''))
-    .filter((announced) => announced.startsWith('Add '));
-}
-
-/** Leaves a field, which is what a device does the moment another one is focused — and which
- * `fireEvent(input, 'focus')` on a sibling deliberately does not do here, since these are two
- * bare `TextInput`s in a test renderer and not a real focus manager. Spelled out rather than
- * assumed, because "the offer belongs to the focused row" is a claim about both edges. */
-async function blurField(t: RenderResult, label: string) {
-  const input = findTextInput(t, label);
-  if (!input) throw new Error(`no field labelled ${label}`);
-  await fireEvent(input, 'blur');
-}
-
-async function pressAddOffer(t: RenderResult, label: string) {
-  const row = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === label);
-  if (!row) throw new Error(`no offer reading ${label}`);
+/** Presses a place row, by the `label: value` it announces, and hands back the request it opened
+ * the picker with. */
+async function openPlace(t: RenderResult, label: string): Promise<PlacePickRequest> {
+  const row = findPickerField(t, label);
+  if (!row) throw new Error(`no ${label} row found`);
+  const before = mockOpenPicker.mock.calls.length;
   await fireEvent.press(row);
+  const request = mockOpenPicker.mock.calls[before]?.[0] as PlacePickRequest | undefined;
+  if (request === undefined) throw new Error(`the ${label} row opened no picker`);
+  return request;
 }
 
-/** Types a name into a field the diver has focused — which is what draws both answers to
- * "what does this name mean": the list, and the offer to publish it. */
-async function nameInto(t: RenderResult, label: string, value: string) {
-  await focusField(t, label);
-  await typeInto(t, label, value);
-}
-
-/** What `createDiveSite` / `createDiveCenter` were handed, minus the database. */
-function siteCreated(call = 0): Record<string, unknown> {
-  return (mockCreateSite.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
-}
-
-function centreCreated(call = 0): Record<string, unknown> {
-  return (mockCreateCentre.mock.calls[call]?.[1] ?? {}) as Record<string, unknown>;
-}
-
-// --- Who is offered this at all ---
-
-// **§5 is the rule and this is the test that can fail on it.** A test that stubs a session and
-// creates a site says nothing about what a guest gets, so this is the other half: the offer is
-// absent, and — the part that is a design decision rather than a permission check — the form
-// says NOTHING about why. §1 makes the account optional, so a row reading "sign in to add
-// this" would be both a dead control and a nag, on the app's most-used gesture, on every dive.
-it('offers a guest nothing, and says nothing to them about an account', async () => {
-  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  expect(addOffersIn(t)).toEqual([]);
-
-  await nameInto(t, 'Centre', 'Emperor');
-  expect(addOffersIn(t)).toEqual([]);
-
-  // Nothing anywhere on the form mentions signing in, an account, or the community — not a
-  // note under the row, not a caption, not a disabled control.
-  const said = textIn(t).join(' ').toLowerCase();
-  for (const word of ['sign in', 'sign up', 'account', 'community']) expect(said).not.toContain(word);
-  expect(fieldNotesIn(t)).toEqual([]);
-});
-
-// The same form, the same typing, one thing different — which is what makes the test above a
-// statement about the gate rather than about the offer never appearing at all.
-it('offers a signed-in diver the site their text names', async () => {
-  signedIn();
-  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
-});
-
-// §5 covers "a site or center" in one sentence, and the two rows must not read alike: the
-// diver is publishing a place or a business, and only the wording says which.
-it('offers a centre in its own words, under its own row', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Centre', 'Emperor');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.centre.offer('Emperor')]);
-  expect(CATALOGUE_SENTENCES.site.offer('Emperor')).not.toBe(CATALOGUE_SENTENCES.centre.offer('Emperor'));
-});
-
-// §2.3: buddies and guides "stay private text, not user accounts". They autocomplete exactly
-// as site and centre do and are handed the same prop, so the only thing keeping a diver's
-// buddy out of a shared table is `pairedIdField` answering `null` for them.
-it('never offers to publish a buddy or a guide', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'People');
-  await nameInto(t, 'Buddy', 'Anna');
-  expect(addOffersIn(t)).toEqual([]);
-  await nameInto(t, 'Guide', 'Karel');
-  expect(addOffersIn(t)).toEqual([]);
-});
-
-it('offers nothing for an empty field, and offers again from the first character', async () => {
-  signedIn();
-  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Silfra' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', '');
-  expect(addOffersIn(t)).toEqual([]);
-  await typeInto(t, 'Site', '   ');
-  expect(addOffersIn(t)).toEqual([]);
-  await typeInto(t, 'Site', 'K');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('K')]);
-});
-
-// §0.6 gives the list to the FOCUSED row, and the offer shares that slot — so a form with four
-// autocompleting fields never shows two of these at once.
-it('draws the offer under the focused row and nowhere else', async () => {
-  signedIn();
-  stubDives({ dives: [dive({ date: '2026-08-10', siteName: 'Kotelna', centerName: 'Emperor' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  expect(addOffersIn(t)).toEqual([]);
-
-  await focusField(t, 'Site');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
-
-  await blurField(t, 'Site');
-  expect(addOffersIn(t)).toEqual([]);
-
-  await focusField(t, 'Centre');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.centre.offer('Emperor')]);
-});
-
-// --- When the name already names a row ---
-
-// The dive in front of the diver already holds the pair (§6): carry-over brought both halves
-// across, or they picked a suggestion. There is nothing to add.
-//
-// **In edit mode, and that is what makes this test about the form's own id rather than about
-// the history guard beneath it.** `history` excludes the dive under edit, so the only dive
-// pairing "Kotelna" is the one being edited — and `hasPairedId` cannot see it. Written in
-// create mode first, where carry-over's source dive is ALSO in the history and suppressed the
-// offer twice over: the test passed with this gate deleted, which is the vacuous guard this
-// file has paid for three times already.
-it('stops offering once the dive already holds a paired id', async () => {
-  signedIn();
-  stubLogbookFor(dive({ id: 'target', date: '2026-08-16', siteName: 'Kotelna', siteId: 'site-kotelna' }));
-  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
-  await focusField(t, 'Site');
-  expect(addOffersIn(t)).toEqual([]);
-
-  // ...and offers again the moment the name stops referring to that row, which is the same
-  // keystroke that clears the id.
-  await typeInto(t, 'Site', 'Kotelna II');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna II')]);
-});
-
-// **The duplicate this app is most likely to create: one of the diver's own.** A name they
-// have dived before at a site that IS in the catalogue must not be offered a second row —
-// `hasPairedId` (domain/suggest.ts) is what answers, over the whole history rather than the
-// most recent spelling. Paired with the second half, so this cannot pass by never offering.
-it('stops offering a name the diver has already dived at a catalogued site', async () => {
-  signedIn();
-  stubDives({
-    dives: [
-      dive({ date: '2026-08-20', siteName: 'Silfra' }),
-      dive({ date: '2026-08-01', siteName: 'Kotelna', siteId: 'site-kotelna' }),
-    ],
-  });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'kotelna');
-  expect(addOffersIn(t)).toEqual([]);
-
-  await typeInto(t, 'Site', 'Kotelna II');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna II')]);
-});
-
-// **The case §5 exists for, and the one a "matches nothing you have used before" rule would
-// lose.** Every dive logged before M2o carries a name and no id, so a diver's home site — the
-// one they have logged forty times — is exactly the site worth publishing. The offer has to
-// survive a full history of it.
-it('keeps offering a name the diver dives constantly and has never published', async () => {
-  signedIn();
-  stubDives({
-    dives: [
-      dive({ date: '2026-08-20', siteName: 'Kotelna' }),
-      dive({ date: '2026-08-10', siteName: 'Kotelna' }),
-      dive({ date: '2026-08-01', siteName: 'Kotelna' }),
-    ],
-  });
-  const t = await render(<DiveFormScreen mode="create" />);
-  // Carry-over opened the form on it, so the diver need not type a character.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-  await focusField(t, 'Site');
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
-});
-
-// --- What the row is made of ---
-
-// §2.1 calls entry, salinity and water body the SITE DEFAULTS and §2.2 says why they are
-// properties of the place; §2.3 says a pin comes from "use my location, pressed right on the
-// boat"; §2.3 says the country is inferred. Everything else on the form is what one day was
-// like. The decision is `siteFactsFrom`'s docblock and its own tests; what is asserted here is
-// that this screen hands the writer that and nothing else — including the max depth typed two
-// rows away, which is a fact about the diver and not about the wall they dived.
-it('hands the site the facts the dive can speak for, and nothing else', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await typeInto(t, 'Max depth', '12');
-  await openGroup(t, 'Water & entry');
-  await pressGps(t);
-  await pressChip(t, 'Entry', 1);
-  await pressChip(t, 'Salinity', 0);
-  await pressChip(t, 'Water body', 0);
-
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(siteCreated()).toEqual({
-    name: 'Kotelna',
-    latitude: FOUND_HERE.latitude,
-    longitude: FOUND_HERE.longitude,
-    entry: ENTRY_VALUES[1],
-    salinity: SALINITY_VALUES[0],
-    waterBody: WATER_BODY_VALUES[0],
-    country: 'HR',
-  });
-  // The dive's own depth is 12 m; the SITE's depth (§6) is a different fact with one name, and
-  // no single dive establishes it.
-  expect(siteCreated()).not.toHaveProperty('maxDepthM');
-});
-
-// §2.3: "country is inferred". Inferred FROM THE PIN — the row's own point and nothing else,
-// which is why the pair this screen hands over is the one it is about to store. What the
-// module then does with it, including a missing pin, is `platform/geocode.test.ts`'s.
-it('asks about the row’s own pin when inferring a country', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Water & entry');
-  await pressGps(t);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(mockCountry).toHaveBeenCalledWith(FOUND_HERE.latitude, FOUND_HERE.longitude);
-});
-
-// **The boat with no signal.** A geocoder that cannot answer costs the row its country and
-// nothing else: the site is created, it keeps the pin that is the evidence for a country, and
-// nobody is shown a guess.
-it('creates the site without a country when none can be inferred', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCountry.mockResolvedValue(null);
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Water & entry');
-  await pressGps(t);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(siteCreated().country).toBeNull();
-  expect(siteCreated().latitude).toBe(FOUND_HERE.latitude);
-  expect(fieldNotesIn(t)).toEqual([]);
-});
-
-// A dive knows the site it happened at and knows nothing about the shop on shore but its
-// name — so a centre gets no pin (which would file the dive site as the centre's address) and
-// no country (which would be inferred from that same wrong pin, and a guess is not a country).
-// Asserted with a pin ON the form, so a screen that seeded one would fail here.
-it('hands a centre its name alone, with a pin sitting right there on the form', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Water & entry');
-  await pressGps(t);
-  await nameInto(t, 'Centre', 'Emperor');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
-
-  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
-  expect(centreCreated()).toEqual({ name: 'Emperor' });
-  expect(mockCountry).not.toHaveBeenCalled();
-  expect(mockCreateSite).not.toHaveBeenCalled();
-});
-
-// The trimmed spelling is what the row carries AND what the field keeps, so §6's snapshot and
-// the row it points at are one string rather than two that differ by a space.
-it('publishes the trimmed name and writes it back into the field', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', '  Kotelna  ');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(siteCreated().name).toBe('Kotelna');
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-});
-
-// --- The whole point: an unpaired name is text, a paired one is a place ---
-
-// §6's pairing, asserted on the WRITE, because `siteId` has no row of its own and nothing on
-// screen would ever show it. The id is the one the writer handed back, so a screen that paired
-// the dive with anything else — a name, a fresh id of its own — fails on provenance.
-it('pairs the dive with the row it just created, on both halves', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-
-  await nameInto(t, 'Centre', 'Emperor');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
-  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
-
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Kotelna');
-  expect(writtenInput().siteId).toBe('new-site');
-  expect(writtenInput().centerName).toBe('Emperor');
-  expect(writtenInput().centerId).toBe('new-centre');
-});
-
-/**
- * **§6's pair has to cross a reseed whole, and the half `shouldDirty` can keep is not the half
- * at risk.**
- *
- * The diver never types here: the name in the row is carry-over's, they tap it and publish it.
- * That makes the write that puts the trimmed spelling back EQUAL to the seed's value, and a
- * pristine write records nothing however it is flagged — while the id beside it differs from
- * the seed and is recorded like any other. So a newer dive landing afterwards kept the id and
- * re-synced the name, and the dive was saved as this row's id under the newer source's name:
- * verbatim §10's autocomplete defect, reached through a race instead of a keystroke, and
- * invisible — `siteId` has no row, so the form showed *Silfra* and meant *Kotelna*.
- *
- * `SeedState.pairedNames` is what closes it, by putting the paired name back into the seed the
- * form resets to rather than by trying to defend a value from that reset. Asserted on both the
- * field and the write, because those are two different failures: a form that showed the right
- * name and saved the wrong one would be the worse of the two.
- *
- * **The mark is asserted on both sides of the reseed, and it changes.** Publishing a carried
- * name leaves §0.6's mark standing — nothing was overwritten, and the name really is the one
- * the last dive had. The reseed is where that stops being true: the source is a different dive
- * now, and a mark saying *carried from dive #N* over a name dive #N never held is the caption
- * `SeedState.fromSite` exists to prevent, one field over.
- */
-it('keeps both halves of the pair when a newer dive lands on a published name', async () => {
-  signedIn();
-  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  // Carry-over's own name, in a row nobody has typed in — which is the whole setup.
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-  await focusField(t, 'Site');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(findClearCarried(t, 'Site')).toBeDefined();
-
-  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Silfra', buddy: 'Ondra' })] });
-  await t.rerender(<DiveFormScreen mode="create" />);
-  // The re-sync really ran: a field nothing here touched took the new source's value.
-  await openGroup(t, 'People');
-  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
-
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-  expect(findClearCarried(t, 'Site')).toBeUndefined();
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Kotelna');
-  expect(writtenInput().siteId).toBe('new-site');
-});
-
-// The other side of that mark, and the reason the pin reports which names it actually
-// replaced rather than which names it holds: a newer dive at the SAME site re-seeds the row
-// with the very spelling the pin would put there, so nothing was overruled and §0.6's mark goes
-// on telling the truth. A pin that stripped the mark whenever it was set would take a caption
-// off a value that really did come from the last dive — the mirror of the mistake
-// `takes the carried mark off a row the site replaced…` guards for the site defaults.
-it('leaves the mark standing when the newer dive is at the same site', async () => {
-  signedIn();
-  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-
-  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Kotelna', buddy: 'Ondra' })] });
-  await t.rerender(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'People');
-  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
-
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-  expect(findClearCarried(t, 'Site')).toBeDefined();
-});
-
-/**
- * **The same pair, with the reseed landing in the middle of the write** — the race the
- * spelling's own `{ shouldDirty: true }` used to exist for, and the reason it no longer does.
- *
- * `createDiveSite` is awaited, so a newer dive can arrive between the press and the id coming
- * back: the reseed re-syncs the untyped name to the new source's, and the write that follows
- * puts the published spelling back over it. That write is no longer the thing that has to
- * survive the NEXT reseed — the pin it sets in the same breath is — so the flag it used to
- * carry was one no mutation could kill, and §10's remedy for a guard nothing can falsify is to
- * remove it rather than to defend it.
- *
- * Three sources, because two would not separate the mechanisms: the middle one is what makes
- * the write land on a re-synced field, and the third is the reseed the pin has to survive.
- *
- * **The three water chips are not scenery, and this test is worthless without them.** They put
- * those rows in `SeedState.typed`, which is what makes `applySiteDefaults` write nothing on
- * this tap — and a fill that writes a value EQUAL to the seed's makes react-hook-form re-derive
- * the whole dirty set from the values/seed diff, sweeping in every other field that differs,
- * this name included. With the fill left free to run, deleting the pin outright leaves this
- * test green: it would be passing on a neighbouring feature's side effect, which is the exact
- * trap the paired-id test above documents falling into.
- */
-it('keeps the pair when a newer dive lands while the row is still being written', async () => {
-  signedIn();
-  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  let finish: (row: { id: string }) => void = () => {};
-  mockCreateSite.mockReturnValue(new Promise<{ id: string }>((resolve) => { finish = resolve; }));
-  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', buddy: 'Petr' })] });
-  const t = await render(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'Water & entry');
-  await pressChip(t, 'Entry', 0);
-  await pressChip(t, 'Salinity', 0);
-  await pressChip(t, 'Water body', 0);
-
-  await focusField(t, 'Site');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  // Mid-flight: the name the diver published is re-synced away under them, which is exactly
-  // what makes the write below land on a field the seed has already re-decided.
-  stubDives({ dives: [dive({ date: '2026-08-21', siteName: 'Blue Hole', buddy: 'Ondra' })] });
-  await t.rerender(<DiveFormScreen mode="create" />);
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Blue Hole');
-
+/** Picks a place on a row the way the picker hands one back: press the row, then deliver. */
+/** The form becoming the focused screen again — the picker closing by any of its ways out. Runs
+ * every focus effect the form has registered, as React Navigation does on focus. */
+async function regainFocus() {
+  const effects = new Set(mockUseFocusEffect.mock.calls.map(([effect]) => effect as () => void));
   await act(async () => {
-    finish({ id: 'new-site' });
+    for (const effect of effects) effect();
   });
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
+}
 
-  stubDives({ dives: [dive({ date: '2026-08-22', siteName: 'Silfra', buddy: 'Jana' })] });
-  await t.rerender(<DiveFormScreen mode="create" />);
-  await openGroup(t, 'People');
-  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Jana');
-
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Kotelna');
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Kotelna');
-  expect(writtenInput().siteId).toBe('new-site');
-});
-
-// Success is silent and the offer simply stops being offered — `PresetCapture` on this same
-// screen behaves identically (the naming row closes, and *Save as preset* disappears once the
-// cylinders match a preset), and §0.6 says accepting costs nothing. What would be wrong is a
-// receipt: a sentence under the row a diver has to read past on the way to saving their dive.
-it('goes quiet once the row exists, rather than reporting back', async () => {
-  signedIn();
-  stubReturningDiver();
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  await waitFor(() => expect(addOffersIn(t)).toEqual([]));
-  expect(fieldNotesIn(t)).toEqual([]);
-});
-
-// --- In flight, and when it fails ---
-
-// The row says what it is doing and refuses a second press — a control that has gone quiet
-// must say it will come back, and two presses would publish the same site twice under two ids,
-// which no duplicate check can undo afterwards.
-it('shuts the offer while it writes, and says what it is doing', async () => {
-  signedIn();
-  stubReturningDiver();
-  let finish: (row: { id: string }) => void = () => {};
-  mockCreateSite.mockReturnValue(new Promise<{ id: string }>((resolve) => { finish = resolve; }));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-
-  expect(addOffersIn(t)).toEqual([]);
-  expect(textIn(t)).toContain(CATALOGUE_SENTENCES.site.busy);
-  const busyRow = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === CATALOGUE_SENTENCES.site.busy);
-  expect(busyRow?.props?.accessibilityState).toEqual({ disabled: true, busy: true });
-  await fireEvent.press(busyRow!);
-  expect(mockCreateSite).toHaveBeenCalledTimes(1);
-
+/** Picks a place on a row the way the picker hands one back: press the row, deliver the pick,
+ * and the picker closes back to the form. */
+async function pickPlace(t: RenderResult, label: string, pick: PlacePick) {
+  const request = await openPlace(t, label);
   await act(async () => {
-    finish({ id: 'new-site' });
+    request.onPick(pick);
   });
-  expect(textIn(t)).not.toContain(CATALOGUE_SENTENCES.site.busy);
-});
+  await regainFocus();
+}
 
-// **§1, in the direction the brief states it: the dive is the thing being logged and the
-// catalogue row is a by-product.** The write fails, the row says so, and the dive saves with
-// its name snapshot and no id — which is exactly what §6 stores that snapshot for. Both halves
-// together, because the failure that matters is the pair coming apart.
-it('says so when the row cannot be created, and never blocks the dive', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCreateSite.mockRejectedValue(new Error('no'));
-  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+/** A place row's own ring while it holds a value the diver put there — `Clear Site`, not
+ * `Clear carried Site`, which `findClearCarried` finds. */
+async function pressPlaceRing(t: RenderResult, label: string) {
+  const ring = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === `Clear ${label}`);
+  if (!ring) throw new Error(`no ring on the ${label} row`);
+  await fireEvent.press(ring);
+}
 
-  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
-  // Still offered, so the diver can try again — a refusal that took the control away would be
-  // the dead control the sentence exists to prevent, reached from the other side.
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Kotelna')]);
-
-  await pressSave(t);
-  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Kotelna');
-  expect(writtenInput()).not.toHaveProperty('siteId');
-});
-
-// The sentence described the name that was in the box, so it goes with it — the same rule
-// `PresetCapture` follows on this screen and `ControlledPositionField` follows one group down.
-it('drops the failure sentence on the next keystroke', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCreateSite.mockRejectedValue(new Error('no'));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
-
-  await typeInto(t, 'Site', 'Kotelna II');
-  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
-});
-
-// =========================================================================================
-// M2p — §2.3's "Did you mean Shark Point?", between the press and the row
-// =========================================================================================
-//
-// The RPC call is `cloud/similarSites.test.ts`'s and what counts as a near-match is
-// `domain/suggest.test.ts`'s. What is this screen's, and is tested here, is the sequence: that
-// the check happens BEFORE anything is created, that a question can always be walked past,
-// that one tap pairs the dive with the existing site instead, and that none of it can reach
-// the dive.
-
-/**
- * **The sentences the check puts on screen, written out here rather than read off the
- * screen's own constants** — the same independent witness `CATALOGUE_SENTENCES` above is, for
- * the same reason.
- *
- * `anyway` is spelled out in full rather than built from `CATALOGUE_SENTENCES.site.offer`,
- * even though the screen derives it: a witness that applied the screen's own derivation would
- * agree with a screen that derived it wrongly.
- */
-const CHECK_SENTENCES = {
-  question: (name: string) => `Did you mean “${name}”?`,
-  anyway: (name: string) => `Add “${name}” as a new site anyway`,
-  looking: 'Looking for a match…',
-};
-
-/** A catalogue row as the device holds it. Only the two columns the check reads carry a
- * meaningful value; the rest are the nulls `dive_sites` allows (§6), spelled out so this is a
- * real `DiveSite` rather than something cast into the shape of one. */
+/** A catalogue row as the device holds it. Only the columns a test names carry a meaningful
+ * value; the rest are the nulls `dive_sites` allows (§6), spelled out so this is a real
+ * `DiveSite` rather than something cast into the shape of one. */
 const catalogued = (name: string, id: string): DiveSite => ({
   id,
   name,
@@ -7211,349 +6673,268 @@ const catalogued = (name: string, id: string): DiveSite => ({
   dirty: false,
 });
 
-/** Every question currently on screen, read off the label each row announces — so this sees
- * what a screen reader would, and can never mistake a question for one of §2.3's ordinary
- * `Fill … with …` suggestions or for the *Add …* act beneath it. */
-function questionsIn(t: RenderResult): string[] {
-  return buttonsOf(t)
-    .map((n) => String(n.props?.accessibilityLabel ?? ''))
-    .filter((announced) => announced.startsWith('Did you mean'));
-}
-
-async function pressQuestion(t: RenderResult, label: string) {
-  const row = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === label);
-  if (!row) throw new Error(`no question reading ${label}`);
-  await fireEvent.press(row);
-}
-
-/** The press, plus the settle every one of these needs: the check is a promise and the row
- * re-renders when it answers. */
-async function askToAdd(t: RenderResult, label: string) {
-  await pressAddOffer(t, label);
-  await act(async () => {});
-}
-
-// --- The check runs, and it runs first ---
-
-// §5 asks the fuzzy check about a name and a place. Both sources are asked — the device's own
-// catalogue (which needs no network at all) and the server — and the server is handed the pin
-// the row would be created with, because a name check across the whole world and a name check
-// near this boat are different questions.
-it('asks both catalogues before it creates anything, and hands over the row’s own pin', async () => {
-  signedIn();
+// The empty row says what pressing it does (§0.6: a value that is TAKEN rather than typed shows a
+// call to action), and the press hands the picker what it needs to rank places and prefill a new
+// one: the dive's own pin, water and entry — read at the press, so the chips the diver just set
+// are in it.
+it("an empty Site row reads Choose a site and opens the site picker with the dive's context", async () => {
   stubReturningDiver();
   const t = await render(<DiveFormScreen mode="create" />);
+  expect(shownIn(t, 'Site')).toBe('Choose a site');
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+
   await openGroup(t, 'Water & entry');
   await pressGps(t);
-  await nameInto(t, 'Site', 'Kotelna');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('boat'));
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+  await pressChip(t, 'Water body', 0);
 
-  expect(mockCatalogue).toHaveBeenCalled();
-  expect(mockSimilar.mock.calls[0].slice(1)).toEqual(['Kotelna', FOUND_HERE.latitude, FOUND_HERE.longitude]);
+  const site = await openPlace(t, 'Site');
+  expect(site.kind).toBe('site');
+  expect(site.selected).toBeNull();
+  expect(site.dive).toEqual({
+    pin: { latitude: FOUND_HERE.latitude, longitude: FOUND_HERE.longitude },
+    entry: 'boat',
+    salinity: 'salt',
+    waterBody: WATER_BODY_VALUES[0],
+    siteId: null,
+    // A new dive is not in the logbook yet, so the picker leaves nothing out of Dived here.
+    diveId: null,
+  });
+
+  // The site picker closes with nothing picked, which frees the form for the next one.
+  await regainFocus();
+  const centre = await openPlace(t, 'Centre');
+  expect(centre.kind).toBe('center');
 });
 
-// **The order is the whole feature.** A check that ran after the write would be a duplicate
-// detector reporting on a duplicate it had just helped make.
-it('creates nothing at all while a near-match is on the table', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+// The dive under edit is not its own history (`history` in the screen): the picker is told which
+// dive it is, so a wrong site paired by this dive alone is not offered back under Dived here.
+it('an edited dive tells both pickers which dive it is', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', siteName: 'Silfra', siteId: 'site-silfra' });
+  stubDives({ dives: [target] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
 
-  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
-  expect(mockCreateSite).not.toHaveBeenCalled();
+  const site = await openPlace(t, 'Site');
+  expect(site.dive).toMatchObject({ siteId: 'site-silfra', diveId: 'target' });
+  await regainFocus();
+  const centre = await openPlace(t, 'Centre');
+  expect(centre.dive).toMatchObject({ diveId: 'target' });
 });
 
-// The question quotes the CATALOGUE's spelling, not the diver's — that is the whole content of
-// it. A screen that echoed the typed text back would ask "did you mean the thing you typed?"
-// and be right by accident on the one case where the two agree.
-it('quotes the existing site’s own spelling, never the diver’s', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Divoká Šárka', id: 'site-sarka' }]);
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Divoka Sarka');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Divoka Sarka'));
-
-  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Divoká Šárka')]);
-});
-
-// **The device's own half, with the server contributing nothing** — §5's offline dedupe, and
-// the only duplicate check a diver on a boat gets. `nearMatches` is real here, so this is the
-// exact-folded rule doing the work rather than a stub agreeing with the test.
-it('catches a catalogue row the device already holds, with no server answering', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCatalogue.mockResolvedValue([catalogued('Kotelna', 'site-kotelna')]);
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'kotelna');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('kotelna'));
-
-  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Kotelna')]);
-  expect(mockCreateSite).not.toHaveBeenCalled();
-});
-
-// --- §2.3's "one tap picks the existing site instead" ---
-
-// The point of the whole feature, asserted on the SAVE, because §6's pair is what this is
-// about and nothing on screen would ever show the id. The name that lands is the catalogue's
-// spelling and the id is the row's — so a screen that took the name from one place and the id
-// from another fails here on provenance, which is the mismatch §10 spent this milestone on.
-it('pairs the dive with the existing site, and publishes nothing', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+// §6's pair and §2.1's site defaults, through the one path both go through. Asserted on the
+// WRITE, because `siteId` has no row of its own — and the carried id belongs to a DIFFERENT site,
+// so a form that kept carry-over's id under the picked name fails on provenance.
+it("a pick sets the name and id and the site's defaults", async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra', entry: 'shore' })] });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat' }) });
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
-  await pressQuestion(t, CHECK_SENTENCES.question('Shark Point'));
 
-  expect(findTextInput(t, 'Site')?.props?.value).toBe('Shark Point');
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
+  await act(async () => {});
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
+
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Shark Point');
-  expect(writtenInput().siteId).toBe('site-shark');
-  expect(mockCreateSite).not.toHaveBeenCalled();
+  expect(writtenInput()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue', entry: 'boat' });
 });
 
-// Answering the question ends the gesture: the dive now holds a paired id, so there is nothing
-// left to add and nothing left to ask. Success is silent here for M2o's own reason — accepting
-// costs nothing (§0.6), and a receipt is a sentence to read past on the way to saving a dive.
-it('goes quiet once the question has been answered', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
-  const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
-  await pressQuestion(t, CHECK_SENTENCES.question('Shark Point'));
+// #19's defect 2 — *adding shows nothing* — from the form's side: the create page hands back the
+// new row's id and name, and the row shows them at once, with the caption that says where the row
+// lives. A guest's row is on this phone only until they sign in; a signed-in diver's reads its
+// country. A carried name with no id is old data and gets no caption at all.
+it('a site created from the picker shows on the row with its caption', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna' })] });
+  mockUseDiveSites.mockReturnValue({
+    sites: [{ ...catalogued('Kotelna', 'new-site'), country: 'HR', dirty: true }],
+    resolved: true,
+    error: undefined,
+  });
 
-  expect(questionsIn(t)).toEqual([]);
-  expect(addOffersIn(t)).toEqual([]);
-  expect(fieldNotesIn(t)).toEqual([]);
+  const guest = await render(<DiveFormScreen mode="create" />);
+  expect(shownIn(guest, 'Site')).toBe('Kotelna');
+  expect(textIn(guest)).not.toContain('on this phone only');
+  expect(textIn(guest)).not.toContain('HR');
+  await pickPlace(guest, 'Site', { id: 'new-site', name: 'Kotelna' });
+  expect(shownIn(guest, 'Site')).toBe('Kotelna');
+  expect(textIn(guest)).toContain('on this phone only');
+  expect(textIn(guest)).not.toContain('HR');
+  // ...and a screen reader is told too: the row's label hides what is drawn inside it.
+  expect(findPickerField(guest, 'Site')?.props.accessibilityHint).toBe('on this phone only');
+
+  signedIn();
+  const diver = await render(<DiveFormScreen mode="create" />);
+  await pickPlace(diver, 'Site', { id: 'new-site', name: 'Kotelna' });
+  expect(textIn(diver)).toContain('HR');
+  expect(textIn(diver)).not.toContain('on this phone only');
 });
 
-// --- "No, add mine" ---
-
-// **§5 lets any signed-in diver add a site, two real sites can have similar names, and the
-// diver is standing at one of them.** So a near-match is a suggestion and never a refusal: the
-// way through is the control they already pressed, re-worded so the second press does not look
-// identical to the first — and the second press must NOT ask again, or there is no way through
-// at all.
-it('always allows “no, add mine”, and does not ask twice', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+// §0.6: "overwriting drops the chip" — a pick is the diver putting a value there. And the picker
+// is told what the row holds, so it can mark the carried site as the selected one.
+it('picking replaces a carried site and drops its mark', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  expect(findClearCarried(t, 'Site')).toBeDefined();
 
-  expect(addOffersIn(t)).toEqual([CHECK_SENTENCES.anyway('Sharks Point')]);
-  await askToAdd(t, CHECK_SENTENCES.anyway('Sharks Point'));
+  const request = await openPlace(t, 'Site');
+  expect(request.selected).toEqual({ id: 'site-silfra', name: 'Silfra' });
+  await act(async () => {
+    request.onPick({ id: 'site-blue', name: 'Blue Hole' });
+  });
 
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(siteCreated().name).toBe('Sharks Point');
-  expect(mockSimilar).toHaveBeenCalledTimes(1);
+  expect(shownIn(t, 'Site')).toBe('Blue Hole');
+  expect(findClearCarried(t, 'Site')).toBeUndefined();
+  expect(clearedRowLabels(t)).toEqual([]);
 });
 
-// The question described one spelling, so a keystroke takes it away along with the "anyway" —
-// the next press is about a different name and has not been checked. The same rule the failure
-// sentence follows, applied to the pair.
-it('drops the question, and the “anyway”, on the next keystroke', async () => {
-  signedIn();
+// The ring is on every row that holds a place, not only a carried one — a mistaken pick must be
+// undoable — and emptying a place the diver put there is an edit (§0.6): the row goes back to
+// its call to action, with no `— cleared`, and neither half of the pair is written.
+it('empties a picked site with its own ring, and leaves no cleared tag', async () => {
   stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
 
-  await typeInto(t, 'Site', 'Sharks Points');
-  expect(questionsIn(t)).toEqual([]);
-  expect(addOffersIn(t)).toEqual([CATALOGUE_SENTENCES.site.offer('Sharks Points')]);
+  await pressPlaceRing(t, 'Site');
 
-  // ...and the check therefore runs again for the new name, rather than the row being created
-  // on the strength of an answer about a different one.
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Points'));
-  expect(mockSimilar).toHaveBeenCalledTimes(2);
-  expect(mockCreateSite).not.toHaveBeenCalled();
+  expect(shownIn(t, 'Site')).toBe('Choose a site');
+  expect(clearedRowLabels(t)).toEqual([]);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(Object.keys(writtenInput())).not.toContain('siteName');
+  expect(Object.keys(writtenInput())).not.toContain('siteId');
 });
 
-// --- What a diver with no server gets ---
-
-/**
- * **The boat.** §1 and §5 both make a site created out of signal ordinary rather than
- * exceptional, so the check failing costs the check and nothing else: the site is created, and
- * — the half that is a decision rather than a mechanism — **the diver is told nothing**. There
- * is nothing they could do with the sentence, and it would appear on every site added out of
- * signal for ever, under this app's most-used gesture.
- *
- * `similarSites` answering `[]` is exactly what a device with no signal produces
- * (`cloud/similarSites.test.ts` is where that is proved); what this asserts is what the SCREEN
- * then does with it.
- */
-it('creates the site anyway when nothing can be checked, and says nothing about it', async () => {
-  signedIn();
-  stubReturningDiver();
+// A second tap before the page has covered the form must not stack a second picker over the
+// first; the form being focused again — the picker closed, by any of its ways out — frees it.
+it('opens one picker for one press, and opens again once the form is back in focus', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
 
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(siteCreated().name).toBe('Kotelna');
-  expect(questionsIn(t)).toEqual([]);
-  expect(fieldNotesIn(t)).toEqual([]);
-  const said = textIn(t).join(' ').toLowerCase();
-  for (const word of ['offline', 'duplicate', 'could not check', 'no connection']) {
-    expect(said).not.toContain(word);
-  }
+  await regainFocus();
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(2);
 });
 
-/**
- * ...and the same when the check *throws* rather than answering. The reachable case is the
- * device's own catalogue read failing — `similarSites` has promised never to throw, and its
- * own file proves it — so that is the one driven here. A rejection escaping would reach the
- * press handler as an unhandled rejection and leave the row shut for good.
- */
-it('creates the site anyway when the check itself fails', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockCatalogue.mockRejectedValue(new Error('the database is gone'));
+// ...and one claim for the two rows, not one each: a tap on Site and a tap on Centre before the
+// page has covered the form would otherwise stack two pickers.
+it('opens one picker between the two rows until the form is back in focus', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
+  await fireEvent.press(findPickerField(t, 'Site')!);
+  await fireEvent.press(findPickerField(t, 'Centre')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
 
-  await waitFor(() => expect(mockCreateSite).toHaveBeenCalled());
-  expect(fieldNotesIn(t)).toEqual([]);
+  await regainFocus();
+  await fireEvent.press(findPickerField(t, 'Centre')!);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(2);
+  expect((mockOpenPicker.mock.calls[1]?.[0] as PlacePickRequest).kind).toBe('center');
 });
 
-// --- A dive centre gets no check at all ---
-
-/**
- * **§5 asks for the fuzzy check about a *site*.** There is no `similar_centers` RPC and
- * DESIGN.md §5 records that as deliberate rather than unfinished — "a centre twin would be
- * inventing a requirement rather than filling a hole" — so a diver adding a centre gets
- * exactly what M2o shipped: the press creates the row.
- *
- * Asserted with a server that WOULD have answered, so this is a claim about the centre never
- * asking rather than about the stub happening to be empty.
- */
-it('never checks a dive centre, and never pauses one on a question', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Emperor Divers', id: 'centre-emperor' }]);
-  mockCatalogue.mockResolvedValue([catalogued('Emperor', 'centre-emperor')]);
+// §0.6: "the whole row is the field". A press on the label opens the picker as a press on the
+// value does — delivered the way a finger delivers it, to the nearest thing that handles it —
+// while the row is still ONE control to a screen reader, and the ring inside it is its own: a
+// press there empties the row and opens nothing.
+it('opens the picker from a press on the label, and empties rather than opens from the ring', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Centre', 'Emperor');
-  await askToAdd(t, CATALOGUE_SENTENCES.centre.offer('Emperor'));
+  const label = textNodesOf(t).find((n) => n.children.includes('Site'));
+  if (!label) throw new Error('no Site label drawn');
 
-  await waitFor(() => expect(mockCreateCentre).toHaveBeenCalled());
-  expect(mockSimilar).not.toHaveBeenCalled();
-  expect(mockCatalogue).not.toHaveBeenCalled();
-  expect(questionsIn(t)).toEqual([]);
+  await fireEvent.press(label);
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+  expect((mockOpenPicker.mock.calls[0]?.[0] as PlacePickRequest).kind).toBe('site');
+  expect(
+    buttonsOf(t)
+      .map((n) => String(n.props?.accessibilityLabel ?? ''))
+      .filter((announced) => announced.startsWith('Site')),
+  ).toEqual(['Site: Silfra']);
+
+  await regainFocus();
+  await pressClear(t, 'Site');
+  expect(mockOpenPicker).toHaveBeenCalledTimes(1);
+  expect(clearedRowLabels(t)).toEqual(['Site']);
 });
 
-// --- What the row says while it is out ---
-
-// It says *checking*, not *adding*, because at that moment nothing is being added and the
-// answer may well be that nothing will be. And it is shut, for the same reason the write is:
-// two presses would run two checks and end in two rows.
-it('says it is looking while the check is out, and refuses a second press', async () => {
-  signedIn();
-  stubReturningDiver();
-  let answer: (found: { value: string; id: string }[]) => void = () => {};
-  mockSimilar.mockReturnValue(new Promise((resolve) => { answer = resolve; }));
+// Whether emptying leaves `— cleared` is decided by the row as it stands when the gesture
+// LANDS. *No centre* comes back from a page that can stay open while a newer dive lands; here
+// that dive has no centre, so carry-over has already taken the carried one away, and what the
+// pick empties is no longer a carried value to leave the tag for.
+it('decides the cleared tag by the row as it stands when No centre arrives', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', centerName: 'Aqua Divers', centerId: 'centre-aqua', buddy: 'Petr' })] });
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await pressAddOffer(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
+  const request = await openPlace(t, 'Centre');
 
-  expect(textIn(t)).toContain(CHECK_SENTENCES.looking);
-  expect(textIn(t)).not.toContain(CATALOGUE_SENTENCES.site.busy);
-  const busyRow = buttonsOf(t).find((n) => String(n.props?.accessibilityLabel ?? '') === CHECK_SENTENCES.looking);
-  expect(busyRow?.props?.accessibilityState).toEqual({ disabled: true, busy: true });
-  await fireEvent.press(busyRow!);
-  expect(mockSimilar).toHaveBeenCalledTimes(1);
+  stubDives({ dives: [dive({ date: '2026-08-21', buddy: 'Ondra' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
 
   await act(async () => {
-    answer([{ value: 'Shark Point', id: 'site-shark' }]);
+    request.onPick({ id: null, name: '' });
   });
-  expect(textIn(t)).not.toContain(CHECK_SENTENCES.looking);
-  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
+  await regainFocus();
+  expect(shownIn(t, 'Centre')).toBe('Choose a centre');
+  expect(clearedRowLabels(t)).toEqual([]);
 });
 
-// --- §1: none of this may reach the dive ---
+// The centre row reads its own table for the caption, exactly as the site row reads its own.
+it('shows a paired centre’s country under its name', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', centerName: 'Aqua Divers', centerId: 'centre-aqua' })] });
+  const centre: DiveCenter = {
+    id: 'centre-aqua',
+    name: 'Aqua Divers',
+    country: 'EG',
+    latitude: null,
+    longitude: null,
+    website: null,
+    createdBy: null,
+    status: 'active',
+    mergedInto: null,
+    createdAt: '2026-08-16T00:00:00.000Z',
+    updatedAt: '2026-08-16T00:00:00.000Z',
+    deletedAt: null,
+    dirty: false,
+  };
+  mockUseDiveCenters.mockReturnValue({ centers: [centre], resolved: true, error: undefined });
+  const t = await render(<DiveFormScreen mode="create" />);
 
-// **"Never block a save."** The check is between two states of the CATALOGUE and the dive
-// underneath is unaffected by all of it: a diver who leaves the question standing and saves
-// gets their dive, with §6's name snapshot and no id — which is exactly what that snapshot is
-// stored for.
-it('lets the dive save with the question still standing, name snapshot and all', async () => {
-  signedIn();
-  stubReturningDiver();
-  mockSimilar.mockResolvedValue([{ value: 'Shark Point', id: 'site-shark' }]);
+  expect(shownIn(t, 'Centre')).toBe('Aqua Divers');
+  expect(textIn(t)).toContain('EG');
+  expect(findPickerField(t, 'Centre')?.props.accessibilityHint).toBe('EG');
+});
+
+// *No centre* is the empty pick, and it is the ring's gesture: name and id go together, and the
+// row says it was emptied on purpose rather than looking like a centre carry-over never filled.
+it('No centre empties a carried centre and marks it cleared', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', centerName: 'Aqua Divers', centerId: 'centre-aqua' })] });
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Sharks Point');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Sharks Point'));
-  expect(questionsIn(t)).toEqual([CHECK_SENTENCES.question('Shark Point')]);
+  expect(findClearCarried(t, 'Centre')).toBeDefined();
 
+  await pickPlace(t, 'Centre', { id: null, name: '' });
+
+  expect(clearedRowLabels(t)).toEqual(['Centre']);
+  expect(findClearCarried(t, 'Centre')).toBeUndefined();
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput().siteName).toBe('Sharks Point');
-  expect(writtenInput()).not.toHaveProperty('siteId');
+  expect(Object.keys(writtenInput())).not.toContain('centerName');
+  expect(Object.keys(writtenInput())).not.toContain('centerId');
 });
 
-// §5 gives the whole gesture to a signed-in diver, so a guest never reaches the check either —
-// asserted because the check is a network call, and one made on behalf of somebody with no
-// account would be this app reaching out for a diver who never asked it to (§1).
-it('never asks anything on behalf of a guest', async () => {
-  stubReturningDiver();
+// #19's defect 5 — *a known name typed in full is saved unlinked* — closed at the root: there is
+// no keyboard on either row, so no name can reach a dive except as a picked or created row.
+it('the row never takes typing', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
-  await nameInto(t, 'Site', 'Kotelna');
-  expect(addOffersIn(t)).toEqual([]);
-  expect(mockSimilar).not.toHaveBeenCalled();
-  expect(mockCatalogue).not.toHaveBeenCalled();
-});
+  for (const id of FORM_GROUP_IDS) await openGroup(t, translated(FORM_GROUPS[id].titleKey));
 
-// --- Everything the offer said goes with the name it was about ---
-
-// The keystroke case is above; these are the other two gestures that change what the field
-// holds, and the sentence they have to drop is the failure rather than the question — a
-// question cannot survive either gesture visibly (both end with the offer gone), but the note
-// under the row is drawn whatever the offer is doing. Same rule, told by the half that shows.
-it('drops the failure sentence when the diver clears the name it was about', async () => {
-  signedIn();
-  stubDives({ dives: [dive({ date: '2026-08-16', siteName: 'Kotelna' })] });
-  mockCreateSite.mockRejectedValue(new Error('no'));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
-
-  await pressClear(t, 'Site');
-  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
-});
-
-// ...and when they pick a different name out of their own history instead, which is the other
-// way the box stops holding what the sentence was about.
-it('drops the failure sentence when the diver picks another name instead', async () => {
-  signedIn();
-  stubDives({
-    dives: [
-      dive({ date: '2026-08-16', siteName: 'Kotelna' }),
-      dive({ date: '2026-08-10', siteName: 'Kotelna II' }),
-    ],
-  });
-  mockCreateSite.mockRejectedValue(new Error('no'));
-  const t = await render(<DiveFormScreen mode="create" />);
-  await focusField(t, 'Site');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await waitFor(() => expect(fieldNotesIn(t)).toContain(ADD_FAILED));
-
-  await pickSuggestion(t, 'Site', 'Kotelna II');
-  expect(fieldNotesIn(t)).not.toContain(ADD_FAILED);
+  expect(findTextInput(t, 'Site')).toBeUndefined();
+  expect(findTextInput(t, 'Centre')).toBeUndefined();
+  expect(findPickerField(t, 'Site')).toBeDefined();
+  expect(findPickerField(t, 'Centre')).toBeDefined();
 });
 
 // =========================================================================================
@@ -7562,7 +6943,7 @@ it('drops the failure sentence when the diver picks another name instead', async
 //
 // *"Picking a site prefills entry, salinity, and water body from the site's own defaults — and
 // those win over carry-over when you switch sites."* M2o built the half that WRITES those three
-// onto a site the form creates; M2r found that nothing read them back, so the rule worked in
+// onto a site made from a dive; M2r found that nothing read them back, so the rule worked in
 // the direction that fills the catalogue and not in the direction a diver would notice.
 //
 // The precedence itself is `domain/siteDefaults.test.ts`'s, and what a `pickable` read returns
@@ -7583,10 +6964,10 @@ function stubCatalogueRows(rows: Record<string, DiveSite>) {
   mockGetSite.mockImplementation((_db: unknown, id: string) => Promise.resolve(rows[id] ?? null));
 }
 
-/** Picks a site out of the diver's own history, and lets the catalogue read that follows
- * answer — the fill is a promise, so the three rows it writes land a tick after the tap. */
-async function pickSite(t: RenderResult, value: string) {
-  await pickSuggestion(t, 'Site', value);
+/** Picks a site on the Site row the way the picker hands one back, and lets the catalogue read
+ * that follows answer — the fill is a promise, so the three rows it writes land a tick after. */
+async function pickSite(t: RenderResult, name: string, id: string) {
+  await pickPlace(t, 'Site', { id, name });
   await act(async () => {});
 }
 
@@ -7649,9 +7030,7 @@ it('puts the diver above the site, the site above carry-over, and carry-over abo
   // the site arrives afterwards and still may not overwrite it.
   await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('other'));
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(waterRows(t)).toEqual({ entry: 'other', salinity: 'salt', waterBody: 'lake' });
   // ...and it is the dive that gets saved, not only the form that looks right.
@@ -7670,9 +7049,7 @@ it('leaves carry-over standing in the rows a site says nothing about', async () 
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
 });
@@ -7685,8 +7062,8 @@ it('leaves carry-over standing in the rows a site says nothing about', async () 
  * accumulates state across gestures where `siteDefaultFills` cannot. The second site is silent
  * about `entry`, and a rule that merely layered each site's answer over the last would leave
  * `boat` standing in a row belonging to a site this dive is no longer at — which would also
- * hand a site created next (§2.3's `siteFactsFrom`) a *neighbouring* row's defaults to publish
- * under the diver's name.
+ * hand a site created next (the *New dive site* page prefills from this dive, through
+ * `siteFactsFrom`) a *neighbouring* row's defaults to publish under the diver's name.
  */
 it('falls back to carry-over, not to the site the diver has left', async () => {
   stubDives({
@@ -7702,34 +7079,28 @@ it('falls back to carry-over, not to the site the diver has left', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
   expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
 
-  await typeInto(t, 'Site', 'kot');
-  await pickSite(t, 'Kotelna');
+  await pickSite(t, 'Kotelna', 'site-kotelna');
   // `entry` is back to the diver's last dive's answer rather than still reading Blue Hole's.
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
 });
 
-// The same rule with tier 2 emptied: a name the diver typed over no longer refers to any
-// catalogue row (`setPairedId(field, null)`), so there is no site answering for these rows and
-// carry-over gets the question back. Without this the form would go on showing a site's answers
-// for a dive that is no longer at it — and would publish them onto whatever site the diver adds
-// next.
-it('hands the rows back to carry-over when the diver types the site name away', async () => {
+// The same rule with tier 2 emptied: the diver empties the site they picked with the row's own
+// ring (`setPairedId(field, null)`), so no site is answering for these rows and carry-over gets
+// the question back. Without this the form would go on showing a site's answers for a dive that
+// is no longer at it — and would hand them to whatever site the diver creates next.
+it('hands the rows back to carry-over when the diver empties the site', async () => {
   stubDives({ dives: carriedFromAQuarry() });
   stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
   expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
 
-  await typeInto(t, 'Site', 'Blue Hol');
+  await pressPlaceRing(t, 'Site');
   await act(async () => {});
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
 });
@@ -7746,9 +7117,7 @@ it('does not put a value back into a row the diver cleared', async () => {
   await pressClear(t, 'Water body');
   expect(clearedRowLabels(t)).toEqual(['Water body']);
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBeUndefined();
   expect(clearedRowLabels(t)).toEqual(['Water body']);
@@ -7774,9 +7143,7 @@ it('keeps the site’s answers when carry-over resolves again afterwards', async
   stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
   expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'lake' });
 
   stubDives({
@@ -7817,9 +7184,7 @@ it('takes the carried mark off a row the site replaced, and leaves it on one the
   expect(findClearCarried(t, 'Entry')).toBeDefined();
   expect(findClearCarried(t, 'Salinity')).toBeDefined();
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(findClearCarried(t, 'Salinity')).toBeUndefined();
   expect(findClearCarried(t, 'Entry')).toBeDefined();
@@ -7828,47 +7193,46 @@ it('takes the carried mark off a row the site replaced, and leaves it on one the
 });
 
 // ...and the mark comes BACK when carry-over gets the row back, because at that point it is
-// telling the truth again. Asserted because the marks are recomputed from the value rather than
-// remembered, and a rule that only ever removed them would leave the diver's own last dive's
-// answer sitting in a row with nothing to say where it came from.
-it('gives the carried mark back to a row the site stops answering for', async () => {
+// telling the truth again: the diver moved to a site that says nothing about salinity. Asserted
+// because the marks are recomputed from the value rather than remembered, and a rule that only
+// ever removed them would leave the diver's own last dive's answer sitting in a row with
+// nothing to say where it came from.
+it('gives the carried mark back to a row the next site says nothing about', async () => {
   stubDives({ dives: carriedFromAQuarry() });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }) });
+  stubCatalogueRows({
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }),
+    'site-kotelna': siteSaying('Kotelna', 'site-kotelna', { waterBody: 'quarry' }),
+  });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
   expect(findClearCarried(t, 'Salinity')).toBeUndefined();
 
-  await typeInto(t, 'Site', 'Blue Hol');
-  await act(async () => {});
+  await pickSite(t, 'Kotelna', 'site-kotelna');
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
   expect(findClearCarried(t, 'Salinity')).toBeDefined();
 });
 
 /**
- * **Adding a site leaves this form exactly as it found it** — M2o's gesture, which pairs the
- * dive to a row `siteFactsFrom` seeded FROM this very dive.
+ * **Creating a site leaves this form exactly as it found it** — the *New dive site* page,
+ * reached from the picker, prefills the row FROM this very dive (`diveContext`), and the pick
+ * that comes back pairs the dive to it.
  *
  * So the read that follows can only ever agree with carry-over, nothing is replaced, and the
  * three marks stay. It is the case a rule keyed on *"the site supplied a value"* rather than on
  * *"the site replaced one"* would get wrong in the quietest possible way: three marks stripped
  * off three rows whose values did not move a millimetre.
  */
-it('leaves the marks alone when the diver publishes the site this dive is at', async () => {
-  signedIn();
+it('leaves the marks alone when the diver creates the site this dive is at', async () => {
   stubDives({ dives: [dive({ date: '2026-08-20', entry: 'shore', salinity: 'fresh', waterBody: 'lake' })] });
-  mockCreateSite.mockResolvedValue({ id: 'new-site' });
   stubCatalogueRows({
     'new-site': siteSaying('Kotelna', 'new-site', { entry: 'shore', salinity: 'fresh', waterBody: 'lake' }),
   });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await nameInto(t, 'Site', 'Kotelna');
-  await askToAdd(t, CATALOGUE_SENTENCES.site.offer('Kotelna'));
-  await act(async () => {});
+  await pickSite(t, 'Kotelna', 'new-site');
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
   expect(findClearCarried(t, 'Entry')).toBeDefined();
@@ -7902,9 +7266,7 @@ it('never prefills a dive it is editing, whatever site the diver moves it to', a
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
   await pressSave(t);
@@ -7916,10 +7278,10 @@ it('never prefills a dive it is editing, whatever site the diver moves it to', a
   expect(writtenPatch()).not.toHaveProperty('waterBody');
 });
 
-// **A centre has nothing to give back**, which is `centerFactsFrom`'s own asymmetry read
-// backwards: §2.3 gives a new centre its name alone, because a dive knows a great deal about
-// the site it happened at and nothing about the shop on shore. So pairing one asks the
-// catalogue nothing at all — the read that would answer is never even made.
+// **A centre has nothing to give back**, which is §2.3's own asymmetry read backwards: a new
+// centre inherits its name alone, because a dive knows a great deal about the site it happened
+// at and nothing about the shop on shore. So pairing one asks the catalogue nothing at all — the
+// read that would answer is never even made.
 it('asks the catalogue nothing when the dive is paired to a centre', async () => {
   stubDives({
     dives: [
@@ -7929,9 +7291,7 @@ it('asks the catalogue nothing when the dive is paired to a centre', async () =>
   });
   const t = await render(<DiveFormScreen mode="create" />);
 
-  await focusField(t, 'Centre');
-  await typeInto(t, 'Centre', 'aq');
-  await pickSuggestion(t, 'Centre', 'Aqua Divers');
+  await pickPlace(t, 'Centre', { id: 'centre-aqua', name: 'Aqua Divers' });
   await act(async () => {});
 
   expect(mockGetSite).not.toHaveBeenCalled();
@@ -7953,9 +7313,7 @@ it('changes nothing when the catalogue has never heard of the site', async () =>
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
   await pressSave(t);
@@ -7974,9 +7332,7 @@ it('saves the dive when the catalogue read fails outright', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
   expect(fieldNotesIn(t)).toEqual([]);
@@ -8004,9 +7360,7 @@ it('keeps a chip the diver pressed while the site was being read', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSuggestion(t, 'Site', 'Blue Hole');
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
   // Still in flight: nothing has moved, and the diver answers one row themselves.
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
   await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
@@ -8043,11 +7397,8 @@ it('applies the site the diver ended on, not the one they passed through', async
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSuggestion(t, 'Site', 'Blue Hole');
-  await typeInto(t, 'Site', 'kot');
-  await pickSite(t, 'Kotelna');
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
+  await pickSite(t, 'Kotelna', 'site-kotelna');
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
 
   await act(async () => {
@@ -8074,9 +7425,7 @@ it('keeps a site-filled row unmarked when the form reseeds under it', async () =
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
-  await focusField(t, 'Site');
-  await typeInto(t, 'Site', 'blue');
-  await pickSite(t, 'Blue Hole');
+  await pickSite(t, 'Blue Hole', 'site-blue');
   expect(findClearCarried(t, 'Salinity')).toBeUndefined();
 
   // The unit preference arriving late, which is the reseed this screen actually has (the
@@ -8332,7 +7681,7 @@ describe('leaving a form with unsaved work', () => {
     const t = await render(<DiveFormScreen mode="create" />);
     // The carried value really is on screen — otherwise this test would pass against a form
     // that simply never received the carry-over.
-    await waitFor(() => expect(findTextInput(t, 'Site')?.props.value).toBe('Kotelna'));
+    await waitFor(() => expect(shownIn(t, 'Site')).toBe('Kotelna'));
 
     const event = await tryToLeave();
 
@@ -8439,19 +7788,19 @@ it('stops clearing the home indicator under Save once the keyboard is covering i
  * lom` came out as `Divoká sarka - hlavni lom`: iOS' autocorrect added an accent to one word
  * and took the capital off the next, with nothing on screen to say it had happened.
  *
- * These four are §2.3's autocompleting fields, and two of them go into a **shared catalogue**
- * under the diver's name — so a keyboard rewriting them is not a typo, it is publishing
- * somebody else's spelling of a place. `FormField`'s own docblock argued the other way ("a site
- * name, a buddy and a dive centre — every other text field in this app — must" be corrected);
- * using it says otherwise, and a proper noun is exactly the kind of word a dictionary has no
- * business having an opinion about.
+ * A site and a centre are named on their own pages since issue #19 (the picker's search and the
+ * *New dive site* page hold the same rule); the two names still typed on this form are a buddy
+ * and a guide, and a proper noun is exactly the kind of word a dictionary has no business having
+ * an opinion about. `FormField`'s own docblock argued the other way ("a site name, a buddy and a
+ * dive centre — every other text field in this app — must" be corrected); using it said
+ * otherwise.
  *
  * Set explicitly per field rather than inferred from `history` — that prop means "this field
  * autocompletes", which is a different question, and `FormField` already records why the two
  * are not joined.
  */
-describe('the four name fields', () => {
-  const NAME_FIELDS = ['Site', 'Centre', 'Buddy', 'Guide'];
+describe('the two name fields', () => {
+  const NAME_FIELDS = ['Buddy', 'Guide'];
 
   it('lets no keyboard rewrite a name the diver typed', async () => {
     const t = await render(<DiveFormScreen mode="create" />);
@@ -8462,7 +7811,7 @@ describe('the four name fields', () => {
       expect(input).toBeDefined();
       expect(input?.props.autoCorrect).toBe(false);
       // The red squiggle is the same dictionary having the same opinion, drawn rather than
-      // applied — noise under every Czech place name a diver enters.
+      // applied — noise under every Czech name a diver enters.
       expect(input?.props.spellCheck).toBe(false);
     }
   });
@@ -8472,9 +7821,9 @@ describe('the four name fields', () => {
     await openGroup(t, 'People');
 
     for (const label of NAME_FIELDS) {
-      // `words`, not `sentences`: "blue hole" is a place called Blue Hole, and §2.3's folding
-      // already makes case irrelevant to whether it MATCHES the catalogue — so this is
-      // cosmetic, and in the diver's favour rather than the dictionary's.
+      // `words`, not `sentences`: "jana nováková" is a person called Jana Nováková, and
+      // §2.3's matching already ignores case — so this is cosmetic, and in the diver's favour
+      // rather than the dictionary's.
       expect(findTextInput(t, label)?.props.autoCapitalize).toBe('words');
     }
   });

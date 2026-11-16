@@ -99,7 +99,7 @@ it('names only the arguments it has an opinion about', async () => {
 // The answer, read for the two things §2.3's one tap needs: a name to show and §6's id to pair
 // the dive with. In the server's own order, which is by trigram score (`similar_sites` sorts).
 it('reads back the name to show and the id to pair, in the order they arrived', async () => {
-  const found = await similarSites(withServer(answered([SHARK_POINT, SHARK_BAY])), 'Sharks Point', null, null);
+  const { matches: found } = await similarSites(withServer(answered([SHARK_POINT, SHARK_BAY])), 'Sharks Point', null, null);
   expect(found).toEqual([picked('Shark Point', 'site-shark-point'), picked('Shark Bay', 'site-shark-bay')]);
 });
 
@@ -107,7 +107,7 @@ it('reads back the name to show and the id to pair, in the order they arrived', 
 // row it points at are byte-identical, and picking an existing site has to leave the dive in
 // exactly that state.
 it('trims the catalogue’s spelling, so a picked name and its row are one string', async () => {
-  const found = await similarSites(withServer(answered([{ ...SHARK_POINT, name: '  Shark Point  ' }])), 'x', null, null);
+  const { matches: found } = await similarSites(withServer(answered([{ ...SHARK_POINT, name: '  Shark Point  ' }])), 'x', null, null);
   expect(found).toEqual([picked('Shark Point', 'site-shark-point')]);
 });
 
@@ -126,17 +126,31 @@ it('drops a row that cannot supply both halves, and keeps the ones that can', as
     null,
     SHARK_BAY,
   ];
-  const found = await similarSites(withServer(answered(rows)), 'Shark', null, null);
+  const { matches: found } = await similarSites(withServer(answered(rows)), 'Shark', null, null);
   expect(found).toEqual([picked('Shark Bay', 'site-shark-bay')]);
 });
 
-// **A newer server is not a broken check.** Deliberately NOT `fromWireRow` (cloud/sync.ts),
-// which throws on a column it cannot find — right for a row on its way into a table, wrong
-// here, where the row is never stored and a missing `max_depth_m` still answers "did you mean
-// Shark Point?" perfectly well.
-it('answers from a row that is missing every column but the two it reads', async () => {
-  const found = await similarSites(withServer(answered([{ id: 'site-x', name: 'Kotelna' }])), 'Kotelna', null, null);
-  expect(found).toEqual([picked('Kotelna', 'site-x')]);
+// **A newer server is not a broken check.** The matches are deliberately NOT read through
+// `fromWireRow` (cloud/sync.ts), which throws on a column it cannot find — right for a row on its
+// way into a table, wrong for the one tap, where a missing `max_depth_m` still answers "did you
+// mean Shark Point?" perfectly well. Such a row is only left out of the half that is stored.
+it('answers from a row that is missing every column but the two it reads, and does not offer it for storing', async () => {
+  const answer = await similarSites(withServer(answered([{ id: 'site-x', name: 'Kotelna' }])), 'Kotelna', null, null);
+  expect(answer.matches).toEqual([picked('Kotelna', 'site-x')]);
+  expect(answer.rows).toEqual([]);
+});
+
+// The half `findSiteTwins` writes to the device: each whole row, read the strict way sync reads a
+// pulled row, so the dive a match is picked for is paired with a site the phone holds.
+it('hands back each whole row the device can store, dropping only the ones the sync reader refuses', async () => {
+  const answer = await similarSites(
+    withServer(answered([SHARK_POINT, { id: 'site-x', name: 'Kotelna' }, SHARK_BAY])),
+    'Shark',
+    null,
+    null,
+  );
+  expect(answer.rows.map((row) => row.id)).toEqual(['site-shark-point', 'site-shark-bay']);
+  expect(answer.rows[0]).toEqual(expect.objectContaining({ id: 'site-shark-point', name: 'Shark Point', country: 'EG' }));
 });
 
 // =========================================================================================
@@ -156,7 +170,7 @@ it('answers from a row that is missing every column but the two it reads', async
 it('answers nothing at all in a build that has no backend', async () => {
   const noBackend = connectCloud(readCloudCredentials({}));
   expect(noBackend.configured).toBe(false);
-  await expect(similarSites(noBackend, 'Kotelna', 27.85, 34.31)).resolves.toEqual([]);
+  await expect(similarSites(noBackend, 'Kotelna', 27.85, 34.31)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -174,7 +188,7 @@ it('answers nothing at all in a build that has no backend', async () => {
 it('never reaches a client an unconfigured cloud is carrying anyway', async () => {
   const rpc = answered([SHARK_POINT]);
   const lying = { configured: false, missing: [], client: { rpc } } as unknown as Cloud;
-  await expect(similarSites(lying, 'Shark Point', null, null)).resolves.toEqual([]);
+  await expect(similarSites(lying, 'Shark Point', null, null)).resolves.toEqual({ matches: [], rows: [] });
   expect(rpc).not.toHaveBeenCalled();
 });
 
@@ -185,7 +199,7 @@ it('never reaches a client an unconfigured cloud is carrying anyway', async () =
  */
 it('answers nothing when the call cannot reach anything, and never throws', async () => {
   const rpc = jest.fn().mockRejectedValue(new TypeError('Network request failed'));
-  await expect(similarSites(withServer(rpc), 'Kotelna', null, null)).resolves.toEqual([]);
+  await expect(similarSites(withServer(rpc), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -199,10 +213,10 @@ it('answers nothing when the call cannot reach anything, and never throws', asyn
  */
 it('believes no rows that arrived beside a refusal', async () => {
   const refused = jest.fn().mockResolvedValue({ data: null, error: { code: '42501' } });
-  await expect(similarSites(withServer(refused), 'Kotelna', null, null)).resolves.toEqual([]);
+  await expect(similarSites(withServer(refused), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
 
   const both = jest.fn().mockResolvedValue({ data: [SHARK_POINT], error: { code: '28000' } });
-  await expect(similarSites(withServer(both), 'Kotelna', null, null)).resolves.toEqual([]);
+  await expect(similarSites(withServer(both), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -213,6 +227,6 @@ it('believes no rows that arrived beside a refusal', async () => {
  */
 it('answers nothing to a response that is not a list of rows', async () => {
   for (const data of [null, undefined, {}, 'rows', 7]) {
-    await expect(similarSites(withServer(answered(data)), 'Kotelna', null, null)).resolves.toEqual([]);
+    await expect(similarSites(withServer(answered(data)), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
   }
 });

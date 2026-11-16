@@ -63,17 +63,23 @@ const config: ExpoConfig = {
     // and nothing waits on it.
     'expo-localization',
     // §2.3's "use my location — pressed right on the boat", which is the ONLY way a dive gets a
-    // GPS pin now that M1i took the two coordinate keypads off the form (§2.2). The string is
-    // what iOS shows in the permission sheet, and it is the app's own sentence rather than the
-    // library's default: a diver deciding whether to grant this is entitled to know it is for
-    // one tap on one dive, not a background trail. Foreground only — no `isAndroidBackgroundLocationEnabled`,
-    // no always-authorisation — because §1's "works at sea" is about the logbook working
-    // offline, not about the app watching where the boat goes.
+    // GPS pin now that M1i took the two coordinate keypads off the form (§2.2) — and since issue
+    // #19 two more presses ask: *Use current position* on the new-site/centre page (a stored
+    // position for the new place) and the picker's *Near me* (a list of places near you; nothing
+    // stored). The string is what iOS shows in the permission sheet, and it is the app's own
+    // sentence rather than the library's default: a diver deciding whether to grant this is
+    // entitled to know it is for a tap they make, not a background trail — so it names all three.
+    // English only: this config declares no per-locale InfoPlist strings. Foreground only — no
+    // `isAndroidBackgroundLocationEnabled`, no always-authorisation — because §1's "works at sea"
+    // is about the logbook working offline, not about the app watching where the boat goes.
+    //
+    // A NATIVE config change: the new sentence reaches the permission sheet only with the next
+    // prebuild + dev-client build.
     [
       'expo-location',
       {
         locationWhenInUsePermission:
-          'Ponor uses your location only when you tap “use my location”, to pin the dive site you are at.',
+          'Ponor uses your location only when you ask: to pin a dive or a new dive site or centre where you are, or to list places near you.',
       },
     ],
     [

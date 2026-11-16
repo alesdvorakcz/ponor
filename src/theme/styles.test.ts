@@ -626,6 +626,9 @@ describe('a screen title', () => {
       // M2e. A sign-in screen is where a title quietly grows a size of its own, because every
       // app has one and none of them is this app.
       styles.accountHeading,
+      // Issue #19's *Choose a site*, and the *New dive site* page it pushes.
+      styles.pickerHeading,
+      styles.newPlaceHeading,
     ] as Record<string, unknown>[]) {
       expect(dives.fontFamily).toBe(other.fontFamily);
       expect(dives.fontSize).toBe(other.fontSize);
@@ -1214,6 +1217,12 @@ describe('the app content column', () => {
     // negative margin exactly undoes it, so what the card holds sits on the column. That
     // cancellation is asserted on its own below rather than taken on trust here.
     'formFieldCard',
+    // The site picker's *Near me* pill (issue #19): the label's air inside the pill. The row of
+    // pills it sits in is `pickerPills`, which is in the column and asserted below.
+    'pickerNearMePill',
+    // The *New dive site* page's position card (issue #19): `detailMapCard`'s own frame, whose
+    // padding is a distance inside the card and whose margin is the column.
+    'newPlacePositionCard',
   ];
 
   // The surfaces this is about, named so the test says which screens it is claiming — the
@@ -1275,6 +1284,22 @@ describe('the app content column', () => {
     'siteEmpty',
     'sitesHeading',
     'siteDefaultsCaption',
+    // The site and centre picker (issue #19): a pushed page of rows over the dive form, on the
+    // form's own column — its way out, its title, the *Selected* line, the pill row, its notes,
+    // its group headers and its rows.
+    'pickerBack',
+    'pickerHeading',
+    'pickerSelected',
+    'pickerPills',
+    'pickerNote',
+    'pickerGroupTitle',
+    'pickerRow',
+    // The *New dive site / New dive centre* page it pushes: its way out, its header, the
+    // *POSITION* label and the failed-write note. Its rows are the form's own, asserted above.
+    'newPlaceBack',
+    'newPlaceHeader',
+    'newPlaceSectionHeader',
+    'newPlaceNote',
   ];
 
   // A focused field draws its card 8 in from the screen edge, and what the card holds — the label

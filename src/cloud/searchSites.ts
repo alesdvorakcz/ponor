@@ -1,5 +1,6 @@
 import { type PulledSite } from '../db/catalogue';
 import { diveSites } from '../db/schema';
+import { type MapPoint } from '../domain/mapSites';
 import { searchCatalogue } from './searchCatalogue';
 import { type Cloud } from './supabase';
 
@@ -35,4 +36,17 @@ export const SEARCH_SITES_RPC = 'search_sites';
  */
 export async function searchSites(cloud: Cloud, query: string): Promise<PulledSite[]> {
   return (await searchCatalogue(cloud, SEARCH_SITES_RPC, diveSites, query)) as PulledSite[];
+}
+
+/**
+ * Asks the server for the sites within `radiusM` metres of `point`, with no name — the site
+ * picker's *Near me* list, which has a fix and no query. Same rows, same contract as
+ * `searchSites`: empty whenever the call could not be made or believed.
+ */
+export async function searchSitesNear(
+  cloud: Cloud,
+  point: MapPoint,
+  radiusM: number,
+): Promise<PulledSite[]> {
+  return (await searchCatalogue(cloud, SEARCH_SITES_RPC, diveSites, '', { point, radiusM })) as PulledSite[];
 }

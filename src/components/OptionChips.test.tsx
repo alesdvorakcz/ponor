@@ -245,3 +245,17 @@ it('draws an icon beside the label, tinted to match whichever ink that chip wear
   expect(labels).toContain('Salt');
   expect(labels).toContain('icon-salt');
 });
+
+// Issue #19's *New dive site* page says *from this dive* over a chip row it prefilled. The word sits
+// at the label row's trailing edge in the caption's muted mono — and never beside `— cleared`, which
+// says the row holds nothing.
+it('draws a caption at the label row’s trailing edge, and not over a cleared row', async () => {
+  const styles = makeStyles('dark');
+  const captioned = (t: RenderResult) =>
+    (t.root?.queryAll((n) => n.type === 'Text' && [n.props.style].flat().includes(styles.formFieldCaption)) ?? []).map(
+      (n) => n.children.join(''),
+    );
+  expect(captioned(await renderChips({ value: 'salt', caption: 'from this dive' }))).toEqual(['from this dive']);
+  expect(captioned(await renderChips({ value: null, cleared: true, caption: 'from this dive' }))).toEqual([]);
+  expect(captioned(await renderChips({ value: 'salt' }))).toEqual([]);
+});

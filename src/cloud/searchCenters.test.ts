@@ -1,6 +1,6 @@
 import { type SupabaseClient } from '@supabase/supabase-js';
 
-import { SEARCH_CENTERS_RPC, searchCenters } from './searchCenters';
+import { SEARCH_CENTERS_RPC, searchCenters, searchCentersNear } from './searchCenters';
 import { type Cloud } from './supabase';
 
 /**
@@ -170,4 +170,17 @@ it('refuses a body that is not an array even when it could be mapped', async () 
 it('answers nothing when the call itself rejects', async () => {
   const rpc = jest.fn().mockRejectedValue(new Error('offline'));
   expect(await searchCenters(withServer(rpc), 'Ponorka')).toEqual([]);
+});
+
+it('asks around a point with no name, and reads the rows as centres', async () => {
+  const rpc = answered([PONORKA]);
+  const rows = await searchCentersNear(withServer(rpc), { latitude: 50.1, longitude: 14.4 }, 50000);
+
+  expect(rpc).toHaveBeenCalledWith(SEARCH_CENTERS_RPC, {
+    p_query: null,
+    p_latitude: 50.1,
+    p_longitude: 14.4,
+    p_radius_m: 50000,
+  });
+  expect(rows).toHaveLength(1);
 });

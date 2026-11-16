@@ -12,6 +12,8 @@ import type {
   Weather,
   WeightsFeel,
 } from '../domain/types';
+import type { Provenance } from '../domain/placePicker';
+import type { InlineSuggestedField } from '../domain/suggest';
 import type { UnitSystem } from '../format/units';
 
 /**
@@ -378,13 +380,16 @@ export const en = {
        * screen whose own title is Settings, so the bare word names the wrong place. `field.
        * positionDenied` already said "the device's Settings" for the same act — one of the two
        * was wrong and it was this one. */
-      locationGrantedNote: 'Ponor can pin a dive where you are. Open the device’s Settings to change that.',
+      locationGrantedNote:
+        'Ponor can pin a dive or a new place where you are, and list places near you. Open the device’s Settings to change that.',
       locationDenied: 'Not allowed',
       locationDeniedNote:
         'Ponor may not use your location. iOS asks once and never again, so Settings is the only place this can change.',
       locationUndetermined: 'Not asked yet',
+      /** Since issue #19 three controls ask, not one: the dive form's GPS row, the create page's
+       * *Use current position* and the picker's *Near me* — so "on a dive" was no longer the whole of it. */
       locationUndeterminedNote:
-        'Nobody has been asked yet — Ponor asks the first time you use it on a dive.',
+        'Nobody has been asked yet — Ponor asks the first time you pin a dive or a new place, or tap Near me.',
       locationServicesOff: 'Location Services off',
       locationServicesOffNote:
         'Location Services are off for the whole device, so nothing on it can be located. That switch is the device’s, not Ponor’s.',
@@ -540,15 +545,14 @@ export const en = {
 
     /**
      * The group header over a field's own history in its suggestion list (2026-11-14, the
-     * design canvas's "YOUR SITES · 2"), one per autocompleting field — keyed by the field's
-     * name so `formatSuggestionsTitle` reads it straight off `SuggestedField`.
+     * design canvas's "YOUR BUDDIES · 2"), one per field still suggested under its own row —
+     * keyed by the field's name so `formatSuggestionsTitle` reads it straight off
+     * `InlineSuggestedField`. Site and centre are chosen on a page whose groups are `picker.*`.
      */
     suggest: {
-      siteName: 'Your sites',
-      centerName: 'Your centres',
       buddy: 'Your buddies',
       guide: 'Your guides',
-    },
+    } satisfies Record<InlineSuggestedField, string>,
 
     /**
      * **§4.1's one deliberate exception, discharged.** That table has said since M1e that
@@ -700,8 +704,9 @@ export const en = {
       gas: 'Gas',
     },
 
-    /** §2.2's dive form — its own chrome, its refusals, and §2.3's catalogue offers. Every field
-     * label it draws is `field.*` above, shared with the detail it will be read back on. */
+    /** §2.2's dive form — its own chrome, its refusals, and what its Site and Centre rows read.
+     * Every field label it draws is `field.*` above, shared with the detail it will be read back
+     * on. */
     form: {
       headingNewDive: 'New dive',
       headingNewPlan: 'New plan',
@@ -747,14 +752,14 @@ export const en = {
       ratingLevel: '{{label}}: {{level}} of {{max}}',
       saveFailed: "Couldn't save this dive. Try again.",
       missingDive: "Couldn't find that dive — it may have been deleted.",
-      addSite: 'Add “{{name}}” as a new site',
-      addCentre: 'Add “{{name}}” as a new dive centre',
-      addingSite: 'Adding the site…',
-      addingCentre: 'Adding the centre…',
-      addFailed: 'Could not add that just now — the dive keeps the name.',
-      addAnyway: '{{offer}} anyway',
+      /** The Site and Centre rows while they hold nothing — each opens the page of that name
+       * (issue #19). */
+      chooseSite: 'Choose a site',
+      chooseCentre: 'Choose a centre',
+      /** The caption under a guest's own place, which joins the community when they sign in. */
+      onThisPhoneOnly: 'on this phone only',
+      /** §2.3's near-match question, asked on the *New dive site* page. */
       didYouMean: 'Did you mean “{{name}}”?',
-      lookingForMatch: 'Looking for a match…',
       dateInvalid: 'Enter a real date (YYYY-MM-DD).',
       unknownOption:
         'This value came from a newer version of Ponor. It is saved as it is — pick one of the options to replace it.',
@@ -842,11 +847,14 @@ export const en = {
       noSitesGuest: 'No community sites here yet. They arrive with an account, on your first sync.',
       noSitesMember:
         'No community sites here yet. Sites appear as divers add them and your next sync brings them down.',
-      /** The same shape as `noDivePins` above, and fixed with it (M3i). */
+      /** The same shape as `noDivePins` above, and fixed with it (M3i). *On this phone* rather than
+       * *community* since issue #19: a guest's own sites are in this layer too, and are not the
+       * community's until they sign in. Two ways to give a new site a position — the dive's pin, or
+       * the create page's own button — so the sentence names both. */
       noSitePositions_one:
-        'Your only community site has no position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.',
+        'The only dive site on this phone has no position yet. A new one takes the dive’s pin (“Use my location”), or tap “Use current position” as you create it.',
       noSitePositions_other:
-        'None of your {{count, figure}} community sites has a position yet. A site takes the pin of the dive that created it, so tap “Use my location” before you add one.',
+        'None of the {{count, figure}} dive sites on this phone has a position yet. A new one takes the dive’s pin (“Use my location”), or tap “Use current position” as you create it.',
       noCentresGuest: 'No dive centres here yet. They arrive with an account, on your first sync.',
       noCentresMember:
         'No dive centres here yet. Centres appear as divers add them and your next sync brings them down.',
@@ -875,11 +883,17 @@ export const en = {
         'Picking this site on a new dive fills these in, over anything carried from your last dive.',
       searchPlaceholder: 'Search sites',
       close: 'Close sites',
+      /** Both name the way a site is made since issue #19 — the dive form's *Site* row, then the
+       * picker's *Create* — and only the signed-in diver's promises a sync: a guest's sites stay on
+       * the phone, and a guest reads no community rows (#28). */
       noneGuest:
-        'No dive sites yet. They arrive with an account — on your first sync, and when you add one from a dive.',
+        'No dive sites yet. Create one from a dive: tap “Site” and type its name. It stays on this phone until you sign in.',
       noneMember:
-        'No dive sites yet. Name the site on a dive and tap “Add” to publish one; your next sync brings the community’s.',
+        'No dive sites yet. On a dive, tap “Site” and type a name to find or create one; your next sync brings the community’s.',
       noMatches: 'No sites match your search.',
+      /** The button on a site's page opened from a near-match on *New dive site*: picks this site
+       * for the dive instead, as tapping the match once did (owner's call, PR #35). */
+      useThisSite: 'Use this site',
     },
 
     /** A dive centre's own page (§3, M3c) and the directory that lists them. */
@@ -892,9 +906,9 @@ export const en = {
       searchPlaceholder: 'Search centres',
       close: 'Close centres',
       noneGuest:
-        'No dive centres yet. They arrive with an account — on your first sync, and when you add one from a dive.',
+        'No dive centres yet. Create one from a dive: tap “Centre” and type its name. It stays on this phone until you sign in.',
       noneMember:
-        'No dive centres yet. Name the centre on a dive and tap “Add” to publish one; your next sync brings the community’s.',
+        'No dive centres yet. On a dive, tap “Centre” and type a name to find or create one; your next sync brings the community’s.',
       noMatches: 'No centres match your search.',
     },
 
@@ -903,6 +917,93 @@ export const en = {
     search: {
       close: 'Close search',
       prompt: 'Search your dives by site, centre, buddy or notes.',
+    },
+
+    /**
+     * The *Choose a site* / *Choose a centre* page the dive form's two place rows open (issue
+     * #19). The row meta lines are composed by `format/display.ts` (`formatPickerMeta` and its
+     * siblings), which is also what reads `provenance` — the three words for where a row came
+     * from, tied to `domain/placePicker.ts`'s list at compile time like every vocabulary above.
+     */
+    picker: {
+      titleSite: 'Choose a site',
+      titleCenter: 'Choose a centre',
+      /** What a screen reader is told `‹ Cancel` does here — nothing is saved on this page, so
+       * the form's *Leave without saving* would name the wrong loss. */
+      leave: 'Leave without choosing',
+      selected: 'Selected:',
+      searchSites: 'Search sites',
+      searchCenters: 'Search centres',
+      clearSearch: 'Clear search',
+      nearMe: 'Near me',
+      locating: 'Locating…',
+      divedHere: 'Dived here',
+      divedWith: 'Dived with',
+      otherSites: 'Other sites',
+      otherCenters: 'Other centres',
+      nearYou: 'Near you · within {{distance}}',
+      nearSite: 'Near {{name}}',
+      or: 'Or',
+      noCenter: 'No centre',
+      noCenterMeta: 'you dived without one',
+      create: 'Create “{{name}}”',
+      createSite: 'new site · details next',
+      createCenter: 'new centre · details next',
+      createSiteGuest: 'new site · kept on this phone until you sign in',
+      createCenterGuest: 'new centre · kept on this phone until you sign in',
+      provenance: {
+        community: 'community',
+        yours: 'added by you',
+        phoneOnly: 'on this phone only · not shared yet',
+      } satisfies Record<Provenance, string>,
+      dived: 'dived',
+      nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
+      nothingNear: 'Nothing within {{distance}}.',
+      /** In place of *Nothing within…* while the server is still being asked about the fix: nothing
+       * on this phone is in range, and the community's rows may yet arrive. */
+      lookingNear: 'Looking for places within {{distance}}…',
+      /** Where rows would be on a page with none — a diver with no dives, nothing typed, *Near me*
+       * off — which otherwise opened on a title, a search and a pill with nothing saying that
+       * typing is the way in. `search.prompt`'s job, on this page. */
+      promptSite: 'Type a name to find a site or create one.',
+      promptCenter: 'Type a name to find a centre or create one.',
+      /** Near me's refusals, worded for a list rather than for the form's GPS row — nothing here
+       * is being pinned, so *"too rough to pin a dive site"* would be a reason that is not one.
+       * `timedOut` and `failed` share a sentence: the diver's next move is the same. */
+      locationDenied: 'Location is off for Ponor. Turn it on in the device’s Settings.',
+      locationServicesOff: 'Location Services are off for this device.',
+      locationFailed: 'Couldn’t find where you are. Try again.',
+    },
+
+    /**
+     * The *New dive site / New dive centre* pages (issue #19), pushed from the picker's *Create
+     * “…”* row. Only the page's own words: its rows that are fields elsewhere too — *Country*,
+     * *Website*, the chips' *Salinity*, *Water body* and *Entry* — are `field.*`, the same words a
+     * site's and a centre's own pages read back; a refused fix says the GPS row's `form.position*`,
+     * and §2.3's question is `form.didYouMean`.
+     */
+    newPlace: {
+      titleSite: 'New dive site',
+      titleCenter: 'New dive centre',
+      required: 'the name is the only thing required',
+      guestNote: 'Kept on this phone. It joins the community map when you sign in.',
+      name: 'Name',
+      position: 'Position',
+      useCurrentPosition: 'Use current position',
+      asksThePhone: 'asks the phone where you are',
+      fromThisDive: 'from this dive',
+      optional: 'optional',
+      saveSite: 'Save site',
+      saveCenter: 'Save centre',
+      saveAnyway: 'Save as a new site anyway',
+      saving: 'Saving…',
+      /** A failed write. The dive never received the name, so the form's *"the dive keeps the
+       * name"* would be false here; what is true is that nothing on it changed. */
+      saveFailed: "Couldn't save that just now. Nothing on the dive has changed.",
+      /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
+      sameName: '“{{name}}” is already a site.',
+      /** How far a near-match is from the position on the page, after its country: `HR · 120 m away`. */
+      away: '{{distance}} away',
     },
 
     /** §5's auth screen and §7.4's sign-out. */

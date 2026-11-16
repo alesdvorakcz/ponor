@@ -6,7 +6,7 @@ import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import { FormField, type FieldMatch, type OfferedSuggestion } from './FormField';
+import { FormField, type OfferedSuggestion } from './FormField';
 import { FormRevealContext } from './FormReveal';
 
 // Same RTL adaptation every test file in this codebase uses (DiveRow.test.tsx,
@@ -528,8 +528,8 @@ async function focusInput(t: RenderResult) {
   return input;
 }
 
-// §0.6 gives the list to the FOCUSED row, so a form with four autocompleting fields shows one
-// list rather than four. Driven through the input's real focus/blur, exactly as the fill test
+// §0.6 gives the list to the FOCUSED row, so a form with several autocompleting fields shows
+// one list rather than a stack of them. Driven through the input's real focus/blur, exactly as the fill test
 // above is, so a list wired to a condition it could never satisfy fails here.
 it('draws the suggestion list only while its own row holds focus', async () => {
   const t = await render(
@@ -599,7 +599,7 @@ it('never routes a pick through the typing path', async () => {
 
 // The label names the FIELD as well as the value, so a screen reader hears which field a
 // suggestion fills — "Blue Hole, button" on its own says nothing about where it would land,
-// and the form has four autocompleting fields.
+// and a form can have several autocompleting fields.
 it('names both the field and the value, so a screen reader hears where a pick lands', async () => {
   const t = await render(
     <FormField label="Buddy" value="" onChange={() => {}} scheme="light" suggestions={[{ value: 'Petr', id: null }]} onPickSuggestion={() => {}} />,
@@ -668,305 +668,6 @@ it('is unchanged by the new props when a caller passes neither', async () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// §2.3's create offer, in the list's own slot (M2o)
-// ---------------------------------------------------------------------------------------
-
-const ADD_SITE = 'Add “Kotelna” as a new site';
-
-/** One offer, with a press this file can watch. `busy` is stated at every call site rather
- * than defaulted, because it is the difference between a control and a control that has gone
- * quiet, and a test that forgot it would be asserting about neither. */
-const addition = (onPress: () => void, busy = false) => ({ label: ADD_SITE, onPress, busy });
-
-// The same `focused` gate the list is under, and driven through the input's real focus/blur
-// for the same reason: an offer wired to a condition it could never satisfy fails here.
-it('draws the create offer only while its own row holds focus', async () => {
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
-  );
-  expect(textIn(t)).not.toContain(ADD_SITE);
-
-  const input = await focusInput(t);
-  expect(textIn(t)).toContain(ADD_SITE);
-
-  await fireEvent(input, 'blur');
-  expect(textIn(t)).not.toContain(ADD_SITE);
-});
-
-// **The common case, and the one an "offer it under the suggestions" implementation misses**:
-// a brand-new site matches nothing in the diver's history, so the list is empty and the offer
-// is the only row there is. Without this the affordance would appear exactly when it was not
-// needed and vanish when it was.
-it('draws the offer with no suggestions above it at all', async () => {
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  expect(findSuggestion(t, ADD_SITE)).toBeDefined();
-});
-
-// Last, after the offers: they are what the diver most likely meant, and publishing a new
-// record is what is left when none of them was. Read off the drawn order rather than off a
-// prop, because the order is the whole claim.
-it('offers what the diver has already used first, and the new record last', async () => {
-  const t = await render(
-    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  expect(textIn(t)).toEqual(['Site', 'Blue Hole', 'Silfra', ADD_SITE]);
-});
-
-// Creating a community record is a deliberate act, and this is the gesture. Neither of the
-// two paths a field already has may hear about it: `onChange` clears the paired id one layer
-// up (a typed name refers to no site), and `onPickSuggestion` fills the field from a
-// suggestion that does not exist here.
-it('runs the caller’s own gesture, and neither the typing nor the picking path', async () => {
-  const onPress = jest.fn();
-  const onChange = jest.fn();
-  const onPick = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={onChange} scheme="light" suggestions={OFFERS} onPickSuggestion={onPick} addition={addition(onPress)} />,
-  );
-  await focusInput(t);
-  const row = findSuggestion(t, ADD_SITE);
-  if (!row) throw new Error('no create offer found');
-  await fireEvent.press(row);
-  expect(onPress).toHaveBeenCalledTimes(1);
-  expect(onChange).not.toHaveBeenCalled();
-  expect(onPick).not.toHaveBeenCalled();
-});
-
-// In flight, the row says so and refuses a second press — `ControlledPositionField`'s
-// *Locating…* is the same shape. **Both `disabled` and `accessibilityState`**: the first stops
-// the press, the second stops a screen reader announcing an available control that ignores
-// taps, and `busy` is the word for one that will come back.
-it('shuts the offer while it is in flight, in both the press and the announcement', async () => {
-  const onPress = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(onPress, true)} />,
-  );
-  await focusInput(t);
-  const row = findSuggestion(t, ADD_SITE);
-  if (!row) throw new Error('no create offer found');
-  expect(row.props.accessibilityState).toEqual({ disabled: true, busy: true });
-  await fireEvent.press(row);
-  expect(onPress).not.toHaveBeenCalled();
-});
-
-// §0.5: "Tap targets never below 48 dp". The same box a suggestion gets, because it is the
-// same kind of thing to a wet thumb.
-it('gives the create offer §0.5\'s 48 dp floor', async () => {
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  const styles = makeStyles('light');
-  expect(stylesOn(findSuggestion(t, ADD_SITE))).toContain(styles.formSuggestion);
-});
-
-// **Names are records now, drawn the way a dive row draws a site** (2026-11-14, the design
-// canvas). A suggestion used to be muted because "an offer is not yet a value" — and a column
-// of muted names with no history under them read as greyed-out text rather than as places the
-// diver has been. The canvas draws each name in ink with what the diver has done there muted
-// beneath it, and that muted line is what says "a record to pick" now. The act keeps its own
-// style key and its own sentence, so a question can still never be drawn as a second act
-// (`draws a question as a name to pick` below), and in flight it still goes muted.
-it('draws a name and the act both in ink, each in its own treatment', async () => {
-  const scheme = 'light';
-  const styles = makeStyles(scheme);
-  const theme = themeFor(scheme);
-  expect(styles.formSuggestionAdd.color).toBe(theme.fg);
-  expect(styles.formSuggestionText.color).toBe(theme.fg);
-
-  const t = await render(
-    <FormField label="Site" value="Blue" onChange={() => {}} scheme={scheme} suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  const drawn = (label: string) =>
-    textNodesOf(t).find((n) => n.children.includes(label));
-  expect(stylesOn(drawn(ADD_SITE))).toContain(styles.formSuggestionAdd);
-  expect(stylesOn(drawn('Blue Hole'))).toContain(styles.formSuggestionText);
-});
-
-// ...and goes muted again in flight, which is what says "gone quiet, will come back" rather
-// than "dead" — the pairing `formFieldPickerText` / `formFieldPickerTextUnset` already draws.
-it('mutes the offer while it is in flight', async () => {
-  const styles = makeStyles('light');
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {}, true)} />,
-  );
-  await focusInput(t);
-  const drawn = textNodesOf(t).find((n) => n.children.includes(ADD_SITE));
-  expect(stylesOn(drawn)).toContain(styles.formSuggestionAddBusy);
-  expect(styles.formSuggestionAddBusy.color).toBe(themeFor('light').fgMuted);
-});
-
-// The row announces its own sentence rather than the `Fill ... with ...` a suggestion
-// announces: it does not fill the field, it publishes a record, and the two must not sound
-// alike to anyone who only hears them.
-it('announces the act, never a fill', async () => {
-  const t = await render(
-    <FormField label="Site" value="Kotelna" onChange={() => {}} scheme="light" addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  const announced = offersOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
-  expect(announced).toEqual([ADD_SITE]);
-});
-
-it('draws nothing outside its own treatment with an offer showing either (§0.4/§0.1)', async () => {
-  const t = await render(
-    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={addition(() => {})} />,
-  );
-  await focusInput(t);
-  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
-});
-
-// ---------------------------------------------------------------------------------------
-// §2.3's fuzzy check, once it has answered (M2p)
-// ---------------------------------------------------------------------------------------
-
-const DID_YOU_MEAN_SHARK = 'Did you mean “Shark Point”?';
-const ADD_ANYWAY = `${ADD_SITE} anyway`;
-
-/** One near-match, in the shape the caller hands over: the sentence the row reads, and the
- * pair picking it delivers. Written out here rather than derived from the suggestion, because
- * the wording is the caller's and this file is its independent witness. */
-const MATCHES: FieldMatch[] = [
-  { question: DID_YOU_MEAN_SHARK, suggestion: { value: 'Shark Point', id: 'site-shark' } },
-  { question: 'Did you mean “Shark Bay”?', suggestion: { value: 'Shark Bay', id: 'site-bay' } },
-];
-
-const asked = (onPress: () => void, matches: FieldMatch[] = MATCHES) => ({
-  label: ADD_ANYWAY,
-  onPress,
-  busy: false,
-  matches,
-});
-
-// §2.3's own words, one row per near-match, under the same `focused` gate everything in this
-// slot is under — and driven through real focus/blur for the reason the list is: a question
-// wired to a condition it could never satisfy fails here rather than passing.
-it('asks §2.3’s question only while its own row holds focus', async () => {
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  expect(textIn(t)).not.toContain(DID_YOU_MEAN_SHARK);
-
-  const input = await focusInput(t);
-  expect(textIn(t)).toContain(DID_YOU_MEAN_SHARK);
-
-  await fireEvent(input, 'blur');
-  expect(textIn(t)).not.toContain(DID_YOU_MEAN_SHARK);
-});
-
-// **The order is the whole claim**: the question the diver has just been asked, and under it
-// the way through. Read off the drawn order rather than off a prop.
-it('draws every question above the act, in the order it was handed them', async () => {
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  expect(textIn(t)).toEqual(['Site', DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
-});
-
-/**
- * **A pending question takes the slot to itself.** The diver has committed to a name and been
- * interrupted; their own history is a third answer to something they already answered, and —
- * the concrete failure — the same site can legitimately appear in both lists, once as
- * `Blue Hole` and once as *Did you mean “Blue Hole”?*.
- *
- * Asserted with a list that WOULD have drawn, so this is a claim about suppression rather
- * than about an empty array.
- */
-it('puts the diver’s own history away while a question is standing', async () => {
-  const t = await render(
-    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  expect(textIn(t)).toEqual(['Site', DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
-
-  // ...and it is back the moment the question is not being asked, which is what makes the
-  // line above about the question rather than about this component having stopped drawing
-  // lists at all.
-  const answeredAlready = await render(
-    <FormField label="Site" value="Blue" onChange={() => {}} scheme="light" suggestions={OFFERS} onPickSuggestion={() => {}} addition={asked(() => {}, [])} />,
-  );
-  await focusInput(answeredAlready);
-  expect(textIn(answeredAlready)).toEqual(['Site', 'Blue Hole', 'Silfra', ADD_ANYWAY]);
-});
-
-/**
- * §2.3: *"One tap picks the existing site instead."* That is precisely what picking a
- * suggestion already does, so it goes down the same path — `onPickSuggestion`, with the whole
- * pair — and not through `onChange`, which clears §6's id one layer up, nor through the
- * addition's own press, which would create the duplicate the question exists to prevent.
- */
-it('answers the question through the picking path, and neither of the other two', async () => {
-  const onPick = jest.fn();
-  const onChange = jest.fn();
-  const onPress = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={onChange} scheme="light" onPickSuggestion={onPick} addition={asked(onPress)} />,
-  );
-  await focusInput(t);
-  const row = findSuggestion(t, DID_YOU_MEAN_SHARK);
-  if (!row) throw new Error('no question found');
-  await fireEvent.press(row);
-  expect(onPick).toHaveBeenCalledWith({ value: 'Shark Point', id: 'site-shark' });
-  expect(onChange).not.toHaveBeenCalled();
-  expect(onPress).not.toHaveBeenCalled();
-});
-
-// The whole question is what a screen reader hears, never a suggestion's `Fill … with …`: the
-// diver pressed a control, and a row announced as an ordinary fill would never tell them that
-// anything had answered.
-it('announces the question, never a fill', async () => {
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" suggestions={[]} onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  const announced = offersOf(t).map((n) => String(n.props?.accessibilityLabel ?? ''));
-  expect(announced).toEqual([DID_YOU_MEAN_SHARK, 'Did you mean “Shark Bay”?', ADD_ANYWAY]);
-});
-
-// A question IS a name to pick, so it wears the name's own treatment and never the act's — the
-// two share an ink since 2026-11-14, so what this guards is the act's style key, which is what
-// goes muted in flight and must never take a question with it.
-it('draws a question as a name to pick, not as a second act', async () => {
-  const styles = makeStyles('light');
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  expect(stylesOn(findSuggestion(t, DID_YOU_MEAN_SHARK))).toContain(styles.formSuggestion);
-  const drawn = textNodesOf(t).find((n) => n.children.includes(DID_YOU_MEAN_SHARK));
-  expect(stylesOn(drawn)).toContain(styles.formSuggestionText);
-  expect(stylesOn(drawn)).not.toContain(styles.formSuggestionAdd);
-});
-
-// In flight the act still shuts, exactly as it does without a question — a second press while
-// the write is out would publish the same site twice under two ids.
-it('still shuts the act while it is in flight, with a question standing', async () => {
-  const onPress = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={{ ...asked(onPress), busy: true }} />,
-  );
-  await focusInput(t);
-  const row = findSuggestion(t, ADD_ANYWAY);
-  expect(row?.props.accessibilityState).toEqual({ disabled: true, busy: true });
-  await fireEvent.press(row!);
-  expect(onPress).not.toHaveBeenCalled();
-});
-
-it('draws nothing outside its own treatment with a question showing (§0.4/§0.1)', async () => {
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={() => {}} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  expect(unexpectedGraphics(t, 'light')).toHaveLength(0);
-});
-
-// ---------------------------------------------------------------------------------------
 // The three credential props (M2e — the account screen's two rows)
 // ---------------------------------------------------------------------------------------
 
@@ -1021,41 +722,6 @@ it('leaves every field written before these props existed rendering identically'
     />,
   );
   expect(JSON.stringify(after.toJSON())).toBe(JSON.stringify(before.toJSON()));
-});
-
-/**
- * **While the act is in flight the whole slot is inert, not just the act.** The diver has
- * answered the question by pressing *…anyway*; the write can take seconds (§2.3's country
- * lookup waits on the network), and a question left live through that window is a tap that
- * pairs the dive with the existing site and is then overwritten by the row the write is about
- * to create — the answer taken and thrown away, with nothing on screen to say so.
- *
- * Both `disabled` and `accessibilityState`, for the act's own reason one test up: the first
- * stops the press, the second stops a screen reader announcing an available control that
- * ignores taps.
- */
-it('shuts the questions too while the act is writing', async () => {
-  const onPick = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={onPick} addition={{ ...asked(() => {}), busy: true }} />,
-  );
-  await focusInput(t);
-  const row = findSuggestion(t, DID_YOU_MEAN_SHARK);
-  expect(row?.props.accessibilityState).toEqual({ disabled: true, busy: true });
-  await fireEvent.press(row!);
-  expect(onPick).not.toHaveBeenCalled();
-});
-
-// ...and they are live again the moment it is not, which is what makes the line above about
-// the write rather than about the questions never being pressable.
-it('leaves the questions live whenever the act is not writing', async () => {
-  const onPick = jest.fn();
-  const t = await render(
-    <FormField label="Site" value="Sharks Point" onChange={() => {}} scheme="light" onPickSuggestion={onPick} addition={asked(() => {})} />,
-  );
-  await focusInput(t);
-  await fireEvent.press(findSuggestion(t, DID_YOU_MEAN_SHARK)!);
-  expect(onPick).toHaveBeenCalledTimes(1);
 });
 
 // ---------------------------------------------------------------------------------------
@@ -1174,13 +840,13 @@ it('asks its form to keep it in view while focused, and lets go when it blurs', 
 });
 
 const DESCRIBED: OfferedSuggestion[] = [
-  { value: 'Blue Hole', id: 'site-blue', meta: '4 dives · last 18 May 2026', figure: '34.6 m' },
-  { value: 'Silfra', id: null, meta: null, figure: null },
+  { value: 'Blue Hole', id: 'site-blue', meta: '4 dives · last 18 May 2026' },
+  { value: 'Silfra', id: null, meta: null },
 ];
 
-// The canvas's suggestion row: the name, what the diver has done there beneath it, and a figure
-// trailing — a list of places with history in them rather than a column of bare words.
-it('draws what the diver has done with a suggestion beneath its name, and its figure trailing', async () => {
+// The canvas's suggestion row: the name, and what the diver has done with it beneath — a list
+// of names with history in them rather than a column of bare words.
+it('draws what the diver has done with a suggestion beneath its name', async () => {
   const styles = makeStyles('light');
   const t = await render(
     <FormField label="Site" value="" onChange={() => {}} scheme="light" suggestions={DESCRIBED} suggestionsTitle="Your sites · 2" onPickSuggestion={() => {}} />,
@@ -1188,15 +854,13 @@ it('draws what the diver has done with a suggestion beneath its name, and its fi
   expect(textIn(t)).not.toContain('Your sites · 2');
   await focusInput(t);
 
-  expect(textIn(t)).toEqual(['Site', 'Your sites · 2', 'Blue Hole', '4 dives · last 18 May 2026', '34.6 m', 'Silfra']);
+  expect(textIn(t)).toEqual(['Site', 'Your sites · 2', 'Blue Hole', '4 dives · last 18 May 2026', 'Silfra']);
   const drawn = (text: string) => textNodesOf(t).find((n) => n.children.includes(text));
   expect(stylesOn(drawn('Your sites · 2'))).toContain(styles.formSuggestionsTitle);
   expect(stylesOn(drawn('Blue Hole'))).toContain(styles.formSuggestionText);
   expect(stylesOn(drawn('4 dives · last 18 May 2026'))).toContain(styles.formSuggestionMeta);
-  expect(stylesOn(drawn('34.6 m'))).toContain(styles.formSuggestionFigure);
-  // Both muted: what was done there and how deep are facts ABOUT the name, never its rival.
+  // Muted: what was done with a name is a fact ABOUT the name, never its rival.
   expect(styles.formSuggestionMeta.color).toBe(themeFor('light').fgMuted);
-  expect(styles.formSuggestionFigure.color).toBe(themeFor('light').fgMuted);
 });
 
 // The pick still hands back the suggestion the caller gave — its details ride along untouched,

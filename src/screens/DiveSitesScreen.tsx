@@ -105,9 +105,10 @@ export default function DiveSitesScreen() {
     if (catalogue.sites.length === 0) {
       // **Two sentences, because a guest is not waiting for the same thing a signed-in diver is**
       // — the split `MapScreen`'s community layer draws and the centres directory repeats. A site
-      // reaches this table two ways and §5 puts an account behind both: a pull, and §2.3's *add a
-      // site*, which is offered to a signed-in diver alone. Telling a guest their next sync will
-      // bring sites would be pointing at something that cannot happen.
+      // reaches this table two ways: a pull, which §5 puts behind an account (a guest reads no
+      // community rows until #28), and the create page the dive form's *Site* row leads to, which
+      // since issue #19 a guest may use too — their site stays on the phone until they sign in. So
+      // both sentences name the create page, and only the signed-in diver's promises a sync.
       return t(session === null ? 'site.noneGuest' : 'site.noneMember');
     }
     if (shown.length === 0) return t('site.noMatches');

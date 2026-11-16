@@ -1,6 +1,6 @@
 import { type SupabaseClient } from '@supabase/supabase-js';
 
-import { SEARCH_SITES_RPC, searchSites } from './searchSites';
+import { SEARCH_SITES_RPC, searchSites, searchSitesNear } from './searchSites';
 import { type Cloud } from './supabase';
 
 /**
@@ -109,4 +109,17 @@ it.each(['', '   ', '\n'])('does not ask at all for the query %p', async (query)
 it('answers nothing when the call itself rejects', async () => {
   const rpc = jest.fn().mockRejectedValue(new Error('offline'));
   expect(await searchSites(withServer(rpc), 'Kotelna')).toEqual([]);
+});
+
+it('asks around a point with no name, and reads the rows as sites', async () => {
+  const rpc = answered([KOTELNA]);
+  const rows = await searchSitesNear(withServer(rpc), { latitude: 49.75, longitude: 14.36 }, 50000);
+
+  expect(rpc).toHaveBeenCalledWith(SEARCH_SITES_RPC, {
+    p_query: null,
+    p_latitude: 49.75,
+    p_longitude: 14.36,
+    p_radius_m: 50000,
+  });
+  expect(rows.map((row) => row.id)).toEqual(['site-kotelna']);
 });
