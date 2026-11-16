@@ -612,7 +612,7 @@ describe('opened from a near-match', () => {
   const pickRequest: PlacePickRequest = {
     kind: 'site',
     selected: null,
-    dive: { pin: null, entry: null, salinity: null, waterBody: null, siteId: null },
+    dive: { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null },
     onPick: jest.fn(),
   };
   const labelled = (t: RenderResult, label: string) => allNodes(t).find((n) => n.props?.accessibilityLabel === label);

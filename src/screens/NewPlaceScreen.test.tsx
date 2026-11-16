@@ -60,8 +60,8 @@ const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEff
 const styles = makeStyles('light');
 
 const pin = { latitude: 43.06, longitude: 16.18 };
-const diveAt = { pin, entry: 'boat', salinity: 'salt', waterBody: 'ocean', siteId: null } as const;
-const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null };
+const diveAt = { pin, entry: 'boat', salinity: 'salt', waterBody: 'ocean', siteId: null, diveId: null } as const;
+const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
 
 /** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless told. */
 const twin = (value: string, id: string, over: Partial<SiteTwin> = {}): SiteTwin => ({

@@ -39,13 +39,15 @@ import type { Entry, Salinity, WaterBody } from '../domain/types';
 
 /** What the picker needs to know about the dive being edited — the pin, the water, the entry
  * type — to rank and group the places near it. `siteId` lets a centre pick look at the chosen
- * site. */
+ * site. `diveId` is the dive under edit, null in create mode: the picker leaves it out of *Dived
+ * here*, as the form leaves it out of its own history (DiveFormScreen.tsx's `history`). */
 export interface DiveContext {
   pin: MapPoint | null;
   entry: Entry | null;
   salinity: Salinity | null;
   waterBody: WaterBody | null;
   siteId: string | null;
+  diveId: string | null;
 }
 
 /** A chosen place; the second shape is "No centre" — clearing the field is a pick too. */

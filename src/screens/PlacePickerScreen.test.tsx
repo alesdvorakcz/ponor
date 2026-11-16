@@ -140,7 +140,7 @@ function divesState(dives: Dive[]): DiveListState {
   return { dives, numbers: assignDiveNumbers(dives, 0), resolved: true, error: undefined, settingsError: undefined };
 }
 
-const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null };
+const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
 
 const request = (over: Partial<PlacePickRequest> = {}): PlacePickRequest => ({
   kind: 'site',
@@ -288,6 +288,45 @@ it('opens with Dived here, most recently dived first, and the search focused', a
   expect(labelled(t, 'Search sites').props.autoFocus).toBe(true);
   // What is typed can become a new place's name: a capital on its first letter only.
   expect(labelled(t, 'Search sites').props.autoCapitalize).toBe('sentences');
+});
+
+// The form's rule (DiveFormScreen.tsx's `history`) carried to the picker: the dive under edit is
+// not history. Fixing a dive paired with the wrong site — its only dive there — must not find that
+// site under Dived here, counted from the very pairing being undone.
+it('editing a dive leaves that dive out of Dived here and its counts', async () => {
+  mockUseDiveSites.mockReturnValue(
+    sitesState([site({ id: 's-a', name: 'Alpha' }), site({ id: 's-wrong', name: 'Wrong Reef' })]),
+  );
+  mockUseDives.mockReturnValue(
+    divesState([
+      dive({ id: 'd-edit', siteId: 's-wrong', date: '2026-09-01' }),
+      dive({ id: 'd-a1', siteId: 's-a', date: '2026-01-10' }),
+      dive({ id: 'd-a2', siteId: 's-a', date: '2026-05-18' }),
+    ]),
+  );
+  mockRequest.mockReturnValue(
+    request({ selected: { id: 's-wrong', name: 'Wrong Reef' }, dive: { ...noDive, siteId: 's-wrong', diveId: 'd-edit' } }),
+  );
+  const t = await showSite();
+  expect(rowNames(t)).toEqual(['Alpha']);
+  expect(metaOf(rowFor(t, 'Alpha'))).toBe('2 dives · last 18 May 2026');
+  // What the dive holds now is still said, on the Selected line.
+  const [line] = hosts(t, styles.pickerSelectedText);
+  expect(line && textOf(line)).toBe('Selected: Wrong Reef');
+});
+
+it('editing a dive still counts the others at its site', async () => {
+  mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-a', name: 'Alpha' })]));
+  mockUseDives.mockReturnValue(
+    divesState([
+      dive({ id: 'd-a1', siteId: 's-a', date: '2026-01-10' }),
+      dive({ id: 'd-edit', siteId: 's-a', date: '2026-09-01' }),
+    ]),
+  );
+  mockRequest.mockReturnValue(request({ dive: { ...noDive, siteId: 's-a', diveId: 'd-edit' } }));
+  const t = await showSite();
+  expect(rowNames(t)).toEqual(['Alpha']);
+  expect(metaOf(rowFor(t, 'Alpha'))).toBe('1 dive · last 10 Jan 2026');
 });
 
 // A new diver opened a page holding a title, a search and a pill and nothing else — no row, no

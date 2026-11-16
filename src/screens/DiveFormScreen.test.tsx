@@ -6698,12 +6698,28 @@ it("an empty Site row reads Choose a site and opens the site picker with the div
     salinity: 'salt',
     waterBody: WATER_BODY_VALUES[0],
     siteId: null,
+    // A new dive is not in the logbook yet, so the picker leaves nothing out of Dived here.
+    diveId: null,
   });
 
   // The site picker closes with nothing picked, which frees the form for the next one.
   await regainFocus();
   const centre = await openPlace(t, 'Centre');
   expect(centre.kind).toBe('center');
+});
+
+// The dive under edit is not its own history (`history` in the screen): the picker is told which
+// dive it is, so a wrong site paired by this dive alone is not offered back under Dived here.
+it('an edited dive tells both pickers which dive it is', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', siteName: 'Silfra', siteId: 'site-silfra' });
+  stubDives({ dives: [target] });
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  const site = await openPlace(t, 'Site');
+  expect(site.dive).toMatchObject({ siteId: 'site-silfra', diveId: 'target' });
+  await regainFocus();
+  const centre = await openPlace(t, 'Centre');
+  expect(centre.dive).toMatchObject({ diveId: 'target' });
 });
 
 // §6's pair and §2.1's site defaults, through the one path both go through. Asserted on the

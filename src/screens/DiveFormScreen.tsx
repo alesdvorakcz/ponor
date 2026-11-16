@@ -3093,7 +3093,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * allows and from nothing else. Its name half is not the picker's business (the page names the
    * row from what the diver typed into its search) and is dropped here. `pointOf` then answers
    * whether the pair is a place at all. `siteId` is the dive's paired site, which the centre
-   * picker ranks centres near.
+   * picker ranks centres near. `diveId` is this dive in edit mode, which the picker leaves out of
+   * *Dived here* for the reason `history` below leaves it out of the form's own suggestions.
    *
    * A plain function: it is called on a press, and nothing holds on to its identity.
    */
@@ -3101,7 +3102,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     const values = getValues();
     const { latitude, longitude, entry, salinity, waterBody } = siteFactsFrom(toInputString(values.siteName), values);
     const siteId = toInputString(values.siteId).trim();
-    return { pin: pointOf({ latitude, longitude }), entry, salinity, waterBody, siteId: siteId === '' ? null : siteId };
+    return {
+      pin: pointOf({ latitude, longitude }),
+      entry,
+      salinity,
+      waterBody,
+      siteId: siteId === '' ? null : siteId,
+      diveId: mode === 'edit' && diveId !== undefined ? diveId : null,
+    };
   };
 
   /**

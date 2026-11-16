@@ -16,7 +16,7 @@ jest.mock('expo-router', () => ({
 const mockPush = router.push as jest.Mock;
 const mockDismiss = router.dismiss as jest.Mock;
 
-const dive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null };
+const dive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
 
 function request(kind: PlacePickRequest['kind'] = 'site'): PlacePickRequest & { onPick: jest.Mock } {
   return { kind, selected: null, dive, onPick: jest.fn() };

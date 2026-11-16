@@ -118,9 +118,10 @@ function refusalSentence(reason: PositionRefusal): string {
  *
  * Which rows, under which heading, in what order, which one is checked — all of that is
  * `domain/placePicker.ts`, run over the device's catalogue (live, so a row the supplement or the
- * create page writes appears as it lands) and the diver's dives. The call is memoised here on its
- * inputs, because it pairs every place with the logbook each time it runs. What this page owns is
- * the wording (`format/display.ts`), the three ways off it, and *Near me*.
+ * create page writes appears as it lands) and the diver's dives, less the one being edited. The
+ * call is memoised here on its inputs, because it pairs every place with the logbook each time it
+ * runs. What this page owns is the wording (`format/display.ts`), the three ways off it, and *Near
+ * me*.
  *
  * ── Three ways off, and the form hears about one ────────────────────────────────────────────
  *
@@ -179,13 +180,32 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
     kind === 'center' && siteId !== null ? (siteCatalogue.sites.find((s) => s.id === siteId) ?? null) : null;
   const nearSite = useMemo(() => (pairedSite === null ? null : pointOf(pairedSite)), [pairedSite]);
 
+  // **The dive under edit is not history**, the form's rule (DiveFormScreen.tsx's `history`)
+  // carried here. A diver who paired a dive with the wrong site, their only dive there, and opens
+  // it to put that right would otherwise find the wrong site under *Dived here*, counted from the
+  // very pairing they are undoing. The *Selected* line already shows what the dive holds now.
+  const editingId = request?.dive.diveId ?? null;
+  const history = useMemo(
+    () => (editingId === null ? dives : dives.filter((d) => d.id !== editingId)),
+    [dives, editingId],
+  );
+
   const signedIn = session !== null;
   const userId = session?.user.id ?? null;
   const selectedId = request?.selected?.id ?? null;
   const groups = useMemo(
     () =>
-      pickerGroups({ kind, places, dives, query, selectedId, near: fix, nearSite, viewer: { signedIn, userId } }),
-    [kind, places, dives, query, selectedId, fix, nearSite, signedIn, userId],
+      pickerGroups({
+        kind,
+        places,
+        dives: history,
+        query,
+        selectedId,
+        near: fix,
+        nearSite,
+        viewer: { signedIn, userId },
+      }),
+    [kind, places, history, query, selectedId, fix, nearSite, signedIn, userId],
   );
 
   // A fix that lands after the page has gone is dropped; leaving by swipe-back forgets the request
