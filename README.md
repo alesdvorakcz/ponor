@@ -6,7 +6,7 @@ A free, offline-first dive log that *fills itself in*: after the first dive of a
 
 | Dives | New dive | Choose a site | A dive |
 |---|---|---|---|
-| <img src="docs/screenshots/dives-dark-en.jpg" width="200" alt="The Dives tab in dark mode: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-light-en.png" width="200" alt="A new dive in light mode, with the site and centre carried over from dive 7"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site in dark mode: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-light-en.png" width="200" alt="A dive's detail page in light mode: depth, a Show on map card, date, time, site and centre"> |
+| <img src="docs/screenshots/dives-dark-en.jpg" width="200" alt="The Dives tab in dark mode: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-light-en.png" width="200" alt="A new dive in light mode, with the site and centre carried over from dive 7"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site in dark mode: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-light-en.png" width="200" alt="An imported dive's detail page in light mode: its depth profile drawn in the depth colours, with gas consumption beneath"> |
 
 | Map | Ponory (Czech) | Nový ponor | Nastavení |
 |---|---|---|---|
@@ -56,3 +56,7 @@ The checks CI runs:
 ```bash
 npm run typecheck && npm run lint && npm test -- --ci
 ```
+
+## Licence
+
+Ponor is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). You may read, run, change and share it for any non-commercial purpose. Commercial use needs the author's permission.
