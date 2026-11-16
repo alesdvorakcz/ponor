@@ -11,8 +11,9 @@
  *   representation` (so the accessibility magnifier enlarges a vector, not a bitmap) and
  *   `template-rendering-intent: template`. That intent states what the image is for, but it is
  *   NOT what makes the bar tint it: expo-router and react-native-screens force the rendering
- *   mode themselves, `template` only while the bar has an `iconColor` (`NativeTabIcon` in
- *   `src/navigation/tabs.ts` has the trace, and `tabs.test.ts` pins the colour).
+ *   mode themselves, `template` only while that state has an icon colour — `iconColor` at rest,
+ *   `tintColor` selected (`NativeTabIcon` in `src/navigation/tabs.ts` has the trace, and
+ *   `tabs.test.ts` pins both colours).
  * - **Android:** a `VectorDrawable` written from the same shapes. Material tints a tab icon by
  *   itself, so the drawing's own ink is a placeholder there too.
  *

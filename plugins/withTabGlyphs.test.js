@@ -164,8 +164,9 @@ it.each([
 
 // Kept as a vector, so the accessibility magnifier enlarges a vector rather than a bitmap, and
 // declared a template — which states what the image is for, though it is not what makes the
-// bar tint it: expo-router and react-native-screens set the mode from the bar's `iconColor`
-// (`NativeTabIcon` in src/navigation/tabs.ts; `tabs.test.ts` pins that colour on iOS).
+// bar tint it: expo-router and react-native-screens set the mode from each state's icon colour,
+// `iconColor` at rest and `tintColor` selected (`NativeTabIcon` in src/navigation/tabs.ts;
+// `tabs.test.ts` pins both colours on iOS).
 it('marks the iOS image set as a template vector', () => {
   expect(iosContents('tab_mark.svg')).toEqual({
     images: [{ filename: 'tab_mark.svg', idiom: 'universal' }],

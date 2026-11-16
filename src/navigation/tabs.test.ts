@@ -17,8 +17,9 @@ import { makeStyles } from '../theme/styles';
 // JS navigator built and discarded before native tabs landed.
 
 // The one thing the two bars must agree on, and the reason a diver never sees "two designs":
-// the ink. `iconColor`/`tintColor` are what the native bar spends; `tabBarInactiveTintColor`/
-// `tabBarActiveTintColor` are the same two values under the JS navigator's own names. Read
+// the ink. `iconColor`/`tintColor` are what the iPhone's native bar spends (Android's adds
+// `action-fg` for the glyph on its pill); `tabBarInactiveTintColor`/`tabBarActiveTintColor` are
+// the same two values under the JS navigator's own names. Read
 // off both functions rather than against a token literal, so a change to one bar's resting or
 // selected ink fails here instead of quietly making the browser look like a different app.
 //

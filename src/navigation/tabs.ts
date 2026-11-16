@@ -241,8 +241,9 @@ export function jsTabItems(): readonly JsTabItem[] {
  * forbids an accent on the `+`, which binds the bar it now sits above just as hard):
  *
  * - `iconColor` is the resting glyph, `fgMuted` — and on iOS it is also what makes Ponor's
- *   own glyphs tint at rest (`NativeTabIcon` above records why; selected, `tintColor` does). On Android it carries the
- *   selected glyph too, `action-fg`, for the inverted pill (issue #2; see below).
+ *   own glyphs tint at rest (`NativeTabIcon` above records why; selected, `tintColor` does).
+ *   On Android it carries the selected glyph too, `action-fg`, for the inverted pill (issue
+ *   #2; see below).
  * - `tintColor` is the selected item. The navigator (`NativeBottomTabsNavigator.js`) uses it
  *   for both `selectedIconColor` and the selected label's colour when neither is given
  *   explicitly, so on iOS one value covers the glyph and the word together and they cannot
@@ -331,9 +332,10 @@ export function nativeTabsAppearance(
  *   already says the same thing. A JS navigator would otherwise add a title bar the native
  *   one never had, which is a divergence in the opposite direction from the one being fixed.
  * - `tabBarActiveTintColor` / `tabBarInactiveTintColor` — `fg` and `fgMuted`, the exact pair
- *   `nativeTabsAppearance`'s `tintColor`/`iconColor` spend, so the two bars read as one
- *   design. They cover the glyph and the word together (`BottomTabItem.js` applies the tint
- *   to both), the same way `tintColor` does natively.
+ *   the iPhone's bar spends (`nativeTabsAppearance(scheme, 'ios')`'s `tintColor`/`iconColor`),
+ *   so the two bars read as one design. They cover the glyph and the word together
+ *   (`BottomTabItem.js` applies the tint to both), the same way `tintColor` does on iOS;
+ *   Android's native bar puts its selected glyph in `action-fg` on the pill instead.
  * - `tabBarLabelStyle` — `webTabBarLabel`, which is `tabBarLabel` without its colour. That
  *   omission is load-bearing and theme/styles.ts records why: the navigator composes
  *   `[{ color: tint }, tabBarLabelStyle]` in that order, so a colour here would quietly win
