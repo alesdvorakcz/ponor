@@ -1,6 +1,6 @@
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 
-import { useNearbySupplement } from './useCatalogueSupplement';
+import { LIVE_SEARCH_DELAY_MS, useCatalogueSupplement, useNearbySupplement } from './useCatalogueSupplement';
 
 /**
  * **`useNearbySupplement` — the point-shaped twin of `useCatalogueSupplement`** (the site
@@ -113,4 +113,38 @@ it('is not asking without a point, and asks again for a new one', async () => {
   answer([]);
   await waitFor(() => expect(result.current).toBe(false));
   expect(search).toHaveBeenCalledTimes(2);
+});
+
+// --- The name search reports nothing, so its answer costs its screen no render -----------------
+
+// Sites, Centres and the picker each run a name search on every pause in typing. What it writes
+// reaches the screen through the live query; whether it has answered is Near me's question alone,
+// so an answer — rows or none — must not re-render the screen that asked.
+describe('useCatalogueSupplement', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each([
+    ['rows', [{ id: 'a' }]],
+    ['nothing', []],
+  ])('asks after the pause and re-renders nothing when the answer is %s', async (_, rows) => {
+    const search = jest.fn().mockResolvedValue(rows);
+    const apply = jest.fn().mockResolvedValue(undefined);
+    let renders = 0;
+
+    await renderHook(() => {
+      renders += 1;
+      useCatalogueSupplement('Ponorka', search, apply);
+    });
+    const before = renders;
+    await act(async () => {
+      jest.advanceTimersByTime(LIVE_SEARCH_DELAY_MS);
+    });
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(search).toHaveBeenCalledWith({ configured: false }, 'Ponorka');
+    expect(apply).toHaveBeenCalledTimes(rows.length === 0 ? 0 : 1);
+    expect(renders).toBe(before);
+  });
 });

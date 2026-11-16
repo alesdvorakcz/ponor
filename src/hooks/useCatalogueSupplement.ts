@@ -61,7 +61,7 @@ export function useCatalogueSupplement<T>(
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): void {
   const wanted = query.trim();
-  useSupplement(wanted === '' ? null : wanted, queryOf, LIVE_SEARCH_DELAY_MS, search, apply);
+  useSupplement(wanted === '' ? null : wanted, queryOf, LIVE_SEARCH_DELAY_MS, search, apply, false);
 }
 
 /** The name search's question is its key, the trimmed query. */
@@ -89,7 +89,7 @@ export function useNearbySupplement<T>(
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
 ): boolean {
   const key = point === null ? null : `${point.latitude},${point.longitude}`;
-  return useSupplement(key, pointOf, 0, search, apply);
+  return useSupplement(key, pointOf, 0, search, apply, true);
 }
 
 /** The point back out of its key — a number printed and read back is the same number. */
@@ -108,8 +108,14 @@ const pointOf = (key: string): MapPoint => {
  * `key` is what identifies the question — the trimmed query, or the point's two coordinates — and
  * is the only value the effect re-runs on, so a caller handing in an equal question rebuilt on
  * every render does not ask again; `null` asks nothing. `questionOf` rebuilds the question from the
- * key inside the effect (a module-level function, so it is stable). Answers whether the question
- * under the current `key` is still out.
+ * key inside the effect (a module-level function, so it is stable).
+ *
+ * **`reports` decides whether it answers whether the question under the current `key` is still
+ * out**, and only Near me asks. Knowing costs a render when the answer lands — state set from the
+ * effect — and the name search runs on every pause in typing on Sites, Centres and the picker,
+ * where what it writes already reaches the screen through the live query and an empty answer
+ * changes nothing at all. So the name search keeps no state, and its screen renders for its rows
+ * and for nothing else; with `reports` off this answers `false`.
  */
 function useSupplement<Q, T>(
   key: string | null,
@@ -117,8 +123,9 @@ function useSupplement<Q, T>(
   delayMs: number,
   search: (cloud: Cloud, question: Q) => Promise<T[]>,
   apply: (db: Db, rows: readonly T[]) => Promise<unknown>,
+  reports: boolean,
 ): boolean {
-  // The key whose question has come back — written, empty, or refused.
+  // The key whose question has come back — written, empty, or refused. Only set when `reports`.
   const [answered, setAnswered] = useState<string | null>(null);
 
   useEffect(() => {
@@ -133,7 +140,7 @@ function useSupplement<Q, T>(
       } catch {
         // See the docblock: a refused write is the same outcome as no answer.
       } finally {
-        if (!cancelled) setAnswered(key);
+        if (reports && !cancelled) setAnswered(key);
       }
     };
     const timer = setTimeout(() => void ask(), delayMs);
@@ -141,7 +148,7 @@ function useSupplement<Q, T>(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [key, questionOf, delayMs, search, apply]);
+  }, [key, questionOf, delayMs, search, apply, reports]);
 
-  return key !== null && answered !== key;
+  return reports && key !== null && answered !== key;
 }
