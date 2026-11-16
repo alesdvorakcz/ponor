@@ -12,7 +12,7 @@ module.exports = defineConfig([
     // so Node's globals are legitimately in scope. Without this `npx eslint .`
     // reports `'Buffer' is not defined` in build-icons.mjs — `expo lint` misses
     // it only because it does not reach outside the app source. Declaring the
-    // globals for this one directory keeps no-undef enforced everywhere else,
+    // globals for these directories keeps no-undef enforced everywhere else,
     // which is the opposite of switching the rule off. Config plugins (`plugins/`) run under
     // Node at prebuild for the same reason, and `.cjs` is a build script too (issue #2).
     files: ["scripts/**/*.mjs", "scripts/**/*.js", "scripts/**/*.cjs", "plugins/**/*.js"],
@@ -29,9 +29,11 @@ module.exports = defineConfig([
     },
   },
   {
-    // Tests for the config plugins sit beside them, outside `src/`, so the Jest preset's own
-    // globals never reach them. Named here, one by one, for the same reason the Node block
-    // above names its globals: no-undef stays on for everything these files do not declare.
+    // The config plugins' tests are plain `.js`, where `no-undef` stays on (eslint-config-expo
+    // turns it off only for TypeScript, which is why the `.test.ts` files in `src/` never needed
+    // this), and nothing declares Jest's globals to ESLint. So they are named here, one by one,
+    // for the same reason the Node block above names its globals: no-undef stays on for
+    // everything these files do not declare.
     files: ["plugins/**/*.test.js"],
     languageOptions: {
       globals: {
