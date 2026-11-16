@@ -51,13 +51,14 @@ export default function WebTabsLayout() {
           options={{
             title: tab.title,
             // The glyph the native bar gets through `NativeTabs.Trigger.Icon`: a symbol drawn
-            // by the same `SymbolView` the action capsule already uses in the browser, or
-            // Ponor's mark as a tinted image (issue #2). `TabBarGlyph` makes that one choice,
-            // outside this untestable tree. A symbol arrives carrying the `web` key this
-            // navigator reads — `symbolName` (components/symbolName.ts) is §4.1's owner of
-            // that key and navigation/tabs.ts is where it is applied. `color` and `size` come
-            // from the navigator so the glyph tracks the selected/resting tint and the bar's
-            // own metrics, rather than this file naming either.
+            // by the same `SymbolView` the action capsule already uses in the browser, or one
+            // of Ponor's own glyphs — the mark, the sliders — as a tinted image (issue #2).
+            // `TabBarGlyph` makes that one choice, outside this untestable tree. A symbol
+            // arrives carrying the `web` key this navigator reads — `symbolName`
+            // (components/symbolName.ts) is §4.1's owner of that key and navigation/tabs.ts is
+            // where it is applied. `color` and `size` come from the navigator so the glyph
+            // tracks the selected/resting tint and the bar's own metrics, rather than this
+            // file naming either.
             tabBarIcon: ({ color, size }) => <TabBarGlyph icon={tab.icon} color={color} size={size} />,
           }}
         />

@@ -102,6 +102,27 @@ export const TAB_ROUTES: readonly TabRoute[] = [
 ];
 
 /**
+ * What `NativeTabs.Trigger.Icon` is handed: a symbol under the native bar's `sf`/`md` keys, or
+ * one of Ponor's glyphs by name — `xcasset` on iOS, `drawable` on Android.
+ *
+ * **What makes iOS tint a glyph is the bar's `iconColor`, not the image set** (corrected in
+ * review). expo-router's iOS converter picks `template` for an `xcasset` icon only because an
+ * icon colour is configured (`renderingMode ?? (iconColor !== undefined ? 'template' :
+ * 'original')`, and `renderingMode` reaches `src` icons only), and react-native-screens then
+ * forces that mode on the image, overriding the asset catalog's `template-rendering-intent`.
+ * So `nativeTabsAppearance` setting `iconColor` on iOS is load-bearing: drop it and both
+ * glyphs draw their own white placeholder. `tabs.test.ts` pins it. Material tints every tab
+ * icon by itself.
+ */
+export type NativeTabIcon =
+  | ReturnType<typeof nativeTabSymbol>
+  | { xcasset: TabGlyphAssetName; drawable: TabGlyphAssetName };
+
+/** What the browser's bar hands `TabBarGlyph` (components/TabBarGlyph.tsx): `name` is
+ * exactly `SymbolView`'s `name` prop, already carrying its `web` key. */
+export type JsTabIcon = { name: ReturnType<typeof symbolName> } | { image: ImageSourcePropType };
+
+/**
  * **The tab bar as each navigator wants to receive it — route file name, the word a diver
  * reads, and the glyph already resolved into that navigator's own key names.**
  *
@@ -124,9 +145,9 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * sitting in the one file no test could reach.
  *
  * **So the conversion moves here and the layouts lose the ingredient.** These items carry no
- * `symbol` key — deliberately built field by field rather than spread from `TAB_ROUTES`, so
- * the raw value is not merely unused but *absent*. A layout can no longer pass it by mistake,
- * because there is nothing to pass: `tab.symbol` is a `tsc` error, and `tsc --noEmit` does
+ * `glyph` key (it was `symbol` until issue #2) — deliberately built field by field rather than
+ * spread from `TAB_ROUTES`, so the raw value is not merely unused but *absent*. A layout can
+ * no longer pass it by mistake, because there is nothing to pass: `tab.glyph` is a `tsc` error, and `tsc --noEmit` does
  * cover `src/app/` even though Jest cannot. The guarantee is moved from "nobody edits that
  * expression wrongly" to "the wrong edit does not compile", which is §4.1's "derive, or tie
  * at compile time" applied to the one tree that has no other net.
@@ -143,9 +164,11 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  *
  * Two lists rather than one for the same reason there are two appearance functions below:
  * the native bar asks for `{sf, md}` and the browser's `SymbolView` asks for `{ios, android,
- * web}`, and they are the same two glyphs under two vocabularies. `symbolName.ts` owns both
- * spellings; the `icon` types are read off its own return types rather than restated here, so
- * a change to either shape lands in one place.
+ * web}`, and they are the same glyphs under two vocabularies. `symbolName.ts` owns both
+ * spellings, and the symbol half of each `icon` type is read off its return types rather than
+ * restated here, so a change to either shape lands in one place. Ponor's own glyphs (issue #2)
+ * add the other half: a name the native apps know (`NativeTabIcon` above) or a PNG for the
+ * browser (`JsTabIcon`).
  *
  * **Functions rather than constants since M3g, and the glyph half is still computed once.**
  * The two converters are pure functions of a frozen list and were built at module load for
@@ -159,20 +182,6 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * object: two Czech labels beside two English ones is a bar that looks broken, where four
  * Czech labels over two not-yet-translated screens looks like work in progress.
  */
-/**
- * What `NativeTabs.Trigger.Icon` is handed: a symbol under the native bar's `sf`/`md` keys, or
- * one of Ponor's glyphs by name — `xcasset` on iOS, `drawable` on Android. Neither needs a
- * rendering mode: the iOS image set declares itself a template and Material tints every tab
- * icon, so both bars repaint the glyph in their own ink.
- */
-export type NativeTabIcon =
-  | ReturnType<typeof nativeTabSymbol>
-  | { xcasset: TabGlyphAssetName; drawable: TabGlyphAssetName };
-
-/** What the browser's bar hands `TabBarGlyph` (components/TabBarGlyph.tsx): `name` is
- * exactly `SymbolView`'s `name` prop, already carrying its `web` key. */
-export type JsTabIcon = { name: ReturnType<typeof symbolName> } | { image: ImageSourcePropType };
-
 export interface NativeTabItem {
   name: string;
   title: string;
@@ -230,10 +239,14 @@ export function jsTabItems(): readonly JsTabItem[] {
  * **What this sets is ink, and only ink** (§0.1: colour encodes depth and nothing else; §10
  * forbids an accent on the `+`, which binds the bar it now sits above just as hard):
  *
- * - `iconColor` is the resting glyph, `fgMuted`.
+ * - `iconColor` is the resting glyph, `fgMuted` — and on iOS it is also what makes Ponor's
+ *   own glyphs tint at all (`NativeTabIcon` above records why). On Android it carries the
+ *   selected glyph too, `action-fg`, for the inverted pill (issue #2; see below).
  * - `tintColor` is the selected item. The navigator (`NativeBottomTabsNavigator.js`) uses it
  *   for both `selectedIconColor` and the selected label's colour when neither is given
- *   explicitly, so one value covers the glyph and the word together and they cannot drift.
+ *   explicitly, so on iOS one value covers the glyph and the word together and they cannot
+ *   drift. On Android the selected glyph is `action-fg` on the pill and the word under it
+ *   stays `fg`, deliberately different.
  * - `labelStyle` is the resting label: Archivo, small, `fgMuted` — a tab label is UI chrome,
  *   the same category as `actionLabel`, never a data figure (§0.2 splits the two faces on
  *   content).

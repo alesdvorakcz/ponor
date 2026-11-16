@@ -181,8 +181,10 @@ console.log(
  * Built like the mono mark above — the drawing in the alpha channel over one flat ink — because
  * it reaches the screen the same way: tinted, every opaque pixel repainted in the bar's own
  * resting or selected ink. `markAsset.test.ts` holds them to that: one colour over a transparent
- * ground, one drawing at 1×, 2× and 3×. The point size is each SVG's own `width` (28; DESIGN.md
- * §0.6 has why), so it is stated once, in the file every platform reads.
+ * ground, one drawing at 1×, 2× and 3×. The 1× size is each SVG's own `width` — the 28 pt the
+ * iOS app draws it at (DESIGN.md §0.6 has why) — read rather than restated; the browser's bar
+ * then draws the image at its own icon size (`TabBarGlyph` takes the navigator's `size`), so
+ * there the PNG's size only sets how sharp the scaled glyph is.
  */
 const { TAB_GLYPHS, parseGlyph, toIosSvg } = require('../plugins/withTabGlyphs.js');
 for (const entry of TAB_GLYPHS) {

@@ -9,14 +9,19 @@
  *
  * - **iOS:** an image set in `Images.xcassets` holding the SVG, with `preserves-vector-
  *   representation` (so the accessibility magnifier enlarges a vector, not a bitmap) and
- *   `template-rendering-intent: template` (so the bar tints it like an SF Symbol).
+ *   `template-rendering-intent: template`. That intent states what the image is for, but it is
+ *   NOT what makes the bar tint it: expo-router and react-native-screens force the rendering
+ *   mode themselves, `template` only while the bar has an `iconColor` (`NativeTabIcon` in
+ *   `src/navigation/tabs.ts` has the trace, and `tabs.test.ts` pins the colour).
  * - **Android:** a `VectorDrawable` written from the same shapes. Material tints a tab icon by
  *   itself, so the drawing's own ink is a placeholder there too.
  *
  * Both are written from ONE parse of the SVG, so the two platforms cannot be handed two
- * different drawings. The parser is deliberately small — it reads exactly the shapes these
- * glyphs use (`polyline`, `rect`) and **throws on anything else**, so a glyph redrawn with a
- * shape it does not know fails the prebuild instead of losing a stroke on one platform.
+ * different drawings. The parser is deliberately small — it reads exactly the shapes and
+ * attributes these glyphs use and **throws on anything else**: another element, an attribute
+ * outside its list (a `transform`, an `opacity`, a `style`, an `ry`), a shape both stroked and
+ * filled, or a shape that does not say whether it is filled. So a glyph redrawn with something
+ * it does not understand fails the prebuild instead of drawing differently from its source.
  *
  * **It is native configuration:** the glyphs exist only in a binary built after this plugin
  * ran. A dev client or TestFlight build from before it shows those tabs with no glyph at all,
@@ -51,8 +56,28 @@ function fmt(n) {
 function attributes(tag) {
   /** @type {Record<string, string>} */
   const out = {};
-  for (const [, key, value] of tag.matchAll(/([\w-]+)="([^"]*)"/g)) out[key] = value;
+  for (const [, key, value] of tag.matchAll(/([\w:-]+)="([^"]*)"/g)) out[key] = value;
   return out;
+}
+
+/**
+ * The attributes each element may carry — everything this parser reads, and nothing it would
+ * silently ignore. An attribute outside the list changes the drawing in a way the conversion
+ * would drop (a `transform`, an `opacity`), so it is refused rather than lost.
+ */
+const ALLOWED = {
+  svg: ['xmlns', 'viewBox', 'width', 'height'],
+  polyline: ['points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'],
+  rect: ['x', 'y', 'width', 'height', 'rx', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'],
+};
+
+function checkAttributes(name, attrs) {
+  const allowed = ALLOWED[name];
+  for (const key of Object.keys(attrs)) {
+    if (!allowed.includes(key)) {
+      throw new Error(`tab glyph: <${name}> carries ${key}="${attrs[key]}", which this plugin would not convert`);
+    }
+  }
 }
 
 function inkOf(attrs, key) {
@@ -91,6 +116,7 @@ function parseGlyph(svgText) {
   const root = text.match(/<svg\b[^>]*>/);
   if (!root) throw new Error('tab glyph: no <svg> element');
   const rootAttrs = attributes(root[0]);
+  checkAttributes('svg', rootAttrs);
   const viewBox = (rootAttrs.viewBox ?? '').trim().split(/\s+/).map((v) => num(v, 'viewBox'));
   if (viewBox.length !== 4 || viewBox[0] !== 0 || viewBox[1] !== 0) {
     throw new Error(`tab glyph: viewBox must be "0 0 w h" (${rootAttrs.viewBox})`);
@@ -99,18 +125,28 @@ function parseGlyph(svgText) {
   const shapes = [];
   const body = text.slice(text.indexOf(root[0]) + root[0].length, text.lastIndexOf('</svg>'));
   for (const [tag, name] of body.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*\/?>/g)) {
+    if (!(name in ALLOWED) || name === 'svg') {
+      throw new Error(`tab glyph: <${name}> is not a shape this plugin converts (polyline, rect)`);
+    }
     const attrs = attributes(tag);
+    checkAttributes(name, attrs);
+    // SVG fills a shape that says nothing about `fill` (black, by default), which is easy to
+    // forget on a stroked polyline; requiring the word makes the intent explicit either way.
+    if (attrs.fill === undefined) {
+      throw new Error(`tab glyph: <${name}> must say fill="none" or fill="${INK}"`);
+    }
     const stroke = inkOf(attrs, 'stroke');
     const fill = inkOf(attrs, 'fill');
+    if (stroke && fill) {
+      throw new Error(`tab glyph: <${name}> is both stroked and filled; draw it as one or the other`);
+    }
     let d;
     if (name === 'polyline') {
       const points = (attrs.points ?? '').trim().split(/\s+/).map((pair) => pair.split(',').map((v) => num(v, 'point')));
       if (points.length < 2 || points.some((p) => p.length !== 2)) throw new Error('tab glyph: a polyline needs two or more x,y points');
       d = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${fmt(x)},${fmt(y)}`).join('');
-    } else if (name === 'rect') {
-      d = roundedRectPath(num(attrs.x ?? '0', 'x'), num(attrs.y ?? '0', 'y'), num(attrs.width, 'width'), num(attrs.height, 'height'), num(attrs.rx ?? '0', 'rx'));
     } else {
-      throw new Error(`tab glyph: <${name}> is not a shape this plugin converts (polyline, rect)`);
+      d = roundedRectPath(num(attrs.x ?? '0', 'x'), num(attrs.y ?? '0', 'y'), num(attrs.width, 'width'), num(attrs.height, 'height'), num(attrs.rx ?? '0', 'rx'));
     }
     if (stroke) {
       shapes.push({
@@ -200,7 +236,10 @@ function withTabGlyphs(config) {
     'ios',
     async (cfg) => {
       const { projectRoot, platformProjectRoot, projectName } = cfg.modRequest;
-      writeIosGlyphs(projectRoot, path.join(platformProjectRoot, projectName ?? '', 'Images.xcassets'));
+      // Without the project's name the catalog path would be `ios/Images.xcassets`, outside
+      // the app target, and the tabs would quietly have no glyphs; stop the prebuild instead.
+      if (!projectName) throw new Error('tab glyph: the iOS project has no name to find its Images.xcassets by');
+      writeIosGlyphs(projectRoot, path.join(platformProjectRoot, projectName, 'Images.xcassets'));
       return cfg;
     },
   ]);

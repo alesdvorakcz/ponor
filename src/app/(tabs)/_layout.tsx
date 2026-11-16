@@ -27,8 +27,8 @@ import { resolveScheme } from '../../theme/resolve';
  * diver's phone; `navigation/tabs.test.ts` records that and it is why every screen in this app
  * lives outside this directory. This file used to call `nativeTabSymbol` itself, which made
  * the one expression in it that could be wrong also the one expression nothing could check.
- * `nativeTabItems()` arrives with the glyph already in the native bar's `{sf, md}` spelling
- * and with no raw symbol on it at all, so passing the unconverted value is not a mistake this
+ * `nativeTabItems()` arrives with the glyph already in the native bar's spelling — `{sf, md}`
+ * for a symbol, `{xcasset, drawable}` for Ponor's own glyphs — and with no raw glyph on it, so passing the unconverted value is not a mistake this
  * file can make — it does not compile. See that module for the measurement behind it.
  *
  * The dive form and the dive detail stay OUTSIDE this group, in the root Stack, which is

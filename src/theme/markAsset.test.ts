@@ -102,17 +102,14 @@ describe('the mark the first-run screen draws', () => {
   });
 });
 
-// **The Dives tab's glyph** (issue #2): the mark as the design canvas redraws it for a tab bar,
-// `assets/images/tab-mark{,@2x,@3x}.png`. It reaches the screen the way the first-run mark does
-// — tinted, every opaque pixel repainted in the bar's own ink — so it carries the same claim:
-// one colour over a transparent ground. It is a sprite rather than a source (UIKit draws a tab
-// image at the image's own size), so the three scales must also be one drawing at 1×, 2× and
-// 3×: a stale @3x left behind by a resize would put a different-sized mark on every phone that
-// reads it, and nothing else would notice.
-//
-// Since the owner chose vectors for the device, these PNGs are the BROWSER's copy — the native
-// apps hold the SVG itself (`plugins/withTabGlyphs.js`) — and the Settings sliders are built
-// the same way, so both are held to the same claim.
+// **Ponor's tab glyphs as the browser draws them** (issue #2): the mark and the canvas's two
+// sliders, `assets/images/tab-{mark,sliders}{,@2x,@3x}.png`. The native apps hold the SVGs
+// themselves as vectors (`plugins/withTabGlyphs.js`); these PNGs are the browser's copy, and
+// they reach the screen the way the first-run mark does — tinted, every opaque pixel repainted
+// in the bar's own ink — so they carry the same claim: one colour over a transparent ground.
+// The three scales must also be one drawing: the browser picks the @2x or @3x by the screen's
+// pixel ratio, and a stale one left behind by a redraw would show a different glyph on a
+// high-density screen only, where nothing else would notice.
 const TAB_GLYPH_SETS = ['tab-mark', 'tab-sliders'].map((base) =>
   [`${base}.png`, `${base}@2x.png`, `${base}@3x.png`].map((file) =>
     path.join(__dirname, '..', '..', 'assets', 'images', file),

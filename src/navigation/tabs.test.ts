@@ -19,9 +19,14 @@ import { makeStyles } from '../theme/styles';
 // `tabBarActiveTintColor` are the same two values under the JS navigator's own names. Read
 // off both functions rather than against a token literal, so a change to one bar's resting or
 // selected ink fails here instead of quietly making the browser look like a different app.
-it('spends the same two inks on both bars, so the browser and the device read as one design', () => {
+//
+// **iOS's bar, named explicitly** (issue #2's review): `nativeTabsAppearance` branches on the
+// platform, and on Android the selected glyph is deliberately `action-fg` on an inverted pill,
+// so this claim is about the iPhone's bar and says so rather than leaning on jest-expo's
+// default platform happening to be iOS.
+it('spends the same two inks on both bars, so the browser and the iPhone read as one design', () => {
   for (const scheme of ['light', 'dark'] as const) {
-    const native = nativeTabsAppearance(scheme);
+    const native = nativeTabsAppearance(scheme, 'ios');
     const js = jsTabsAppearance(scheme);
     expect(js.tabBarInactiveTintColor).toBe(native.iconColor);
     expect(js.tabBarActiveTintColor).toBe(native.tintColor);
@@ -90,6 +95,11 @@ it('shows no navigator header in the browser, matching every screen the device d
 // its indicator behind the selected icon, so the indicator is `action` and the glyph on it is
 // `action-fg` — Android only, because on iOS the same ink would sit dark on a pale glass bubble
 // in the dark theme and vanish. The word stays `fg` everywhere: Material sets it under the pill.
+//
+// On iOS `iconColor` is also the one thing that makes Ponor's own glyphs tint at all: expo-router
+// renders an `xcasset` icon as a template only while an icon colour is set, and react-native-
+// screens then overrides the asset catalog's own template flag (tabs.ts, `NativeTabIcon`). So
+// the iOS half below is not only "which grey" — without it both glyphs draw their white.
 it('inverts the selected tab on Android and leaves iOS its own selection', () => {
   for (const scheme of ['light', 'dark'] as const) {
     const theme = themeFor(scheme);
@@ -110,7 +120,9 @@ it('inverts the selected tab on Android and leaves iOS its own selection', () =>
 // guarantee is asserted here instead of resting on a deleted file's compile-time shape check.
 it('names no ground for the native bar, so iOS keeps drawing its own material', () => {
   for (const scheme of ['light', 'dark'] as const) {
-    expect(nativeTabsAppearance(scheme).backgroundColor).toBeUndefined();
+    for (const os of ['ios', 'android'] as const) {
+      expect(nativeTabsAppearance(scheme, os).backgroundColor).toBeUndefined();
+    }
   }
 });
 
@@ -223,14 +235,17 @@ it('asks the native apps only for glyphs the config plugin installs', () => {
 // `tsc --noEmit` covers `src/app/` even though Jest cannot reach it, so the way to protect an
 // untestable file is to make the wrong edit fail to compile. Both layouts now map over these
 // items and nothing else, and the items are built field by field rather than spread from
-// `TAB_ROUTES` — so `tab.symbol` is not merely unused there, it does not exist, and a layout
-// passing the unconverted value is a type error rather than a silently blank tab bar.
+// `TAB_ROUTES` — so `tab.glyph` is not merely unused there, it does not exist, and a layout
+// passing the unconverted value is a type error rather than a silently blank tab bar. (The
+// raw field was `symbol` until issue #2 made it `glyph`; both are refused, so neither name
+// can come back through a spread.)
 //
 // That property is invisible in the layouts (it is the absence of an option) and it would
 // survive a well-meaning `...route` spread in `tabs.ts` looking like a tidy-up, which is
 // exactly how it would come back. Asserted at runtime, here, so the tidy-up is red.
-it('hands the layouts no raw symbol to pass by mistake', () => {
+it('hands the layouts no raw glyph to pass by mistake', () => {
   for (const tab of [...nativeTabItems(), ...jsTabItems()]) {
+    expect(tab).not.toHaveProperty('glyph');
     expect(tab).not.toHaveProperty('symbol');
   }
   // And the list is not empty, or the loop above proves nothing at all.
