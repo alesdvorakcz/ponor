@@ -1006,6 +1006,28 @@ export const en = {
       away: '{{distance}} away',
     },
 
+    /** Issue #24's offer — the card on the empty logbook and at the top of Settings while nobody
+     * is signed in. Its title promises no backup: where it first appears there is nothing to back
+     * up yet. */
+    accountOffer: {
+      title: 'Better with an account',
+      optional: 'Totally optional — Ponor works fully without one.',
+      action: 'Sign in or create an account',
+      /** The rule between *Log your first dive* and the card. */
+      or: 'or',
+    },
+
+    /** What an account adds, in one order everywhere: as words on the offer card, as sentences on
+     * the account screen. Each pair says the same thing at two lengths. */
+    accountPerks: {
+      backupWord: 'Backups',
+      devicesWord: 'Every device',
+      communityWord: 'Community',
+      backup: 'Your dives backed up as you log them',
+      devices: 'Your logbook on your other devices',
+      community: 'Share new sites and centres with other divers',
+    },
+
     /** §5's auth screen and §7.4's sign-out. */
     account: {
       heading: 'Account',

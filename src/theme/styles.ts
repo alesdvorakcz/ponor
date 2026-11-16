@@ -449,6 +449,30 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
 
+  // **The outlined button** (issue #24, the design canvas's screens 02 and 19–21) — a real
+  // button that is not the screen's primary: the account offer's *Sign in or create an account*,
+  // the account screen's other mode, *Back to sign in* and *Sign out*. The owner found the muted
+  // label too quiet for these: on the account screen *Forgot password?* and the mode switch read
+  // as text, hard to tell from the rows above them. §0.1 still holds — no hue, the ink is the
+  // screen's own — so what tells it from the primary is that it is drawn rather than filled: a
+  // hairline in `border` round a box the primary's shape, with the label in full ink.
+  //
+  // One definition for all four, so the second button on a screen can never be drawn two ways.
+  const outlinedAction: ViewStyle = {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 20,
+  };
+  const outlinedActionLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 16,
+    color: theme.fg,
+  };
+
   // A sentence under a row or a heading, explaining what the thing IS — Settings'
   // "Dives you logged before Ponor", and the account screen's line about what an account is
   // for. §0.6's "a field error is text, not a field" turned around: that message trails, into
@@ -4264,6 +4288,103 @@ function build(scheme: ColorScheme) {
       alignSelf: 'flex-start',
       alignItems: 'flex-start',
       paddingHorizontal: CONTENT_INSET,
+    },
+    // `outlinedAction` above, under a name that does not belong to any one screen: the account
+    // screen's second button and the offer card's button are the same object.
+    secondaryAction: outlinedAction,
+    secondaryActionLabel: outlinedActionLabel,
+    // ------------------------------------------------------------------------------------
+    // The account offer (issue #24) — `AccountOfferCard`, on the empty logbook and at the top
+    // of Settings while nobody is signed in, and `AccountPerks`, which the card and the account
+    // screen share
+    // ------------------------------------------------------------------------------------
+    // A card because it is read as a whole — `surface`, radius 12, the dive detail's *Show on
+    // map* card's ground — and it holds its own button, so the offer is one object rather than a
+    // sentence with a control somewhere near it.
+    accountOfferCard: {
+      gap: 12,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+    },
+    accountOfferHead: { gap: 3 },
+    accountOfferTitle: {
+      fontFamily: fonts['sans-semibold'],
+      fontSize: 16,
+      lineHeight: 20,
+      color: theme.fg,
+    },
+    accountOfferLine: {
+      fontFamily: fonts.sans,
+      fontSize: 13,
+      lineHeight: 18,
+      color: theme.fgMuted,
+    },
+    // The outlined button inside a card, its label a size down (15) as the canvas draws it. The
+    // canvas draws the box 44 tall; it stays 48 here, because §0.5's floor is met by the box
+    // itself in this app and never by `hitSlop`.
+    accountOfferButton: {
+      ...outlinedAction,
+      minHeight: 48,
+    },
+    accountOfferButtonLabel: {
+      ...outlinedActionLabel,
+      fontSize: 15,
+    },
+    // The three perks as words, in one row. **`flexWrap`**, because Czech runs 20–30 % longer
+    // (§0.5): three words that fit in English must be free to take a second line rather than run
+    // off the card.
+    accountPerkWords: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      columnGap: 16,
+      rowGap: 6,
+    },
+    accountPerkWord: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    accountPerkWordLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 13.5,
+      color: theme.fg,
+    },
+    // The same three as sentences, one to a line — the account screen's head.
+    accountPerkList: { gap: 10 },
+    accountPerkSentence: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    accountPerkSentenceLabel: {
+      fontFamily: fonts.sans,
+      fontSize: 14.5,
+      lineHeight: 19,
+      color: theme.fg,
+      flexShrink: 1,
+    },
+    // *or*, between *Log your first dive* and the card: two hairlines and a muted mono word.
+    // A rule rather than air, because it says the two are alternatives — log now, or first make
+    // the logbook an account's.
+    orRule: {
+      height: 32,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    orRuleLine: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: theme.border,
+    },
+    orRuleLabel: {
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      color: theme.fgMuted,
     },
     // ------------------------------------------------------------------------------------
     // The catalogue's pages and directories (DESIGN.md §5's community model, §6's `dive_sites`

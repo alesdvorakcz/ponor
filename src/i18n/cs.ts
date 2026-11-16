@@ -822,6 +822,22 @@ export const cs = {
       away: '{{distance}} odtud',
     },
 
+    accountOffer: {
+      title: 'S účtem je to lepší',
+      optional: 'Zcela volitelné — Ponor funguje i bez něj.',
+      action: 'Přihlásit se nebo vytvořit účet',
+      or: 'nebo',
+    },
+
+    accountPerks: {
+      backupWord: 'Zálohy',
+      devicesWord: 'Všechna zařízení',
+      communityWord: 'Komunita',
+      backup: 'Ponory zálohované hned při zápisu',
+      devices: 'Deník i na vašich dalších zařízeních',
+      community: 'Sdílejte nové lokality a centra s ostatními potápěči',
+    },
+
     account: {
       heading: 'Účet',
       signInHeading: 'Přihlášení',
