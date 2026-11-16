@@ -237,17 +237,21 @@ it.each([
   expect(name.web).toBe(material);
 });
 
-// --- The two tab glyphs, which are the one call site with no render to observe ---
+// --- The tab glyphs, checked on the data both bars are handed ---
 //
 // The tabs' symbols reach the library in two different shapes on two different platforms:
 // `{sf, md}` for `NativeTabs.Trigger.Icon` in `(tabs)/_layout.tsx`, and `{ios, android, web}`
-// for an ordinary `SymbolView` in `(tabs)/_layout.web.tsx` — the browser gets the JS tab bar,
-// so the `md`/`web` split is not academic here, it is the only bar a browser draws.
+// for the `SymbolView` inside `components/TabBarGlyph.tsx`, which `(tabs)/_layout.web.tsx`
+// renders — the browser gets the JS tab bar, so the `md`/`web` split is not academic here, it
+// is the only bar a browser draws.
 //
-// **Asserted against the data rather than against a render, and that is forced rather than
-// chosen.** expo-router sweeps `src/app/` as the route tree, so a test file there would ship
-// to a diver's phone; nothing under it can be mounted. This is the same shape as this file's
-// very first test, which calls `symbolName` directly on a literal.
+// **Asserted against the data rather than against a render.** For the native half that is
+// forced: expo-router sweeps `src/app/` as the route tree, so a test file there would ship to
+// a diver's phone, and `NativeTabs.Trigger.Icon` in `_layout.tsx` cannot be mounted. The
+// browser half is rendered since issue #2 moved its glyph into `TabBarGlyph` — that file's own
+// test mounts it and checks its ink and size — so here the names are read off the data by
+// choice, the same shape as this file's very first test, which calls `symbolName` directly on
+// a literal.
 //
 // **What that used to leave uncovered, and what changed.** While the two layouts called the
 // converters themselves, dropping the call — `name={route.symbol}` — was green across the
