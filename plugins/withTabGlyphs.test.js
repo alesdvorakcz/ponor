@@ -147,6 +147,8 @@ it.each([
   ['a blank number', '<rect width="" height="2" fill="#FFFFFF"/>', /width is missing/],
   ['a corner Android cannot draw', '<polyline points="0,0 1,1" fill="none" stroke="#FFFFFF" stroke-linejoin="arcs"/>', /stroke-linejoin/],
   ['an end Android cannot draw', '<polyline points="0,0 1,1" fill="none" stroke="#FFFFFF" stroke-linecap="triangle"/>', /stroke-linecap/],
+  // SVG would draw elliptical corners there, and the converted paths are circular.
+  ['a corner radius past half the rect', '<rect width="16" height="1.6" rx="1.2" fill="#FFFFFF"/>', /more than half/],
 ])('refuses %s rather than dropping it', (_what, inner, message) => {
   expect(() => parseGlyph(glyph(inner))).toThrow(message);
 });

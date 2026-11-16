@@ -329,10 +329,17 @@ export function unexpectedGraphics(t: RenderResult, scheme: ColorScheme): Node[]
     // **The one graphic Ponor draws, named** (M1h). The empty state renders the mark as an
     // `Image` — DESIGN.md §0.3's shape, monochrome, from the same `assets/mark.svg` the icons
     // are built from — so the blanket "nothing on screen draws a graphic" is no longer true
-    // and this says the narrower thing that is: **the app draws exactly one image, and it is
+    // and this says the narrower thing that is: **a screen draws exactly one image, and it is
     // the mark.** Matched on `emptyStateMark`, the single style that paints it, so a second
-    // image anywhere costs a deliberate edit to this guard rather than riding in on a
-    // category that had been opened for the first one. That deliberate edit is the point:
+    // image on a screen costs a deliberate edit to this guard rather than riding in on a
+    // category that had been opened for the first one.
+    //
+    // **The one other place an image is drawn is the browser's tab bar, outside any screen**
+    // (issue #2). Its JS bar draws Ponor's own tab glyphs — the mark, the sliders — as images
+    // through `TabBarGlyph`, tinted in the navigator's ink from `jsTabsAppearance`, never a
+    // depth colour; the device's bar holds them as native vectors instead. No screen renders
+    // the tab bar, so this guard never sweeps those images; `TabBarGlyph.test.tsx` pins their
+    // ink and size, and `markAsset.test.ts` their single colour. That deliberate edit is the point:
     // photos are a v1.1 feature (§10) and will arrive with their own decision about §0.4.
     //
     // The style is compared by identity against the sheet, exactly as a `View`'s is, which is

@@ -112,7 +112,13 @@ function inkOf(attrs, key) {
 }
 
 function roundedRectPath(x, y, w, h, rx) {
-  const r = Math.min(rx, w / 2, h / 2);
+  // SVG clamps `rx` to half the width and `ry` (which defaults to `rx`) to half the height, each
+  // on its own, so an `rx` past half the shorter side draws ELLIPTICAL corners in a viewer. The
+  // paths here are circular; rather than draw something other than the source, refuse it.
+  if (rx > Math.min(w, h) / 2) {
+    throw new Error(`tab glyph: rx="${rx}" is more than half of the ${fmt(w)} × ${fmt(h)} rect; use at most ${fmt(Math.min(w, h) / 2)}`);
+  }
+  const r = rx;
   if (r <= 0) return `M${fmt(x)},${fmt(y)}H${fmt(x + w)}V${fmt(y + h)}H${fmt(x)}Z`;
   const arc = (ex, ey) => `A${fmt(r)},${fmt(r)} 0 0 1 ${fmt(ex)},${fmt(ey)}`;
   return [
