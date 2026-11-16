@@ -105,14 +105,15 @@ export const TAB_ROUTES: readonly TabRoute[] = [
  * What `NativeTabs.Trigger.Icon` is handed: a symbol under the native bar's `sf`/`md` keys, or
  * one of Ponor's glyphs by name — `xcasset` on iOS, `drawable` on Android.
  *
- * **What makes iOS tint a glyph is the bar's `iconColor`, not the image set** (corrected in
+ * **What makes iOS tint a glyph is the bar's icon colours, not the image set** (corrected in
  * review). expo-router's iOS converter picks `template` for an `xcasset` icon only because an
- * icon colour is configured (`renderingMode ?? (iconColor !== undefined ? 'template' :
- * 'original')`, and `renderingMode` reaches `src` icons only), and react-native-screens then
- * forces that mode on the image, overriding the asset catalog's `template-rendering-intent`.
- * So `nativeTabsAppearance` setting `iconColor` on iOS is load-bearing: drop it and both
- * glyphs draw their own white placeholder. `tabs.test.ts` pins it. Material tints every tab
- * icon by itself.
+ * icon colour is configured for that state (`renderingMode ?? (iconColor !== undefined ?
+ * 'template' : 'original')`, and `renderingMode` reaches `src` icons only), and
+ * react-native-screens then forces that mode on the image, overriding the asset catalog's
+ * `template-rendering-intent`. The resting state's colour is `iconColor`; the selected state's
+ * is `tintColor` (through the navigator's `selectedIconColor`). So `iconColor` on iOS is
+ * load-bearing: drop it and both glyphs draw their own white placeholder whenever they are not
+ * selected. `tabs.test.ts` pins both colours. Material tints every tab icon by itself.
  */
 export type NativeTabIcon =
   | ReturnType<typeof nativeTabSymbol>
@@ -240,7 +241,7 @@ export function jsTabItems(): readonly JsTabItem[] {
  * forbids an accent on the `+`, which binds the bar it now sits above just as hard):
  *
  * - `iconColor` is the resting glyph, `fgMuted` — and on iOS it is also what makes Ponor's
- *   own glyphs tint at all (`NativeTabIcon` above records why). On Android it carries the
+ *   own glyphs tint at rest (`NativeTabIcon` above records why; selected, `tintColor` does). On Android it carries the
  *   selected glyph too, `action-fg`, for the inverted pill (issue #2; see below).
  * - `tintColor` is the selected item. The navigator (`NativeBottomTabsNavigator.js`) uses it
  *   for both `selectedIconColor` and the selected label's colour when neither is given

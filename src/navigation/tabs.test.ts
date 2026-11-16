@@ -98,10 +98,11 @@ it('shows no navigator header in the browser, matching every screen the device d
 // `action-fg` — Android only, because on iOS the same ink would sit dark on a pale glass bubble
 // in the dark theme and vanish. The word stays `fg` everywhere: Material sets it under the pill.
 //
-// On iOS `iconColor` is also the one thing that makes Ponor's own glyphs tint at all: expo-router
-// renders an `xcasset` icon as a template only while an icon colour is set, and react-native-
-// screens then overrides the asset catalog's own template flag (tabs.ts, `NativeTabIcon`). So
-// the iOS half below is not only "which grey" — without it both glyphs draw their white.
+// On iOS these colours are also what make Ponor's own glyphs tint at all: expo-router renders an
+// `xcasset` icon as a template only while its state has an icon colour — `iconColor` at rest,
+// `tintColor` selected — and react-native-screens then overrides the asset catalog's own
+// template flag (tabs.ts, `NativeTabIcon`). So the iOS half below is not only "which grey":
+// without `iconColor`, both glyphs draw their white whenever they are not selected.
 it('inverts the selected tab on Android and leaves iOS its own selection', () => {
   for (const scheme of ['light', 'dark'] as const) {
     const theme = themeFor(scheme);
