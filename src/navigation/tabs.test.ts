@@ -239,9 +239,10 @@ it.each([
 });
 
 // **The name is the whole contract with the binary.** The bar asks iOS and Android for each
-// glyph by name, and a name the config plugin never installed is a tab with no glyph — no
-// error, no warning, just an empty slot on a device. So every name a tab asks for must be one
-// the plugin writes, and the plugin writes nothing no tab asks for.
+// glyph by name, and a name the config plugin never installed is a tab with no glyph — nothing
+// throws and nothing shows on screen; the only sign is a warning in Xcode's console or logcat.
+// So every name a tab asks for must be one the plugin writes, and the plugin writes nothing no
+// tab asks for.
 it('asks the native apps only for glyphs the config plugin installs', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- the plugin is plain CommonJS, loaded by app.config.ts
   const { TAB_GLYPHS } = require('../../plugins/withTabGlyphs') as { TAB_GLYPHS: { name: string }[] };
