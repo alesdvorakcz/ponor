@@ -1,4 +1,14 @@
-import { Image, Pressable, ScrollView, Text, View, type ImageSourcePropType } from 'react-native';
+import { useState } from 'react';
+import {
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  type ImageSourcePropType,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDepthBoundary, METADATA_SEPARATOR } from '../format/display';
@@ -29,6 +39,15 @@ import { DepthLegend } from './DepthLegend';
  * that `any` straight to a prop.
  */
 const MARK: ImageSourcePropType = require('../../assets/images/mark-mono.png');
+
+/**
+ * **How much of the teaching block a guest's first-run screen shows** (review round 2 of PR #52,
+ * Aleš's call). `0` is all of it; `1` drops the two reason lines under the legend; `2` drops the
+ * mark as well. The label, the promise and the legend's bars stay at every level — the bars are
+ * what still say that colour is depth.
+ */
+type TeachingLevel = 0 | 1 | 2;
+const LAST_LEVEL: TeachingLevel = 2;
 
 interface EmptyStateProps {
   scheme: ColorScheme;
@@ -127,6 +146,65 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
   const offered = onAccount !== undefined;
+
+  /**
+   * **Keeping *Log your first dive* above the fold** (review round 2 of PR #52, Aleš's call). With
+   * the offer, the button scrolls with the teaching block (below), so at a large text size on a
+   * small phone the screen's one primary action could start under the fold. When it would, the
+   * screen teaches less — the reason lines first, then the mark — rather than leave a first-run
+   * diver looking at a screen with no visible way to log.
+   *
+   * Three measurements decide it: the scroll's own height (the viewport), the button's height,
+   * and where the footer starts inside the content. `marginTop: 'auto'` puts the footer straight
+   * after the teaching block whenever the content overflows, so `footer.y + button > viewport` is
+   * the whole test.
+   *
+   * **One step per measurement, never back up.** A footer measurement is kept with the level it
+   * was measured at, and only one measured at the current level can step it down — so the frame
+   * that removes the reasons cannot be judged by the layout that still had them. Coming back up
+   * from a trimmed layout that fits would push the button under again and flicker between the two;
+   * so the level only resets, to full, when the viewport or the text size changes (rotation, a new
+   * text size). The first frame draws in full before any trimming, and that one-frame jump is
+   * accepted rather than paying for an invisible measuring pass. If the button is still under the
+   * fold at the last level, the screen stops there; the content still scrolls.
+   *
+   * None of this runs without the offer: then the button is pinned outside the scroll (M1h) and
+   * cannot be under the fold at all.
+   */
+  const { fontScale } = useWindowDimensions();
+  const [viewport, setViewport] = useState<number | null>(null);
+  const [buttonHeight, setButtonHeight] = useState<number | null>(null);
+  // Kept with the level and the text size it was measured at: only a measurement of the layout on
+  // screen now may step the level down. A new text size re-lays the content out, so a fresh one
+  // always follows; the viewport is not part of it, because once the content overflows the footer
+  // starts where the teaching block ends whatever the viewport's height.
+  const [footerAt, setFooterAt] = useState<{ y: number; level: TeachingLevel; fontScale: number } | null>(null);
+  const [level, setLevel] = useState<TeachingLevel>(0);
+  const fitKey = `${viewport ?? '-'}|${fontScale}`;
+  const [fittedFor, setFittedFor] = useState(fitKey);
+  if (fittedFor !== fitKey) {
+    // React's own pattern for state derived from a changed input: reset during render, so no
+    // frame is drawn at the stale level.
+    setFittedFor(fitKey);
+    if (level !== 0) setLevel(0);
+  }
+  const buttonHidden =
+    offered &&
+    viewport !== null &&
+    buttonHeight !== null &&
+    footerAt !== null &&
+    footerAt.level === level &&
+    footerAt.fontScale === fontScale &&
+    footerAt.y + buttonHeight > viewport;
+  // Stepped down during render, like the reset above: the measurement that asked for it was taken
+  // at the old level, so it stops counting the moment the level moves and cannot step it twice.
+  if (buttonHidden && level < LAST_LEVEL) setLevel((level + 1) as TeachingLevel);
+  const showReasons = level < 1;
+  const showMark = level < 2;
+  // Measured only with the offer; without it nothing here is ever read.
+  const onViewport = offered ? (e: LayoutChangeEvent) => setViewport(e.nativeEvent.layout.height) : undefined;
+  const onButton = offered ? (e: LayoutChangeEvent) => setButtonHeight(e.nativeEvent.layout.height) : undefined;
+  const onFooter = offered ? (e: LayoutChangeEvent) => setFooterAt({ y: e.nativeEvent.layout.y, level, fontScale }) : undefined;
   /**
    * **The primary first, then the offer** (issue #24, the owner's order). Logging stays one tap and
    * stays the one inverted control here; the offer is an alternative under it, never a step in
@@ -146,8 +224,8 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
    * back at the bottom.
    */
   const footer = (
-    <View style={[styles.emptyStateFooter, offered && styles.emptyStateFooterInScroll]}>
-      <Pressable style={styles.action} onPress={onPress} accessibilityRole="button">
+    <View style={[styles.emptyStateFooter, offered && styles.emptyStateFooterInScroll]} onLayout={onFooter}>
+      <Pressable style={styles.action} onPress={onPress} accessibilityRole="button" onLayout={onButton}>
         <Text style={styles.actionLabel}>{t('empty.action')}</Text>
       </Pressable>
       {onAccount !== undefined && (
@@ -180,31 +258,43 @@ export function EmptyState({ scheme, system, onPress, onAccount }: EmptyStatePro
           the card under the button would otherwise crowd the scale's last line, so the air goes
           between the scale and the button instead of above the mark. */}
       <ScrollView
+        // Remounted when the text size changes (found on the simulator): a trim re-rendering this
+        // screen while iOS applies a new Dynamic Type size left the texts that stayed with their
+        // old heights — the promise clipped going up, a two-line-tall button going down. A fresh
+        // mount measures every text at the new size.
+        key={offered ? `teaching-${fontScale}` : 'teaching'}
         style={styles.emptyStateScroll}
         contentContainerStyle={[styles.emptyStateContent, offered && styles.emptyStateContentTop]}
+        onLayout={onViewport}
       >
         {/* Decorative, and said so rather than left to a platform default: the sentence and
             the legend below carry every fact the mark carries, so a screen reader announcing
             it would only ever announce "image". */}
-        <Image source={MARK} style={styles.emptyStateMark} accessible={false} />
+        {showMark && <Image source={MARK} style={styles.emptyStateMark} accessible={false} />}
         <Text style={styles.emptyStateLabel}>{t('empty.label')}</Text>
         <Text style={styles.emptyStateText}>{t('empty.promise')}</Text>
         <DepthLegend scheme={scheme} system={system} />
-        <Text style={styles.emptyStateReason}>
-          {t('empty.reasonColour')}
-          {METADATA_SEPARATOR}
-          {t('empty.reasonNothingElse')}
-        </Text>
-        {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
-            so this sentence can never contradict the bars directly above it — see the
-            docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
-            way a dive's depth is. */}
-        <Text style={styles.emptyStateReason}>
-          {t('empty.reasonLight', {
-            shallow: formatDepthBoundary(shallowestBandEndM, system),
-            deep: formatDepthBoundary(deepestBandStartM, system),
-          })}
-        </Text>
+        {/* The reason lines are the first thing to go when the button would start under the
+            fold (see `level` above); the bars above still say that colour is depth. */}
+        {showReasons && (
+          <>
+          <Text style={styles.emptyStateReason}>
+            {t('empty.reasonColour')}
+            {METADATA_SEPARATOR}
+            {t('empty.reasonNothingElse')}
+          </Text>
+          {/* The two depths come from `theme/depth.ts` and are read in the diver's own units,
+              so this sentence can never contradict the bars directly above it — see the
+              docblock, and `formatDepthBoundary` for why a band boundary is not formatted the
+              way a dive's depth is. */}
+          <Text style={styles.emptyStateReason}>
+            {t('empty.reasonLight', {
+              shallow: formatDepthBoundary(shallowestBandEndM, system),
+              deep: formatDepthBoundary(deepestBandStartM, system),
+            })}
+          </Text>
+          </>
+        )}
         {offered && footer}
       </ScrollView>
       {!offered && footer}

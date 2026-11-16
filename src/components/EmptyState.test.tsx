@@ -6,9 +6,9 @@
 // reason the screen tests record.
 import mockSafeAreaContext from 'react-native-safe-area-context/jest/mock';
 
-import { cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, type RenderResult } from '@testing-library/react-native';
 
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 
 import { UNIT_SYSTEMS } from '../format/units';
 import { setActiveLanguage } from '../i18n';
@@ -273,6 +273,111 @@ it('lifts the teaching block to the top when the offer is drawn, and centres it 
   expect(contentOf(withOffer).justifyContent).toBe('flex-start');
   const without = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
   expect(contentOf(without).justifyContent).toBe('center');
+});
+
+// ---------------------------------------------------------------------------------------
+// Keeping *Log your first dive* above the fold (review round 2 of PR #52, Aleš's call)
+// ---------------------------------------------------------------------------------------
+//
+// With the offer, the button scrolls with the teaching block, so at a large text size on a small
+// phone it can start below the fold. The screen then trims what it teaches — the two reason lines
+// first, then the mark — one step per measurement, never back up from a trimmed layout, and starts
+// again only when the viewport or the text size changes. The label, the promise and the legend's
+// bars stay at every step.
+
+function scrollNode(t: RenderResult) {
+  const [node] = nodesIn(t).filter((n) => typeof n.type === 'string' && n.type.includes('ScrollView'));
+  if (!node) throw new Error('EmptyState drew no scroll');
+  return node;
+}
+
+async function layout(node: ReturnType<typeof markIn>, { y = 0, height = 0 }: { y?: number; height?: number }) {
+  await fireEvent(node, 'layout', { nativeEvent: { layout: { x: 0, y, width: 375, height } } });
+}
+
+/** The three measurements the screen decides from: its viewport, the button, and where the
+ * footer starts inside the content. */
+async function measure(t: RenderResult, { viewport, footerY }: { viewport: number; footerY: number }) {
+  await layout(scrollNode(t), { height: viewport });
+  await layout(actionIn(t), { height: 52 });
+  const footer = actionIn(t).parent;
+  if (!footer) throw new Error('the primary has no parent');
+  await layout(footer, { y: footerY });
+}
+
+const teaches = (t: RenderResult) => ({
+  reasons: linesIn(t).some((line) => line.includes('colour is depth')),
+  mark: nodesIn(t).some((n) => n.type === 'Image'),
+  legend: linesIn(t).includes('0–6'),
+  promise: textIn(t).includes('Ponor keeps every dive on this phone'),
+});
+
+describe('keeping the first dive’s button above the fold', () => {
+  afterEach(async () => {
+    await act(() => {
+      Dimensions.set({ window: { ...Dimensions.get('window'), fontScale: 2 }, screen: Dimensions.get('screen') });
+    });
+  });
+
+  it('teaches in full when the button fits', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 400 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
+  it('drops the reasons when the button would start below the fold, then the mark', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: true, legend: true, promise: true });
+
+    // The trimmed layout is measured again and the button is still under the fold.
+    await layout(actionIn(t).parent!, { y: 620 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+
+    // Last step: still hidden, and the screen stops there — the content scrolls as before.
+    await layout(actionIn(t).parent!, { y: 590 });
+    expect(teaches(t)).toEqual({ reasons: false, mark: false, legend: true, promise: true });
+  });
+
+  it('never comes back up from a trimmed layout', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    // Trimmed, the button now fits with room to spare — which would be a reason to come back up,
+    // and coming back up would push it under again: the flicker this rule exists to prevent.
+    await layout(actionIn(t).parent!, { y: 300 });
+    expect(teaches(t).reasons).toBe(false);
+  });
+
+  it('starts again in full when the viewport changes', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t).reasons).toBe(false);
+    await layout(scrollNode(t), { height: 900 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
+
+  it('starts again in full when the text size changes', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} onAccount={() => {}} />);
+    await measure(t, { viewport: 600, footerY: 700 });
+    expect(teaches(t).reasons).toBe(false);
+    const before = scrollNode(t);
+    await act(() => {
+      Dimensions.set({ window: { ...Dimensions.get('window'), fontScale: 3 }, screen: Dimensions.get('screen') });
+    });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+    // ...and the scroll is a fresh mount, so every text is measured at the new size. Re-rendering
+    // in place while iOS applied the size left the texts that stayed with their old heights, on
+    // the simulator.
+    expect(scrollNode(t)).not.toBe(before);
+  });
+
+  it('trims nothing without the offer, where the button is pinned and never below the fold', async () => {
+    const t = await render(<EmptyState scheme="dark" system="metric" onPress={() => {}} />);
+    await layout(scrollNode(t), { height: 300 });
+    await layout(actionIn(t), { height: 52 });
+    await layout(actionIn(t).parent!, { y: 700 });
+    expect(teaches(t)).toEqual({ reasons: true, mark: true, legend: true, promise: true });
+  });
 });
 
 // ---------------------------------------------------------------------------------------
