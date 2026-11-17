@@ -228,6 +228,24 @@ Three things about it are load-bearing rather than stylistic. **The mark is mono
 
   **A mark takes the ink of the label beside it, handed out by the chip.** `OptionChips` knows whether it is selected and therefore what ink its label is about to wear; the mark is given that value rather than choosing one, which is what makes a mark invert with its chip instead of vanishing on it. Still live, with `EntryIcon` as its one caller. The rule's second half — that a **drawn** mark resolves that ink back to a sheet style rather than painting it directly, since §4.1 gives `theme/styles.ts` every token-to-property binding — lost its call site when the scale marks went and holds again the moment §9's set arrives.
 
+  **§9's set has arrived, drawn for this app** (issue #6, the owner's picks on the design canvas, category by category, 2026-11-16/17). **The hand:** line drawings on a 40 × 40 grid, one ink, no fills; a main stroke of 2.0 and a detail stroke of 1.35, round caps and joins, the Dives tab mark's hand. The water scenes share one grid so a row of them reads as a set: a 3 pt margin with nothing running off the tile, the water surface at y 22, the bed near y 35, and the same surface wave and sub-ripple wherever there is water. A shape may be **knocked out**, filled with the ground the icon sits on so the lines behind it disappear; a knock is the tile's own colour, never a second ink, which is why whoever draws an icon hands it the ground as well as the ink. **One owner:** the drawings are data (`components/icons/conditionIconData.ts`), `ConditionIcon` is the only thing that paints them, and `conditionIconFor` is the only thing that decides which value has one.
+
+  | Field | A drawing | Words only |
+  |---|---|---|
+  | Entry | shore, boat | other |
+  | Water body | ocean, lake, river, quarry, cave, pool | |
+  | Weather | sunny, cloudy, overcast, rainy, windy, foggy | |
+  | Waves | flat, small, medium, large: one per level, height is the scale | |
+  | Visibility | one for the field, the diving mask | the level |
+  | Current | one for the field (streamlines); *None* is the same lines dashed, without heads | the level |
+  | Surge | one for the field (two swing arcs); *None* dashed, without heads | the level |
+  | Cylinder configuration | single, twinset, sidemount (the harness) | |
+  | Suit | shorty, wet, semidry, dry (a hood on semidry and dry) | none |
+  | Site type | wreck, reef, wall, pinnacle, canyon, swim-through, muck (the seahorse), drift, blue water | |
+  | Salinity, material, weighting, suitable for | | all |
+
+  A token this build does not know (§10's store-and-flag) and a scale level out of range have no drawing and keep their word. Two **figure glyphs** in the same hand say which depth a number is: *max depth* (an arrow from the surface to the floor) and *average depth* (the arrow stops at a level halfway, the floor below only dashed). They are never curves, which §0.4 keeps for recorded profiles. Times and temperatures get none, since a clock or a thermometer would only repeat the label.
+
   **The drawn rating now has two homes and stays one component.** §0.6 has specified drawn circles since M1c and the dive row has drawn them since; the form now uses the same one rather than a second — §4.1's whole point. In the form each dot is additionally its own control and carries its own 48 dp target (§0.5), because there a dot is something you press. SF Symbols through `expo-symbols` with a Material Symbol on Android, exactly as `SearchCapsule`'s magnifier already works.
 - **The chevron marks in-place disclosure — on a group header and on a field row alike — and nothing else.** A collapsible group is marked by a chevron, not by the words "Show"/"Hide". **Drawn, not typed** — the same reason §0.6 already gives for rating marks: a glyph's size varies by typeface, so a typed chevron looks broken somewhere. It rotates to show state, needs no translation, and drops a word from a row that is otherwise pure structure.
 
