@@ -120,6 +120,7 @@ export const en = {
         wall: 'Wall',
         pinnacle: 'Pinnacle',
         canyon: 'Canyon',
+        swimthrough: 'Swim-through',
         muck: 'Muck',
         drift: 'Drift',
         bluewater: 'Blue water',

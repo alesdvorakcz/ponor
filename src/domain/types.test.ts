@@ -124,6 +124,7 @@ describe('the vocabularies', () => {
       'wall',
       'pinnacle',
       'canyon',
+      'swimthrough',
       'muck',
       'drift',
       'bluewater',

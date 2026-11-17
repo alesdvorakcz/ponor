@@ -2045,6 +2045,7 @@ describe('formatPlaceTokens', () => {
   it('reads each token as its word, in stored order, and keeps one this build does not know', () => {
     expect(formatPlaceTokens('services', ['nitrox', 'freediving'])).toBe('Nitrox · Freediving');
     expect(formatPlaceTokens('agencies', ['sditdi', 'other'])).toBe('SDI/TDI · Other');
+    expect(formatPlaceTokens('siteTypes', ['canyon', 'swimthrough'])).toBe('Canyon · Swim-through');
   });
   it('skips what is not a string, and is null when nothing is left', () => {
     expect(formatPlaceTokens('siteTypes', [3, null, 'wall'])).toBe('Wall');
@@ -2055,6 +2056,7 @@ describe('formatPlaceTokens', () => {
     setActiveLanguage('cs');
     try {
       expect(formatPlaceTokens('services', ['boat', 'repair'])).toBe('Ponory z lodi · Servis');
+      expect(formatPlaceTokens('siteTypes', ['swimthrough'])).toBe('Průplav');
     } finally {
       setActiveLanguage('en');
     }

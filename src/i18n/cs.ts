@@ -108,6 +108,7 @@ export const cs = {
         wall: 'Stěna',
         pinnacle: 'Skalní věž',
         canyon: 'Kaňon',
+        swimthrough: 'Průplav',
         muck: 'Muck',
         drift: 'Drift',
         bluewater: 'Modrá voda',
