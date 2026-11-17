@@ -1,8 +1,10 @@
-import { Pressable, Text, View } from 'react-native';
+import { type ReactNode } from 'react';
+import { Pressable, Text, View, type ColorValue } from 'react-native';
 
 import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { tileRows } from './tileRows';
 
 export interface TokenChipsProps<T extends string> {
   label: string;
@@ -19,6 +21,10 @@ export interface TokenChipsProps<T extends string> {
   caption?: string;
   /** Every chip shut, and said so to a screen reader, while the value is being saved. */
   disabled?: boolean;
+  /** `OptionChips`' `layout`, `columns` and `icon`, for the same reasons (issue #6). */
+  layout?: 'chips' | 'tiles';
+  columns?: 3 | 4;
+  icon?: (option: T, ink: ColorValue, ground: ColorValue) => ReactNode;
 }
 
 /**
@@ -44,11 +50,40 @@ export function TokenChips<T extends string>({
   scheme,
   caption,
   disabled,
+  layout = 'chips',
+  columns = 3,
+  icon,
 }: TokenChipsProps<T>) {
   const styles = makeStyles(scheme);
+  const tiles = layout === 'tiles';
   const toggle = (option: T) => {
     const next = values.includes(option) ? values.filter((value) => value !== option) : [...values, option];
     onChange([...options.filter((offered) => next.includes(offered)), ...next.filter((value) => !options.includes(value))]);
+  };
+  const renderOption = (option: T) => {
+    const checked = values.includes(option);
+    const textStyle = tiles ? styles.formTileText : styles.formChipText;
+    const textChecked = tiles ? styles.formTileTextSelected : styles.formChipTextSelected;
+    const box = tiles ? styles.formTile : styles.formChip;
+    const boxChecked = tiles ? styles.formTileSelected : styles.formChipSelected;
+    const ink = (checked ? textChecked.color : textStyle.color) as ColorValue;
+    const ground = (checked ? boxChecked.backgroundColor : box.backgroundColor) as ColorValue;
+    return (
+      <Pressable
+        key={option}
+        style={[box, tiles && columns === 4 && styles.formTileShort, checked && boxChecked]}
+        onPress={() => toggle(option)}
+        accessibilityRole="checkbox"
+        accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
+        disabled={disabled}
+        accessibilityState={{ checked, disabled: disabled === true }}
+      >
+        {icon?.(option, ink, ground)}
+        <Text style={[textStyle, checked && textChecked]} numberOfLines={tiles ? 2 : undefined}>
+          {displayLabel(option)}
+        </Text>
+      </Pressable>
+    );
   };
   return (
     <View style={styles.formField}>
@@ -60,24 +95,17 @@ export function TokenChips<T extends string>({
           </View>
         )}
       </View>
-      <View style={styles.formChipRow}>
-        {options.map((option) => {
-          const checked = values.includes(option);
-          return (
-            <Pressable
-              key={option}
-              style={[styles.formChip, checked && styles.formChipSelected]}
-              onPress={() => toggle(option)}
-              accessibilityRole="checkbox"
-              accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-              disabled={disabled}
-              accessibilityState={{ checked, disabled: disabled === true }}
-            >
-              <Text style={[styles.formChipText, checked && styles.formChipTextSelected]}>{displayLabel(option)}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {tiles ? (
+        <View style={styles.formTileGrid}>
+          {tileRows(options, columns).map((row, index) => (
+            <View key={index} style={styles.formTileRow}>
+              {row.map((option, slot) => (option === null ? <View key={`spacer-${slot}`} style={styles.formTileSpacer} /> : renderOption(option)))}
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.formChipRow}>{options.map(renderOption)}</View>
+      )}
     </View>
   );
 }

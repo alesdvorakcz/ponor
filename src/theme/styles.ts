@@ -3986,6 +3986,50 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
     },
     formChipTextSelected: selectedInk,
+    // The same choice laid out as tiles (issue #6): Ponor's drawn icon over the word, for the fields
+    // whose values have a shape (§0.6's table). The chip's border, ground and invert, so a tile and a
+    // chip are one control drawn two ways; rows of equal-width tiles, the last row padded with
+    // spacers so a short row does not stretch its tiles. `minHeight`, never `height`: a large
+    // accessibility text size grows the tile instead of clipping its word, and a long Czech word
+    // wraps to a second line (`numberOfLines={2}` on the label) rather than being cut.
+    formTileGrid: {
+      gap: 8,
+      paddingBottom: FIELD_EXTRA_CLEARANCE,
+    },
+    formTileRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    formTile: {
+      flex: 1,
+      minHeight: 88,
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingHorizontal: 6,
+      paddingVertical: 10,
+      backgroundColor: theme.surface,
+    },
+    // Four to a row (waves) is shorter, as the canvas draws it.
+    formTileShort: {
+      minHeight: 80,
+    },
+    formTileSelected: selectedFill,
+    formTileText: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 13.5,
+      lineHeight: 17,
+      color: theme.fg,
+      textAlign: 'center',
+    },
+    formTileTextSelected: selectedInk,
+    formTileSpacer: {
+      flex: 1,
+    },
     // M1h's chip marks had five styles here — a row that held N copies of one symbol, and the
     // visibility bars in three heights and two inks. They went out with the marks (M1i, §10):
     // the bars cost *Visibility low* a glyph that read as punctuation, and the repeated arrows

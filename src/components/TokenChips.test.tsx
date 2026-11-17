@@ -88,3 +88,30 @@ it('paints nothing of its own', async () => {
   const t = await renderChips({ values: ['reef'], caption: 'x' });
   expect(unexpectedGraphics(t, 'dark')).toHaveLength(0);
 });
+
+// --- issue #6: the same set, as tiles ---
+
+it('keeps a token this build does not offer when a tile is toggled', async () => {
+  const onChange = jest.fn();
+  const t = await renderChips({ layout: 'tiles', values: ['wreck', 'cavern' as Kind], onChange });
+  await fireEvent.press(findChip(t, 'Reef'));
+  expect(onChange).toHaveBeenCalledWith(['wreck', 'reef', 'cavern']);
+});
+
+it('draws a tile per option with the icon over the word, checked tiles inverted with their icon', async () => {
+  const styles = makeStyles('dark');
+  const seen: Record<string, [unknown, unknown]> = {};
+  const t = await renderChips({
+    layout: 'tiles',
+    values: ['reef'],
+    icon: (option, ink, ground) => {
+      seen[option] = [ink, ground];
+      return null;
+    },
+  });
+  expect([findChip(t, 'Reef').props.style].flat(5)).toContain(styles.formTileSelected);
+  expect([findChip(t, 'Wreck').props.style].flat(5)).not.toContain(styles.formTileSelected);
+  expect(findChip(t, 'Reef').props.accessibilityRole).toBe('checkbox');
+  expect(seen.reef).toEqual([styles.formTileTextSelected.color, styles.formTileSelected.backgroundColor]);
+  expect(seen.wreck).toEqual([styles.formTileText.color, styles.formTile.backgroundColor]);
+});
