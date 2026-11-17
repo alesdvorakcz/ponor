@@ -382,6 +382,8 @@ export const diveSites = sqliteTable('dive_sites', {
   entry: siteEntryJson('entry').notNull().default(sql`'[]'`),
   /** The site's own depth, not a dive's — §6 names it as one of the facts a site prefills. */
   maxDepthM: real('max_depth_m'),
+  /** Metres above sea level, negative below it — nullable, no data step (§6). */
+  altitudeM: real('altitude_m'),
   /** Issue #31's facts (§6): every one nullable but the two sets, which are `'[]'` as `dives.equipment`. */
   siteTypes: siteTypesJson('site_types').notNull().default(sql`'[]'`),
   suitableFor: text('suitable_for').$type<SuitableFor>(),

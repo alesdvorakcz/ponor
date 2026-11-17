@@ -6670,6 +6670,7 @@ const catalogued = (name: string, id: string): DiveSite => ({
   description: null,
   wreckName: null,
   wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,

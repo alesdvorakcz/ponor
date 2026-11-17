@@ -513,7 +513,7 @@ begin
   upserted as (
     insert into public.dive_sites as t (
       id, name, country, location, salinity, water_body, entry, max_depth_m,
-      site_types, suitable_for, alt_names, description, wreck_name, wreck_sunk_year,
+      altitude_m, site_types, suitable_for, alt_names, description, wreck_name, wreck_sunk_year,
       created_by, created_at, updated_at, deleted_at
     )
     select
@@ -526,6 +526,7 @@ begin
       end,
       incoming.payload->>'salinity', incoming.payload->>'water_body', public.sync_json_array(incoming.payload->'entry'),
       (incoming.payload->>'max_depth_m')::double precision,
+      (incoming.payload->>'altitude_m')::double precision,
       public.sync_json_array(incoming.payload->'site_types'), incoming.payload->>'suitable_for',
       public.sync_json_array(incoming.payload->'alt_names'), incoming.payload->>'description',
       incoming.payload->>'wreck_name', (incoming.payload->>'wreck_sunk_year')::integer,
@@ -535,7 +536,7 @@ begin
     on conflict (id) do update set
       name = excluded.name, country = excluded.country, location = excluded.location,
       salinity = excluded.salinity, water_body = excluded.water_body, entry = excluded.entry,
-      max_depth_m = excluded.max_depth_m,
+      max_depth_m = excluded.max_depth_m, altitude_m = excluded.altitude_m,
       site_types = excluded.site_types, suitable_for = excluded.suitable_for,
       alt_names = excluded.alt_names, description = excluded.description,
       wreck_name = excluded.wreck_name, wreck_sunk_year = excluded.wreck_sunk_year,

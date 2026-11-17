@@ -40,7 +40,7 @@ failed sync. On a fresh project the numbered order handles it; on the owner's, s
 
 ### Applying #31 to a project that already has files 1–7
 
-Issue #31 puts thirteen columns into file 2's `dive_sites` and `dive_centers`, and makes a site's
+Issue #31 puts fourteen columns into file 2's `dive_sites` and `dive_centers`, and makes a site's
 `entry` a set — `jsonb`, NOT NULL, `'[]'` — in place, under its old name. `create table if not
 exists` does not alter a table that already exists, so on the owner's project they go in by hand.
 **The order is these lines, then file 6, then file 4, then install the build.** The server
@@ -54,7 +54,8 @@ alter table public.dive_sites
   add column if not exists alt_names jsonb not null default '[]'::jsonb,
   add column if not exists description text,
   add column if not exists wreck_name text,
-  add column if not exists wreck_sunk_year integer;
+  add column if not exists wreck_sunk_year integer,
+  add column if not exists altitude_m double precision;
 alter table public.dive_centers
   add column if not exists address text,
   add column if not exists phone text,

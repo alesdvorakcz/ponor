@@ -130,3 +130,26 @@ describe('upgrading a device whose sites hold one entry each (§6, #31)', () => 
     expect(() => sqlite.exec(`update dive_sites set entry = null where id = 's5'`)).toThrow(/NOT NULL/);
   });
 });
+
+describe('upgrading a device whose sites have no altitude yet (§6, #31)', () => {
+  it('adds a nullable altitude and leaves every stored site as it was', () => {
+    const target = journal.entries.findIndex((entry) => sqlOf(entry).includes('`altitude_m`'));
+    expect(target).toBeGreaterThan(0);
+
+    const sqlite = new Database(':memory:');
+    for (const entry of journal.entries.slice(0, target)) apply(sqlite, entry);
+    const stamp = '2026-11-17T09:00:00.000Z';
+    sqlite.exec(
+      `insert into dive_sites (id, name, max_depth_m, status, created_at, updated_at, dirty)
+         values ('s1', 'Vrak Teti', 32, 'active', '${stamp}', '${stamp}', 0)`,
+    );
+
+    for (const entry of journal.entries.slice(target)) apply(sqlite, entry);
+
+    // No data step: the new column is null, and the neighbouring depth is untouched.
+    expect(sqlite.prepare('select max_depth_m, altitude_m from dive_sites').get()).toEqual({
+      max_depth_m: 32,
+      altitude_m: null,
+    });
+  });
+});

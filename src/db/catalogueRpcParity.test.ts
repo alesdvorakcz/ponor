@@ -856,7 +856,7 @@ describe('suggest_site_edit and the review queue (DESIGN.md §5)', () => {
   it('lets a suggestion propose every fact #31 adds to a site', () => {
     // #31: every new site fact is suggestible, and #54's correction flow builds on this list.
     expect(
-      ['site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year'].filter(
+      ['site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year', 'altitude_m'].filter(
         (fact) => !allowed.includes(fact),
       ),
     ).toEqual([]);

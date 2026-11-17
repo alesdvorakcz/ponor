@@ -764,7 +764,7 @@ declare
   v_note text := nullif(btrim(coalesce(p_note, '')), '');
   v_allowed constant text[] := array[
     'name', 'country', 'latitude', 'longitude', 'salinity', 'water_body', 'entry', 'max_depth_m',
-    'site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year'
+    'altitude_m', 'site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year'
   ];
   v_unknown text;
   v_id uuid;

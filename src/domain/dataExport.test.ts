@@ -288,6 +288,7 @@ describe('jsonExport', () => {
     description: null,
     wreckName: null,
     wreckSunkYear: null,
+    altitudeM: null,
     createdBy: 'me',
     status: 'active',
     mergedInto: null,

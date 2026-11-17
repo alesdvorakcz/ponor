@@ -9,6 +9,7 @@ import m0004 from './0004_overjoyed_earthquake.sql';
 import m0005 from './0005_unknown_moonstone.sql';
 import m0006 from './0006_site_entry_as_set.sql';
 import m0007 from './0007_narrow_dagger.sql';
+import m0008 from './0008_harsh_network.sql';
 
   export default {
     journal,
@@ -20,7 +21,8 @@ m0003,
 m0004,
 m0005,
 m0006,
-m0007
+m0007,
+m0008
     }
   }
   

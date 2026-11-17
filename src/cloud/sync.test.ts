@@ -1137,6 +1137,7 @@ describe('a site’s and a centre’s #31 facts (§6)', () => {
       description: 'A steamer on the southern spur.',
       wreckName: 'Teti',
       wreckSunkYear: 1930,
+      altitudeM: 313,
     });
     const centre = await createDiveCenter(db, {
       name: 'Nautica Vis',
@@ -1157,6 +1158,7 @@ describe('a site’s and a centre’s #31 facts (§6)', () => {
       site_types: ['wreck'],
       alt_names: ['Teti wreck'],
       wreck_sunk_year: 1930,
+      altitude_m: 313,
     });
     expect(server.row('dive_centers', centre.id)).toMatchObject({
       services: ['air'],
@@ -1410,7 +1412,7 @@ describe('a merge arriving in a pull (§5, M2r)', () => {
         id: 'folded', name: 'Blue Hole', country: null, latitude: null, longitude: null,
         salinity: null, waterBody: null, entry: [], maxDepthM: null,
         siteTypes: [], suitableFor: null, altNames: [], description: null, wreckName: null,
-        wreckSunkYear: null, createdBy: null,
+        wreckSunkYear: null, altitudeM: null, createdBy: null,
         status: 'merged', mergedInto: 'survivor',
         createdAt: '2026-09-02T09:00:00.000Z', updatedAt: '2026-09-02T09:00:00.000Z',
         deletedAt: null,

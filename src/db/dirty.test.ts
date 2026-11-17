@@ -607,6 +607,7 @@ const pulledSite = (id: string, updatedAt: string) => ({
   description: null,
   wreckName: null,
   wreckSunkYear: null,
+  altitudeM: null,
   createdBy: 'e5b0…',
   status: 'active' as const,
   mergedInto: null,

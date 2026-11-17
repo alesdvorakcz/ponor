@@ -57,6 +57,13 @@
       "when": 1794925105995,
       "tag": "0007_narrow_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794926835737,
+      "tag": "0008_harsh_network",
+      "breakpoints": true
     }
   ]
 }

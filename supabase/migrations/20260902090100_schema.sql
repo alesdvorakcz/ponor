@@ -158,6 +158,7 @@ create table if not exists public.dive_sites (
   water_body text,
   entry jsonb not null default '[]'::jsonb,
   max_depth_m double precision,
+  altitude_m double precision,
   site_types jsonb not null default '[]'::jsonb,
   suitable_for text,
   alt_names jsonb not null default '[]'::jsonb,

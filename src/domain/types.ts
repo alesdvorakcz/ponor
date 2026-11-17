@@ -466,6 +466,8 @@ export interface DiveSite {
   entry: Entry[];
   /** The site's own depth (§6), not any one dive's. */
   maxDepthM: number | null;
+  /** How high the site lies above sea level, in metres (§6) — negative below it. Not a depth. */
+  altitudeM: number | null;
   /** Issue #31's facts (§6): token sets are `[]` when unrecorded, never null, as `equipment`. */
   siteTypes: SiteType[];
   suitableFor: SuitableFor | null;

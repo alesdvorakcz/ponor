@@ -50,6 +50,7 @@ const site = (over: Partial<PulledSite> = {}): PulledSite => ({
   description: null,
   wreckName: null,
   wreckSunkYear: null,
+  altitudeM: null,
   createdBy: 'diver-1',
   status: 'active',
   mergedInto: null,
@@ -171,9 +172,11 @@ describe('the facts #31 gives a site and a centre (§6)', () => {
       description: 'A steamer on the southern spur.',
       wreckName: 'Teti',
       wreckSunkYear: 1930,
+      altitudeM: 313,
     });
 
     expect(await getDiveSite(db, created.id)).toMatchObject({
+      altitudeM: 313,
       siteTypes: ['wreck', 'wall'],
       suitableFor: 'advanced',
       altNames: ['Teti wreck'],
@@ -203,7 +206,14 @@ describe('the facts #31 gives a site and a centre (§6)', () => {
       description: null,
       wreckName: null,
       wreckSunkYear: null,
+      altitudeM: null,
     });
+  });
+
+  it('keeps a site below sea level as it is given', async () => {
+    const created = await createDiveSite(db, { name: 'Mrtvo more', altitudeM: -430 });
+
+    expect((await getDiveSite(db, created.id))?.altitudeM).toBe(-430);
   });
 
   it('keeps a centre’s #31 facts whole', async () => {

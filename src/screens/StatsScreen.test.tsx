@@ -71,6 +71,7 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   description: null,
   wreckName: null,
   wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
