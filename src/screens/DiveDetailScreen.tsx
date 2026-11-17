@@ -1,9 +1,12 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { Modal, Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ConditionIcon, conditionIconFor, type IconField } from '../components/ConditionIcon';
+import { ConditionTiles, type ConditionTile } from '../components/ConditionTiles';
+import { RatingDots } from '../components/RatingDots';
 import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
 import { MapCard } from '../components/MapCard';
@@ -636,12 +639,10 @@ function whereFields(dive: Dive): Field[] {
       opens: dive.centerId === null ? undefined : `/center/${dive.centerId}`,
     });
   }
-  const entry = formatEntry(dive.entry);
-  if (entry !== null) fields.push({ label: t('field.entry'), value: entry, mono: false });
+  // Entry and water body are tiles since issue #6 (`conditionTiles` below); salinity has no shape
+  // to draw (§0.6) and stays a row.
   const salinity = formatSalinity(dive.salinity);
   if (salinity !== null) fields.push({ label: t('field.salinity'), value: salinity, mono: false });
-  const waterBody = formatWaterBody(dive.waterBody);
-  if (waterBody !== null) fields.push({ label: t('field.waterBody'), value: waterBody, mono: false });
   // **The position is the map card's now** (issue #3), not a row: the card carries the same two
   // numbers under "Show on map". A pair `pointOf` refuses — finite but off the globe, which only a
   // future client or a hand-edited sync could write — is not a place a map can show, so the card
@@ -675,25 +676,42 @@ function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
   if (waterTemp !== null) fields.push({ label: t('field.waterTemp'), value: waterTemp, mono: true });
   const airTemp = formatTemperature(dive.airTempC, units);
   if (airTemp !== null) fields.push({ label: t('field.airTemp'), value: airTemp, mono: true });
-  const visibility = formatVisibility(dive.visibility);
-  if (visibility !== null) fields.push({ label: t('field.visibility'), value: visibility, mono: false });
+  // The visibility scale, waves, current, surge and weather are tiles since issue #6
+  // (`conditionTiles` below); the distance is a figure, not a level, and stays a row.
   const visibilityDistance = formatDepth(dive.visibilityM, units);
   if (visibilityDistance !== null) {
     fields.push({ label: t('field.visibilityDistance'), value: visibilityDistance, mono: true });
   }
-  // `mono: false`, and that changed with the words: §0.6 splits the two faces by what a value
-  // IS — "figures in mono, names in sans" — so a row now reading "Small" belongs with
-  // Visibility and Weather beside it rather than with the temperatures above. While these
-  // were bare digits mono was right; it is the value that moved, not the rule.
-  const waves = formatWaves(dive.waves);
-  if (waves !== null) fields.push({ label: t('field.waves'), value: waves, mono: false });
-  const current = formatCurrent(dive.current);
-  if (current !== null) fields.push({ label: t('field.current'), value: current, mono: false });
-  const surge = formatSurge(dive.surge);
-  if (surge !== null) fields.push({ label: t('field.surge'), value: surge, mono: false });
-  const weather = formatWeather(dive.weather);
-  if (weather !== null) fields.push({ label: t('field.weather'), value: weather, mono: false });
   return fields;
+}
+
+/**
+ * **The conditions as tiles** (issue #6, the canvas's whole *Dive detail*, 2026-11-17): each the
+ * value's drawing, the value in words, and the field's name. The canvas's order: where you went in
+ * and what water it was, then the day (weather, waves, visibility, current, surge), then the suit,
+ * which carries its thickness on its own tile (the owner's call). Each only when the dive holds it.
+ *
+ * The words come from the same formatters the rows used, so a level out of range still reads as
+ * the number it is (§10 keeps these columns unclamped) — with no drawing, since there is none for
+ * it (`conditionIconFor`). Exported for tests.
+ */
+export function conditionTiles(dive: Dive): ConditionTile[] {
+  const tiles: ConditionTile[] = [];
+  const add = (key: IconField, value: string | null, label: string, raw: string | number | null, extra?: string) => {
+    if (value === null) return;
+    tiles.push({ key, icon: conditionIconFor(key, raw), value, label, ...(extra !== undefined ? { extra } : {}) });
+  };
+  add('entry', formatEntry(dive.entry), t('field.entry'), dive.entry);
+  add('waterBody', formatWaterBody(dive.waterBody), t('field.waterBody'), dive.waterBody);
+  add('weather', formatWeather(dive.weather), t('field.weather'), dive.weather);
+  add('waves', formatWaves(dive.waves), t('field.waves'), dive.waves);
+  add('visibility', formatVisibility(dive.visibility), t('field.visibility'), dive.visibility);
+  add('current', formatCurrent(dive.current), t('field.current'), dive.current);
+  add('surge', formatSurge(dive.surge), t('field.surge'), dive.surge);
+  // The thickness joins the suit's tile only when there is a suit; on its own it stays a row
+  // (`equipmentFields`), so it is never lost and never said twice.
+  add('suit', formatSuit(dive.suit), t('field.suit'), dive.suit, formatSuitThickness(dive.suitThicknessMm) ?? undefined);
+  return tiles;
 }
 
 /**
@@ -713,10 +731,12 @@ function conditionsFields(dive: Dive, units: UnitSystem): Field[] {
  */
 function equipmentFields(dive: Dive, units: UnitSystem): Field[] {
   const fields: Field[] = [];
-  const suit = formatSuit(dive.suit);
-  if (suit !== null) fields.push({ label: t('field.suit'), value: suit, mono: false });
+  // The suit is a tile since issue #6 and carries its thickness there; a thickness recorded without
+  // a suit has no tile to join and stays a row (`conditionTiles`).
   const thickness = formatSuitThickness(dive.suitThicknessMm);
-  if (thickness !== null) fields.push({ label: t('field.suitThickness'), value: thickness, mono: true });
+  if (thickness !== null && formatSuit(dive.suit) === null) {
+    fields.push({ label: t('field.suitThickness'), value: thickness, mono: true });
+  }
   const equipment = formatEquipment(dive.equipment);
   if (equipment !== null) fields.push({ label: t('field.equipment'), value: equipment, mono: false });
   const weights = formatWeight(dive.weightsKg, units);
@@ -1039,6 +1059,8 @@ export default function DiveDetailScreen({
 
   const where = whereFields(dive);
   const conditions = conditionsFields(dive, units);
+  const tiles = conditionTiles(dive);
+  const showConditions = tiles.length > 0 || conditions.length > 0;
   const equipment = equipmentFields(dive, units);
 
   // Both take `units` since M3, and this screen is the reason the fix could not stop at the
@@ -1149,11 +1171,25 @@ export default function DiveDetailScreen({
             <Row label={t('field.importedFrom')} value={importedFrom} mono={false} styles={styles} />
           )}
 
-          {/* The one cluster that always renders (Status and Date are never null, §6), so it is
-              the topmost either way. It is `first` — flush under what is above it — unless the
-              `Imported from` row sits between: a hero or a card closes on its own air, a row
-              does not, and a label pressed against a row's foot reads as that row's caption. */}
-          <Cluster title={t('group.dateTime')} styles={styles} first={importedFrom === null}>
+          {/* **The conditions come first since issue #6**, as the canvas's whole *Dive detail*
+              draws them: the tiles straight under the map and profile cards, then the rows the
+              tiles do not cover (the temperatures and the visibility distance). `first` on the
+              same terms Date & time had it: flush under a card, not under the imported row. */}
+          {showConditions && (
+            <Cluster title={t('group.conditions')} styles={styles} first={importedFrom === null}>
+              <ConditionTiles tiles={tiles} scheme={scheme} />
+              {conditions.map((f) => (
+                <Row key={f.label} {...f} styles={styles} />
+              ))}
+            </Cluster>
+          )}
+
+          {/* The one cluster that always renders (Status and Date are never null, §6). It is
+              `first` — flush under what is above it — when it is the topmost cluster: no
+              conditions above it, and no `Imported from` row between, since a hero or a card
+              closes on its own air, a row does not, and a label pressed against a row's foot
+              reads as that row's caption. */}
+          <Cluster title={t('group.dateTime')} styles={styles} first={importedFrom === null && !showConditions}>
             <Row label={t('field.status')} value={formatDiveStatus(dive.status)} mono={false} styles={styles} />
             <Row label={t('field.date')} value={formatDiveDate(dive.date)} mono styles={styles} />
             {dive.timeIn !== null && <Row label={t('field.timeIn')} value={dive.timeIn} mono styles={styles} />}
@@ -1175,27 +1211,27 @@ export default function DiveDetailScreen({
 
           {showDepthDuration && (
             <Cluster title={t('group.depthDuration')} styles={styles}>
+              {/* Issue #6's figure glyphs lead the two depths, in the label's muted ink: which
+                  depth a coloured number is, said with a drawing as well as a word (§0.6). */}
               {maxDepth !== null && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>{t('field.maxDepth')}</Text>
+                  <View style={styles.detailLabelLed}>
+                    <ConditionIcon name="figure.maxDepth" ink={styles.detailLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />
+                    <Text style={styles.detailLabel}>{t('field.maxDepth')}</Text>
+                  </View>
                   <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />
                 </View>
               )}
               {avgDepth !== null && (
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>{t('field.avgDepth')}</Text>
+                  <View style={styles.detailLabelLed}>
+                    <ConditionIcon name="figure.avgDepth" ink={styles.detailLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />
+                    <Text style={styles.detailLabel}>{t('field.avgDepth')}</Text>
+                  </View>
                   <DepthValue metres={dive.avgDepthM} scheme={scheme} units={units} />
                 </View>
               )}
               {duration !== null && <Row label={t('field.duration')} value={duration} mono styles={styles} />}
-            </Cluster>
-          )}
-
-          {conditions.length > 0 && (
-            <Cluster title={t('group.conditions')} styles={styles}>
-              {conditions.map((f) => (
-                <Row key={f.label} {...f} styles={styles} />
-              ))}
             </Cluster>
           )}
 
@@ -1232,7 +1268,15 @@ export default function DiveDetailScreen({
           {hasNotes && (
             <Cluster title={t('group.notes')} styles={styles}>
               {dive.title !== null && <Row label={t('field.title')} value={dive.title} mono={false} styles={styles} />}
-              {rating !== null && <Row label={t('field.rating')} value={rating} mono styles={styles} />}
+              {/* The rating as the drawn dots the dive list and the form already use (§0.6, issue
+                  #6, the owner's call), not "4 / 5". The dots say nothing to a screen reader, so the
+                  row announces the figure the text row used to show. */}
+              {rating !== null && dive.rating !== null && (
+                <View style={styles.detailRow} accessible accessibilityLabel={t('field.labelValue', { label: t('field.rating'), value: rating })}>
+                  <Text style={styles.detailLabel}>{t('field.rating')}</Text>
+                  <RatingDots rating={dive.rating} scheme={scheme} />
+                </View>
+              )}
               {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
             </Cluster>
           )}

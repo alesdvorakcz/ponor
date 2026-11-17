@@ -2965,6 +2965,60 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       flexShrink: 1,
     },
+    // The dive detail's conditions as tiles (issue #6, the canvas's whole *Dive detail*): three to
+    // a row on the content column, each a `surface` card holding the drawing, the value and the
+    // field's name in the cluster label's small caps. Read-only, so no border: a tile here is a
+    // fact, not a control, and only the form's tiles carry the chip's edge.
+    conditionTileGrid: {
+      gap: 8,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 12,
+    },
+    conditionTileRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    conditionTile: {
+      flex: 1,
+      gap: 8,
+      padding: 12,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+    },
+    conditionTileSpacer: {
+      flex: 1,
+    },
+    // The drawing's room on a tile whose value has none, so the words sit at the same height.
+    conditionTileIconSpace: {
+      width: 40,
+      height: 40,
+    },
+    conditionTileWords: {
+      gap: 2,
+    },
+    conditionTileValue: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 15,
+      lineHeight: 19,
+      color: theme.fg,
+    },
+    conditionTileExtra: {
+      fontFamily: fonts.mono,
+      fontSize: 13,
+      color: theme.fgMuted,
+    },
+    conditionTileLabel: {
+      ...clusterLabel,
+      fontSize: 10,
+      letterSpacing: 1,
+    },
+    // A figure glyph before a depth row's label (issue #6): the glyph and the label as one unit.
+    detailLabelLed: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flexShrink: 1,
+    },
     detailValueText: {
       ...rowValueSans,
       flexShrink: 1,
