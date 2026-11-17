@@ -71,8 +71,12 @@ const twin = (value: string, id: string, over: Partial<SiteTwin> = {}): SiteTwin
   id,
   country: null,
   point: null,
+  relation: { kind: 'similar' },
   ...over,
 });
+
+/** The same, for a match whose name IS the name typed (§2.3's exact device match). */
+const sameName = (value: string, id: string): SiteTwin => twin(value, id, { relation: { kind: 'sameName' } });
 
 const request = (over: Partial<PlacePickRequest> = {}): PlacePickRequest => ({
   kind: 'site',
@@ -305,7 +309,7 @@ it('a site prefilled with the dive’s pin takes the phone’s once asked, and s
   // The position's caption goes; the three chips are still the dive's.
   expect(count(t, 'from this dive')).toBe(3);
   await press(t, 'Save site');
-  expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', { latitude: 50.1, longitude: 14.4 });
+  expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', [], { latitude: 50.1, longitude: 14.4 });
   // The country handed on is the phone's position's, never the dive pin's it replaced.
   expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }), {
     latitude: 50.1,
@@ -349,7 +353,7 @@ it('a new position forgets the question', async () => {
   mockTwins.mockResolvedValue([]);
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledTimes(2);
-  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka', { latitude: 50.1, longitude: 14.4 });
+  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka', [], { latitude: 50.1, longitude: 14.4 });
   expect(mockAddSite).toHaveBeenCalledTimes(1);
 });
 
@@ -404,7 +408,7 @@ it('Save with no near match creates the site and returns its id and name to the 
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   const t = await showSite();
   await press(t, 'Save site');
-  expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', pin);
+  expect(mockTwins).toHaveBeenCalledWith('Lom Leštinka', [], pin);
   expect(mockAddSite).toHaveBeenCalledWith(
     {
       name: 'Lom Leštinka',
@@ -427,7 +431,7 @@ it('saves the name as trimmed, and a site with no position and no water as nulls
   const t = await showSite();
   await type(t, 'Name', '  Nová Kotelna  ');
   await press(t, 'Save site');
-  expect(mockTwins).toHaveBeenCalledWith('Nová Kotelna', null);
+  expect(mockTwins).toHaveBeenCalledWith('Nová Kotelna', [], null);
   expect(mockAddSite).toHaveBeenCalledWith(
     {
       name: 'Nová Kotelna',
@@ -467,9 +471,11 @@ it('a near match is asked first; the second press creates anyway', async () => {
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka' }, 2);
 });
 
+// How a match relates is `findSiteTwins`' answer (`twinRelation`), and the page words it: it folds
+// no name itself.
 it('an exact device match gets its own sentence, not a question', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'lom lestinka' });
-  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-twin')]);
+  mockTwins.mockResolvedValue([sameName('Lom Leštinka', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   expect(textIn(t)).toContain('“Lom Leštinka” is already a site.');
@@ -477,10 +483,62 @@ it('an exact device match gets its own sentence, not a question', async () => {
   expect(has(t, 'Save as a new site anyway')).toBe(true);
 });
 
+// #31's third sentence: a match on another name is neither a guess nor the same name. Here the
+// issue's own case — *Stone Gate*, typed with *Kamena vrata* beside it, meets an existing
+// *Kamena vrata* — and a tap opens that site, as any match's does.
+it('says “Kamena vrata” is another name for Stone Gate', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Stone Gate' });
+  mockTwins.mockResolvedValue([
+    twin('Kamena vrata', 's-kamena', { relation: { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' } }),
+  ]);
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('“Kamena vrata” is another name for Stone Gate.');
+  expect(textIn(t).join(' ')).not.toContain('Did you mean');
+  expect(textIn(t).join(' ')).not.toContain('is already a site');
+  expect(has(t, 'Save as a new site anyway')).toBe(true);
+  await press(t, '“Kamena vrata” is another name for Stone Gate.');
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]', params: { id: 's-kamena', pick: 'tok' } });
+});
+
+// The question is asked about the row Save would write: its other names clean (`cleanAltNames`) —
+// no blank, no repeat, nothing that is the name itself — exactly as they are then saved.
+it('asks with the other names it will save', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Stone Gate' });
+  const t = await showSite();
+  await expand(t, 'Other names');
+  for (const [index, other] of [' Kamena vrata ', 'stone gate', 'Kamená Vrata'].entries()) {
+    await typeOtherName(t, index, other);
+    await press(t, '+ Add a name');
+  }
+  await press(t, 'Save site');
+  expect(mockTwins).toHaveBeenCalledWith('Stone Gate', ['Kamena vrata'], null);
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ altNames: ['Kamena vrata'] }), undefined);
+});
+
+// The server's half was asked with the other names that were on the page, so changing one is a new
+// question, as a new name or a new position is.
+it('forgets a standing question when an other name changes', async () => {
+  mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
+
+  await expand(t, 'Other names');
+  await typeOtherName(t, 0, 'Lom pod Leštinou');
+  expect(textIn(t)).not.toContain('Did you mean “Lom Leština”?');
+  expect(has(t, 'Save site')).toBe(true);
+  mockTwins.mockResolvedValue([]);
+  await press(t, 'Save site');
+  expect(mockTwins).toHaveBeenCalledTimes(2);
+  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka', ['Lom pod Leštinou'], null);
+  expect(mockAddSite).toHaveBeenCalledTimes(1);
+});
+
 // Owner's call on PR #35: a diver checks a match is really the same place before using it, so a tap
 // opens the site's own page — carrying the form's token, for its *Use this site* — and picks nothing.
 it('tapping a match opens that site’s page with the pick token, and picks nothing', async () => {
-  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
+  mockTwins.mockResolvedValue([sameName('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Save site');
   await press(t, 'Did you mean “Lom Leština”?');
@@ -501,7 +559,7 @@ it('tapping a match opens that site’s page with the pick token, and picks noth
 // position and the question still standing — and the page is usable again.
 it('comes back from a match’s page as it was left, and can open another or save anyway', async () => {
   mockRequest.mockReturnValue(request({ dive: diveAt }));
-  mockTwins.mockResolvedValue([twin('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
+  mockTwins.mockResolvedValue([sameName('Lom Leštinka', 's-same'), twin('Lom Leština', 's-twin')]);
   const t = await showSite();
   await press(t, 'Salinity: Fresh');
   await press(t, 'Save site');
@@ -545,7 +603,7 @@ it('words a match with its country and its distance from the position on the pag
 it('leaves out the distance when either place has no position, and the line when nothing is known', async () => {
   mockTwins.mockResolvedValue([
     twin('Lom Leština', 's-twin', { country: 'HR', point: { latitude: 43.0611, longitude: 16.18 } }),
-    twin('Lom Leštinka', 's-same'),
+    sameName('Lom Leštinka', 's-same'),
   ]);
   // No position on the page: the dive has no pin.
   const t = await showSite();
@@ -571,7 +629,7 @@ it('editing the name forgets the question', async () => {
   mockTwins.mockResolvedValue([]);
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledTimes(2);
-  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka II', null);
+  expect(mockTwins).toHaveBeenLastCalledWith('Lom Leštinka II', [], null);
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-id', name: 'Lom Leštinka II' }, 2);
 });
 
@@ -1195,6 +1253,16 @@ describe('in Czech', () => {
     await press(t, 'Uložit lokalitu');
     expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
     expect(textIn(t)).toContain('HR · 120 m odtud');
+  });
+
+  it('says another name in Czech', async () => {
+    mockParams.mockReturnValue({ token: 'tok', name: 'Stone Gate' });
+    mockTwins.mockResolvedValue([
+      twin('Kamena vrata', 's-kamena', { relation: { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' } }),
+    ]);
+    const t = await showSite();
+    await press(t, 'Uložit lokalitu');
+    expect(textIn(t)).toContain('„Kamena vrata“ je jiný název pro Stone Gate.');
   });
 
   it('names the new fields and groups in Czech', async () => {

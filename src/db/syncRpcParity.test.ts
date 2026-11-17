@@ -305,7 +305,22 @@ describe('the RPC reader', () => {
 
   it('throws on a statement it has not been taught rather than skipping it', () => {
     expect(() => parseFunctionSql('create table t (a int);')).toThrow(/has not been taught/);
-    expect(() => parseFunctionSql('drop function public.f(jsonb);')).toThrow(/has not been taught/);
+    expect(() => parseFunctionSql('alter function public.f(jsonb) owner to postgres;')).toThrow(
+      /has not been taught/,
+    );
+  });
+
+  // #31 changes `similar_sites`' signature, and a signature change is a `drop function` and a new
+  // `create` in the same file (supabase/README.md, *Re-running*). The drop says nothing about what
+  // the new function says, so it is skipped — and kept among the statements, where
+  // catalogueRpcParity checks which signature it drops and where.
+  it('skips a drop function, as it skips a drop index', () => {
+    const parsed = parseFunctionSql(`
+      drop function if exists public.f(jsonb);
+      ${FIXTURE}
+    `);
+    expect(parsed.functions.map((f) => f.name)).toEqual(['public.f']);
+    expect(parsed.statements[0]).toBe('drop function if exists public.f(jsonb)');
   });
 
   it('throws on an unterminated body rather than returning half a function', () => {
@@ -886,6 +901,9 @@ describe("§5's second look at a site created offline (M2q)", () => {
     expect(naming[0]).toContain('public.similar_sites(');
     expect(push.body).toContain('p_exclude_id => arrived.id');
     expect(push.body).toContain('p_name => arrived.name');
+    // #31: the arriving site's other names go with its name, so the recheck is the pre-save
+    // check's two-way question — and they are handed over raw, for `similar_sites` to fold.
+    expect(push.body).toContain('p_alt_names => arrived.alt_names');
     // Filtered rather than asserted one `not.toContain` at a time, so the failure names which
     // rule was re-implemented — and so the haystack is the body rather than a message with the
     // needle already in it, which is a `not.toContain` that can never fail (found by this test

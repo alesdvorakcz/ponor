@@ -50,13 +50,18 @@ export const SIMILAR_SITES_RPC = 'similar_sites';
 
 /**
  * The arguments the SQL declares, spelled once so a typo cannot reach the call and the
- * response differently. **Only the three this app has an opinion about are sent**:
+ * response differently. **Only the four this app has an opinion about are sent**:
  * `p_radius_m`, `p_exclude_id` and `p_limit` are left to the function's own defaults, because
  * restating 25 000 m or 5 here would be a second copy of a number the migration owns — and
  * `p_exclude_id` is for §5's *other* caller, the recheck of a site that already exists.
+ *
+ * `p_alt_names` is #31's: the other names the new site goes by, so the server can check them
+ * against existing names as well as the name against existing other names (*the duplicate check,
+ * both ways*). A jsonb list on the server; `public.folded_names` reads it.
  */
 interface SimilarSitesArgs {
   readonly p_name: string;
+  readonly p_alt_names: readonly string[];
   readonly p_latitude: number | null;
   readonly p_longitude: number | null;
 }
@@ -119,7 +124,8 @@ function candidateFrom(row: unknown): Suggestion | null {
 }
 
 /**
- * Asks the server which existing sites a proposed name might be a duplicate of.
+ * Asks the server which existing sites a proposed name — or one of the other names it goes by
+ * (#31) — might be a duplicate of.
  *
  * `cloud` is passed rather than read from module scope so that **a build with no backend is an
  * argument a test can supply**, not a property of whether the machine running the suite
@@ -134,19 +140,25 @@ function candidateFrom(row: unknown): Suggestion | null {
  * present, and `siteFactsFrom` (domain/diveFormSchema.ts) already guarantees the pair cannot
  * come apart.
  *
- * The name goes over the wire **raw**, exactly as §2.3 requires of live search: the server
- * folds it with `public.name_fold`, and a client that pre-folded its query would fold twice
- * and diverge silently.
+ * The name and the other names go over the wire **raw**, exactly as §2.3 requires of live
+ * search: the server folds them with `public.name_fold`, and a client that pre-folded its query
+ * would fold twice and diverge silently.
  */
 export async function similarSites(
   cloud: Cloud,
   name: string,
+  altNames: readonly string[],
   latitude: number | null,
   longitude: number | null,
 ): Promise<SimilarSitesAnswer> {
   if (!cloud.configured) return noAnswer();
 
-  const args: SimilarSitesArgs = { p_name: name, p_latitude: latitude, p_longitude: longitude };
+  const args: SimilarSitesArgs = {
+    p_name: name,
+    p_alt_names: altNames,
+    p_latitude: latitude,
+    p_longitude: longitude,
+  };
 
   // **The `try` covers the call and nothing else, deliberately.** A block wrapped round the
   // whole function would be a blanket that makes every check below unfalsifiable — delete one

@@ -309,6 +309,13 @@ describe('the SQL reader', () => {
     );
   });
 
+  // #31: file 6 drops `similar_sites`' old signature before creating the new one, and this reader
+  // runs over every file. A dropped function says nothing about a column set.
+  it('skips a drop function', () => {
+    expect(() => parseMigrationSql('drop function if exists public.g(text);')).not.toThrow();
+    expect(parseMigrationSql('drop function if exists public.g(text);').tables).toEqual([]);
+  });
+
   it('throws on a column definition it cannot read rather than dropping the column', () => {
     expect(() => parseMigrationSql('create table t (a text, 99bottles text);')).toThrow(
       /Unreadable column definition/,

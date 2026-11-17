@@ -275,7 +275,9 @@ $$;
 --     a `similarity(...) >= 0.3` written here would be the second implementation §4.1 is
 --     about, drifting in the one direction nobody can observe. `p_exclude_id` is why that
 --     function took the argument from its first version: the site is in the catalogue by the
---     time this runs, and would come back as its own best duplicate.
+--     time this runs, and would come back as its own best duplicate. Since #31 it hands over
+--     the site's other names too (`p_alt_names`), so the recheck asks the pre-save check's
+--     question both ways — and still decides nothing about them itself.
 --   · IT CANNOT BLOCK THE PUSH. Not by care — by the `exception` block described above, plus
 --     `on conflict … do nothing`, which is what keeps a dismissed suspicion dismissed when
 --     a pair is ever proposed twice.
@@ -572,7 +574,7 @@ begin
   if array_length(v_arriving, 1) is not null then
     begin
       with arrived as materialized (
-        select s.id, s.name, s.location
+        select s.id, s.name, s.alt_names, s.location
           from public.dive_sites as s
          where s.id = any (v_arriving)
            and s.deleted_at is null
@@ -584,6 +586,7 @@ begin
         cross join lateral jsonb_array_elements(
           public.similar_sites(
             p_name => arrived.name,
+            p_alt_names => arrived.alt_names,
             p_latitude => extensions.st_y(arrived.location::extensions.geometry),
             p_longitude => extensions.st_x(arrived.location::extensions.geometry),
             p_exclude_id => arrived.id

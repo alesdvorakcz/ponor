@@ -18,7 +18,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { toFormNumber } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
-import { cleanAltNames, foldForMatching } from '../domain/search';
+import { cleanAltNames } from '../domain/search';
 import {
   AGENCY_VALUES,
   ENTRY_VALUES,
@@ -78,14 +78,21 @@ function textOrNull(text: string): string | null {
 type PlaceGroup = 'site' | 'otherNames' | 'contact' | 'services';
 
 /**
- * §2.3's answer, worded: a catalogue row whose folded name **is** the name typed is not a question
- * (*“Lom Leštinka” is already a site.*); anything else is *Did you mean …?*. Both are the one tap
- * that picks the existing row instead.
+ * §2.3's answer, worded by how the match relates to the site being made (`match.relation`,
+ * `twinRelation`'s — the page folds no name itself): the same name is not a question (*“Lom
+ * Leštinka” is already a site.*), nor is another name for it (#31: *“Kamena vrata” is another name
+ * for Stone Gate.*); anything else is *Did you mean …?*. Each is the one tap that opens the existing
+ * row.
  */
-function matchSentence(match: SiteTwin, typed: string): string {
-  return foldForMatching(match.value) === foldForMatching(typed)
-    ? t('newPlace.sameName', { name: match.value })
-    : t('form.didYouMean', { name: match.value });
+function matchSentence(match: SiteTwin): string {
+  switch (match.relation.kind) {
+    case 'sameName':
+      return t('newPlace.sameName', { name: match.value });
+    case 'otherName':
+      return t('newPlace.otherName', { alias: match.relation.alias, name: match.relation.name });
+    case 'similar':
+      return t('form.didYouMean', { name: match.value });
+  }
 }
 
 /**
@@ -129,8 +136,9 @@ function twinHref(id: string, token: string): Href {
  *
  * ── Saving, once ──────────────────────────────────────────────────────────────────────────
  *
- * A site asks §2.3's question first (`findSiteTwins`); its matches stand above the button, each with
- * its country and how far it is from the position on screen, and the button becomes *Save as a new
+ * A site asks §2.3's question first (`findSiteTwins`, with the other names as Save will write them —
+ * #31's check runs both ways); its matches stand above the button, each worded by how it relates,
+ * with its country and how far it is from the position on screen, and the button becomes *Save as a new
  * site anyway*. **A tap on a match opens that site's own page** (owner's call on PR #35: *"so he can
  * check if it's really a duplicate"*), whose *Use this site* picks it through the same
  * `completePlacePick` and closes all three pages; `‹ Back` there returns here exactly as it was left. A centre
@@ -150,8 +158,9 @@ function twinHref(id: string, token: string): Href {
  * **What is saved is what is on screen.** Save is shut while the device is still being asked for a
  * position (a fix that landed after the write would be a position the diver asked for and the row
  * never got), and every field, chip and *+ Add a name* are held still from Save until the question
- * or the failure hands them back, so nothing typed meanwhile is left out of the row. A new position
- * forgets a standing question, as a new name does: the server's check was asked around the old one.
+ * or the failure hands them back, so nothing typed meanwhile is left out of the row. A new position,
+ * or an other name changed, forgets a standing question, as a new name does: the question was asked
+ * about the old one.
  * A blank row is saved as `null`; a site depth is typed in the diver's units and stored in metres;
  * a wreck's name and year are saved only while *Wreck* is a type (and kept on the page should it
  * be chosen again); other names are saved clean (`cleanAltNames`).
@@ -262,8 +271,11 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // A year, never a figure that only starts like one: digits only, four at most (the server casts
   // the column to `integer`).
   const takeYear = (text: string) => setWreckYear(text.replace(/\D/g, '').slice(0, 4));
-  const retypeAltName = (index: number, text: string) =>
+  const retypeAltName = (index: number, text: string) => {
     setAltNames((current) => current.map((kept, at) => (at === index ? text : kept)));
+    // A standing question was asked with the other names that were on the page (#31: both ways).
+    setMatches([]);
+  };
   const addAltName = () => setAltNames((current) => [...current, '']);
 
   /**
@@ -323,9 +335,11 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     const at: MapPoint | null = position === null ? null : { latitude: position.latitude, longitude: position.longitude };
     // The *Country* row's answer, about exactly `at` (the position cannot move while Save is out).
     const known = shown ?? undefined;
+    // The other names as the row will hold them — and so as the question is asked about them.
+    const others = cleanAltNames(trimmed, altNames);
 
     if (kind === 'site' && matches.length === 0) {
-      const found = await findSiteTwins(trimmed, at);
+      const found = await findSiteTwins(trimmed, others, at);
       // Closed, or `‹ Back` pressed while the check was out: nothing is written.
       if (!alive.current || leaving.current) return;
       if (found.length > 0) {
@@ -354,7 +368,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 // Asked only while *Wreck* is a type, and so saved only then.
                 wreckName: wreck ? textOrNull(wreckName) : null,
                 wreckSunkYear: wreck && wreckYear !== '' ? Number(wreckYear) : null,
-                altNames: cleanAltNames(trimmed, altNames),
+                altNames: others,
               },
               known,
             )
@@ -681,7 +695,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           row shows itself (owner's call, PR #35). Inert while a write is out: a pick then would be
           thrown away by the row the write is about to hand the form. */}
       {matches.map((match) => {
-        const sentence = matchSentence(match, trimmed);
+        const sentence = matchSentence(match);
         const meta = formatSiteTwinMeta(match, position, units);
         return (
           <Pressable

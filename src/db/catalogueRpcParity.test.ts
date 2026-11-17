@@ -460,10 +460,12 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // leaving this assertion quietly true of nothing (mutation-found).
     //
     // #31 adds pg_trgm's word-similarity operator, `%>`, for a site's other names (the only one a
-    // trigram index over the joined names can serve), written the same long way and counted apart.
+    // trigram index over the joined names can serve), written the same long way and counted apart:
+    // once in `search_sites` and once in `similar_sites`, whose own other names add a second `%`
+    // (a site's name against each of them).
     const whole = withoutLiterals(rpc.functions.map((declared) => declared.body).join('\n'));
-    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(3);
-    expect([...whole.matchAll(/operator\(extensions\.%>\)/g)].length).toBe(1);
+    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(4);
+    expect([...whole.matchAll(/operator\(extensions\.%>\)/g)].length).toBe(2);
     expect(whole.replace(/operator\(extensions\.%>?\)/g, '')).not.toContain('%');
 
     // Every PostGIS and pg_trgm name is schema-qualified, everywhere in the file.
@@ -537,6 +539,28 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     const pushFile = readMigrationFile(SYNC_FILE);
     expect(pushFile).toContain('public.similar_sites(');
     expect(pushFile).toContain('p_exclude_id => arrived.id');
+    // #31: and with the arriving site's other names, so the recheck runs both ways as the
+    // pre-save check does — a site pushed as *Stone Gate* / *Kamena vrata* meets *Kamena vrata*.
+    expect(pushFile).toContain('p_alt_names => arrived.alt_names');
+  });
+
+  it('drops the old signature once, right before it creates the new one', () => {
+    // #31 gives `similar_sites` the proposed site's other names, and `create or replace function`
+    // refuses a changed signature — so the file drops the one it replaces and creates the new one,
+    // in the same file, as supabase/README.md's *Re-running* says a signature change must. `if
+    // exists` keeps a second paste a no-op; the order is what makes the first one work.
+    expect(similar.args).toContain("p_alt_names jsonb default '[]'::jsonb");
+    const OLD = 'public.similar_sites(text, double precision, double precision, double precision, uuid, integer)';
+    const statements = rpc.statements.map((statement) => statement.toLowerCase());
+    const drops = statements.filter((statement) => statement.startsWith('drop function'));
+    expect(drops).toEqual([`drop function if exists ${OLD}`]);
+    const created = statements.findIndex((statement) =>
+      statement.startsWith('create or replace function public.similar_sites('),
+    );
+    expect(created).toBeGreaterThan(0);
+    expect(statements.indexOf(`drop function if exists ${OLD}`)).toBe(created - 1);
+    // Nothing is granted on, or revoked from, a function that no longer exists.
+    expect(statements.filter((statement) => /^(grant|revoke) /.test(statement) && statement.includes(OLD))).toEqual([]);
   });
 
   it('caps what one call can ask for, in both directions (§5)', () => {
@@ -621,6 +645,12 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     expect(nameFold.body).toMatch(/select\s+lower\(\s*extensions\.unaccent\(/);
   });
 
+  const FOLDED_NAME_REFERENCES: Record<string, number> = {
+    'public.search_sites': 3,
+    'public.search_centers': 3,
+    'public.similar_sites': 6,
+  };
+
   it('folds BOTH sides of every name comparison, in all three readers (§4.1)', () => {
     // §4.1's rule about `foldForMatching` stated in SQL: "a query folded one way and a value
     // folded another is a matcher that disagrees with itself." The half that would ship is
@@ -657,9 +687,11 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
       }
       expect(unfolded).toEqual([]);
       // A sweep that found nothing to sweep would pass for the wrong reason. Three folded
-      // references each: the score, the `%` pre-filter and the floor comparison.
+      // references in each search: the score, the `%` pre-filter and the floor comparison. Six in
+      // `similar_sites` (#31): those three against the proposed name, and again against the
+      // proposed site's other names.
       expect(`${declared.name} folded references: ${folded}`).toBe(
-        `${declared.name} folded references: 3`,
+        `${declared.name} folded references: ${FOLDED_NAME_REFERENCES[declared.name]}`,
       );
     }
   });
@@ -684,22 +716,29 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     }
   });
 
-  it('folds every other name through one owner, in the index and in search', () => {
+  it('folds every other name through one owner, in the index, in search and in the duplicate check', () => {
     // #31: a site's other names are a jsonb list read three times by `search_sites` — the score,
-    // the `%>` pre-filter and the floor comparison — and once by the index. A list folded one way
-    // in the index and another in the query is the name fold's silent failure again: no wrong
-    // answer, only a scan. So every read goes through one of two helpers, both of those through
-    // `folded_names`, and only `folded_names` folds.
-    const body = withoutLiterals(search.body);
-    const owners: string[] = [];
-    const strays: string[] = [];
-    for (const match of body.matchAll(/(?<![\w.])s\.alt_names\b/g)) {
-      const owner = /public\.(alt_names_fold|alt_name_similarity)\($/.exec(body.slice(0, match.index))?.[1];
-      if (owner === undefined) strays.push(`...${body.slice(Math.max(0, match.index - 40), match.index + 40)}...`);
-      else owners.push(owner);
+    // the `%>` pre-filter and the floor comparison — three times by `similar_sites` for the same
+    // three, and once by the index. A list folded one way in the index and another in the query is
+    // the name fold's silent failure again: no wrong answer, only a scan. So every read goes through
+    // one of two helpers, both of those through `folded_names`, and only `folded_names` folds.
+    for (const declared of [search, similar]) {
+      const body = withoutLiterals(declared.body);
+      const owners: string[] = [];
+      const strays: string[] = [];
+      for (const match of body.matchAll(/(?<![\w.])s\.alt_names\b/g)) {
+        const owner = /public\.(alt_names_fold|alt_name_similarity)\($/.exec(body.slice(0, match.index))?.[1];
+        if (owner === undefined) strays.push(`${declared.name}: ...${body.slice(Math.max(0, match.index - 40), match.index + 40)}...`);
+        else owners.push(owner);
+      }
+      expect(strays).toEqual([]);
+      expect(`${declared.name}: ${owners.sort().join(', ')}`).toBe(
+        `${declared.name}: alt_name_similarity, alt_name_similarity, alt_names_fold`,
+      );
     }
-    expect(strays).toEqual([]);
-    expect(owners.sort()).toEqual(['alt_name_similarity', 'alt_name_similarity', 'alt_names_fold']);
+    // The proposed site's own other names, which `similar_sites` takes as a jsonb list too, are
+    // folded by the same owner, which also reads anything that is not a list of strings as no names.
+    expect(similar.body).toContain('public.folded_names(p_alt_names)');
 
     for (const declared of [altNamesFold, altNameSimilarity]) {
       expect(`${declared.name}: ${declared.body}`).toContain('public.folded_names(p_alt_names)');
@@ -716,6 +755,7 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // name index is derived above.
     const applied = 'public.alt_names_fold(s.alt_names)';
     expect(search.body).toContain(`${applied} operator(extensions.%>) v_query`);
+    expect(similar.body).toContain(`${applied} operator(extensions.%>) v_name`);
     expect(rpc.statements.map((statement) => statement.toLowerCase())).toContain(
       'create index if not exists dive_sites_alt_names_fold_trgm_idx ' +
         `on public.dive_sites using gin (${applied.replace('(s.', '(')} extensions.gin_trgm_ops)`,
@@ -730,10 +770,13 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // of them. Set after the guards and before the query that reads it, and `true` (local), so it
     // ends with the call's transaction rather than staying on a pooled connection.
     const set = "perform set_config('pg_trgm.word_similarity_threshold', public.name_match_floor()::text, true)";
-    const at = search.body.indexOf(set);
-    expect(at).toBeGreaterThan(search.body.lastIndexOf('raise exception'));
-    expect(at).toBeLessThan(search.body.indexOf('with matches'));
-    expect(search.body.split(set).length).toBe(2);
+    // Both readers of `%>`: search, and since #31's two-way check the duplicate check.
+    for (const declared of [search, similar]) {
+      const at = declared.body.indexOf(set);
+      expect(`${declared.name}: ${at > declared.body.lastIndexOf('raise exception')}`).toBe(`${declared.name}: true`);
+      expect(`${declared.name}: ${at < declared.body.indexOf('with matches')}`).toBe(`${declared.name}: true`);
+      expect(`${declared.name}: ${declared.body.split(set).length}`).toBe(`${declared.name}: 2`);
+    }
   });
 
   it('drops the raw-name indexes it replaces, rather than leaving them to be maintained', () => {

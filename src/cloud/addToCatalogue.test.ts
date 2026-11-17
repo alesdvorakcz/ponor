@@ -71,9 +71,9 @@ describe('findSiteTwins', () => {
       ]),
     );
 
-    const twins = await findSiteTwins('kotelna', { latitude: 49.75, longitude: 14.36 });
+    const twins = await findSiteTwins('kotelna', [], { latitude: 49.75, longitude: 14.36 });
 
-    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'kotelna', 49.75, 14.36);
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'kotelna', [], 49.75, 14.36);
     expect(twins.map((s) => s.id)).toEqual(['s-local', 's-far']);
   });
 
@@ -81,16 +81,16 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValue([]);
     askServer.mockResolvedValue(answer([]));
 
-    await findSiteTwins('Kotelna', null);
+    await findSiteTwins('Kotelna', [], null);
 
-    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Kotelna', null, null);
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Kotelna', [], null, null);
   });
 
   it('answers [] when the device read throws', async () => {
     listSites.mockRejectedValue(new Error('disk'));
     askServer.mockResolvedValue(answer([{ value: 'Kotelna', id: 's-far' }]));
 
-    await expect(findSiteTwins('Kotelna', null)).resolves.toEqual([]);
+    await expect(findSiteTwins('Kotelna', [], null)).resolves.toEqual([]);
   });
 
   // *Use this site* on a match's page pairs the dive with it, so the match has to be a site the
@@ -99,7 +99,7 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([site('s-far', 'Kotelna 2')]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).toHaveBeenCalledWith(expect.anything(), [pulled('s-far', 'Kotelna 2')]);
     // Read back after the write, so what is offered is what the phone holds.
@@ -114,7 +114,7 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValue([]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).toHaveBeenCalled();
     expect(twins).toEqual([]);
@@ -129,7 +129,7 @@ describe('findSiteTwins', () => {
       ]),
     );
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
   });
@@ -143,12 +143,67 @@ describe('findSiteTwins', () => {
       .mockResolvedValueOnce([local, site('s-far', 'Kotelna 2', { country: '', latitude: 49.8, longitude: null })]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins).toEqual([
-      { value: 'Kotelna', id: 's-local', country: 'CZ', point: { latitude: 49.75, longitude: 14.36 } },
+      {
+        value: 'Kotelna',
+        id: 's-local',
+        country: 'CZ',
+        point: { latitude: 49.75, longitude: 14.36 },
+        relation: { kind: 'sameName' },
+      },
       // An empty country is none, and half a position is no position.
-      { value: 'Kotelna 2', id: 's-far', country: null, point: null },
+      { value: 'Kotelna 2', id: 's-far', country: null, point: null, relation: { kind: 'similar' } },
+    ]);
+  });
+
+  // #31: the device's exact check reads a row's other names too, and the match says how the two
+  // relate — read off the phone's own row, the one a tap opens — so the page can word it.
+  it('offers a site whose other name is the name typed, saying how they relate', async () => {
+    listSites.mockResolvedValue([
+      site('s-stone', 'Stone Gate', { altNames: ['Kamena Vrata'] }),
+      site('s-other', 'Silfra'),
+    ]);
+    askServer.mockResolvedValue(answer([]));
+
+    const twins = await findSiteTwins('Kamena vrata', [], null);
+
+    expect(twins).toEqual([
+      {
+        value: 'Stone Gate',
+        id: 's-stone',
+        country: null,
+        point: null,
+        relation: { kind: 'otherName', alias: 'Kamena Vrata', name: 'Stone Gate' },
+      },
+    ]);
+  });
+
+  // The other way round, at sea: an other name typed is the name of a site the phone holds, and no
+  // server answers — so it is the device's own check that has to be handed the other names.
+  it('offers a site the phone holds whose name is an other name typed', async () => {
+    listSites.mockResolvedValue([site('s-kamena', 'Kamena vrata'), site('s-other', 'Silfra')]);
+    askServer.mockResolvedValue(answer([]));
+
+    const twins = await findSiteTwins('Stone Gate', ['Kamena vrata'], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation])).toEqual([
+      ['s-kamena', { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' }],
+    ]);
+  });
+
+  // ...and on the server's half: the other names go with the question, and the row the server finds
+  // by one of them is offered once the phone holds it.
+  it('asks the server with the other names as well', async () => {
+    listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([site('s-kamena', 'Kamena vrata')]);
+    askServer.mockResolvedValue(answer([{ value: 'Kamena vrata', id: 's-kamena' }]));
+
+    const twins = await findSiteTwins('Stone Gate', ['Kamena vrata'], { latitude: 43.06, longitude: 16.18 });
+
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Stone Gate', ['Kamena vrata'], 43.06, 16.18);
+    expect(twins.map((twin) => [twin.id, twin.relation])).toEqual([
+      ['s-kamena', { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' }],
     ]);
   });
 
@@ -164,7 +219,7 @@ describe('findSiteTwins', () => {
       ),
     );
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).not.toHaveBeenCalled();
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
@@ -180,7 +235,7 @@ describe('findSiteTwins', () => {
     );
     storeSites.mockRejectedValue(new Error('disk full'));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
   });
@@ -197,7 +252,7 @@ describe('findSiteTwins', () => {
       askServer.mockReturnValue(new Promise(() => {}));
 
       let answer: Suggestion[] | undefined;
-      void findSiteTwins('kotelna', null).then((found) => {
+      void findSiteTwins('kotelna', [], null).then((found) => {
         answer = found;
       });
 

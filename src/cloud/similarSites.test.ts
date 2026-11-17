@@ -67,7 +67,7 @@ const answered = (data: unknown) => jest.fn().mockResolvedValue({ data, error: n
 
 it('asks the RPC §5 names, with the name raw and the dive’s own pin beside it', async () => {
   const rpc = answered([SHARK_POINT]);
-  await similarSites(withServer(rpc), '  Divoká Šárka  ', 27.85, 34.31);
+  await similarSites(withServer(rpc), '  Divoká Šárka  ', [], 27.85, 34.31);
 
   // The name goes over the wire UNTRIMMED and UNFOLDED. `public.name_fold` opens with `btrim`
   // and applies `unaccent`, and §2.3 states the rule for live search in so many words: "the
@@ -75,8 +75,24 @@ it('asks the RPC §5 names, with the name raw and the dive’s own pin beside it
   // diverge silently."
   expect(rpc).toHaveBeenCalledWith(SIMILAR_SITES_RPC, {
     p_name: '  Divoká Šárka  ',
+    p_alt_names: [],
     p_latitude: 27.85,
     p_longitude: 34.31,
+  });
+});
+
+// #31: the duplicate check runs both ways, and the server's half needs the other names to do it —
+// *Stone Gate* typed with *Kamena vrata* beside it has to meet an existing *Kamena vrata*. Sent as
+// typed, for the name's reason: `public.folded_names` folds them, and a client that pre-folded
+// would fold twice.
+it('sends the other names raw, beside the name', async () => {
+  const rpc = answered([]);
+  await similarSites(withServer(rpc), 'Stone Gate', ['  Kamená vrata '], null, null);
+  expect(rpc).toHaveBeenCalledWith(SIMILAR_SITES_RPC, {
+    p_name: 'Stone Gate',
+    p_alt_names: ['  Kamená vrata '],
+    p_latitude: null,
+    p_longitude: null,
   });
 });
 
@@ -85,9 +101,10 @@ it('asks the RPC §5 names, with the name raw and the dive’s own pin beside it
 // A dive that has none asks the name alone, which the SQL handles by building no point at all.
 it('hands over no point when the dive has none, rather than half of one', async () => {
   const rpc = answered([]);
-  await similarSites(withServer(rpc), 'Kotelna', null, null);
+  await similarSites(withServer(rpc), 'Kotelna', [], null, null);
   expect(rpc).toHaveBeenCalledWith(SIMILAR_SITES_RPC, {
     p_name: 'Kotelna',
+    p_alt_names: [],
     p_latitude: null,
     p_longitude: null,
   });
@@ -98,14 +115,14 @@ it('hands over no point when the dive has none, rather than half of one', async 
 // exists. A client copy of any of them is a second place for a number to drift from (§4.1).
 it('names only the arguments it has an opinion about', async () => {
   const rpc = answered([]);
-  await similarSites(withServer(rpc), 'Kotelna', null, null);
-  expect(Object.keys(rpc.mock.calls[0][1] as object).sort()).toEqual(['p_latitude', 'p_longitude', 'p_name']);
+  await similarSites(withServer(rpc), 'Kotelna', [], null, null);
+  expect(Object.keys(rpc.mock.calls[0][1] as object).sort()).toEqual(['p_alt_names', 'p_latitude', 'p_longitude', 'p_name']);
 });
 
 // The answer, read for the two things §2.3's one tap needs: a name to show and §6's id to pair
 // the dive with. In the server's own order, which is by trigram score (`similar_sites` sorts).
 it('reads back the name to show and the id to pair, in the order they arrived', async () => {
-  const { matches: found } = await similarSites(withServer(answered([SHARK_POINT, SHARK_BAY])), 'Sharks Point', null, null);
+  const { matches: found } = await similarSites(withServer(answered([SHARK_POINT, SHARK_BAY])), 'Sharks Point', [], null, null);
   expect(found).toEqual([picked('Shark Point', 'site-shark-point'), picked('Shark Bay', 'site-shark-bay')]);
 });
 
@@ -113,7 +130,7 @@ it('reads back the name to show and the id to pair, in the order they arrived', 
 // row it points at are byte-identical, and picking an existing site has to leave the dive in
 // exactly that state.
 it('trims the catalogue’s spelling, so a picked name and its row are one string', async () => {
-  const { matches: found } = await similarSites(withServer(answered([{ ...SHARK_POINT, name: '  Shark Point  ' }])), 'x', null, null);
+  const { matches: found } = await similarSites(withServer(answered([{ ...SHARK_POINT, name: '  Shark Point  ' }])), 'x', [], null, null);
   expect(found).toEqual([picked('Shark Point', 'site-shark-point')]);
 });
 
@@ -132,7 +149,7 @@ it('drops a row that cannot supply both halves, and keeps the ones that can', as
     null,
     SHARK_BAY,
   ];
-  const { matches: found } = await similarSites(withServer(answered(rows)), 'Shark', null, null);
+  const { matches: found } = await similarSites(withServer(answered(rows)), 'Shark', [], null, null);
   expect(found).toEqual([picked('Shark Bay', 'site-shark-bay')]);
 });
 
@@ -141,7 +158,7 @@ it('drops a row that cannot supply both halves, and keeps the ones that can', as
 // way into a table, wrong for the one tap, where a missing `max_depth_m` still answers "did you
 // mean Shark Point?" perfectly well. Such a row is only left out of the half that is stored.
 it('answers from a row that is missing every column but the two it reads, and does not offer it for storing', async () => {
-  const answer = await similarSites(withServer(answered([{ id: 'site-x', name: 'Kotelna' }])), 'Kotelna', null, null);
+  const answer = await similarSites(withServer(answered([{ id: 'site-x', name: 'Kotelna' }])), 'Kotelna', [], null, null);
   expect(answer.matches).toEqual([picked('Kotelna', 'site-x')]);
   expect(answer.rows).toEqual([]);
 });
@@ -152,6 +169,7 @@ it('hands back each whole row the device can store, dropping only the ones the s
   const answer = await similarSites(
     withServer(answered([SHARK_POINT, { id: 'site-x', name: 'Kotelna' }, SHARK_BAY])),
     'Shark',
+    [],
     null,
     null,
   );
@@ -176,7 +194,7 @@ it('hands back each whole row the device can store, dropping only the ones the s
 it('answers nothing at all in a build that has no backend', async () => {
   const noBackend = connectCloud(readCloudCredentials({}));
   expect(noBackend.configured).toBe(false);
-  await expect(similarSites(noBackend, 'Kotelna', 27.85, 34.31)).resolves.toEqual({ matches: [], rows: [] });
+  await expect(similarSites(noBackend, 'Kotelna', [], 27.85, 34.31)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -194,7 +212,7 @@ it('answers nothing at all in a build that has no backend', async () => {
 it('never reaches a client an unconfigured cloud is carrying anyway', async () => {
   const rpc = answered([SHARK_POINT]);
   const lying = { configured: false, missing: [], client: { rpc } } as unknown as Cloud;
-  await expect(similarSites(lying, 'Shark Point', null, null)).resolves.toEqual({ matches: [], rows: [] });
+  await expect(similarSites(lying, 'Shark Point', [], null, null)).resolves.toEqual({ matches: [], rows: [] });
   expect(rpc).not.toHaveBeenCalled();
 });
 
@@ -205,7 +223,7 @@ it('never reaches a client an unconfigured cloud is carrying anyway', async () =
  */
 it('answers nothing when the call cannot reach anything, and never throws', async () => {
   const rpc = jest.fn().mockRejectedValue(new TypeError('Network request failed'));
-  await expect(similarSites(withServer(rpc), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
+  await expect(similarSites(withServer(rpc), 'Kotelna', [], null, null)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -219,10 +237,10 @@ it('answers nothing when the call cannot reach anything, and never throws', asyn
  */
 it('believes no rows that arrived beside a refusal', async () => {
   const refused = jest.fn().mockResolvedValue({ data: null, error: { code: '42501' } });
-  await expect(similarSites(withServer(refused), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
+  await expect(similarSites(withServer(refused), 'Kotelna', [], null, null)).resolves.toEqual({ matches: [], rows: [] });
 
   const both = jest.fn().mockResolvedValue({ data: [SHARK_POINT], error: { code: '28000' } });
-  await expect(similarSites(withServer(both), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
+  await expect(similarSites(withServer(both), 'Kotelna', [], null, null)).resolves.toEqual({ matches: [], rows: [] });
 });
 
 /**
@@ -233,6 +251,6 @@ it('believes no rows that arrived beside a refusal', async () => {
  */
 it('answers nothing to a response that is not a list of rows', async () => {
   for (const data of [null, undefined, {}, 'rows', 7]) {
-    await expect(similarSites(withServer(answered(data)), 'Kotelna', null, null)).resolves.toEqual({ matches: [], rows: [] });
+    await expect(similarSites(withServer(answered(data)), 'Kotelna', [], null, null)).resolves.toEqual({ matches: [], rows: [] });
   }
 });

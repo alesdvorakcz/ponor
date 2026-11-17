@@ -15,7 +15,10 @@
 --                           "a site or center" and §5's RPC list had only the first half.
 --   similar_sites(...)      §5's dedupe: "before saving a new entry, a fuzzy check suggests
 --                           near-matches", and the same check re-run against a site that has
---                           just been pushed. One function, both callers — see below.
+--                           just been pushed. One function, both callers — see below. Since
+--                           #31 it runs both ways: the name against other names, and the
+--                           site's other names against names (a signature change, dropped
+--                           and re-created there).
 --   suggest_site_edit(...)  §5's "everyone else taps *suggest a correction*", landing in the
 --                           review queue file 5 creates.
 --   delete_account()        §8's in-app account deletion, "a hard App Store requirement".
@@ -102,9 +105,9 @@
 -- **#31's `%>` is the one exception, and it is a call, not a `SET` clause.** Word similarity's
 -- cut-off is a second GUC, `pg_trgm.word_similarity_threshold`, whose default is 0.6 — above
 -- the floor, so unlike `%` it would narrow the pre-filter past what the floor promises. So
--- `search_sites` sets it from `name_match_floor()` with `set_config(…, true)` as its body runs,
--- which depends on nothing being registered when the file is pasted (an unregistered name is
--- held as a placeholder that pg_trgm takes up when it loads).
+-- `search_sites` and `similar_sites` set it from `name_match_floor()` with `set_config(…, true)`
+-- as their bodies run, which depends on nothing being registered when the file is pasted (an
+-- unregistered name is held as a placeholder that pg_trgm takes up when it loads).
 --
 -- The PostGIS half has the same shape and one unverifiable point. `extensions.st_dwithin` is
 -- called qualified, but PostGIS's own SQL body then resolves the `&&` index operator itself;
@@ -221,8 +224,10 @@ create index if not exists dive_centers_name_fold_trgm_idx
 --
 -- #31 gives a site `alt_names`, a jsonb list of the other names it goes by — *Stone Gate* for
 -- *Kamena vrata* — and a diver who knows it by one of them has to find it here as well as on
--- the device (`alsoCalled`, src/domain/search.ts, is that half). Three small functions, each
--- answering one question, so the index and every query read the list the same way:
+-- the device (`alsoCalled`, src/domain/search.ts, is that half), and the duplicate check has to
+-- meet it there too (`similar_sites`, below, which also folds a NEW site's other names through
+-- `folded_names`). Three small functions, each answering one question, so the index and every
+-- query read the list the same way:
 --
 --   folded_names(list)               every name in the list, folded by `name_fold` — the one
 --                                    fold — distinct, with blanks dropped. Only strings count:
@@ -243,7 +248,8 @@ create index if not exists dive_centers_name_fold_trgm_idx
 -- once — a perfect match on one is diluted by the other two. Word similarity asks whether the
 -- query matches some stretch of the joined text, which is the question; and it is never below
 -- the similarity to the one name that stretch is, so pre-filtering by it at the floor cannot
--- drop a row the per-name check would keep. `search_sites` sets its cut-off (below).
+-- drop a row the per-name check would keep. `search_sites` and `similar_sites` set its cut-off
+-- (below).
 --
 -- All three are IMMUTABLE for `name_fold`'s reason — one is an index expression, the others are
 -- what it and the score beside it are made of — and honestly so: they call `name_fold`, the
@@ -585,8 +591,18 @@ $$;
 --
 -- **The two callers want the same matching and differ only in what counts as "itself"**, so
 -- this takes `p_exclude_id`, defaulting to null. That argument exists from day one on purpose:
--- `create or replace function` cannot add an argument later (it refuses a changed signature),
--- so a version without it would have to be dropped and recreated in a migration of its own.
+-- `create or replace function` cannot add an argument later (it refuses a changed signature).
+--
+-- **#31 did add one, and paid exactly that price.** A site's other names make the check run both
+-- ways: the proposed NAME against every existing name and every existing other name, and the
+-- proposed OTHER NAMES (`p_alt_names`, a jsonb list, raw — folded here by `folded_names`) against
+-- every existing name — or *Stone Gate*, created with the other name *Kamena vrata*, slips past an
+-- existing *Kamena vrata*. Other name against other name is not compared; the issue names these
+-- two directions and no third. So the old signature is dropped immediately before the new one is
+-- created, in this file, as supabase/README.md's "Re-running" says a signature change must be:
+-- `if exists` keeps a second paste a no-op, and the two run in the one transaction a paste is.
+-- Both callers name their arguments (PostgREST always does, file 4 does by choice), and the new
+-- one has a default, so a call that names only the old ones still reaches the new function.
 --
 -- **(b) is `push_changes`, and this paragraph used to say it was not** (M2q). It read: "push
 -- does not call this — the client calls it after a successful push. Doing it inside push would
@@ -609,8 +625,11 @@ $$;
 -- and a candidate carry a pin and they are further apart than the radius, the candidate is not
 -- offered. When either has no pin, the name decides alone — which is the common case, since
 -- §2.3 lets a diver create a site with a name and nothing else.
+drop function if exists public.similar_sites(text, double precision, double precision, double precision, uuid, integer);
+
 create or replace function public.similar_sites(
   p_name text,
+  p_alt_names jsonb default '[]'::jsonb,
   p_latitude double precision default null,
   p_longitude double precision default null,
   p_radius_m double precision default 25000,
@@ -629,6 +648,9 @@ declare
   -- stops a second `Divoká Šárka` being created as `Divoka Sarka` (§5). Unfolded, the two
   -- scored 0.333 and the dedupe warning a diver needs was one accent from never appearing.
   v_name text := nullif(public.name_fold(p_name), '');
+  -- The proposed site's other names (#31), folded by their one owner — anything that is not a list
+  -- of strings is no names — less the name itself, which is already asked about as the name.
+  v_mine text[] := array(select folded from unnest(public.folded_names(p_alt_names)) as folded where folded <> v_name);
   v_point extensions.geography;
   v_radius_m double precision := least(greatest(coalesce(p_radius_m, 25000), 0), 500000);
   v_limit integer := least(greatest(coalesce(p_limit, 5), 1), 25);
@@ -647,16 +669,36 @@ begin
       extensions.st_makepoint(p_longitude, p_latitude), 4326)::extensions.geography;
   end if;
 
+  -- The `%>` pre-filter's cut-off, from the floor, for `search_sites`' reason (see there).
+  perform set_config('pg_trgm.word_similarity_threshold', public.name_match_floor()::text, true);
+
+  -- A site matches when its name is like the proposed name, when one of its other names is, or
+  -- when its name is like one of the proposed other names (#31: both ways) — each against the one
+  -- floor — and scores by the best of the three, so a site found by an other name ranks as high as
+  -- one found by its name. What the match IS (the same name, another name, a guess) is the
+  -- client's to say (`twinRelation`, src/domain/suggest.ts), about the row this hands back.
   with matches as (
     select s.id as site_id,
-           extensions.similarity(public.name_fold(s.name), v_name)::double precision as score
+           greatest(
+             extensions.similarity(public.name_fold(s.name), v_name),
+             public.alt_name_similarity(s.alt_names, v_name),
+             (select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine)
+           )::double precision as score
       from public.dive_sites as s
      where s.deleted_at is null
        and s.status = 'active'
-       and s.name is not null
        and (p_exclude_id is null or s.id <> p_exclude_id)
-       and public.name_fold(s.name) operator(extensions.%) v_name
-       and extensions.similarity(public.name_fold(s.name), v_name) >= public.name_match_floor()
+       and (
+         (s.name is not null
+           and public.name_fold(s.name) operator(extensions.%) v_name
+           and extensions.similarity(public.name_fold(s.name), v_name) >= public.name_match_floor())
+         or (public.alt_names_fold(s.alt_names) operator(extensions.%>) v_name
+           and public.alt_name_similarity(s.alt_names, v_name) >= public.name_match_floor())
+         or (s.name is not null
+           and public.name_fold(s.name) operator(extensions.%) any (v_mine)
+           and (select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine)
+               >= public.name_match_floor())
+       )
        and (
          v_point is null
          or s.location is null
@@ -898,7 +940,7 @@ revoke all on function public.alt_names_fold(jsonb) from public;
 revoke all on function public.alt_name_similarity(jsonb, text) from public;
 revoke all on function public.search_sites(text, double precision, double precision, double precision, integer) from public;
 revoke all on function public.search_centers(text, double precision, double precision, double precision, integer) from public;
-revoke all on function public.similar_sites(text, double precision, double precision, double precision, uuid, integer) from public;
+revoke all on function public.similar_sites(text, jsonb, double precision, double precision, double precision, uuid, integer) from public;
 revoke all on function public.suggest_site_edit(uuid, jsonb, text) from public;
 revoke all on function public.delete_account() from public;
 
@@ -909,6 +951,6 @@ grant execute on function public.alt_names_fold(jsonb) to authenticated;
 grant execute on function public.alt_name_similarity(jsonb, text) to authenticated;
 grant execute on function public.search_sites(text, double precision, double precision, double precision, integer) to authenticated;
 grant execute on function public.search_centers(text, double precision, double precision, double precision, integer) to authenticated;
-grant execute on function public.similar_sites(text, double precision, double precision, double precision, uuid, integer) to authenticated;
+grant execute on function public.similar_sites(text, jsonb, double precision, double precision, double precision, uuid, integer) to authenticated;
 grant execute on function public.suggest_site_edit(uuid, jsonb, text) to authenticated;
 grant execute on function public.delete_account() to authenticated;

@@ -327,6 +327,67 @@ export function suggestionHistory(dives: readonly Dive[], field: SuggestedField,
 }
 
 /**
+ * **How a near-match relates to the site being made** — which decides the sentence it is asked
+ * with (§2.3: an exact match and a near-match are different findings and get different sentences;
+ * #31 adds a third). `sameName`: the two names are one name (*“Kotelna” is already a site.*).
+ * `otherName`: one of them is a name the other goes by, `alias`, and `name` is the place it is
+ * another name for (*“Kamena vrata” is another name for Stone Gate.*). `similar`: neither — the
+ * server's guess (*Did you mean …?*).
+ */
+export type TwinRelation =
+  | { kind: 'sameName' }
+  | { kind: 'otherName'; alias: string; name: string }
+  | { kind: 'similar' };
+
+/** A list's names as text, trimmed, blanks dropped — and nothing at all from a list that is not
+ * one, or from a member that is not text (a row from another client's build: #31's review focus 1). */
+function namesIn(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return (list as readonly unknown[]).flatMap((name) => {
+    const kept = typeof name === 'string' ? name.trim() : '';
+    return kept === '' ? [] : [kept];
+  });
+}
+
+/**
+ * **What a catalogue row is to the site being made, by folded equality** (#31, *the duplicate check,
+ * both ways*), asked in this order:
+ *
+ *  1. the two names are one name → `sameName`;
+ *  2. the name typed is one of the row's other names → `otherName`, that other name for the row's
+ *     name — *Kamena vrata* typed, an existing *Stone Gate* that goes by it;
+ *  3. one of the other names typed is the row's name → `otherName`, the row's name for the name
+ *     typed — *Stone Gate* typed with *Kamena vrata* beside it, an existing *Kamena vrata*;
+ *  4. otherwise `similar`.
+ *
+ * Other name against other name is not compared: the issue names the two directions above and no
+ * third, and two places that share a nickname are not thereby one place.
+ *
+ * The fold is `foldForMatching`, so this is the device's exact check (`nearMatches`, below) and
+ * never a fuzzy one; names are quoted trimmed, as stored. A blank on either side names nothing, so it
+ * relates as `similar`. Read during a gesture over rows the database handed back, so it never throws
+ * on one: a name that is not text is no name, and other names are read through `namesIn`.
+ */
+export function twinRelation(
+  proposed: { name: string; altNames: readonly string[] },
+  site: Pick<DiveSite, 'name' | 'altNames'>,
+): TwinRelation {
+  const name = proposed.name.trim();
+  const wanted = foldForMatching(name);
+  const siteName = typeof site.name === 'string' ? site.name.trim() : '';
+  const siteFolded = foldForMatching(siteName);
+  if (wanted === '' || siteFolded === '') return { kind: 'similar' };
+
+  if (siteFolded === wanted) return { kind: 'sameName' };
+  const alias = namesIn(site.altNames).find((other) => foldForMatching(other) === wanted);
+  if (alias !== undefined) return { kind: 'otherName', alias, name: siteName };
+  if (namesIn(proposed.altNames).some((other) => foldForMatching(other) === siteFolded)) {
+    return { kind: 'otherName', alias: siteName, name };
+  }
+  return { kind: 'similar' };
+}
+
+/**
  * **§2.3's fuzzy check, as the list of sites the diver is asked about** — *"before saving a
  * new entry, a fuzzy check suggests near-matches: **Did you mean Shark Point?** One tap picks
  * the existing site instead"* (M2p).
@@ -339,8 +400,10 @@ export function suggestionHistory(dives: readonly Dive[], field: SuggestedField,
  *
  * `onDevice` is the on-device copy of the community catalogue (§5: *"the compact site/center
  * catalogue syncs to every device"*), and a row of it is a near-match here **only when its
- * folded name equals the folded query**. That is deliberately the cheapest possible check and
- * it is the one that works at sea:
+ * folded name equals the folded query** — or, since #31, when one of its other names does, or
+ * its name equals one of the other names typed (`altNames`): whatever `twinRelation` calls more
+ * than `similar`. That is deliberately the cheapest possible check and it is the one that works
+ * at sea:
  *
  * · It costs one `foldForMatching` per catalogue row — the fold this app already runs over
  *   every dive on every keystroke of §3's search — and no network at all. §1 and §5 both make
@@ -392,19 +455,20 @@ export function suggestionHistory(dives: readonly Dive[], field: SuggestedField,
  */
 export function nearMatches(
   name: string,
+  altNames: readonly string[],
   onDevice: readonly DiveSite[],
   fromServer: readonly Suggestion[],
   limit: number = SUGGESTION_LIMIT,
 ): Suggestion[] {
-  const wanted = foldForMatching(name);
   // An empty name names no site, and folding it would equal every empty stored name.
-  if (wanted === '') return [];
+  if (foldForMatching(name) === '') return [];
 
+  const proposed = { name, altNames };
   const local: Suggestion[] = [];
   for (const site of onDevice) {
     if (site === null || site === undefined) continue;
     const value = typeof site.name === 'string' ? site.name.trim() : '';
-    if (value === '' || foldForMatching(value) !== wanted) continue;
+    if (value === '' || twinRelation(proposed, site).kind === 'similar') continue;
     local.push({ value, id: typeof site.id === 'string' ? site.id : null });
   }
 

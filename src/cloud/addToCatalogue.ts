@@ -2,7 +2,7 @@ import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites }
 import { db } from '../db/client';
 import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { pointOf, type MapPoint } from '../domain/mapSites';
-import { nearMatches, type Suggestion } from '../domain/suggest';
+import { nearMatches, twinRelation, type Suggestion, type TwinRelation } from '../domain/suggest';
 import { type Agency, type DiveSite, type Service } from '../domain/types';
 import { countryFor } from '../platform/geocode';
 import { withTimeout } from '../platform/withTimeout';
@@ -39,11 +39,16 @@ export const TWIN_CHECK_TIMEOUT_MS = 4_000;
  * the two facts that let a diver judge it without leaving the page: its country and where it is
  * (owner's call on PR #35, *"so he can check if it's really a duplicate"*). Both are the phone's own
  * row's, because the phone's row is what a tap opens and what the dive is then paired with.
+ *
+ * `relation` is how the match relates to the site being made (`twinRelation`, #31) — the same name,
+ * another name for it, or only similar — read off that same row, so the page words each finding as
+ * what it is and folds no name itself.
  */
 export interface SiteTwin extends Suggestion {
   id: string;
   country: string | null;
   point: MapPoint | null;
+  relation: TwinRelation;
 }
 
 /**
@@ -83,9 +88,11 @@ export type NewSiteDetails = Partial<
  *
  * Both sources, asked together (§5's "offline dedupe" and §2.3's fuzzy check are the same
  * question asked of two catalogues). `nearMatches` (domain/suggest.ts) owns what counts as one
- * and in what order; this owns only that both are asked and that the row's own pin goes with the
- * question — a name check across the whole world and a name check within the function's own
- * radius are different questions.
+ * and in what order; this owns only that both are asked and that the row's own pin and other
+ * names go with the question — a name check across the whole world and a name check within the
+ * function's own radius are different questions, and since #31 the check runs both ways: the name
+ * against existing other names, and the other names (`altNames`, the list Save will write) against
+ * existing names.
  *
  * `Promise.all`, so a device that is online pays one round trip rather than a round trip after a
  * database read; and `listDiveSites` reads the same `pickable` rows autocomplete would offer, so
@@ -110,14 +117,17 @@ export type NewSiteDetails = Partial<
  * when its row is on the phone in that read. A write — or a read back — that refuses leaves the
  * matches the phone already held.
  *
- * **Each match carries the phone's row's country and position** (`SiteTwin`), from that same read:
- * the row a tap on it opens, and the one the dive is paired with.
+ * **Each match carries the phone's row's country, position and relation** (`SiteTwin`), from that
+ * same read: the row a tap on it opens, and the one the dive is paired with.
  */
-export async function findSiteTwins(name: string, at: MapPoint | null): Promise<SiteTwin[]> {
+export async function findSiteTwins(name: string, altNames: readonly string[], at: MapPoint | null): Promise<SiteTwin[]> {
   try {
     const [onDevice, answer] = await Promise.all([
       listDiveSites(db),
-      withTimeout(similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null), TWIN_CHECK_TIMEOUT_MS),
+      withTimeout(
+        similarSites(cloud, name, altNames, at?.latitude ?? null, at?.longitude ?? null),
+        TWIN_CHECK_TIMEOUT_MS,
+      ),
     ]);
     let onPhone: readonly DiveSite[] = onDevice;
     if (answer !== null && answer.rows.length > 0) {
@@ -130,11 +140,12 @@ export async function findSiteTwins(name: string, at: MapPoint | null): Promise<
     }
     const held = new Map(onPhone.map((site) => [site.id, site]));
     const fromServer = (answer?.matches ?? []).filter((match) => match.id !== null && held.has(match.id));
-    return nearMatches(name, onDevice, fromServer).flatMap((match) => {
+    return nearMatches(name, altNames, onDevice, fromServer).flatMap((match) => {
       const site = match.id === null ? undefined : held.get(match.id);
       if (site === undefined) return [];
       const country = site.country !== null && site.country !== '' ? site.country : null;
-      return [{ value: match.value, id: site.id, country, point: pointOf(site) }];
+      const relation = twinRelation({ name, altNames }, site);
+      return [{ value: match.value, id: site.id, country, point: pointOf(site), relation }];
     });
   } catch {
     return [];

@@ -1066,6 +1066,9 @@ export const en = {
       saveFailed: "Couldn't save that just now. Nothing on the dive has changed.",
       /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
       sameName: '“{{name}}” is already a site.',
+      /** #31's third finding, not a question either: one name is a name the other place goes by —
+       * the name typed is a site's other name, or an other name typed is a site's name. */
+      otherName: '“{{alias}}” is another name for {{name}}.',
       /** How far a near-match is from the position on the page, after its country: `HR · 120 m away`. */
       away: '{{distance}} away',
       /** Beside *Description* (#31): it is published with the place, so nobody writes a private
