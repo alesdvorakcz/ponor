@@ -4,7 +4,8 @@
 --                           place a name is folded before it is compared, and the IMMUTABLE
 --                           wrapper the trigram indexes below are built over.
 --   name_match_floor()      The fuzzy cut-off, written once for both of its readers.
---   folded_names(jsonb), alt_names_fold(jsonb), alt_name_similarity(jsonb, text)
+--   folded_names(jsonb), alt_names_fold(jsonb), alt_name_similarity(jsonb, text),
+--   best_alt_name(jsonb, text)
 --                           #31: a site's other names, folded by one owner for the index
 --                           and for every reader — see the block above them.
 --   search_sites(...)       §2.3's ONLINE SUPPLEMENT to on-device autocomplete, and §5's
@@ -18,7 +19,8 @@
 --                           just been pushed. One function, both callers — see below. Since
 --                           #31 it runs both ways: the name against other names, and the
 --                           site's other names against names (a signature change, dropped
---                           and re-created there).
+--                           and re-created there), and says which other name a match came
+--                           through (`matched_name`, beside each row).
 --   suggest_site_edit(...)  §5's "everyone else taps *suggest a correction*", landing in the
 --                           review queue file 5 creates.
 --   delete_account()        §8's in-app account deletion, "a hard App Store requirement".
@@ -70,14 +72,15 @@
 -- POST. The honest marking for the read-only ones would be `stable`; the safe one is the
 -- default, and being wrong here is a call that 404s rather than a call that lies.
 --
--- **The exceptions are `name_match_floor`, `name_fold` and #31's three other-name helpers, and
+-- **The exceptions are `name_match_floor`, `name_fold` and #31's four other-name helpers, and
 -- all are `immutable` because something needs them to be.** The floor is a constant the planner
 -- may fold into a query; `name_fold` and `alt_names_fold` are INDEX EXPRESSIONS, and Postgres
--- refuses to build one over anything less than immutable (the other two helpers are what
--- `alt_names_fold` and the score beside it are made of). None is a function a client ever calls
--- over HTTP, so the PostgREST argument above does not reach them. See the block above
--- `name_fold` for why the marking is honest rather than a convenient lie — it is the one place
--- in these migrations where being wrong would produce wrong answers instead of an error.
+-- refuses to build one over anything less than immutable (the other three helpers are what
+-- `alt_names_fold` and the score beside it are made of, and which name that score is). None is
+-- a function a client ever calls over HTTP, so the PostgREST argument above does not reach
+-- them. See the block above `name_fold` for why the marking is honest rather than a convenient
+-- lie — it is the one place in these migrations where being wrong would produce wrong answers
+-- instead of an error.
 --
 -- ─────────────────────────────────────────────────────────────────────────────────────────
 -- WHAT THE `extensions` SCHEMA COSTS, since file 1 installs all three extensions into it and
@@ -226,7 +229,7 @@ create index if not exists dive_centers_name_fold_trgm_idx
 -- *Kamena vrata* — and a diver who knows it by one of them has to find it here as well as on
 -- the device (`alsoCalled`, src/domain/search.ts, is that half), and the duplicate check has to
 -- meet it there too (`similar_sites`, below, which also folds a NEW site's other names through
--- `folded_names`). Three small functions, each answering one question, so the index and every
+-- `folded_names`). Four small functions, each answering one question, so the index and every
 -- query read the list the same way:
 --
 --   folded_names(list)               every name in the list, folded by `name_fold` — the one
@@ -242,6 +245,17 @@ create index if not exists dive_centers_name_fold_trgm_idx
 --                                    them; null for a site with none. What the score reads and
 --                                    what the floor is compared with — per name, never against the
 --                                    joined text, where the other names would dilute the match.
+--   best_alt_name(list, query)       WHICH one that is, as stored and trimmed — what `similar_sites`
+--                                    reports when a site came near through an other name (the
+--                                    owner's call, 2026-11-17: *Did you mean “Stone Gate” (also
+--                                    called Kamena vrata)?*). The one reader besides `folded_names`
+--                                    that folds, because `folded_names` keeps only the folds and a
+--                                    diver is shown the name as written: so it reads the list with
+--                                    the same guards — strings only, a non-list is no names, a
+--                                    blank is none — folds each with the same `name_fold` and scores
+--                                    it as `alt_name_similarity` does, so its name scores exactly
+--                                    that one's best. A tie goes to the name listed first; null for
+--                                    a site with none, or for no query.
 --
 -- **Why a word-similarity pre-filter, `%>`, and not `%`.** The index can only hold the joined
 -- names, and plain similarity against a join of three names is the query against all of them at
@@ -251,7 +265,7 @@ create index if not exists dive_centers_name_fold_trgm_idx
 -- drop a row the per-name check would keep. `search_sites` and `similar_sites` set its cut-off
 -- (below).
 --
--- All three are IMMUTABLE for `name_fold`'s reason — one is an index expression, the others are
+-- All four are IMMUTABLE for `name_fold`'s reason — one is an index expression, the others are
 -- what it and the score beside it are made of — and honestly so: they call `name_fold`, the
 -- jsonb functions and pg_trgm's `similarity`, all immutable, and `array_to_string`, which
 -- Postgres marks STABLE only because some element types print differently by setting; `text`
@@ -292,6 +306,24 @@ create or replace function public.alt_name_similarity(p_alt_names jsonb, p_folde
 as $$
   select max(extensions.similarity(name, p_folded))::double precision
     from unnest(public.folded_names(p_alt_names)) as name;
+$$;
+
+create or replace function public.best_alt_name(p_alt_names jsonb, p_folded text)
+  returns text
+  language sql
+  immutable
+  parallel safe
+  security invoker
+  set search_path = ''
+as $$
+  select btrim(value #>> '{}')
+    from jsonb_array_elements(case when jsonb_typeof(p_alt_names) = 'array' then p_alt_names else '[]'::jsonb end)
+           with ordinality as names(value, ordinal)
+   where p_folded is not null
+     and jsonb_typeof(value) = 'string'
+     and public.name_fold(value #>> '{}') <> ''
+   order by extensions.similarity(public.name_fold(value #>> '{}'), p_folded) desc, ordinal
+   limit 1;
 $$;
 
 -- Over the expression `search_sites` compares, written the same way, for the name index's
@@ -604,6 +636,17 @@ $$;
 -- Both callers name their arguments (PostgREST always does, file 4 does by choice), and the new
 -- one has a default, so a call that names only the old ones still reaches the new function.
 --
+-- **Each row says which other name it came through, when it did** (#31, the owner's call of
+-- 2026-11-17). *Kamena vrat* typed finds *Stone Gate* by its other name *Kamena vrata*, and *Did
+-- you mean "Stone Gate"?* alone gives the diver nothing tying it to what they typed; the device
+-- cannot say it, because its own check is folded equality and a near match never meets it. So
+-- every row carries `matched_name` beside `sync_site`'s rendering — a KEY added to the jsonb, not a
+-- column, so the return type and the signature are unchanged and no drop is needed: the site's
+-- other name that scored best (`best_alt_name`) when the best of the three scores below is the
+-- site's other names against the proposed name, and null when it is the site's own name, either
+-- way round. A row stays the table row plus that one key: `push_changes` reads `id` alone, and the
+-- client's strict reader (`fromWireRow`) stores the table's columns and nothing else.
+--
 -- **(b) is `push_changes`, and this paragraph used to say it was not** (M2q). It read: "push
 -- does not call this — the client calls it after a successful push. Doing it inside push would
 -- need somewhere to write the flag, and there is no such column; adding one would put §7's push
@@ -678,14 +721,22 @@ begin
   -- floor — and scores by the best of the three, so a site found by an other name ranks as high as
   -- one found by its name. What the match IS (the same name, another name, a guess) is the
   -- client's to say (`twinRelation`, src/domain/suggest.ts), about the row this hands back.
+  --
+  -- The three scores are taken once, in `scores` — the site's name against the proposed name, its
+  -- other names against the proposed name, its name against the proposed other names — so the rank
+  -- and `matched_name` (above) are read off the same numbers. `through_other_name` is the second
+  -- beating both others STRICTLY: a tie goes to the site's own name, which needs no "also called".
+  -- The name itself is looked up below, for the rows handed back and no others.
   with matches as (
     select s.id as site_id,
-           greatest(
-             extensions.similarity(public.name_fold(s.name), v_name),
-             public.alt_name_similarity(s.alt_names, v_name),
-             (select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine)
-           )::double precision as score
+           greatest(scores.by_name, scores.by_other_name, scores.by_new_other_name)::double precision as score,
+           scores.by_other_name > coalesce(greatest(scores.by_name, scores.by_new_other_name), 0) as through_other_name
       from public.dive_sites as s
+      cross join lateral (
+        select extensions.similarity(public.name_fold(s.name), v_name) as by_name,
+               public.alt_name_similarity(s.alt_names, v_name) as by_other_name,
+               (select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine) as by_new_other_name
+      ) as scores
      where s.deleted_at is null
        and s.status = 'active'
        and (p_exclude_id is null or s.id <> p_exclude_id)
@@ -709,7 +760,10 @@ begin
      limit v_limit
   )
   select coalesce(
-           jsonb_agg(public.sync_site(to_jsonb(s), s.location) order by m.score desc, s.id),
+           jsonb_agg(public.sync_site(to_jsonb(s), s.location)
+                       || jsonb_build_object('matched_name',
+                            case when m.through_other_name then public.best_alt_name(s.alt_names, v_name) end)
+                     order by m.score desc, s.id),
            '[]'::jsonb)
     into v_rows
     from matches as m
@@ -932,13 +986,14 @@ $$;
 -- `name_fold` needs the same treatment as the rest, and for a reason worth stating: the
 -- functions that call it are `security invoker`, so it runs as the caller and the caller
 -- needs EXECUTE on it. Without the grant, every search would raise `permission denied for
--- function name_fold` — loud, at least, rather than an empty catalogue. #31's three helpers
+-- function name_fold` — loud, at least, rather than an empty catalogue. #31's four helpers
 -- for a site's other names are in the same position, for the same reason.
 revoke all on function public.name_fold(text) from public;
 revoke all on function public.name_match_floor() from public;
 revoke all on function public.folded_names(jsonb) from public;
 revoke all on function public.alt_names_fold(jsonb) from public;
 revoke all on function public.alt_name_similarity(jsonb, text) from public;
+revoke all on function public.best_alt_name(jsonb, text) from public;
 revoke all on function public.search_sites(text, double precision, double precision, double precision, integer) from public;
 revoke all on function public.search_centers(text, double precision, double precision, double precision, integer) from public;
 revoke all on function public.similar_sites(text, jsonb, double precision, double precision, double precision, uuid, integer) from public;
@@ -950,6 +1005,7 @@ grant execute on function public.name_match_floor() to authenticated;
 grant execute on function public.folded_names(jsonb) to authenticated;
 grant execute on function public.alt_names_fold(jsonb) to authenticated;
 grant execute on function public.alt_name_similarity(jsonb, text) to authenticated;
+grant execute on function public.best_alt_name(jsonb, text) to authenticated;
 grant execute on function public.search_sites(text, double precision, double precision, double precision, integer) to authenticated;
 grant execute on function public.search_centers(text, double precision, double precision, double precision, integer) to authenticated;
 grant execute on function public.similar_sites(text, jsonb, double precision, double precision, double precision, uuid, integer) to authenticated;

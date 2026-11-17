@@ -67,6 +67,7 @@ const floor = fn('public.name_match_floor');
 const foldedNames = fn('public.folded_names');
 const altNamesFold = fn('public.alt_names_fold');
 const altNameSimilarity = fn('public.alt_name_similarity');
+const bestAltName = fn('public.best_alt_name');
 const search = fn('public.search_sites');
 const searchCenters = fn('public.search_centers');
 const similar = fn('public.similar_sites');
@@ -124,6 +125,7 @@ const TABLE_ALIASES: Record<string, Record<string, string>> = {
   'public.folded_names': {},
   'public.alt_names_fold': {},
   'public.alt_name_similarity': {},
+  'public.best_alt_name': {},
   'public.search_sites': { s: 'dive_sites' },
   'public.search_centers': { c: 'dive_centers' },
   'public.similar_sites': { s: 'dive_sites' },
@@ -137,13 +139,18 @@ const OTHER_ALIASES: Record<string, Record<string, string>> = {
   'public.folded_names': {},
   'public.alt_names_fold': {},
   'public.alt_name_similarity': {},
+  'public.best_alt_name': {},
   'public.search_sites': {
     m: 'the `matches` CTE, whose columns are site_id/score/distance_m — a ranking, not a row.',
   },
   'public.search_centers': {
     m: 'the `matches` CTE, as in search_sites, keyed center_id rather than site_id.',
   },
-  'public.similar_sites': { m: 'the `matches` CTE, as in search_sites.' },
+  'public.similar_sites': {
+    m: 'the `matches` CTE, as in search_sites, with through_other_name beside the score — still a ranking, not a row.',
+    scores: 'the three scores of one row, taken once in a `cross join lateral` so the rank and ' +
+      '`matched_name` are read off the same numbers — no table.',
+  },
   'public.suggest_site_edit': {
     k: '`jsonb_object_keys(v_fields) as k(key)` — the payload\'s own keys, checked against the ' +
       'allow-list rather than against a table.',
@@ -215,9 +222,12 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // #31 adds three, for the reason `name_fold` is here: a site's other names are read by an
     // index and by search (and, from Task 5, by the duplicate check), so how a list of names is
     // folded, joined for the index, and scored has one owner each rather than a copy per reader.
+    // And a fourth, `best_alt_name`, for the owner's call of 2026-11-17: which of a site's other
+    // names the duplicate check came near through, so the page can say so.
     expect(rpc.functions.map((declared) => declared.name).sort()).toEqual([
       'public.alt_name_similarity',
       'public.alt_names_fold',
+      'public.best_alt_name',
       'public.delete_account',
       'public.folded_names',
       'public.name_fold',
@@ -248,7 +258,7 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // does not apply, and the catalogue is then readable by anyone who can call the function —
     // which is the decision M2a deliberately took the other way, on the grounds that opening it
     // later is two statements and closing it after a scrape is not possible at all.
-    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold, foldedNames, altNamesFold, altNameSimilarity]) {
+    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold, foldedNames, altNamesFold, altNameSimilarity, bestAltName]) {
       expect(`${declared.name}: ${declared.attributes}`).toContain('security invoker');
       expect(`${declared.name}: ${declared.attributes}`).not.toContain('security definer');
     }
@@ -563,6 +573,40 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     expect(statements.filter((statement) => /^(grant|revoke) /.test(statement) && statement.includes(OLD))).toEqual([]);
   });
 
+  it('says beside each row which other name a match came through, off the rank\'s own scores', () => {
+    // The owner's call (2026-11-17): *Kamena vrat* finds *Stone Gate* through its other name
+    // *Kamena vrata*, and the page asks *Did you mean “Stone Gate” (also called Kamena vrata)?*.
+    // Only this side knows which name came near, so each row carries it — a KEY beside
+    // `sync_site`'s rendering, not a column: the function still returns one jsonb, so its
+    // signature is unchanged and nothing more is dropped (the test above pins the one drop).
+    expect(similar.attributes).toMatch(/^returns jsonb /);
+    expect(similar.body).toContain(
+      "public.sync_site(to_jsonb(s), s.location) || jsonb_build_object('matched_name', " +
+        'case when m.through_other_name then public.best_alt_name(s.alt_names, v_name) end)',
+    );
+    // A key that were a column would overwrite the row the client stores.
+    expect(schemaColumns('dive_sites')).not.toContain('matched_name');
+
+    // The rank and the answer are read off the same three scores, taken once: the site's name, its
+    // other names, and its name against the proposed other names. An other name is reported only
+    // when it beats both of the site's own-name scores outright — a tie is the site's own name,
+    // which needs no "also called"; a site with no name at all is beaten by any other name.
+    for (const score of [
+      'extensions.similarity(public.name_fold(s.name), v_name) as by_name',
+      'public.alt_name_similarity(s.alt_names, v_name) as by_other_name',
+      '(select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine) as by_new_other_name',
+      'greatest(scores.by_name, scores.by_other_name, scores.by_new_other_name)::double precision as score',
+      'scores.by_other_name > coalesce(greatest(scores.by_name, scores.by_new_other_name), 0) as through_other_name',
+    ]) {
+      expect(similar.body).toContain(score);
+    }
+    // And the name is looked up for the rows handed back, not for every candidate the CTE ranks.
+    const ranking = similar.body.slice(similar.body.indexOf('with matches'), similar.body.indexOf('select coalesce('));
+    expect(ranking).toContain('through_other_name');
+    expect(ranking).not.toContain('best_alt_name');
+    expect(similar.body.split('public.best_alt_name(').length).toBe(2);
+  });
+
   it('caps what one call can ask for, in both directions (§5)', () => {
     // A limit and a radius a client chooses are a cost the server pays. Neither is a secrecy
     // boundary — `pull_changes` hands a signed-in device the whole catalogue by design — so
@@ -599,8 +643,8 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // on ten sites. That is the failure this file exists to catch: not wrong, just quietly
     // unusable at the size the community is supposed to reach.
     expect(nameFold.attributes).toContain('immutable');
-    // #31's three are immutable for the same reason: `alt_names_fold` is an index expression and
-    // the other two are what it, and the score beside it, are made of.
+    // #31's four are immutable for the same reason: `alt_names_fold` is an index expression and
+    // the other three are what it, and the score beside it, are made of — and which name that is.
     expect(
       rpc.functions
         .filter((declared) => declared.attributes.includes('immutable'))
@@ -609,11 +653,12 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     ).toEqual([
       'public.alt_name_similarity',
       'public.alt_names_fold',
+      'public.best_alt_name',
       'public.folded_names',
       'public.name_fold',
       'public.name_match_floor',
     ]);
-    for (const declared of [foldedNames, altNamesFold, altNameSimilarity]) {
+    for (const declared of [foldedNames, altNamesFold, altNameSimilarity, bestAltName]) {
       expect(`${declared.name}: ${declared.attributes}`).toContain('parallel safe');
     }
   });
@@ -721,20 +766,25 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // the `%>` pre-filter and the floor comparison — three times by `similar_sites` for the same
     // three, and once by the index. A list folded one way in the index and another in the query is
     // the name fold's silent failure again: no wrong answer, only a scan. So every read goes through
-    // one of two helpers, both of those through `folded_names`, and only `folded_names` folds.
+    // one of the helpers: the two that score go through `folded_names`, and only `folded_names`
+    // folds a list — but for `best_alt_name`, which `similar_sites` asks once more, about the rows
+    // it hands back, which name came near (the owner's call, 2026-11-17), and which is held to
+    // `folded_names`' reading below.
+    const OWNERS: Record<string, string> = {
+      'public.search_sites': 'alt_name_similarity, alt_name_similarity, alt_names_fold',
+      'public.similar_sites': 'alt_name_similarity, alt_name_similarity, alt_names_fold, best_alt_name',
+    };
     for (const declared of [search, similar]) {
       const body = withoutLiterals(declared.body);
       const owners: string[] = [];
       const strays: string[] = [];
       for (const match of body.matchAll(/(?<![\w.])s\.alt_names\b/g)) {
-        const owner = /public\.(alt_names_fold|alt_name_similarity)\($/.exec(body.slice(0, match.index))?.[1];
+        const owner = /public\.(alt_names_fold|alt_name_similarity|best_alt_name)\($/.exec(body.slice(0, match.index))?.[1];
         if (owner === undefined) strays.push(`${declared.name}: ...${body.slice(Math.max(0, match.index - 40), match.index + 40)}...`);
         else owners.push(owner);
       }
       expect(strays).toEqual([]);
-      expect(`${declared.name}: ${owners.sort().join(', ')}`).toBe(
-        `${declared.name}: alt_name_similarity, alt_name_similarity, alt_names_fold`,
-      );
+      expect(`${declared.name}: ${owners.sort().join(', ')}`).toBe(`${declared.name}: ${OWNERS[declared.name]}`);
     }
     // The proposed site's own other names, which `similar_sites` takes as a jsonb list too, are
     // folded by the same owner, which also reads anything that is not a list of strings as no names.
@@ -748,8 +798,29 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // A list from another client's build can be anything (#31's review focus 1). A non-array would
     // make `jsonb_array_elements` raise and fail every search that reached the row, and a number or
     // a `null` inside one is no name — the device's `alsoCalled` skips both, so the server does too.
-    expect(foldedNames.body).toContain("case when jsonb_typeof(p_names) = 'array' then p_names else '[]'::jsonb end");
-    expect(foldedNames.body).toContain("where jsonb_typeof(value) = 'string'");
+    const NOT_A_LIST = "case when jsonb_typeof(p_names) = 'array' then p_names else '[]'::jsonb end";
+    const NOT_A_STRING = "jsonb_typeof(value) = 'string'";
+    const FOLD = "public.name_fold(value #>> '{}')";
+    expect(foldedNames.body).toContain(NOT_A_LIST);
+    expect(foldedNames.body).toContain(`where ${NOT_A_STRING}`);
+    expect(foldedNames.body).toContain(`select ${FOLD} as folded`);
+    expect(foldedNames.body).toContain("where folded <> ''");
+
+    // `best_alt_name` has to hand back the name as written, which `folded_names` does not keep, so
+    // it reads the list itself — and is held here to `folded_names`' reading, phrase for phrase:
+    // the same guard for a value that is not a list, strings only, the same fold, blanks dropped.
+    // Then it scores each name as `alt_name_similarity` scores the folds, so the name it names is
+    // the one that score's best is; a tie goes to the name listed first. Trimmed, as stored.
+    expect(bestAltName.body).toContain(NOT_A_LIST.replace(/p_names/g, 'p_alt_names'));
+    expect(bestAltName.body).toContain(`and ${NOT_A_STRING}`);
+    expect(bestAltName.body).toContain(`and ${FOLD} <> ''`);
+    expect(altNameSimilarity.body).toContain('extensions.similarity(name, p_folded)');
+    expect(bestAltName.body).toContain(`order by extensions.similarity(${FOLD}, p_folded) desc, ordinal`);
+    expect(bestAltName.body).toContain('with ordinality as names(value, ordinal)');
+    expect(bestAltName.body).toMatch(/^select btrim\(value #>> '\{\}'\)/);
+    expect(bestAltName.body).toMatch(/limit 1;$/);
+    // No query, no name — as `alt_name_similarity` answers null for one.
+    expect(bestAltName.body).toContain('where p_folded is not null');
 
     // The index is over the very expression the pre-filter applies, derived from it exactly as the
     // name index is derived above.
