@@ -167,7 +167,7 @@ it('is worth opening for a site that has nothing but a name', async () => {
 it('draws neither cluster for a site the catalogue knows nothing else about', async () => {
   mockUseDives.mockReturnValue(divesState([atKotelna()]));
   const text = textIn(await show());
-  expect(text).not.toContain('Site');
+  expect(text).not.toContain('The site');
   expect(text).not.toContain('Site defaults');
   expect(text).not.toContain('Country');
   expect(text).not.toContain('Site depth');
@@ -176,7 +176,7 @@ it('draws neither cluster for a site the catalogue knows nothing else about', as
 // --- What the catalogue knows, in two clusters (§6, §2.1) ------------------------------------
 
 /**
- * **The split is the substance of this page.** *Site* describes the place; *Site defaults* is
+ * **The split is the substance of this page.** *The site* describes the place; *Site defaults* is
  * §2.1's three columns, the ones that will do something when the diver picks this site on a new
  * dive. A single list of five would show a diver a rule they cannot see and cannot predict.
  */
@@ -187,7 +187,7 @@ it('separates what the site is from what the site gives a new dive', async () =>
     ]),
   );
   const text = textIn(await show());
-  expect(text).toContain('Site');
+  expect(text).toContain('The site');
   expect(text).toContain('Country');
   expect(text).toContain('CZ');
   expect(text).toContain('Site depth');
@@ -278,7 +278,7 @@ it('omits a default the catalogue has no opinion about', async () => {
 it('draws the facts cluster without the defaults one when it knows only the place', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ' })]));
   const text = textIn(await show());
-  expect(text).toContain('Site');
+  expect(text).toContain('The site');
   expect(text).toContain('CZ');
   expect(text).not.toContain('Site defaults');
 });
@@ -609,7 +609,7 @@ it('puts the card under the page’s own lines and above the site’s facts', as
   );
   const lines = textIn(await show());
   expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Kotelna'));
-  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Site'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('The site'));
 });
 
 // --- Opened from a near-match on *New dive site* (owner's call, PR #35) -------------------------

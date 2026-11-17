@@ -5,6 +5,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { addCenter, addSite, findSiteTwins, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
+import { useUnitSystem } from '../db/useUnitSystem';
 import { setActiveLanguage } from '../i18n';
 import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
 import { countryFor } from '../platform/geocode';
@@ -56,6 +57,7 @@ const mockAddCenter = addCenter as jest.MockedFunction<typeof addCenter>;
 const mockPosition = currentPosition as jest.MockedFunction<typeof currentPosition>;
 const mockCountry = countryFor as jest.MockedFunction<typeof countryFor>;
 const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEffect>;
+const mockUnits = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 
 const styles = makeStyles('light');
 
@@ -100,6 +102,7 @@ beforeEach(() => {
   mockAddSite.mockResolvedValue('new-id');
   mockAddCenter.mockResolvedValue('new-centre-id');
   mockCountry.mockResolvedValue(null);
+  mockUnits.mockReturnValue('metric');
 });
 
 // --- Reading what was drawn ---------------------------------------------------------------------
@@ -181,6 +184,45 @@ async function type(t: RenderResult, label: string, text: string) {
   await fireEvent.changeText(labelled(t, label), text);
 }
 
+/** Opens a closed group by its header, as a diver does (`FormGroup` says *Expand …* while shut). */
+async function expand(t: RenderResult, title: string) {
+  await press(t, `Expand ${title}`);
+}
+
+/** Every input labelled `label`, in reading order — the *Other name* rows share one label. */
+function inputsLabelled(t: RenderResult, label: string): Node[] {
+  return allNodes(t).filter((n) => n.type === 'TextInput' && n.props?.accessibilityLabel === label);
+}
+
+const otherNames = (t: RenderResult): string[] => inputsLabelled(t, 'Other name').map((n) => n.props.value);
+
+async function typeOtherName(t: RenderResult, index: number, text: string) {
+  const row = inputsLabelled(t, 'Other name')[index];
+  if (row === undefined) throw new Error(`the page has no other-name row ${index}`);
+  await fireEvent.changeText(row, text);
+}
+
+/** Every #31 fact as `addSite` / `addCenter` is handed it when the page left it blank — `null`, or
+ * an empty set. */
+const NO_SITE_DETAILS = {
+  description: null,
+  siteTypes: [],
+  suitableFor: null,
+  maxDepthM: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altNames: [],
+};
+const NO_CENTRE_DETAILS = {
+  address: null,
+  phone: null,
+  email: null,
+  openingHours: null,
+  description: null,
+  services: [],
+  agencies: [],
+};
+
 // --- Opening ------------------------------------------------------------------------------------
 
 it('prefills the typed name, the dive’s pin, salinity, water body and entry', async () => {
@@ -219,9 +261,10 @@ it('a centre’s position starts empty even when the dive has a pin', async () =
   expect(textIn(t)).toContain('asks the phone where you are');
   expect(rowValue(t, 'Country')).toBe('—');
   expect(mockCountry).not.toHaveBeenCalled();
-  // A centre inherits its name alone: no water, no entry; a website instead.
+  // A centre inherits its name alone: no water, no entry; a website instead, under *Contact*.
   expect(has(t, 'Salinity: Salt')).toBe(false);
   expect(textIn(t)).not.toContain('from this dive');
+  await expand(t, 'Contact');
   const website = labelled(t, 'Website');
   expect(website.props.placeholder).toBe('optional');
   // An address, not prose: the URL keyboard and AutoFill hint, and no capital on the first letter.
@@ -370,6 +413,7 @@ it('Save with no near match creates the site and returns its id and name to the 
       entry: 'boat',
       salinity: 'salt',
       waterBody: 'ocean',
+      ...NO_SITE_DETAILS,
     },
     // The *Country* row's answer for this very pin (`—`, here), so Save asks the geocoder nothing.
     { ...pin, country: null },
@@ -392,6 +436,7 @@ it('saves the name as trimmed, and a site with no position and no water as nulls
       entry: null,
       salinity: null,
       waterBody: null,
+      ...NO_SITE_DETAILS,
     },
     // No position, so nothing was looked up and nothing is handed over.
     undefined,
@@ -685,6 +730,7 @@ it('a centre saves straight away with its website and no check', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'Ponorka' });
   mockRequest.mockReturnValue(request({ kind: 'center', dive: diveAt }));
   const t = await showCenter();
+  await expand(t, 'Contact');
   await type(t, 'Website', '  https://ponorka.example  ');
   await press(t, 'Save centre');
   expect(mockTwins).not.toHaveBeenCalled();
@@ -695,6 +741,7 @@ it('a centre saves straight away with its website and no check', async () => {
       latitude: null,
       longitude: null,
       website: 'https://ponorka.example',
+      ...NO_CENTRE_DETAILS,
     },
     undefined,
   );
@@ -706,6 +753,7 @@ it('holds a centre’s website still while the write is out', async () => {
   mockAddCenter.mockReturnValue(written.promise);
   mockRequest.mockReturnValue(request({ kind: 'center' }));
   const t = await showCenter();
+  await expand(t, 'Contact');
   await press(t, 'Save centre');
   expect(labelled(t, 'Website').props.editable).toBe(false);
   expect(labelled(t, 'Name').props.editable).toBe(false);
@@ -720,9 +768,335 @@ it('a centre with a position and no website saves both halves of the pin and a n
   await press(t, 'Use current position');
   await press(t, 'Save centre');
   expect(mockAddCenter).toHaveBeenCalledWith(
-    { name: 'Ponorka', latitude: 43.1, longitude: 16.2, website: null },
+    { name: 'Ponorka', latitude: 43.1, longitude: 16.2, website: null, ...NO_CENTRE_DETAILS },
     { latitude: 43.1, longitude: 16.2, country: null },
   );
+});
+
+// --- What else a place says (issue #31) -----------------------------------------------------------
+
+// The canvas's round 3: the description is what a diver opens a place to learn, so it is an
+// ordinary field straight under the name — and public, which the row says.
+it('puts the description straight under the name, saying everyone can read it', async () => {
+  const t = await showSite();
+  const lines = textIn(t);
+  const at = lines.indexOf('Name');
+  expect(lines.slice(at, at + 4)).toEqual(['Name', 'Description', 'everyone can read it', 'Position']);
+  expect(lines.indexOf('Use current position')).toBeGreaterThan(at);
+  const description = labelled(t, 'Description');
+  expect(description.props).toMatchObject({ placeholder: 'optional', multiline: true, autoCapitalize: 'sentences' });
+  // No cap on what it holds.
+  expect(description.props.maxLength).toBeUndefined();
+});
+
+it('puts a centre’s address under its name, and the description under the address', async () => {
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const t = await showCenter();
+  const lines = textIn(t);
+  const at = lines.indexOf('Name');
+  expect(lines.slice(at, at + 5)).toEqual(['Name', 'Address', 'Description', 'everyone can read it', 'Position']);
+  // Never corrected: a street the keyboard does not know is still the street.
+  expect(labelled(t, 'Address').props).toMatchObject({ autoCapitalize: 'words', autoCorrect: false, placeholder: 'optional' });
+});
+
+it('puts the country under the position card', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const site = textIn(await showSite());
+  // Under the card's coordinates, and above the group the dive's water and entry opened.
+  expect(site.indexOf('Country')).toBeGreaterThan(site.indexOf('43.06000, 16.18000'));
+  expect(site.indexOf('Country')).toBeLessThan(site.indexOf('The site'));
+  expect(site.indexOf('The site')).toBeLessThan(site.indexOf('Salinity'));
+  await cleanup();
+
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const centre = textIn(await showCenter());
+  expect(centre.indexOf('Country')).toBeGreaterThan(centre.indexOf('Use current position'));
+  expect(centre.indexOf('Country')).toBeLessThan(centre.indexOf('Contact'));
+});
+
+// §2.2 on this page: no data, closed; data carried, open. A site made from a dive holds the dive's
+// water and entry, so *The site* opens on them, each still marked as the dive's.
+it('opens The site when the dive handed it a value, with the dive’s marks', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const t = await showSite();
+  expect(labelled(t, 'Collapse The site').props.accessibilityState).toMatchObject({ expanded: true });
+  expect(textIn(t)).not.toContain('water, entry, type, depth');
+  expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ selected: true });
+  expect(count(t, 'from this dive')).toBe(4);
+  // *Other names* holds nothing, so it stays shut.
+  expect(labelled(t, 'Expand Other names').props.accessibilityState).toMatchObject({ expanded: false });
+
+  // Closed again, the group still saves what it holds.
+  await press(t, 'Collapse The site');
+  expect(has(t, 'Salinity: Salt')).toBe(false);
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'ocean', entry: 'boat' }), {
+    ...pin,
+    country: null,
+  });
+});
+
+it('keeps a group closed while it holds nothing, saying what it holds', async () => {
+  // The dive's pin alone opens nothing: the position stands above the groups, not in one.
+  mockRequest.mockReturnValue(request({ dive: { ...noDive, pin } }));
+  const site = await showSite();
+  expect(labelled(site, 'Expand The site').props.accessibilityState).toMatchObject({ expanded: false });
+  expect(textIn(site)).toContain('water, entry, type, depth');
+  expect(textIn(site)).toContain('names it also goes by');
+  expect(textIn(site)).not.toContain('Salinity');
+  expect(has(site, 'Salinity: Salt')).toBe(false);
+  expect(has(site, 'Other name')).toBe(false);
+  // Opened, its fields say it instead.
+  await expand(site, 'The site');
+  expect(textIn(site)).not.toContain('water, entry, type, depth');
+  expect(has(site, 'Salinity: Salt')).toBe(true);
+  await cleanup();
+
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const centre = await showCenter();
+  expect(textIn(centre)).toContain('website, phone, email, hours');
+  expect(textIn(centre)).toContain('services, agencies');
+  expect(has(centre, 'Website')).toBe(false);
+  expect(has(centre, 'Phone')).toBe(false);
+  expect(has(centre, 'Services: Air')).toBe(false);
+});
+
+it('asks the wreck’s name and year only while Wreck is a type', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  expect(labelled(t, 'Site type: Wreck').props.accessibilityRole).toBe('checkbox');
+  expect(has(t, 'Wreck name')).toBe(false);
+  expect(has(t, 'Year sunk')).toBe(false);
+  await press(t, 'Site type: Reef');
+  expect(has(t, 'Wreck name')).toBe(false);
+
+  await press(t, 'Site type: Wreck');
+  expect(labelled(t, 'Wreck name').props).toMatchObject({ autoCorrect: false });
+  const year = labelled(t, 'Year sunk');
+  expect(year.props.keyboardType).toBe('number-pad');
+  // A year is a figure: mono, as every figure on the form.
+  expect(stylesOf(year)).toContain(styles.formFieldInputMono);
+  await type(t, 'Wreck name', 'Teti');
+  await type(t, 'Year sunk', '1930');
+
+  await press(t, 'Site type: Wreck');
+  expect(has(t, 'Wreck name')).toBe(false);
+  expect(has(t, 'Year sunk')).toBe(false);
+  // Kept while hidden, should Wreck be chosen again.
+  await press(t, 'Site type: Wreck');
+  expect(labelled(t, 'Wreck name').props.value).toBe('Teti');
+  expect(labelled(t, 'Year sunk').props.value).toBe('1930');
+});
+
+it('saves every new fact of a site', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Vrak Teti' });
+  const t = await showSite();
+  await type(t, 'Description', 'A steamer on the southern spur.');
+  await expand(t, 'The site');
+  await press(t, 'Site type: Wall');
+  await press(t, 'Site type: Wreck');
+  await press(t, 'Suitable for: Advanced');
+  await type(t, 'Site depth', '34');
+  await type(t, 'Wreck name', 'Teti');
+  await type(t, 'Year sunk', '1930');
+  await expand(t, 'Other names');
+  await type(t, 'Other name', 'Teti wreck');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(
+    {
+      name: 'Vrak Teti',
+      latitude: null,
+      longitude: null,
+      entry: null,
+      salinity: null,
+      waterBody: null,
+      description: 'A steamer on the southern spur.',
+      // The vocabulary's order, whichever was pressed first.
+      siteTypes: ['wreck', 'wall'],
+      suitableFor: 'advanced',
+      maxDepthM: 34,
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+      altNames: ['Teti wreck'],
+    },
+    undefined,
+  );
+});
+
+// Review Focus 5: SI is stored. An imperial diver's 100 published as 100 m would tell every diver
+// the site is three times as deep as it is.
+it('stores a site depth typed in feet as metres', async () => {
+  mockUnits.mockReturnValue('imperial');
+  const t = await showSite();
+  await expand(t, 'The site');
+  expect(rowValue(t, 'Site depth')).toBe('ft');
+  expect(labelled(t, 'Site depth').props.keyboardType).toBe('decimal-pad');
+  expect(stylesOf(labelled(t, 'Site depth'))).toContain(styles.formFieldInputMono);
+  await type(t, 'Site depth', '100');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].maxDepthM).toBeCloseTo(30.48, 2);
+});
+
+it('forgets the wreck’s name and year once Wreck is taken off', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  await press(t, 'Site type: Wreck');
+  await type(t, 'Wreck name', 'Teti');
+  await type(t, 'Year sunk', '1930');
+  await press(t, 'Site type: Wreck');
+  await press(t, 'Site type: Reef');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(
+    expect.objectContaining({ siteTypes: ['reef'], wreckName: null, wreckSunkYear: null }),
+    undefined,
+  );
+});
+
+// The server casts the column to `integer`: a whole year from a whole-number pad is the first
+// guard, and `db/integers.ts`' rounding at the write the second.
+it('takes only digits as the year sunk', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  await press(t, 'Site type: Wreck');
+  await type(t, 'Year sunk', '19a3x0');
+  expect(labelled(t, 'Year sunk').props.value).toBe('1930');
+  // Four at most: a year, never a figure that only starts like one.
+  await type(t, 'Year sunk', '1930.5');
+  expect(labelled(t, 'Year sunk').props.value).toBe('1930');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ wreckSunkYear: 1930 }), undefined);
+});
+
+// Review Focus 2: the saved list is clean — no blank, no repeat by fold, nothing that folds to the
+// site's own name — so search and the duplicate check never match a site against itself.
+it('saves other names without blanks, repeats or the site’s own name', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Kamena vrata' });
+  const t = await showSite();
+  await expand(t, 'Other names');
+  const typed = ['Stone Gate', 'stone gate', 'Kamená Vrata'];
+  for (const [index, other] of typed.entries()) {
+    await typeOtherName(t, index, other);
+    await press(t, '+ Add a name');
+  }
+  expect(otherNames(t)).toEqual([...typed, '']);
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ altNames: ['Stone Gate'] }), undefined);
+});
+
+it('adds a row for another name', async () => {
+  const t = await showSite();
+  await expand(t, 'Other names');
+  expect(otherNames(t)).toEqual(['']);
+  // A place's name, as the page's own *Name* takes one.
+  expect(labelled(t, 'Other name').props).toMatchObject({ autoCapitalize: 'sentences', autoCorrect: false });
+  await typeOtherName(t, 0, 'Stone Gate');
+  await press(t, '+ Add a name');
+  expect(otherNames(t)).toEqual(['Stone Gate', '']);
+});
+
+it('saves every new fact of a centre', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const t = await showCenter();
+  await type(t, 'Address', ' Otok Vis, Kut 12 ');
+  await type(t, 'Description', 'Family centre in Kut bay.');
+  await expand(t, 'Contact');
+  await type(t, 'Website', 'https://nautica-vis.example');
+  await type(t, 'Phone', '+385 21 555 0123');
+  await type(t, 'Email', 'dive@nautica-vis.example');
+  await type(t, 'Opening hours', 'Daily 8–18, closed Nov–Mar');
+  await expand(t, 'Services');
+  await press(t, 'Services: Nitrox');
+  await press(t, 'Services: Air');
+  await press(t, 'Training agencies: Other');
+  await press(t, 'Training agencies: PADI');
+  await press(t, 'Save centre');
+  expect(mockAddCenter).toHaveBeenCalledWith(
+    {
+      name: 'Nautica Vis',
+      latitude: null,
+      longitude: null,
+      website: 'https://nautica-vis.example',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18, closed Nov–Mar',
+      description: 'Family centre in Kut bay.',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+    },
+    undefined,
+  );
+});
+
+// It is the shop's number and address, not the diver's: no AutoFill hint, so the platform offers
+// none of the diver's own.
+it('offers the phone keypad and the email keyboard, and fills in neither from the diver’s own details', async () => {
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const t = await showCenter();
+  await expand(t, 'Contact');
+  const phone = labelled(t, 'Phone');
+  expect(phone.props.keyboardType).toBe('phone-pad');
+  expect(phone.props.textContentType).toBeUndefined();
+  expect(phone.props.autoComplete).toBeUndefined();
+  const email = labelled(t, 'Email');
+  expect(email.props).toMatchObject({ keyboardType: 'email-address', autoCapitalize: 'none', autoCorrect: false });
+  expect(email.props.textContentType).toBeUndefined();
+  expect(email.props.autoComplete).toBeUndefined();
+});
+
+// What is saved is what is on screen: from Save until a question or a failure hands them back,
+// nothing new on the page can change underneath the check or the write.
+it('holds the new fields still while saving', async () => {
+  const checked = deferred<SiteTwin[]>();
+  mockTwins.mockReturnValue(checked.promise);
+  const site = await showSite();
+  await expand(site, 'The site');
+  await press(site, 'Site type: Wreck');
+  await expand(site, 'Other names');
+  await press(site, 'Save site');
+  for (const field of ['Description', 'Site depth', 'Wreck name', 'Year sunk', 'Other name']) {
+    expect([field, labelled(site, field).props.editable]).toEqual([field, false]);
+  }
+  for (const control of ['Site type: Reef', 'Suitable for: Advanced', '+ Add a name']) {
+    expect([control, labelled(site, control).props.accessibilityState]).toEqual([
+      control,
+      expect.objectContaining({ disabled: true }),
+    ]);
+  }
+  await press(site, '+ Add a name');
+  expect(otherNames(site)).toEqual(['']);
+  await act(async () => checked.resolve([]));
+  await cleanup();
+
+  const written = deferred<string>();
+  mockAddCenter.mockReturnValue(written.promise);
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const centre = await showCenter();
+  await expand(centre, 'Contact');
+  await expand(centre, 'Services');
+  await press(centre, 'Save centre');
+  for (const field of ['Address', 'Description', 'Website', 'Phone', 'Email', 'Opening hours']) {
+    expect([field, labelled(centre, field).props.editable]).toEqual([field, false]);
+  }
+  for (const control of ['Services: Air', 'Training agencies: PADI']) {
+    expect([control, labelled(centre, control).props.accessibilityState]).toEqual([
+      control,
+      expect.objectContaining({ disabled: true }),
+    ]);
+  }
+  await act(async () => written.resolve('new-centre-id'));
+});
+
+it('saves a long description whole', async () => {
+  const long = 'Bow at 18 m, stern at 34 m; expect current on the outer side.\n'.repeat(100).slice(0, 5000);
+  expect(long).toHaveLength(5000);
+  const t = await showSite();
+  await type(t, 'Description', long);
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ description: long }), undefined);
 });
 
 // --- The country, asked once ----------------------------------------------------------------------
@@ -791,6 +1165,7 @@ it('paints nothing of its own', async () => {
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   mockTwins.mockResolvedValue([twin('Lom Leština', 's-twin')]);
   const t = await showSite();
+  await expand(t, 'Other names');
   await press(t, 'Save site');
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
@@ -820,5 +1195,23 @@ describe('in Czech', () => {
     await press(t, 'Uložit lokalitu');
     expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
     expect(textIn(t)).toContain('HR · 120 m odtud');
+  });
+
+  it('names the new fields and groups in Czech', async () => {
+    const site = await showSite();
+    expect(textIn(site)).toContain('Popis');
+    expect(textIn(site)).toContain('uvidí ho všichni');
+    expect(textIn(site)).toContain('Lokalita');
+    expect(textIn(site)).toContain('Jiné názvy');
+    await press(site, 'Rozbalit Jiné názvy');
+    expect(textIn(site)).toContain('+ Přidat název');
+    await cleanup();
+
+    mockRequest.mockReturnValue(request({ kind: 'center' }));
+    const centre = await showCenter();
+    expect(textIn(centre)).toContain('Kontakt');
+    expect(textIn(centre)).toContain('Služby');
+    await press(centre, 'Rozbalit Služby');
+    expect(textIn(centre)).toContain('Výcvikové agentury');
   });
 });

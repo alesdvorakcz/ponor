@@ -829,6 +829,32 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
   /**
+   * **A 36 tall outlined pill inside §0.5's 48 dp box** — `mapAction`'s "small visible control,
+   * generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to. Two
+   * controls draw it: the site picker's *Near me* (issue #19) and the *New dive site* page's *+ Add
+   * a name* (issue #31), which the canvas draws as the same pill. Hoisted so they are one
+   * definition. Fully rounded with a hairline outline; the label is a control's, in Archivo Medium.
+   */
+  const outlinePillBox: ViewStyle = {
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+  };
+  const outlinePill: ViewStyle = {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+  const outlinePillLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 13.5,
+    color: theme.fg,
+  };
+  /**
    * A dive's number as a label above its site (§0.6's table: "Plex Mono 11, muted, above the
    * site name — a label, not a headline"). One definition because two places say it: the dive
    * row, and since issue #3 the dive detail's hero, which the canvas draws as that row at detail
@@ -4671,30 +4697,13 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: CONTENT_INSET,
       paddingTop: 4,
     },
-    // *Near me*: a 36 tall pill inside §0.5's 48 dp box — `mapAction`'s "small visible control,
-    // generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to.
-    pickerNearMe: {
-      minHeight: 48,
-      minWidth: 48,
-      justifyContent: 'center',
-    },
-    // Fully rounded, a hairline outline; while on, the inverted ink of every chosen thing in the
-    // app (`selectedFill`/`selectedInk` — the form's chips, the Map's switched-on glyph).
-    pickerNearMePill: {
-      minHeight: 36,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: theme.border,
-      paddingHorizontal: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
+    // *Near me*: the outlined pill in its 48 dp box (`outlinePill`); while on, the inverted ink of
+    // every chosen thing in the app (`selectedFill`/`selectedInk` — the form's chips, the Map's
+    // switched-on glyph).
+    pickerNearMe: outlinePillBox,
+    pickerNearMePill: outlinePill,
     pickerNearMePillOn: selectedFill,
-    pickerNearMeLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 13.5,
-      color: theme.fg,
-    },
+    pickerNearMeLabel: outlinePillLabel,
     pickerNearMeLabelOn: selectedInk,
     // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
     // km*, the unreadable catalogue, and the prompt a page with nothing to list opens on.
@@ -4841,6 +4850,17 @@ function build(scheme: ColorScheme) {
     newPlaceSaveUnavailable: {
       opacity: 0.35,
     },
+    // *+ Add a name*, under a site's *Other names* rows (issue #31): the picker's *Near me* pill
+    // (`outlinePill`), as the canvas draws it, on a row of its own on the column.
+    newPlaceAddNames: {
+      flexDirection: 'row',
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 4,
+      paddingBottom: 12,
+    },
+    newPlaceAddName: outlinePillBox,
+    newPlaceAddNamePill: outlinePill,
+    newPlaceAddNameLabel: outlinePillLabel,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

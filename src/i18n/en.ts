@@ -253,6 +253,9 @@ export const en = {
       /** The heading over the diver's own dives on a site's page and on a centre's — one
        * sentence about one relation, said on two screens about two tables. */
       yourDives: 'Your dives',
+      /** A centre's two groups of facts (#31): on the create page, and on its own page. */
+      contact: 'Contact',
+      services: 'Services',
     },
 
     /** §3's certification wallet — the card's own summary line, and the editor that writes it. */
@@ -633,6 +636,22 @@ export const en = {
       gps: 'GPS',
       country: 'Country',
       website: 'Website',
+      /** Issue #31's facts about a place — the create page's rows, and the place pages'. A
+       * description is public, so its row says *everyone can read it* (`newPlace`). */
+      description: 'Description',
+      address: 'Address',
+      phone: 'Phone',
+      email: 'Email',
+      openingHours: 'Opening hours',
+      services: 'Services',
+      agencies: 'Training agencies',
+      siteTypes: 'Site type',
+      suitableFor: 'Suitable for',
+      wreckName: 'Wreck name',
+      wreckSunkYear: 'Year sunk',
+      /** One row of a site's other names, and the group that holds them. */
+      altName: 'Other name',
+      altNames: 'Other names',
       /** **"Site depth", never "Depth"** — §6's own parenthesis, and a site's page shows the
        * rock's depth beside the diver's deepest dive there. */
       siteDepth: 'Site depth',
@@ -916,7 +935,9 @@ export const en = {
     site: {
       heading: 'Dive sites',
       notFound: 'Site not found.',
-      facts: 'Site',
+      /** One name for the cluster on a site's page and the group on the create page (#31), as the
+       * canvas has it. */
+      facts: 'The site',
       defaults: 'Site defaults',
       defaultsNote:
         'Picking this site on a new dive fills these in, over anything carried from your last dive.',
@@ -1047,6 +1068,17 @@ export const en = {
       sameName: '“{{name}}” is already a site.',
       /** How far a near-match is from the position on the page, after its country: `HR · 120 m away`. */
       away: '{{distance}} away',
+      /** Beside *Description* (#31): it is published with the place, so nobody writes a private
+       * note there. */
+      everyoneCanRead: 'everyone can read it',
+      /** Beside *Site type*, a set: more than one may be chosen. */
+      anyThatApply: 'any that apply',
+      addName: '+ Add a name',
+      /** What each closed group holds, between its title and its chevron. */
+      siteHint: 'water, entry, type, depth',
+      altNamesHint: 'names it also goes by',
+      contactHint: 'website, phone, email, hours',
+      servicesHint: 'services, agencies',
     },
 
     /** Issue #24's offer — the card on the empty logbook and at the top of Settings while nobody

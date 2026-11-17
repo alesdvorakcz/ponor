@@ -269,6 +269,37 @@ describe('addSite', () => {
     expect(country).toHaveBeenCalledWith(45.1, 14.2);
     expect(makeSite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'SI' }));
   });
+
+  // Issue #31: what the create page asks beyond the three a dive hands on travels beside them
+  // (`NewSiteDetails` — `NewSiteFacts` stays the three site defaults) and lands in the row.
+  it('carries a site’s details into the row it makes', async () => {
+    await addSite({
+      name: 'Vrak Teti',
+      latitude: null,
+      longitude: null,
+      ...NO_FACTS,
+      description: 'A steamer on the southern spur.',
+      siteTypes: ['wreck'],
+      suitableFor: 'advanced',
+      maxDepthM: 34,
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+      altNames: ['Teti wreck'],
+    });
+
+    expect(makeSite).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        description: 'A steamer on the southern spur.',
+        siteTypes: ['wreck'],
+        suitableFor: 'advanced',
+        maxDepthM: 34,
+        wreckName: 'Teti',
+        wreckSunkYear: 1930,
+        altNames: ['Teti wreck'],
+      }),
+    );
+  });
 });
 
 describe('addCenter', () => {
@@ -314,5 +345,36 @@ describe('addCenter', () => {
 
     expect(country).toHaveBeenCalledWith(28.57, 34.54);
     expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  it('carries a centre’s contact and services into the row it makes', async () => {
+    await addCenter({
+      name: 'Nautica Vis',
+      latitude: null,
+      longitude: null,
+      website: 'https://nautica-vis.example',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18, closed Nov–Mar',
+      description: 'Family centre in Kut bay.',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+    });
+
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), {
+      name: 'Nautica Vis',
+      latitude: null,
+      longitude: null,
+      website: 'https://nautica-vis.example',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18, closed Nov–Mar',
+      description: 'Family centre in Kut bay.',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+      country: null,
+    });
   });
 });

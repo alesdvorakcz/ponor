@@ -7,32 +7,46 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EntryIcon } from '../components/EntryIcon';
 import { FieldNote } from '../components/FieldNote';
 import { FormField } from '../components/FormField';
+import { FormGroup } from '../components/FormGroup';
 import { RevealingScrollView } from '../components/FormReveal';
 import { OptionChips } from '../components/OptionChips';
 import { symbolName, type PlatformSymbol } from '../components/symbolName';
+import { TokenChips } from '../components/TokenChips';
 import { addCenter, addSite, findSiteTwins, type KnownCountry, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useUnitSystem } from '../db/useUnitSystem';
+import { toFormNumber } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
-import { foldForMatching } from '../domain/search';
+import { cleanAltNames, foldForMatching } from '../domain/search';
 import {
+  AGENCY_VALUES,
   ENTRY_VALUES,
   SALINITY_VALUES,
+  SERVICE_VALUES,
+  SITE_TYPE_VALUES,
+  SUITABLE_FOR_VALUES,
   WATER_BODY_VALUES,
+  type Agency,
   type Entry,
   type Salinity,
+  type Service,
+  type SiteType,
+  type SuitableFor,
   type WaterBody,
 } from '../domain/types';
 import {
   formatCoordinates,
   formatEntry,
+  formatPlaceToken,
   formatSalinity,
   formatSiteTwinMeta,
+  formatSuitableFor,
   formatWaterBody,
   NO_FIGURE,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
+import { storedValueFor, unitLabel } from '../format/units';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
@@ -52,6 +66,16 @@ type Position = MapPoint & { from: 'dive' | 'phone' };
 function fromDive<T>(value: T | null, dives: T | null | undefined): string | undefined {
   return value !== null && value === dives ? t('newPlace.fromThisDive') : undefined;
 }
+
+/** A typed line as the row stores it: trimmed, and `null` once nothing is left (§1: a sparse row
+ * is normal). */
+function textOrNull(text: string): string | null {
+  const kept = text.trim();
+  return kept === '' ? null : kept;
+}
+
+/** The page's four groups (#31) — a site's two, then a centre's two. */
+type PlaceGroup = 'site' | 'otherNames' | 'contact' | 'services';
 
 /**
  * §2.3's answer, worded: a catalogue row whose folded name **is** the name typed is not a question
@@ -89,6 +113,20 @@ function twinHref(id: string, token: string): Href {
  * point it is for, so the geocoder is asked once. Saved before it answers, the row's country is
  * theirs to derive from the row's own pin, as it always was.
  *
+ * ── What else a place says (issue #31, the canvas's round 3) ──────────────────────────────
+ *
+ * The **description** is an ordinary row straight under the name — and, for a centre, under its
+ * **address**, which sits directly under the name — because it is what a diver opens a place to
+ * learn; it is public, and the row says so (*everyone can read it*). The rest sit in §2.2's
+ * collapsed groups below *Country*: a site's *The site* (the dive's three, then its types, the
+ * level it suits, its own depth, and a wreck's name and year only while *Wreck* is a type) and
+ * *Other names*; a centre's *Contact* (its website among them) and *Services*. Each closed group
+ * says what it holds. **A group opens when it holds a value** — no data, closed; data carried,
+ * open — which on a page that starts empty means *The site* when the dive handed it water or an
+ * entry; the header has it from there. Unlike the dive form's, these are not remembered: the page
+ * is opened per place, and nothing about one place says how the next is filled. A closed group
+ * still saves what it holds.
+ *
  * ── Saving, once ──────────────────────────────────────────────────────────────────────────
  *
  * A site asks §2.3's question first (`findSiteTwins`); its matches stand above the button, each with
@@ -111,9 +149,12 @@ function twinHref(id: string, token: string): Href {
  *
  * **What is saved is what is on screen.** Save is shut while the device is still being asked for a
  * position (a fix that landed after the write would be a position the diver asked for and the row
- * never got), and the name, the website and the chips are held still from Save until the question
+ * never got), and every field, chip and *+ Add a name* are held still from Save until the question
  * or the failure hands them back, so nothing typed meanwhile is left out of the row. A new position
  * forgets a standing question, as a new name does: the server's check was asked around the old one.
+ * A blank row is saved as `null`; a site depth is typed in the diver's units and stored in metres;
+ * a wreck's name and year are saved only while *Wreck* is a type (and kept on the page should it
+ * be chosen again); other names are saved clean (`cleanAltNames`).
  */
 export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // The subscription that repaints this screen when the diver changes the language (src/i18n).
@@ -137,7 +178,32 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const [salinity, setSalinity] = useState<Salinity | null>(dive?.salinity ?? null);
   const [waterBody, setWaterBody] = useState<WaterBody | null>(dive?.waterBody ?? null);
   const [entry, setEntry] = useState<Entry | null>(dive?.entry ?? null);
+  const [description, setDescription] = useState('');
+  // A site's facts beyond the dive's three.
+  const [siteTypes, setSiteTypes] = useState<SiteType[]>([]);
+  const [suitableFor, setSuitableFor] = useState<SuitableFor | null>(null);
+  const [depth, setDepth] = useState('');
+  const [wreckName, setWreckName] = useState('');
+  const [wreckYear, setWreckYear] = useState('');
+  // One empty row to type into; *+ Add a name* appends another. Rows are never removed or
+  // reordered — a blank one is simply not saved — so a row's index is its identity.
+  const [altNames, setAltNames] = useState<string[]>(['']);
+  // A centre's.
+  const [address, setAddress] = useState('');
   const [website, setWebsite] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [openingHours, setOpeningHours] = useState('');
+  const [services, setServices] = useState<Service[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  // §2.2: open exactly when the group holds a value, decided as the page opens. Everything starts
+  // empty but what the dive handed *The site*, so that is the one group that can open.
+  const [opened, setOpened] = useState<Record<PlaceGroup, boolean>>(() => ({
+    site: salinity !== null || waterBody !== null || entry !== null,
+    otherNames: false,
+    contact: false,
+    services: false,
+  }));
   const [locating, setLocating] = useState(false);
   const [positionNote, setPositionNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -186,6 +252,19 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
 
   const trimmed = name.trim();
   const guest = resolved && session === null;
+  const wreck = siteTypes.includes('wreck');
+
+  const groupProps = (group: PlaceGroup) => ({
+    expanded: opened[group],
+    onToggle: (expanded: boolean) => setOpened((current) => ({ ...current, [group]: expanded })),
+    scheme,
+  });
+  // A year, never a figure that only starts like one: digits only, four at most (the server casts
+  // the column to `integer`).
+  const takeYear = (text: string) => setWreckYear(text.replace(/\D/g, '').slice(0, 4));
+  const retypeAltName = (index: number, text: string) =>
+    setAltNames((current) => current.map((kept, at) => (at === index ? text : kept)));
+  const addAltName = () => setAltNames((current) => [...current, '']);
 
   /**
    * The first way off the page wins; every later one is a no-op. A second delivery would already be
@@ -260,7 +339,23 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
       id =
         kind === 'site'
           ? await addSite(
-              { name: trimmed, latitude: at?.latitude ?? null, longitude: at?.longitude ?? null, entry, salinity, waterBody },
+              {
+                name: trimmed,
+                latitude: at?.latitude ?? null,
+                longitude: at?.longitude ?? null,
+                entry,
+                salinity,
+                waterBody,
+                description: textOrNull(description),
+                siteTypes,
+                suitableFor,
+                // Typed in the diver's units, stored in metres (§6): an imperial diver's 100 is 30.48 m.
+                maxDepthM: storedValueFor('depth', toFormNumber(depth), null, units),
+                // Asked only while *Wreck* is a type, and so saved only then.
+                wreckName: wreck ? textOrNull(wreckName) : null,
+                wreckSunkYear: wreck && wreckYear !== '' ? Number(wreckYear) : null,
+                altNames: cleanAltNames(trimmed, altNames),
+              },
               known,
             )
           : await addCenter(
@@ -268,7 +363,14 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 name: trimmed,
                 latitude: at?.latitude ?? null,
                 longitude: at?.longitude ?? null,
-                website: website.trim() === '' ? null : website.trim(),
+                website: textOrNull(website),
+                address: textOrNull(address),
+                phone: textOrNull(phone),
+                email: textOrNull(email),
+                openingHours: textOrNull(openingHours),
+                description: textOrNull(description),
+                services,
+                agencies,
               },
               known,
             );
@@ -331,6 +433,33 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           spellCheck={false}
           editable={!saving}
         />
+        {kind === 'center' && (
+          // One free-text line, directly under the name as the canvas draws it. Never corrected: a
+          // street the keyboard does not know is still the street (M3n's finding about names).
+          <FormField
+            label={t('field.address')}
+            value={address}
+            onChange={setAddress}
+            scheme={scheme}
+            placeholder={t('newPlace.optional')}
+            autoCapitalize="words"
+            autoCorrect={false}
+            spellCheck={false}
+            editable={!saving}
+          />
+        )}
+        {/* Public, and said so: what a diver opens a place to learn. No cap on its length. */}
+        <FormField
+          label={t('field.description')}
+          value={description}
+          onChange={setDescription}
+          scheme={scheme}
+          multiline
+          caption={t('newPlace.everyoneCanRead')}
+          placeholder={t('newPlace.optional')}
+          autoCapitalize="sentences"
+          editable={!saving}
+        />
         <View style={styles.newPlaceSectionHeader}>
           <Text style={styles.newPlaceSectionTitle}>{t('newPlace.position')}</Text>
           {position?.from === 'dive' && <Text style={styles.formFieldCaption}>{t('newPlace.fromThisDive')}</Text>}
@@ -348,55 +477,6 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           onPress={() => void locate()}
         />
         <FieldNote message={positionNote ?? undefined} scheme={scheme} />
-        {kind === 'site' ? (
-          <>
-            <OptionChips
-              label={t('field.salinity')}
-              value={salinity}
-              options={SALINITY_VALUES}
-              displayLabel={(option) => formatSalinity(option) ?? option}
-              onChange={(chosen) => setSalinity(chosen === '' ? null : chosen)}
-              scheme={scheme}
-              caption={fromDive(salinity, dive?.salinity)}
-              disabled={saving}
-            />
-            <OptionChips
-              label={t('field.waterBody')}
-              value={waterBody}
-              options={WATER_BODY_VALUES}
-              displayLabel={(option) => formatWaterBody(option) ?? option}
-              onChange={(chosen) => setWaterBody(chosen === '' ? null : chosen)}
-              scheme={scheme}
-              caption={fromDive(waterBody, dive?.waterBody)}
-              disabled={saving}
-            />
-            <OptionChips
-              label={t('field.entry')}
-              value={entry}
-              options={ENTRY_VALUES}
-              displayLabel={(option) => formatEntry(option) ?? option}
-              onChange={(chosen) => setEntry(chosen === '' ? null : chosen)}
-              scheme={scheme}
-              icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
-              caption={fromDive(entry, dive?.entry)}
-              disabled={saving}
-            />
-          </>
-        ) : (
-          <FormField
-            label={t('field.website')}
-            value={website}
-            onChange={setWebsite}
-            scheme={scheme}
-            placeholder={t('newPlace.optional')}
-            keyboardType="url"
-            textContentType="URL"
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            editable={!saving}
-          />
-        )}
         {/* Read-only: what the position says, in the stored ISO code a site's own page shows. */}
         <View style={styles.formField}>
           <View style={styles.formFieldRow}>
@@ -404,6 +484,194 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
             <Text style={country === null ? styles.newPlaceCountryNone : styles.newPlaceCountry}>{country ?? NO_FIGURE}</Text>
           </View>
         </View>
+        {kind === 'site' ? (
+          <>
+            <FormGroup title={t('site.facts')} hint={t('newPlace.siteHint')} {...groupProps('site')}>
+              <OptionChips
+                label={t('field.salinity')}
+                value={salinity}
+                options={SALINITY_VALUES}
+                displayLabel={(option) => formatSalinity(option) ?? option}
+                onChange={(chosen) => setSalinity(chosen === '' ? null : chosen)}
+                scheme={scheme}
+                caption={fromDive(salinity, dive?.salinity)}
+                disabled={saving}
+              />
+              <OptionChips
+                label={t('field.waterBody')}
+                value={waterBody}
+                options={WATER_BODY_VALUES}
+                displayLabel={(option) => formatWaterBody(option) ?? option}
+                onChange={(chosen) => setWaterBody(chosen === '' ? null : chosen)}
+                scheme={scheme}
+                caption={fromDive(waterBody, dive?.waterBody)}
+                disabled={saving}
+              />
+              <OptionChips
+                label={t('field.entry')}
+                value={entry}
+                options={ENTRY_VALUES}
+                displayLabel={(option) => formatEntry(option) ?? option}
+                onChange={(chosen) => setEntry(chosen === '' ? null : chosen)}
+                scheme={scheme}
+                icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
+                caption={fromDive(entry, dive?.entry)}
+                disabled={saving}
+              />
+              <TokenChips
+                label={t('field.siteTypes')}
+                values={siteTypes}
+                options={SITE_TYPE_VALUES}
+                displayLabel={(option) => formatPlaceToken('siteTypes', option)}
+                onChange={setSiteTypes}
+                scheme={scheme}
+                caption={t('newPlace.anyThatApply')}
+                disabled={saving}
+              />
+              <OptionChips
+                label={t('field.suitableFor')}
+                value={suitableFor}
+                options={SUITABLE_FOR_VALUES}
+                displayLabel={(option) => formatSuitableFor(option) ?? option}
+                onChange={(chosen) => setSuitableFor(chosen === '' ? null : chosen)}
+                scheme={scheme}
+                disabled={saving}
+              />
+              {/* The site's own depth, never the dive's (§2.3): typed, in the diver's units. A
+                  figure, so mono — and in ink, as the site page draws it. */}
+              <FormField
+                label={t('field.siteDepth')}
+                value={depth}
+                onChange={setDepth}
+                scheme={scheme}
+                keyboardType="decimal-pad"
+                mono
+                unit={unitLabel('depth', units)}
+                editable={!saving}
+              />
+              {wreck && (
+                <>
+                  {/* A ship's name, bound for the catalogue as the place's own is: never corrected. */}
+                  <FormField
+                    label={t('field.wreckName')}
+                    value={wreckName}
+                    onChange={setWreckName}
+                    scheme={scheme}
+                    autoCapitalize="sentences"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    editable={!saving}
+                  />
+                  <FormField
+                    label={t('field.wreckSunkYear')}
+                    value={wreckYear}
+                    onChange={takeYear}
+                    scheme={scheme}
+                    keyboardType="number-pad"
+                    mono
+                    editable={!saving}
+                  />
+                </>
+              )}
+            </FormGroup>
+            <FormGroup title={t('field.altNames')} hint={t('newPlace.altNamesHint')} {...groupProps('otherNames')}>
+              {altNames.map((other, index) => (
+                // A place's name, as the page's own *Name* takes one (see there).
+                <FormField
+                  key={index}
+                  label={t('field.altName')}
+                  value={other}
+                  onChange={(text) => retypeAltName(index, text)}
+                  scheme={scheme}
+                  autoCapitalize="sentences"
+                  autoCorrect={false}
+                  spellCheck={false}
+                  editable={!saving}
+                />
+              ))}
+              <View style={styles.newPlaceAddNames}>
+                <Pressable
+                  style={styles.newPlaceAddName}
+                  onPress={addAltName}
+                  disabled={saving}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('newPlace.addName')}
+                  accessibilityState={{ disabled: saving }}
+                >
+                  <View style={styles.newPlaceAddNamePill}>
+                    <Text style={styles.newPlaceAddNameLabel}>{t('newPlace.addName')}</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </FormGroup>
+          </>
+        ) : (
+          <>
+            <FormGroup title={t('place.contact')} hint={t('newPlace.contactHint')} {...groupProps('contact')}>
+              <FormField
+                label={t('field.website')}
+                value={website}
+                onChange={setWebsite}
+                scheme={scheme}
+                placeholder={t('newPlace.optional')}
+                keyboardType="url"
+                textContentType="URL"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                editable={!saving}
+              />
+              {/* The shop's number and address, not the diver's: no AutoFill hint on either, so
+                  the platform offers none of the diver's own. */}
+              <FormField
+                label={t('field.phone')}
+                value={phone}
+                onChange={setPhone}
+                scheme={scheme}
+                keyboardType="phone-pad"
+                editable={!saving}
+              />
+              <FormField
+                label={t('field.email')}
+                value={email}
+                onChange={setEmail}
+                scheme={scheme}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                editable={!saving}
+              />
+              <FormField
+                label={t('field.openingHours')}
+                value={openingHours}
+                onChange={setOpeningHours}
+                scheme={scheme}
+                editable={!saving}
+              />
+            </FormGroup>
+            <FormGroup title={t('place.services')} hint={t('newPlace.servicesHint')} {...groupProps('services')}>
+              <TokenChips
+                label={t('field.services')}
+                values={services}
+                options={SERVICE_VALUES}
+                displayLabel={(option) => formatPlaceToken('services', option)}
+                onChange={setServices}
+                scheme={scheme}
+                disabled={saving}
+              />
+              <TokenChips
+                label={t('field.agencies')}
+                values={agencies}
+                options={AGENCY_VALUES}
+                displayLabel={(option) => formatPlaceToken('agencies', option)}
+                onChange={setAgencies}
+                scheme={scheme}
+                disabled={saving}
+              />
+            </FormGroup>
+          </>
+        )}
       </RevealingScrollView>
 
       {/* §2.3's answer stands above the button, outside the scroll, so the diver who pressed Save

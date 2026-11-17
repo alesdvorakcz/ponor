@@ -3,7 +3,7 @@ import { db } from '../db/client';
 import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { pointOf, type MapPoint } from '../domain/mapSites';
 import { nearMatches, type Suggestion } from '../domain/suggest';
-import { type DiveSite } from '../domain/types';
+import { type Agency, type DiveSite, type Service } from '../domain/types';
 import { countryFor } from '../platform/geocode';
 import { withTimeout } from '../platform/withTimeout';
 import { similarSites } from './similarSites';
@@ -46,12 +46,36 @@ export interface SiteTwin extends Suggestion {
   point: MapPoint | null;
 }
 
+/**
+ * What a new centre holds. Issue #31's facts are optional, so a caller that has none — the create
+ * page always has them, blank or not — writes the row as before; the table's own defaults (`null`,
+ * `[]`) stand in for what is left out.
+ */
 export interface NewCenterInput {
   name: string;
   latitude: number | null;
   longitude: number | null;
   website: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  openingHours?: string | null;
+  description?: string | null;
+  services?: Service[];
+  agencies?: Agency[];
 }
+
+/**
+ * **What a new site holds beyond the three a dive hands it** (issue #31) — the create page's
+ * description, its *The site* group's type, level, depth and wreck, and its other names.
+ *
+ * Its own type rather than more keys on `NewSiteFacts`, which cannot grow: `domain/siteDefaults.ts`
+ * ties that type's keys, less the name and the pin, to exactly the three site defaults a site hands
+ * a dive (§2.1), and none of these is one. So `addSite` takes the two together.
+ */
+export type NewSiteDetails = Partial<
+  Pick<DiveSite, 'description' | 'siteTypes' | 'suitableFor' | 'maxDepthM' | 'wreckName' | 'wreckSunkYear' | 'altNames'>
+>;
 
 /**
  * **§2.3's fuzzy check, run between the diver asking and the row existing** — *"before saving a
@@ -145,8 +169,10 @@ function countryAt(latitude: number | null, longitude: number | null, known: Kno
 /**
  * Makes the site and answers with its id — what a dive's `site_id` is then set to (§6's
  * pairing). A write failure **rejects**: the caller is the one that can say so on screen.
+ * `NewSiteDetails` lands in the row as handed over; `createDiveSite` rounds the wreck's year, an
+ * INTEGER column, as it rounds every one.
  */
-export async function addSite(facts: NewSiteFacts, known?: KnownCountry): Promise<string> {
+export async function addSite(facts: NewSiteFacts & NewSiteDetails, known?: KnownCountry): Promise<string> {
   // Country is inferred from the row's own pin (§2.3), so this is awaited before the insert
   // rather than patched in afterwards: a second write would restamp `updated_at` on a row the
   // first one just created, which §7's last-push-wins is keyed on. It is bounded and it answers

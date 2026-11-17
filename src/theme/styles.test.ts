@@ -1233,6 +1233,9 @@ describe('the app content column', () => {
     // The site picker's *Near me* pill (issue #19): the label's air inside the pill. The row of
     // pills it sits in is `pickerPills`, which is in the column and asserted below.
     'pickerNearMePill',
+    // The same pill as *+ Add a name* on the *New dive site* page (issue #31); its row,
+    // `newPlaceAddNames`, is on the column.
+    'newPlaceAddNamePill',
     // The *New dive site* page's position card (issue #19): `detailMapCard`'s own frame, whose
     // padding is a distance inside the card and whose margin is the column.
     'newPlacePositionCard',
@@ -1613,6 +1616,16 @@ describe('the account screen', () => {
  * covering the indicator, so the control floats a whole inset above where it belongs. On an
  * island phone that is 34 pt of nothing between a button and the keys under it.
  */
+describe('the New dive site page', () => {
+  // Issue #31: the canvas draws *+ Add a name* as the same 36 pill as the picker's *Near me*.
+  it.each(['dark', 'light'] as const)('draws + Add a name as the picker’s Near me pill, not a copy of it (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.newPlaceAddName).toBe(styles.pickerNearMe);
+    expect(styles.newPlaceAddNamePill).toBe(styles.pickerNearMePill);
+    expect(styles.newPlaceAddNameLabel).toBe(styles.pickerNearMeLabel);
+  });
+});
+
 describe('liftedBottomInset', () => {
   it('spends the device inset only while the keyboard is not covering it', () => {
     // Keyboard down on an island phone: the indicator is real and has to be cleared, and the

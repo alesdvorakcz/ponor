@@ -233,6 +233,8 @@ export const cs = {
       siteMark: '{{name}}, potápěčská lokalita',
       centerMark: '{{name}}, potápěčské centrum',
       yourDives: 'Vaše ponory',
+      contact: 'Kontakt',
+      services: 'Služby',
     },
 
     certification: {
@@ -516,6 +518,19 @@ export const cs = {
       gps: 'GPS',
       country: 'Země',
       website: 'Web',
+      description: 'Popis',
+      address: 'Adresa',
+      phone: 'Telefon',
+      email: 'E-mail',
+      openingHours: 'Otevírací doba',
+      services: 'Služby',
+      agencies: 'Výcvikové agentury',
+      siteTypes: 'Typ lokality',
+      suitableFor: 'Vhodné pro',
+      wreckName: 'Název vraku',
+      wreckSunkYear: 'Rok potopení',
+      altName: 'Jiný název',
+      altNames: 'Jiné názvy',
       siteDepth: 'Hloubka lokality',
       status: 'Stav',
       /** *Čas vstupu* / *Čas výstupu*, agreeing with `field.entry` above — the water is what a
@@ -861,6 +876,13 @@ export const cs = {
       saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
       sameName: 'Lokalita „{{name}}“ už existuje.',
       away: '{{distance}} odtud',
+      everyoneCanRead: 'uvidí ho všichni',
+      anyThatApply: 'lze vybrat více',
+      addName: '+ Přidat název',
+      siteHint: 'voda, vstup, typ, hloubka',
+      altNamesHint: 'jak se jí ještě říká',
+      contactHint: 'web, telefon, e-mail, otevírací doba',
+      servicesHint: 'služby, agentury',
     },
 
     accountOffer: {
