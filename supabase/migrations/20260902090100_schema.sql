@@ -140,6 +140,10 @@ create table if not exists public.dives (
 -- repair model is an admin setting those two, never a delete. Rows are never hard-deleted
 -- here, so the self-reference is safe and worth having.
 --
+-- `entry` is a set — every way in the site offers, shore and boat both — where a dive's `entry`
+-- is the one way it used and stays `text` (#31, §6). It keeps its singular name so every reader
+-- and `suggest_site_edit`'s list keep their key (§10).
+--
 -- `created_by` is this table's ownership column — it is what RLS keys on, and what makes
 -- "the creator edits its facts, everyone else suggests a correction" (§5) enforceable. It
 -- defaults to `auth.uid()` so a client need not send it, and it is nullable on purpose:
@@ -152,7 +156,7 @@ create table if not exists public.dive_sites (
   location extensions.geography(Point, 4326),
   salinity text,
   water_body text,
-  entry text,
+  entry jsonb not null default '[]'::jsonb,
   max_depth_m double precision,
   site_types jsonb not null default '[]'::jsonb,
   suitable_for text,

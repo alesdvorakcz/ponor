@@ -42,7 +42,7 @@ const site = (over: Partial<PulledSite> = {}): PulledSite => ({
   longitude: 34.31,
   salinity: 'salt',
   waterBody: 'ocean',
-  entry: 'shore',
+  entry: ['shore'],
   maxDepthM: 130,
   siteTypes: [],
   suitableFor: null,
@@ -104,6 +104,8 @@ describe('creating a site on the boat (§2.3, §5)', () => {
     // The server writes it from auth.uid(); a locally invented one would be fiction.
     expect(created.createdBy).toBeNull();
     expect(created.dirty).toBe(true);
+    // A site's entry is a set (#31): none recorded is `[]`, never null, as the other sets.
+    expect(created.entry).toEqual([]);
   });
 
   it('takes the pin and the facts §2.3 collects', async () => {
@@ -114,13 +116,13 @@ describe('creating a site on the boat (§2.3, §5)', () => {
       longitude: 34.31,
       salinity: 'salt',
       waterBody: 'ocean',
-      entry: 'boat',
+      entry: ['boat'],
       maxDepthM: 30,
     });
 
     expect(created.latitude).toBe(27.85);
     expect(created.longitude).toBe(34.31);
-    expect(created.entry).toBe('boat');
+    expect(created.entry).toEqual(['boat']);
     expect(created.maxDepthM).toBe(30);
   });
 
@@ -395,7 +397,7 @@ describe('applying what a pull returned (§7.2)', () => {
       longitude: 2.5,
       salinity: 'fresh',
       waterBody: 'lake',
-      entry: 'boat',
+      entry: ['boat'],
       maxDepthM: 42,
       siteTypes: ['wreck', 'wall'],
       suitableFor: 'advanced',

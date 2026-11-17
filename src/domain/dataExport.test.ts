@@ -280,7 +280,7 @@ describe('jsonExport', () => {
     longitude: 14.3,
     salinity: 'fresh',
     waterBody: 'quarry',
-    entry: 'shore',
+    entry: ['shore'],
     maxDepthM: 18,
     siteTypes: [],
     suitableFor: null,

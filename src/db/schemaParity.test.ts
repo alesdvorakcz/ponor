@@ -522,19 +522,22 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     // JSON-array-on-a-row shape as `tanks`/`equipment`, and for the same reason needs the same
     // type — `jsonb`, not `text` — or `sync_row`'s `to_jsonb(row)` would round-trip the array
     // as a quoted string instead of an array (schema.sql's own comment on the table carries
-    // the full trace of what that breaks). #31's four catalogue sets joined it too.
-    const NAMES = ['tanks', 'equipment', 'series', 'site_types', 'alt_names', 'services', 'agencies'];
-    const arrays = columnDefinitions.filter((column) => NAMES.includes(column.name));
-    expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual([
+    // the full trace of what that breaks). #31's four catalogue sets joined it too, and then a
+    // site's `entry`, which became a set in place — named by table, because a dive's `entry` is
+    // the one way in it used and stays a single `text`.
+    const SETS = [
       'dive_centers.agencies',
       'dive_centers.services',
       'dive_samples.series',
       'dive_sites.alt_names',
+      'dive_sites.entry',
       'dive_sites.site_types',
       'dives.equipment',
       'dives.tanks',
       'gear_presets.tanks',
-    ]);
+    ];
+    const arrays = columnDefinitions.filter((column) => SETS.includes(`${column.table}.${column.name}`));
+    expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual(SETS);
     for (const column of arrays) {
       expect(column.notNull).toBe(true);
       expect(column.definition).toMatch(/jsonb not null default '\[\]'::jsonb/);

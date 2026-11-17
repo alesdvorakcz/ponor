@@ -55,6 +55,7 @@ import {
   formatDiveStatus,
   formatUnitSystem,
   formatEntry,
+  formatPlaceToken,
   formatPlaceTokens,
   formatSuitableFor,
   formatWreck,
@@ -1521,32 +1522,43 @@ describe('formatSiteFacts', () => {
   it('reads country, entry, salinity, water body and the site’s own depth', () => {
     expect(
       formatSiteFacts(
-        { country: 'Croatia', entry: 'boat', salinity: 'salt', waterBody: 'ocean', maxDepthM: 34 },
+        { country: 'Croatia', entry: ['boat'], salinity: 'salt', waterBody: 'ocean', maxDepthM: 34 },
         'metric',
       ),
     ).toBe('Croatia · Boat · Salt · Ocean · 34.0 m');
+  });
+
+  // A site's entry is a set (#31): every way in it offers, each as the word a dive logged there
+  // reads, and none when it records none.
+  it('reads every way into the site', () => {
+    expect(
+      formatSiteFacts(
+        { country: 'Croatia', entry: ['shore', 'boat'], salinity: 'salt', waterBody: null, maxDepthM: null },
+        'metric',
+      ),
+    ).toBe('Croatia · Shore · Boat · Salt');
   });
 
   // §5 asks a new site only for a name, so a row with nothing else is the expected shape rather
   // than a degraded one — null, so a caller draws no line at all rather than an empty one.
   it('says nothing at all about a site that carries nothing but a name', () => {
     expect(
-      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+      formatSiteFacts({ country: null, entry: [], salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
     ).toBeNull();
     expect(
-      formatSiteFacts({ country: '', entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+      formatSiteFacts({ country: '', entry: [], salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
     ).toBeNull();
   });
 
   it('omits whichever facts are missing rather than reserving a slot for them', () => {
     expect(
-      formatSiteFacts({ country: 'Croatia', entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'metric'),
+      formatSiteFacts({ country: 'Croatia', entry: [], salinity: null, waterBody: null, maxDepthM: 34 }, 'metric'),
     ).toBe('Croatia · 34.0 m');
   });
 
   it('converts the site depth to the diver’s own system', () => {
     expect(
-      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
+      formatSiteFacts({ country: null, entry: [], salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
     ).toBe('112 ft');
   });
 });
@@ -1560,8 +1572,20 @@ describe('formatSiteFacts', () => {
  * *that* line and not a second listing of the same columns, and that the dive count joins it in
  * the same middot list.
  */
-const KOTELNA = { country: 'CZ', entry: 'shore', salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 } as const;
-const NAMELESS = { country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null } as const;
+const KOTELNA: Parameters<typeof formatSiteRow>[0] = {
+  country: 'CZ',
+  entry: ['shore'],
+  salinity: 'fresh',
+  waterBody: 'quarry',
+  maxDepthM: 42,
+};
+const NAMELESS: Parameters<typeof formatSiteRow>[0] = {
+  country: null,
+  entry: [],
+  salinity: null,
+  waterBody: null,
+  maxDepthM: null,
+};
 
 describe('formatSiteRow', () => {
   it('joins what the catalogue knows to how many dives the diver has there', () => {
@@ -2046,6 +2070,9 @@ describe('formatPlaceTokens', () => {
     expect(formatPlaceTokens('services', ['nitrox', 'freediving'])).toBe('Nitrox · Freediving');
     expect(formatPlaceTokens('agencies', ['sditdi', 'other'])).toBe('SDI/TDI · Other');
     expect(formatPlaceTokens('siteTypes', ['canyon', 'swimthrough'])).toBe('Canyon · Swim-through');
+    // A site's ways in (#31): the words a dive's entry reads, one owner for both.
+    expect(formatPlaceTokens('entry', ['shore', 'boat', 'jetty'])).toBe('Shore · Boat · Jetty');
+    expect(formatPlaceToken('entry', 'boat')).toBe(formatEntry('boat'));
   });
   it('skips what is not a string, and is null when nothing is left', () => {
     expect(formatPlaceTokens('siteTypes', [3, null, 'wall'])).toBe('Wall');
@@ -2057,6 +2084,7 @@ describe('formatPlaceTokens', () => {
     try {
       expect(formatPlaceTokens('services', ['boat', 'repair'])).toBe('Ponory z lodi · Servis');
       expect(formatPlaceTokens('siteTypes', ['swimthrough'])).toBe('Průplav');
+      expect(formatPlaceTokens('entry', ['shore', 'boat'])).toBe('Břeh · Loď');
     } finally {
       setActiveLanguage('en');
     }

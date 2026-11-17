@@ -52,7 +52,7 @@ const pulledSite = (over: Partial<PulledSite>): PulledSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,

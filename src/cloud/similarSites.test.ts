@@ -35,7 +35,7 @@ const SHARK_POINT = {
   longitude: 34.31,
   salinity: 'salt',
   water_body: 'sea',
-  entry: 'boat',
+  entry: ['boat'],
   max_depth_m: 30,
   site_types: [],
   suitable_for: null,

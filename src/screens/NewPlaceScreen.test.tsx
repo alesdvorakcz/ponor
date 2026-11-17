@@ -7,7 +7,7 @@ import { addCenter, addSite, findSiteTwins, type SiteTwin } from '../cloud/addTo
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { setActiveLanguage } from '../i18n';
-import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
+import { completePlacePick, placePickRequest, type DiveContext, type PlacePickRequest } from '../navigation/placePick';
 import { countryFor, countryForAddress } from '../platform/geocode';
 import { currentPosition, type PositionOutcome } from '../platform/location';
 import { makeStyles } from '../theme/styles';
@@ -63,8 +63,9 @@ const mockUnits = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const styles = makeStyles('light');
 
 const pin = { latitude: 43.06, longitude: 16.18 };
-const diveAt = { pin, entry: 'boat', salinity: 'salt', waterBody: 'ocean', siteId: null, diveId: null } as const;
-const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
+// The dive's entry as a new site inherits it — a set of its one way in (#31, `siteFactsFrom`).
+const diveAt: DiveContext = { pin, entry: ['boat'], salinity: 'salt', waterBody: 'ocean', siteId: null, diveId: null };
+const noDive: DiveContext = { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null };
 
 /** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless told. */
 const twin = (value: string, id: string, over: Partial<SiteTwin> = {}): SiteTwin => ({
@@ -248,7 +249,7 @@ it('prefills the typed name, the dive’s pin, salinity, water body and entry', 
   // The water and the entry, as the dive has them — each one marked as the dive's, and the pin too.
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
-  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
   expect(count(t, 'from this dive')).toBe(4);
   // Never the phone's position unasked (the spec's anti-goal).
   expect(mockPosition).not.toHaveBeenCalled();
@@ -416,7 +417,7 @@ it('Save with no near match creates the site and returns its id and name to the 
       name: 'Lom Leštinka',
       latitude: 43.06,
       longitude: 16.18,
-      entry: 'boat',
+      entry: ['boat'],
       salinity: 'salt',
       waterBody: 'ocean',
       ...NO_SITE_DETAILS,
@@ -439,7 +440,7 @@ it('saves the name as trimmed, and a site with no position and no water as nulls
       name: 'Nová Kotelna',
       latitude: null,
       longitude: null,
-      entry: null,
+      entry: [],
       salinity: null,
       waterBody: null,
       ...NO_SITE_DETAILS,
@@ -885,7 +886,7 @@ it('opens The site when the dive handed it a value, with the dive’s marks', as
   expect(textIn(t)).not.toContain('water, entry, type, depth');
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
-  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
   expect(count(t, 'from this dive')).toBe(4);
   // *Other names* holds nothing, so it stays shut.
   expect(labelled(t, 'Expand Other names').props.accessibilityState).toMatchObject({ expanded: false });
@@ -894,7 +895,7 @@ it('opens The site when the dive handed it a value, with the dive’s marks', as
   await press(t, 'Collapse The site');
   expect(has(t, 'Salinity: Salt')).toBe(false);
   await press(t, 'Save site');
-  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'ocean', entry: 'boat' }), {
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'ocean', entry: ['boat'] }), {
     ...pin,
     country: null,
   });
@@ -974,6 +975,46 @@ it('asks the wreck’s name and year only while Wreck is a type', async () => {
   expect(labelled(t, 'Year sunk').props.value).toBe('1930');
 });
 
+// A site's entry is a set (#31): *the site offers what is possible; the dive logs which one was
+// done*. The dive's one way in seeds it and is marked as the dive's until the set is changed; from
+// then on the row says what kind of field it is, as *Site type* does.
+it('takes every way into the site, starting from the dive’s', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const t = await showSite();
+  const boat = labelled(t, 'Entry: Boat');
+  expect(boat.props.accessibilityRole).toBe('checkbox');
+  expect(boat.props.accessibilityState).toMatchObject({ checked: true });
+  expect(count(t, 'from this dive')).toBe(4);
+  // *Site type*'s caption, and not yet the entry's: that one still says the set is the dive's.
+  expect(count(t, 'any that apply')).toBe(1);
+
+  await press(t, 'Entry: Shore');
+  expect(labelled(t, 'Entry: Shore').props.accessibilityState).toMatchObject({ checked: true });
+  expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
+  expect(count(t, 'from this dive')).toBe(3);
+  expect(count(t, 'any that apply')).toBe(2);
+
+  await press(t, 'Save site');
+  // The vocabulary's order, whichever was pressed first.
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ entry: ['shore', 'boat'] }), {
+    ...pin,
+    country: null,
+  });
+});
+
+it('says any that apply on the entry of a site no dive handed one, and saves none as an empty set', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  expect(labelled(t, 'Entry: Shore').props.accessibilityState).toMatchObject({ checked: false });
+  expect(count(t, 'any that apply')).toBe(2);
+  expect(count(t, 'from this dive')).toBe(0);
+  // Pressed and pressed again is nothing again, and a set, not a null.
+  await press(t, 'Entry: Other');
+  await press(t, 'Entry: Other');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ entry: [] }), undefined);
+});
+
 it('saves every new fact of a site', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'Vrak Teti' });
   const t = await showSite();
@@ -993,7 +1034,7 @@ it('saves every new fact of a site', async () => {
       name: 'Vrak Teti',
       latitude: null,
       longitude: null,
-      entry: null,
+      entry: [],
       salinity: null,
       waterBody: null,
       description: 'A steamer on the southern spur.',

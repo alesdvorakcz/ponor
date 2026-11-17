@@ -99,7 +99,7 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,
@@ -153,7 +153,7 @@ function divesState(dives: Dive[]): DiveListState {
   return { dives, numbers: assignDiveNumbers(dives, 0), resolved: true, error: undefined, settingsError: undefined };
 }
 
-const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
+const noDive = { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null };
 
 const request = (over: Partial<PlacePickRequest> = {}): PlacePickRequest => ({
   kind: 'site',

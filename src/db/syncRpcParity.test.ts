@@ -559,7 +559,7 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
     // a client's JSON and the column fills in the `'[]'` default. Another client's `null`, or a
     // string where a list belongs, must store `[]` rather than refuse the whole push (§1, §7).
     const ARRAYS: Record<string, readonly string[]> = {
-      dive_sites: ['site_types', 'alt_names'],
+      dive_sites: ['entry', 'site_types', 'alt_names'],
       dive_centers: ['services', 'agencies'],
     };
     for (const [table, columns] of Object.entries(ARRAYS)) {

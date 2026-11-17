@@ -40,11 +40,12 @@ failed sync. On a fresh project the numbered order handles it; on the owner's, s
 
 ### Applying #31 to a project that already has files 1–7
 
-Issue #31 puts thirteen columns into file 2's `dive_sites` and `dive_centers`, and `create table
-if not exists` does not alter a table that already exists — so on the owner's project they go in
-by hand. **The order is these lines, then file 6, then file 4, then install the build.** The
-server refuses a pushed key its table has no column for (`sync_reject_unknown_keys`), so a build
-that sends the new columns before they exist fails every sync until they do.
+Issue #31 puts thirteen columns into file 2's `dive_sites` and `dive_centers`, and makes a site's
+`entry` a set — `jsonb`, NOT NULL, `'[]'` — in place, under its old name. `create table if not
+exists` does not alter a table that already exists, so on the owner's project they go in by hand.
+**The order is these lines, then file 6, then file 4, then install the build.** The server
+refuses a pushed key its table has no column for (`sync_reject_unknown_keys`), so a build that
+sends the new columns before they exist fails every sync until they do.
 
 ```sql
 alter table public.dive_sites
@@ -62,7 +63,16 @@ alter table public.dive_centers
   add column if not exists services jsonb not null default '[]'::jsonb,
   add column if not exists agencies jsonb not null default '[]'::jsonb,
   add column if not exists description text;
+alter table public.dive_sites
+  alter column entry drop default,
+  alter column entry type jsonb using (case when entry is null or entry = '' then '[]'::jsonb else jsonb_build_array(entry) end),
+  alter column entry set default '[]'::jsonb,
+  alter column entry set not null;
 ```
+
+**The last statement runs once.** Unlike the `add column if not exists` lines it is not written to
+be repeated: it converts the `text` column, each value becoming the one member of its set and a
+null or a blank the empty set, and on a column that is already `jsonb` it is not a no-op.
 
 **File 6** then brings everything that reads a site's other names: `folded_names`,
 `alt_names_fold` and `alt_name_similarity` — one fold for the index and for every reader — the
@@ -71,8 +81,9 @@ well as the name, and a `similar_sites` that also takes the new site's other nam
 That is a new signature, so the file **drops the old `similar_sites` and creates the new one** (see
 [Re-running](#re-running)). File 6 also replaces `suggest_site_edit`, so a suggestion may propose
 every fact a site gained. **File 4** adds `public.sync_json_array` and replaces `push_changes`,
-which writes the thirteen columns, stores a set that arrives as anything but an array as `[]`, and
-hands an arriving site's other names to the recheck (`p_alt_names => arrived.alt_names`).
+which writes the thirteen columns and a site's `entry` as a set, stores a set that arrives as
+anything but an array as `[]`, and hands an arriving site's other names to the recheck
+(`p_alt_names => arrived.alt_names`).
 
 **Each step needs the one before it.** File 6's new index is built over `alt_names`, which the
 `alter table` lines create. File 4's recheck names `p_alt_names`, which only file 6's
@@ -83,14 +94,20 @@ the new function also takes and `p_alt_names` has a default; so does the `simila
 build from before #31. And the build comes last for two reasons: before the columns exist the
 server refuses its keys, and once they exist but before file 4, the old `push_changes` accepts
 them (`sync_reject_unknown_keys` reads the table's columns) and writes none of them — a site or
-centre pushed in that window is stored without its new facts while the push reports success.
+centre pushed in that window is stored without its new facts while the push reports success. A
+site is refused outright in that window, since the old `push_changes` reads `entry` as text and
+the column is `jsonb` by then: the push fails, and stores nothing wrong.
 
-No compatibility with a build from before #31 is kept — it would still sync, but its push of a
-site or centre would blank that row's new facts — because the project holds test data only.
+No compatibility with a build from before #31 is kept — its push of a site or centre would
+blank that row's new facts, and a site's entry with them — because the project holds test data
+only. **A build from before the entry became a set does not keep syncing either**: its device
+column for a site's `entry` is still `text`, a list arriving in a pull does not fit it, and the
+pull fails on the first site it carries until the new build is installed.
 **None of this is applied to the project yet.** It has run once, on a throwaway Postgres 16 +
 PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from the files before
 #31 — and passed; what that showed, and what it still cannot, is at the end of
-[Applied](#applied).
+[Applied](#applied). **That run was before a site's entry became a set**: the `alter column`
+statement above, and files 2 and 4 as they now read, have not run anywhere yet.
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -247,12 +264,12 @@ dropping it. That is deliberate: a field silently discarded would have the clien
 dirty flag and lose the value permanently, while a refused push costs a diver nothing (§7:
 sync failures never block logging) and tells the owner a migration is missing.
 
-**A set that arrives as anything but an array is stored as `[]`, not refused** (#31). The four
-catalogue sets — `site_types`, `alt_names`, `services`, `agencies` — are NOT NULL, and the community
-tables are read key by key out of the payload, so nothing else would stand between another
-client's JSON `null` and that constraint; `public.sync_json_array` does. The paragraph above is
-about a column, which a migration fixes; this is one malformed value, which no migration would,
-and refusing it would refuse that diver's whole push every time it was retried.
+**A set that arrives as anything but an array is stored as `[]`, not refused** (#31). The
+catalogue sets — `site_types`, `alt_names`, `services`, `agencies`, and a site's `entry` — are NOT
+NULL, and the community tables are read key by key out of the payload, so nothing else would stand
+between another client's JSON `null` and that constraint; `public.sync_json_array` does. The
+paragraph above is about a column, which a migration fixes; this is one malformed value, which no
+migration would, and refusing it would refuse that diver's whole push every time it was retried.
 
 ## What file 6 assumes about the client
 
@@ -332,10 +349,10 @@ conflict clause is `do nothing`, so a dismissed suspicion is never reopened; tha
 rule is asked of `similar_sites` and not re-implemented in push; that the one `exception` block
 covers the recheck and no upsert; and that the table takes no part in §7's protocol although
 §7's own RPC writes it. Since #31 it also pins that the recheck hands `similar_sites` the arriving
-site's other names (`p_alt_names => arrived.alt_names`), and that each of the four catalogue sets
-is written through `sync_json_array`, which is `immutable` and not `strict`. Its key reader takes
-`payload->'key'` as well as `payload->>'key'`, since the sets are read with `->` and a reader that
-knew only `->>` would have let the column sweep pass over all four.
+site's other names (`p_alt_names => arrived.alt_names`), and that each of the catalogue sets — a
+site's `entry` among them — is written through `sync_json_array`, which is `immutable` and not
+`strict`. Its key reader takes `payload->'key'` as well as `payload->>'key'`, since the sets are
+read with `->` and a reader that knew only `->>` would have let the column sweep pass over them.
 
 `src/db/catalogueRpcParity.test.ts` does it for file 6 against files 2 and 5, and is weighted
 towards the three failures there that are silent: that `delete_account` writes exactly once
@@ -371,9 +388,9 @@ before the new one is created, with no grant or revoke left naming it. The three
 comparison cannot see: no serial or identity anywhere (ids are the client's UUIDv7), no trigger
 stamping `created_at` or `updated_at`, no enum or CHECK on a vocabulary column (§10: an unknown
 value is stored and flagged, never rejected), every JSON-array column (`tanks`, `equipment`,
-`series` and #31's four catalogue sets) NOT NULL with a `'[]'` default — and every `jsonb`
-column of a synced table one of them, so a fifth set cannot arrive nullable by being left off the
-list — RLS enabled on all six tables, and no client role granted DELETE.
+`series`, #31's four catalogue sets and a site's `entry`) NOT NULL with a `'[]'` default — and
+every `jsonb` column of a synced table one of them, so another set cannot arrive nullable by being
+left off the list — RLS enabled on all six tables, and no client role granted DELETE.
 
 **What neither proves:** that this SQL runs. **Nothing in this repository can establish that**
 — the readers are strict on purpose (they throw on anything they have not been taught rather
@@ -465,7 +482,8 @@ GUC is ever raised on this project, both search functions quietly return less, a
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.
 
 **#31's SQL is not applied to the project yet, but it has run** — on a throwaway Postgres 16 +
-PostGIS 3.4 on 2026-11-17, with these files as they are (one comment has been reworded since)
+PostGIS 3.4 on 2026-11-17, with these files as they were before a site's `entry` became a set
+(and one comment has been reworded since; the set has not run anywhere yet)
 and a small stand-in for Supabase's `auth` schema and roles: as a fresh project, re-applied over itself, and by the
 upgrade path in [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the
 files as they were before #31. Every step passed. That settled two things this list used to

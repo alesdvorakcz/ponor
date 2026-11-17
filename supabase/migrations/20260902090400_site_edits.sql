@@ -64,7 +64,7 @@
 -- after the missing DELETE policy, the missing DELETE privilege, and `delete_account`
 -- touching neither community table.
 --
--- `fields` is the structured half of a suggestion: `{"max_depth_m": 32, "entry": "boat"}`,
+-- `fields` is the structured half of a suggestion: `{"max_depth_m": 32, "entry": ["boat"]}`,
 -- the proposed values keyed by the `dive_sites` column they belong to. `suggest_site_edit`
 -- refuses any key outside the facts §5 names, so a client cannot propose `status`,
 -- `merged_into` or `created_by` and have an admin apply it by reflex. `note` is the free

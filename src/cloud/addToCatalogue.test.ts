@@ -51,7 +51,7 @@ function answer(matches: Suggestion[], rows: PulledSite[] = matches.map((m) => p
   return { matches, rows };
 }
 
-const NO_FACTS = { entry: null, salinity: null, waterBody: null };
+const NO_FACTS = { entry: [], salinity: null, waterBody: null };
 
 beforeEach(() => {
   jest.resetAllMocks();

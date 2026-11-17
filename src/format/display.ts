@@ -629,7 +629,8 @@ export function formatSiteFacts(
   const parts: string[] = [];
   if (site.country !== null && site.country !== '') parts.push(site.country);
 
-  const entry = formatEntry(site.entry);
+  // Every way in the site offers (#31: a set), each in the word a dive logged there reads.
+  const entry = formatPlaceTokens('entry', site.entry);
   if (entry !== null) parts.push(entry);
 
   const salinity = formatSalinity(site.salinity);
@@ -1901,19 +1902,22 @@ function known<T extends string>(values: readonly T[], value: T): boolean {
   return (values as readonly string[]).includes(value);
 }
 
-/** How the diver entered the water, e.g. "Shore". */
+/** How the diver entered the water, e.g. "Shore" — a dive's one way in. A site's are a set, and
+ * `formatPlaceTokens('entry', …)` reads them through the same word (`formatPlaceToken`). */
 export function formatEntry(entry: Entry | null): string | null {
   if (entry === null) return null;
-  return known(ENTRY_VALUES, entry) ? t(`vocabulary.entry.${entry}`) : capitalize(entry);
+  return formatPlaceToken('entry', entry);
 }
 
-/** The vocabularies a place's token sets are drawn from, as `en.ts`/`cs.ts` name them. */
-export type PlaceTokenSet = 'services' | 'agencies' | 'siteTypes';
+/** The vocabularies a place's token sets are drawn from, as `en.ts`/`cs.ts` name them — a site's
+ * `entry` among them since #31 made it a set, read in the words a dive's one entry reads. */
+export type PlaceTokenSet = 'services' | 'agencies' | 'siteTypes' | 'entry';
 
 const PLACE_TOKEN_VALUES: Record<PlaceTokenSet, readonly string[]> = {
   services: SERVICE_VALUES,
   agencies: AGENCY_VALUES,
   siteTypes: SITE_TYPE_VALUES,
+  entry: ENTRY_VALUES,
 };
 
 /** One token of a place's set as its word, e.g. "SDI/TDI" — or `capitalize`'s guess for a token a

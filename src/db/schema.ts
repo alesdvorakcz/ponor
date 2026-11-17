@@ -73,6 +73,8 @@ const tanksJson = jsonArray<Tank>();
 const equipmentJson = jsonArray<Equipment>();
 /** Issue #31's catalogue sets (§6), behind the same decoder: a pull writes them from other divers' clients. */
 const siteTypesJson = jsonArray<SiteType>();
+/** A site's ways in — a set since #31's second round, where a dive's `entry` stays one value (§6). */
+const siteEntryJson = jsonArray<Entry>();
 const altNamesJson = jsonArray<string>();
 const servicesJson = jsonArray<Service>();
 const agenciesJson = jsonArray<Agency>();
@@ -374,7 +376,10 @@ export const diveSites = sqliteTable('dive_sites', {
   longitude: real('longitude'),
   salinity: text('salinity').$type<Salinity>(),
   waterBody: text('water_body').$type<WaterBody>(),
-  entry: text('entry').$type<Entry>(),
+  /** Every way in the site offers — shore and boat both, say — where a dive's `entry` is the one
+   * it used (§6). A set under its old, singular name, changed in place (§10), and `'[]'` as the
+   * other sets are. */
+  entry: siteEntryJson('entry').notNull().default(sql`'[]'`),
   /** The site's own depth, not a dive's — §6 names it as one of the facts a site prefills. */
   maxDepthM: real('max_depth_m'),
   /** Issue #31's facts (§6): every one nullable but the two sets, which are `'[]'` as `dives.equipment`. */

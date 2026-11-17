@@ -60,7 +60,7 @@ const rock = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,
@@ -153,7 +153,7 @@ it('opens on every site the device holds, in a stable order', async () => {
 it('says what the catalogue knows and how many dives the diver has there', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      rock({ id: 's-kot', name: 'Kotelna', country: 'CZ', entry: 'shore', salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 }),
+      rock({ id: 's-kot', name: 'Kotelna', country: 'CZ', entry: ['shore'], salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 }),
     ]),
   );
   // A logbook with dives that are NOT this site's in it, deliberately: a row counting
@@ -230,7 +230,7 @@ it('filters the list as the diver types, accents folded', async () => {
 it('says which other name a searched site was found by', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      rock({ name: 'Kamena vrata', altNames: ['Stone Gate'], country: 'HR', entry: 'boat' }),
+      rock({ name: 'Kamena vrata', altNames: ['Stone Gate'], country: 'HR', entry: ['boat'] }),
       rock({ name: 'Kotelna' }),
     ]),
   );

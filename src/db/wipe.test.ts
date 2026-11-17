@@ -85,7 +85,7 @@ const pulledSite = (id: string, deletedAt: string | null): PulledSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,

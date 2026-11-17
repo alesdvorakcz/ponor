@@ -159,8 +159,8 @@ $$;
 
 -- ─── sync_json_array — a catalogue set arrives as an array or as `[]` ─────────────────────
 --
--- Issue #31's four sets (`site_types`, `alt_names`, `services`, `agencies`) are NOT NULL
--- `'[]'` columns (§6), and push_changes reads the community tables key by key, so nothing
+-- Issue #31's sets (`site_types`, `alt_names`, `services`, `agencies`, and a site's `entry`) are
+-- NOT NULL `'[]'` columns (§6), and push_changes reads the community tables key by key, so nothing
 -- fills that default in: another client's JSON `null`, or a string where a list belongs, would
 -- refuse the diver's whole push. Anything that is not an array is stored as `[]` instead.
 --
@@ -524,7 +524,7 @@ begin
                (incoming.payload->>'longitude')::double precision,
                (incoming.payload->>'latitude')::double precision), 4326)::extensions.geography
       end,
-      incoming.payload->>'salinity', incoming.payload->>'water_body', incoming.payload->>'entry',
+      incoming.payload->>'salinity', incoming.payload->>'water_body', public.sync_json_array(incoming.payload->'entry'),
       (incoming.payload->>'max_depth_m')::double precision,
       public.sync_json_array(incoming.payload->'site_types'), incoming.payload->>'suitable_for',
       public.sync_json_array(incoming.payload->'alt_names'), incoming.payload->>'description',

@@ -124,7 +124,7 @@ const NOT_NULL_DEFAULTS: Record<string, WireRow> = {
   gear_presets: { name: 'a preset', tanks: [] },
   certifications: {},
   profiles: {},
-  dive_sites: { status: 'active', site_types: [], alt_names: [] },
+  dive_sites: { status: 'active', entry: [], site_types: [], alt_names: [] },
   dive_centers: { status: 'active', services: [], agencies: [] },
 };
 
@@ -1130,6 +1130,7 @@ describe('a site’s and a centre’s #31 facts (§6)', () => {
   it('carries a site’s and a centre’s #31 facts to the server and back', async () => {
     const site = await createDiveSite(db, {
       name: 'Vrak Teti',
+      entry: ['shore', 'boat'],
       siteTypes: ['wreck'],
       suitableFor: 'advanced',
       altNames: ['Teti wreck'],
@@ -1152,6 +1153,7 @@ describe('a site’s and a centre’s #31 facts (§6)', () => {
 
     // As arrays and a number on the server, not as the strings SQLite keeps them in.
     expect(server.row('dive_sites', site.id)).toMatchObject({
+      entry: ['shore', 'boat'],
       site_types: ['wreck'],
       alt_names: ['Teti wreck'],
       wreck_sunk_year: 1930,
@@ -1182,7 +1184,7 @@ describe('a site’s and a centre’s #31 facts (§6)', () => {
 
     await pullChanges(db, client);
 
-    expect(await getDiveSite(db, 's9')).toMatchObject({ siteTypes: [], altNames: [] });
+    expect(await getDiveSite(db, 's9')).toMatchObject({ entry: [], siteTypes: [], altNames: [] });
   });
 });
 
@@ -1406,7 +1408,7 @@ describe('a merge arriving in a pull (§5, M2r)', () => {
     await applyPulledDiveSites(db, [
       {
         id: 'folded', name: 'Blue Hole', country: null, latitude: null, longitude: null,
-        salinity: null, waterBody: null, entry: null, maxDepthM: null,
+        salinity: null, waterBody: null, entry: [], maxDepthM: null,
         siteTypes: [], suitableFor: null, altNames: [], description: null, wreckName: null,
         wreckSunkYear: null, createdBy: null,
         status: 'merged', mergedInto: 'survivor',

@@ -817,6 +817,9 @@ describe('siteFactsFrom', () => {
   // §2.1 calls exactly these three the site defaults, and §2.2 spends a paragraph on why they
   // are properties of the place rather than conditions. Without them §2.1's prefill has
   // nothing to prefill from on any site this app creates.
+  //
+  // A site's entry is a set (#31) and a dive's is the one way it used, so the dive's entry seeds
+  // the set as its one member.
   it('seeds §2.1\'s three site defaults', () => {
     const facts = siteFactsFrom('Blue Hole', {
       ...base,
@@ -824,7 +827,7 @@ describe('siteFactsFrom', () => {
       salinity: 'salt',
       waterBody: 'ocean',
     });
-    expect(facts.entry).toBe('boat');
+    expect(facts.entry).toEqual(['boat']);
     expect(facts.salinity).toBe('salt');
     expect(facts.waterBody).toBe('ocean');
   });
@@ -916,7 +919,8 @@ describe('siteFactsFrom', () => {
     });
     expect(facts.latitude).toBe(43.5081);
     expect(facts.longitude).toBe(16.4402);
-    expect(facts.entry).toBeNull();
+    // No entry on the dive is an empty set on the site, never a set holding a blank.
+    expect(facts.entry).toEqual([]);
   });
 
   // The form's one blocking rule is the date (§2.2), and it has nothing to do with a site —
@@ -924,7 +928,7 @@ describe('siteFactsFrom', () => {
   // date must still be able to add the site they are standing on (§1).
   it('is unaffected by a date the whole schema would refuse', () => {
     const facts = siteFactsFrom('Blue Hole', { date: 'not a date', entry: 'shore' });
-    expect(facts.entry).toBe('shore');
+    expect(facts.entry).toEqual(['shore']);
   });
 });
 

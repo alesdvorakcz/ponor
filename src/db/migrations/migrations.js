@@ -7,6 +7,8 @@ import m0002 from './0002_fast_rogue.sql';
 import m0003 from './0003_even_deathbird.sql';
 import m0004 from './0004_overjoyed_earthquake.sql';
 import m0005 from './0005_unknown_moonstone.sql';
+import m0006 from './0006_site_entry_as_set.sql';
+import m0007 from './0007_narrow_dagger.sql';
 
   export default {
     journal,
@@ -16,7 +18,9 @@ m0001,
 m0002,
 m0003,
 m0004,
-m0005
+m0005,
+m0006,
+m0007
     }
   }
   

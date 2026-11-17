@@ -822,7 +822,9 @@ export function toNewDiveInput(
  *   from the site's own defaults. They are properties of the place."* Seeding them is that
  *   classification taken at its word, and it is what closes the loop: the next diver to pick
  *   this site gets the defaults prefilled, which is the mechanism §2.1 describes and which
- *   nothing has ever been able to feed.
+ *   nothing has ever been able to feed. **A site's entry is a set** (#31) — every way in it
+ *   offers — and a dive's is the one way it used, so the dive's entry seeds the set as its one
+ *   member, and a dive with none seeds the empty set.
  *
  * ── What is not, and this is the harder half ──────────────────────────────────────────────
  *
@@ -882,7 +884,7 @@ export function siteFactsFrom(name: string, values: DiveFormInput): NewSiteFacts
     name,
     latitude: pinned ? latitude : null,
     longitude: pinned ? longitude : null,
-    entry,
+    entry: entry === null ? [] : [entry],
     salinity,
     waterBody,
   };

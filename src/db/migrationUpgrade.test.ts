@@ -83,3 +83,50 @@ describe('upgrading a device that already holds a catalogue (§6)', () => {
     });
   });
 });
+
+describe('upgrading a device whose sites hold one entry each (§6, #31)', () => {
+  /**
+   * A site's `entry` became a set in place, under its old name (§10): the column was one text
+   * value or null, and is now a JSON array, NOT NULL and `'[]'` when nothing is known. A
+   * rebuild that copied the old values across as they were would fail on the null and leave a
+   * bare `shore` that no reader can take for a set — so each row has to arrive as a set. Asked
+   * from both states a device can be in: what `main` holds, and what a build of #31 before this
+   * change holds.
+   */
+  const target = journal.entries.findIndex((entry) => sqlOf(entry).includes('`site_types`'));
+
+  it.each([
+    ['before #31', target],
+    ['after #31’s first columns', target + 1],
+  ])('turns each stored entry into a set, from %s', (_state, upTo) => {
+    expect(target).toBeGreaterThan(0);
+    const sqlite = new Database(':memory:');
+    for (const entry of journal.entries.slice(0, upTo)) apply(sqlite, entry);
+
+    const stamp = '2026-11-17T09:00:00.000Z';
+    const insert = sqlite.prepare(
+      `insert into dive_sites (id, name, entry, status, created_at, updated_at, dirty)
+         values (?, ?, ?, 'active', '${stamp}', '${stamp}', 0)`,
+    );
+    insert.run('s1', 'Vrak Teti', 'shore');
+    insert.run('s2', 'Kamena vrata', null);
+    insert.run('s3', 'Kut', '');
+    insert.run('s4', 'Stone Gate', '["boat"]');
+
+    for (const entry of journal.entries.slice(upTo)) apply(sqlite, entry);
+
+    expect(sqlite.prepare('select id, name, entry from dive_sites order by id').all()).toEqual([
+      { id: 's1', name: 'Vrak Teti', entry: '["shore"]' },
+      { id: 's2', name: 'Kamena vrata', entry: '[]' },
+      { id: 's3', name: 'Kut', entry: '[]' },
+      { id: 's4', name: 'Stone Gate', entry: '["boat"]' },
+    ]);
+    // And the column is a set's from here on: a row written without one holds `[]`, never null.
+    sqlite.exec(
+      `insert into dive_sites (id, name, status, created_at, updated_at, dirty)
+         values ('s5', 'Nautica', 'active', '${stamp}', '${stamp}', 0)`,
+    );
+    expect(sqlite.prepare(`select entry from dive_sites where id = 's5'`).get()).toEqual({ entry: '[]' });
+    expect(() => sqlite.exec(`update dive_sites set entry = null where id = 's5'`)).toThrow(/NOT NULL/);
+  });
+});

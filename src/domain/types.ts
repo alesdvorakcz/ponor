@@ -461,7 +461,9 @@ export interface DiveSite {
   longitude: number | null;
   salinity: Salinity | null;
   waterBody: WaterBody | null;
-  entry: Entry | null;
+  /** Every way in the site offers (§6) — a set, `[]` when unrecorded, where a dive's `entry` is the
+   * one way it used. */
+  entry: Entry[];
   /** The site's own depth (§6), not any one dive's. */
   maxDepthM: number | null;
   /** Issue #31's facts (§6): token sets are `[]` when unrecorded, never null, as `equipment`. */

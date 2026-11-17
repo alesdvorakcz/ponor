@@ -36,7 +36,7 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,

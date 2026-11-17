@@ -69,7 +69,7 @@ const rock = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
   siteTypes: [],
   suitableFor: null,
@@ -183,7 +183,7 @@ it('draws neither cluster for a site the catalogue knows nothing else about', as
 it('separates what the site is from what the site gives a new dive', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      rock({ country: 'CZ', maxDepthM: 42, entry: 'shore', salinity: 'fresh', waterBody: 'quarry' }),
+      rock({ country: 'CZ', maxDepthM: 42, entry: ['shore'], salinity: 'fresh', waterBody: 'quarry' }),
     ]),
   );
   const text = textIn(await show());
@@ -232,7 +232,7 @@ it('says the site’s own depth and the diver’s deepest dive here as two diffe
  */
 it('draws a row for every field §2.1 prefills from, and no more', async () => {
   mockUseDiveSites.mockReturnValue(
-    catalogueState([rock({ entry: 'boat', salinity: 'salt', waterBody: 'ocean' })]),
+    catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]),
   );
   const t = await show();
   // Every labelled row actually on screen, read off the label style rather than off the text —
@@ -254,7 +254,7 @@ it('draws a row for every field §2.1 prefills from, and no more', async () => {
  * value because someone then picked a site is the worst outcome available here").
  */
 it('says what picking the site will do, and only over carry-over', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: 'shore' })]));
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore'] })]));
   const said = textIn(await show()).join(' ');
   expect(said).toContain('Picking this site on a new dive fills these in');
   expect(said).toContain('carried from your last dive');
@@ -266,13 +266,29 @@ it('says what picking the site will do, and only over carry-over', async () => {
  * nothing draws no defaults cluster at all while still drawing what it does know.
  */
 it('omits a default the catalogue has no opinion about', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ', entry: 'shore' })]));
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ', entry: ['shore'] })]));
   const text = textIn(await show());
   expect(text).toContain('Site defaults');
   expect(text).toContain('Entry');
   expect(text).not.toContain('Salinity');
   expect(text).not.toContain('Water body');
   expect(text).not.toContain('—');
+});
+
+/**
+ * **A site's entry is a set** (#31): every way in it offers, on its one row in the words a dive's
+ * entry reads, and no row at all when it records none — the same absence as a `null` column above.
+ */
+it('reads every way into the site on the Entry row, and draws none for an empty set', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt' })]));
+  const both = textIn(await show());
+  expect(both).toContain('Entry');
+  expect(both).toContain('Shore · Boat');
+
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: [], salinity: 'salt' })]));
+  const none = textIn(await show());
+  expect(none).toContain('Salinity');
+  expect(none).not.toContain('Entry');
 });
 
 it('draws the facts cluster without the defaults one when it knows only the place', async () => {
@@ -476,7 +492,7 @@ it('reads both depths in the diver’s own units', async () => {
 // on a `DiveRow`'s own depth, beside its own number — and nothing else is painted.
 it('paints nothing of its own', async () => {
   mockUseDiveSites.mockReturnValue(
-    catalogueState([rock({ country: 'CZ', maxDepthM: 42, entry: 'shore', salinity: 'fresh' })]),
+    catalogueState([rock({ country: 'CZ', maxDepthM: 42, entry: ['shore'], salinity: 'fresh' })]),
   );
   mockUseDives.mockReturnValue(divesState([atKotelna()]));
   expect(unexpectedGraphics(await show(), 'light')).toEqual([]);
@@ -528,7 +544,7 @@ describe('in Czech', () => {
    * has to say here — that picking this site OUTRANKS carry-over rather than merely filling in. */
   it('names its clusters, its rows and its own caption in Czech', async () => {
     mockUseDiveSites.mockReturnValue(
-      catalogueState([rock({ country: 'HR', maxDepthM: 42, entry: 'shore', salinity: 'salt', waterBody: 'ocean' })]),
+      catalogueState([rock({ country: 'HR', maxDepthM: 42, entry: ['shore'], salinity: 'salt', waterBody: 'ocean' })]),
     );
     const said = textIn(await show());
     expect(said).toContain('Lokalita');
@@ -687,7 +703,7 @@ it('draws no description for blank text', async () => {
 });
 
 it('keeps the site defaults and their caption apart from the facts', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([teti({ entry: 'shore', salinity: 'salt', waterBody: 'ocean' })]));
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ entry: ['shore'], salinity: 'salt', waterBody: 'ocean' })]));
   const lines = textIn(await show());
   expect(lines.indexOf('The site')).toBeLessThan(lines.indexOf('Site defaults'));
   expect(lines.indexOf('Country')).toBeLessThan(lines.indexOf('Site defaults'));
@@ -725,7 +741,7 @@ describe('opened from a near-match', () => {
   const pickRequest: PlacePickRequest = {
     kind: 'site',
     selected: null,
-    dive: { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null },
+    dive: { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null },
     onPick: jest.fn(),
   };
   const labelled = (t: RenderResult, label: string) => allNodes(t).find((n) => n.props?.accessibilityLabel === label);

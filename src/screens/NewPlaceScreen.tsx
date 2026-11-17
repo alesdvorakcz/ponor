@@ -4,7 +4,6 @@ import { SymbolView } from 'expo-symbols';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EntryIcon } from '../components/EntryIcon';
 import { FieldNote } from '../components/FieldNote';
 import { FormField } from '../components/FormField';
 import { FormGroup } from '../components/FormGroup';
@@ -37,7 +36,6 @@ import {
 } from '../domain/types';
 import {
   formatCoordinates,
-  formatEntry,
   formatPlaceToken,
   formatSalinity,
   formatSiteTwinMeta,
@@ -66,6 +64,17 @@ type Position = MapPoint & { from: 'dive' | 'phone' };
 /** *from this dive* while a value is still the one the dive handed the page; nothing once it is not. */
 function fromDive<T>(value: T | null, dives: T | null | undefined): string | undefined {
   return value !== null && value === dives ? t('newPlace.fromThisDive') : undefined;
+}
+
+/**
+ * The entry row's caption. A site's entry is a set (#31), so its row says *any that apply*, as
+ * *Site type* does — except while the set is still exactly what the dive handed the page, when it
+ * says *from this dive*, as the other three do. One slot, and the mark wins while it holds: it is
+ * the one that can stop being true, and pressing a second way in shows what the row is.
+ */
+function entryCaption(value: readonly Entry[], dives: readonly Entry[] | undefined): string {
+  const handed = dives !== undefined && dives.length > 0 && dives.length === value.length && dives.every((way) => value.includes(way));
+  return t(handed ? 'newPlace.fromThisDive' : 'newPlace.anyThatApply');
 }
 
 /** A typed line as the row stores it: trimmed, and `null` once nothing is left (§1: a sparse row
@@ -120,7 +129,9 @@ function twinHref(id: string, token: string): Href {
  * ── What a new row starts with ────────────────────────────────────────────────────────────
  *
  * The typed name; for a site, the dive's own pin, salinity, water body and entry, each marked *from
- * this dive* until the diver changes it (§2.3: a site inherits them, never `max_depth_m`); for a
+ * this dive* until the diver changes it (§2.3: a site inherits them, never `max_depth_m`) — the
+ * entry as a set holding the dive's one way in, since a site's entry is every way it offers (#31),
+ * so the diver adds the others rather than replacing it; for a
  * centre, the name alone and an empty position — the dive's pin is where the diver entered the
  * water, not the shop. **Never the phone's position unasked**: *Use current position* is the one
  * thing that asks, through `currentPosition`, the stored-pin request (100 m rule), because this one
@@ -195,7 +206,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   );
   const [salinity, setSalinity] = useState<Salinity | null>(dive?.salinity ?? null);
   const [waterBody, setWaterBody] = useState<WaterBody | null>(dive?.waterBody ?? null);
-  const [entry, setEntry] = useState<Entry | null>(dive?.entry ?? null);
+  // A set (#31): every way in the site offers, seeded with the dive's one (`siteFactsFrom`).
+  const [entry, setEntry] = useState<Entry[]>(dive?.entry ?? []);
   const [description, setDescription] = useState('');
   // A site's facts beyond the dive's three.
   const [siteTypes, setSiteTypes] = useState<SiteType[]>([]);
@@ -217,7 +229,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // §2.2: open exactly when the group holds a value, decided as the page opens. Everything starts
   // empty but what the dive handed *The site*, so that is the one group that can open.
   const [opened, setOpened] = useState<Record<PlaceGroup, boolean>>(() => ({
-    site: salinity !== null || waterBody !== null || entry !== null,
+    site: salinity !== null || waterBody !== null || entry.length > 0,
     otherNames: false,
     contact: false,
     services: false,
@@ -568,15 +580,16 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 caption={fromDive(waterBody, dive?.waterBody)}
                 disabled={saving}
               />
-              <OptionChips
+              {/* Every way in the site offers (#31): a set, as *Site type* is. Words only —
+                  `TokenChips` draws no icon, where the dive form's single entry shows `EntryIcon`. */}
+              <TokenChips
                 label={t('field.entry')}
-                value={entry}
+                values={entry}
                 options={ENTRY_VALUES}
-                displayLabel={(option) => formatEntry(option) ?? option}
-                onChange={(chosen) => setEntry(chosen === '' ? null : chosen)}
+                displayLabel={(option) => formatPlaceToken('entry', option)}
+                onChange={setEntry}
                 scheme={scheme}
-                icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
-                caption={fromDive(entry, dive?.entry)}
+                caption={entryCaption(entry, dive?.entry)}
                 disabled={saving}
               />
               <TokenChips

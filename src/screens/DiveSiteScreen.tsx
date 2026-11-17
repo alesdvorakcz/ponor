@@ -19,7 +19,6 @@ import {
   formatAltNames,
   formatCoordinates,
   formatDepth,
-  formatEntry,
   formatPlaceTokens,
   formatSalinity,
   formatSiteSummary,
@@ -134,7 +133,8 @@ const SITE_DEFAULT_ROWS: Record<
   SiteDefaultField,
   { label: () => string; read: (site: DiveSite) => string | null }
 > = {
-  entry: { label: () => t('field.entry'), read: (site) => formatEntry(site.entry) },
+  // A set since #31 — every way in the site offers — on one row, in the words a dive's entry reads.
+  entry: { label: () => t('field.entry'), read: (site) => formatPlaceTokens('entry', site.entry) },
   salinity: { label: () => t('field.salinity'), read: (site) => formatSalinity(site.salinity) },
   waterBody: { label: () => t('field.waterBody'), read: (site) => formatWaterBody(site.waterBody) },
 };

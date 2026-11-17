@@ -599,7 +599,7 @@ const pulledSite = (id: string, updatedAt: string) => ({
   longitude: 34.31,
   salinity: 'salt' as const,
   waterBody: 'ocean' as const,
-  entry: 'shore' as const,
+  entry: ['shore' as const],
   maxDepthM: 130,
   siteTypes: [],
   suitableFor: null,
