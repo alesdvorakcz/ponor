@@ -42,7 +42,8 @@ export type PositionOutcome =
       readonly found: true;
       readonly latitude: number;
       readonly longitude: number;
-      /** Metres above sea level, when the fix carried a real figure (§6, #31). Absent otherwise —
+      /** Metres above sea level, when the fix carried a real figure the phone vouches for (a positive
+       * `altitudeAccuracy`; §6, #31). Absent otherwise —
        * and from `roughPosition`, which sorts a list and stores nothing. */
       readonly altitude?: number;
     }
@@ -146,7 +147,7 @@ export async function currentPosition(): Promise<PositionOutcome> {
     if (refused) return refused;
     const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }), POSITION_TIMEOUT_MS);
     if (fix === null) return { found: false, reason: 'timedOut' };
-    const { latitude, longitude, accuracy, altitude } = fix.coords;
+    const { latitude, longitude, accuracy, altitude, altitudeAccuracy } = fix.coords;
     // A pair that is not two numbers is not a point. It should be unreachable — the native
     // side types both as `number` — but this value is about to be written to a dive and read
     // back as a place, and catching it in `formatCoordinates` at the far end would leave a
@@ -155,9 +156,16 @@ export async function currentPosition(): Promise<PositionOutcome> {
     if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > COARSEST_USABLE_FIX_M) {
       return { found: false, reason: 'imprecise' };
     }
-    // The altitude rides on the same fix rather than a second call, and only as a real number:
-    // the device reports `null` where it has none, and a `NaN` must not reach a form field.
-    return typeof altitude === 'number' && Number.isFinite(altitude)
+    // The altitude rides on the same fix rather than a second call, and only when the phone
+    // vouches for it: a finite figure with a finite, positive `altitudeAccuracy`. iOS reports an
+    // altitude it cannot measure (the simulator's flat 0) with a negative vertical accuracy, and
+    // a published site altitude must not be an unverified 0 — a mountain lake is not at sea level
+    // because a receiver shrugged. A real 0 with a real accuracy is sea level, and is kept.
+    return typeof altitude === 'number' &&
+      Number.isFinite(altitude) &&
+      typeof altitudeAccuracy === 'number' &&
+      Number.isFinite(altitudeAccuracy) &&
+      altitudeAccuracy > 0
       ? { found: true, latitude, longitude, altitude }
       : { found: true, latitude, longitude };
   } catch {

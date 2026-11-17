@@ -44,9 +44,15 @@ const mockRequest = requestLocationPermission as jest.Mock;
 /** A position object shaped like the library's own — every field of `LocationObjectCoords`,
  * because the module destructures three of them and a fixture holding only those three would
  * agree with the code rather than with the device. */
-function fixAt(latitude: number, longitude: number, accuracy: number | null = 8, altitude: number | null = null) {
+function fixAt(
+  latitude: number,
+  longitude: number,
+  accuracy: number | null = 8,
+  altitude: number | null = null,
+  altitudeAccuracy: number | null = null,
+) {
   return {
-    coords: { latitude, longitude, accuracy, altitude, altitudeAccuracy: null, heading: null, speed: null },
+    coords: { latitude, longitude, accuracy, altitude, altitudeAccuracy, heading: null, speed: null },
     timestamp: 1_756_000_000_000,
   };
 }
@@ -71,20 +77,29 @@ describe('a fix a diver can pin a dive with', () => {
     expect(await currentPosition()).toEqual({ found: true, latitude: 28.51234, longitude: 34.51234 });
   });
 
-  it('hands back the altitude the fix carries, as the device reported it', async () => {
-    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6));
+  it('hands back the altitude the fix carries when the phone vouches for it', async () => {
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6, 8));
     expect(await currentPosition()).toEqual({ found: true, latitude: 28.5, longitude: 34.5, altitude: 312.6 });
   });
 
   it('keeps a negative altitude and a zero one — below sea level and at it are answers', async () => {
-    mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, -430.2));
+    mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, -430.2, 5));
     expect(await currentPosition()).toMatchObject({ found: true, altitude: -430.2 });
-    mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, 0));
+    mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, 0, 5));
     expect(await currentPosition()).toMatchObject({ found: true, altitude: 0 });
   });
 
+  // iOS reports an altitude it cannot vouch for (the simulator's 0) with a negative vertical
+  // accuracy; a published site altitude must not be an unverified figure.
+  it.each([-1, null, 0, Number.NaN])('says no altitude when its accuracy is %s', async (altitudeAccuracy) => {
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 0, altitudeAccuracy));
+    const outcome = await currentPosition();
+    expect(outcome).toEqual({ found: true, latitude: 28.5, longitude: 34.5 });
+    expect(outcome).not.toHaveProperty('altitude');
+  });
+
   it.each([null, Number.NaN, Number.POSITIVE_INFINITY])('says no altitude for %s', async (altitude) => {
-    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, altitude));
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, altitude, 8));
     const outcome = await currentPosition();
     expect(outcome).toEqual({ found: true, latitude: 28.5, longitude: 34.5 });
     expect(outcome).not.toHaveProperty('altitude');
