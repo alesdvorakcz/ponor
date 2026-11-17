@@ -1091,6 +1091,14 @@ it('saves an altitude below sea level', async () => {
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(-430);
 });
 
+it('saves a thousands-grouped altitude as the whole figure, not a decimal', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  await type(t, 'Altitude', '3,812');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(3812);
+});
+
 it('stores an altitude typed in feet as whole metres', async () => {
   mockUnits.mockReturnValue('imperial');
   const t = await showSite();

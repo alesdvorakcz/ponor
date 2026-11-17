@@ -45,7 +45,7 @@ import {
   NO_FIGURE,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
-import { displayNumber, storedValueFor, unitLabel, type UnitSystem } from '../format/units';
+import { displayNumber, parseAltitudeMetres, storedValueFor, unitLabel, type UnitSystem } from '../format/units';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
@@ -63,9 +63,7 @@ type Position = MapPoint & { from: 'dive' | 'phone' };
 
 /** What was typed in the Altitude row as stored metres — whole ones — or null for a blank or a non-number. */
 function altitudeMetres(text: string, units: UnitSystem): number | null {
-  const entered = toFormNumber(text);
-  const metres = storedValueFor('altitude', entered, null, units);
-  return metres === null ? null : Math.round(metres);
+  return parseAltitudeMetres(text, units);
 }
 
 /** *from this dive* while a value is still the one the dive handed the page; nothing once it is not. */

@@ -7,6 +7,7 @@ import {
   displayValueFor,
   diveFieldQuantity,
   isUnitSystem,
+  parseAltitudeMetres,
   storedValueFor,
   tankFieldQuantity,
   unitLabel,
@@ -222,6 +223,28 @@ describe('an altitude as a quantity of its own', () => {
   it('reads back in metres from what an imperial diver typed', () => {
     expect(storedValueFor('altitude', 1027, null, 'imperial')).toBeCloseTo(313.03, 2);
     expect(storedValueFor('altitude', 313, null, 'metric')).toBe(313);
+  });
+});
+
+describe('parseAltitudeMetres', () => {
+  it.each([
+    ['3,812', 'metric', 3812],
+    ['1 200', 'metric', 1200],
+    ['1\u00a0200', 'metric', 1200],
+    ['12.500', 'metric', 12500],
+    ['1,234,567', 'metric', 1234567],
+    ['12,500', 'imperial', 3810],
+    ['-430', 'metric', -430],
+    ['\u2212430', 'metric', -430],
+    ['312.6', 'metric', 313],
+    ['312,6', 'metric', 313],
+    ['  250 ', 'metric', 250],
+  ] as const)('reads %j (%s) as %d m', (text, system, metres) => {
+    expect(parseAltitudeMetres(text, system)).toBe(metres);
+  });
+
+  it.each(['abc', '', '   ', '1,2,3', '1,2345', '-', '1.2.3'])('reads %j as no number', (text) => {
+    expect(parseAltitudeMetres(text, 'metric')).toBeNull();
   });
 });
 
