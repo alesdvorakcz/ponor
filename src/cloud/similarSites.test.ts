@@ -1,7 +1,6 @@
 import { type SupabaseClient } from '@supabase/supabase-js';
 
-import { type Suggestion } from '../domain/suggest';
-import { SIMILAR_SITES_RPC, similarSites } from './similarSites';
+import { SIMILAR_SITES_RPC, similarSites, type SimilarSite } from './similarSites';
 import { connectCloud, readCloudCredentials, type Cloud } from './supabase';
 
 /**
@@ -54,7 +53,7 @@ const SHARK_POINT = {
 
 const SHARK_BAY = { ...SHARK_POINT, id: 'site-shark-bay', name: 'Shark Bay' };
 
-const picked = (value: string, id: string): Suggestion => ({ value, id });
+const picked = (value: string, id: string, alsoCalled: string | null = null): SimilarSite => ({ value, id, alsoCalled });
 
 /** A build that HAS a backend, wired to a stub whose answers each test decides. The union is
  * built by hand rather than through `connectCloud`, which would construct a real
@@ -162,6 +161,43 @@ it('answers from a row that is missing every column but the two it reads, and do
   const answer = await similarSites(withServer(answered([{ id: 'site-x', name: 'Kotelna' }])), 'Kotelna', [], null, null);
   expect(answer.matches).toEqual([picked('Kotelna', 'site-x')]);
   expect(answer.rows).toEqual([]);
+});
+
+// #31, the owner's call of 2026-11-17: when a match came through one of the site's other names,
+// the server says which beside the row (`matched_name`), and the page names it — *Kamena vrat* typed
+// finds *Stone Gate* by *Kamena vrata*. Trimmed, as the name is.
+it('reads the other name a match came through, beside its name and id', async () => {
+  const stoneGate = { ...SHARK_POINT, id: 'site-stone-gate', name: 'Stone Gate', alt_names: ['Kamena vrata'] };
+  const { matches: found } = await similarSites(
+    withServer(answered([{ ...stoneGate, matched_name: '  Kamena vrata ' }, { ...SHARK_BAY, matched_name: null }])),
+    'Kamena vrat',
+    [],
+    null,
+    null,
+  );
+  expect(found).toEqual([picked('Stone Gate', 'site-stone-gate', 'Kamena vrata'), picked('Shark Bay', 'site-shark-bay')]);
+});
+
+// Only words on the page, so read as loosely as anything here: a key that is missing — a server
+// from before it — or is not a string, or is blank, is no other name, and the match stands as a
+// plain *Did you mean …?* rather than being dropped.
+it('reads anything but a non-blank string as no other name, and keeps the match', async () => {
+  const rows = [undefined, null, 42, '   ', ['Kamena vrata'], { name: 'Kamena vrata' }].map((matched, at) => ({
+    ...SHARK_POINT,
+    id: `site-${at}`,
+    ...(matched === undefined ? {} : { matched_name: matched }),
+  }));
+  const { matches: found } = await similarSites(withServer(answered(rows)), 'Shark', [], null, null);
+  expect(found).toEqual(rows.map((row) => picked('Shark Point', row.id)));
+});
+
+// ...and it is a search artefact, never a fact about the site: the half that is stored is the table's
+// columns read the strict way, so the key goes nowhere near the device's catalogue.
+it('stores no other name it was told a match came through', async () => {
+  const answer = await similarSites(withServer(answered([{ ...SHARK_POINT, matched_name: 'Shark Pt' }])), 'Shark', [], null, null);
+  expect(answer.rows).toHaveLength(1);
+  expect(Object.values(answer.rows[0] ?? {})).not.toContain('Shark Pt');
+  expect(Object.keys(answer.rows[0] ?? {}).filter((key) => /matched|alsoCalled/i.test(key))).toEqual([]);
 });
 
 // The half `findSiteTwins` writes to the device: each whole row, read the strict way sync reads a

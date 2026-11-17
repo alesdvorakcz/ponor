@@ -43,12 +43,20 @@ export const TWIN_CHECK_TIMEOUT_MS = 4_000;
  * `relation` is how the match relates to the site being made (`twinRelation`, #31) — the same name,
  * another name for it, or only similar — read off that same row, so the page words each finding as
  * what it is and folds no name itself.
+ *
+ * `alsoCalled` is the one fact here that is the server's and not the phone's row's: which of the
+ * site's other names a fuzzy server match came through (`similar_sites`' `matched_name`, the
+ * owner's call of 2026-11-17), so a guess can say why it is one — *Did you mean “Stone Gate” (also
+ * called Kamena vrata)?*. `null` for a match through the site's own name, a match only the device
+ * made, and a server that did not answer. The device's own finding on an other name is `relation`'s
+ * `otherName`, which has a sentence of its own.
  */
 export interface SiteTwin extends Suggestion {
   id: string;
   country: string | null;
   point: MapPoint | null;
   relation: TwinRelation;
+  alsoCalled: string | null;
 }
 
 /**
@@ -118,7 +126,8 @@ export type NewSiteDetails = Partial<
  * matches the phone already held.
  *
  * **Each match carries the phone's row's country, position and relation** (`SiteTwin`), from that
- * same read: the row a tap on it opens, and the one the dive is paired with.
+ * same read: the row a tap on it opens, and the one the dive is paired with — and the server's word
+ * on which other name it came through, by id, whichever list `nearMatches` kept it from.
  */
 export async function findSiteTwins(name: string, altNames: readonly string[], at: MapPoint | null): Promise<SiteTwin[]> {
   try {
@@ -139,13 +148,14 @@ export async function findSiteTwins(name: string, altNames: readonly string[], a
       }
     }
     const held = new Map(onPhone.map((site) => [site.id, site]));
-    const fromServer = (answer?.matches ?? []).filter((match) => match.id !== null && held.has(match.id));
+    const fromServer = (answer?.matches ?? []).filter((match) => held.has(match.id));
+    const alsoCalled = new Map(fromServer.map((match) => [match.id, match.alsoCalled]));
     return nearMatches(name, altNames, onDevice, fromServer).flatMap((match) => {
       const site = match.id === null ? undefined : held.get(match.id);
       if (site === undefined) return [];
       const country = site.country !== null && site.country !== '' ? site.country : null;
       const relation = twinRelation({ name, altNames }, site);
-      return [{ value: match.value, id: site.id, country, point: pointOf(site), relation }];
+      return [{ value: match.value, id: site.id, country, point: pointOf(site), relation, alsoCalled: alsoCalled.get(site.id) ?? null }];
     });
   } catch {
     return [];

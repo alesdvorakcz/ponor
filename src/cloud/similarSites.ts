@@ -67,6 +67,19 @@ interface SimilarSitesArgs {
 }
 
 /**
+ * **One near-match, as the server answered it** — the one tap's halves (a name to show, an id to
+ * pair), and `alsoCalled`: the site's other name the match came through, when it came through one
+ * (`matched_name`, #31, the owner's call of 2026-11-17), so the page can ask *Did you mean “Stone
+ * Gate” (also called Kamena vrata)?* rather than leave the diver to guess why *Kamena vrat* found
+ * *Stone Gate*. `null` when the match came through the site's own name, and for an answer from a
+ * server that does not say.
+ */
+export interface SimilarSite extends Suggestion {
+  id: string;
+  alsoCalled: string | null;
+}
+
+/**
  * **What the check answers: the one tap's halves, and the rows whole.** `matches` are read
  * loosely, as `candidateFrom` says. `rows` are the same answer read the strict way, through
  * `fromWireRow`, for one reason only: the create page pairs the dive with the match it taps, and
@@ -77,7 +90,7 @@ interface SimilarSitesArgs {
  * reader refuses is left out of `rows` alone; its match still stands for the caller to judge.
  */
 export interface SimilarSitesAnswer {
-  readonly matches: Suggestion[];
+  readonly matches: SimilarSite[];
   readonly rows: PulledSite[];
 }
 
@@ -110,8 +123,13 @@ function storableFrom(row: unknown): PulledSite | null {
  * §10 spent this milestone making impossible: a dive carrying one site's id under another's
  * name. Names are trimmed for the same reason the offer publishes a trimmed one (M2o) — the
  * dive's `site_name` snapshot and the row it points at should be one string.
+ *
+ * `matched_name` is read more loosely still, because it is only words on the page: a string that
+ * is not blank, trimmed, is the other name; anything else — absent, `null`, a number, a blank — is
+ * none, and the row stands as a plain *Did you mean …?*. A server from before the key never sends
+ * it, so its rows read exactly as they did.
  */
-function candidateFrom(row: unknown): Suggestion | null {
+function candidateFrom(row: unknown): SimilarSite | null {
   if (typeof row !== 'object' || row === null || Array.isArray(row)) return null;
   const fields = row as Record<string, unknown>;
   const id = fields.id;
@@ -120,7 +138,8 @@ function candidateFrom(row: unknown): Suggestion | null {
   if (typeof name !== 'string') return null;
   const value = name.trim();
   if (value === '') return null;
-  return { value, id };
+  const matched = typeof fields.matched_name === 'string' ? fields.matched_name.trim() : '';
+  return { value, id, alsoCalled: matched === '' ? null : matched };
 }
 
 /**
@@ -191,7 +210,7 @@ export async function similarSites(
   return {
     matches: response.data
       .map(candidateFrom)
-      .filter((candidate): candidate is Suggestion => candidate !== null),
+      .filter((candidate): candidate is SimilarSite => candidate !== null),
     rows: response.data.map(storableFrom).filter((row): row is PulledSite => row !== null),
   };
 }

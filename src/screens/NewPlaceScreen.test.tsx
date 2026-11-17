@@ -67,13 +67,15 @@ const pin = { latitude: 43.06, longitude: 16.18 };
 const diveAt: DiveContext = { pin, entry: ['boat'], salinity: 'salt', waterBody: 'ocean', siteId: null, diveId: null };
 const noDive: DiveContext = { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null };
 
-/** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless told. */
+/** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless
+ * told, and through the site's own name. */
 const twin = (value: string, id: string, over: Partial<SiteTwin> = {}): SiteTwin => ({
   value,
   id,
   country: null,
   point: null,
   relation: { kind: 'similar' },
+  alsoCalled: null,
   ...over,
 });
 
@@ -503,6 +505,30 @@ it('says “Kamena vrata” is another name for Stone Gate', async () => {
   expect(has(t, 'Save as a new site anyway')).toBe(true);
   await press(t, '“Kamena vrata” is another name for Stone Gate.');
   expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]', params: { id: 's-kamena', pick: 'tok' } });
+});
+
+// The owner's call of 2026-11-17: a guess that came through one of the site's other names says
+// which, so *Kamena vrat* typed is not left wondering why *Stone Gate* came up. A guess through the
+// site's own name still asks the plain question, and the device's exact finding on an other name
+// keeps its own sentence whatever the server said.
+it('says which other name a guess came through', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Kamena vrat' });
+  mockTwins.mockResolvedValue([
+    twin('Stone Gate', 's-stone', { alsoCalled: 'Kamena vrata' }),
+    twin('Lom Leština', 's-twin'),
+    twin('Silfra', 's-silfra', {
+      relation: { kind: 'otherName', alias: 'Kamena vrata', name: 'Silfra' },
+      alsoCalled: 'Kamena vrata',
+    }),
+  ]);
+  const t = await showSite();
+  await press(t, 'Save site');
+  expect(textIn(t)).toContain('Did you mean “Stone Gate” (also called Kamena vrata)?');
+  expect(textIn(t)).toContain('Did you mean “Lom Leština”?');
+  expect(textIn(t)).toContain('“Kamena vrata” is another name for Silfra.');
+  expect(textIn(t).join(' ')).not.toContain('Did you mean “Silfra”');
+  await press(t, 'Did you mean “Stone Gate” (also called Kamena vrata)?');
+  expect(router.push).toHaveBeenCalledWith({ pathname: '/site/[id]', params: { id: 's-stone', pick: 'tok' } });
 });
 
 // The question is asked about the row Save would write: its other names clean (`cleanAltNames`) —
@@ -1584,6 +1610,15 @@ describe('in Czech', () => {
     await type(t, 'Adresa', 'Otok Vis, Kut 12');
     await fireEvent(labelled(t, 'Adresa'), 'blur');
     expect(rowValue(t, 'Země')).toBe('HR · z adresy');
+  });
+
+  it('says which other name a guess came through in Czech', async () => {
+    mockParams.mockReturnValue({ token: 'tok', name: 'Kamena vrat' });
+    mockTwins.mockResolvedValue([twin('Stone Gate', 's-stone', { alsoCalled: 'Kamena vrata' }), twin('Lom Leština', 's-twin')]);
+    const t = await showSite();
+    await press(t, 'Uložit lokalitu');
+    expect(textIn(t)).toContain('Nemysleli jste „Stone Gate“ (také Kamena vrata)?');
+    expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
   });
 
   it('says another name in Czech', async () => {

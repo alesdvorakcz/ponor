@@ -104,8 +104,10 @@ type PlaceGroup = 'site' | 'otherNames' | 'contact' | 'services';
  * §2.3's answer, worded by how the match relates to the site being made (`match.relation`,
  * `twinRelation`'s — the page folds no name itself): the same name is not a question (*“Lom
  * Leštinka” is already a site.*), nor is another name for it (#31: *“Kamena vrata” is another name
- * for Stone Gate.*); anything else is *Did you mean …?*. Each is the one tap that opens the existing
- * row.
+ * for Stone Gate.*); anything else is *Did you mean …?* — and when the server says the guess came
+ * through one of the site's other names (`match.alsoCalled`), it names that one too, so *Kamena
+ * vrat* typed reads *Did you mean “Stone Gate” (also called Kamena vrata)?* (the owner's call,
+ * 2026-11-17). Each is the one tap that opens the existing row.
  */
 function matchSentence(match: SiteTwin): string {
   switch (match.relation.kind) {
@@ -114,7 +116,9 @@ function matchSentence(match: SiteTwin): string {
     case 'otherName':
       return t('newPlace.otherName', { alias: match.relation.alias, name: match.relation.name });
     case 'similar':
-      return t('form.didYouMean', { name: match.value });
+      return match.alsoCalled === null
+        ? t('form.didYouMean', { name: match.value })
+        : t('newPlace.didYouMeanAlsoCalled', { name: match.value, alias: match.alsoCalled });
   }
 }
 

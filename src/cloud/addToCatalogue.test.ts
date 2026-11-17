@@ -3,7 +3,7 @@ import { type Suggestion } from '../domain/suggest';
 import { type DiveSite } from '../domain/types';
 import { countryFor, countryForAddress } from '../platform/geocode';
 import { addCenter, addSite, findSiteTwins, TWIN_CHECK_TIMEOUT_MS } from './addToCatalogue';
-import { similarSites } from './similarSites';
+import { similarSites, type SimilarSite } from './similarSites';
 
 // The collaborators are mocked at the boundaries the form's own test mocks them at, for the same
 // reasons: `db` and the network are not this file's. What is asserted here is the orchestration —
@@ -46,8 +46,12 @@ function pulled(id: string, name: string): PulledSite {
   return { id, name } as unknown as PulledSite;
 }
 
+/** One of the server's matches — through the site's own name unless told otherwise. */
+type ServerMatch = Pick<SimilarSite, 'value' | 'id'> & Partial<Pick<SimilarSite, 'alsoCalled'>>;
+
 /** The server's answer: the matches, and the rows whole — every match storable unless told. */
-function answer(matches: Suggestion[], rows: PulledSite[] = matches.map((m) => pulled(m.id ?? '', m.value))) {
+function answer(found: ServerMatch[], rows: PulledSite[] = found.map((m) => pulled(m.id, m.value))) {
+  const matches: SimilarSite[] = found.map((m) => ({ alsoCalled: null, ...m }));
   return { matches, rows };
 }
 
@@ -154,9 +158,10 @@ describe('findSiteTwins', () => {
         country: 'CZ',
         point: { latitude: 49.75, longitude: 14.36 },
         relation: { kind: 'sameName' },
+        alsoCalled: null,
       },
       // An empty country is none, and half a position is no position.
-      { value: 'Kotelna 2', id: 's-far', country: null, point: null, relation: { kind: 'similar' } },
+      { value: 'Kotelna 2', id: 's-far', country: null, point: null, relation: { kind: 'similar' }, alsoCalled: null },
     ]);
   });
 
@@ -178,6 +183,7 @@ describe('findSiteTwins', () => {
         country: null,
         point: null,
         relation: { kind: 'otherName', alias: 'Kamena Vrata', name: 'Stone Gate' },
+        alsoCalled: null,
       },
     ]);
   });
@@ -207,6 +213,39 @@ describe('findSiteTwins', () => {
     expect(twins.map((twin) => [twin.id, twin.relation])).toEqual([
       ['s-kamena', { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' }],
     ]);
+  });
+
+  // The owner's call of 2026-11-17: a fuzzy server match that came through one of the site's other
+  // names carries that name to the page, which asks *Did you mean “Stone Gate” (also called Kamena
+  // vrata)?*. The server's word, by id — the relation is still the phone's row's, and a guess.
+  it('carries the other name the server says a match came through', async () => {
+    const stone = site('s-stone', 'Stone Gate', { altNames: ['Kamena vrata'] });
+    listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([stone, site('s-shark', 'Shark Point')]);
+    askServer.mockResolvedValue(
+      answer([
+        { value: 'Stone Gate', id: 's-stone', alsoCalled: 'Kamena vrata' },
+        { value: 'Shark Point', id: 's-shark' },
+      ]),
+    );
+
+    const twins = await findSiteTwins('Kamena vrat', [], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation, twin.alsoCalled])).toEqual([
+      ['s-stone', { kind: 'similar' }, 'Kamena vrata'],
+      ['s-shark', { kind: 'similar' }, null],
+    ]);
+  });
+
+  // `nearMatches` keeps the device's own finding where both lists name a site, so the server's word
+  // is looked up by id rather than read off whichever object survived.
+  it('carries the server’s other name to a match the device found too', async () => {
+    const stone = site('s-stone', 'Stone Gate', { altNames: ['Kamena vrata'] });
+    listSites.mockResolvedValue([stone]);
+    askServer.mockResolvedValue(answer([{ value: 'Stone Gate', id: 's-stone', alsoCalled: 'Kamena vrata' }]));
+
+    const twins = await findSiteTwins('Kamena vrata', [], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation.kind, twin.alsoCalled])).toEqual([['s-stone', 'otherName', 'Kamena vrata']]);
   });
 
   it('does not offer a server match whose row could not be stored, unless the phone already holds it', async () => {
