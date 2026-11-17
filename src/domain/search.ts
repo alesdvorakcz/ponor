@@ -181,10 +181,12 @@ export function browseCatalogue<
   // fail, which §10 declines. (`searchDives` above keeps its early return for a different
   // reason: it hands back the caller's own array, unfiltered, so a caller composing it with
   // `groupIntoTrips` gets the same reference.)
+  // The query is folded once, here, not once per row: the other names are read against the same
+  // `needle`, and only for a row whose own name missed.
   const matching = centers.filter((center) => {
     if (center === null || center === undefined) return false;
     const name = typeof center.name === 'string' ? center.name : '';
-    return foldForMatching(name).includes(needle) || alsoCalled(center, query) !== null;
+    return foldForMatching(name).includes(needle) || otherNameContaining(center.altNames, needle) !== null;
   });
 
   return matching.sort((a, b) => {
@@ -220,13 +222,28 @@ export function alsoCalled(
   const needle = foldForMatching(query);
   if (needle === '') return null;
   if (typeof place.name === 'string' && foldForMatching(place.name).includes(needle)) return null;
-  if (!Array.isArray(place.altNames)) return null;
-  for (const other of place.altNames as readonly unknown[]) {
-    if (typeof other !== 'string') continue;
-    const shown = other.trim();
-    if (shown !== '' && foldForMatching(shown).includes(needle)) return shown;
-  }
-  return null;
+  return otherNameContaining(place.altNames, needle);
+}
+
+/** The first of a list's other names whose fold contains `needle` — already folded, so a caller
+ * walking a whole catalogue folds the query once — as stored, trimmed; `null` for none. */
+function otherNameContaining(list: unknown, needle: string): string | null {
+  return altNamesIn(list).find((other) => foldForMatching(other).includes(needle)) ?? null;
+}
+
+/**
+ * **A place's other names as text** (#31): each trimmed, blanks dropped — and nothing at all from
+ * a list that is not one, or from a member that is not text, which a row from another client's
+ * build may hold (#31's review focus 1). The one reader of an `alt_names` list: search, the
+ * duplicate check (`twinRelation`), Save (`cleanAltNames`) and the site page (`formatAltNames`)
+ * all go through it, so none of them can disagree about what counts as a name.
+ */
+export function altNamesIn(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return (list as readonly unknown[]).flatMap((name) => {
+    const kept = typeof name === 'string' ? name.trim() : '';
+    return kept === '' ? [] : [kept];
+  });
 }
 
 /**
@@ -239,10 +256,9 @@ export function alsoCalled(
 export function cleanAltNames(name: string, altNames: readonly string[]): string[] {
   const seen = new Set<string>([foldForMatching(name)]);
   const kept: string[] = [];
-  for (const raw of altNames) {
-    const shown = raw.trim();
+  for (const shown of altNamesIn(altNames)) {
     const folded = foldForMatching(shown);
-    if (shown === '' || seen.has(folded)) continue;
+    if (seen.has(folded)) continue;
     seen.add(folded);
     kept.push(shown);
   }

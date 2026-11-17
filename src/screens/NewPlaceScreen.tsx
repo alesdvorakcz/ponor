@@ -46,7 +46,7 @@ import {
   NO_FIGURE,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
-import { displayNumber, parseAltitudeMetres, storedValueFor, unitLabel, type UnitSystem } from '../format/units';
+import { displayNumber, parseAltitudeMetres, storedValueFor, unitLabel } from '../format/units';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
@@ -61,11 +61,6 @@ export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
-
-/** What was typed in the Altitude row as stored metres — whole ones — or null for a blank or a non-number. */
-function altitudeMetres(text: string, units: UnitSystem): number | null {
-  return parseAltitudeMetres(text, units);
-}
 
 /** *from this dive* while a value is still the one the dive handed the page; nothing once it is not. */
 function fromDive<T>(value: T | null, dives: T | null | undefined): string | undefined {
@@ -345,7 +340,9 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const offeredText = altitudeOffer === null ? null : formatAltitude(altitudeOffer, units);
   const offerLabel = offeredText === null ? null : t('newPlace.useGpsAltitude', { value: offeredText });
   const offering =
-    kind === 'site' && offeredFigure !== null && altitudeMetres(altitude, units) !== altitudeMetres(offeredFigure, units);
+    kind === 'site' &&
+    offeredFigure !== null &&
+    parseAltitudeMetres(altitude, units) !== parseAltitudeMetres(offeredFigure, units);
   // A tap fills the row and the offer goes. Not while a save is out: what is saved is what is on screen.
   const takeAltitudeOffer = () => {
     if (inFlight.current || offeredFigure === null) return;
@@ -455,7 +452,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 suitableFor,
                 // Typed in the diver's units, stored in metres (§6): an imperial diver's 100 is 30.48 m.
                 maxDepthM: storedValueFor('depth', toFormNumber(depth), null, units),
-                altitudeM: altitudeMetres(altitude, units),
+                altitudeM: parseAltitudeMetres(altitude, units),
                 // Asked only while *Wreck* is a type, and so saved only then.
                 wreckName: wreck ? textOrNull(wreckName) : null,
                 wreckSunkYear: wreck && wreckYear !== '' ? Number(wreckYear) : null,

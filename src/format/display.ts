@@ -13,6 +13,7 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 import type { MapPoint, WaterTempRange } from '../domain/mapSites';
 // A value this time, and safe as one: `domain/geo.ts` imports nothing from the app but a type.
 import { distanceKm } from '../domain/geo';
+import { altNamesIn } from '../domain/search';
 // Types again, and for the same reason: `domain/placePicker.ts` reaches this module through
 // `logbookStats`, so only the shape of a picker row may come back.
 import type { PickerGroupKey, PickerRow, PlaceKind, Provenance } from '../domain/placePicker';
@@ -1962,14 +1963,10 @@ export function formatWreck(name: string | null, year: number | null): string | 
   return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
 }
 
-/** A site's other names on one line, e.g. "Teti wreck · Vrak Teti". Only non-blank strings are
- * read (a list from another client's build may hold anything), trimmed; `null` when none is left. */
+/** A site's other names on one line, e.g. "Teti wreck · Vrak Teti", read through `altNamesIn` (a
+ * list from another client's build may hold anything); `null` when none is left. */
 export function formatAltNames(names: readonly unknown[]): string | null {
-  if (!Array.isArray(names)) return null;
-  const clean = names
-    .filter((name): name is string => typeof name === 'string')
-    .map((name) => name.trim())
-    .filter((name) => name !== '');
+  const clean = altNamesIn(names);
   return clean.length === 0 ? null : clean.join(METADATA_SEPARATOR);
 }
 

@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { alsoCalled, browseCatalogue, cleanAltNames, foldForMatching, searchDives } from './search';
+import { alsoCalled, altNamesIn, browseCatalogue, cleanAltNames, foldForMatching, searchDives } from './search';
 
 describe('searchDives', () => {
   // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
@@ -290,6 +290,16 @@ describe('alsoCalled', () => {
 
   it('names the first other name that matches, in the order the list holds them', () => {
     expect(alsoCalled({ name: 'Vis', altNames: ['Stone Arch', 'Stone Gate'] }, 'stone')).toBe('Stone Arch');
+  });
+});
+
+// The one reader of an `alt_names` list, which search, the duplicate check, Save and the site page
+// share: a list from another client's build may hold anything (#31's review focus 1).
+describe('altNamesIn', () => {
+  it('keeps text trimmed, drops blanks and what is not text, and reads a non-list as no names', () => {
+    expect(altNamesIn([' Stone Gate ', '', '   ', 7, null, 'Vrata'])).toEqual(['Stone Gate', 'Vrata']);
+    expect(altNamesIn(null)).toEqual([]);
+    expect(altNamesIn('Stone Gate')).toEqual([]);
   });
 });
 

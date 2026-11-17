@@ -898,7 +898,7 @@ export const cs = {
       anyThatApply: 'lze vybrat více',
       addName: '+ Přidat název',
       addNameLabel: 'Přidat další název',
-      siteHint: 'vstup, typ, hloubka, výška',
+      siteHint: 'voda, vstup, typ, hloubka',
       altNamesHint: 'jak se jí ještě říká',
       contactHint: 'web, telefon, e-mail, hodiny',
       servicesHint: 'služby, agentury',

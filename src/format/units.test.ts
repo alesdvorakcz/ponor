@@ -236,6 +236,8 @@ describe('parseAltitudeMetres', () => {
     ['12,500', 'imperial', 3810],
     ['-430', 'metric', -430],
     ['\u2212430', 'metric', -430],
+    // A leading `+` says "above sea level" out loud, as `toFormNumber` reads it on the dive form.
+    ['+300', 'metric', 300],
     ['312.6', 'metric', 313],
     ['312,6', 'metric', 313],
     ['  250 ', 'metric', 250],
@@ -243,7 +245,7 @@ describe('parseAltitudeMetres', () => {
     expect(parseAltitudeMetres(text, system)).toBe(metres);
   });
 
-  it.each(['abc', '', '   ', '1,2,3', '1,2345', '-', '1.2.3'])('reads %j as no number', (text) => {
+  it.each(['abc', '', '   ', '1,2,3', '1,2345', '-', '+', '+-5', '1.2.3'])('reads %j as no number', (text) => {
     expect(parseAltitudeMetres(text, 'metric')).toBeNull();
   });
 });

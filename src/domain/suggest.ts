@@ -1,6 +1,6 @@
 import { compareDiveOrder } from './diveNumber';
 import { logbookStats, sitesVisited } from './logbookStats';
-import { foldForMatching } from './search';
+import { altNamesIn, foldForMatching } from './search';
 import { type Dive, type DiveSite } from './types';
 
 /**
@@ -339,16 +339,6 @@ export type TwinRelation =
   | { kind: 'otherName'; alias: string; name: string }
   | { kind: 'similar' };
 
-/** A list's names as text, trimmed, blanks dropped — and nothing at all from a list that is not
- * one, or from a member that is not text (a row from another client's build: #31's review focus 1). */
-function namesIn(list: unknown): string[] {
-  if (!Array.isArray(list)) return [];
-  return (list as readonly unknown[]).flatMap((name) => {
-    const kept = typeof name === 'string' ? name.trim() : '';
-    return kept === '' ? [] : [kept];
-  });
-}
-
 /**
  * **What a catalogue row is to the site being made, by folded equality** (#31, *the duplicate check,
  * both ways*), asked in this order:
@@ -366,7 +356,7 @@ function namesIn(list: unknown): string[] {
  * The fold is `foldForMatching`, so this is the device's exact check (`nearMatches`, below) and
  * never a fuzzy one; names are quoted trimmed, as stored. A blank on either side names nothing, so it
  * relates as `similar`. Read during a gesture over rows the database handed back, so it never throws
- * on one: a name that is not text is no name, and other names are read through `namesIn`.
+ * on one: a name that is not text is no name, and other names are read through `altNamesIn` (search.ts).
  */
 export function twinRelation(
   proposed: { name: string; altNames: readonly string[] },
@@ -379,9 +369,9 @@ export function twinRelation(
   if (wanted === '' || siteFolded === '') return { kind: 'similar' };
 
   if (siteFolded === wanted) return { kind: 'sameName' };
-  const alias = namesIn(site.altNames).find((other) => foldForMatching(other) === wanted);
+  const alias = altNamesIn(site.altNames).find((other) => foldForMatching(other) === wanted);
   if (alias !== undefined) return { kind: 'otherName', alias, name: siteName };
-  if (namesIn(proposed.altNames).some((other) => foldForMatching(other) === siteFolded)) {
+  if (altNamesIn(proposed.altNames).some((other) => foldForMatching(other) === siteFolded)) {
     return { kind: 'otherName', alias: siteName, name };
   }
   return { kind: 'similar' };
