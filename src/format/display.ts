@@ -190,6 +190,17 @@ export function formatDepth(metres: number | null, system: UnitSystem): string |
 }
 
 /**
+ * A site's altitude as one string, e.g. `313 m` or `1027 ft` — whole units, signed below sea
+ * level, and `null` when nothing is recorded. Not `formatDepth`: an altitude is no depth, so it
+ * refuses no negative and reads to no decimal, and it takes no band colour (§0.1).
+ */
+export function formatAltitude(metres: number | null, system: UnitSystem): string | null {
+  if (!isFiniteNumber(metres)) return null;
+  const { value, unit } = displayFigure('altitude', metres, system);
+  return `${value} ${unit}`;
+}
+
+/**
  * One band of the depth scale as its label on the first-run legend — `"0–6"`, `"12–20"`,
  * `"40+ m"` in metric; `"0–20"`, `"39–66"`, `"131+ ft"` in imperial.
  *

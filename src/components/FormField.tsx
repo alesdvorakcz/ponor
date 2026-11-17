@@ -56,8 +56,17 @@ export interface FormFieldProps {
    * `'email-address'` is M2e's, for the account screen's one address row: a keyboard with
    * `@` and `.` on it and no space bar to walk into the middle of an address. `'url'` is the
    * same for the *New dive centre* page's *Website* (issue #19): `/` and `.` on the keys.
+   * `'numbers-and-punctuation'` is a site's *Altitude* (issue #31): digits with a minus sign on
+   * iOS, which `'decimal-pad'` lacks, for a place below sea level.
    */
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'phone-pad' | 'email-address' | 'url';
+  keyboardType?:
+    | 'default'
+    | 'decimal-pad'
+    | 'number-pad'
+    | 'phone-pad'
+    | 'email-address'
+    | 'url'
+    | 'numbers-and-punctuation';
   multiline?: boolean;
   /**
    * Masks what is typed — the account screen's password rows (signing in or up, and the new

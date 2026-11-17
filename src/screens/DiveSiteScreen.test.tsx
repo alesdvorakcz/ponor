@@ -663,6 +663,7 @@ const teti = (over: Partial<DiveSite> = {}) =>
     siteTypes: ['wreck', 'wall'],
     suitableFor: 'advanced',
     maxDepthM: 34,
+    altitudeM: 312.6,
     wreckName: 'Teti',
     wreckSunkYear: 1930,
     altNames: ['Teti wreck'],
@@ -686,11 +687,11 @@ it('puts the description under the page’s own lines and above the map card', a
 it('shows the site’s facts in the canvas’s order, each only when filled', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
   const lines = textIn(await show());
-  const labels = ['Site type', 'Suitable for', 'Site depth', 'Wreck', 'Other names', 'Country'];
+  const labels = ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Other names', 'Country'];
   const at = labels.map((label) => lines.indexOf(label));
   expect(at.every((i) => i >= 0)).toBe(true);
   expect(at).toEqual([...at].sort((a, b) => a - b));
-  for (const value of ['Wreck · Wall', 'Advanced', '34.0 m', 'Teti · sunk 1930', 'Teti wreck', 'HR']) {
+  for (const value of ['Wreck · Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Teti wreck', 'HR']) {
     expect(lines).toContain(value);
   }
 });
@@ -700,9 +701,28 @@ it('draws only the facts the site has', async () => {
   const lines = textIn(await show());
   expect(lines).toContain('Wreck');
   expect(lines).toContain('sunk 1930');
-  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Other names', 'Country']) {
+  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Other names', 'Country']) {
     expect(lines).not.toContain(label);
   }
+});
+
+it('shows an altitude in the diver’s unit, signed below sea level, and in ink like the depth', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ altitudeM: -430 })]));
+  const t = await show();
+  expect(textIn(t)).toContain('-1411 ft');
+  const value = allNodes(t).find((n) => n.type === 'Text' && n.children[0] === '-1411 ft');
+  const depth = allNodes(t).find((n) => n.type === 'Text' && n.children[0] === '112 ft');
+  // No band colour: it is drawn exactly as the site depth beside it is.
+  expect(value).toBeDefined();
+  expect(value?.props.style).toEqual(depth?.props.style);
+});
+
+it('shows an altitude of sea level, which is an answer and not an absence', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ altitudeM: 0 })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Altitude');
+  expect(lines).toContain('0 m');
 });
 
 it('shows a type this build does not know as a word', async () => {

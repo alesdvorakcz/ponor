@@ -91,7 +91,7 @@ const SI_SYSTEM: UnitSystem = 'metric';
  * `gasVolume` would render an 11.1 L cylinder as a 0.4 cu ft one, which is the exact confusion
  * this module's top docblock spends a paragraph keeping apart.
  */
-export type Quantity = 'depth' | 'pressure' | 'temperature' | 'weight' | 'gasVolume' | 'gasRate';
+export type Quantity = 'depth' | 'altitude' | 'pressure' | 'temperature' | 'weight' | 'gasVolume' | 'gasRate';
 
 /**
  * Exact defining constants, not rounded factors, so the arithmetic is as good as the
@@ -189,6 +189,18 @@ const identity = (value: number): number => value;
 const SPECS: Record<Quantity, Record<UnitSystem, UnitSpec>> = {
   depth: {
     metric: { unit: 'm', decimals: 1, fromSi: identity, toSi: identity },
+    imperial: {
+      unit: 'ft',
+      decimals: 0,
+      fromSi: (m) => m / METRES_PER_FOOT,
+      toSi: (ft) => ft * METRES_PER_FOOT,
+    },
+  },
+  // Not a depth (#31): a site's height above sea level is read to the whole metre or foot, and
+  // below sea level is a real answer — so it takes the same two words and none of `depth`'s
+  // one-decimal metric reading or its refusal of a negative.
+  altitude: {
+    metric: { unit: 'm', decimals: 0, fromSi: identity, toSi: identity },
     imperial: {
       unit: 'ft',
       decimals: 0,

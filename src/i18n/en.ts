@@ -661,6 +661,8 @@ export const en = {
       /** **"Site depth", never "Depth"** — §6's own parenthesis, and a site's page shows the
        * rock's depth beside the diver's deepest dive there. */
       siteDepth: 'Site depth',
+      /** A site's height above sea level (#31) — not a depth, and so named apart from one. */
+      altitude: 'Altitude',
       status: 'Status',
       timeIn: 'Time in',
       timeOut: 'Time out',

@@ -25,6 +25,11 @@ describe('unitLabel', () => {
     expect(unitLabel('weight', 'imperial')).toBe('lb');
   });
 
+  it('gives an altitude the metre and the foot, as a depth has them', () => {
+    expect(unitLabel('altitude', 'metric')).toBe('m');
+    expect(unitLabel('altitude', 'imperial')).toBe('ft');
+  });
+
   // The fifth and sixth, added in M3 for the two figures `domain/derived.ts` computes. The rate
   // is the volume's own word with `/min` after it in both systems, which is what stops `l` and
   // `cu ft` from being spelled one way in a gas total and another in an RMV.
@@ -205,6 +210,18 @@ describe('displayValueFor and storedValueFor are inverses over an untouched fiel
   it('hands a metric diver the raw stored value rather than a rounded one', () => {
     expect(displayValueFor('depth', 24.63, 'metric')).toBe(24.63);
     expect(displayValueFor('depth', 24.63, 'imperial')).toBe(81);
+  });
+});
+
+describe('an altitude as a quantity of its own', () => {
+  it('is whole units in both systems and keeps its sign', () => {
+    expect(displayFigure('altitude', 312.6, 'metric')).toEqual({ value: '313', unit: 'm' });
+    expect(displayFigure('altitude', -430, 'imperial')).toEqual({ value: '-1411', unit: 'ft' });
+  });
+
+  it('reads back in metres from what an imperial diver typed', () => {
+    expect(storedValueFor('altitude', 1027, null, 'imperial')).toBeCloseTo(313.03, 2);
+    expect(storedValueFor('altitude', 313, null, 'metric')).toBe(313);
   });
 });
 

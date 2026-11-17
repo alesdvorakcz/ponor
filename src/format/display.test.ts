@@ -34,6 +34,7 @@ import {
   formatCylinders,
   HE_LABEL,
   O2_LABEL,
+  formatAltitude,
   formatDepth,
   formatDepthBandRange,
   formatDepthParts,
@@ -95,6 +96,25 @@ import {
 import { UNIT_SYSTEMS } from './units';
 import { setActiveLanguage } from '../i18n';
 import { type PickerRow } from '../domain/placePicker';
+
+describe('formatAltitude', () => {
+  // An altitude is not a depth (#31): it reads to the whole metre in both systems, and below sea
+  // level is a real answer where a negative depth is not.
+  it('reads to the whole metre, or the whole foot', () => {
+    expect(formatAltitude(312.6, 'metric')).toBe('313 m');
+    expect(formatAltitude(313, 'imperial')).toBe('1027 ft');
+  });
+  it('keeps a site below sea level signed', () => {
+    expect(formatAltitude(-430, 'metric')).toBe('-430 m');
+  });
+  it('shows sea level as 0, never as -0', () => {
+    expect(formatAltitude(-0.2, 'metric')).toBe('0 m');
+  });
+  it('returns null for nothing recorded and for what is not a number', () => {
+    expect(formatAltitude(null, 'metric')).toBeNull();
+    expect(formatAltitude(Number.NaN, 'metric')).toBeNull();
+  });
+});
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {

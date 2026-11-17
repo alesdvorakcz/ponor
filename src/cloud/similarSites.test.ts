@@ -43,6 +43,7 @@ const SHARK_POINT = {
   description: null,
   wreck_name: null,
   wreck_sunk_year: null,
+  altitude_m: null,
   created_by: 'someone',
   status: 'active',
   merged_into: null,

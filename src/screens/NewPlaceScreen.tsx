@@ -45,7 +45,7 @@ import {
   NO_FIGURE,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
-import { storedValueFor, unitLabel } from '../format/units';
+import { displayNumber, storedValueFor, unitLabel, type UnitSystem } from '../format/units';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
@@ -60,6 +60,13 @@ export const CURRENT_POSITION_GLYPH: PlatformSymbol = { ios: 'location', android
 
 /** Where the new place is, and whose answer that is: the dive's own pin, or the phone's, asked for. */
 type Position = MapPoint & { from: 'dive' | 'phone' };
+
+/** What was typed in the Altitude row as stored metres — whole ones — or null for a blank or a non-number. */
+function altitudeMetres(text: string, units: UnitSystem): number | null {
+  const entered = toFormNumber(text);
+  const metres = storedValueFor('altitude', entered, null, units);
+  return metres === null ? null : Math.round(metres);
+}
 
 /** *from this dive* while a value is still the one the dive handed the page; nothing once it is not. */
 function fromDive<T>(value: T | null, dives: T | null | undefined): string | undefined {
@@ -213,6 +220,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const [siteTypes, setSiteTypes] = useState<SiteType[]>([]);
   const [suitableFor, setSuitableFor] = useState<SuitableFor | null>(null);
   const [depth, setDepth] = useState('');
+  // Typed in the diver's units, or filled from a GPS fix; stored as whole metres.
+  const [altitude, setAltitude] = useState('');
   const [wreckName, setWreckName] = useState('');
   const [wreckYear, setWreckYear] = useState('');
   // One empty row to type into; *+ Add a name* appends another. Rows are never removed or
@@ -361,6 +370,13 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     setLocating(false);
     if (outcome.found) {
       setPosition({ latitude: outcome.latitude, longitude: outcome.longitude, from: 'phone' });
+      // The fix's altitude, when it carried one, replaces what the field held (each press that
+      // yields one does); none leaves the field as it was. Shown in the diver's unit, to the whole
+      // figure, and the group opens so a value Save will write is never out of sight.
+      if (kind === 'site' && outcome.altitude !== undefined) {
+        setAltitude(String(displayNumber('altitude', outcome.altitude, units)));
+        setOpened((current) => ({ ...current, site: true }));
+      }
       // A standing question was asked around the old position (`similar_sites` is narrowed by it).
       setMatches([]);
     } else {
@@ -417,6 +433,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 suitableFor,
                 // Typed in the diver's units, stored in metres (§6): an imperial diver's 100 is 30.48 m.
                 maxDepthM: storedValueFor('depth', toFormNumber(depth), null, units),
+                altitudeM: altitudeMetres(altitude, units),
                 // Asked only while *Wreck* is a type, and so saved only then.
                 wreckName: wreck ? textOrNull(wreckName) : null,
                 wreckSunkYear: wreck && wreckYear !== '' ? Number(wreckYear) : null,
@@ -621,6 +638,18 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 keyboardType="decimal-pad"
                 mono
                 unit={unitLabel('depth', units)}
+                editable={!saving}
+              />
+              {/* A height above sea level, never a depth: typed or filled from the fix, in the diver's
+                  units, below sea level allowed (so the minus is on the keypad). */}
+              <FormField
+                label={t('field.altitude')}
+                value={altitude}
+                onChange={setAltitude}
+                scheme={scheme}
+                keyboardType="numbers-and-punctuation"
+                mono
+                unit={unitLabel('altitude', units)}
                 editable={!saving}
               />
               {wreck && (

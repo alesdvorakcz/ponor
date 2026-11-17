@@ -537,6 +537,7 @@ export const cs = {
       altName: 'Jiný název',
       altNames: 'Jiné názvy',
       siteDepth: 'Hloubka lokality',
+      altitude: 'Nadmořská výška',
       status: 'Stav',
       /** *Čas vstupu* / *Čas výstupu*, agreeing with `field.entry` above — the water is what a
        * diver goes into and comes out of, and *Začátek* / *Konec* would name the clock instead. */

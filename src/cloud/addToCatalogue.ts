@@ -79,7 +79,7 @@ export interface NewCenterInput {
  * a dive (§2.1), and none of these is one. So `addSite` takes the two together.
  */
 export type NewSiteDetails = Partial<
-  Pick<DiveSite, 'description' | 'siteTypes' | 'suitableFor' | 'maxDepthM' | 'wreckName' | 'wreckSunkYear' | 'altNames'>
+  Pick<DiveSite, 'description' | 'siteTypes' | 'suitableFor' | 'maxDepthM' | 'altitudeM' | 'wreckName' | 'wreckSunkYear' | 'altNames'>
 >;
 
 /**

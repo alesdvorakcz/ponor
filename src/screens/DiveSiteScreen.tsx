@@ -18,6 +18,7 @@ import { type DiveSite, type Salinity, type WaterBody } from '../domain/types';
 import {
   formatAltNames,
   formatCoordinates,
+  formatAltitude,
   formatDepth,
   formatPlaceToken,
   formatPlaceTokens,
@@ -379,6 +380,8 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
     // of them unlabelled is the confusion §2.3 refuses to create in the other direction when it
     // declines to seed this column from a dive. Ink, as the page has always drawn it (§0.1).
     { label: t('field.siteDepth'), value: formatDepth(site.maxDepthM, units) },
+    // A height above sea level, not a depth: whole units, signed, ink — no band colour (§0.1).
+    { label: t('field.altitude'), value: formatAltitude(site.altitudeM, units) },
     { label: t('field.wreck'), value: formatWreck(site.wreckName, site.wreckSunkYear) },
     // Several ways in — a fact, not a default (`waysIn`); one way in stands under *Site defaults*.
     { label: t('field.entry'), value: waysIn(site) },

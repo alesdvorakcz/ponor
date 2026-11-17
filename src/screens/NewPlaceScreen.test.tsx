@@ -216,6 +216,7 @@ const NO_SITE_DETAILS = {
   siteTypes: [],
   suitableFor: null,
   maxDepthM: null,
+  altitudeM: null,
   wreckName: null,
   wreckSunkYear: null,
   altNames: [],
@@ -937,6 +938,7 @@ it('says optional on every optional text field of a site, and shows the unit on 
   expect(labelled(t, 'Year sunk').props.placeholder).toBe('optional');
   expect(inputsLabelled(t, 'Other name').map((n) => n.props.placeholder)).toEqual(['optional']);
   expect(labelled(t, 'Site depth').props.placeholder).toBeUndefined();
+  expect(labelled(t, 'Altitude').props.placeholder).toBeUndefined();
 });
 
 it('says optional on every optional text field of a centre', async () => {
@@ -1042,6 +1044,7 @@ it('saves every new fact of a site', async () => {
       siteTypes: ['wreck', 'wall'],
       suitableFor: 'advanced',
       maxDepthM: 34,
+      altitudeM: null,
       wreckName: 'Teti',
       wreckSunkYear: 1930,
       altNames: ['Teti wreck'],
@@ -1062,6 +1065,102 @@ it('stores a site depth typed in feet as metres', async () => {
   await type(t, 'Site depth', '100');
   await press(t, 'Save site');
   expect(mockAddSite.mock.calls[0]?.[0].maxDepthM).toBeCloseTo(30.48, 2);
+});
+
+// --- Altitude (#31) -----------------------------------------------------------------------------
+
+it('asks for a site’s altitude after its depth, in the diver’s unit, optional and a figure', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  expect(rowValue(t, 'Altitude')).toBe('m');
+  expect(labelled(t, 'Altitude').props.value).toBe('');
+  // A minus sign on the keypad: below sea level is a place.
+  expect(labelled(t, 'Altitude').props.keyboardType).toBe('numbers-and-punctuation');
+  expect(stylesOf(labelled(t, 'Altitude'))).toContain(styles.formFieldInputMono);
+  const labels = textIn(t);
+  expect(labels.indexOf('Altitude')).toBeGreaterThan(labels.indexOf('Site depth'));
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBeNull();
+});
+
+it('saves an altitude below sea level', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  await type(t, 'Altitude', '-430');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(-430);
+});
+
+it('stores an altitude typed in feet as whole metres', async () => {
+  mockUnits.mockReturnValue('imperial');
+  const t = await showSite();
+  await expand(t, 'The site');
+  expect(rowValue(t, 'Altitude')).toBe('ft');
+  await type(t, 'Altitude', '1000');
+  await press(t, 'Save site');
+  // 304.8 m, to the metre.
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(305);
+});
+
+it('fills the altitude from the fix when Use current position is pressed, and saves it rounded', async () => {
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+  const t = await showSite();
+  await press(t, 'Use current position');
+  expect(labelled(t, 'Altitude').props.value).toBe('313');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(313);
+});
+
+it('shows the fix’s altitude in feet to an imperial diver, and still saves whole metres', async () => {
+  mockUnits.mockReturnValue('imperial');
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+  const t = await showSite();
+  await press(t, 'Use current position');
+  expect(labelled(t, 'Altitude').props.value).toBe('1026');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(313);
+});
+
+it('opens The site when the fix fills the altitude, so a value it will save is never hidden', async () => {
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+  const t = await showSite();
+  expect(has(t, 'Altitude')).toBe(false);
+  await press(t, 'Use current position');
+  expect(has(t, 'Altitude')).toBe(true);
+});
+
+it('leaves the altitude as it was when the fix carries none', async () => {
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+  const t = await showSite();
+  await expand(t, 'The site');
+  await type(t, 'Altitude', '250');
+  await press(t, 'Use current position');
+  expect(labelled(t, 'Altitude').props.value).toBe('250');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(250);
+});
+
+it('lets the diver type over a filled altitude, and a later fix overwrites it', async () => {
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+  const t = await showSite();
+  await press(t, 'Use current position');
+  await type(t, 'Altitude', '320');
+  expect(labelled(t, 'Altitude').props.value).toBe('320');
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 100.2 });
+  await press(t, 'Use current position');
+  expect(labelled(t, 'Altitude').props.value).toBe('100');
+  await type(t, 'Altitude', '321');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(321);
+});
+
+it('sets no altitude from a pin the dive handed over', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const t = await showSite();
+  // The dive's salinity, water body and entry open the group already.
+  expect(labelled(t, 'Altitude').props.value).toBe('');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBeNull();
 });
 
 it('forgets the wreck’s name and year once Wreck is taken off', async () => {
@@ -1198,7 +1297,7 @@ it('holds the new fields still while saving', async () => {
   await press(site, 'Site type: Wreck');
   await expand(site, 'Other names');
   await press(site, 'Save site');
-  for (const field of ['Description', 'Site depth', 'Wreck name', 'Year sunk', 'Other name']) {
+  for (const field of ['Description', 'Site depth', 'Altitude', 'Wreck name', 'Year sunk', 'Other name']) {
     expect([field, labelled(site, field).props.editable]).toEqual([field, false]);
   }
   for (const control of ['Site type: Reef', 'Suitable for: Advanced', 'Add another name']) {

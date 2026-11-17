@@ -38,7 +38,14 @@ export type PositionRefusal = (typeof POSITION_REFUSALS)[number];
  * or neither, and `formatCoordinates` already refuses to draw half of one.
  */
 export type PositionOutcome =
-  | { readonly found: true; readonly latitude: number; readonly longitude: number }
+  | {
+      readonly found: true;
+      readonly latitude: number;
+      readonly longitude: number;
+      /** Metres above sea level, when the fix carried a real figure (§6, #31). Absent otherwise —
+       * and from `roughPosition`, which sorts a list and stores nothing. */
+      readonly altitude?: number;
+    }
   | { readonly found: false; readonly reason: PositionRefusal };
 
 /**
@@ -139,7 +146,7 @@ export async function currentPosition(): Promise<PositionOutcome> {
     if (refused) return refused;
     const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }), POSITION_TIMEOUT_MS);
     if (fix === null) return { found: false, reason: 'timedOut' };
-    const { latitude, longitude, accuracy } = fix.coords;
+    const { latitude, longitude, accuracy, altitude } = fix.coords;
     // A pair that is not two numbers is not a point. It should be unreachable — the native
     // side types both as `number` — but this value is about to be written to a dive and read
     // back as a place, and catching it in `formatCoordinates` at the far end would leave a
@@ -148,7 +155,11 @@ export async function currentPosition(): Promise<PositionOutcome> {
     if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > COARSEST_USABLE_FIX_M) {
       return { found: false, reason: 'imprecise' };
     }
-    return { found: true, latitude, longitude };
+    // The altitude rides on the same fix rather than a second call, and only as a real number:
+    // the device reports `null` where it has none, and a `NaN` must not reach a form field.
+    return typeof altitude === 'number' && Number.isFinite(altitude)
+      ? { found: true, latitude, longitude, altitude }
+      : { found: true, latitude, longitude };
   } catch {
     // `getCurrentPositionAsync` is the one call left that can reject here — the permission
     // module answers `unknown` rather than throwing — and a receiver that gives up means the
