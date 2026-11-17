@@ -170,10 +170,11 @@ export async function currentPosition(os: typeof Platform.OS = Platform.OS): Pro
     // The altitude rides on the same fix rather than a second call, and only when it is trustworthy
     // as a site's height above sea level. iOS's `CLLocation.altitude` is above mean sea level;
     // expo-location on Android passes height above the WGS 84 ellipsoid (about +45 m on the
-    // Adriatic), so Android never offers it and the diver types it. And only with a vouched-for
-    // vertical accuracy, 0 < accuracy <= 50 m: iOS reports an altitude it cannot measure (the
-    // simulator's flat 0) with a negative accuracy, and a mountain lake is not at sea level because
-    // a receiver shrugged. A real 0 with a real accuracy is sea level, and is kept.
+    // Adriatic), so Android never offers it and the diver types it (#64 would convert it). And
+    // only with a vouched-for vertical accuracy, 0 < accuracy <= 50 m: iOS reports an altitude it
+    // cannot measure (the simulator's flat 0) with a negative accuracy, and a mountain lake is not
+    // at sea level because a receiver shrugged. A real 0 with a real accuracy is sea level, and is
+    // kept.
     return os === 'ios' &&
       typeof altitude === 'number' &&
       Number.isFinite(altitude) &&
