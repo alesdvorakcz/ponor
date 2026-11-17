@@ -925,6 +925,28 @@ it('keeps a group closed while it holds nothing, saying what it holds', async ()
   expect(has(centre, 'Services: Air')).toBe(false);
 });
 
+// The canvas rule (§0.6): an optional text field with no unit says `optional`, never a blank that
+// looks like it forgot something; one with a unit shows the unit instead.
+it('says optional on every optional text field of a site, and shows the unit on the depth', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  await press(t, 'Site type: Wreck');
+  await expand(t, 'Other names');
+  expect(labelled(t, 'Wreck name').props.placeholder).toBe('optional');
+  expect(labelled(t, 'Year sunk').props.placeholder).toBe('optional');
+  expect(inputsLabelled(t, 'Other name').map((n) => n.props.placeholder)).toEqual(['optional']);
+  expect(labelled(t, 'Site depth').props.placeholder).toBeUndefined();
+});
+
+it('says optional on every optional text field of a centre', async () => {
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const t = await showCenter();
+  await expand(t, 'Contact');
+  for (const label of ['Website', 'Phone', 'Email', 'Opening hours']) {
+    expect(labelled(t, label).props.placeholder).toBe('optional');
+  }
+});
+
 it('asks the wreck’s name and year only while Wreck is a type', async () => {
   const t = await showSite();
   await expand(t, 'The site');

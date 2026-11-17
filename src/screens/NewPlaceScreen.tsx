@@ -618,6 +618,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                     value={wreckName}
                     onChange={setWreckName}
                     scheme={scheme}
+                    placeholder={t('newPlace.optional')}
                     autoCapitalize="sentences"
                     autoCorrect={false}
                     spellCheck={false}
@@ -628,6 +629,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                     value={wreckYear}
                     onChange={takeYear}
                     scheme={scheme}
+                    placeholder={t('newPlace.optional')}
                     keyboardType="number-pad"
                     mono
                     editable={!saving}
@@ -644,6 +646,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                   value={other}
                   onChange={(text) => retypeAltName(index, text)}
                   scheme={scheme}
+                  placeholder={t('newPlace.optional')}
                   autoCapitalize="sentences"
                   autoCorrect={false}
                   spellCheck={false}
@@ -689,6 +692,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 value={phone}
                 onChange={setPhone}
                 scheme={scheme}
+                placeholder={t('newPlace.optional')}
                 keyboardType="phone-pad"
                 {...NOT_THE_DIVERS}
                 editable={!saving}
@@ -698,6 +702,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 value={email}
                 onChange={setEmail}
                 scheme={scheme}
+                placeholder={t('newPlace.optional')}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -710,6 +715,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 value={openingHours}
                 onChange={setOpeningHours}
                 scheme={scheme}
+                placeholder={t('newPlace.optional')}
                 editable={!saving}
               />
             </FormGroup>
