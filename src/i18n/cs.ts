@@ -886,7 +886,7 @@ export const cs = {
       saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
       sameName: 'Lokalita „{{name}}“ už existuje.',
       otherName: '„{{alias}}“ je jiný název pro {{name}}.',
-      didYouMeanAlsoCalled: 'Nemysleli jste „{{name}}“ (také {{alias}})?',
+      didYouMeanAlsoCalled: 'Nemysleli jste „{{name}}“ (jiným názvem {{alias}})?',
       away: '{{distance}} odtud',
       everyoneCanRead: 'uvidí ho všichni',
       anyThatApply: 'lze vybrat více',

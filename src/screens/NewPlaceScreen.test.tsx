@@ -1617,7 +1617,7 @@ describe('in Czech', () => {
     mockTwins.mockResolvedValue([twin('Stone Gate', 's-stone', { alsoCalled: 'Kamena vrata' }), twin('Lom Leština', 's-twin')]);
     const t = await showSite();
     await press(t, 'Uložit lokalitu');
-    expect(textIn(t)).toContain('Nemysleli jste „Stone Gate“ (také Kamena vrata)?');
+    expect(textIn(t)).toContain('Nemysleli jste „Stone Gate“ (jiným názvem Kamena vrata)?');
     expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
   });
 
