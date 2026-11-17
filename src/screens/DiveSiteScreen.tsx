@@ -16,12 +16,16 @@ import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaul
 import { divesAtSite } from '../domain/siteDives';
 import { type DiveSite } from '../domain/types';
 import {
+  formatAltNames,
   formatCoordinates,
   formatDepth,
   formatEntry,
+  formatPlaceTokens,
   formatSalinity,
   formatSiteSummary,
+  formatSuitableFor,
   formatWaterBody,
+  formatWreck,
   unnamedSite,
 } from '../format/display';
 import { t, useT } from '../i18n';
@@ -255,6 +259,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
 
   const point = pointOf(site);
   const coordinates = formatCoordinates(site.latitude, site.longitude);
+  const description = site.description !== null && site.description.trim() !== '' ? site.description : null;
 
   const header = (
     <View>
@@ -264,7 +269,11 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence five other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.siteSummary}>{logbookUnreadable()}</Text>}
-      {/* **"Show on map"** (issue #21) — the dive detail's card, under the page's own lines where the
+      {/* The description (#31) comes first, under the page's own lines: what a diver opened the
+          page to read. Only when it says something; its newlines are the author's and nothing
+          cuts it short. */}
+      {description !== null && <Text style={styles.siteDescription}>{description}</Text>}
+      {/* **"Show on map"** (issue #21) — the dive detail's card, under the description where the
           design canvas draws it, and only for a site with a position a map can show (`pointOf`).
           It opens Ponor's map pointed at this site (`platform/showOnMap.ts`), selecting the diver's own mark where they have dived it — that is the mark
           standing there (`domain/mapFocus.ts`). */}
@@ -329,7 +338,8 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
 /**
  * **What the catalogue knows, in two clusters, and the split is the point.**
  *
- * *Site* holds the facts that describe the place — its country and its own depth. *Site defaults*
+ * *The site* holds the facts that describe the place — its type, the level it suits, its own
+ * depth, its wreck, its other names and its country (#31), each only when filled. *Site defaults*
  * holds §2.1's three, which are the ones that will **do something**: picking this site on a new
  * dive writes them into it, over anything carried from the diver's last dive. A page that listed
  * all five together would be showing a diver a rule they cannot see and cannot predict, on the one
@@ -345,7 +355,19 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
  */
 function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem; styles: Styles }) {
   const country = site.country !== null && site.country !== '' ? site.country : null;
-  const depth = formatDepth(site.maxDepthM, units);
+  // The first cluster, in the canvas's order, each row only when it holds something (§1).
+  const facts = [
+    { label: t('field.siteTypes'), value: formatPlaceTokens('siteTypes', site.siteTypes) },
+    { label: t('field.suitableFor'), value: formatSuitableFor(site.suitableFor) },
+    // **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few points
+    // above is already showing the diver's deepest dive here. Two depths on one screen with one
+    // of them unlabelled is the confusion §2.3 refuses to create in the other direction when it
+    // declines to seed this column from a dive. Ink, as the page has always drawn it (§0.1).
+    { label: t('field.siteDepth'), value: formatDepth(site.maxDepthM, units) },
+    { label: t('field.wreck'), value: formatWreck(site.wreckName, site.wreckSunkYear) },
+    { label: t('field.altNames'), value: formatAltNames(site.altNames) },
+    { label: t('field.country'), value: country },
+  ].filter((row): row is { label: string; value: string } => row.value !== null);
   const defaults = SITE_DEFAULT_FIELDS.map((field) => ({
     label: SITE_DEFAULT_ROWS[field].label(),
     value: SITE_DEFAULT_ROWS[field].read(site),
@@ -353,15 +375,12 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
 
   return (
     <View>
-      {(country !== null || depth !== null) && (
+      {facts.length > 0 && (
         <View>
           <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
-          {country !== null && <FactRow label={t('field.country')} value={country} styles={styles} />}
-          {/* **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few
-              points above it is already showing the diver's deepest dive here. Two depths on one
-              screen with one of them unlabelled is the confusion §2.3 refuses to create in the
-              other direction when it declines to seed this column from a dive. */}
-          {depth !== null && <FactRow label={t('field.siteDepth')} value={depth} styles={styles} />}
+          {facts.map((row) => (
+            <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
+          ))}
         </View>
       )}
       {defaults.length > 0 && (

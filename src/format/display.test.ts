@@ -57,6 +57,8 @@ import {
   formatEntry,
   formatPlaceTokens,
   formatSuitableFor,
+  formatWreck,
+  formatAltNames,
   formatGasUsed,
   formatPercent,
   formatPressure,
@@ -2064,5 +2066,30 @@ describe('formatSuitableFor', () => {
     expect(formatSuitableFor('openwater')).toBe('Open Water');
     expect(formatSuitableFor('extreme' as never)).toBe('Extreme');
     expect(formatSuitableFor(null)).toBeNull();
+  });
+});
+
+describe('formatWreck', () => {
+  it('says the name and the year it sank, either alone, or nothing', () => {
+    expect(formatWreck('Teti', 1930)).toBe('Teti · sunk 1930');
+    expect(formatWreck('Teti', null)).toBe('Teti');
+    expect(formatWreck(null, 1930)).toBe('sunk 1930');
+    expect(formatWreck(null, null)).toBeNull();
+  });
+  it('reads in Czech, and never groups the year', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatWreck('Teti', 1930)).toBe('Teti · potopen roku 1930');
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+});
+
+describe('formatAltNames', () => {
+  it('lists the names it can read, trimmed', () => {
+    expect(formatAltNames(['Teti wreck', ' ', 4, 'Vrak Teti'])).toBe('Teti wreck · Vrak Teti');
+    expect(formatAltNames([])).toBeNull();
+    expect(formatAltNames([' ', null])).toBeNull();
   });
 });

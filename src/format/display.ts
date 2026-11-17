@@ -1935,6 +1935,29 @@ export function formatPlaceTokens(set: PlaceTokenSet, tokens: readonly unknown[]
   return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
 }
 
+/**
+ * A wreck's name and the year it sank on one line, e.g. "Teti · sunk 1930" — either half alone
+ * when the other is missing, `null` when both are. The year goes in as `String(year)`, never
+ * through `figure`: Czech groups a four-digit number (`1 930`), and a year is not a quantity.
+ */
+export function formatWreck(name: string | null, year: number | null): string | null {
+  const parts: string[] = [];
+  if (name !== null && name.trim() !== '') parts.push(name.trim());
+  if (year !== null) parts.push(t('site.sunk', { year: String(year) }));
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
+}
+
+/** A site's other names on one line, e.g. "Teti wreck · Vrak Teti". Only non-blank strings are
+ * read (a list from another client's build may hold anything), trimmed; `null` when none is left. */
+export function formatAltNames(names: readonly unknown[]): string | null {
+  if (!Array.isArray(names)) return null;
+  const clean = names
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
+  return clean.length === 0 ? null : clean.join(METADATA_SEPARATOR);
+}
+
 /** The level a site suits, e.g. "Open Water". */
 export function formatSuitableFor(value: SuitableFor | null): string | null {
   if (value === null) return null;

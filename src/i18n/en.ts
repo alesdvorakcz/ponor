@@ -649,6 +649,9 @@ export const en = {
       suitableFor: 'Suitable for',
       wreckName: 'Wreck name',
       wreckSunkYear: 'Year sunk',
+      /** A site's wreck on its page, and a centre's agencies on its own — the short labels. */
+      wreck: 'Wreck',
+      agenciesShort: 'Agencies',
       /** One row of a site's other names, and the group that holds them. */
       altName: 'Other name',
       altNames: 'Other names',
@@ -938,6 +941,8 @@ export const en = {
       /** One name for the cluster on a site's page and the group on the create page (#31), as the
        * canvas has it. */
       facts: 'The site',
+      /** A wreck's year on its row — the year as typed, never grouped. */
+      sunk: 'sunk {{year}}',
       defaults: 'Site defaults',
       defaultsNote:
         'Picking this site on a new dive fills these in, over anything carried from your last dive.',
@@ -960,9 +965,10 @@ export const en = {
     centre: {
       heading: 'Dive centres',
       notFound: 'Centre not found.',
-      /** The catalogue-facts cluster on a centre's page — `site.facts`' sibling one table
-       * over, and named for its own noun because Czech declines both. */
-      facts: 'Centre',
+      /** What a press on a centre's address, number or email says it will do (#31). */
+      showAddress: 'Show {{address}} on a map',
+      call: 'Call {{phone}}',
+      mail: 'Write to {{email}}',
       searchPlaceholder: 'Search centres',
       close: 'Close centres',
       noneGuest:

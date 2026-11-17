@@ -1098,6 +1098,18 @@ function build(scheme: ColorScheme) {
     paddingHorizontal: CONTENT_INSET,
     paddingBottom: 8,
   };
+  // A place's description, first under its page's own lines (#31) — the canvas's 16/23 paragraph
+  // in full ink, a new value recorded in §0.6. Newlines are the diver's own and no line cap is
+  // set: the text is theirs to read whole.
+  const catalogueDescription: TextStyle = {
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    lineHeight: 23,
+    color: theme.fg,
+    paddingHorizontal: CONTENT_INSET,
+    paddingTop: 4,
+    paddingBottom: 16,
+  };
   // A named group on any of the four — a page's *Centre*/*Site* cluster and its *Your dives*, and
   // a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
   // §0.6's one treatment for a group header wherever it appears. **`paddingTop` where
@@ -4590,6 +4602,9 @@ function build(scheme: ColorScheme) {
     // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
     // `accountEmail` reads it — a web address is a name, however little it looks like one.
     centerFactValue: rowValueSans,
+    // A centre's phone number — a figure, so mono (§0.6), where its address and email are names.
+    centerFactFigure: rowValueMono,
+    centerDescription: catalogueDescription,
     // --- the same four keys again, for the sites pair (M3f) --------------------------------
     // Every one of them is the definition its centres twin above takes, under a name that says
     // which screen it is placed on. What a site's page has that a centre's does not is content:
@@ -4612,6 +4627,7 @@ function build(scheme: ColorScheme) {
     siteRowSummary: settingsRowMeta,
     siteEmpty: settingsSectionNote,
     siteFactValue: rowValueSans,
+    siteDescription: catalogueDescription,
     // **What the three site-default rows are for**, said once under them rather than marked on
     // each: §2.1 prefills a new dive's entry, salinity and water body from the site, and a page
     // that showed those three beside a country and a depth would give a diver no way to tell the

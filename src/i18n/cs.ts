@@ -529,6 +529,8 @@ export const cs = {
       suitableFor: 'Vhodné pro',
       wreckName: 'Název vraku',
       wreckSunkYear: 'Rok potopení',
+      wreck: 'Vrak',
+      agenciesShort: 'Agentury',
       altName: 'Jiný název',
       altNames: 'Jiné názvy',
       siteDepth: 'Hloubka lokality',
@@ -779,6 +781,7 @@ export const cs = {
       heading: 'Potápěčské lokality',
       notFound: 'Lokalita nenalezena.',
       facts: 'Lokalita',
+      sunk: 'potopen roku {{year}}',
       defaults: 'Výchozí hodnoty lokality',
       defaultsNote:
         'Když tuto lokalitu vyberete u nového ponoru, tato pole se vyplní — a přepíšou cokoli převzatého z posledního ponoru.',
@@ -795,7 +798,9 @@ export const cs = {
     centre: {
       heading: 'Potápěčská centra',
       notFound: 'Centrum nenalezeno.',
-      facts: 'Centrum',
+      showAddress: 'Ukázat {{address}} na mapě',
+      call: 'Zavolat na {{phone}}',
+      mail: 'Napsat na {{email}}',
       searchPlaceholder: 'Hledat centra',
       close: 'Zavřít centra',
       noneGuest:

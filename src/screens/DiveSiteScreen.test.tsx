@@ -612,6 +612,113 @@ it('puts the card under the page’s own lines and above the site’s facts', as
   expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('The site'));
 });
 
+// --- What a site says about itself (#31) -------------------------------------------------------
+
+const teti = (over: Partial<DiveSite> = {}) =>
+  rock({
+    name: 'Kamena vrata',
+    siteTypes: ['wreck', 'wall'],
+    suitableFor: 'advanced',
+    maxDepthM: 34,
+    wreckName: 'Teti',
+    wreckSunkYear: 1930,
+    altNames: ['Teti wreck'],
+    country: 'HR',
+    description: 'A wreck on a wall.\n\nCurrent on the east side.',
+    ...over,
+  });
+
+it('puts the description under the page’s own lines and above the map card', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ latitude: 43.0611, longitude: 16.1834 })]));
+  mockUseDives.mockReturnValue(divesState([atKotelna({ siteName: 'Kamena vrata', siteId: 's1' })]));
+  const t = await show();
+  const lines = textIn(t);
+  const description = 'A wreck on a wall.\n\nCurrent on the east side.';
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.indexOf('Kamena vrata'));
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.findIndex((line) => line.startsWith('1 dive')));
+  expect(lines.indexOf(description)).toBeLessThan(lines.indexOf('Show on map'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('The site'));
+});
+
+it('shows the site’s facts in the canvas’s order, each only when filled', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+  const lines = textIn(await show());
+  const labels = ['Site type', 'Suitable for', 'Site depth', 'Wreck', 'Other names', 'Country'];
+  const at = labels.map((label) => lines.indexOf(label));
+  expect(at.every((i) => i >= 0)).toBe(true);
+  expect(at).toEqual([...at].sort((a, b) => a - b));
+  for (const value of ['Wreck · Wall', 'Advanced', '34.0 m', 'Teti · sunk 1930', 'Teti wreck', 'HR']) {
+    expect(lines).toContain(value);
+  }
+});
+
+it('draws only the facts the site has', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ wreckSunkYear: 1930 })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Wreck');
+  expect(lines).toContain('sunk 1930');
+  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Other names', 'Country']) {
+    expect(lines).not.toContain(label);
+  }
+});
+
+it('shows a type this build does not know as a word', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ siteTypes: ['wall', 'cavern'] as never })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Wall · Cavern');
+  expect(lines.join(' ')).not.toContain('vocabulary.');
+});
+
+it('draws a long description whole', async () => {
+  const long = Array.from({ length: 40 }, (_, i) => `Line ${i} of what a diver wrote.`).join('\n');
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ description: long })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const node = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.siteDescription));
+  expect(node?.children).toEqual([long]);
+  expect(node?.props.numberOfLines).toBeUndefined();
+});
+
+it('draws no description for blank text', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ description: ' \n ' })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  expect(allNodes(t).some((n) => [n.props?.style].flat(5).includes(styles.siteDescription))).toBe(false);
+});
+
+it('keeps the site defaults and their caption apart from the facts', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ entry: 'shore', salinity: 'salt', waterBody: 'ocean' })]));
+  const lines = textIn(await show());
+  expect(lines.indexOf('The site')).toBeLessThan(lines.indexOf('Site defaults'));
+  expect(lines.indexOf('Country')).toBeLessThan(lines.indexOf('Site defaults'));
+  expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('Site defaults'));
+  expect(lines.join(' ')).toContain('Picking this site on a new dive fills these in');
+});
+
+it('says a site depth in ink, as the page always has', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+  expect(unexpectedGraphics(await show(), 'light')).toEqual([]);
+});
+
+describe('the new facts in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  it('names its labels and says the year as a year', async () => {
+    mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+    const lines = textIn(await show());
+    for (const label of ['Typ lokality', 'Vhodné pro', 'Hloubka lokality', 'Vrak', 'Jiné názvy', 'Země']) {
+      expect(lines).toContain(label);
+    }
+    expect(lines).toContain('Teti · potopen roku 1930');
+  });
+});
+
 // --- Opened from a near-match on *New dive site* (owner's call, PR #35) -------------------------
 
 describe('opened from a near-match', () => {
