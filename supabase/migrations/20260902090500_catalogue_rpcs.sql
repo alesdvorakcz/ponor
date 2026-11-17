@@ -723,8 +723,9 @@ begin
   -- client's to say (`twinRelation`, src/domain/suggest.ts), about the row this hands back.
   --
   -- The three scores, in `scores` — the site's name against the proposed name, its other names
-  -- against the proposed name, its name against the proposed other names — are read off the same
-  -- three expressions, so the rank and `matched_name` (above) cannot disagree. `through_other_name` is the second
+  -- against the proposed name, its name against the proposed other names — are written once, and
+  -- the filter, the rank and `matched_name` (above) all read them there, so none of the three can
+  -- drift from the others. `through_other_name` is the second
   -- beating both others STRICTLY: a tie goes to the site's own name, which needs no "also called".
   -- The name itself is looked up below, for the rows handed back and no others.
   with matches as (
@@ -740,16 +741,17 @@ begin
      where s.deleted_at is null
        and s.status = 'active'
        and (p_exclude_id is null or s.id <> p_exclude_id)
+       -- Each arm keeps its trigram operator, which is what lets the planner reach the index, and
+       -- then holds the score from `scores` to the floor — the same column the rank reads.
        and (
          (s.name is not null
            and public.name_fold(s.name) operator(extensions.%) v_name
-           and extensions.similarity(public.name_fold(s.name), v_name) >= public.name_match_floor())
+           and scores.by_name >= public.name_match_floor())
          or (public.alt_names_fold(s.alt_names) operator(extensions.%>) v_name
-           and public.alt_name_similarity(s.alt_names, v_name) >= public.name_match_floor())
+           and scores.by_other_name >= public.name_match_floor())
          or (s.name is not null
            and public.name_fold(s.name) operator(extensions.%) any (v_mine)
-           and (select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine)
-               >= public.name_match_floor())
+           and scores.by_new_other_name >= public.name_match_floor())
        )
        and (
          v_point is null

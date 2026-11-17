@@ -693,7 +693,9 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
   const FOLDED_NAME_REFERENCES: Record<string, number> = {
     'public.search_sites': 3,
     'public.search_centers': 3,
-    'public.similar_sites': 6,
+    // Two in `scores` (the name against the name typed and against the other names typed) and two
+    // in the filter's trigram operators; the filter's floor comparisons read `scores` (#31 review).
+    'public.similar_sites': 4,
   };
 
   it('folds BOTH sides of every name comparison, in all three readers (§4.1)', () => {
@@ -763,8 +765,8 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
 
   it('folds every other name through one owner, in the index, in search and in the duplicate check', () => {
     // #31: a site's other names are a jsonb list read three times by `search_sites` — the score,
-    // the `%>` pre-filter and the floor comparison — three times by `similar_sites` for the same
-    // three, and once by the index. A list folded one way in the index and another in the query is
+    // the `%>` pre-filter and the floor comparison — twice by `similar_sites` (the score in
+    // `scores`, which its floor comparison reads, and the `%>` pre-filter), and once by the index. A list folded one way in the index and another in the query is
     // the name fold's silent failure again: no wrong answer, only a scan. So every read goes through
     // one of the helpers: the two that score go through `folded_names`, and only `folded_names`
     // folds a list — but for `best_alt_name`, which `similar_sites` asks once more, about the rows
@@ -772,7 +774,7 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // `folded_names`' reading below.
     const OWNERS: Record<string, string> = {
       'public.search_sites': 'alt_name_similarity, alt_name_similarity, alt_names_fold',
-      'public.similar_sites': 'alt_name_similarity, alt_name_similarity, alt_names_fold, best_alt_name',
+      'public.similar_sites': 'alt_name_similarity, alt_names_fold, best_alt_name',
     };
     for (const declared of [search, similar]) {
       const body = withoutLiterals(declared.body);

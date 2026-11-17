@@ -124,8 +124,10 @@ PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from
 #31, and again after a site's entry became a set and gained its altitude (the `alter column`
 statement above included) — and passed both times; what that showed, and what it still cannot,
 is at the end of [Applied](#applied). **File 6's later change — `best_alt_name` and
-`matched_name` — ran a third time on that throwaway (Postgres 16.4 + PostGIS 3.4.3, 2026-11-17,
-the SQL as it stands now) and passed with no defects; it has still not run on the project.**
+`matched_name` — ran a third time on that throwaway (Postgres 16.4 + PostGIS 3.4.3, 2026-11-17)
+and passed with no defects, and a fourth time after `similar_sites`' filter was made to read its
+scores from `scores` (the SQL as it stands now), with results identical to the third; it has still
+not run on the project.**
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -403,8 +405,10 @@ from the floor** in both functions, once, after their guards and before the quer
 **The signature change** is one `drop function if exists` of the old `similar_sites`, immediately
 before the new one is created, with no grant or revoke left naming it. The four helpers are
 `immutable` and `parallel safe`, and `suggest_site_edit` allows every fact #31 gave a site.
-**`matched_name` is decided off the rank's own scores**: `similar_sites` reads its rank and its
-answer off the same three expressions, so they cannot disagree; it ranks by their best, and reports an other name only when that score beats both of
+**`matched_name` is decided off the rank's own scores**: `similar_sites` writes its three scores
+once, in `scores`, and its filter, its rank and its answer all read them there, so none of them
+can drift from the others (each filter arm keeps its trigram operator, which is what reaches the
+index). It ranks by their best, and reports an other name only when that score beats both of
 the site's own-name scores outright, as a key beside `sync_site`'s rendering — never a column of
 `dive_sites`, and never looked up inside the ranking CTE.
 
@@ -517,7 +521,11 @@ with no defects: `matched_name` names the other name a match came through and is
 match came through the site's own name or tied; `best_alt_name` trims and returns the first-listed
 name on a tie; the arrival recheck still writes suspicions with no warning; and on 20,008
 synthetic sites `similar_sites` still plans as a BitmapOr over the three trigram arms, at the
-same speed as before. None of the three runs was on the project itself. That settled two things this list
+same speed as before. A fourth run, after the review made `similar_sites`' filter read its three
+scores from `scores` instead of writing them out again, repeated the third on a fresh container:
+every result identical to it (the same rows, the same `matched_name`s), the same BitmapOr plans
+with no sequential scan of `dive_sites`, and the same timings. None of the four runs was on the
+project itself. That settled two things this list
 used to call unprovable:
 
 - **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set
