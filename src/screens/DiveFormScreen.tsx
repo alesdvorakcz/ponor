@@ -32,7 +32,7 @@ import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
 import { CarriedMark, clearedAnnouncement, clearedTag } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
-import { EntryIcon } from '../components/EntryIcon';
+import { ConditionIcon, drawnIcon } from '../components/ConditionIcon';
 import { FocusChainProvider, useFocusChainStep } from '../components/FocusChain';
 import { RevealingScrollView } from '../components/FormReveal';
 import { FormField, type OfferedSuggestion } from '../components/FormField';
@@ -1046,6 +1046,8 @@ interface ControlledTextFieldProps {
    * this row to keep — §6's pair belongs to the two place rows.
    */
   history?: Dive[];
+  /** Forwarded to `FormField.leading`: a figure glyph before the label (issue #6). */
+  leading?: ReactNode;
 }
 
 /**
@@ -1074,6 +1076,7 @@ function ControlledTextField({
   unit,
   carryOver,
   history,
+  leading,
 }: ControlledTextFieldProps) {
   // Which of §2.3's inline-suggested fields this row is, if it is one at all — read off the
   // `name` this row already carries. See `history` above for why it is not a prop.
@@ -1115,6 +1118,7 @@ function ControlledTextField({
             <FormField
               ref={field.ref}
               label={label}
+              leading={leading}
               value={text}
               // Typing drops the mark immediately (§0.6: "overwriting is just typing, and
               // drops the chip") — dropping first, then forwarding, so a field currently
@@ -1477,8 +1481,11 @@ interface ControlledOptionFieldProps<T extends string | number> {
   displayLabel: (option: T) => string;
   scheme: ColorScheme;
   /** Forwarded untouched to `OptionChips` — see that component's own prop for why an icon is
-   * a render prop and why only `entry` passes one. */
-  icon?: (option: T, tintColor: ColorValue) => ReactNode;
+   * a render prop. Since issue #6 it is `drawnIcon(field)` at the tile rows and absent elsewhere. */
+  icon?: (option: T, tintColor: ColorValue, ground: ColorValue) => ReactNode;
+  /** Forwarded to `OptionChips`: `'tiles'` for the fields whose values have drawings (§0.6). */
+  layout?: 'chips' | 'tiles';
+  columns?: 3 | 4;
   /** The same `CarryOverControls` a text field takes, at every call site for the same reason.
    * Six of this form's twelve chip rows are in §2.1's carried half (`entry`, `salinity`,
    * `waterBody`, `suit`, and the cylinder's `material` and `configuration`) and the other six
@@ -1513,7 +1520,7 @@ interface ControlledOptionFieldProps<T extends string | number> {
  * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
  * rule later is covered without this screen keeping a second list of which fields can fail.
  */
-function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon, carryOver }: ControlledOptionFieldProps<T>) {
+function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon, layout, columns, carryOver }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
@@ -1537,6 +1544,8 @@ function ControlledOptionField<T extends string | number>({ control, name, label
             }}
             scheme={scheme}
             icon={icon}
+            layout={layout}
+            columns={columns}
             carried={carryOver?.paths.has(name)}
             cleared={carryOver?.cleared.has(name)}
             // No value to forward: a chip group's cleared state is the absence of a selection,
@@ -3668,8 +3677,21 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             keyboardType="decimal-pad"
             mono
             unit={unitLabel('depth', units)}
+            // Issue #6's figure glyphs: the two depths say which depth they are with a drawing as
+            // well as a word, in the label's own muted ink (§0.6). Neither is ever a curve (§0.4).
+            leading={<ConditionIcon name="figure.maxDepth" ink={styles.formFieldLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />}
           />
-          <ControlledTextField control={control} carryOver={carryOver} name="avgDepthM" label={t('field.avgDepth')} scheme={scheme} keyboardType="decimal-pad" mono unit={unitLabel('depth', units)} />
+          <ControlledTextField
+            control={control}
+            carryOver={carryOver}
+            name="avgDepthM"
+            label={t('field.avgDepth')}
+            scheme={scheme}
+            keyboardType="decimal-pad"
+            mono
+            unit={unitLabel('depth', units)}
+            leading={<ConditionIcon name="figure.avgDepth" ink={styles.formFieldLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />}
+          />
           <ControlledTextField
             control={control}
             carryOver={carryOver}
@@ -3761,6 +3783,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={CONFIGURATION_VALUES}
             displayLabel={(option) => formatConfiguration(option) ?? option}
             scheme={scheme}
+            layout="tiles"
+            icon={drawnIcon('configuration')}
           />
           <ControlledTextField
             control={control}
@@ -3856,6 +3880,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={WEATHER_VALUES}
             displayLabel={(option) => formatWeather(option) ?? option}
             scheme={scheme}
+            layout="tiles"
+            icon={drawnIcon('weather')}
           />
           <ControlledTextField
             control={control}
@@ -3925,6 +3951,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={CONDITION_SCALE_VALUES}
             displayLabel={(level) => formatWaves(level) ?? String(level)}
             scheme={scheme}
+            layout="tiles"
+            columns={4}
+            icon={drawnIcon('waves')}
           />
           <ControlledOptionField
             control={control}
@@ -3967,11 +3996,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={ENTRY_VALUES}
             displayLabel={(option) => formatEntry(option) ?? option}
             scheme={scheme}
-            // The only field on this form that passes one (§0.6: "*Shore* and *boat* pass
-            // trivially"; salt and fresh do not). `EntryIcon` owns which values
-            // actually have a symbol and draws nothing for the ones that do not, so this
-            // call site does not repeat that judgement.
-            icon={(option, tintColor) => <EntryIcon entry={option} tintColor={tintColor} />}
+            // A tile row since issue #6, with Ponor's own drawings in place of the SF Symbols
+            // `EntryIcon` used to fetch. `drawnIcon` owns which values have one (*other* does
+            // not), so this call site does not repeat that judgement.
+            layout="tiles"
+            icon={drawnIcon('entry')}
           />
           <ControlledOptionField
             control={control}
@@ -3990,6 +4019,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={WATER_BODY_VALUES}
             displayLabel={(option) => formatWaterBody(option) ?? option}
             scheme={scheme}
+            layout="tiles"
+            icon={drawnIcon('waterBody')}
           />
           {/* No `carryOver` prop, and that is the one call site on this form where its absence
               is the point rather than an oversight: §2.1 puts the exact GPS point in the fresh
@@ -4007,6 +4038,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             options={SUIT_VALUES}
             displayLabel={(option) => formatSuit(option) ?? option}
             scheme={scheme}
+            layout="tiles"
+            icon={drawnIcon('suit')}
           />
           {/* Thickness is a NUMBER, not a token (§10): a list offering 3 mm and 7 mm makes a
               5 mm suit unsayable, and a diver forced to pick the nearest wrong value is the

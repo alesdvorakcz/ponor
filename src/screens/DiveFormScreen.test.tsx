@@ -65,6 +65,7 @@ import { openPlacePicker, type PlacePick, type PlacePickRequest } from '../navig
 import { COARSEST_USABLE_FIX_M, currentPosition, POSITION_REFUSALS } from '../platform/location';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
+import { paint, paintOf } from '../testing/svgPaint';
 import { depthScale } from '../theme/tokens';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import DiveFormScreen, {
@@ -2055,7 +2056,8 @@ it('fills chips and the focused row with surface, and nothing else — least of 
   // which this test does not open — the count only fell.)
   const atRest = nodesFilledWith(t, surface);
   expect(atRest.length).toBeGreaterThan(5);
-  expect(atRest.filter((n) => !wears(n, styles.formChip))).toEqual([]);
+  // A chip or a tile — issue #6's tiles are the same control drawn as a tile, on the same ground.
+  expect(atRest.filter((n) => !wears(n, styles.formChip) && !wears(n, styles.formTile))).toEqual([]);
   // ...and not one field row among them.
   expect(atRest.filter((n) => wears(n, styles.formField))).toEqual([]);
   expect(atRest.filter((n) => wears(n, styles.formFieldCard))).toEqual([]);
@@ -2083,10 +2085,11 @@ it('inverts the chip a diver picked, and leaves the rest on surface', async () =
   const theme = themeFor('light');
   const styles = makeStyles('light');
 
+  // Entry is a tile row since issue #6: the same control, the same invert, drawn as tiles.
   const before = findChip(t, 'Entry', 1);
   if (!before) throw new Error('no Entry chip found');
-  expect(wears(before, styles.formChip)).toBe(true);
-  expect(wears(before, styles.formChipSelected)).toBe(false);
+  expect(wears(before, styles.formTile)).toBe(true);
+  expect(wears(before, styles.formTileSelected)).toBe(false);
 
   await pressChip(t, 'Entry', 1);
   const after = findChip(t, 'Entry', 1);
@@ -3668,6 +3671,8 @@ function marksInside(node: TestNode | undefined) {
   const sheet = makeStyles('light');
   return node.queryAll((n) => {
     if (typeof n.type === 'string' && n.type.includes('SymbolModule')) return true;
+    // One of Ponor's drawn icons (issue #6): `ConditionIcon` is one svg, whatever it holds.
+    if (n.type === 'RNSVGSvgView') return true;
     if (n.type !== 'View') return false;
     const worn = [n.props?.style].flat(3);
     return worn.includes(sheet.ratingDot) || worn.includes(sheet.ratingDotField);
@@ -3707,21 +3712,75 @@ function marksInside(node: TestNode | undefined) {
  * - **Rating** — one drawn dot per target, which is §0.6's "drawn, not typed" for the one
  *   control whose marks *are* the control.
  */
+//
+// **Issue #6 rewrote this table, deliberately and in one edit, as the paragraph above asks:** §9's
+// drawn set arrived. Entry, water body, weather, waves, configuration and suit are tiles with one
+// drawn icon each — except entry *other* and suit *none*, which are words by design (§0.6's
+// table). Visibility, current and surge stay word chips on the form (their one-per-field icon is
+// the dive detail's), as do salinity, material and weighting, which have no shape at all.
 const CHIP_MARKS: [string, string, number[]][] = [
   ['Entry', 'Water & entry', [1, 1, 0]],
   ['Salinity', 'Water & entry', [0, 0]],
-  ['Water body', 'Water & entry', [0, 0, 0, 0, 0, 0]],
+  ['Water body', 'Water & entry', [1, 1, 1, 1, 1, 1]],
   ['Visibility', 'Conditions', [0, 0, 0]],
-  ['Waves', 'Conditions', [0, 0, 0, 0]],
+  ['Waves', 'Conditions', [1, 1, 1, 1]],
   ['Current', 'Conditions', [0, 0, 0, 0]],
   ['Surge', 'Conditions', [0, 0, 0, 0]],
-  ['Weather', 'Conditions', [0, 0, 0, 0, 0, 0]],
-  ['Suit', 'Equipment', [0, 0, 0, 0, 0]],
+  ['Weather', 'Conditions', [1, 1, 1, 1, 1, 1]],
+  ['Suit', 'Equipment', [0, 1, 1, 1, 1]],
   ['Weighting', 'Equipment', [0, 0, 0]],
   ['Material', 'Gas & cylinders', [0, 0]],
-  ['Configuration', 'Gas & cylinders', [0, 0, 0]],
+  ['Configuration', 'Gas & cylinders', [1, 1, 1]],
   ['Rating', 'Notes & rating', [1, 1, 1, 1, 1]],
 ];
+
+// The other half of #6 on this form: the fields with a drawing are TILES, the rest stay chips.
+// The marks table above cannot tell the two apart (a chip could carry an icon too), so the layout
+// is pinned on its own.
+const TILE_FIELDS: [string, string, boolean][] = [
+  ['Entry', 'Water & entry', true],
+  ['Water body', 'Water & entry', true],
+  ['Weather', 'Conditions', true],
+  ['Waves', 'Conditions', true],
+  ['Configuration', 'Gas & cylinders', true],
+  ['Suit', 'Equipment', true],
+  ['Salinity', 'Water & entry', false],
+  ['Visibility', 'Conditions', false],
+  ['Current', 'Conditions', false],
+  ['Surge', 'Conditions', false],
+  ['Material', 'Gas & cylinders', false],
+  ['Weighting', 'Equipment', false],
+];
+
+it.each(TILE_FIELDS)('draws %s as tiles only if its values have drawings (%s): %p', async (label, group, tiles) => {
+  stubReturningDiver();
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, group);
+  const sheet = makeStyles('light');
+  const worn = [findChip(t, label, 0)?.props.style].flat(5);
+  expect(worn.includes(sheet.formTile)).toBe(tiles);
+  expect(worn.includes(sheet.formChip)).toBe(!tiles);
+});
+
+// Issue #6's figure glyphs: the two depth rows say which depth they hold with a drawing, not only
+// a word, and the other figures (duration, time in) stay plain.
+it('leads the max and average depth rows with their glyphs, and no other row of the group', async () => {
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, translated('group.timesDepth'));
+  const sheet = makeStyles('light');
+  // The field's own label row, found by walking up from its label to the row style FormField uses.
+  const rowOf = (label: string) => {
+    let node: TestNode | null | undefined = (t.root?.queryAll((n) => n.type === 'Text' && n.children.join('') === label) ?? [])[0];
+    while (node && ![node.props?.style].flat(3).includes(sheet.formFieldRow)) node = node.parent;
+    return node ?? undefined;
+  };
+  for (const label of ['Max depth', 'Avg depth']) {
+    expect(rowOf(label)?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+  }
+  for (const label of ['Duration', 'Time in']) {
+    expect(rowOf(label)?.queryAll((n) => n.type === 'RNSVGSvgView') ?? []).toHaveLength(0);
+  }
+});
 
 it.each(CHIP_MARKS)('draws the marks §0.6 gives %s, and no others', async (label, group, marks) => {
   // A returning diver, so the group column is load-bearing — see the vocabulary sweep above.
@@ -3786,7 +3845,9 @@ it('keeps the word on an entry chip that has an icon, and announces it unchanged
   await openGroup(t, 'Water & entry');
   const shore = findChip(t, 'Entry', 0);
 
-  expect(symbolsInside(shore)).toHaveLength(1);
+  // Ponor's own drawing since issue #6, where an SF Symbol stood before.
+  expect(shore?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+  expect(symbolsInside(shore)).toHaveLength(0);
   expect(shore?.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)).toContain('Shore');
   // The announcement is the label alone — an icon that added its own accessibility label
   // would have a screen reader read the same control twice over.
@@ -3801,12 +3862,15 @@ it('inverts the entry icon along with the label it sits beside', async () => {
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
   const theme = themeFor('light');
+  // The ink a drawn icon's strokes were painted with (issue #6): the first stroked path inside it.
+  const inkOf = (index: number) =>
+    paintOf(findChip(t, 'Entry', index)!.queryAll((n) => n.type === 'RNSVGPath' && paintOf(n, 'stroke') !== undefined)[0]!, 'stroke');
 
-  expect(symbolsInside(findChip(t, 'Entry', 1))[0]?.props?.tintColor).toBe(theme.fg);
+  expect(inkOf(1)).toEqual(paint(theme.fg));
   await pressChip(t, 'Entry', 1);
-  expect(symbolsInside(findChip(t, 'Entry', 1))[0]?.props?.tintColor).toBe(theme.actionFg);
+  expect(inkOf(1)).toEqual(paint(theme.actionFg));
   // ...and its unselected neighbour did not invert with it.
-  expect(symbolsInside(findChip(t, 'Entry', 0))[0]?.props?.tintColor).toBe(theme.fg);
+  expect(inkOf(0)).toEqual(paint(theme.fg));
 });
 
 // --- Every field that would otherwise be dead to this suite ---

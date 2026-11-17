@@ -92,6 +92,18 @@ export function ConditionIcon({ name, ink, ground, size = 40 }: ConditionIconPro
 export type IconField = 'entry' | 'waterBody' | 'weather' | 'waves' | 'visibility' | 'current' | 'surge' | 'configuration' | 'suit' | 'siteType';
 
 /**
+ * The `icon` render prop a tile row hands `OptionChips` or `TokenChips`: each option's drawing in
+ * the ink and on the ground that tile wears, or nothing for a words-only value. One owner, so the
+ * dive form and the site page cannot wire a field to a different rule.
+ */
+export function drawnIcon(field: IconField) {
+  return function DrawnIcon(option: string | number, ink: ColorValue, ground: ColorValue): ReactNode {
+    const name = conditionIconFor(field, option);
+    return name === null ? null : <ConditionIcon name={name} ink={ink} ground={ground} />;
+  };
+}
+
+/**
  * **Which values have a drawing, and which one** (DESIGN.md §0.6's table).
  *
  * `null` is an answer, not a gap: entry *other* and suit *none* are words by design (no shape to

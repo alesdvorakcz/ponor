@@ -3578,6 +3578,14 @@ function build(scheme: ColorScheme) {
       ...rowLabel,
       flexShrink: 1,
     },
+    // A label led by a figure glyph (issue #6): the glyph and the word as one unit that shrinks
+    // like the bare label does, so a long Czech label still wraps rather than pushing the value.
+    formFieldLabelLed: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flexShrink: 1,
+    },
     // A row's trailing half: the input, and the unit that follows it. `flex: 1` (basis 0) so
     // it takes whatever the label leaves and the value lands hard against the row's trailing
     // edge, the same place `detailValue`'s own `textAlign: 'right'` puts it one screen over.
