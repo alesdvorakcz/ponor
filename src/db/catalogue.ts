@@ -14,6 +14,7 @@ import {
   type PushableTable,
   type PushedRow,
 } from './dirty';
+import { integerColumns, withStoredIntegers } from './integers';
 import { diveCenters, diveSites } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -128,6 +129,14 @@ function withoutServerAuthored<T extends object>(input: T): Omit<T, ServerAuthor
  */
 export type NewDiveSiteInput = Partial<Omit<DiveSite, ServerAuthored | 'name'>> & { name: string };
 export type NewDiveCenterInput = Partial<Omit<DiveCenter, ServerAuthored | 'name'>> & { name: string };
+
+/**
+ * Each table's INTEGER columns, derived (db/integers.ts) — on a site #31's `wreck_sunk_year`.
+ * A create rounds them as `db/dives.ts` does a dive's, because `push_changes` casts them to
+ * `integer` and a fractional one would fail the diver's whole push (§10, §7).
+ */
+const SITE_INTEGER_COLUMNS = integerColumns(diveSites);
+const CENTER_INTEGER_COLUMNS = integerColumns(diveCenters);
 
 /**
  * A row as `pull_changes` hands it over: everything the table has **except the flag**, which
@@ -261,7 +270,7 @@ export async function diveCenterMergeTargets(db: Db): Promise<ReadonlyMap<string
 export async function createDiveSite(db: Db, input: NewDiveSiteInput): Promise<DiveSite> {
   const rows = await db
     .insert(diveSites)
-    .values({ ...withoutServerAuthored(input), ...newLocalRow() })
+    .values({ ...withStoredIntegers(SITE_INTEGER_COLUMNS, withoutServerAuthored(input)), ...newLocalRow() })
     .returning();
   const created = rows.at(0);
   if (created === undefined) throw new Error('createDiveSite: insert returned no row');
@@ -272,7 +281,7 @@ export async function createDiveSite(db: Db, input: NewDiveSiteInput): Promise<D
 export async function createDiveCenter(db: Db, input: NewDiveCenterInput): Promise<DiveCenter> {
   const rows = await db
     .insert(diveCenters)
-    .values({ ...withoutServerAuthored(input), ...newLocalRow() })
+    .values({ ...withStoredIntegers(CENTER_INTEGER_COLUMNS, withoutServerAuthored(input)), ...newLocalRow() })
     .returning();
   const created = rows.at(0);
   if (created === undefined) throw new Error('createDiveCenter: insert returned no row');

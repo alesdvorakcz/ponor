@@ -181,6 +181,14 @@ describe('the facts #31 gives a site and a centre (§6)', () => {
     });
   });
 
+  it('rounds a fractional wreck year rather than storing one the server cannot take', async () => {
+    // §10's rule for every INTEGER column (db/integers.ts): SQLite would keep 1930.4 as a REAL,
+    // and `push_changes` casts the year to `integer`, which raises and fails the whole push (§7).
+    const created = await createDiveSite(db, { name: 'Vrak Teti', wreckSunkYear: 1930.4 });
+
+    expect((await getDiveSite(db, created.id))?.wreckSunkYear).toBe(1930);
+  });
+
   it('gives a site created with a name only empty sets and no facts', async () => {
     // §1: a sparse row is normal. The two sets are `[]` rather than null for the reason §6 gives
     // `dives.equipment` — an empty set already means "nothing recorded".

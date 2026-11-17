@@ -15,6 +15,7 @@ import {
   type PushedRow,
 } from './dirty';
 import { tombstoneDiveSamples } from './diveSamples';
+import { integerColumns, withStoredIntegers } from './integers';
 import { dives } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
@@ -270,57 +271,15 @@ function withoutUndefinedFields<T extends object>(patch: T): T {
 }
 
 /**
- * Every `dives` column whose SQL type is INTEGER and whose value is a plain
- * number — today `manual_order`, `duration_min`, `rating`, `waves`, `current`
- * and `surge`.
- *
- * Read off the schema rather than typed out here, so a column added to
- * `schema.ts` as an `integer()` is covered the day it exists instead of the day
- * someone remembers this list.
- *
- * **A boolean column would fall out of this filter by construction, and that is worth
- * keeping written down even though `dives` no longer has one.** Drizzle gives
- * `integer(..., { mode: 'boolean' })` its own `columnType` — `SQLiteBoolean`, not
- * `SQLiteInteger` — even though it is INTEGER in SQL, so it never reaches the rounding
- * below, which would be nonsense for it. `hood`, `gloves` and `boots` were the three that
- * relied on that until M1h replaced them with the `equipment` token set (§10); anyone adding
- * the next boolean column gets the same protection without asking for it.
+ * Every `dives` column whose SQL type is INTEGER and whose value is a plain number — derived
+ * from the schema by `integerColumns` (db/integers.ts), which also holds why a boolean column
+ * stays out of it and why the rounding exists at all (§10, §1).
  */
-const INTEGER_COLUMNS: readonly string[] = Object.entries(getTableColumns(dives))
-  .filter(([, column]) => column.columnType === 'SQLiteInteger')
-  .map(([name]) => name);
-
-/**
- * DESIGN.md §10's `manual_order` rule — "non-integers are rounded rather than
- * rejected, per §1" — applied to every INTEGER column, because none of the
- * reasoning recorded there was ever specific to that one field.
- *
- * SQLite's INTEGER is an *affinity*, not a constraint: it converts a REAL to
- * INTEGER only when the conversion is lossless, so `1.5` written through this
- * repository reads back as `1.5` with storage class `real`. §6 puts the same
- * schema in Postgres, where an `integer` column has no such laxity, so a
- * fractional value would round or error on its way through M2's `push_changes`
- * — and under §7's whole-row last-write-wins a value that changes shape in
- * transit is a value that silently changes on the diver's other device. The
- * rounding happens here, once, where the app can see it, instead of there.
- *
- * A value that is not a number at all cannot be rounded into one and becomes
- * null, which is what the column already means by null. That includes a
- * numeric-looking *string*: `'45'` is not a number, and this is deliberately
- * not the "lenient about spelling" boundary `storedCalendarDate` is — nothing
- * a diver types reaches an INTEGER column without going through the form's own
- * coercion first (`optionalNumber`, domain/diveFormSchema.ts). It also keeps
- * the save alive, which is the §1 half: an object or a boolean handed to
- * better-sqlite3 throws, and a dive lost to a bound-parameter error is a far
- * worse trade than a tie-break or a rating reading null.
- */
-function storedInteger(value: unknown): number | null {
-  return Number.isFinite(value) ? Math.round(value as number) : null;
-}
+const INTEGER_COLUMNS = integerColumns(dives);
 
 /**
  * The write boundary for every field whose stored form the rest of the app
- * relies on. `date` and `timeIn` are plain `text` columns and the six above are
+ * relies on. `date` and `timeIn` are plain `text` columns and the columns above are
  * INTEGER *affinities*, so nothing at the schema level makes DESIGN.md §6's
  * `YYYY-MM-DD` / `HH:MM` contract or §2.5's "nullable integer" true; this is
  * the one place that does. `domain/datetime.ts` owns what the string forms are.
@@ -340,12 +299,9 @@ function storedInteger(value: unknown): number | null {
  * another of a type the field already permits, and never adds or removes a key.
  */
 function withNormalisedFields<T extends object>(input: T): T {
-  const out = { ...input } as Record<string, unknown>;
+  const out = withStoredIntegers(INTEGER_COLUMNS, input) as Record<string, unknown>;
   if (out.date !== undefined) out.date = storedCalendarDate(out.date);
   if (out.timeIn !== undefined) out.timeIn = storedTimeOfDay(out.timeIn);
-  for (const column of INTEGER_COLUMNS) {
-    if (out[column] !== undefined) out[column] = storedInteger(out[column]);
-  }
   return out as T;
 }
 

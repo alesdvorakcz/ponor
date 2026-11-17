@@ -117,8 +117,8 @@ export const DIRTY_COLUMN = 'dirty';
  * is a diver's data that never leaves the phone.
  *
  * `mode: 'boolean'` is not cosmetic either: it gives the column Drizzle's `SQLiteBoolean`
- * type rather than `SQLiteInteger`, which is what keeps it out of `db/dives.ts`'s
- * `INTEGER_COLUMNS` rounding pass — that file's own docblock predicted this column.
+ * type rather than `SQLiteInteger`, which is what keeps it out of the INTEGER rounding pass
+ * (`integerColumns`, db/integers.ts) — whose docblock predicted this column.
  */
 const dirtyFlag = () => integer(DIRTY_COLUMN, { mode: 'boolean' }).notNull();
 
