@@ -72,7 +72,14 @@ alter table public.dive_sites
 
 **The last statement runs once.** Unlike the `add column if not exists` lines it is not written to
 be repeated: it converts the `text` column, each value becoming the one member of its set and a
-null or a blank the empty set, and on a column that is already `jsonb` it is not a no-op.
+null or a blank the empty set. **A second run errors and changes nothing**: on a column that is
+already `jsonb`, `entry = ''` fails when Postgres parses the statement (`''` is not JSON), before
+any row is touched.
+
+It wraps every text value as it stands, so a value that already spells a JSON array would be
+wrapped again — `["boat"]` becoming a set holding the string `["boat"]`. Only a new build pushing
+before these lines ran could have stored one, which the order above forbids. Guarding against it
+needs `pg_input_is_valid`, which is Postgres 16's, so the statement is left as written.
 
 **File 6** then brings everything that reads a site's other names: `folded_names`,
 `alt_names_fold` and `alt_name_similarity` — one fold for the index and for every reader — the
@@ -91,12 +98,15 @@ anything but an array as `[]`, and hands an arriving site's other names to the r
 its `exception` block into a server-log warning, and every site arriving in that window goes
 unflagged. Between file 6 and file 4 the old recheck still works, since it names only arguments
 the new function also takes and `p_alt_names` has a default; so does the `similar_sites` call of a
-build from before #31. And the build comes last for two reasons: before the columns exist the
-server refuses its keys, and once they exist but before file 4, the old `push_changes` accepts
-them (`sync_reject_unknown_keys` reads the table's columns) and writes none of them — a site or
-centre pushed in that window is stored without its new facts while the push reports success. A
-site is refused outright in that window, since the old `push_changes` reads `entry` as text and
-the column is `jsonb` by then: the push fails, and stores nothing wrong.
+build from before #31. And the build comes last, because before the columns exist the server
+refuses its keys.
+
+**Between these lines and file 4, every push from every device fails**, whatever build it runs,
+and stores nothing until file 4 is applied. The old `push_changes`' `dive_sites` insert puts
+`->>'entry'` — text — into a column that is `jsonb` by then, which Postgres rejects when it parses
+the statement, and that insert runs on every push, with or without a site in it. It is the safe
+direction: a failed push keeps the device's dirty flags (§7), and the window lasts as long as
+pasting files 6 and 4 does.
 
 No compatibility with a build from before #31 is kept — its push of a site or centre would
 blank that row's new facts, and a site's entry with them — because the project holds test data

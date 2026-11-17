@@ -12,13 +12,14 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { pointOf, waterTempRange } from '../domain/mapSites';
-import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaults';
+import { SITE_DEFAULT_FIELDS, siteDefaultValue, type SiteDefaultField } from '../domain/siteDefaults';
 import { divesAtSite } from '../domain/siteDives';
-import { type DiveSite } from '../domain/types';
+import { type DiveSite, type Salinity, type WaterBody } from '../domain/types';
 import {
   formatAltNames,
   formatCoordinates,
   formatDepth,
+  formatPlaceToken,
   formatPlaceTokens,
   formatSalinity,
   formatSiteSummary,
@@ -128,16 +129,27 @@ function siteLabel(site: Pick<DiveSite, 'name'>): string {
  * is §4.1's one recorded exception (roughly twenty-five duplicated field labels, unified when
  * i18next keys them and not before). The VALUES go through `format/display.ts`, so a site's entry
  * reads the same word here as on a dive logged at it.
+ *
+ * **What a row shows is what the prefill would write** — `siteDefaultValue` (domain/siteDefaults.ts),
+ * the one reading both use, worded here. So the caption under the cluster stays true: a site's entry
+ * is a set (#31) and prefills only when it offers exactly one way in, so a site with several draws
+ * no row here; `SiteFacts` shows those ways in among the place's facts instead. A value the rule
+ * reads is a word this build may not know (§10's store-and-flag), which the formatters take as a word.
  */
-const SITE_DEFAULT_ROWS: Record<
-  SiteDefaultField,
-  { label: () => string; read: (site: DiveSite) => string | null }
-> = {
-  // A set since #31 — every way in the site offers — on one row, in the words a dive's entry reads.
-  entry: { label: () => t('field.entry'), read: (site) => formatPlaceTokens('entry', site.entry) },
-  salinity: { label: () => t('field.salinity'), read: (site) => formatSalinity(site.salinity) },
-  waterBody: { label: () => t('field.waterBody'), read: (site) => formatWaterBody(site.waterBody) },
+const SITE_DEFAULT_ROWS: Record<SiteDefaultField, { label: () => string; word: (value: string) => string | null }> = {
+  entry: { label: () => t('field.entry'), word: (value) => formatPlaceToken('entry', value) },
+  salinity: { label: () => t('field.salinity'), word: (value) => formatSalinity(value as Salinity) },
+  waterBody: { label: () => t('field.waterBody'), word: (value) => formatWaterBody(value as WaterBody) },
 };
+
+/**
+ * A site's ways in when they are a fact about the place rather than a default — **more than one**,
+ * which §2.1's prefill leaves to the diver (`siteDefaultValue` answers nothing for them). One way in
+ * is a default and stands under *Site defaults*; none is no row anywhere.
+ */
+function waysIn(site: DiveSite): string | null {
+  return site.entry.length > 1 ? formatPlaceTokens('entry', site.entry) : null;
+}
 
 /**
  * The way out, in §0.6's one treatment for leaving — mono, muted, small, and never competing with
@@ -339,11 +351,14 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
  * **What the catalogue knows, in two clusters, and the split is the point.**
  *
  * *The site* holds the facts that describe the place — its type, the level it suits, its own
- * depth, its wreck, its other names and its country (#31), each only when filled. *Site defaults*
- * holds §2.1's three, which are the ones that will **do something**: picking this site on a new
- * dive writes them into it, over anything carried from the diver's last dive. A page that listed
- * all five together would be showing a diver a rule they cannot see and cannot predict, on the one
- * screen that has room to explain it.
+ * depth, its wreck, the ways in when it offers several, its other names and its country (#31),
+ * each only when filled. *Site defaults* holds what §2.1's three will **do**: picking this site on a
+ * new dive writes them into it, over anything carried from the diver's last dive — and only those,
+ * read through the prefill's own rule (`siteDefaultValue`), so a site's entry stands here only when
+ * it is one way in. Several ways in are not written into a dive (the diver picks, #63), so they are
+ * a fact of the place and stand in *The site*, where no caption promises anything about them. A page
+ * that listed all of it together would be showing a diver a rule they cannot see and cannot
+ * predict, on the one screen that has room to explain it.
  *
  * **Either cluster is absent when it holds nothing**, which is the shape §0.6 requires on the dive
  * detail and `DiveCenterScreen` already follows: a heading over zero rows is worse than no
@@ -365,13 +380,15 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
     // declines to seed this column from a dive. Ink, as the page has always drawn it (§0.1).
     { label: t('field.siteDepth'), value: formatDepth(site.maxDepthM, units) },
     { label: t('field.wreck'), value: formatWreck(site.wreckName, site.wreckSunkYear) },
+    // Several ways in — a fact, not a default (`waysIn`); one way in stands under *Site defaults*.
+    { label: t('field.entry'), value: waysIn(site) },
     { label: t('field.altNames'), value: formatAltNames(site.altNames) },
     { label: t('field.country'), value: country },
   ].filter((row): row is { label: string; value: string } => row.value !== null);
-  const defaults = SITE_DEFAULT_FIELDS.map((field) => ({
-    label: SITE_DEFAULT_ROWS[field].label(),
-    value: SITE_DEFAULT_ROWS[field].read(site),
-  })).filter((row): row is { label: string; value: string } => row.value !== null);
+  const defaults = SITE_DEFAULT_FIELDS.map((field) => {
+    const value = siteDefaultValue(site, field);
+    return { label: SITE_DEFAULT_ROWS[field].label(), value: value === null ? null : SITE_DEFAULT_ROWS[field].word(value) };
+  }).filter((row): row is { label: string; value: string } => row.value !== null);
 
   return (
     <View>

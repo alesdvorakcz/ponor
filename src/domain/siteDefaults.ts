@@ -42,7 +42,7 @@ export type SiteDefaultField = (typeof SITE_DEFAULT_FIELDS)[number];
  * the same tie `NewSiteFacts` draws for the opposite direction. **It does not by itself break the
  * build when a column changes type**: `stated` reads every value as `unknown`, so when #31 made a
  * site's entry a set this compiled unchanged and read the list as silence. The entry is read by
- * `said` below, by name, for that reason. */
+ * `siteDefaultValue` below, by name, for that reason. */
 export type SiteDefaults = Pick<DiveSite, SiteDefaultField>;
 
 /**
@@ -112,6 +112,10 @@ function stated(value: unknown): string | null {
  * the entry, which on a site is a set (#31, §6): every way in it offers, where the dive's entry is
  * the one way it used.
  *
+ * **Exported because the site's own page reads it too** (`DiveSiteScreen`'s *Site defaults*): the
+ * page shows a default only when this answers, so it can never show a row its caption says picking
+ * the site fills in while the prefill below leaves that row alone.
+ *
  * **A set answers only when it holds exactly one way in.** *"The site offers what is possible; the
  * dive logs which one was done"* (the owner, #31): a site entered from the shore and from a boat
  * cannot say which of the two this dive was, so it says nothing, as a site that knows nothing
@@ -121,7 +125,7 @@ function stated(value: unknown): string | null {
  * nothing either: a pulled row is whatever the server sent. (Picking the dive's entry from the
  * site's options is #63's, not this rule's.)
  */
-function said(site: SiteDefaults, field: SiteDefaultField): string | null {
+export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): string | null {
   if (field !== 'entry') return stated(site[field]);
   const offered: unknown = site.entry;
   return Array.isArray(offered) && offered.length === 1 ? stated(offered[0]) : null;
@@ -164,7 +168,7 @@ export function siteDefaultFills(
   for (const field of SITE_DEFAULT_FIELDS) {
     if (typed.has(field)) continue;
     const carried = stated(inherited[field]);
-    const supplied = site === null || site === undefined ? null : said(site, field);
+    const supplied = site === null || site === undefined ? null : siteDefaultValue(site, field);
     fills.push({ field, value: supplied ?? carried, fromSite: supplied !== null && supplied !== carried });
   }
   return fills;

@@ -276,19 +276,45 @@ it('omits a default the catalogue has no opinion about', async () => {
 });
 
 /**
- * **A site's entry is a set** (#31): every way in it offers, on its one row in the words a dive's
- * entry reads, and no row at all when it records none — the same absence as a `null` column above.
+ * **A site's entry is a set** (#31), and *Site defaults* shows only what picking the site will
+ * write — the prefill's own rule (`siteDefaultValue`), so the caption under it stays true. One way
+ * in is a default and stands there; several are a fact about the place, and stand in *The site*,
+ * because the prefill leaves the dive's entry to the diver for such a site (§2.1). None is no row.
  */
-it('reads every way into the site on the Entry row, and draws none for an empty set', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt' })]));
-  const both = textIn(await show());
-  expect(both).toContain('Entry');
-  expect(both).toContain('Shore · Boat');
+it('shows one way in as a site default', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'] })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Site defaults');
+  expect(lines).not.toContain('The site');
+  expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('Site defaults'));
+  expect(lines).toContain('Boat');
+});
 
+it('shows several ways in as a fact of the place, never under the defaults’ caption', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'] })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('The site');
+  expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('The site'));
+  expect(lines).toContain('Shore · Boat');
+  // Nothing else to prefill, so no *Site defaults* and no caption claiming it fills anything.
+  expect(lines).not.toContain('Site defaults');
+  expect(lines.join(' ')).not.toContain('Picking this site on a new dive fills these in');
+});
+
+it('keeps several ways in out of the defaults when the site has other defaults', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt' })]));
+  const lines = textIn(await show());
+  expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('The site'));
+  expect(lines.indexOf('Entry')).toBeLessThan(lines.indexOf('Site defaults'));
+  expect(lines.indexOf('Salinity')).toBeGreaterThan(lines.indexOf('Site defaults'));
+  expect(lines.filter((line) => line === 'Entry')).toHaveLength(1);
+});
+
+it('draws no entry row for a site that records none', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: [], salinity: 'salt' })]));
-  const none = textIn(await show());
-  expect(none).toContain('Salinity');
-  expect(none).not.toContain('Entry');
+  const lines = textIn(await show());
+  expect(lines).toContain('Salinity');
+  expect(lines).not.toContain('Entry');
 });
 
 it('draws the facts cluster without the defaults one when it knows only the place', async () => {

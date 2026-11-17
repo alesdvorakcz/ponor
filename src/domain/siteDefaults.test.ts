@@ -1,4 +1,4 @@
-import { siteDefaultFills, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
+import { siteDefaultFills, siteDefaultValue, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
 import { type Entry } from './types';
 
 /**
@@ -196,6 +196,21 @@ it.each([
 
   expect(valuesOf(fills)).toEqual({ entry: 'other', salinity: 'salt', waterBody: 'ocean' });
   expect(suppliedBySite(fills)).toEqual(['salinity', 'waterBody']);
+});
+
+// The site page shows *Site defaults* through this same reading (`DiveSiteScreen`), so the page
+// and the prefill cannot disagree about what picking the site will write.
+it('says what a site will write into each row, and nothing for an entry with several ways in', () => {
+  const site = says({
+    entry: ['shore', 'boat'],
+    salinity: ' salt ' as SiteDefaults['salinity'],
+    waterBody: '' as SiteDefaults['waterBody'],
+  });
+  expect(siteDefaultValue(site, 'entry')).toBeNull();
+  expect(siteDefaultValue(site, 'salinity')).toBe('salt');
+  expect(siteDefaultValue(site, 'waterBody')).toBeNull();
+  expect(siteDefaultValue(says({ entry: ['boat'] }), 'entry')).toBe('boat');
+  expect(siteDefaultValue(says(), 'entry')).toBeNull();
 });
 
 it('leaves a typed entry alone even when the site offers exactly one way in', () => {
