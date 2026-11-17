@@ -124,7 +124,8 @@ PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from
 #31, and again after a site's entry became a set and gained its altitude (the `alter column`
 statement above included) — and passed both times; what that showed, and what it still cannot,
 is at the end of [Applied](#applied). **File 6's later change — `best_alt_name` and
-`matched_name` — has not run anywhere yet.**
+`matched_name` — ran a third time on that throwaway (Postgres 16.4 + PostGIS 3.4.3, 2026-11-17,
+the SQL as it stands now) and passed with no defects; it has still not run on the project.**
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -402,8 +403,8 @@ from the floor** in both functions, once, after their guards and before the quer
 **The signature change** is one `drop function if exists` of the old `similar_sites`, immediately
 before the new one is created, with no grant or revoke left naming it. The four helpers are
 `immutable` and `parallel safe`, and `suggest_site_edit` allows every fact #31 gave a site.
-**`matched_name` is decided off the rank's own scores**: `similar_sites` takes its three scores
-once per row, ranks by their best, and reports an other name only when that score beats both of
+**`matched_name` is decided off the rank's own scores**: `similar_sites` reads its rank and its
+answer off the same three expressions, so they cannot disagree; it ranks by their best, and reports an other name only when that score beats both of
 the site's own-name scores outright, as a key beside `sync_site`'s rendering — never a column of
 `dive_sites`, and never looked up inside the ranking CTE.
 
@@ -509,8 +510,14 @@ PostGIS 3.4 with a small stand-in for Supabase's `auth` schema and roles (2026-1
 the files as they were before a site's `entry` became a set, then again after the set and
 `altitude_m`. Each time as a fresh project, re-applied over itself, and by the upgrade path in
 [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the files as they were
-before #31; every step passed, with no defects. (File 6 has changed since — `best_alt_name` and
-`similar_sites`' `matched_name` — and that change has not run.) That settled two things this list
+before #31; every step passed, with no defects. File 6 then changed — `best_alt_name` and
+`similar_sites`' `matched_name` — and a third run on the same kind of throwaway (Postgres 16.4 +
+PostGIS 3.4.3, 2026-11-17) covered it, as a fresh project and by the owner's upgrade path, again
+with no defects: `matched_name` names the other name a match came through and is null when the
+match came through the site's own name or tied; `best_alt_name` trims and returns the first-listed
+name on a tie; the arrival recheck still writes suspicions with no warning; and on 20,008
+synthetic sites `similar_sites` still plans as a BitmapOr over the three trigram arms, at the
+same speed as before. None of the three runs was on the project itself. That settled two things this list
 used to call unprovable:
 
 - **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set

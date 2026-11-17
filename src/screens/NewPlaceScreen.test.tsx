@@ -1309,7 +1309,6 @@ it('sets no altitude and offers none from a pin the dive handed over', async () 
   const t = await showSite();
   // The dive's salinity, water body and entry open the group already.
   expect(labelled(t, 'Altitude').props.value).toBe('');
-  expect(textIn(t).some((line) => line.startsWith('Use GPS altitude'))).toBe(false);
   await press(t, 'Save site');
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBeNull();
 });

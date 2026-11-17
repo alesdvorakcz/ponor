@@ -225,16 +225,30 @@ it('leaves the browser map’s English count on its own two forms', () => {
 /**
  * **A key Czech declines and English does not, resolved in English.**
  *
- * `figure.coverage` is the one place this app relies on i18next falling back from a missing
- * `_one`/`_other` to the bare key: Czech needs four forms of it (the `z`/`ze` alternation) and
+ * Two places rely on i18next falling back from a missing `_one`/`_other` to the bare key, one
+ * each way round. `figure.coverage`: Czech needs four forms of it (the `z`/`ze` alternation) and
  * English needs none, and adding two identical English forms would have invented a plural the
- * app never had. If that fallback ever stops working the English map summary renders the key
- * itself, which nothing else here would catch.
+ * app never had. Czech `site.prefillNote`: English moves its verb with the count
+ * (`_one`/`_other`), Czech has only the bare key. If that fallback ever stops working the
+ * English map summary (or the Czech site note) renders the key itself, which nothing else here
+ * would catch.
  */
 it('resolves an English key that only Czech declines', () => {
   const rendered = t('figure.coverage', { onMap: 7, total: '24 dives', count: 24 });
   expect(rendered).toBe('7 of 24 dives');
   expect(rendered).not.toContain('figure.coverage');
+});
+
+it('resolves Czech site.prefillNote, which has only the bare key, at one and many', () => {
+  setActiveLanguage('cs');
+  for (const count of [1, 2]) {
+    const rendered = t('site.prefillNote', { rows: 'Vstup', count });
+    expect(rendered).toBe(
+      'Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+    );
+    expect(rendered).not.toBe(t('site.prefillNote', { rows: 'Vstup', count, lng: 'en' }));
+    expect(rendered).not.toContain('site.prefillNote');
+  }
 });
 
 /**

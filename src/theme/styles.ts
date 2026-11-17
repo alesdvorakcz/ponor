@@ -4654,11 +4654,10 @@ function build(scheme: ColorScheme) {
       paddingTop: 2,
       paddingBottom: 10,
     },
+    // `nameMeta` is the muted mono 11.5 face; the 16 is the canvas's leading for this note.
     siteFactsNoteText: {
-      fontFamily: fonts.mono,
-      fontSize: 11.5,
+      ...nameMeta,
       lineHeight: 16,
-      color: theme.fgMuted,
     },
     // ------------------------------------------------------------------------------------
     // The site and centre picker (issue #19, `PlacePickerScreen`)
@@ -4747,8 +4746,7 @@ function build(scheme: ColorScheme) {
     pickerNearMeLabelOn: selectedInk,
     // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
     // km*, the unreadable catalogue, and the prompt a page with nothing to list opens on.
-    // `captionBlock`/`captionText`, the sentence-under-a-block Settings and a site's page already
-    // speak in.
+    // `captionBlock`/`captionText`, the sentence-under-a-block Settings already speaks in.
     pickerNote: {
       ...captionBlock,
       paddingBottom: 6,

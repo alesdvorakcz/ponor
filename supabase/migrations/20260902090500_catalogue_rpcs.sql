@@ -722,9 +722,9 @@ begin
   -- one found by its name. What the match IS (the same name, another name, a guess) is the
   -- client's to say (`twinRelation`, src/domain/suggest.ts), about the row this hands back.
   --
-  -- The three scores are taken once, in `scores` — the site's name against the proposed name, its
-  -- other names against the proposed name, its name against the proposed other names — so the rank
-  -- and `matched_name` (above) are read off the same numbers. `through_other_name` is the second
+  -- The three scores, in `scores` — the site's name against the proposed name, its other names
+  -- against the proposed name, its name against the proposed other names — are read off the same
+  -- three expressions, so the rank and `matched_name` (above) cannot disagree. `through_other_name` is the second
   -- beating both others STRICTLY: a tie goes to the site's own name, which needs no "also called".
   -- The name itself is looked up below, for the rows handed back and no others.
   with matches as (
