@@ -1236,6 +1236,9 @@ describe('the app content column', () => {
     // The same pill as *+ Add a name* on the *New dive site* page (issue #31); its row,
     // `newPlaceAddNames`, is on the column.
     'newPlaceAddNamePill',
+    // ...and as the GPS altitude offer under *Altitude* (issue #31, round 4); its row,
+    // `newPlaceAltitudeOffers`, is on the column.
+    'newPlaceAltitudeOfferPill',
     // The *New dive site* page's position card (issue #19): `detailMapCard`'s own frame, whose
     // padding is a distance inside the card and whose margin is the column.
     'newPlacePositionCard',
@@ -1328,11 +1331,13 @@ describe('the app content column', () => {
     'pickerGroupTitle',
     'pickerRow',
     // The *New dive site / New dive centre* page it pushes: its way out, its header, the
-    // *POSITION* label and the failed-write note. Its rows are the form's own, asserted above.
+    // *POSITION* label, the failed-write note and the row the altitude offer stands in. Its rows are
+    // the form's own, asserted above.
     'newPlaceBack',
     'newPlaceHeader',
     'newPlaceSectionHeader',
     'newPlaceNote',
+    'newPlaceAltitudeOffers',
     // The account screen (issue #24): its head and everything under it, on the form's column.
     'accountHead',
     'accountBody',
@@ -1623,6 +1628,16 @@ describe('the New dive site page', () => {
     expect(styles.newPlaceAddName).toBe(styles.pickerNearMe);
     expect(styles.newPlaceAddNamePill).toBe(styles.pickerNearMePill);
     expect(styles.newPlaceAddNameLabel).toBe(styles.pickerNearMeLabel);
+  });
+
+  // Issue #31, round 4: the GPS altitude offer is the same quiet pill again, right-aligned under
+  // the *Altitude* row as the canvas draws it.
+  it.each(['dark', 'light'] as const)('draws the altitude offer as the same pill, at the row’s end (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.newPlaceAltitudeOffer).toBe(styles.pickerNearMe);
+    expect(styles.newPlaceAltitudeOfferPill).toBe(styles.pickerNearMePill);
+    expect(styles.newPlaceAltitudeOfferLabel).toBe(styles.pickerNearMeLabel);
+    expect(styles.newPlaceAltitudeOffers).toMatchObject({ flexDirection: 'row', justifyContent: 'flex-end' });
   });
 });
 

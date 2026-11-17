@@ -1071,6 +1071,10 @@ export const en = {
       name: 'Name',
       position: 'Position',
       useCurrentPosition: 'Use current position',
+      /** Under *Altitude* once a fix carried a height (#31): the offer, which fills the row only when
+       * tapped — a diver often logs a dive somewhere else than the site. `value` is the figure with
+       * its unit, `12 m`. */
+      useGpsAltitude: 'Use GPS altitude · {{value}}',
       asksThePhone: 'asks the phone where you are',
       fromTheAddress: 'from the address',
       fromThisDive: 'from this dive',

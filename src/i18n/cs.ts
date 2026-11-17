@@ -880,6 +880,7 @@ export const cs = {
       name: 'Název',
       position: 'Poloha',
       useCurrentPosition: 'Použít aktuální polohu',
+      useGpsAltitude: 'Použít výšku z GPS · {{value}}',
       asksThePhone: 'zeptá se telefonu, kde jste',
       fromTheAddress: 'z adresy',
       fromThisDive: 'z tohoto ponoru',

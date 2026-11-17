@@ -4906,6 +4906,18 @@ function build(scheme: ColorScheme) {
     newPlaceAddName: outlinePillBox,
     newPlaceAddNamePill: outlinePill,
     newPlaceAddNameLabel: outlinePillLabel,
+    // *Use GPS altitude · 12 m*, under the *Altitude* row once a fix carried one (issue #31, round
+    // 4): the same quiet pill, at the row's trailing end as the canvas draws it, over the value it
+    // would fill. No air above it — it belongs to the row it sits under; 12 below, the canvas's.
+    newPlaceAltitudeOffers: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 12,
+    },
+    newPlaceAltitudeOffer: outlinePillBox,
+    newPlaceAltitudeOfferPill: outlinePill,
+    newPlaceAltitudeOfferLabel: outlinePillLabel,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

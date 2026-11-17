@@ -1136,63 +1136,180 @@ it('stores an altitude typed in feet as whole metres', async () => {
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(305);
 });
 
-it('fills the altitude from the fix when Use current position is pressed, and saves it rounded', async () => {
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+// --- The GPS altitude offer (#31, round 4) ------------------------------------------------------
+//
+// The owner's call (2026-11-17): a diver often logs a dive somewhere else than the site, so the fix
+// tells nothing useful about the site's height. *Use current position* therefore never writes the
+// Altitude row: when the fix carries an altitude, the row OFFERS it, and a tap fills it.
+
+/** The offer as a screen reader finds it: a button labelled by its own text. */
+const offer = (value: string) => `Use GPS altitude · ${value}`;
+
+const withAltitude = (altitude: number): PositionOutcome => ({ found: true, latitude: 50.1, longitude: 14.4, altitude });
+
+it('offers the fix’s altitude under the Altitude row rather than filling it, and saves nothing untapped', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  expect(has(t, offer('313 m'))).toBe(false);
+  await press(t, 'Use current position');
+  expect(labelled(t, 'Altitude').props.value).toBe('');
+  const pill = labelled(t, offer('313 m'));
+  expect(pill.props.accessibilityRole).toBe('button');
+  expect(textOf(pill)).toBe(offer('313 m'));
+  // Under the row it would fill.
+  const lines = textIn(t);
+  expect(lines.indexOf(offer('313 m'))).toBeGreaterThan(lines.indexOf('Altitude'));
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBeNull();
+});
+
+it('draws the offer as + Add a name’s quiet pill', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
   const t = await showSite();
   await press(t, 'Use current position');
+  const pill = labelled(t, offer('313 m'));
+  expect(stylesOf(pill)).toContain(styles.newPlaceAltitudeOffer);
+  expect(pill.queryAll((n) => stylesOf(n).includes(styles.newPlaceAltitudeOfferPill)).length).toBeGreaterThan(0);
+  expect(unexpectedGraphics(t, 'light')).toEqual([]);
+});
+
+it('fills the field with the offer when tapped, and the offer goes', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  await press(t, 'Use current position');
+  await press(t, offer('313 m'));
   expect(labelled(t, 'Altitude').props.value).toBe('313');
+  expect(has(t, offer('313 m'))).toBe(false);
   await press(t, 'Save site');
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(313);
 });
 
-it('shows the fix’s altitude in feet to an imperial diver, and still saves whole metres', async () => {
-  mockUnits.mockReturnValue('imperial');
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+it('stays gone once taken, even when the diver then edits the row', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
   const t = await showSite();
   await press(t, 'Use current position');
-  expect(labelled(t, 'Altitude').props.value).toBe('1026');
-  await press(t, 'Save site');
-  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(313);
+  await press(t, offer('313 m'));
+  await type(t, 'Altitude', '318');
+  expect(has(t, offer('313 m'))).toBe(false);
 });
 
-it('opens The site when the fix fills the altitude, so a value it will save is never hidden', async () => {
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
-  const t = await showSite();
-  expect(has(t, 'Altitude')).toBe(false);
-  await press(t, 'Use current position');
-  expect(has(t, 'Altitude')).toBe(true);
-});
-
-it('leaves the altitude as it was when the fix carries none', async () => {
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+it('keeps a typed altitude until the offer is tapped', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
   const t = await showSite();
   await expand(t, 'The site');
   await type(t, 'Altitude', '250');
   await press(t, 'Use current position');
   expect(labelled(t, 'Altitude').props.value).toBe('250');
+  expect(has(t, offer('313 m'))).toBe(true);
+  // Typing again leaves the offer standing: only a tap takes it.
+  await type(t, 'Altitude', '260');
+  expect(has(t, offer('313 m'))).toBe(true);
+  await press(t, offer('313 m'));
+  expect(labelled(t, 'Altitude').props.value).toBe('313');
+});
+
+it('saves a typed altitude over a standing offer the diver ignored', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  await press(t, 'Use current position');
+  await type(t, 'Altitude', '250');
   await press(t, 'Save site');
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(250);
 });
 
-it('lets the diver type over a filled altitude, and a later fix overwrites it', async () => {
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+it('replaces the offer with a later fix’s altitude', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
   const t = await showSite();
   await press(t, 'Use current position');
-  await type(t, 'Altitude', '320');
-  expect(labelled(t, 'Altitude').props.value).toBe('320');
-  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 100.2 });
+  expect(has(t, offer('313 m'))).toBe(true);
+  mockPosition.mockResolvedValue(withAltitude(100.2));
   await press(t, 'Use current position');
-  expect(labelled(t, 'Altitude').props.value).toBe('100');
-  await type(t, 'Altitude', '321');
-  await press(t, 'Save site');
-  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(321);
+  expect(has(t, offer('313 m'))).toBe(false);
+  expect(has(t, offer('100 m'))).toBe(true);
+  expect(labelled(t, 'Altitude').props.value).toBe('');
 });
 
-it('sets no altitude from a pin the dive handed over', async () => {
+it('offers nothing when the fix carries no altitude, and drops an offer about an earlier fix', async () => {
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4 });
+  const t = await showSite();
+  await press(t, 'Use current position');
+  expect(textIn(t).some((line) => line.startsWith('Use GPS altitude'))).toBe(false);
+  // No offer, so nothing to show: the group stays as it was.
+  expect(has(t, 'Altitude')).toBe(false);
+
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  await press(t, 'Use current position');
+  expect(has(t, offer('313 m'))).toBe(true);
+  // A fix with none is a new position, and the old fix's height was about the old one.
+  mockPosition.mockResolvedValue({ found: true, latitude: 50.2, longitude: 14.5 });
+  await press(t, 'Use current position');
+  expect(textIn(t).some((line) => line.startsWith('Use GPS altitude'))).toBe(false);
+});
+
+it('keeps the offer when a later press is refused', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  await press(t, 'Use current position');
+  mockPosition.mockResolvedValue({ found: false, reason: 'denied' });
+  await press(t, 'Use current position');
+  // The position on the page is still the fix the offer came with.
+  expect(textIn(t)).toContain('50.10000, 14.40000');
+  expect(has(t, offer('313 m'))).toBe(true);
+});
+
+it('offers an imperial diver the altitude in feet, and saves whole metres', async () => {
+  mockUnits.mockReturnValue('imperial');
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  await press(t, 'Use current position');
+  expect(has(t, offer('1026 ft'))).toBe(true);
+  await press(t, offer('1026 ft'));
+  expect(labelled(t, 'Altitude').props.value).toBe('1026');
+  await press(t, 'Save site');
+  expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBe(313);
+});
+
+it('hides the offer while the field already holds that value', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  await expand(t, 'The site');
+  await type(t, 'Altitude', '313');
+  await press(t, 'Use current position');
+  expect(has(t, offer('313 m'))).toBe(false);
+  // ...and only while: a different value brings it back, since it was never tapped.
+  await type(t, 'Altitude', '300');
+  expect(has(t, offer('313 m'))).toBe(true);
+});
+
+it('opens The site when the fix brings an offer, so the offer is not hidden', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const t = await showSite();
+  expect(has(t, 'Altitude')).toBe(false);
+  await press(t, 'Use current position');
+  expect(has(t, 'Altitude')).toBe(true);
+  expect(has(t, offer('313 m'))).toBe(true);
+});
+
+it('holds the offer still while a save is out', async () => {
+  mockPosition.mockResolvedValue(withAltitude(312.6));
+  const written = deferred<string>();
+  mockAddSite.mockReturnValue(written.promise);
+  const t = await showSite();
+  await press(t, 'Use current position');
+  await press(t, 'Save site');
+  const pill = labelled(t, offer('313 m'));
+  expect(pill.props.accessibilityState).toMatchObject({ disabled: true });
+  await act(async () => onPressOf(pill)());
+  expect(labelled(t, 'Altitude').props.value).toBe('');
+  await act(async () => written.resolve('new-id'));
+});
+
+it('sets no altitude and offers none from a pin the dive handed over', async () => {
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   const t = await showSite();
   // The dive's salinity, water body and entry open the group already.
   expect(labelled(t, 'Altitude').props.value).toBe('');
+  expect(textIn(t).some((line) => line.startsWith('Use GPS altitude'))).toBe(false);
   await press(t, 'Save site');
   expect(mockAddSite.mock.calls[0]?.[0].altitudeM).toBeNull();
 });
@@ -1619,6 +1736,13 @@ describe('in Czech', () => {
     await press(t, 'Uložit lokalitu');
     expect(textIn(t)).toContain('Nemysleli jste „Stone Gate“ (jiným názvem Kamena vrata)?');
     expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
+  });
+
+  it('offers the GPS altitude in Czech', async () => {
+    mockPosition.mockResolvedValue({ found: true, latitude: 50.1, longitude: 14.4, altitude: 312.6 });
+    const t = await showSite();
+    await press(t, 'Použít aktuální polohu');
+    expect(textOf(labelled(t, 'Použít výšku z GPS · 313 m'))).toBe('Použít výšku z GPS · 313 m');
   });
 
   it('says another name in Czech', async () => {

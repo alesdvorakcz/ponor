@@ -35,6 +35,7 @@ import {
   type WaterBody,
 } from '../domain/types';
 import {
+  formatAltitude,
   formatCoordinates,
   formatPlaceToken,
   formatSalinity,
@@ -222,8 +223,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const [siteTypes, setSiteTypes] = useState<SiteType[]>([]);
   const [suitableFor, setSuitableFor] = useState<SuitableFor | null>(null);
   const [depth, setDepth] = useState('');
-  // Typed in the diver's units, or filled from a GPS fix; stored as whole metres.
+  // Typed in the diver's units, or filled from the GPS offer below; stored as whole metres.
   const [altitude, setAltitude] = useState('');
+  // The last fix's altitude in metres, offered under the row until tapped — never written into it
+  // unasked (the owner's call: a diver often logs a dive somewhere else than the site). Null for a
+  // fix that carried none (always on Android), and before any press.
+  const [altitudeOffer, setAltitudeOffer] = useState<number | null>(null);
   const [wreckName, setWreckName] = useState('');
   const [wreckYear, setWreckYear] = useState('');
   // One empty row to type into; *+ Add a name* appends another. Rows are never removed or
@@ -333,6 +338,21 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   };
   const addAltName = () => setAltNames((current) => [...current, '']);
 
+  // The offer as the field would take it — the whole figure in the diver's unit — and as the pill
+  // says it, with the unit. Shown while it would change what Save writes: not while the field
+  // already holds that value, typed or tapped.
+  const offeredFigure = altitudeOffer === null ? null : String(displayNumber('altitude', altitudeOffer, units));
+  const offeredText = altitudeOffer === null ? null : formatAltitude(altitudeOffer, units);
+  const offerLabel = offeredText === null ? null : t('newPlace.useGpsAltitude', { value: offeredText });
+  const offering =
+    kind === 'site' && offeredFigure !== null && altitudeMetres(altitude, units) !== altitudeMetres(offeredFigure, units);
+  // A tap fills the row and the offer goes. Not while a save is out: what is saved is what is on screen.
+  const takeAltitudeOffer = () => {
+    if (inFlight.current || offeredFigure === null) return;
+    setAltitude(offeredFigure);
+    setAltitudeOffer(null);
+  };
+
   /**
    * The first way off the page wins; every later one is a no-op. A second delivery would already be
    * nothing (the registry settles a token once), but `‹ Back` is plain navigation: a second one
@@ -372,12 +392,12 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     setLocating(false);
     if (outcome.found) {
       setPosition({ latitude: outcome.latitude, longitude: outcome.longitude, from: 'phone' });
-      // The fix's altitude, when it carried one, replaces what the field held (each press that
-      // yields one does); none leaves the field as it was. Shown in the diver's unit, to the whole
-      // figure, and the group opens so a value Save will write is never out of sight.
-      if (kind === 'site' && outcome.altitude !== undefined) {
-        setAltitude(String(displayNumber('altitude', outcome.altitude, units)));
-        setOpened((current) => ({ ...current, site: true }));
+      // The fix's altitude is offered, never written: the field keeps whatever it held until the
+      // offer is tapped. Each fix replaces the offer — one with no altitude takes it away, since the
+      // old height was about the old position — and the group opens so an offer is never out of sight.
+      if (kind === 'site') {
+        setAltitudeOffer(outcome.altitude ?? null);
+        if (outcome.altitude !== undefined) setOpened((current) => ({ ...current, site: true }));
       }
       // A standing question was asked around the old position (`similar_sites` is narrowed by it).
       setMatches([]);
@@ -642,8 +662,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 unit={unitLabel('depth', units)}
                 editable={!saving}
               />
-              {/* A height above sea level, never a depth: typed or filled from the fix, in the diver's
-                  units, below sea level allowed (so the minus is on the keypad). */}
+              {/* A height above sea level, never a depth: typed, or taken from the fix's offer below,
+                  in the diver's units, below sea level allowed (so the minus is on the keypad). */}
               <FormField
                 label={t('field.altitude')}
                 value={altitude}
@@ -654,6 +674,24 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 unit={unitLabel('altitude', units)}
                 editable={!saving}
               />
+              {/* The GPS altitude, offered rather than written (#31, round 4): + Add a name's quiet
+                  pill at the row's trailing end, a button labelled by its own words. */}
+              {offering && offerLabel !== null && (
+                <View style={styles.newPlaceAltitudeOffers}>
+                  <Pressable
+                    style={styles.newPlaceAltitudeOffer}
+                    onPress={takeAltitudeOffer}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel={offerLabel}
+                    accessibilityState={{ disabled: saving }}
+                  >
+                    <View style={styles.newPlaceAltitudeOfferPill}>
+                      <Text style={styles.newPlaceAltitudeOfferLabel}>{offerLabel}</Text>
+                    </View>
+                  </Pressable>
+                </View>
+              )}
               {wreck && (
                 <>
                   {/* A ship's name, bound for the catalogue as the place's own is: never corrected. */}
