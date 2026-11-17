@@ -2088,8 +2088,8 @@ describe('the place picker', () => {
 describe('formatPlaceTokens', () => {
   it('reads each token as its word, in stored order, and keeps one this build does not know', () => {
     expect(formatPlaceTokens('services', ['nitrox', 'freediving'])).toBe('Nitrox · Freediving');
-    expect(formatPlaceTokens('agencies', ['sditdi', 'other'])).toBe('SDI/TDI · Other');
-    expect(formatPlaceTokens('siteTypes', ['canyon', 'swimthrough'])).toBe('Canyon · Swim-through');
+    expect(formatPlaceTokens('agencies', ['sdi_tdi', 'other'])).toBe('SDI/TDI · Other');
+    expect(formatPlaceTokens('siteTypes', ['canyon', 'swim_through'])).toBe('Canyon · Swim-through');
     // A site's ways in (#31): the words a dive's entry reads, one owner for both.
     expect(formatPlaceTokens('entry', ['shore', 'boat', 'jetty'])).toBe('Shore · Boat · Jetty');
     expect(formatPlaceToken('entry', 'boat')).toBe(formatEntry('boat'));
@@ -2103,7 +2103,7 @@ describe('formatPlaceTokens', () => {
     setActiveLanguage('cs');
     try {
       expect(formatPlaceTokens('services', ['boat', 'repair'])).toBe('Ponory z lodi · Servis');
-      expect(formatPlaceTokens('siteTypes', ['swimthrough'])).toBe('Průplav');
+      expect(formatPlaceTokens('siteTypes', ['swim_through'])).toBe('Průplav');
       expect(formatPlaceTokens('entry', ['shore', 'boat'])).toBe('Břeh · Loď');
     } finally {
       setActiveLanguage('en');
@@ -2113,7 +2113,7 @@ describe('formatPlaceTokens', () => {
 
 describe('formatSuitableFor', () => {
   it('names a level, capitalises one it does not know, and is null for none', () => {
-    expect(formatSuitableFor('openwater')).toBe('Open Water');
+    expect(formatSuitableFor('open_water')).toBe('Open Water');
     expect(formatSuitableFor('extreme' as never)).toBe('Extreme');
     expect(formatSuitableFor(null)).toBeNull();
   });

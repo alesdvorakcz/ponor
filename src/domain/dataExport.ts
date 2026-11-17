@@ -50,8 +50,8 @@ import type {
  * than asking `format/display.ts` for the sentence.
  *
  * **Vocabulary values are the stored token, not the translated word** — `shore`, `salt`,
- * `semidry`. `domain/types.ts` guarantees every member is "one lowercase word that means
- * itself", so nothing is lost to a reader, and the alternative would make the same logbook
+ * `semidry`. `domain/types.ts` guarantees every member is lowercase words that mean
+ * themselves, so nothing is lost to a reader, and the alternative would make the same logbook
  * export differently depending on which language the app happened to be in.
  *
  * ── Computed values, which a CSV has no mark for ──────────────────────────────────────────
@@ -338,7 +338,7 @@ function diveColumns(
     // Millimetres in both systems — the fourth quantity with no pair (format/units.ts).
     { header: 'suit_thickness_mm', cell: (dive) => numberCell(dive.suitThicknessMm) },
     // Space-separated, and that is safe rather than lucky: `domain/types.ts` guarantees every
-    // member of a closed vocabulary is "one lowercase word that means itself", so no token can
+    // member of a closed vocabulary is lowercase words joined by `_`, so no token can
     // contain the separator. A comma would have been the natural list mark and is the one
     // character this file may not spend on anything else.
     { header: 'equipment', cell: (dive) => dive.equipment.join(' ') },

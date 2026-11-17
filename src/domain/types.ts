@@ -28,7 +28,7 @@ export type DiveStatus = 'logged' | 'planned';
  * recorded here as well as in §10 because it is the one value in this file that was ever
  * *shipped and then removed* — a column already held it — as opposed to never built.
  *
- * **Every member is one lowercase word that means itself, and `WEATHER_VALUES` was made to
+ * **Every member is lowercase words that mean themselves (snake_case when more than one, since 2026-11-17; M1h's rule was one word), and `WEATHER_VALUES` was made to
  * obey that rather than excused from it** (M1h). It shipped from Task 1 holding `partly`,
  * which is half a phrase: a diver means *partly cloudy*, and the chip reading "Partly" beside
  * one reading "Cloudy" only makes sense because of what stands next to it. Two ways out were
@@ -65,13 +65,15 @@ export const EQUIPMENT_VALUES = ['hood', 'gloves', 'boots', 'torch', 'camera'] a
 export const CATALOGUE_STATUS_VALUES = ['active', 'merged', 'hidden'] as const;
 /**
  * The facts issue #31 gives a site and a centre (§6): what kind of site, who it suits, what a
- * centre offers and which agencies it trains with. `openwater` and `sditdi` are one word each,
- * by the rule above, where the issue spelled them with an underscore.
+ * centre offers and which agencies it trains with. A value of more than one word is spelled
+ * in snake_case — `open_water`, `sdi_tdi`, `swim_through`, `blue_water` (owner's call,
+ * 2026-11-17, §10) — which replaced M1h's one-word rule for those; every one-word value is
+ * still valid.
  */
-export const SITE_TYPE_VALUES = ['wreck', 'reef', 'wall', 'pinnacle', 'canyon', 'swimthrough', 'muck', 'drift', 'bluewater'] as const;
-export const SUITABLE_FOR_VALUES = ['openwater', 'advanced', 'experienced', 'technical'] as const;
+export const SITE_TYPE_VALUES = ['wreck', 'reef', 'wall', 'pinnacle', 'canyon', 'swim_through', 'muck', 'drift', 'blue_water'] as const;
+export const SUITABLE_FOR_VALUES = ['open_water', 'advanced', 'experienced', 'technical'] as const;
 export const SERVICE_VALUES = ['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair'] as const;
-export const AGENCY_VALUES = ['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other'] as const;
+export const AGENCY_VALUES = ['padi', 'ssi', 'cmas', 'naui', 'sdi_tdi', 'raid', 'gue', 'bsac', 'iantd', 'other'] as const;
 
 /**
  * The 0–3 scale `waves`, `current` and `surge` are recorded on — **as chips to offer**, which

@@ -14,6 +14,9 @@ import {
   type Configuration,
 } from './types';
 
+/** A vocabulary member: lowercase words joined by a single `_` (§10, 2026-11-17). */
+const SNAKE_CASE = /^[a-z]+(_[a-z]+)*$/;
+
 /**
  * Every closed vocabulary `domain/types.ts` declares, found by its own naming convention
  * rather than listed here — so a vocabulary added there is swept on the commit that adds it,
@@ -32,7 +35,7 @@ const ALL_VOCABULARIES: [string, readonly unknown[]][] = Object.entries(
  *
  * Split from the numeric ones below rather than the sweep being loosened to accommodate them,
  * because the two obey genuinely different rules and a sweep that admitted both would check
- * neither: "one lowercase word" is meaningless for `2`, and "ascending with no gaps" is
+ * neither: "lowercase words joined by `_`" is meaningless for `2`, and "ascending with no gaps" is
  * meaningless for `semidry`. Both halves are still *discovered* from the same `_VALUES`
  * convention, so a vocabulary added to `domain/types.ts` lands in one bucket or the other and
  * cannot slip between them — which the total asserted below is what guarantees.
@@ -115,23 +118,23 @@ describe('the vocabularies', () => {
   });
 
   it('offers the site types, suitable-for levels, services and agencies #31 names, in that order', () => {
-    // #31's lists as the issue orders them, which is the order the chips appear in. Two
-    // members are compressed to one word by the rule below rather than spelled with the
-    // issue's underscore: `openwater` and `sditdi`.
+    // #31's lists as the issue orders them, which is the order the chips appear in. Four
+    // members are more than one word and are spelled in snake_case by the rule below:
+    // `open_water`, `sdi_tdi`, `swim_through` and `blue_water`.
     expect(SITE_TYPE_VALUES).toEqual([
       'wreck',
       'reef',
       'wall',
       'pinnacle',
       'canyon',
-      'swimthrough',
+      'swim_through',
       'muck',
       'drift',
-      'bluewater',
+      'blue_water',
     ]);
-    expect(SUITABLE_FOR_VALUES).toEqual(['openwater', 'advanced', 'experienced', 'technical']);
+    expect(SUITABLE_FOR_VALUES).toEqual(['open_water', 'advanced', 'experienced', 'technical']);
     expect(SERVICE_VALUES).toEqual(['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair']);
-    expect(AGENCY_VALUES).toEqual(['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other']);
+    expect(AGENCY_VALUES).toEqual(['padi', 'ssi', 'cmas', 'naui', 'sdi_tdi', 'raid', 'gue', 'bsac', 'iantd', 'other']);
   });
 
   // M1h: `WEATHER_VALUES` shipped holding `partly`, which is half a phrase — a diver means
@@ -143,10 +146,11 @@ describe('the vocabularies', () => {
   //
   // **What is actually checkable is the convention, not the judgement.** No test can say that
   // `partly` fails to mean itself; that is recorded in `domain/types.ts` and §10. This pins the
-  // half a machine can see — every member of every vocabulary is one lowercase word — which
-  // is what forbids the rejected `'partly cloudy'` and `'partly_cloudy'` spellings, and what
-  // `semidry` already obeys by compressing a two-word concept into one token.
-  it('spells every member as a single lowercase word, with no separator standing in for one', () => {
+  // half a machine can see — every member of every vocabulary is lowercase words joined by a
+  // single `_` — which is what forbids the rejected `'partly cloudy'` spelling and any
+  // capitals, and what `semidry` (one word) and `open_water` (snake_case, since the owner's
+  // 2026-11-17 call replaced M1h's one-word rule for multi-word values) both obey.
+  it('spells every member as lowercase words joined by a single underscore', () => {
     // **Derived, not listed.** The first version of this test typed out eight of the ten
     // vocabularies and quietly omitted `ENTRY_VALUES` and `TANK_MATERIAL_VALUES` — a
     // hand-maintained list of the lists, which is §4.1's defect one level up and exactly what
@@ -155,8 +159,12 @@ describe('the vocabularies', () => {
     expect(VOCABULARIES.map(([name]) => name)).toHaveLength(15);
     for (const [, vocabulary] of VOCABULARIES) {
       for (const member of vocabulary) {
-        expect(member).toMatch(/^[a-z]+$/);
+        expect(member).toMatch(SNAKE_CASE);
       }
+    }
+    // The rule has to be able to fail: a space, a capital, a doubled or a leading separator.
+    for (const bad of ['partly cloudy', 'Open_Water', 'open__water', '_open', 'open_', 'Swim_Through']) {
+      expect(bad).not.toMatch(SNAKE_CASE);
     }
   });
 
