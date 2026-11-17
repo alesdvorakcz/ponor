@@ -373,6 +373,9 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     let addressAnswer = fromAddress;
     if (kind === 'center' && addressAnswer === null && latitude === null && addressPending.current?.address === trimmedAddress) {
       addressAnswer = { address: trimmedAddress, country: await addressPending.current.answer };
+      // Closed, or `‹ Back` pressed while the lookup was out: nothing is written, as after the twin
+      // check below — a community row cannot be deleted once it exists (§5).
+      if (!alive.current || leaving.current) return;
     }
 
     if (kind === 'site' && matches.length === 0) {
@@ -653,7 +656,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                   onPress={addAltName}
                   disabled={saving}
                   accessibilityRole="button"
-                  accessibilityLabel={t('newPlace.addName')}
+                  accessibilityLabel={t('newPlace.addNameLabel')}
                   accessibilityState={{ disabled: saving }}
                 >
                   <View style={styles.newPlaceAddNamePill}>

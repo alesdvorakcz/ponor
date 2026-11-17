@@ -1084,6 +1084,9 @@ export const en = {
       /** Beside *Site type*, a set: more than one may be chosen. */
       anyThatApply: 'any that apply',
       addName: '+ Add a name',
+      /** What a screen reader says for it: the act, without the glyph, which VoiceOver reads as "plus"
+       * (the precedent is `back.anyLabel`). */
+      addNameLabel: 'Add another name',
       /** What each closed group holds, between its title and its chevron. */
       siteHint: 'water, entry, type, depth',
       altNamesHint: 'names it also goes by',

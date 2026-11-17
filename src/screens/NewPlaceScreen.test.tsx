@@ -511,7 +511,7 @@ it('asks with the other names it will save', async () => {
   await expand(t, 'Other names');
   for (const [index, other] of [' Kamena vrata ', 'stone gate', 'Kamená Vrata'].entries()) {
     await typeOtherName(t, index, other);
-    await press(t, '+ Add a name');
+    await press(t, 'Add another name');
   }
   await press(t, 'Save site');
   expect(mockTwins).toHaveBeenCalledWith('Stone Gate', ['Kamena vrata'], null);
@@ -1040,7 +1040,7 @@ it('saves other names without blanks, repeats or the site’s own name', async (
   const typed = ['Stone Gate', 'stone gate', 'Kamená Vrata'];
   for (const [index, other] of typed.entries()) {
     await typeOtherName(t, index, other);
-    await press(t, '+ Add a name');
+    await press(t, 'Add another name');
   }
   expect(otherNames(t)).toEqual([...typed, '']);
   await press(t, 'Save site');
@@ -1054,8 +1054,19 @@ it('adds a row for another name', async () => {
   // A place's name, as the page's own *Name* takes one.
   expect(labelled(t, 'Other name').props).toMatchObject({ autoCapitalize: 'sentences', autoCorrect: false });
   await typeOtherName(t, 0, 'Stone Gate');
-  await press(t, '+ Add a name');
+  await press(t, 'Add another name');
   expect(otherNames(t)).toEqual(['Stone Gate', '']);
+});
+
+// The pill shows *+ Add a name*; a screen reader hears the act without the glyph, which VoiceOver
+// would otherwise read as "plus" (`back.anyLabel` is the precedent).
+it('says + Add a name to a screen reader without the plus', async () => {
+  const t = await showSite();
+  await expand(t, 'Other names');
+  const pill = labelled(t, 'Add another name');
+  expect(pill.props.accessibilityRole).toBe('button');
+  expect(textOf(pill)).toBe('+ Add a name');
+  expect(has(t, '+ Add a name')).toBe(false);
 });
 
 it('saves every new fact of a centre', async () => {
@@ -1127,13 +1138,13 @@ it('holds the new fields still while saving', async () => {
   for (const field of ['Description', 'Site depth', 'Wreck name', 'Year sunk', 'Other name']) {
     expect([field, labelled(site, field).props.editable]).toEqual([field, false]);
   }
-  for (const control of ['Site type: Reef', 'Suitable for: Advanced', '+ Add a name']) {
+  for (const control of ['Site type: Reef', 'Suitable for: Advanced', 'Add another name']) {
     expect([control, labelled(site, control).props.accessibilityState]).toEqual([
       control,
       expect.objectContaining({ disabled: true }),
     ]);
   }
-  await press(site, '+ Add a name');
+  await press(site, 'Add another name');
   expect(otherNames(site)).toEqual(['']);
   await act(async () => checked.resolve([]));
   await cleanup();
@@ -1312,6 +1323,23 @@ it('Save waits for an address lookup still out instead of asking again', async (
   expect(mockAddCenter).toHaveBeenCalledWith(expect.anything(), undefined, { address: 'Otok Vis, Kut 12', country: 'HR' });
 });
 
+// As a site's twin check: `‹ Back` while Save waits is a way off, and a community row cannot be
+// deleted once written (§5), so the answer landing after it writes nothing.
+it('‹ Back while Save waits for the address lookup writes nothing', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const answer = deferred<string | null>();
+  mockAddressCountry.mockReturnValue(answer.promise);
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await press(t, 'Save centre');
+  await press(t, 'Go back');
+  await act(async () => answer.resolve('HR'));
+  expect(mockAddCenter).not.toHaveBeenCalled();
+  expect(mockComplete).not.toHaveBeenCalled();
+  expect(router.back).toHaveBeenCalledTimes(1);
+});
+
 it('hands on no address answer once the address has changed', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
   mockRequest.mockReturnValue(request({ kind: 'center' }));
@@ -1406,6 +1434,7 @@ describe('in Czech', () => {
     expect(textIn(site)).toContain('Jiné názvy');
     await press(site, 'Rozbalit Jiné názvy');
     expect(textIn(site)).toContain('+ Přidat název');
+    expect(textOf(labelled(site, 'Přidat další název'))).toBe('+ Přidat název');
     await cleanup();
 
     mockRequest.mockReturnValue(request({ kind: 'center' }));

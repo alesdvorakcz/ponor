@@ -886,6 +886,7 @@ export const cs = {
       everyoneCanRead: 'uvidí ho všichni',
       anyThatApply: 'lze vybrat více',
       addName: '+ Přidat název',
+      addNameLabel: 'Přidat další název',
       siteHint: 'voda, vstup, typ, hloubka',
       altNamesHint: 'jak se jí ještě říká',
       contactHint: 'web, telefon, e-mail, otevírací doba',
