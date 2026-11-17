@@ -52,6 +52,9 @@ describe('mailtoUrl', () => {
       'a@.example',
       'a@b..example',
       'x@y.example?subject=hi',
+      // A `?` on its own, with nothing else the allowlist refuses beside it.
+      'x@y.example?',
+      'a?b@c.example',
       'x@y.example&cc=z',
       '',
       null,
