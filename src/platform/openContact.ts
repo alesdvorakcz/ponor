@@ -13,9 +13,11 @@ import * as Linking from 'expo-linking';
  *  · **Phone** — digits, spaces and `-()./`, one `+` and only first, at least three digits. The
  *    URL carries the `+` and the digits and nothing else, so no separator, extension or
  *    `;`-parameter in the stored text can reach the dialler.
- *  · **Email** — one plain address. A `?`, `&`, `,`, `;` or `:` would let the text add a subject,
- *    a `bcc` or a second recipient to the message the diver thinks they are writing, so none is
- *    allowed.
+ *  · **Email** — one plain address, by **allowlist**: letters, digits and `._+-` before the `@`,
+ *    dot-joined labels of letters, digits and `-` after it, and nothing else. A blocklist of
+ *    `?&,;:` is not enough — other divers' text reaches the mail app, and a percent-encoded `,`
+ *    or `?`, a `%0D%0A`, a `#` or a control character would add a recipient or a header in any
+ *    handler that decodes before it splits.
  *
  * Nothing here throws, and nothing is logged (`cloud/auth.ts`' reason, §9's Sentry).
  */
@@ -30,7 +32,11 @@ export function telUrl(phone: string | null): string | null {
   return `tel:${value.startsWith('+') ? '+' : ''}${digits}`;
 }
 
-const EMAIL = /^[^\s@?&,;:<>/]+@[^\s@?&,;:<>/]+\.[^\s@?&,;:<>/]+$/;
+// An ALLOWLIST, not a list of what to keep out: the text is another diver's and reaches the mail
+// app inside `mailto:`, where `%2C`, `%3F`, `%0D%0A`, `#`, quotes and control characters can add a
+// recipient, a header or a query once a handler decodes them. Local part `[A-Za-z0-9._+-]`, then
+// dot-joined labels of `[A-Za-z0-9-]` with at least one dot; nothing else passes.
+const EMAIL = /^[A-Za-z0-9._+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 
 /** The `mailto:` address for one plain email address, or `null`. */
 export function mailtoUrl(email: string | null): string | null {

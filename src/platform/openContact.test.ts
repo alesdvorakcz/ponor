@@ -28,6 +28,8 @@ describe('telUrl', () => {
 describe('mailtoUrl', () => {
   it('makes one plain address into a mailto', () => {
     expect(mailtoUrl(' dive@nautica-vis.example ')).toBe('mailto:dive@nautica-vis.example');
+    expect(mailtoUrl('dive+club@nautica-vis.example')).toBe('mailto:dive+club@nautica-vis.example');
+    expect(mailtoUrl('a.b_c-d@mail.nautica-vis.example')).toBe('mailto:a.b_c-d@mail.nautica-vis.example');
   });
 
   it('refuses what is not one plain address', () => {
@@ -38,6 +40,17 @@ describe('mailtoUrl', () => {
       'a@b@c.example',
       'x@y.example?bcc=z@w.example',
       'x@y.example,z@w.example',
+      'dive@nautica.example%2Cspy%40evil.example',
+      'a@b.example%3Fbcc%3Dspy%40evil.example',
+      'a@b.example%0D%0ABcc%3Aspy%40evil.example',
+      'a@b.example#frag',
+      'a@b.example\u0000x',
+      'a@b.example\r\nBcc: spy@evil.example',
+      'a@b.example,c.example',
+      'a@b.example;c.example',
+      'a@b',
+      'a@.example',
+      'a@b..example',
       'x@y.example?subject=hi',
       'x@y.example&cc=z',
       '',

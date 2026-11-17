@@ -519,6 +519,7 @@ it('puts the description under the page’s own lines and above the map card', a
   // Whole, with its newline, and in the description's own style.
   const styles = makeStyles('light');
   const node = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.centerDescription));
+  expect(node).toBeDefined();
   expect(node?.props.numberOfLines).toBeUndefined();
 });
 
@@ -561,6 +562,12 @@ it('shows a number or an address it cannot open as text, with nothing to press',
   const labels = links.map((n) => n.props.accessibilityLabel);
   expect(labels.some((label) => String(label).startsWith('Call'))).toBe(false);
   expect(labels.some((label) => String(label).startsWith('Write to'))).toBe(false);
+  // Pressing the text itself opens nothing: no ancestor of it is a handler that reaches `openURL`.
+  for (const text of ['ask at the bar', 'x@y.example?bcc=z@w.example']) {
+    const node = allNodes(t).find((n) => n.type === 'Text' && n.children.includes(text));
+    expect(node).toBeDefined();
+    await fireEvent.press(node!);
+  }
   expect(mockOpenContactUrl).not.toHaveBeenCalled();
 });
 
