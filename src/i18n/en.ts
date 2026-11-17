@@ -654,6 +654,9 @@ export const en = {
       wreckSunkYear: 'Year sunk',
       /** A site's wreck on its page, and a centre's agencies on its own — the short labels. */
       wreck: 'Wreck',
+      /** A site's salinity and water body as one row on its page (`Salt · Ocean`), as the canvas
+       * draws it. */
+      water: 'Water',
       agenciesShort: 'Agencies',
       /** One row of a site's other names, and the group that holds them. */
       altName: 'Other name',
@@ -948,9 +951,12 @@ export const en = {
       facts: 'The site',
       /** A wreck's year on its row — the year as typed, never grouped. */
       sunk: 'sunk {{year}}',
-      defaults: 'Site defaults',
-      defaultsNote:
-        'Picking this site on a new dive fills these in, over anything carried from your last dive.',
+      /** The note under *The site* naming the rows that fill in a new dive (the owner's pick C,
+       * 2026-11-17): `rows` is the rows' own labels — one, or two joined by `prefillRows` — and
+       * `count` how many, for the verb. */
+      prefillNote_one: '{{rows}} fills in a new dive logged here, over anything carried from your last dive.',
+      prefillNote_other: '{{rows}} fill in a new dive logged here, over anything carried from your last dive.',
+      prefillRows: '{{first}} and {{second}}',
       searchPlaceholder: 'Search sites',
       close: 'Close sites',
       /** Both name the way a site is made since issue #19 — the dive form's *Site* row, then the

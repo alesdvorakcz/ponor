@@ -533,6 +533,7 @@ export const cs = {
       wreckName: 'Název vraku',
       wreckSunkYear: 'Rok potopení',
       wreck: 'Vrak',
+      water: 'Voda',
       agenciesShort: 'Agentury',
       altName: 'Jiný název',
       altNames: 'Jiné názvy',
@@ -786,9 +787,13 @@ export const cs = {
       notFound: 'Lokalita nenalezena.',
       facts: 'Lokalita',
       sunk: 'potopen roku {{year}}',
-      defaults: 'Výchozí hodnoty lokality',
-      defaultsNote:
-        'Když tuto lokalitu vyberete u nového ponoru, tato pole se vyplní — a přepíšou cokoli převzatého z posledního ponoru.',
+      /** One sentence, not `_one`/`_few`/`_many`/`_other`: *vyplní* is the third person singular
+       * and plural alike, so *Voda se … vyplní* and *Voda a Vstup se … vyplní* both agree. English
+       * moves its verb (`prefillNote_one` / `_other` in en.ts); i18next tries the plural form first
+       * and finds this bare key in Czech before it would fall back to English —
+       * `figure.coverage`'s case the other way round. */
+      prefillNote: '{{rows}} se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+      prefillRows: '{{first}} a {{second}}',
       searchPlaceholder: 'Hledat lokality',
       close: 'Zavřít lokality',
       noneGuest:

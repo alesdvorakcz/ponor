@@ -198,8 +198,8 @@ it.each([
   expect(suppliedBySite(fills)).toEqual(['salinity', 'waterBody']);
 });
 
-// The site page shows *Site defaults* through this same reading (`DiveSiteScreen`), so the page
-// and the prefill cannot disagree about what picking the site will write.
+// The site page's note names the rows that fill in a new dive through this same reading
+// (`DiveSiteScreen`), so the page and the prefill cannot disagree about what picking the site will write.
 it('says what a site will write into each row, and nothing for an entry with several ways in', () => {
   const site = says({
     entry: ['shore', 'boat'],

@@ -1316,7 +1316,7 @@ describe('the app content column', () => {
     'siteSectionTitle',
     'siteEmpty',
     'sitesHeading',
-    'siteDefaultsCaption',
+    'siteFactsNote',
     // The site and centre picker (issue #19): a pushed page of rows over the dive form, on the
     // form's own column — its way out, its title, the *Selected* line, the pill row, its notes,
     // its group headers and its rows.
@@ -1623,6 +1623,20 @@ describe('the New dive site page', () => {
     expect(styles.newPlaceAddName).toBe(styles.pickerNearMe);
     expect(styles.newPlaceAddNamePill).toBe(styles.pickerNearMePill);
     expect(styles.newPlaceAddNameLabel).toBe(styles.pickerNearMeLabel);
+  });
+});
+
+// Issue #31, round 4 (the owner's pick C): the note under a site's *The site* cluster naming the rows
+// that fill in a new dive — the canvas draws it in muted mono, a note about the rows rather than a
+// sentence of the page.
+describe('a site page’s note', () => {
+  it.each(['dark', 'light'] as const)('is muted mono at the canvas’s 11.5 (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.siteFactsNoteText).toMatchObject({
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: themeFor(scheme).fgMuted,
+    });
   });
 });
 

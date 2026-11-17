@@ -112,9 +112,9 @@ function stated(value: unknown): string | null {
  * the entry, which on a site is a set (#31, §6): every way in it offers, where the dive's entry is
  * the one way it used.
  *
- * **Exported because the site's own page reads it too** (`DiveSiteScreen`'s *Site defaults*): the
- * page shows a default only when this answers, so it can never show a row its caption says picking
- * the site fills in while the prefill below leaves that row alone.
+ * **Exported because the site's own page reads it too** (`DiveSiteScreen`'s note under *The site*):
+ * the note names a row only when this answers for it, so it can never say picking the site fills in
+ * a row the prefill below leaves alone.
  *
  * **A set answers only when it holds exactly one way in.** *"The site offers what is possible; the
  * dive logs which one was done"* (the owner, #31): a site entered from the shore and from a boat

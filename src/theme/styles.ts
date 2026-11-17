@@ -479,7 +479,7 @@ function build(scheme: ColorScheme) {
   };
 
   // A sentence under a row or a heading, explaining what the thing IS — Settings'
-  // "Dives you logged before Ponor", a site's defaults, the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
+  // "Dives you logged before Ponor", the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
   // the column of the value it is about, because it names what went wrong with something the
   // diver typed; this one LEADS, under the label, because it is read before the value rather
   // than after it. Same absence of a box, for the reason `formFieldError` records — a
@@ -1114,7 +1114,7 @@ function build(scheme: ColorScheme) {
     paddingBottom: 16,
   };
   // A named group on any of the four — a centre page's *Contact* and *Services*, a site page's
-  // *The site* and *Site defaults*, either page's *Your dives*, and a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
+  // *The site*, either page's *Your dives*, and a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
   // §0.6's one treatment for a group header wherever it appears. **`paddingTop` where
   // `settingsSectionTitle` has none, and it was found by looking.** On Settings a section heading
   // always follows a row, so the row's own hairline and height give it air; here the first
@@ -4623,8 +4623,7 @@ function build(scheme: ColorScheme) {
     // Every one of them is the definition its centres twin above takes, under a name that says
     // which screen it is placed on. What a site's page has that a centre's does not is content:
     // §6 gives it `entry`, `salinity`, `water_body` and its own `max_depth_m`, three of which are
-    // §2.1's site defaults, and the caption that says so is `captionBlock`/`captionText` — the
-    // sentence-under-a-block Settings and the account screen already speak in.
+    // §2.1's site defaults, and the note that says which is `siteFactsNote` below.
     siteScroll: rowScroll,
     siteContent: rowScrollContent,
     siteHeading: {
@@ -4642,14 +4641,25 @@ function build(scheme: ColorScheme) {
     siteEmpty: settingsSectionNote,
     siteFactValue: { ...rowValueSans, ...factValueFill },
     siteDescription: catalogueDescription,
-    // **What the three site-default rows are for**, said once under them rather than marked on
-    // each: §2.1 prefills a new dive's entry, salinity and water body from the site, and a page
-    // that showed those three beside a country and a depth would give a diver no way to tell the
-    // facts that *do something* from the facts that merely describe. A sentence rather than a
-    // per-row mark for §0.6's own reason about the carried-over return mark — a second symbol is
-    // new vocabulary for a single case, and this one has a sentence's worth to say.
-    siteDefaultsCaption: captionBlock,
-    siteDefaultsCaptionText: captionText,
+    // **Which of *The site*'s rows fill in a new dive**, said once under the cluster by naming them
+    // (the owner's pick C, issue #31 round 4) rather than in a cluster of their own or a mark on
+    // each row: §2.1 prefills a new dive's entry, salinity and water body from the site, and a
+    // page that showed those beside a country and a depth with nothing said would give a diver no
+    // way to tell the facts that *do something* from the facts that merely describe. A sentence
+    // rather than a per-row mark for §0.6's own reason about the carried-over return mark. The
+    // canvas draws it as a note about the rows, not a sentence of the page — muted mono at 11.5,
+    // the *New dive site* header note's face — 2 under the last row and 10 above what follows.
+    siteFactsNote: {
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 2,
+      paddingBottom: 10,
+    },
+    siteFactsNoteText: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 16,
+      color: theme.fgMuted,
+    },
     // ------------------------------------------------------------------------------------
     // The site and centre picker (issue #19, `PlacePickerScreen`)
     // ------------------------------------------------------------------------------------
