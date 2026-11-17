@@ -303,10 +303,13 @@ it('hands the icon the ink AND the ground the chosen tile wears', async () => {
   expect(seen.fresh).toEqual([styles.formTileText.color, styles.formTile.backgroundColor]);
 });
 
-it('wraps a long label to two lines instead of clipping it', async () => {
+// §0.5: labels wrap rather than truncate. A two-line cap held at the default size and ellipsized
+// *Jedna láhev* at the largest accessibility sizes (final review), so the label wraps as far as
+// it needs and the tile, which only has a `minHeight`, grows with it.
+it('lets a long label wrap as far as it needs instead of clipping it', async () => {
   const t = await renderChips({ layout: 'tiles' });
   const [word] = tilesOf(t)[0]!.queryAll((n) => n.type === 'Text');
-  expect(word!.props.numberOfLines).toBe(2);
+  expect(word!.props.numberOfLines).toBeUndefined();
   expect(flat(word!.props.style).textAlign).toBe('center');
 });
 

@@ -22,7 +22,7 @@ import { importerLabelFor } from '../domain/import/registry';
 import { focusTarget, type MapFocus } from '../domain/mapFocus';
 import { drawsOnMap, pointOf, type MapPoint } from '../domain/mapSites';
 import { splitPlanned } from '../domain/trips';
-import { type Dive, type DiveSite, type Tank } from '../domain/types';
+import { RATING_VALUES, type Dive, type DiveSite, type Tank } from '../domain/types';
 import { backToDives } from '../navigation/leaveScreen';
 import { completeDiveHref, editDiveHref } from '../navigation/editDiveLink';
 import {
@@ -1271,11 +1271,17 @@ export default function DiveDetailScreen({
               {/* The rating as the drawn dots the dive list and the form already use (§0.6, issue
                   #6, the owner's call), not "4 / 5". The dots say nothing to a screen reader, so the
                   row announces the figure the text row used to show. */}
-              {rating !== null && dive.rating !== null && (
+              {/* Only a value ON the scale is drawn: a stored 9 (§10 keeps the column unclamped)
+                  would otherwise be five filled dots standing in for a number that is not five,
+                  which `RatingDots` refuses, so it keeps its figure, as a wave level of 7 keeps
+                  its word. */}
+              {rating !== null && dive.rating !== null && (RATING_VALUES as readonly number[]).includes(dive.rating) ? (
                 <View style={styles.detailRow} accessible accessibilityLabel={t('field.labelValue', { label: t('field.rating'), value: rating })}>
                   <Text style={styles.detailLabel}>{t('field.rating')}</Text>
                   <RatingDots rating={dive.rating} scheme={scheme} />
                 </View>
+              ) : (
+                rating !== null && <Row label={t('field.rating')} value={rating} mono styles={styles} />
               )}
               {dive.notes !== null && <Text style={styles.detailNotes}>{dive.notes}</Text>}
             </Cluster>

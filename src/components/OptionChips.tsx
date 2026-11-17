@@ -196,7 +196,7 @@ export function OptionChips<T extends string | number>({ label, value, options, 
         accessibilityState={disabled === true ? { selected, disabled } : { selected }}
       >
         {icon?.(option, ink, ground)}
-        <Text style={[textStyle, selected && textSelected]} numberOfLines={tiles ? 2 : undefined}>
+        <Text style={[textStyle, selected && textSelected]}>
           {displayLabel(option)}
         </Text>
       </Pressable>

@@ -406,12 +406,17 @@ function SiteFacts({ site, units, styles, scheme }: { site: DiveSite; units: Uni
   // keeps its word on an undrawn tile (§10's store-and-flag). Its water and ways in stay the rows
   // below for now: the note names those rows as what a new dive inherits, and they move to tiles
   // with the note once #31 has settled.
-  const typeTiles: ConditionTile[] = site.siteTypes.map((type) => ({
-    key: type,
-    icon: conditionIconFor('siteType', type),
-    value: formatPlaceToken('siteTypes', type),
-    label: t('field.siteTypes'),
-  }));
+  // Words only: a list from another client's build may hold a number or a null (#31 guards
+  // `formatPlaceTokens` for exactly this), which is not a type to draw or name. Keyed by position,
+  // so a token stored twice cannot collide.
+  const typeTiles: ConditionTile[] = (site.siteTypes as readonly unknown[])
+    .filter((type): type is string => typeof type === 'string')
+    .map((type, index) => ({
+      key: `${index}-${type}`,
+      icon: conditionIconFor('siteType', type),
+      value: formatPlaceToken('siteTypes', type),
+      label: t('field.siteTypes'),
+    }));
   // The canvas's order, each row only when it holds something (§1).
   const facts = [
     { label: t('field.suitableFor'), value: formatSuitableFor(site.suitableFor) },

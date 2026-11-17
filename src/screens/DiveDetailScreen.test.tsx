@@ -2583,6 +2583,16 @@ describe('the conditions as tiles', () => {
     expect(rowOf('Duration')?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(0);
   });
 
+  // Final review, Important #4: a rating outside the scale (§10 keeps the column unclamped) must not
+  // be dressed as five filled dots — `RatingDots` refuses to let dots stand in for a number that is
+  // not on the scale — so it keeps the figure, as a scale level out of range keeps its word.
+  it('prints a rating outside the scale as its figure, not as five dots', async () => {
+    const t = await renderDetailTree(dive({ rating: 9 }));
+    const styles = makeStyles('light');
+    expect(t.root?.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.ratingDot)) ?? []).toHaveLength(0);
+    expect(textIn(t)).toContain('9 / 5');
+  });
+
   it('draws the rating as the five dots the list and the form use, four filled for a 4', async () => {
     const t = await renderDetailTree(dive({ rating: 4 }));
     const styles = makeStyles('light');

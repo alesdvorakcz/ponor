@@ -79,7 +79,7 @@ export function TokenChips<T extends string>({
         accessibilityState={{ checked, disabled: disabled === true }}
       >
         {icon?.(option, ink, ground)}
-        <Text style={[textStyle, checked && textChecked]} numberOfLines={tiles ? 2 : undefined}>
+        <Text style={[textStyle, checked && textChecked]}>
           {displayLabel(option)}
         </Text>
       </Pressable>

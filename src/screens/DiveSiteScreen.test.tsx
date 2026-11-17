@@ -737,6 +737,19 @@ it('shows the site’s types as tiles with their drawings, not as a line of text
   expect(labelsIn(t)).not.toContain('Site type');
 });
 
+// Final review, Critical #1: a list from another client's build may hold a number or a null (#31
+// guards `formatPlaceTokens` for exactly this, display.test.ts). The tiles must skip them, not crash
+// the page every diver who pulls that site would open; and a repeated token must not collide.
+it('skips a site type that is not a word, and survives a repeated one', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wreck', 3, null, 'wreck'] as never })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const tiles = allNodes(t).filter((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.conditionTile));
+  expect(tiles).toHaveLength(2);
+  // Inside the tiles only: the page also has a *Wreck* fact row, for the ship's name.
+  expect(tiles.map((tile) => tile.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)[0])).toEqual(['Wreck', 'Wreck']);
+});
+
 it('keeps an unknown site type as a word on an undrawn tile', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wall', 'cavern'] as never })]));
   const t = await show();

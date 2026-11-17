@@ -4053,7 +4053,7 @@ function build(scheme: ColorScheme) {
     // chip are one control drawn two ways; rows of equal-width tiles, the last row padded with
     // spacers so a short row does not stretch its tiles. `minHeight`, never `height`: a large
     // accessibility text size grows the tile instead of clipping its word, and a long Czech word
-    // wraps to a second line (`numberOfLines={2}` on the label) rather than being cut.
+    // wraps onto as many lines as it needs (the label has no `numberOfLines`) rather than being cut.
     formTileGrid: {
       gap: 8,
       paddingBottom: FIELD_EXTRA_CLEARANCE,

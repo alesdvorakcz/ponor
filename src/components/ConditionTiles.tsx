@@ -1,5 +1,6 @@
 import { Text, View, type ColorValue } from 'react-native';
 
+import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { ConditionIcon, type ConditionIconName } from './ConditionIcon';
@@ -39,7 +40,17 @@ export function ConditionTiles({ tiles, scheme }: { tiles: ConditionTile[]; sche
             tile === null ? (
               <View key={`spacer-${slot}`} style={styles.conditionTileSpacer} />
             ) : (
-              <View key={tile.key} style={styles.conditionTile}>
+              // One element to a screen reader, its field and its value, as the row it replaced was:
+              // left ungrouped, VoiceOver reads a row's three values before their three fields.
+              <View
+                key={tile.key}
+                style={styles.conditionTile}
+                accessible
+                accessibilityLabel={t('field.labelValue', {
+                  label: tile.label,
+                  value: tile.extra !== undefined ? `${tile.value} · ${tile.extra}` : tile.value,
+                })}
+              >
                 {tile.icon !== null ? (
                   <ConditionIcon name={tile.icon} ink={ink} ground={ground} />
                 ) : (
@@ -50,9 +61,8 @@ export function ConditionTiles({ tiles, scheme }: { tiles: ConditionTile[]; sche
                     {tile.value}
                     {tile.extra !== undefined && <Text style={styles.conditionTileExtra}>{` · ${tile.extra}`}</Text>}
                   </Text>
-                  <Text style={styles.conditionTileLabel} numberOfLines={1}>
-                    {tile.label}
-                  </Text>
+                  {/* Wraps rather than truncates (§0.5): Czech field names in mono caps fill the tile. */}
+                  <Text style={styles.conditionTileLabel}>{tile.label}</Text>
                 </View>
               </View>
             ),
