@@ -957,3 +957,24 @@ describe.each(['ios', 'android'] as const)('a password field on %s', (os) => {
     expect(onChange).toHaveBeenLastCalledWith(sent);
   });
 });
+
+it('draws a caption beside a stacked row’s label', async () => {
+  const styles = makeStyles('light');
+  const captions = (t: RenderResult) =>
+    (t.root ? t.root.queryAll((n) => n.type === 'Text' && [n.props.style].flat(3).includes(styles.formFieldCaption)) : []).flatMap(
+      (n) => n.children,
+    );
+  const stacked = await render(
+    <FormField label="Notes" value="" onChange={() => {}} scheme="light" multiline caption="from this dive" />,
+  );
+  expect(captions(stacked)).toEqual(['from this dive']);
+  const cleared = await render(
+    <FormField label="Notes" value="" onChange={() => {}} scheme="light" multiline cleared caption="from this dive" />,
+  );
+  expect(captions(cleared)).toEqual([]);
+});
+
+it('offers the phone keypad', async () => {
+  const t = await render(<FormField label="Phone" value="" onChange={() => {}} scheme="light" keyboardType="phone-pad" />);
+  expect(inputsOf(t)[0]?.props.keyboardType).toBe('phone-pad');
+});

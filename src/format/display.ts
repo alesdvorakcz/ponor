@@ -22,7 +22,11 @@ import {
   CONFIGURATION_VALUES,
   ENTRY_VALUES,
   EQUIPMENT_VALUES,
+  AGENCY_VALUES,
   SALINITY_VALUES,
+  SERVICE_VALUES,
+  SITE_TYPE_VALUES,
+  SUITABLE_FOR_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
   VISIBILITY_VALUES,
@@ -39,6 +43,7 @@ import {
   type Entry,
   type Equipment,
   type Salinity,
+  type SuitableFor,
   type Suit,
   type Tank,
   type TankMaterial,
@@ -1900,6 +1905,40 @@ function known<T extends string>(values: readonly T[], value: T): boolean {
 export function formatEntry(entry: Entry | null): string | null {
   if (entry === null) return null;
   return known(ENTRY_VALUES, entry) ? t(`vocabulary.entry.${entry}`) : capitalize(entry);
+}
+
+/** The vocabularies a place's token sets are drawn from, as `en.ts`/`cs.ts` name them. */
+export type PlaceTokenSet = 'services' | 'agencies' | 'siteTypes';
+
+const PLACE_TOKEN_VALUES: Record<PlaceTokenSet, readonly string[]> = {
+  services: SERVICE_VALUES,
+  agencies: AGENCY_VALUES,
+  siteTypes: SITE_TYPE_VALUES,
+};
+
+/** One token of a place's set as its word, e.g. "SDI/TDI" — or `capitalize`'s guess for a token a
+ * newer client wrote, never the literal key (`known`'s note). */
+export function formatPlaceToken(set: PlaceTokenSet, token: string): string {
+  return known(PLACE_TOKEN_VALUES[set], token)
+    ? t(`vocabulary.${set}.${token}` as TranslationKey)
+    : capitalize(token);
+}
+
+/**
+ * A place's token set on one line, e.g. "Nitrox · Rental", in the array's own order. Only strings
+ * are read: a list from another client's build may hold a number or a `null` (#31's review focus
+ * 1), and neither is a word. `null` when none is left, as `formatEquipment` is for `[]`.
+ */
+export function formatPlaceTokens(set: PlaceTokenSet, tokens: readonly unknown[]): string | null {
+  if (!Array.isArray(tokens)) return null;
+  const words = tokens.filter((token): token is string => typeof token === 'string').map((token) => formatPlaceToken(set, token));
+  return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
+}
+
+/** The level a site suits, e.g. "Open Water". */
+export function formatSuitableFor(value: SuitableFor | null): string | null {
+  if (value === null) return null;
+  return known(SUITABLE_FOR_VALUES, value) ? t(`vocabulary.suitableFor.${value}`) : capitalize(value);
 }
 
 /** The water's salinity, e.g. "Fresh". Two values since M1h — `brackish` went (§10). */

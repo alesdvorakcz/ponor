@@ -3787,6 +3787,16 @@ function build(scheme: ColorScheme) {
       ...clusterLabel,
       flex: 1,
     },
+    // What a closed group holds (`FormGroup`'s `hint`): the muted mono `newPlaceHeaderNote` is,
+    // one line, shrinking before the title does not.
+    formGroupHint: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 17,
+      color: theme.fgMuted,
+      flexShrink: 1,
+      maxWidth: '60%',
+    },
     // §0.6: "**A collapsible group is marked by a chevron, not by the words 'Show'/'Hide'.**
     // **Drawn, not typed** — the same reason §0.6 already gives for rating marks: a glyph's
     // size varies by typeface, so a typed chevron looks broken somewhere. It rotates to show

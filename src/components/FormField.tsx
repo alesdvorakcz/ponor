@@ -57,7 +57,7 @@ export interface FormFieldProps {
    * `@` and `.` on it and no space bar to walk into the middle of an address. `'url'` is the
    * same for the *New dive centre* page's *Website* (issue #19): `/` and `.` on the keys.
    */
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'email-address' | 'url';
+  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'phone-pad' | 'email-address' | 'url';
   multiline?: boolean;
   /**
    * Masks what is typed — the account screen's password rows (signing in or up, and the new
@@ -136,6 +136,10 @@ export interface FormFieldProps {
    * and a single prop could not tell the two cases apart.
    */
   unit?: string;
+  /** A muted word about where the value came from, on a stacked (multiline) row's label row —
+   * the slot `OptionChips`' caption takes, and never beside the `— cleared` tag. A one-line row
+   * keeps its value in that slot, so it has no room for one. */
+  caption?: string;
   /**
    * DESIGN.md §0.6: a prefilled field shows a drawn return mark and a clear control, together
    * at the row's trailing edge (the owner's ruling — see `formFieldCarryState`, theme/styles.ts,
@@ -290,7 +294,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable, grouped },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, caption, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable, grouped },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -450,7 +454,11 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
             // row the same `carryOver` prop, so "unreachable" there is one line of
             // `CARRIED_FIELDS` away from being wrong, and a row given part of the treatment must
             // not fail quietly.
-            clearedNode !== null && <View style={styles.formFieldValue}>{clearedNode}</View>
+            (clearedNode !== null || caption !== undefined) && (
+              <View style={styles.formFieldValue}>
+                {clearedNode ?? <Text style={styles.formFieldCaption}>{caption}</Text>}
+              </View>
+            )
           )}
           {/* §0.6's carried treatment, as one object at the row's trailing edge: the return mark
               and the 20 pt ring in its 48 dp box.

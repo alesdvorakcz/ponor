@@ -55,6 +55,8 @@ import {
   formatDiveStatus,
   formatUnitSystem,
   formatEntry,
+  formatPlaceTokens,
+  formatSuitableFor,
   formatGasUsed,
   formatPercent,
   formatPressure,
@@ -2034,5 +2036,33 @@ describe('the place picker', () => {
     expect(formatCreatePlaceMeta('center', true)).toBe('new centre · details next');
     expect(formatCreatePlaceMeta('site', false)).toBe('new site · kept on this phone until you sign in');
     expect(formatCreatePlaceMeta('center', false)).toBe('new centre · kept on this phone until you sign in');
+  });
+});
+
+describe('formatPlaceTokens', () => {
+  it('reads each token as its word, in stored order, and keeps one this build does not know', () => {
+    expect(formatPlaceTokens('services', ['nitrox', 'freediving'])).toBe('Nitrox · Freediving');
+    expect(formatPlaceTokens('agencies', ['sditdi', 'other'])).toBe('SDI/TDI · Other');
+  });
+  it('skips what is not a string, and is null when nothing is left', () => {
+    expect(formatPlaceTokens('siteTypes', [3, null, 'wall'])).toBe('Wall');
+    expect(formatPlaceTokens('siteTypes', [])).toBeNull();
+    expect(formatPlaceTokens('siteTypes', [3, null])).toBeNull();
+  });
+  it('reads in Czech', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatPlaceTokens('services', ['boat', 'repair'])).toBe('Ponory z lodi · Servis');
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+});
+
+describe('formatSuitableFor', () => {
+  it('names a level, capitalises one it does not know, and is null for none', () => {
+    expect(formatSuitableFor('openwater')).toBe('Open Water');
+    expect(formatSuitableFor('extreme' as never)).toBe('Extreme');
+    expect(formatSuitableFor(null)).toBeNull();
   });
 });

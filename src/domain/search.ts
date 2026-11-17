@@ -228,3 +228,23 @@ export function alsoCalled(
   }
   return null;
 }
+
+/**
+ * **What Save writes for a place's other names** (#31): each trimmed, blanks dropped, any that
+ * folds to the place's own name dropped (`Kamená Vrata` on *Kamena vrata* says nothing the name
+ * does not), and a later repeat by fold dropped — the first spelling stays, as typed. Saved lists
+ * are therefore clean, so search and the duplicate check never match a place against itself.
+ * The fold is `foldForMatching`, the one every match in the app uses.
+ */
+export function cleanAltNames(name: string, altNames: readonly string[]): string[] {
+  const seen = new Set<string>([foldForMatching(name)]);
+  const kept: string[] = [];
+  for (const raw of altNames) {
+    const shown = raw.trim();
+    const folded = foldForMatching(shown);
+    if (shown === '' || seen.has(folded)) continue;
+    seen.add(folded);
+    kept.push(shown);
+  }
+  return kept;
+}

@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { alsoCalled, browseCatalogue, foldForMatching, searchDives } from './search';
+import { alsoCalled, browseCatalogue, cleanAltNames, foldForMatching, searchDives } from './search';
 
 describe('searchDives', () => {
   // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
@@ -290,5 +290,14 @@ describe('alsoCalled', () => {
 
   it('names the first other name that matches, in the order the list holds them', () => {
     expect(alsoCalled({ name: 'Vis', altNames: ['Stone Arch', 'Stone Gate'] }, 'stone')).toBe('Stone Arch');
+  });
+});
+
+describe('cleanAltNames', () => {
+  it('trims, drops blanks, the site’s own name and repeats by fold, keeping the first spelling', () => {
+    expect(cleanAltNames('Kamena vrata', ['  Stone Gate ', '', 'stone gate', 'Kamená Vrata', 'Vrata'])).toEqual([
+      'Stone Gate',
+      'Vrata',
+    ]);
   });
 });
