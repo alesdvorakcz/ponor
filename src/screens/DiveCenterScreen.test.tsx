@@ -200,7 +200,7 @@ it('is worth opening for a centre that has nothing but a name', async () => {
 });
 
 // A heading with nothing under it is the shape §0.6 refuses on the dive detail, and it is the
-// one this branch would produce: a "Centre" cluster over zero rows.
+// one this branch would produce: a "Contact" cluster over zero rows.
 it('draws no catalogue cluster for a centre with no catalogue facts', async () => {
   mockUseDives.mockReturnValue(divesState([withPonorka()]));
   const text = textIn(await show());

@@ -332,7 +332,6 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
   );
 }
 
-
 /**
  * A fact that may also be a control — the website, the address, the number, the email.
  *

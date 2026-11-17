@@ -648,8 +648,9 @@ declare
   -- stops a second `Divoká Šárka` being created as `Divoka Sarka` (§5). Unfolded, the two
   -- scored 0.333 and the dedupe warning a diver needs was one accent from never appearing.
   v_name text := nullif(public.name_fold(p_name), '');
-  -- The proposed site's other names (#31), folded by their one owner — anything that is not a list
-  -- of strings is no names — less the name itself, which is already asked about as the name.
+  -- The proposed site's other names (#31), folded by their one owner — a list keeps its strings and
+  -- skips the rest, a value that is not a list is no names — less the name itself, which is already
+  -- asked about as the name.
   v_mine text[] := array(select folded from unnest(public.folded_names(p_alt_names)) as folded where folded <> v_name);
   v_point extensions.geography;
   v_radius_m double precision := least(greatest(coalesce(p_radius_m, 25000), 0), 500000);

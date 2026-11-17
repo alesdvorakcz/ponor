@@ -87,8 +87,10 @@ centre pushed in that window is stored without its new facts while the push repo
 
 No compatibility with a build from before #31 is kept — it would still sync, but its push of a
 site or centre would blank that row's new facts — because the project holds test data only.
-**None of this has run yet**; what #31 adds to the list of things nobody here can prove is at the
-end of [Applied](#applied).
+**None of this is applied to the project yet.** It has run once, on a throwaway Postgres 16 +
+PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from the files before
+#31 — and passed; what that showed, and what it still cannot, is at the end of
+[Applied](#applied).
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -271,14 +273,15 @@ and refusing it would refuse that diver's whole push every time it was retried.
   `similar_sites` takes `p_alt_names`, a JSON list: the other names Save will write, which the
   device has already cleaned (`cleanAltNames` — trimmed, no blank, no repeat, none that folds to
   the name) but not folded, for the reason the next bullet but one gives. `folded_names` folds them
-  here, as `name_fold` folds the name, and reads anything that is not a list of strings as no
-  names. The check runs both ways — the name against existing names and other names, the other
-  names against existing names — and never other name against other name. `search_sites` matches
-  an other name as it matches a name. Neither function says *which* of a row's names matched, or
-  whether the match is the same name, another name or a near one: that is the client's to work out
-  from the row it gets back (`twinRelation` for the duplicate check, `alsoCalled` for search, both
-  in `src/domain/`), and a duplicate check's near match on another name is one it cannot word
-  (DESIGN.md §10 leaves that open for the owner).
+  here, as `name_fold` folds the name: a list keeps its strings and skips anything else in it,
+  and a value that is not a list is no names. The check runs both ways — the name against
+  existing names and other names, the other names against existing names — and never other name
+  against other name. `search_sites` matches an other name as it matches a name. Neither
+  function says *which* of a row's names matched, or whether the match is the same name, another
+  name or a near one: that is the client's to work out from the row it gets back (`twinRelation`
+  for the duplicate check, `alsoCalled` for search, both in `src/domain/`), and a duplicate
+  check's near match on another name is one it cannot word (DESIGN.md §10 leaves that open for
+  the owner).
 - **A short query gets nothing back, by design.** Trigram similarity is near zero for two or
   three characters against a longer name. The device's own history and catalogue copy are §2.3's
   first answer; this one stays quiet until the query means something.
@@ -461,27 +464,35 @@ the `%` operator's cut-off is the session GUC
 GUC is ever raised on this project, both search functions quietly return less, and the remedy
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.
 
-**#31 adds three more, and none of #31's SQL has run at all** (see
-[Applying #31](#applying-31-to-a-project-that-already-has-files-17)):
+**#31's SQL is not applied to the project yet, but it has run** — on a throwaway Postgres 16 +
+PostGIS 3.4 on 2026-11-17, with these files as they are (one comment has been reworded since)
+and a small stand-in for Supabase's `auth` schema and roles: as a fresh project, re-applied over itself, and by the
+upgrade path in [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the
+files as they were before #31. Every step passed. That settled two things this list used to
+call unprovable:
 
-- **Whether pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and
-  `similar_sites` set `pg_trgm.word_similarity_threshold` from the floor as they run, and in a
-  session where pg_trgm has not loaded yet that name is only a placeholder until the extension
-  claims it. If it does not, `%>` keeps its default of 0.6, and a site whose other name scores
-  between 0.3 and 0.6 is dropped by the pre-filter though the floor would keep it — fewer rows,
-  never wrong ones. The remedy is the same shape as the one above:
+- **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set
+  `pg_trgm.word_similarity_threshold` from the floor as they run, and in a session where pg_trgm
+  had not loaded yet the setting read 0.3 inside the call and its default of 0.6 after it. It
+  matters: a query scoring 0.571 by word similarity against an other name (`stoen gate` against
+  *Stone Gate*) is found only because of it. Were a project ever to behave otherwise, the remedy
+  is the same shape as the one above:
   `alter role authenticated set pg_trgm.word_similarity_threshold = 0.3;`.
-- **Whether the planner uses the indexes for other names** — `dive_sites_alt_names_fold_trgm_idx`
-  under the `%>` pre-filter, and the name index under `similar_sites`' third arm, a site's name
-  against each proposed other name (`% any`), which is the arm most likely to fall back to a scan.
-  As with M2j's indexes, an unused one is correct and slow, never wrong. Settled by `explain
-  analyze` of a `search_sites` call that only an other name can match, and of a `similar_sites`
-  call with a non-empty `p_alt_names`. Both are plpgsql, so a plan does not show through a bare
-  call: run each body's `with matches` query with the arguments filled in, after the same
-  `set_config`, or turn on `auto_explain` with `log_nested_statements`.
+- **The planner uses the indexes for other names.** Over 20,000 synthetic sites, with
+  `auto_explain` showing the plans inside the plpgsql bodies, `search_sites` ran as a `BitmapOr`
+  over the name and other-names trigram indexes, and `similar_sites` as a `BitmapOr` over all
+  three arms — the third, a site's name against each proposed other name (`% any`), included.
+
+What a throwaway cannot settle, and still stands:
+
 - **What the push recheck costs once the catalogue is big.** `push_changes` asks `similar_sites`
   once per arriving site, all inside the one push — cheap at today's size, unmeasured at the size
   an OpenStreetMap import would make it, and largest for a push that carries many new sites at
-  once, as a guest's first sign-in can. If a `statement_timeout` cuts the push short, Postgres
-  raises `query_canceled`, which the recheck's `when others` does **not** catch, so the whole
-  push fails rather than the recheck alone being skipped.
+  once, as a guest's first sign-in can. (On the throwaway's 20,000 sites, under emulation, one
+  `similar_sites` call with an other name took about 140 ms: a figure about that machine, not
+  the project.) If a `statement_timeout` cuts the push short, Postgres raises `query_canceled`,
+  which the recheck's `when others` does **not** catch, so the whole push fails rather than the
+  recheck alone being skipped.
+- **That the project behaves as the throwaway did.** Anything that is Supabase's rather than
+  Postgres's — its own `auth` schema and roles, settings made on the project — is proven only by
+  applying the files there.

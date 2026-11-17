@@ -1110,8 +1110,8 @@ function build(scheme: ColorScheme) {
     paddingTop: 4,
     paddingBottom: 16,
   };
-  // A named group on any of the four — a page's *Centre*/*Site* cluster and its *Your dives*, and
-  // a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
+  // A named group on any of the four — a centre page's *Contact* and *Services*, a site page's
+  // *The site* and *Site defaults*, either page's *Your dives*, and a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
   // §0.6's one treatment for a group header wherever it appears. **`paddingTop` where
   // `settingsSectionTitle` has none, and it was found by looking.** On Settings a section heading
   // always follows a row, so the row's own hairline and height give it air; here the first
@@ -4597,7 +4597,8 @@ function build(scheme: ColorScheme) {
     // not be read", "nothing matches". `settingsPresetEmpty`'s own definition, and the reason
     // is that key's: those are different sentences and must never be confused.
     centerEmpty: settingsSectionNote,
-    // What the catalogue knows that is not a figure — a country, a website. The form's own row
+    // What the catalogue knows that is not a figure — a country, a website, and since #31 an
+    // address, an email, opening hours, services and training agencies. The form's own row
     // is what draws them (`formField`/`formFieldRow`/`formFieldLabel`), so the only key here is
     // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
     // `accountEmail` reads it — a web address is a name, however little it looks like one.
