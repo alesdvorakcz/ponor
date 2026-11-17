@@ -341,3 +341,19 @@ it('changes the active language, and reports it', () => {
   expect(activeLanguage()).toBe('cs');
   expect(t('dives.title')).toBe('Ponory');
 });
+
+// A closed group on the New site / New centre page says what it holds between its title and its
+// chevron, on one line at 402 pt; a longer one is cut with an ellipsis (the Czech *Kontakt* hint
+// was). 28 characters is the longest that fits there beside the widest title.
+describe('closed-group hints', () => {
+  const keys = ['siteHint', 'altNamesHint', 'contactHint', 'servicesHint'] as const;
+  it.each([
+    ['en', en],
+    ['cs', cs],
+  ] as const)('are short enough to fit (%s)', (_name, resource) => {
+    const newPlace = resource.translation.newPlace as Record<string, string>;
+    for (const key of keys) {
+      expect(newPlace[key].length).toBeLessThanOrEqual(28);
+    }
+  });
+});

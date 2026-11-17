@@ -889,7 +889,7 @@ export const cs = {
       addNameLabel: 'Přidat další název',
       siteHint: 'voda, vstup, typ, hloubka',
       altNamesHint: 'jak se jí ještě říká',
-      contactHint: 'web, telefon, e-mail, otevírací doba',
+      contactHint: 'web, telefon, e-mail, hodiny',
       servicesHint: 'služby, agentury',
     },
 
