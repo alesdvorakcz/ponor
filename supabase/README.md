@@ -21,7 +21,7 @@ Dashboard → **SQL Editor** → paste one file → Run. In this order:
 | 3 | `migrations/20260902090200_rls.sql` | Row-Level Security on every table, and every policy |
 | 4 | `migrations/20260902090300_sync_rpcs.sql` | `push_changes` and `pull_changes` — §7's whole protocol |
 | 5 | `migrations/20260902090400_site_edits.sql` | The review queue §5 requires and §6 never listed, and its policies |
-| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `name_fold`, the three helpers that fold a site's other names (#31), `search_sites`, `search_centers`, `similar_sites`, `suggest_site_edit`, `delete_account`, and the three trigram indexes |
+| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `name_fold`, the four helpers that fold a site's other names (#31), `search_sites`, `search_centers`, `similar_sites`, `suggest_site_edit`, `delete_account`, and the three trigram indexes |
 | 7 | `migrations/20260902090600_site_duplicates.sql` | `site_duplicate_suspicions` — where §5's "flags likely duplicates" puts the flag — and its policies |
 
 Order matters six times: file 2 uses the PostGIS type file 1 installs, file 3 alters the
@@ -87,8 +87,13 @@ needs `pg_input_is_valid`, which is Postgres 16's, so the statement is left as w
 trigram index `dive_sites_alt_names_fold_trgm_idx`, a `search_sites` that matches an other name as
 well as the name, and a `similar_sites` that also takes the new site's other names, `p_alt_names`.
 That is a new signature, so the file **drops the old `similar_sites` and creates the new one** (see
-[Re-running](#re-running)). File 6 also replaces `suggest_site_edit`, so a suggestion may propose
-every fact a site gained. **File 4** adds `public.sync_json_array` and replaces `push_changes`,
+[Re-running](#re-running)). **File 6 changed again after that** (the owner's call, 2026-11-17): a
+fourth helper, `best_alt_name`, and a `similar_sites` that adds a `matched_name` key to each row —
+the other name a match came through, or null — so the create page can ask *Did you mean “Stone
+Gate” (also called Kamena vrata)?*. A key in the returned JSON is not a signature change, so this
+adds no drop, and `push_changes` reads each row's `id` alone; the order is unchanged — these
+lines, then file 6, then file 4. File 6 also replaces `suggest_site_edit`, so a suggestion may
+propose every fact a site gained. **File 4** adds `public.sync_json_array` and replaces `push_changes`,
 which writes the fourteen columns and a site's `entry` as a set, stores a set that arrives as
 anything but an array as `[]`, and hands an arriving site's other names to the recheck
 (`p_alt_names => arrived.alt_names`).
@@ -118,7 +123,8 @@ pull fails on the first site it carries until the new build is installed.
 PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from the files before
 #31, and again after a site's entry became a set and gained its altitude (the `alter column`
 statement above included) — and passed both times; what that showed, and what it still cannot,
-is at the end of [Applied](#applied).
+is at the end of [Applied](#applied). **File 6's later change — `best_alt_name` and
+`matched_name` — has not run anywhere yet.**
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -385,15 +391,21 @@ half that would ship.
 
 #31 carries both of those to a site's other names, and adds two of its own. **One fold for the
 list**: every read of `s.alt_names` in `search_sites` and `similar_sites` goes through
-`alt_names_fold` or `alt_name_similarity`, both of those through `folded_names`, and of the three
-only `folded_names` calls `name_fold`; the new index's expression is derived from the very one
-the `%>` pre-filter applies; and `similar_sites` makes six folded references where the searches
+`alt_names_fold` or `alt_name_similarity`, both of those through `folded_names` — or, in
+`similar_sites` alone and only for the rows it hands back, `best_alt_name`, which has to return the
+name as written and so reads the list itself, held phrase for phrase to `folded_names`' guards and
+fold. Of the four, only those two call `name_fold`; the new index's expression is derived from
+the very one the `%>` pre-filter applies; and `similar_sites` makes six folded references where the searches
 make three, since it asks again about the proposed other names. **The operators are counted
 apart** — four `%` and two `%>`, each written the long way. **The word-similarity cut-off is set
 from the floor** in both functions, once, after their guards and before the query that reads it.
 **The signature change** is one `drop function if exists` of the old `similar_sites`, immediately
-before the new one is created, with no grant or revoke left naming it. The three helpers are
+before the new one is created, with no grant or revoke left naming it. The four helpers are
 `immutable` and `parallel safe`, and `suggest_site_edit` allows every fact #31 gave a site.
+**`matched_name` is decided off the rank's own scores**: `similar_sites` takes its three scores
+once per row, ranks by their best, and reports an other name only when that score beats both of
+the site's own-name scores outright, as a key beside `sync_site`'s rendering — never a column of
+`dive_sites`, and never looked up inside the ranking CTE.
 
 `src/db/schemaParity.test.ts` also asserts the guarantees the SQL text carries that a column
 comparison cannot see: no serial or identity anywhere (ids are the client's UUIDv7), no trigger
@@ -497,8 +509,9 @@ PostGIS 3.4 with a small stand-in for Supabase's `auth` schema and roles (2026-1
 the files as they were before a site's `entry` became a set, then again after the set and
 `altitude_m`. Each time as a fresh project, re-applied over itself, and by the upgrade path in
 [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the files as they were
-before #31; every step passed, with no defects. That settled two things this list used to
-call unprovable:
+before #31; every step passed, with no defects. (File 6 has changed since — `best_alt_name` and
+`similar_sites`' `matched_name` — and that change has not run.) That settled two things this list
+used to call unprovable:
 
 - **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set
   `pg_trgm.word_similarity_threshold` from the floor as they run, and in a session where pg_trgm
