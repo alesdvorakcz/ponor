@@ -714,13 +714,36 @@ it('shows the site’s facts in the canvas’s order, each only when filled', as
     catalogueState([teti({ entry: ['shore', 'boat'], salinity: 'salt', waterBody: 'ocean' })]),
   );
   const t = await show();
-  const labels = ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Water', 'Entry', 'Other names', 'Country'];
+  // The site's types lead the cluster as tiles since issue #6, so they are no longer a labelled row.
+  const labels = ['Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Water', 'Entry', 'Other names', 'Country'];
   // The rows as drawn, label by label, so the order is the cluster's and not the text's at large.
   expect(labelsIn(t)).toEqual(labels);
   const lines = textIn(t);
-  for (const value of ['Wreck · Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Salt · Ocean', 'Shore · Boat', 'Teti wreck', 'HR']) {
+  for (const value of ['Wreck', 'Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Salt · Ocean', 'Shore · Boat', 'Teti wreck', 'HR']) {
     expect(lines).toContain(value);
   }
+});
+
+// Issue #6: the site's types are tiles with their drawings, as the dive detail's conditions are,
+// where #31 printed them as one line. A token this build does not know keeps its word, undrawn.
+it('shows the site’s types as tiles with their drawings, not as a line of text', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const tiles = allNodes(t).filter((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.conditionTile));
+  expect(tiles.map((tile) => tile.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)[0])).toEqual(['Wreck', 'Wall']);
+  for (const tile of tiles) expect(tile.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+  expect(textIn(t)).not.toContain('Wreck · Wall');
+  expect(labelsIn(t)).not.toContain('Site type');
+});
+
+it('keeps an unknown site type as a word on an undrawn tile', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wall', 'cavern'] as never })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const tiles = allNodes(t).filter((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.conditionTile));
+  expect(tiles).toHaveLength(2);
+  expect(tiles[1]!.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(0);
 });
 
 it('draws only the facts the site has', async () => {
@@ -755,7 +778,9 @@ it('shows an altitude of sea level, which is an answer and not an absence', asyn
 it('shows a type this build does not know as a word', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ siteTypes: ['wall', 'cavern'] as never })]));
   const lines = textIn(await show());
-  expect(lines).toContain('Wall · Cavern');
+  // One tile per type since issue #6, so each is its own word rather than one line.
+  expect(lines).toContain('Wall');
+  expect(lines).toContain('Cavern');
   expect(lines.join(' ')).not.toContain('vocabulary.');
 });
 

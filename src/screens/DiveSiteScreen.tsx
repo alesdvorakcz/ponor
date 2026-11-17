@@ -3,6 +3,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { conditionIconFor } from '../components/ConditionIcon';
+import { ConditionTiles, type ConditionTile } from '../components/ConditionTiles';
 import { DiveRow } from '../components/DiveRow';
 import { MapCard } from '../components/MapCard';
 import { useDives } from '../db/useDives';
@@ -20,6 +22,7 @@ import {
   formatCoordinates,
   formatAltitude,
   formatDepth,
+  formatPlaceToken,
   formatPlaceTokens,
   formatSalinity,
   formatSiteSummary,
@@ -36,6 +39,7 @@ import { showOnMap } from '../platform/showOnMap';
 import { type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
+import { type ColorScheme } from '../theme/tokens';
 
 /**
  * **One dive site's own page** (`/site/[id]`, M3f) — the screen `dive_sites` never had, and the
@@ -326,7 +330,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           onPress={() => showOnMap({ kind: 'site', id: site.id, overItsPage: true }, point, siteLabel(site))}
         />
       )}
-      <SiteFacts site={site} units={units} styles={styles} />
+      <SiteFacts site={site} units={units} styles={styles} scheme={scheme} />
       {myDives.length > 0 && <Text style={styles.siteSectionTitle}>{t('place.yourDives')}</Text>}
     </View>
   );
@@ -395,11 +399,21 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
  * columns means *the catalogue does not know*, never *the answer is empty* (`domain/siteDefaults.ts`),
  * which is exactly why an absent row is the honest rendering of it and an em dash would not be.
  */
-function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem; styles: Styles }) {
+function SiteFacts({ site, units, styles, scheme }: { site: DiveSite; units: UnitSystem; styles: Styles; scheme: ColorScheme }) {
   const country = site.country !== null && site.country !== '' ? site.country : null;
+  // **The site's types lead as tiles** (issue #6), each its drawing and its word, as the dive
+  // detail's conditions are, where #31 printed them as one line. A type this build does not know
+  // keeps its word on an undrawn tile (§10's store-and-flag). Its water and ways in stay the rows
+  // below for now: the note names those rows as what a new dive inherits, and they move to tiles
+  // with the note once #31 has settled.
+  const typeTiles: ConditionTile[] = site.siteTypes.map((type) => ({
+    key: type,
+    icon: conditionIconFor('siteType', type),
+    value: formatPlaceToken('siteTypes', type),
+    label: t('field.siteTypes'),
+  }));
   // The canvas's order, each row only when it holds something (§1).
   const facts = [
-    { label: t('field.siteTypes'), value: formatPlaceTokens('siteTypes', site.siteTypes) },
     { label: t('field.suitableFor'), value: formatSuitableFor(site.suitableFor) },
     // **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few points
     // above is already showing the diver's deepest dive here. Two depths on one screen with one
@@ -417,10 +431,11 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
   ].filter((row): row is { label: string; value: string } => row.value !== null);
   const note = prefillNote(site);
 
-  if (facts.length === 0) return null;
+  if (facts.length === 0 && typeTiles.length === 0) return null;
   return (
     <View>
       <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
+      <ConditionTiles tiles={typeTiles} scheme={scheme} />
       {facts.map((row) => (
         <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
       ))}
