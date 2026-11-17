@@ -788,6 +788,8 @@ export const cs = {
         phoneOnly: 'jen v tomto telefonu · zatím nesdíleno',
       } satisfies Record<Provenance, string>,
       dived: 'navštíveno',
+      /** *Jiným názvem*, not *také zvaná*: gender-neutral, so it never has to agree with *lokalita*. */
+      alsoCalled: 'jiným názvem {{name}}',
       nothingNearMatches: 'V okruhu {{distance}} nic neodpovídá „{{query}}“.',
       nothingNear: 'V okruhu {{distance}} nic není.',
       lookingNear: 'Hledám místa v okruhu {{distance}}…',

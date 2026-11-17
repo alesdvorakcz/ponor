@@ -496,6 +496,22 @@ export function formatPickerGroupTitle(
 }
 
 /**
+ * **A row found by another name says so first** (#31) — `also called Stone Gate · HR · Boat` — and
+ * the other name stands alone when the row had nothing else to say. `name` is `alsoCalled`'s
+ * answer (domain/search.ts), so `null` leaves `line` as it was.
+ *
+ * The one owner of that sentence and of where it goes: the picker's rows (`formatPickerMeta`) and
+ * the Sites directory's both read it, so a site found by *Stone Gate* reads the same wherever it
+ * was searched for. The copy is the picker's (`picker.alsoCalled`) because the picker said it
+ * first; the Czech *jiným názvem* is gender-neutral, so it never has to agree with *lokalita*.
+ */
+export function withAlsoCalled(name: string | null, line: string | null): string | null {
+  if (name === null) return line;
+  const said = t('picker.alsoCalled', { name });
+  return line === null ? said : `${said}${METADATA_SEPARATOR}${line}`;
+}
+
+/**
  * **The muted line under a picker row's name**, by the group it is drawn in — the same row reads
  * differently under *Dived here* and under *Near you*, because each group answers a different
  * question about it.
@@ -507,6 +523,8 @@ export function formatPickerGroupTitle(
  * - `near`: `dived · 4 dives`, or where it came from — the distance trails, so no country.
  * - `nearSite`: where it came from. The distance trails the row and the heading names the site, so
  *   `3.4 km from Vrak Teti` said both a second time (owner's call, PR #35).
+ *
+ * In every group, a row the query found by another name says which first (`withAlsoCalled`).
  */
 export function formatPickerMeta(
   row: PickerRow,
@@ -514,21 +532,24 @@ export function formatPickerMeta(
   kind: PlaceKind,
   wording: PickerWording,
 ): string | null {
-  switch (group) {
-    case 'dived':
-      return row.dived === null ? null : formatSuggestionMeta(row.dived, kind === 'site' ? 'siteName' : 'centerName');
-    case 'other': {
-      const parts = [formatPlaceProvenance(row.provenance)];
-      if (row.country !== null && row.country !== '') parts.push(row.country);
-      return parts.join(METADATA_SEPARATOR);
+  const line = ((): string | null => {
+    switch (group) {
+      case 'dived':
+        return row.dived === null ? null : formatSuggestionMeta(row.dived, kind === 'site' ? 'siteName' : 'centerName');
+      case 'other': {
+        const parts = [formatPlaceProvenance(row.provenance)];
+        if (row.country !== null && row.country !== '') parts.push(row.country);
+        return parts.join(METADATA_SEPARATOR);
+      }
+      case 'near':
+        return row.dived === null
+          ? formatPlaceProvenance(row.provenance)
+          : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
+      case 'nearSite':
+        return formatPlaceProvenance(row.provenance);
     }
-    case 'near':
-      return row.dived === null
-        ? formatPlaceProvenance(row.provenance)
-        : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
-    case 'nearSite':
-      return formatPlaceProvenance(row.provenance);
-  }
+  })();
+  return withAlsoCalled(row.alsoCalled, line);
 }
 
 /**

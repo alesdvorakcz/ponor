@@ -222,6 +222,41 @@ it('filters the list as the diver types, accents folded', async () => {
   expect(textIn(t)).toContain('1 site');
 });
 
+/**
+ * #31: `browseCatalogue` finds a site by any name it goes by, so this list does too — and a row
+ * named nothing like what was typed says which of its names matched, in the picker's own words
+ * (`picker.alsoCalled`, through `alsoCalled` and `withAlsoCalled`: one owner of the sentence).
+ */
+it('says which other name a searched site was found by', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([
+      rock({ name: 'Kamena vrata', altNames: ['Stone Gate'], country: 'HR', entry: 'boat' }),
+      rock({ name: 'Kotelna' }),
+    ]),
+  );
+  const t = await show();
+  // Nothing typed: the line is the catalogue's facts, as it always was.
+  expect(textIn(t)).toContain('HR · Boat');
+  expect(textIn(t).join(' ')).not.toContain('also called');
+
+  await type(t, 'stone');
+  expect(rowNames(t)).toEqual(['Kamena vrata']);
+  expect(textIn(t)).toContain('also called Stone Gate · HR · Boat');
+
+  // Found by its own name, the row needs no explanation.
+  await type(t, 'kamena');
+  expect(textIn(t)).toContain('HR · Boat');
+  expect(textIn(t).join(' ')).not.toContain('also called');
+});
+
+/** With nothing else to say, the other name is the whole line rather than a line with a gap. */
+it('lets the other name stand alone on a row with nothing else to say', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: 'Kamena vrata', altNames: ['Stone Gate'] })]));
+  const t = await show();
+  await type(t, 'gate');
+  expect(textIn(t)).toContain('also called Stone Gate');
+});
+
 it('says when nothing matches, which is not the same as having none', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: 'Kotelna' })]));
   const t = await show();

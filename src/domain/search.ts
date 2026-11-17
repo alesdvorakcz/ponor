@@ -137,9 +137,9 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
  *
  * `searchDives` filters the diver's own logbook across six columns and **never sorts**, because
  * a logbook already has an order (§2.5) and a filtered logbook keeps it. This reads community
- * rows with one column worth matching, and it **does** order them: a directory has no order of
- * its own to preserve, so something has to choose one, and leaving it to whatever SQLite happened
- * to return would make the same list read differently on two devices.
+ * rows by their names — the name, and a site's other names (#31) — and it **does** order them:
+ * a directory has no order of its own to preserve, so something has to choose one, and leaving it
+ * to whatever SQLite happened to return would make the same list read differently on two devices.
  *
  * Both go through `foldForMatching`, on both sides, which is the point of that function having
  * one owner: `zelezna` finds `Železná` here for exactly the reason it does in the logbook and on
@@ -165,11 +165,15 @@ export function searchDives(dives: Dive[], query: string): Dive[] {
  *
  * A row it cannot read costs that row rather than the screen — the stance every list rule in
  * `domain/` takes, because this runs during render over whatever the database handed back.
+ *
+ * **A site is found by any name it goes by** (#31): a row whose own name does not match is still
+ * kept when one of its other names does (`alsoCalled` below). The order stays the row's own
+ * name's, so *Kamena vrata* found by *Stone Gate* sits under K, where the list always shows it. A
+ * centre has no other names, so for the centres directory this changes nothing.
  */
-export function browseCatalogue<T extends { id: string; name: string | null }>(
-  centers: readonly T[],
-  query: string,
-): T[] {
+export function browseCatalogue<
+  T extends { id: string; name: string | null; altNames?: readonly unknown[] | null },
+>(centers: readonly T[], query: string): T[] {
   const needle = foldForMatching(query);
   // **An empty query needs no branch of its own**: it folds to `''`, and every string contains
   // `''`, so the whole catalogue comes through by construction rather than by a condition. An
@@ -180,7 +184,7 @@ export function browseCatalogue<T extends { id: string; name: string | null }>(
   const matching = centers.filter((center) => {
     if (center === null || center === undefined) return false;
     const name = typeof center.name === 'string' ? center.name : '';
-    return foldForMatching(name).includes(needle);
+    return foldForMatching(name).includes(needle) || alsoCalled(center, query) !== null;
   });
 
   return matching.sort((a, b) => {
@@ -189,4 +193,38 @@ export function browseCatalogue<T extends { id: string; name: string | null }>(
     if (left !== right) return left < right ? -1 : 1;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+}
+
+/**
+ * **Which other name a place was found by** (#31) — `'Stone Gate'` when *Kamena vrata* was found
+ * by typing `stone` — so the picker and the Sites directory can say *also called Stone Gate* on a
+ * row whose own name looks nothing like what was typed. Without it, that row reads as a wrong
+ * answer.
+ *
+ * `null` in every case where there is nothing to explain: a blank query (nothing was searched),
+ * a place whose own name matches (the row already shows why it is there — even if an other name
+ * matches too), and a place none of whose other names does. Otherwise the **first** other name in
+ * the list's own order whose fold contains the query's, shown as it is stored, trimmed.
+ *
+ * Both sides through `foldForMatching`, as every other match in the app is — `kamena` finds
+ * *Kamená brána* for the reason it finds *Kamená* anywhere else. The server's half is
+ * `public.folded_names` (supabase/migrations/20260902090500_catalogue_rpcs.sql), and it skips
+ * what this skips: a list from another client's build may hold numbers or `null`s (#31's review
+ * focus 1), and neither is a name. A list that is not a list at all is no other names, and a
+ * place without the field (a centre) has none.
+ */
+export function alsoCalled(
+  place: { name: string | null; altNames?: readonly unknown[] | null },
+  query: string,
+): string | null {
+  const needle = foldForMatching(query);
+  if (needle === '') return null;
+  if (typeof place.name === 'string' && foldForMatching(place.name).includes(needle)) return null;
+  if (!Array.isArray(place.altNames)) return null;
+  for (const other of place.altNames as readonly unknown[]) {
+    if (typeof other !== 'string') continue;
+    const shown = other.trim();
+    if (shown !== '' && foldForMatching(shown).includes(needle)) return shown;
+  }
+  return null;
 }

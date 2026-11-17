@@ -954,6 +954,10 @@ export const en = {
         phoneOnly: 'on this phone only · not shared yet',
       } satisfies Record<Provenance, string>,
       dived: 'dived',
+      /** The front of a row's meta line when the query found it by another name it goes by (#31):
+       * *also called Stone Gate · community · HR*. `format/display.ts`' `withAlsoCalled` places it,
+       * in the picker and the Sites directory alike. */
+      alsoCalled: 'also called {{name}}',
       nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
       nothingNear: 'Nothing within {{distance}}.',
       /** In place of *Nothing within…* while the server is still being asked about the fix: nothing

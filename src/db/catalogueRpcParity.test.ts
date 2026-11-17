@@ -64,6 +64,9 @@ function fn(name: string): ParsedFunction {
 
 const nameFold = fn('public.name_fold');
 const floor = fn('public.name_match_floor');
+const foldedNames = fn('public.folded_names');
+const altNamesFold = fn('public.alt_names_fold');
+const altNameSimilarity = fn('public.alt_name_similarity');
 const search = fn('public.search_sites');
 const searchCenters = fn('public.search_centers');
 const similar = fn('public.similar_sites');
@@ -118,6 +121,9 @@ const COMMUNITY_TABLES = schema.tables
 const TABLE_ALIASES: Record<string, Record<string, string>> = {
   'public.name_fold': {},
   'public.name_match_floor': {},
+  'public.folded_names': {},
+  'public.alt_names_fold': {},
+  'public.alt_name_similarity': {},
   'public.search_sites': { s: 'dive_sites' },
   'public.search_centers': { c: 'dive_centers' },
   'public.similar_sites': { s: 'dive_sites' },
@@ -128,6 +134,9 @@ const TABLE_ALIASES: Record<string, Record<string, string>> = {
 const OTHER_ALIASES: Record<string, Record<string, string>> = {
   'public.name_fold': {},
   'public.name_match_floor': {},
+  'public.folded_names': {},
+  'public.alt_names_fold': {},
+  'public.alt_name_similarity': {},
   'public.search_sites': {
     m: 'the `matches` CTE, whose columns are site_id/score/distance_m — a ranking, not a row.',
   },
@@ -202,8 +211,15 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // have one owner), and `search_centers` because §2.3 promises live search for "a site or
     // center" while §5's list named only the first — a gap M2c recorded in §5 and this task
     // closes.
+    //
+    // #31 adds three, for the reason `name_fold` is here: a site's other names are read by an
+    // index and by search (and, from Task 5, by the duplicate check), so how a list of names is
+    // folded, joined for the index, and scored has one owner each rather than a copy per reader.
     expect(rpc.functions.map((declared) => declared.name).sort()).toEqual([
+      'public.alt_name_similarity',
+      'public.alt_names_fold',
       'public.delete_account',
+      'public.folded_names',
       'public.name_fold',
       'public.name_match_floor',
       'public.search_centers',
@@ -232,7 +248,7 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // does not apply, and the catalogue is then readable by anyone who can call the function —
     // which is the decision M2a deliberately took the other way, on the grounds that opening it
     // later is two statements and closing it after a scrape is not possible at all.
-    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold]) {
+    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold, foldedNames, altNamesFold, altNameSimilarity]) {
       expect(`${declared.name}: ${declared.attributes}`).toContain('security invoker');
       expect(`${declared.name}: ${declared.attributes}`).not.toContain('security definer');
     }
@@ -442,9 +458,13 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // `raise exception 'suggest_site_edit: % is not a fact…'` puts a `%` in a body that must
     // contain no bare one, and a stripper that stopped stripping would fail here rather than
     // leaving this assertion quietly true of nothing (mutation-found).
+    //
+    // #31 adds pg_trgm's word-similarity operator, `%>`, for a site's other names (the only one a
+    // trigram index over the joined names can serve), written the same long way and counted apart.
     const whole = withoutLiterals(rpc.functions.map((declared) => declared.body).join('\n'));
     expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(3);
-    expect(whole.replace(/operator\(extensions\.%\)/g, '')).not.toContain('%');
+    expect([...whole.matchAll(/operator\(extensions\.%>\)/g)].length).toBe(1);
+    expect(whole.replace(/operator\(extensions\.%>?\)/g, '')).not.toContain('%');
 
     // Every PostGIS and pg_trgm name is schema-qualified, everywhere in the file.
     for (const name of EXTENSION_FUNCTIONS) {
@@ -555,12 +575,23 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // on ten sites. That is the failure this file exists to catch: not wrong, just quietly
     // unusable at the size the community is supposed to reach.
     expect(nameFold.attributes).toContain('immutable');
+    // #31's three are immutable for the same reason: `alt_names_fold` is an index expression and
+    // the other two are what it, and the score beside it, are made of.
     expect(
       rpc.functions
         .filter((declared) => declared.attributes.includes('immutable'))
         .map((declared) => declared.name)
         .sort(),
-    ).toEqual(['public.name_fold', 'public.name_match_floor']);
+    ).toEqual([
+      'public.alt_name_similarity',
+      'public.alt_names_fold',
+      'public.folded_names',
+      'public.name_fold',
+      'public.name_match_floor',
+    ]);
+    for (const declared of [foldedNames, altNamesFold, altNameSimilarity]) {
+      expect(`${declared.name}: ${declared.attributes}`).toContain('parallel safe');
+    }
   });
 
   it('names its dictionary outright, which is what makes that marking honest', () => {
@@ -651,6 +682,58 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
           `on public.${table} using gin (${indexed} extensions.gin_trgm_ops)`,
       );
     }
+  });
+
+  it('folds every other name through one owner, in the index and in search', () => {
+    // #31: a site's other names are a jsonb list read three times by `search_sites` — the score,
+    // the `%>` pre-filter and the floor comparison — and once by the index. A list folded one way
+    // in the index and another in the query is the name fold's silent failure again: no wrong
+    // answer, only a scan. So every read goes through one of two helpers, both of those through
+    // `folded_names`, and only `folded_names` folds.
+    const body = withoutLiterals(search.body);
+    const owners: string[] = [];
+    const strays: string[] = [];
+    for (const match of body.matchAll(/(?<![\w.])s\.alt_names\b/g)) {
+      const owner = /public\.(alt_names_fold|alt_name_similarity)\($/.exec(body.slice(0, match.index))?.[1];
+      if (owner === undefined) strays.push(`...${body.slice(Math.max(0, match.index - 40), match.index + 40)}...`);
+      else owners.push(owner);
+    }
+    expect(strays).toEqual([]);
+    expect(owners.sort()).toEqual(['alt_name_similarity', 'alt_name_similarity', 'alt_names_fold']);
+
+    for (const declared of [altNamesFold, altNameSimilarity]) {
+      expect(`${declared.name}: ${declared.body}`).toContain('public.folded_names(p_alt_names)');
+      expect(`${declared.name}: ${declared.body}`).not.toContain('name_fold(');
+    }
+    expect(foldedNames.body).toContain('public.name_fold(');
+    // A list from another client's build can be anything (#31's review focus 1). A non-array would
+    // make `jsonb_array_elements` raise and fail every search that reached the row, and a number or
+    // a `null` inside one is no name — the device's `alsoCalled` skips both, so the server does too.
+    expect(foldedNames.body).toContain("case when jsonb_typeof(p_names) = 'array' then p_names else '[]'::jsonb end");
+    expect(foldedNames.body).toContain("where jsonb_typeof(value) = 'string'");
+
+    // The index is over the very expression the pre-filter applies, derived from it exactly as the
+    // name index is derived above.
+    const applied = 'public.alt_names_fold(s.alt_names)';
+    expect(search.body).toContain(`${applied} operator(extensions.%>) v_query`);
+    expect(rpc.statements.map((statement) => statement.toLowerCase())).toContain(
+      'create index if not exists dive_sites_alt_names_fold_trgm_idx ' +
+        `on public.dive_sites using gin (${applied.replace('(s.', '(')} extensions.gin_trgm_ops)`,
+    );
+  });
+
+  it('sets the word-similarity cut-off from the floor before it filters by it', () => {
+    // `%>`'s own cut-off is the GUC `pg_trgm.word_similarity_threshold`, 0.6 by default — twice the
+    // floor — so left alone the pre-filter would drop an other name the floor keeps, and *Stone*
+    // would stop finding *Kamena vrata* online while still finding it offline. Set from the floor,
+    // it cannot: word similarity against the joined names is never below similarity against one
+    // of them. Set after the guards and before the query that reads it, and `true` (local), so it
+    // ends with the call's transaction rather than staying on a pooled connection.
+    const set = "perform set_config('pg_trgm.word_similarity_threshold', public.name_match_floor()::text, true)";
+    const at = search.body.indexOf(set);
+    expect(at).toBeGreaterThan(search.body.lastIndexOf('raise exception'));
+    expect(at).toBeLessThan(search.body.indexOf('with matches'));
+    expect(search.body.split(set).length).toBe(2);
   });
 
   it('drops the raw-name indexes it replaces, rather than leaving them to be maintained', () => {

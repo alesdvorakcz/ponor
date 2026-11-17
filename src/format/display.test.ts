@@ -85,6 +85,7 @@ import {
   formatWeight,
   diveSiteLabel,
   unnamedSite,
+  withAlsoCalled,
 } from './display';
 import { UNIT_SYSTEMS } from './units';
 import { setActiveLanguage } from '../i18n';
@@ -1893,6 +1894,7 @@ describe('the place picker', () => {
     dived: null,
     distanceKm: null,
     selected: false,
+    alsoCalled: null,
     ...over,
   });
   const visited = { dives: 4, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 };
@@ -1983,6 +1985,37 @@ describe('the place picker', () => {
     expect(formatPickerMeta(row({ provenance: 'yours', distanceKm: 3.4 }), 'nearSite', 'center', wording)).toBe(
       'added by you',
     );
+  });
+
+  // #31: a row found by another name says so first, whatever its group would have said after it.
+  it('says which other name a row was found by, ahead of whatever the group says', () => {
+    const stone = { alsoCalled: 'Stone Gate' };
+    expect(formatPickerMeta(row({ ...stone, country: 'HR' }), 'other', 'site', wording)).toBe(
+      'also called Stone Gate · community · HR',
+    );
+    // A dived group with nothing to count has no line of its own; the other name stands alone.
+    expect(formatPickerMeta(row({ ...stone, dived: null }), 'dived', 'site', wording)).toBe('also called Stone Gate');
+    expect(formatPickerMeta(row({ ...stone, dived: visited }), 'dived', 'site', wording)).toBe(
+      `also called Stone Gate · 4 dives · last ${formatDiveDate('2026-05-18')}`,
+    );
+    expect(formatPickerMeta(row({ ...stone, distanceKm: 3 }), 'near', 'site', wording)).toBe(
+      'also called Stone Gate · community',
+    );
+    setActiveLanguage('cs');
+    try {
+      expect(formatPickerMeta(row({ ...stone, country: 'HR' }), 'other', 'site', wording)).toBe(
+        'jiným názvem Stone Gate · komunitní · HR',
+      );
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+
+  it('prefixes a line with the other name, or lets the other name stand alone', () => {
+    expect(withAlsoCalled('Stone Gate', 'HR · Shore')).toBe('also called Stone Gate · HR · Shore');
+    expect(withAlsoCalled('Stone Gate', null)).toBe('also called Stone Gate');
+    expect(withAlsoCalled(null, 'HR · Shore')).toBe('HR · Shore');
+    expect(withAlsoCalled(null, null)).toBeNull();
   });
 
   // Deepest in the diver's units for a dived site, nothing for a centre (its heading says it),

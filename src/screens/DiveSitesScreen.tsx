@@ -12,10 +12,10 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { searchSites } from '../cloud/searchSites';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { catalogueUnreadable } from '../domain/logbook';
-import { browseCatalogue } from '../domain/search';
+import { alsoCalled, browseCatalogue } from '../domain/search';
 import { isDiveAtSite } from '../domain/siteDives';
 import { type DiveSite } from '../domain/types';
-import { formatSiteCount, formatSiteRow, unnamedSite } from '../format/display';
+import { formatSiteCount, formatSiteRow, unnamedSite, withAlsoCalled } from '../format/display';
 import { type UnitSystem } from '../format/units';
 import { useCatalogueSupplement } from '../hooks/useCatalogueSupplement';
 import { t, useT } from '../i18n';
@@ -150,6 +150,7 @@ export default function DiveSitesScreen() {
           <SiteRow
             site={item}
             dives={dives.reduce((count, dive) => count + (isDiveAtSite(dive, item) ? 1 : 0), 0)}
+            foundBy={alsoCalled(item, query)}
             units={units}
             styles={styles}
           />
@@ -175,7 +176,8 @@ export default function DiveSitesScreen() {
 /**
  * One site in the directory: its name, and what the catalogue and the logbook together know about
  * it (`formatSiteRow` — "CZ · Shore · Fresh · Quarry · 42.0 m · 3 dives", or no second line at
- * all).
+ * all). A site the search found by another name it goes by says which first — *also called Stone
+ * Gate · …* — through `withAlsoCalled`, the picker's own words for it (#31).
  *
  * `formField`/`formFieldRow` is the row, exactly as Settings' preset and certification rows and
  * the centres directory's own rows are: §0.6's row grammar, not a fifth vocabulary for a name over
@@ -185,16 +187,19 @@ export default function DiveSitesScreen() {
 function SiteRow({
   site,
   dives,
+  foundBy,
   units,
   styles,
 }: {
   site: DiveSite;
   dives: number;
+  /** The other name the query found this site by (`alsoCalled`), or null. */
+  foundBy: string | null;
   units: UnitSystem;
   styles: Styles;
 }) {
   const name = site.name ?? unnamedSite();
-  const summary = formatSiteRow(site, dives, units);
+  const summary = withAlsoCalled(foundBy, formatSiteRow(site, dives, units));
   return (
     <Pressable
       style={styles.formField}
