@@ -119,8 +119,10 @@ export const en = {
         reef: 'Reef',
         wall: 'Wall',
         pinnacle: 'Pinnacle',
-        drift: 'Drift',
+        canyon: 'Canyon',
         muck: 'Muck',
+        drift: 'Drift',
+        bluewater: 'Blue water',
       } satisfies Record<SiteType, string>,
       suitableFor: {
         openwater: 'Open Water',

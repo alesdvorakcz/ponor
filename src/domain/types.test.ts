@@ -118,7 +118,16 @@ describe('the vocabularies', () => {
     // #31's lists as the issue orders them, which is the order the chips appear in. Two
     // members are compressed to one word by the rule below rather than spelled with the
     // issue's underscore: `openwater` and `sditdi`.
-    expect(SITE_TYPE_VALUES).toEqual(['wreck', 'reef', 'wall', 'pinnacle', 'drift', 'muck']);
+    expect(SITE_TYPE_VALUES).toEqual([
+      'wreck',
+      'reef',
+      'wall',
+      'pinnacle',
+      'canyon',
+      'muck',
+      'drift',
+      'bluewater',
+    ]);
     expect(SUITABLE_FOR_VALUES).toEqual(['openwater', 'advanced', 'experienced', 'technical']);
     expect(SERVICE_VALUES).toEqual(['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair']);
     expect(AGENCY_VALUES).toEqual(['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other']);

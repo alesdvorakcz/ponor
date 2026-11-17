@@ -107,8 +107,10 @@ export const cs = {
         reef: 'Útes',
         wall: 'Stěna',
         pinnacle: 'Skalní věž',
-        drift: 'Drift',
+        canyon: 'Kaňon',
         muck: 'Muck',
+        drift: 'Drift',
+        bluewater: 'Modrá voda',
       } satisfies Record<SiteType, string>,
       /** Read after *Vhodné pro*. */
       suitableFor: {

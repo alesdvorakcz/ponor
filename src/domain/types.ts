@@ -68,7 +68,7 @@ export const CATALOGUE_STATUS_VALUES = ['active', 'merged', 'hidden'] as const;
  * centre offers and which agencies it trains with. `openwater` and `sditdi` are one word each,
  * by the rule above, where the issue spelled them with an underscore.
  */
-export const SITE_TYPE_VALUES = ['wreck', 'reef', 'wall', 'pinnacle', 'drift', 'muck'] as const;
+export const SITE_TYPE_VALUES = ['wreck', 'reef', 'wall', 'pinnacle', 'canyon', 'muck', 'drift', 'bluewater'] as const;
 export const SUITABLE_FOR_VALUES = ['openwater', 'advanced', 'experienced', 'technical'] as const;
 export const SERVICE_VALUES = ['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair'] as const;
 export const AGENCY_VALUES = ['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other'] as const;

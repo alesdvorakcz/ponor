@@ -353,7 +353,7 @@ describe('closed-group hints', () => {
   ] as const)('are short enough to fit (%s)', (_name, resource) => {
     const newPlace = resource.translation.newPlace as Record<string, string>;
     for (const key of keys) {
-      expect(newPlace[key].length).toBeLessThanOrEqual(28);
+      expect(newPlace[key]?.length).toBeLessThanOrEqual(28);
     }
   });
 });
