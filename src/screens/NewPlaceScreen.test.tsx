@@ -884,7 +884,7 @@ it('opens The site when the dive handed it a value, with the dive’s marks', as
   mockRequest.mockReturnValue(request({ dive: diveAt }));
   const t = await showSite();
   expect(labelled(t, 'Collapse The site').props.accessibilityState).toMatchObject({ expanded: true });
-  expect(textIn(t)).not.toContain('water, entry, type, depth');
+  expect(textIn(t)).not.toContain('entry, type, depth, altitude');
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
@@ -907,14 +907,14 @@ it('keeps a group closed while it holds nothing, saying what it holds', async ()
   mockRequest.mockReturnValue(request({ dive: { ...noDive, pin } }));
   const site = await showSite();
   expect(labelled(site, 'Expand The site').props.accessibilityState).toMatchObject({ expanded: false });
-  expect(textIn(site)).toContain('water, entry, type, depth');
+  expect(textIn(site)).toContain('entry, type, depth, altitude');
   expect(textIn(site)).toContain('names it also goes by');
   expect(textIn(site)).not.toContain('Salinity');
   expect(has(site, 'Salinity: Salt')).toBe(false);
   expect(has(site, 'Other name')).toBe(false);
   // Opened, its fields say it instead.
   await expand(site, 'The site');
-  expect(textIn(site)).not.toContain('water, entry, type, depth');
+  expect(textIn(site)).not.toContain('entry, type, depth, altitude');
   expect(has(site, 'Salinity: Salt')).toBe(true);
   await cleanup();
 

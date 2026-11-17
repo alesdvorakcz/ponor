@@ -89,7 +89,7 @@ well as the name, and a `similar_sites` that also takes the new site's other nam
 That is a new signature, so the file **drops the old `similar_sites` and creates the new one** (see
 [Re-running](#re-running)). File 6 also replaces `suggest_site_edit`, so a suggestion may propose
 every fact a site gained. **File 4** adds `public.sync_json_array` and replaces `push_changes`,
-which writes the thirteen columns and a site's `entry` as a set, stores a set that arrives as
+which writes the fourteen columns and a site's `entry` as a set, stores a set that arrives as
 anything but an array as `[]`, and hands an arriving site's other names to the recheck
 (`p_alt_names => arrived.alt_names`).
 

@@ -1093,7 +1093,7 @@ export const en = {
        * (the precedent is `back.anyLabel`). */
       addNameLabel: 'Add another name',
       /** What each closed group holds, between its title and its chevron. */
-      siteHint: 'water, entry, type, depth',
+      siteHint: 'entry, type, depth, altitude',
       altNamesHint: 'names it also goes by',
       contactHint: 'website, phone, email, hours',
       servicesHint: 'services, agencies',
