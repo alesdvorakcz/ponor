@@ -73,12 +73,12 @@ alter table public.dive_sites
 
 **The last statement runs once.** Unlike the `add column if not exists` lines it is not written to
 be repeated: it converts the `text` column, each value becoming the one member of its set and a
-null or a blank the empty set. **A second run errors and changes nothing**: on a column that is
+null or a blank the empty set. **A second run errors and changes nothing** (confirmed on the throwaway): on a column that is
 already `jsonb`, `entry = ''` fails when Postgres parses the statement (`''` is not JSON), before
 any row is touched.
 
 It wraps every text value as it stands, so a value that already spells a JSON array would be
-wrapped again — `["boat"]` becoming a set holding the string `["boat"]`. Only a new build pushing
+wrapped again (confirmed on the throwaway) — `["boat"]` becoming a set holding the string `["boat"]`. Only a new build pushing
 before these lines ran could have stored one, which the order above forbids. Guarding against it
 needs `pg_input_is_valid`, which is Postgres 16's, so the statement is left as written.
 
@@ -102,7 +102,7 @@ the new function also takes and `p_alt_names` has a default; so does the `simila
 build from before #31. And the build comes last, because before the columns exist the server
 refuses its keys.
 
-**Between these lines and file 4, every push from every device fails**, whatever build it runs,
+**Between these lines and file 4, every push from every device fails** (confirmed on the throwaway), whatever build it runs,
 and stores nothing until file 4 is applied. The old `push_changes`' `dive_sites` insert puts
 `->>'entry'` — text — into a column that is `jsonb` by then, which Postgres rejects when it parses
 the statement, and that insert runs on every push, with or without a site in it. It is the safe
@@ -114,11 +114,11 @@ blank that row's new facts, and a site's entry with them — because the project
 only. **A build from before the entry became a set does not keep syncing either**: its device
 column for a site's `entry` is still `text`, a list arriving in a pull does not fit it, and the
 pull fails on the first site it carries until the new build is installed.
-**None of this is applied to the project yet.** It has run once, on a throwaway Postgres 16 +
+**None of this is applied to the project yet.** It has run twice on a throwaway Postgres 16 +
 PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from the files before
-#31 — and passed; what that showed, and what it still cannot, is at the end of
-[Applied](#applied). **That run was before a site's entry became a set**: the `alter column`
-statement above, and files 2 and 4 as they now read, have not run anywhere yet.
+#31, and again after a site's entry became a set and gained its altitude (the `alter column`
+statement above included) — and passed both times; what that showed, and what it still cannot,
+is at the end of [Applied](#applied).
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -493,9 +493,9 @@ GUC is ever raised on this project, both search functions quietly return less, a
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.
 
 **#31's SQL is not applied to the project yet, but it has run** — on a throwaway Postgres 16 +
-PostGIS 3.4 on 2026-11-17, with these files as they were before a site's `entry` became a set
-(and one comment has been reworded since; the set has not run anywhere yet)
-and a small stand-in for Supabase's `auth` schema and roles: as a fresh project, re-applied over itself, and by the
+PostGIS 3.4 on 2026-11-17, with these files as they were before a site's `entry` became a set,
+and a second time after the set and `altitude_m` (the `alter column` statement, files 2, 4 and 6;
+also passed, no defects; still not on the project), and a small stand-in for Supabase's `auth` schema and roles: as a fresh project, re-applied over itself, and by the
 upgrade path in [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the
 files as they were before #31. Every step passed. That settled two things this list used to
 call unprovable:
