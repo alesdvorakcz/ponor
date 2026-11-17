@@ -944,6 +944,9 @@ function build(scheme: ColorScheme) {
    * permission has been read, and an export row while its file is being prepared — so it is
    * one definition here rather than the same three properties written twice.
    */
+  // The value half of a catalogue fact row: it may shrink, takes the width the label leaves, and
+  // wraps onto more lines, still right-aligned (`rowValue`'s own `textAlign`).
+  const factValueFill: TextStyle = { flex: 1, flexShrink: 1 };
   const rowValueSansMuted: TextStyle = {
     ...rowValueSans,
     color: theme.fgMuted,
@@ -4602,9 +4605,19 @@ function build(scheme: ColorScheme) {
     // is what draws them (`formField`/`formFieldRow`/`formFieldLabel`), so the only key here is
     // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
     // `accountEmail` reads it — a web address is a name, however little it looks like one.
-    centerFactValue: rowValueSans,
+    centerFactValue: { ...rowValueSans, ...factValueFill },
     // A centre's phone number — a figure, so mono (§0.6), where its address and email are names.
-    centerFactFigure: rowValueMono,
+    centerFactFigure: { ...rowValueMono, ...factValueFill },
+    // A catalogue fact's label — `formFieldLabel` with its shrink taken away, for the page that
+    // can put a long value beside it. `formFieldLabel` lets the label wrap so the form's value
+    // keeps its column (§0.5, Czech runs long); a fact row is the other way round — "Služby"
+    // against "Vzduch · Nitrox · Půjčovna · Kurzy · Ponory z lodi" wrapped as "Služb / y". The
+    // label keeps its own width and the value takes what is left and wraps. Shared by both
+    // pages; the dive form and every other screen keep `formFieldLabel` as it was.
+    factLabel: {
+      ...rowLabel,
+      flexShrink: 0,
+    },
     centerDescription: catalogueDescription,
     // --- the same four keys again, for the sites pair (M3f) --------------------------------
     // Every one of them is the definition its centres twin above takes, under a name that says
@@ -4627,7 +4640,7 @@ function build(scheme: ColorScheme) {
     siteRowName: settingsRowInk,
     siteRowSummary: settingsRowMeta,
     siteEmpty: settingsSectionNote,
-    siteFactValue: rowValueSans,
+    siteFactValue: { ...rowValueSans, ...factValueFill },
     siteDescription: catalogueDescription,
     // **What the three site-default rows are for**, said once under them rather than marked on
     // each: §2.1 prefills a new dive's entry, salinity and water body from the site, and a page

@@ -177,7 +177,7 @@ function FactRow({ label, value, styles }: { label: string; value: string; style
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
         <Text style={styles.siteFactValue}>{value}</Text>
       </View>
     </View>

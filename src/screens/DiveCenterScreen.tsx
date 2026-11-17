@@ -131,7 +131,7 @@ function FactRow({
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
         <Text style={mono ? styles.centerFactFigure : styles.centerFactValue}>{value}</Text>
       </View>
     </View>
@@ -366,7 +366,7 @@ function LinkRow({
   return (
     <Pressable style={styles.formField} onPress={onOpen} accessibilityRole="link" accessibilityLabel={announce}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
         <Text style={mono ? styles.centerFactFigure : styles.centerFactValue}>{value}</Text>
       </View>
     </Pressable>

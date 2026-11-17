@@ -1739,3 +1739,20 @@ describe('the depth axis column and the gridlines its labels name', () => {
     },
   );
 });
+
+// A catalogue fact row (a centre's or a site's page): the label keeps its natural width and the
+// value takes what is left, wrapping and right-aligned. `formFieldLabel` shrinks so the dive
+// form's value keeps its column — on a fact row that wrapped "Služby" as "Služb / y".
+describe('catalogue fact rows', () => {
+  it.each(['dark', 'light'] as const)('keep the label whole and let the value wrap (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    const label = styles.factLabel as Record<string, unknown>;
+    expect(label.flexShrink).toBe(0);
+    expect((styles.formFieldLabel as Record<string, unknown>).flexShrink).toBe(1);
+    for (const key of ['centerFactValue', 'centerFactFigure', 'siteFactValue'] as const) {
+      const value = styles[key] as Record<string, unknown>;
+      expect(value.flexShrink).toBe(1);
+      expect(value.textAlign).toBe('right');
+    }
+  });
+});

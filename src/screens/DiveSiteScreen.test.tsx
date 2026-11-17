@@ -240,7 +240,7 @@ it('draws a row for every field §2.1 prefills from, and no more', async () => {
   // site depth, so the three defaults are the only rows there are.
   const styles = makeStyles('light');
   const labels = allNodes(t)
-    .filter((n) => [n.props?.style].flat(5).includes(styles.formFieldLabel))
+    .filter((n) => [n.props?.style].flat(5).includes(styles.factLabel))
     .flatMap((n) => n.children)
     .filter((c): c is string => typeof c === 'string');
   expect(labels).toEqual(['Entry', 'Salinity', 'Water body']);
