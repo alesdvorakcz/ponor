@@ -492,12 +492,12 @@ the `%` operator's cut-off is the session GUC
 GUC is ever raised on this project, both search functions quietly return less, and the remedy
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.
 
-**#31's SQL is not applied to the project yet, but it has run** — on a throwaway Postgres 16 +
-PostGIS 3.4 on 2026-11-17, with these files as they were before a site's `entry` became a set,
-and a second time after the set and `altitude_m` (the `alter column` statement, files 2, 4 and 6;
-also passed, no defects; still not on the project), and a small stand-in for Supabase's `auth` schema and roles: as a fresh project, re-applied over itself, and by the
-upgrade path in [Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the
-files as they were before #31. Every step passed. That settled two things this list used to
+**#31's SQL is not applied to the project yet, but it has run twice** on a throwaway Postgres 16 +
+PostGIS 3.4 with a small stand-in for Supabase's `auth` schema and roles (2026-11-17): first with
+the files as they were before a site's `entry` became a set, then again after the set and
+`altitude_m`. Each time as a fresh project, re-applied over itself, and by the upgrade path in
+[Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the files as they were
+before #31; every step passed, with no defects. That settled two things this list used to
 call unprovable:
 
 - **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set
