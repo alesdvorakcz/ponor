@@ -1,7 +1,7 @@
 import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites, type PulledSite } from '../db/catalogue';
 import { type Suggestion } from '../domain/suggest';
 import { type DiveSite } from '../domain/types';
-import { countryFor } from '../platform/geocode';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { addCenter, addSite, findSiteTwins, TWIN_CHECK_TIMEOUT_MS } from './addToCatalogue';
 import { similarSites } from './similarSites';
 
@@ -18,7 +18,7 @@ jest.mock('../db/catalogue', () => ({
   listDiveSites: jest.fn(),
 }));
 jest.mock('./similarSites', () => ({ similarSites: jest.fn() }));
-jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
+jest.mock('../platform/geocode', () => ({ countryFor: jest.fn(), countryForAddress: jest.fn() }));
 
 const listSites = jest.mocked(listDiveSites);
 const storeSites = jest.mocked(applyPulledDiveSites);
@@ -26,6 +26,7 @@ const askServer = jest.mocked(similarSites);
 const makeSite = jest.mocked(createDiveSite);
 const makeCenter = jest.mocked(createDiveCenter);
 const country = jest.mocked(countryFor);
+const addressCountry = jest.mocked(countryForAddress);
 
 function site(id: string, name: string, over: Partial<DiveSite> = {}): DiveSite {
   return {
@@ -57,6 +58,7 @@ beforeEach(() => {
   makeSite.mockResolvedValue({ id: 'new-site' } as unknown as DiveSite);
   makeCenter.mockResolvedValue({ id: 'new-center' } as never);
   country.mockResolvedValue(null);
+  addressCountry.mockResolvedValue(null);
 });
 
 describe('findSiteTwins', () => {
@@ -400,6 +402,43 @@ describe('addCenter', () => {
 
     expect(country).toHaveBeenCalledWith(28.57, 34.54);
     expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  // Issue #31: the address gives a country, never a pin; a pin's own country wins.
+  it('without a pin, takes the country from the address', async () => {
+    addressCountry.mockResolvedValue('HR');
+    await addCenter({ name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: ' Otok Vis, Kut 12 ' });
+    expect(addressCountry).toHaveBeenCalledWith('Otok Vis, Kut 12');
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ latitude: null, country: 'HR' }));
+  });
+
+  it('lets the pin’s country win over the address’s', async () => {
+    country.mockResolvedValue('EG');
+    addressCountry.mockResolvedValue('HR');
+    await addCenter({ name: 'Shop', latitude: 28.57, longitude: 34.54, website: null, address: 'Otok Vis, Kut 12' });
+    expect(addressCountry).not.toHaveBeenCalled();
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  it('takes an address answer already looked up for the same address, and asks nothing', async () => {
+    await addCenter(
+      { name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: ' Otok Vis, Kut 12 ' },
+      undefined,
+      { address: 'Otok Vis, Kut 12', country: 'HR' },
+    );
+    expect(addressCountry).not.toHaveBeenCalled();
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'HR' }));
+  });
+
+  it('asks for itself when the known answer is about another address', async () => {
+    addressCountry.mockResolvedValue('SI');
+    await addCenter(
+      { name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: 'Piran 3' },
+      undefined,
+      { address: 'Otok Vis, Kut 12', country: 'HR' },
+    );
+    expect(addressCountry).toHaveBeenCalledWith('Piran 3');
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'SI' }));
   });
 
   it('carries a centre’s contact and services into the row it makes', async () => {

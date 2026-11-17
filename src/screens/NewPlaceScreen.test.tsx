@@ -8,7 +8,7 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { setActiveLanguage } from '../i18n';
 import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
-import { countryFor } from '../platform/geocode';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { currentPosition, type PositionOutcome } from '../platform/location';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
@@ -44,7 +44,7 @@ jest.mock('../platform/location', () => ({
   ...jest.requireActual('../platform/location'),
   currentPosition: jest.fn(),
 }));
-jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
+jest.mock('../platform/geocode', () => ({ countryFor: jest.fn(), countryForAddress: jest.fn() }));
 jest.mock('../hooks/useKeyboardShown', () => ({ useKeyboardShown: jest.fn(() => false) }));
 
 const mockParams = useLocalSearchParams as jest.MockedFunction<typeof useLocalSearchParams>;
@@ -56,6 +56,7 @@ const mockAddSite = addSite as jest.MockedFunction<typeof addSite>;
 const mockAddCenter = addCenter as jest.MockedFunction<typeof addCenter>;
 const mockPosition = currentPosition as jest.MockedFunction<typeof currentPosition>;
 const mockCountry = countryFor as jest.MockedFunction<typeof countryFor>;
+const mockAddressCountry = countryForAddress as jest.MockedFunction<typeof countryForAddress>;
 const mockFocusEffect = useFocusEffect as jest.MockedFunction<typeof useFocusEffect>;
 const mockUnits = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 
@@ -106,6 +107,7 @@ beforeEach(() => {
   mockAddSite.mockResolvedValue('new-id');
   mockAddCenter.mockResolvedValue('new-centre-id');
   mockCountry.mockResolvedValue(null);
+  mockAddressCountry.mockResolvedValue(null);
   mockUnits.mockReturnValue('metric');
 });
 
@@ -802,6 +804,7 @@ it('a centre saves straight away with its website and no check', async () => {
       ...NO_CENTRE_DETAILS,
     },
     undefined,
+    undefined,
   );
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 'new-centre-id', name: 'Ponorka' }, 2);
 });
@@ -828,6 +831,7 @@ it('a centre with a position and no website saves both halves of the pin and a n
   expect(mockAddCenter).toHaveBeenCalledWith(
     { name: 'Ponorka', latitude: 43.1, longitude: 16.2, website: null, ...NO_CENTRE_DETAILS },
     { latitude: 43.1, longitude: 16.2, country: null },
+    undefined,
   );
 });
 
@@ -1086,6 +1090,7 @@ it('saves every new fact of a centre', async () => {
       agencies: ['padi', 'other'],
     },
     undefined,
+    undefined,
   );
 });
 
@@ -1184,11 +1189,11 @@ it('a centre hands on the country shown for the position it asked for', async ()
   await press(t, 'Use current position');
   expect(rowValue(t, 'Country')).toBe('HR');
   await press(t, 'Save centre');
-  expect(mockAddCenter).toHaveBeenCalledWith(expect.objectContaining({ latitude: 43.1, longitude: 16.2 }), {
-    latitude: 43.1,
-    longitude: 16.2,
-    country: 'HR',
-  });
+  expect(mockAddCenter).toHaveBeenCalledWith(
+    expect.objectContaining({ latitude: 43.1, longitude: 16.2 }),
+    { latitude: 43.1, longitude: 16.2, country: 'HR' },
+    undefined,
+  );
 });
 
 // An answer about the dive's pin is not an answer about the phone's position that replaced it, and
@@ -1205,6 +1210,106 @@ it('hands on nothing while the position on screen has no answer yet', async () =
   await press(t, 'Save site');
   expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ latitude: 50.1, longitude: 14.4 }), undefined);
   await act(async () => forPhone.resolve('CZ'));
+});
+
+// --- The country from an address (a centre with no pin; issue #31) --------------------------------
+
+/** Types an address and leaves the box, as a diver does. */
+async function enterAddress(t: RenderResult, text: string) {
+  await type(t, 'Address', text);
+  await fireEvent(labelled(t, 'Address'), 'blur');
+}
+
+it('looks the country up from the address once it is entered, and says where it came from', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockAddressCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  expect(rowValue(t, 'Country')).toBe('—');
+  await enterAddress(t, ' Otok Vis, Kut 12 ');
+  expect(mockAddressCountry).toHaveBeenCalledWith('Otok Vis, Kut 12');
+  expect(rowValue(t, 'Country')).toBe('HR · from the address');
+});
+
+it('does not look an address up while the centre has a position', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockPosition.mockResolvedValue({ found: true, latitude: 43.1, longitude: 16.2 });
+  mockCountry.mockResolvedValue('SI');
+  mockAddressCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  await press(t, 'Use current position');
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  expect(mockAddressCountry).not.toHaveBeenCalled();
+  expect(rowValue(t, 'Country')).toBe('SI');
+});
+
+it('forgets an answer about an address since changed', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockAddressCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await type(t, 'Address', 'Piran 3');
+  expect(rowValue(t, 'Country')).toBe('—');
+});
+
+it('drops an address answer that lands after the page has closed', async () => {
+  const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const answer = deferred<string | null>();
+  mockAddressCountry.mockReturnValue(answer.promise);
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await t.unmount();
+  await act(async () => answer.resolve('HR'));
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
+});
+
+it('keeps the answer for the address in the box when a slower one for an earlier address lands last', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const first = deferred<string | null>();
+  mockAddressCountry.mockImplementation(async (address) => (address === 'Otok Vis, Kut 12' ? first.promise : 'SI'));
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await enterAddress(t, 'Piran 3');
+  await act(async () => first.resolve('HR'));
+  expect(rowValue(t, 'Country')).toBe('SI · from the address');
+});
+
+it('hands the address answer to addCenter with the address it is for', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockAddressCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  await enterAddress(t, ' Otok Vis, Kut 12 ');
+  await press(t, 'Save centre');
+  expect(mockAddCenter).toHaveBeenCalledWith(
+    expect.objectContaining({ address: 'Otok Vis, Kut 12', latitude: null, longitude: null }),
+    undefined,
+    { address: 'Otok Vis, Kut 12', country: 'HR' },
+  );
+});
+
+it('hands on no address answer once the address has changed', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  mockAddressCountry.mockResolvedValue('HR');
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await type(t, 'Address', 'Piran 3');
+  await press(t, 'Save centre');
+  expect(mockAddCenter).toHaveBeenCalledWith(expect.anything(), undefined, undefined);
+});
+
+it('never asks a site’s country from anything but its pin', async () => {
+  const t = await showSite();
+  expect(has(t, 'Address')).toBe(false);
+  await press(t, 'Save site');
+  expect(mockAddressCountry).not.toHaveBeenCalled();
 });
 
 // --- The page itself ----------------------------------------------------------------------------
@@ -1253,6 +1358,16 @@ describe('in Czech', () => {
     await press(t, 'Uložit lokalitu');
     expect(textIn(t)).toContain('Nemysleli jste „Lom Leština“?');
     expect(textIn(t)).toContain('HR · 120 m odtud');
+  });
+
+  it('says where an address’s country came from in Czech', async () => {
+    mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+    mockRequest.mockReturnValue(request({ kind: 'center' }));
+    mockAddressCountry.mockResolvedValue('HR');
+    const t = await showCenter();
+    await type(t, 'Adresa', 'Otok Vis, Kut 12');
+    await fireEvent(labelled(t, 'Adresa'), 'blur');
+    expect(rowValue(t, 'Země')).toBe('HR · z adresy');
   });
 
   it('says another name in Czech', async () => {

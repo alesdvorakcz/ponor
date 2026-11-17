@@ -4,7 +4,7 @@ import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { pointOf, type MapPoint } from '../domain/mapSites';
 import { nearMatches, twinRelation, type Suggestion, type TwinRelation } from '../domain/suggest';
 import { type Agency, type DiveSite, type Service } from '../domain/types';
-import { countryFor } from '../platform/geocode';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { withTimeout } from '../platform/withTimeout';
 import { similarSites } from './similarSites';
 import { cloud } from './supabase';
@@ -194,6 +194,23 @@ export async function addSite(facts: NewSiteFacts & NewSiteDetails, known?: Know
   return created.id;
 }
 
+/**
+ * **A country already looked up from an address, and the address it is the answer for** — the
+ * centre's create page asks `countryForAddress` when the diver leaves the Address box. Checked
+ * against the trimmed address at Save, so an answer about text since edited is never written.
+ */
+export interface KnownAddressCountry {
+  address: string;
+  country: string | null;
+}
+
+function countryAtAddress(address: string | null | undefined, known: KnownAddressCountry | undefined): Promise<string | null> {
+  const trimmed = address?.trim() ?? '';
+  if (trimmed === '') return Promise.resolve(null);
+  if (known !== undefined && known.address === trimmed) return Promise.resolve(known.country);
+  return countryForAddress(trimmed);
+}
+
 function hasPin(input: NewCenterInput): boolean {
   return input.latitude !== null && input.longitude !== null;
 }
@@ -206,9 +223,14 @@ function hasPin(input: NewCenterInput): boolean {
  * where the diver entered the water, not the shop, so a centre's position starts empty
  * (`NewPlaceScreen`). A missing pin skips the geocoder altogether rather than asking it a
  * question with no point.
+ *
+ * **The one exception is the address** (issue #31, §10): a centre with an address and no pin takes
+ * the country of the address — `fromAddress`'s answer when it is about this very address, the
+ * geocoder's otherwise. A pin, when there is one, wins and the address is not asked; no pin is
+ * ever made from an address.
  */
-export async function addCenter(input: NewCenterInput, known?: KnownCountry): Promise<string> {
-  const country = hasPin(input) ? await countryAt(input.latitude, input.longitude, known) : null;
+export async function addCenter(input: NewCenterInput, known?: KnownCountry, fromAddress?: KnownAddressCountry): Promise<string> {
+  const country = hasPin(input) ? await countryAt(input.latitude, input.longitude, known) : await countryAtAddress(input.address, fromAddress);
   const created = await createDiveCenter(db, { ...input, country });
   return created.id;
 }

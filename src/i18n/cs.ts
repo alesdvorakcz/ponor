@@ -867,6 +867,7 @@ export const cs = {
       position: 'Poloha',
       useCurrentPosition: 'Použít aktuální polohu',
       asksThePhone: 'zeptá se telefonu, kde jste',
+      fromTheAddress: 'z adresy',
       fromThisDive: 'z tohoto ponoru',
       optional: 'nepovinné',
       saveSite: 'Uložit lokalitu',

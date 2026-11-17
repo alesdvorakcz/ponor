@@ -1055,6 +1055,7 @@ export const en = {
       position: 'Position',
       useCurrentPosition: 'Use current position',
       asksThePhone: 'asks the phone where you are',
+      fromTheAddress: 'from the address',
       fromThisDive: 'from this dive',
       optional: 'optional',
       saveSite: 'Save site',

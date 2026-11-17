@@ -4839,6 +4839,11 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       color: theme.fgMuted,
     },
+    // *· from the address*, trailing a country the address gave: the canvas's value, inheriting the
+    // code's ink — it takes no colour of its own.
+    newPlaceCountrySource: {
+      opacity: 0.6,
+    },
     // A failed write, above the button: the sentence-under-a-block the picker's notes speak in.
     newPlaceNote: {
       ...captionBlock,

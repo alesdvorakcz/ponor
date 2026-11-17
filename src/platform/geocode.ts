@@ -1,5 +1,7 @@
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 
+import { locationPermission } from './locationPermission';
 import { withTimeout } from './withTimeout';
 
 /**
@@ -38,6 +40,12 @@ import { withTimeout } from './withTimeout';
  * from. It is stated here, once, so no caller can reach for a second source — the diver's
  * locale, the last site they logged — and invent one.
  *
+ * **The one exception is a dive centre with an address and no pin** (issue #31, DESIGN.md §10):
+ * a shop is often found by its street, not by a point, and its address is evidence of a country
+ * the way a pin is. `countryForAddress` below answers that, and only the centre's create page
+ * and `addCenter` ask it. It sets no pin — the address gives the country and never a position —
+ * and a pin's country, when there is one, wins.
+ *
  * ── The three ways it comes back empty ────────────────────────────────────────────────────
  *
  * No pin; the platform could not answer (offline, throttled, or — on the web, where
@@ -62,6 +70,31 @@ export async function countryFor(latitude: number | null, longitude: number | nu
     // `null` is the timeout; an empty array is a geocoder that answered and knows of no place
     // there, which is most of the open ocean. Both mean the same thing to the row.
     return isoCountryCode(places?.at(0)?.isoCountryCode ?? null);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * **The country an address is in** — a dive centre's, when it has an address and no pin (see this
+ * module's docblock for why that is the one exception). The *first* result's point goes to
+ * `countryFor`, so the answer has the same shape and the same refusals as a pin's; a vague
+ * address that finds several places is read by its best guess, which is the geocoder's first.
+ *
+ * Asks nothing, and answers `null`, for a blank address; on the web, where expo-location answers
+ * `[]` with a development warning; and on Android unless the location permission is **already
+ * granted** (Android's `Geocoder` wants it). **It never asks for the permission** — nothing a
+ * diver types into an address box may raise a system sheet. iOS needs none. Every failure is
+ * `null`, as `countryFor`'s are, and it never throws.
+ */
+export async function countryForAddress(address: string | null, os: typeof Platform.OS = Platform.OS): Promise<string | null> {
+  const trimmed = address?.trim() ?? '';
+  if (trimmed === '' || os === 'web') return null;
+  try {
+    if (os === 'android' && (await locationPermission()) !== 'granted') return null;
+    const found = await withTimeout(Location.geocodeAsync(trimmed), GEOCODE_TIMEOUT_MS);
+    const first = found?.at(0);
+    return first === undefined ? null : await countryFor(first.latitude, first.longitude);
   } catch {
     return null;
   }

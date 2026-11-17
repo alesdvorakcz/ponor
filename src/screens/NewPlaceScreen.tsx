@@ -12,7 +12,7 @@ import { RevealingScrollView } from '../components/FormReveal';
 import { OptionChips } from '../components/OptionChips';
 import { symbolName, type PlatformSymbol } from '../components/symbolName';
 import { TokenChips } from '../components/TokenChips';
-import { addCenter, addSite, findSiteTwins, type KnownCountry, type SiteTwin } from '../cloud/addToCatalogue';
+import { addCenter, addSite, findSiteTwins, type KnownAddressCountry, type KnownCountry, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { toFormNumber } from '../domain/diveFormSchema';
@@ -43,6 +43,7 @@ import {
   formatSiteTwinMeta,
   formatSuitableFor,
   formatWaterBody,
+  METADATA_SEPARATOR,
   NO_FIGURE,
 } from '../format/display';
 import { positionRefusalSentence } from '../format/positionRefusal';
@@ -50,7 +51,7 @@ import { storedValueFor, unitLabel } from '../format/units';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { t, useT } from '../i18n';
 import { completePlacePick, firstParam, placePickRequest, type PlacePick } from '../navigation/placePick';
-import { countryFor } from '../platform/geocode';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { currentPosition } from '../platform/location';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenTopInset, type Styles } from '../theme/styles';
@@ -257,7 +258,26 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   // The answer for the position on screen, or none while that position has not been answered for:
   // what the *Country* row reads, and what Save hands on.
   const shown = looked !== null && looked.latitude === latitude && looked.longitude === longitude ? looked : null;
-  const country = shown?.country ?? null;
+  const pinCountry = shown?.country ?? null;
+
+  // A centre's *Country* when it has an address and no pin (issue #31): asked as the diver leaves the
+  // Address box, kept with the address it is for, and current only while that is still the box's
+  // text. Never for a site, never while there is a position (the pin's answer wins), and the page
+  // closing drops an answer still out (`alive`).
+  const trimmedAddress = address.trim();
+  const [addressLooked, setAddressLooked] = useState<KnownAddressCountry | null>(null);
+  const addressAsked = useRef<string | null>(null);
+  const askAddress = () => {
+    if (kind !== 'center' || latitude !== null || trimmedAddress === '' || addressAsked.current === trimmedAddress) return;
+    const asked = trimmedAddress;
+    addressAsked.current = asked;
+    void countryForAddress(asked).then((answer) => {
+      if (alive.current && addressAsked.current === asked) setAddressLooked({ address: asked, country: answer });
+    });
+  };
+  const fromAddress = kind === 'center' && addressLooked !== null && addressLooked.address === trimmedAddress ? addressLooked : null;
+  const country = latitude !== null ? pinCountry : (fromAddress?.country ?? null);
+  const countryFromAddress = latitude === null && fromAddress?.country != null;
 
   const trimmed = name.trim();
   const guest = resolved && session === null;
@@ -387,6 +407,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 agencies,
               },
               known,
+              fromAddress ?? undefined,
             );
     } catch {
       if (!alive.current || leaving.current) return;
@@ -454,6 +475,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
             label={t('field.address')}
             value={address}
             onChange={setAddress}
+            onBlur={askAddress}
             scheme={scheme}
             placeholder={t('newPlace.optional')}
             autoCapitalize="words"
@@ -495,7 +517,11 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
         <View style={styles.formField}>
           <View style={styles.formFieldRow}>
             <Text style={styles.formFieldLabel}>{t('field.country')}</Text>
-            <Text style={country === null ? styles.newPlaceCountryNone : styles.newPlaceCountry}>{country ?? NO_FIGURE}</Text>
+            <Text style={country === null ? styles.newPlaceCountryNone : styles.newPlaceCountry}>{country ?? NO_FIGURE}
+              {countryFromAddress && (
+                <Text style={styles.newPlaceCountrySource}>{METADATA_SEPARATOR + t('newPlace.fromTheAddress')}</Text>
+              )}
+            </Text>
           </View>
         </View>
         {kind === 'site' ? (

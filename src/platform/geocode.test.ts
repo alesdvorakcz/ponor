@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 
-import { countryFor, GEOCODE_TIMEOUT_MS } from './geocode';
+import { locationPermission } from './locationPermission';
+import { countryFor, countryForAddress, GEOCODE_TIMEOUT_MS } from './geocode';
 
 /**
  * The one call this module makes to the device — the same split `location.test.ts` makes, and
@@ -9,9 +10,15 @@ import { countryFor, GEOCODE_TIMEOUT_MS } from './geocode';
 jest.mock('expo-location', () => ({
   ...jest.requireActual('expo-location'),
   reverseGeocodeAsync: jest.fn(),
+  geocodeAsync: jest.fn(),
+  requestForegroundPermissionsAsync: jest.fn(),
 }));
+jest.mock('./locationPermission', () => ({ locationPermission: jest.fn() }));
 
 const mockGeocode = Location.reverseGeocodeAsync as jest.Mock;
+const mockForward = Location.geocodeAsync as jest.Mock;
+const mockAsk = Location.requestForegroundPermissionsAsync as jest.Mock;
+const mockPermission = locationPermission as jest.Mock;
 
 /**
  * A placemark shaped like the library's own — every field of `LocationGeocodedAddress`, not
@@ -39,6 +46,8 @@ function placemark(isoCountryCode: string | null, country: string | null = 'Croa
 beforeEach(() => {
   jest.clearAllMocks();
   mockGeocode.mockResolvedValue([placemark('HR')]);
+  mockForward.mockResolvedValue([{ latitude: 43.05, longitude: 16.19, altitude: null, accuracy: null }]);
+  mockPermission.mockResolvedValue('granted');
 });
 
 afterEach(() => {
@@ -126,4 +135,69 @@ it('waits for an answer that arrives inside the timeout', async () => {
   const answer = countryFor(43.5081, 16.4402);
   await jest.advanceTimersByTimeAsync(GEOCODE_TIMEOUT_MS - 1);
   await expect(answer).resolves.toBe('HR');
+});
+
+// --- An address's country (a centre with no pin; issue #31) ---------------------------------------
+
+describe('countryForAddress', () => {
+  it('takes the country of the first place an address finds', async () => {
+    mockForward.mockResolvedValue([
+      { latitude: 43.05, longitude: 16.19, altitude: null, accuracy: null },
+      { latitude: 50.0, longitude: 14.4, altitude: null, accuracy: null },
+    ]);
+    await expect(countryForAddress('  Otok Vis, Kut 12 ', 'ios')).resolves.toBe('HR');
+    expect(mockForward).toHaveBeenCalledWith('Otok Vis, Kut 12');
+    expect(mockGeocode).toHaveBeenCalledTimes(1);
+    expect(mockGeocode).toHaveBeenCalledWith({ latitude: 43.05, longitude: 16.19 });
+  });
+
+  it('asks nothing about a blank address', async () => {
+    await expect(countryForAddress(null, 'ios')).resolves.toBeNull();
+    await expect(countryForAddress('   ', 'ios')).resolves.toBeNull();
+    expect(mockForward).not.toHaveBeenCalled();
+  });
+
+  it('answers null when the address finds nothing', async () => {
+    mockForward.mockResolvedValue([]);
+    await expect(countryForAddress('Nowhere 1', 'ios')).resolves.toBeNull();
+    expect(mockGeocode).not.toHaveBeenCalled();
+  });
+
+  it('answers null when the geocoder throws', async () => {
+    mockForward.mockRejectedValue(new Error('offline'));
+    await expect(countryForAddress('Otok Vis, Kut 12', 'ios')).resolves.toBeNull();
+  });
+
+  it('answers null once GEOCODE_TIMEOUT_MS has passed', async () => {
+    jest.useFakeTimers();
+    mockForward.mockReturnValue(new Promise(() => undefined));
+    let answer: string | null | undefined;
+    void countryForAddress('Otok Vis, Kut 12', 'ios').then((value) => {
+      answer = value;
+    });
+    await jest.advanceTimersByTimeAsync(GEOCODE_TIMEOUT_MS - 1);
+    expect(answer).toBeUndefined();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(answer).toBeNull();
+  });
+
+  it('on Android, asks nothing without a permission already granted, and never asks for one', async () => {
+    for (const state of ['denied', 'undetermined', 'servicesOff', 'unknown']) {
+      mockPermission.mockResolvedValue(state);
+      await expect(countryForAddress('Otok Vis, Kut 12', 'android')).resolves.toBeNull();
+    }
+    expect(mockForward).not.toHaveBeenCalled();
+    expect(mockAsk).not.toHaveBeenCalled();
+  });
+
+  it('on Android, looks the address up once the permission is granted', async () => {
+    mockPermission.mockResolvedValue('granted');
+    await expect(countryForAddress('Otok Vis, Kut 12', 'android')).resolves.toBe('HR');
+    expect(mockAsk).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing on the web', async () => {
+    await expect(countryForAddress('Otok Vis, Kut 12', 'web')).resolves.toBeNull();
+    expect(mockForward).not.toHaveBeenCalled();
+  });
 });
