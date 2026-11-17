@@ -181,6 +181,20 @@ describe('countryForAddress', () => {
     expect(answer).toBeNull();
   });
 
+  it('spends one GEOCODE_TIMEOUT_MS end to end, not one for each call', async () => {
+    jest.useFakeTimers();
+    mockForward.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve([{ latitude: 43.05, longitude: 16.19, altitude: null, accuracy: null }]), 3_000)));
+    mockGeocode.mockReturnValue(new Promise(() => undefined));
+    let answer: string | null | undefined;
+    void countryForAddress('Otok Vis, Kut 12', 'ios').then((value) => {
+      answer = value;
+    });
+    await jest.advanceTimersByTimeAsync(GEOCODE_TIMEOUT_MS - 1);
+    expect(answer).toBeUndefined();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(answer).toBeNull();
+  });
+
   it('on Android, asks nothing without a permission already granted, and never asks for one', async () => {
     for (const state of ['denied', 'undetermined', 'servicesOff', 'unknown']) {
       mockPermission.mockResolvedValue(state);

@@ -1294,6 +1294,20 @@ it('hands the address answer to addCenter with the address it is for', async () 
   );
 });
 
+it('Save waits for an address lookup still out instead of asking again', async () => {
+  mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
+  mockRequest.mockReturnValue(request({ kind: 'center' }));
+  const answer = deferred<string | null>();
+  mockAddressCountry.mockReturnValue(answer.promise);
+  const t = await showCenter();
+  await enterAddress(t, 'Otok Vis, Kut 12');
+  await press(t, 'Save centre');
+  expect(mockAddCenter).not.toHaveBeenCalled();
+  await act(async () => answer.resolve('HR'));
+  expect(mockAddressCountry).toHaveBeenCalledTimes(1);
+  expect(mockAddCenter).toHaveBeenCalledWith(expect.anything(), undefined, { address: 'Otok Vis, Kut 12', country: 'HR' });
+});
+
 it('hands on no address answer once the address has changed', async () => {
   mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
   mockRequest.mockReturnValue(request({ kind: 'center' }));

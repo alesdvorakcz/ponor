@@ -267,11 +267,15 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const trimmedAddress = address.trim();
   const [addressLooked, setAddressLooked] = useState<KnownAddressCountry | null>(null);
   const addressAsked = useRef<string | null>(null);
+  // The lookup still out, so Save waits for it rather than asking a second time.
+  const addressPending = useRef<{ address: string; answer: Promise<string | null> } | null>(null);
   const askAddress = () => {
     if (kind !== 'center' || latitude !== null || trimmedAddress === '' || addressAsked.current === trimmedAddress) return;
     const asked = trimmedAddress;
     addressAsked.current = asked;
-    void countryForAddress(asked).then((answer) => {
+    const pending = countryForAddress(asked);
+    addressPending.current = { address: asked, answer: pending };
+    void pending.then((answer) => {
       if (alive.current && addressAsked.current === asked) setAddressLooked({ address: asked, country: answer });
     });
   };
@@ -357,6 +361,11 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
     const known = shown ?? undefined;
     // The other names as the row will hold them — and so as the question is asked about them.
     const others = cleanAltNames(trimmed, altNames);
+    // An address answer still out for the very address on screen is waited for (the geocoder bounds it).
+    let addressAnswer = fromAddress;
+    if (kind === 'center' && addressAnswer === null && latitude === null && addressPending.current?.address === trimmedAddress) {
+      addressAnswer = { address: trimmedAddress, country: await addressPending.current.answer };
+    }
 
     if (kind === 'site' && matches.length === 0) {
       const found = await findSiteTwins(trimmed, others, at);
@@ -407,7 +416,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 agencies,
               },
               known,
-              fromAddress ?? undefined,
+              addressAnswer ?? undefined,
             );
     } catch {
       if (!alive.current || leaving.current) return;

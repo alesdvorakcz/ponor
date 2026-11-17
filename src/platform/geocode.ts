@@ -78,7 +78,7 @@ export async function countryFor(latitude: number | null, longitude: number | nu
 /**
  * **The country an address is in** — a dive centre's, when it has an address and no pin (see this
  * module's docblock for why that is the one exception). The *first* result's point goes to
- * `countryFor`, so the answer has the same shape and the same refusals as a pin's; a vague
+ * `countryFor`, **all within one `GEOCODE_TIMEOUT_MS`** (a pin's own wait), so the answer has the same shape and the same refusals as a pin's; a vague
  * address that finds several places is read by its best guess, which is the geocoder's first.
  *
  * Asks nothing, and answers `null`, for a blank address; on the web, where expo-location answers
@@ -92,9 +92,15 @@ export async function countryForAddress(address: string | null, os: typeof Platf
   if (trimmed === '' || os === 'web') return null;
   try {
     if (os === 'android' && (await locationPermission()) !== 'granted') return null;
-    const found = await withTimeout(Location.geocodeAsync(trimmed), GEOCODE_TIMEOUT_MS);
-    const first = found?.at(0);
-    return first === undefined ? null : await countryFor(first.latitude, first.longitude);
+    // One budget for both calls — the forward lookup and `countryFor`'s reverse one — so an address
+    // never delays Save longer than a pin does.
+    return await withTimeout(
+      (async () => {
+        const first = (await Location.geocodeAsync(trimmed)).at(0);
+        return first === undefined ? null : await countryFor(first.latitude, first.longitude);
+      })(),
+      GEOCODE_TIMEOUT_MS,
+    );
   } catch {
     return null;
   }
