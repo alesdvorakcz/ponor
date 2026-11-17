@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 
 import {
+  COARSEST_USABLE_ALTITUDE_ACCURACY_M,
   COARSEST_USABLE_FIX_M,
   currentPosition,
   POSITION_ACCURACY,
@@ -77,30 +78,46 @@ describe('a fix a diver can pin a dive with', () => {
     expect(await currentPosition()).toEqual({ found: true, latitude: 28.51234, longitude: 34.51234 });
   });
 
-  it('hands back the altitude the fix carries when the phone vouches for it', async () => {
+  it('hands back the altitude the fix carries on iOS when the phone vouches for it', async () => {
     mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6, 8));
-    expect(await currentPosition()).toEqual({ found: true, latitude: 28.5, longitude: 34.5, altitude: 312.6 });
+    expect(await currentPosition('ios')).toEqual({ found: true, latitude: 28.5, longitude: 34.5, altitude: 312.6 });
   });
 
   it('keeps a negative altitude and a zero one — below sea level and at it are answers', async () => {
     mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, -430.2, 5));
-    expect(await currentPosition()).toMatchObject({ found: true, altitude: -430.2 });
+    expect(await currentPosition('ios')).toMatchObject({ found: true, altitude: -430.2 });
     mockFix.mockResolvedValue(fixAt(31.5, 35.4, 8, 0, 5));
-    expect(await currentPosition()).toMatchObject({ found: true, altitude: 0 });
+    expect(await currentPosition('ios')).toMatchObject({ found: true, altitude: 0 });
   });
 
   // iOS reports an altitude it cannot vouch for (the simulator's 0) with a negative vertical
   // accuracy; a published site altitude must not be an unverified figure.
   it.each([-1, null, 0, Number.NaN])('says no altitude when its accuracy is %s', async (altitudeAccuracy) => {
     mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 0, altitudeAccuracy));
-    const outcome = await currentPosition();
+    const outcome = await currentPosition('ios');
     expect(outcome).toEqual({ found: true, latitude: 28.5, longitude: 34.5 });
     expect(outcome).not.toHaveProperty('altitude');
   });
 
   it.each([null, Number.NaN, Number.POSITIVE_INFINITY])('says no altitude for %s', async (altitude) => {
     mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, altitude, 8));
-    const outcome = await currentPosition();
+    const outcome = await currentPosition('ios');
+    expect(outcome).toEqual({ found: true, latitude: 28.5, longitude: 34.5 });
+    expect(outcome).not.toHaveProperty('altitude');
+  });
+
+  it('keeps the altitude at the accuracy limit and drops it one metre past', async () => {
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6, COARSEST_USABLE_ALTITUDE_ACCURACY_M));
+    expect(await currentPosition('ios')).toMatchObject({ altitude: 312.6 });
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6, 60));
+    expect(await currentPosition('ios')).not.toHaveProperty('altitude');
+  });
+
+  // expo-location on Android passes height above the WGS 84 ellipsoid (~+45 m on the Adriatic),
+  // not above sea level, so it is never offered as a site's altitude.
+  it.each(['android', 'web'] as const)('never offers an altitude on %s, whatever the accuracy', async (os) => {
+    mockFix.mockResolvedValue(fixAt(28.5, 34.5, 8, 312.6, 8));
+    const outcome = await currentPosition(os);
     expect(outcome).toEqual({ found: true, latitude: 28.5, longitude: 34.5 });
     expect(outcome).not.toHaveProperty('altitude');
   });
