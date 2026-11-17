@@ -1094,20 +1094,24 @@ it('saves every new fact of a centre', async () => {
   );
 });
 
-// It is the shop's number and address, not the diver's: no AutoFill hint, so the platform offers
-// none of the diver's own.
+// It is the shop's number, email and address, not the diver's, and everyone reads them: each opts
+// out of AutoFill in so many words, since saying nothing still lets Android's Autofill offer the
+// diver's own by the field's input type.
 it('offers the phone keypad and the email keyboard, and fills in neither from the diver’s own details', async () => {
   mockRequest.mockReturnValue(request({ kind: 'center' }));
   const t = await showCenter();
   await expand(t, 'Contact');
+  const optOut = { textContentType: 'none', autoComplete: 'off', importantForAutofill: 'no' };
   const phone = labelled(t, 'Phone');
-  expect(phone.props.keyboardType).toBe('phone-pad');
-  expect(phone.props.textContentType).toBeUndefined();
-  expect(phone.props.autoComplete).toBeUndefined();
+  expect(phone.props).toMatchObject({ keyboardType: 'phone-pad', ...optOut });
   const email = labelled(t, 'Email');
-  expect(email.props).toMatchObject({ keyboardType: 'email-address', autoCapitalize: 'none', autoCorrect: false });
-  expect(email.props.textContentType).toBeUndefined();
-  expect(email.props.autoComplete).toBeUndefined();
+  expect(email.props).toMatchObject({
+    keyboardType: 'email-address',
+    autoCapitalize: 'none',
+    autoCorrect: false,
+    ...optOut,
+  });
+  expect(labelled(t, 'Address').props).toMatchObject(optOut);
 });
 
 // What is saved is what is on screen: from Save until a question or a failure hands them back,

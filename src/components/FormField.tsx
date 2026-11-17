@@ -224,9 +224,18 @@ export interface FormFieldProps {
    * offers a saved address, a saved password, or a strong new one only when the field says
    * which it is (`textContentType`), and Android reads the same answer from `autoComplete`.
    * Passed through where a caller says, and left to the platform everywhere else.
+   *
+   * **And the opposite answer** (#31): a field whose text is published to every diver — a
+   * centre's phone, email and address — must not be offered the diver's own. Saying nothing is
+   * not that: Android's Autofill picks fields by their input type, and iOS may guess from the
+   * keyboard. So such a field says so outright — `textContentType="none"` (React Native hands
+   * iOS an empty content type), `autoComplete="off"` and, Android only, `importantForAutofill="no"`
+   * (both of which take the view out of Autofill). What the keyboard itself suggests is the
+   * keyboard's, and the app cannot see it.
    */
-  textContentType?: 'username' | 'emailAddress' | 'password' | 'newPassword' | 'URL';
-  autoComplete?: 'email' | 'current-password' | 'new-password';
+  textContentType?: 'username' | 'emailAddress' | 'password' | 'newPassword' | 'URL' | 'none';
+  autoComplete?: 'email' | 'current-password' | 'new-password' | 'off';
+  importantForAutofill?: 'no';
   /**
    * `false` while the value is being saved somewhere — the *New dive site* page holds its fields
    * still from Save to the row existing (issue #19), so nothing typed meanwhile is silently left
@@ -294,7 +303,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, caption, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, editable, grouped },
+  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, caption, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, importantForAutofill, editable, grouped },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -369,6 +378,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
       onSubmitEditing={onSubmitEditing}
       textContentType={textContentType}
       autoComplete={autoComplete}
+      importantForAutofill={importantForAutofill}
       editable={editable}
       // Kept up through a press that moves focus to the next field, so the keyboard does not
       // drop and rise again between two rows. Only where a caller handles the press.

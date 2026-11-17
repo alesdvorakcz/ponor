@@ -75,6 +75,14 @@ function textOrNull(text: string): string | null {
   return kept === '' ? null : kept;
 }
 
+/**
+ * A centre's address, phone and email are the shop's, published to every diver — never the
+ * diver's own. Saying nothing does not keep the diver's out (Android's Autofill picks a field by its
+ * input type), so each of the three opts out in so many words (`FormField`). The keyboard's own
+ * suggestions are the keyboard's.
+ */
+const NOT_THE_DIVERS = { textContentType: 'none', autoComplete: 'off', importantForAutofill: 'no' } as const;
+
 /** The page's four groups (#31) — a site's two, then a centre's two. */
 type PlaceGroup = 'site' | 'otherNames' | 'contact' | 'services';
 
@@ -490,6 +498,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
             autoCapitalize="words"
             autoCorrect={false}
             spellCheck={false}
+            {...NOT_THE_DIVERS}
             editable={!saving}
           />
         )}
@@ -670,14 +679,15 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 spellCheck={false}
                 editable={!saving}
               />
-              {/* The shop's number and address, not the diver's: no AutoFill hint on either, so
-                  the platform offers none of the diver's own. */}
+              {/* The shop's number and email, not the diver's: both opt out of AutoFill, as the
+                  address does (`NOT_THE_DIVERS`). */}
               <FormField
                 label={t('field.phone')}
                 value={phone}
                 onChange={setPhone}
                 scheme={scheme}
                 keyboardType="phone-pad"
+                {...NOT_THE_DIVERS}
                 editable={!saving}
               />
               <FormField
@@ -689,6 +699,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 autoCapitalize="none"
                 autoCorrect={false}
                 spellCheck={false}
+                {...NOT_THE_DIVERS}
                 editable={!saving}
               />
               <FormField
