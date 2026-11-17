@@ -510,15 +510,20 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     expect(columnDefinitions.filter((column) => /\bcheck\s*\(/.test(column.definition))).toEqual([]);
   });
 
-  it('keeps tanks, equipment and series NOT NULL with an empty-array default (§6)', () => {
+  it('keeps every JSON-array column NOT NULL with an empty-array default (§6)', () => {
     // `series` (dive_samples) joined this list with the dive-import task: it is the same
     // JSON-array-on-a-row shape as `tanks`/`equipment`, and for the same reason needs the same
     // type — `jsonb`, not `text` — or `sync_row`'s `to_jsonb(row)` would round-trip the array
     // as a quoted string instead of an array (schema.sql's own comment on the table carries
-    // the full trace of what that breaks).
-    const arrays = columnDefinitions.filter((column) => ['tanks', 'equipment', 'series'].includes(column.name));
+    // the full trace of what that breaks). #31's four catalogue sets joined it too.
+    const NAMES = ['tanks', 'equipment', 'series', 'site_types', 'alt_names', 'services', 'agencies'];
+    const arrays = columnDefinitions.filter((column) => NAMES.includes(column.name));
     expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual([
+      'dive_centers.agencies',
+      'dive_centers.services',
       'dive_samples.series',
+      'dive_sites.alt_names',
+      'dive_sites.site_types',
       'dives.equipment',
       'dives.tanks',
       'gear_presets.tanks',
@@ -527,6 +532,16 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
       expect(column.notNull).toBe(true);
       expect(column.definition).toMatch(/jsonb not null default '\[\]'::jsonb/);
     }
+    // And the list is every `jsonb` column a synced table has, so a fifth set cannot arrive
+    // nullable by being left off it. Synced tables only: `site_edits.fields` is a server-only
+    // JSON object (`'{}'`), which no device decodes as an array.
+    const synced: readonly string[] = SYNCED_TABLES;
+    expect(
+      columnDefinitions
+        .filter((column) => synced.includes(column.table) && /^jsonb\b/.test(column.definition))
+        .filter((column) => !arrays.includes(column))
+        .map((column) => `${column.table}.${column.name}`),
+    ).toEqual([]);
   });
 
   it('enables row-level security on every table, public ones included (§5, §8)', () => {

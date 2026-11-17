@@ -282,6 +282,12 @@ describe('jsonExport', () => {
     waterBody: 'quarry',
     entry: 'shore',
     maxDepthM: 18,
+    siteTypes: [],
+    suitableFor: null,
+    altNames: [],
+    description: null,
+    wreckName: null,
+    wreckSunkYear: null,
     createdBy: 'me',
     status: 'active',
     mergedInto: null,
@@ -352,6 +358,43 @@ describe('jsonExport', () => {
     expect(text).toContain('"12345"');
     expect(text).toContain(`"name": "${CZECH_SITE}"`);
     expect(text).toContain('"diveCenters": []');
+  });
+
+  it('exports a site’s and a centre’s #31 facts with the row', () => {
+    // #31: the export carries the diver's own catalogue rows whole, so the new columns travel
+    // with them rather than through a list of fields here.
+    const centre: DiveCenter = {
+      id: 'centre-1',
+      name: 'Nautica Vis',
+      country: 'HR',
+      latitude: null,
+      longitude: null,
+      website: null,
+      address: 'Otok Vis, Kut 12',
+      phone: null,
+      email: null,
+      openingHours: null,
+      services: ['air'],
+      agencies: [],
+      description: null,
+      createdBy: 'me',
+      status: 'active',
+      mergedInto: null,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      deletedAt: null,
+      dirty: false,
+    };
+    const wreck: DiveSite = { ...site, siteTypes: ['wreck'], altNames: ['Teti wreck'] };
+
+    const parsed = JSON.parse(jsonExport(source({ diveSites: [wreck], diveCenters: [centre] })).text) as {
+      diveSites: DiveSite[];
+      diveCenters: DiveCenter[];
+    };
+
+    expect(parsed.diveSites[0]?.altNames).toEqual(['Teti wreck']);
+    expect(parsed.diveSites[0]?.siteTypes).toEqual(['wreck']);
+    expect(parsed.diveCenters[0]?.services).toEqual(['air']);
   });
 
   it('includes a dive’s profile, keyed by the dive’s own id — the CSV has no shape for one', () => {

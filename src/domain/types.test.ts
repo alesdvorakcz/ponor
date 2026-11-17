@@ -1,8 +1,12 @@
 import * as domain from './types';
 import {
+  AGENCY_VALUES,
   CONFIGURATION_VALUES,
   EQUIPMENT_VALUES,
   SALINITY_VALUES,
+  SERVICE_VALUES,
+  SITE_TYPE_VALUES,
+  SUITABLE_FOR_VALUES,
   VISIBILITY_VALUES,
   WEATHER_VALUES,
   WEIGHTS_FEEL_VALUES,
@@ -110,6 +114,16 @@ describe('the vocabularies', () => {
     expect(EQUIPMENT_VALUES).toEqual(['hood', 'gloves', 'boots', 'torch', 'camera']);
   });
 
+  it('offers the site types, suitable-for levels, services and agencies #31 names, in that order', () => {
+    // #31's lists as the issue orders them, which is the order the chips appear in. Two
+    // members are compressed to one word by the rule below rather than spelled with the
+    // issue's underscore: `openwater` and `sditdi`.
+    expect(SITE_TYPE_VALUES).toEqual(['wreck', 'reef', 'wall', 'pinnacle', 'drift', 'muck']);
+    expect(SUITABLE_FOR_VALUES).toEqual(['openwater', 'advanced', 'experienced', 'technical']);
+    expect(SERVICE_VALUES).toEqual(['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair']);
+    expect(AGENCY_VALUES).toEqual(['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other']);
+  });
+
   // M1h: `WEATHER_VALUES` shipped holding `partly`, which is half a phrase — a diver means
   // *partly cloudy* — and the two ways of finishing the phrase in place were both rejected:
   // a lookup table inside `formatWeather` puts the missing word in the formatter and leaves
@@ -128,7 +142,7 @@ describe('the vocabularies', () => {
     // hand-maintained list of the lists, which is §4.1's defect one level up and exactly what
     // this file exists to catch one level down. Every `*_VALUES` export is swept, so a
     // vocabulary added to `domain/types.ts` is covered on the commit that adds it.
-    expect(VOCABULARIES.map(([name]) => name)).toHaveLength(11);
+    expect(VOCABULARIES.map(([name]) => name)).toHaveLength(15);
     for (const [, vocabulary] of VOCABULARIES) {
       for (const member of vocabulary) {
         expect(member).toMatch(/^[a-z]+$/);

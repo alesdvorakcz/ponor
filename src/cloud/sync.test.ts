@@ -8,9 +8,13 @@ import {
   applyPulledDiveSites,
   createDiveCenter,
   createDiveSite,
+  getDiveCenter,
+  getDiveSite,
   listDiveCenters,
   listDiveSites,
   pendingDiveSites,
+  wipeDiveCenters,
+  wipeDiveSites,
 } from '../db/catalogue';
 import {
   createCertification,
@@ -120,8 +124,8 @@ const NOT_NULL_DEFAULTS: Record<string, WireRow> = {
   gear_presets: { name: 'a preset', tanks: [] },
   certifications: {},
   profiles: {},
-  dive_sites: { status: 'active' },
-  dive_centers: { status: 'active' },
+  dive_sites: { status: 'active', site_types: [], alt_names: [] },
+  dive_centers: { status: 'active', services: [], agencies: [] },
 };
 
 /** A whole wire row for a table, every column present, built from the Postgres column list. */
@@ -1122,6 +1126,66 @@ describe('a certification’s own columns (§6, M3b)', () => {
   });
 });
 
+describe('a site’s and a centre’s #31 facts (§6)', () => {
+  it('carries a site’s and a centre’s #31 facts to the server and back', async () => {
+    const site = await createDiveSite(db, {
+      name: 'Vrak Teti',
+      siteTypes: ['wreck'],
+      suitableFor: 'advanced',
+      altNames: ['Teti wreck'],
+      description: 'A steamer on the southern spur.',
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+    });
+    const centre = await createDiveCenter(db, {
+      name: 'Nautica Vis',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18',
+      services: ['air'],
+      agencies: ['padi', 'other'],
+      description: 'Boat dives to the wrecks off the island.',
+    });
+
+    await pushPendingRows(db, client);
+
+    // As arrays and a number on the server, not as the strings SQLite keeps them in.
+    expect(server.row('dive_sites', site.id)).toMatchObject({
+      site_types: ['wreck'],
+      alt_names: ['Teti wreck'],
+      wreck_sunk_year: 1930,
+    });
+    expect(server.row('dive_centers', centre.id)).toMatchObject({
+      services: ['air'],
+      agencies: ['padi', 'other'],
+      address: 'Otok Vis, Kut 12',
+    });
+
+    // The second phone: nothing local, everything from a pull.
+    await wipeDiveSites(db);
+    await wipeDiveCenters(db);
+    expect(await getDiveSite(db, site.id)).toBeNull();
+    await pullChanges(db, client);
+
+    // Every column back as it went up, bar the three the server authors.
+    const { updatedAt: _siteClock, createdBy: _siteAuthor, dirty: _siteFlag, ...siteSent } = site;
+    const { updatedAt: _centreClock, createdBy: _centreAuthor, dirty: _centreFlag, ...centreSent } = centre;
+    expect(await getDiveSite(db, site.id)).toMatchObject(siteSent);
+    expect(await getDiveCenter(db, centre.id)).toMatchObject(centreSent);
+  });
+
+  it('stores a community row the server holds without its sets with empty ones', async () => {
+    // A row an admin wrote in Studio, or one older than #31: the server holds the column
+    // default `'[]'`, never a null, and the device's NOT NULL column takes it as it came.
+    server.seed('dive_sites', { id: 's9', name: 'Blue Hole', status: 'active' });
+
+    await pullChanges(db, client);
+
+    expect(await getDiveSite(db, 's9')).toMatchObject({ siteTypes: [], altNames: [] });
+  });
+});
+
 /**
  * **§5's merge, reaching the dives that pointed at the folded row** (M2r).
  *
@@ -1342,7 +1406,9 @@ describe('a merge arriving in a pull (§5, M2r)', () => {
     await applyPulledDiveSites(db, [
       {
         id: 'folded', name: 'Blue Hole', country: null, latitude: null, longitude: null,
-        salinity: null, waterBody: null, entry: null, maxDepthM: null, createdBy: null,
+        salinity: null, waterBody: null, entry: null, maxDepthM: null,
+        siteTypes: [], suitableFor: null, altNames: [], description: null, wreckName: null,
+        wreckSunkYear: null, createdBy: null,
         status: 'merged', mergedInto: 'survivor',
         createdAt: '2026-09-02T09:00:00.000Z', updatedAt: '2026-09-02T09:00:00.000Z',
         deletedAt: null,

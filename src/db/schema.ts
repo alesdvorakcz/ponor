@@ -2,12 +2,16 @@ import { sql } from 'drizzle-orm';
 import { customType, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import {
   ACTIVE_CATALOGUE_STATUS,
+  type Agency,
   type CatalogueStatus,
   type DiveStatus,
   type Entry,
   type Equipment,
   type Salinity,
+  type Service,
+  type SiteType,
   type Suit,
+  type SuitableFor,
   type Tank,
   type Visibility,
   type WaterBody,
@@ -67,6 +71,11 @@ const jsonArray = <T>() =>
 
 const tanksJson = jsonArray<Tank>();
 const equipmentJson = jsonArray<Equipment>();
+/** Issue #31's catalogue sets (§6), behind the same decoder: a pull writes them from other divers' clients. */
+const siteTypesJson = jsonArray<SiteType>();
+const altNamesJson = jsonArray<string>();
+const servicesJson = jsonArray<Service>();
+const agenciesJson = jsonArray<Agency>();
 
 /**
  * One sample: `[seconds from dive start, depth m, °C or null, bar or null]`.
@@ -368,6 +377,13 @@ export const diveSites = sqliteTable('dive_sites', {
   entry: text('entry').$type<Entry>(),
   /** The site's own depth, not a dive's — §6 names it as one of the facts a site prefills. */
   maxDepthM: real('max_depth_m'),
+  /** Issue #31's facts (§6): every one nullable but the two sets, which are `'[]'` as `dives.equipment`. */
+  siteTypes: siteTypesJson('site_types').notNull().default(sql`'[]'`),
+  suitableFor: text('suitable_for').$type<SuitableFor>(),
+  altNames: altNamesJson('alt_names').notNull().default(sql`'[]'`),
+  description: text('description'),
+  wreckName: text('wreck_name'),
+  wreckSunkYear: integer('wreck_sunk_year'),
   createdBy: text('created_by'),
   status: text('status').$type<CatalogueStatus>().notNull().default(ACTIVE_CATALOGUE_STATUS),
   mergedInto: text('merged_into'),
@@ -389,6 +405,14 @@ export const diveCenters = sqliteTable('dive_centers', {
   latitude: real('latitude'),
   longitude: real('longitude'),
   website: text('website'),
+  /** Issue #31's facts (§6): free text, nullable, but the two sets, which are `'[]'` as `dives.equipment`. */
+  address: text('address'),
+  phone: text('phone'),
+  email: text('email'),
+  openingHours: text('opening_hours'),
+  services: servicesJson('services').notNull().default(sql`'[]'`),
+  agencies: agenciesJson('agencies').notNull().default(sql`'[]'`),
+  description: text('description'),
   createdBy: text('created_by'),
   status: text('status').$type<CatalogueStatus>().notNull().default(ACTIVE_CATALOGUE_STATUS),
   mergedInto: text('merged_into'),

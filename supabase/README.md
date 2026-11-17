@@ -38,6 +38,38 @@ still applies on its own — but a push before file 7 exists would find the tabl
 which the recheck's `exception` block would swallow into a server-log warning rather than a
 failed sync. On a fresh project the numbered order handles it; on the owner's, see below.
 
+### Applying #31 to a project that already has files 1–7
+
+Issue #31 puts thirteen columns into file 2's `dive_sites` and `dive_centers`, and `create table
+if not exists` does not alter a table that already exists — so on the owner's project they go in
+by hand. **The order is these lines, then file 6, then file 4, then install the build.** The
+server refuses a pushed key its table has no column for (`sync_reject_unknown_keys`), so a build
+that sends the new columns before they exist fails every sync until they do.
+
+```sql
+alter table public.dive_sites
+  add column if not exists site_types jsonb not null default '[]'::jsonb,
+  add column if not exists suitable_for text,
+  add column if not exists alt_names jsonb not null default '[]'::jsonb,
+  add column if not exists description text,
+  add column if not exists wreck_name text,
+  add column if not exists wreck_sunk_year integer;
+alter table public.dive_centers
+  add column if not exists address text,
+  add column if not exists phone text,
+  add column if not exists email text,
+  add column if not exists opening_hours text,
+  add column if not exists services jsonb not null default '[]'::jsonb,
+  add column if not exists agencies jsonb not null default '[]'::jsonb,
+  add column if not exists description text;
+```
+
+File 6 replaces `suggest_site_edit`, so a suggestion may propose every fact a site gained. File 4
+adds `public.sync_json_array` and replaces `push_changes`, which writes the thirteen columns and
+stores a set that arrives as anything but an array as `[]`. No compatibility with a build from
+before #31 is kept — it would still sync, but its push of a site or centre would blank that row's
+new facts — because the project holds test data only. None of this has run yet.
+
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
 order, and nothing else.** File 7 creates `site_duplicate_suspicions`, its two indexes and its
@@ -273,8 +305,8 @@ half that would ship.
 It also asserts the guarantees the SQL text carries that a column comparison cannot see:
 no serial or identity anywhere (ids are the client's UUIDv7), no trigger stamping
 `created_at` or `updated_at`, no enum or CHECK on a vocabulary column (§10: an unknown
-value is stored and flagged, never rejected), `tanks`/`equipment` NOT NULL with a `'[]'`
-default, RLS enabled on all six tables, and no client role granted DELETE.
+value is stored and flagged, never rejected), every JSON-array column (`tanks`, `equipment`,
+`series` and #31's four catalogue sets) NOT NULL with a `'[]'` default, RLS enabled on all six tables, and no client role granted DELETE.
 
 **What neither proves:** that this SQL runs. **Nothing in this repository can establish that**
 — the readers are strict on purpose (they throw on anything they have not been taught rather

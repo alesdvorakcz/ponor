@@ -329,6 +329,14 @@ describe('the RPC reader', () => {
     ).toThrow(/lists 3 columns and 2 values/);
   });
 
+  it('reads a jsonb payload key as well as a text one', () => {
+    // #31's sets are read with `->`, which keeps them jsonb; a reader that knew only `->>`
+    // would skip them, and the column sweep below would pass over four columns it never saw.
+    expect(
+      payloadKeys("public.sync_json_array(incoming.payload->'site_types'), incoming.payload->>'name'"),
+    ).toEqual(['site_types', 'name']);
+  });
+
   it('throws on an insert shape it has not been taught rather than ignoring it', () => {
     expect(() =>
       parseUpserts('insert into public.t as t (id) select 1 from incoming returning t.*;'),
@@ -529,6 +537,32 @@ describe('the sync RPCs and the schema describe the same rows (DESIGN.md §6, §
     // this test green; the floor is what says they did not. Roughly 300 references are read
     // today, so 250 is a floor rather than a restatement of the count.
     expect(checked).toBeGreaterThan(250);
+  });
+
+  it('takes a catalogue array only as an array, so a pushed null cannot reach a NOT NULL column', () => {
+    // #31: the community tables are read key by key out of the raw payload, so nothing between
+    // a client's JSON and the column fills in the `'[]'` default. Another client's `null`, or a
+    // string where a list belongs, must store `[]` rather than refuse the whole push (§1, §7).
+    const ARRAYS: Record<string, readonly string[]> = {
+      dive_sites: ['site_types', 'alt_names'],
+      dive_centers: ['services', 'agencies'],
+    };
+    for (const [table, columns] of Object.entries(ARRAYS)) {
+      for (const column of columns) {
+        expect(`${table}.${column}: ${upsertFor(table).inserted.get(column)}`).toBe(
+          `${table}.${column}: public.sync_json_array(incoming.payload->'${column}')`,
+        );
+      }
+    }
+
+    // Immutable, so the planner may fold it; and not strict, because a strict function answers a
+    // null with null — the very value it exists to turn into `[]`.
+    const guard = fn('public.sync_json_array');
+    expect(guard.attributes).toContain('immutable');
+    expect(guard.attributes).not.toMatch(/\bstrict\b/);
+    expect(guard.body).toBe(
+      "select case when jsonb_typeof(p_value) = 'array' then p_value else '[]'::jsonb end;",
+    );
   });
 
   it('reads a whole row rather than a column list, so a new column cannot go missing', () => {

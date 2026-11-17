@@ -1,4 +1,4 @@
-import { eq, getTableColumns } from 'drizzle-orm';
+import { eq, getTableColumns, sql } from 'drizzle-orm';
 
 import {
   applyPulledDiveCenters,
@@ -44,6 +44,12 @@ const site = (over: Partial<PulledSite> = {}): PulledSite => ({
   waterBody: 'ocean',
   entry: 'shore',
   maxDepthM: 130,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
   createdBy: 'diver-1',
   status: 'active',
   mergedInto: null,
@@ -60,6 +66,13 @@ const centre = (over: Partial<PulledCenter> = {}): PulledCenter => ({
   latitude: 27.85,
   longitude: 34.31,
   website: 'https://example.test',
+  address: null,
+  phone: null,
+  email: null,
+  openingHours: null,
+  services: [],
+  agencies: [],
+  description: null,
   createdBy: 'diver-1',
   status: 'active',
   mergedInto: null,
@@ -143,6 +156,92 @@ describe('creating a site on the boat (§2.3, §5)', () => {
     expect(created.website).toBe('https://e.test');
     expect(created.status).toBe('active');
     expect(created.dirty).toBe(true);
+  });
+});
+
+describe('the facts #31 gives a site and a centre (§6)', () => {
+  it('keeps a site’s #31 facts whole', async () => {
+    const created = await createDiveSite(db, {
+      name: 'Vrak Teti',
+      siteTypes: ['wreck', 'wall'],
+      suitableFor: 'advanced',
+      altNames: ['Teti wreck'],
+      description: 'A steamer on the southern spur.',
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+    });
+
+    expect(await getDiveSite(db, created.id)).toMatchObject({
+      siteTypes: ['wreck', 'wall'],
+      suitableFor: 'advanced',
+      altNames: ['Teti wreck'],
+      description: 'A steamer on the southern spur.',
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+    });
+  });
+
+  it('gives a site created with a name only empty sets and no facts', async () => {
+    // §1: a sparse row is normal. The two sets are `[]` rather than null for the reason §6 gives
+    // `dives.equipment` — an empty set already means "nothing recorded".
+    const created = await createDiveSite(db, { name: 'Kamena vrata' });
+
+    expect(await getDiveSite(db, created.id)).toMatchObject({
+      siteTypes: [],
+      suitableFor: null,
+      altNames: [],
+      description: null,
+      wreckName: null,
+      wreckSunkYear: null,
+    });
+  });
+
+  it('keeps a centre’s #31 facts whole', async () => {
+    const created = await createDiveCenter(db, {
+      name: 'Nautica Vis',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+      description: 'Boat dives to the wrecks off the island.',
+    });
+
+    expect(await getDiveCenter(db, created.id)).toMatchObject({
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+      description: 'Boat dives to the wrecks off the island.',
+    });
+  });
+
+  it('gives a centre created with a name only empty sets and no facts', async () => {
+    const created = await createDiveCenter(db, { name: 'Nautica Vis' });
+
+    expect(await getDiveCenter(db, created.id)).toMatchObject({
+      address: null,
+      phone: null,
+      email: null,
+      openingHours: null,
+      services: [],
+      agencies: [],
+      description: null,
+    });
+  });
+
+  it('reads a corrupt alt_names blob as no names, not as a broken catalogue', async () => {
+    // `jsonArray`'s reason (db/schema.ts), on the first set a pull writes from another diver's
+    // client: one unreadable blob loses its own row's names, and the catalogue still opens.
+    await applyPulledDiveSites(db, [site({ altNames: ['Teti wreck'] })]);
+    await db.run(sql`update dive_sites set alt_names = '[{"x' where id = 'site-1'`);
+
+    await expect(listDiveSites(db)).resolves.toEqual([
+      expect.objectContaining({ id: 'site-1', altNames: [] }),
+    ]);
   });
 });
 
@@ -290,6 +389,12 @@ describe('applying what a pull returned (§7.2)', () => {
       waterBody: 'lake',
       entry: 'boat',
       maxDepthM: 42,
+      siteTypes: ['wreck', 'wall'],
+      suitableFor: 'advanced',
+      altNames: ['Teti wreck'],
+      description: 'A steamer on the southern spur.',
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
       createdBy: 'diver-2',
       status: 'hidden',
       mergedInto: 'site-2',

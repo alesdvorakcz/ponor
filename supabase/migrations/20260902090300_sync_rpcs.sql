@@ -157,6 +157,27 @@ as $$
 $$;
 
 
+-- ─── sync_json_array — a catalogue set arrives as an array or as `[]` ─────────────────────
+--
+-- Issue #31's four sets (`site_types`, `alt_names`, `services`, `agencies`) are NOT NULL
+-- `'[]'` columns (§6), and push_changes reads the community tables key by key, so nothing
+-- fills that default in: another client's JSON `null`, or a string where a list belongs, would
+-- refuse the diver's whole push. Anything that is not an array is stored as `[]` instead.
+--
+-- Emphatically NOT `strict`, for `sync_site`'s reason one function up: a strict function
+-- answers a null with null, which is the one input this exists to turn into `[]`.
+create or replace function public.sync_json_array(p_value jsonb)
+  returns jsonb
+  language sql
+  immutable
+  parallel safe
+  security invoker
+  set search_path = ''
+as $$
+  select case when jsonb_typeof(p_value) = 'array' then p_value else '[]'::jsonb end;
+$$;
+
+
 -- ─── sync_reject_unknown_keys — a newer client's new field must not vanish ────────────────
 --
 -- `jsonb_populate_record` ignores a key it has no column for, silently. That is the good
@@ -490,6 +511,7 @@ begin
   upserted as (
     insert into public.dive_sites as t (
       id, name, country, location, salinity, water_body, entry, max_depth_m,
+      site_types, suitable_for, alt_names, description, wreck_name, wreck_sunk_year,
       created_by, created_at, updated_at, deleted_at
     )
     select
@@ -502,6 +524,9 @@ begin
       end,
       incoming.payload->>'salinity', incoming.payload->>'water_body', incoming.payload->>'entry',
       (incoming.payload->>'max_depth_m')::double precision,
+      public.sync_json_array(incoming.payload->'site_types'), incoming.payload->>'suitable_for',
+      public.sync_json_array(incoming.payload->'alt_names'), incoming.payload->>'description',
+      incoming.payload->>'wreck_name', (incoming.payload->>'wreck_sunk_year')::integer,
       v_uid, coalesce((incoming.payload->>'created_at')::timestamptz, v_now), v_now,
       (incoming.payload->>'deleted_at')::timestamptz
     from incoming
@@ -509,6 +534,9 @@ begin
       name = excluded.name, country = excluded.country, location = excluded.location,
       salinity = excluded.salinity, water_body = excluded.water_body, entry = excluded.entry,
       max_depth_m = excluded.max_depth_m,
+      site_types = excluded.site_types, suitable_for = excluded.suitable_for,
+      alt_names = excluded.alt_names, description = excluded.description,
+      wreck_name = excluded.wreck_name, wreck_sunk_year = excluded.wreck_sunk_year,
       updated_at = v_now, deleted_at = excluded.deleted_at
     returning t.*
   )
@@ -591,6 +619,7 @@ begin
   upserted as (
     insert into public.dive_centers as t (
       id, name, country, location, website,
+      address, phone, email, opening_hours, services, agencies, description,
       created_by, created_at, updated_at, deleted_at
     )
     select
@@ -602,12 +631,20 @@ begin
                (incoming.payload->>'latitude')::double precision), 4326)::extensions.geography
       end,
       incoming.payload->>'website',
+      incoming.payload->>'address', incoming.payload->>'phone', incoming.payload->>'email',
+      incoming.payload->>'opening_hours',
+      public.sync_json_array(incoming.payload->'services'),
+      public.sync_json_array(incoming.payload->'agencies'),
+      incoming.payload->>'description',
       v_uid, coalesce((incoming.payload->>'created_at')::timestamptz, v_now), v_now,
       (incoming.payload->>'deleted_at')::timestamptz
     from incoming
     on conflict (id) do update set
       name = excluded.name, country = excluded.country, location = excluded.location,
       website = excluded.website,
+      address = excluded.address, phone = excluded.phone, email = excluded.email,
+      opening_hours = excluded.opening_hours, services = excluded.services,
+      agencies = excluded.agencies, description = excluded.description,
       updated_at = v_now, deleted_at = excluded.deleted_at
     returning t.*
   )
@@ -735,6 +772,7 @@ $$;
 revoke all on function public.iso_z(timestamptz) from public;
 revoke all on function public.sync_row(jsonb) from public;
 revoke all on function public.sync_site(jsonb, extensions.geography) from public;
+revoke all on function public.sync_json_array(jsonb) from public;
 revoke all on function public.sync_reject_unknown_keys(text, jsonb, text[]) from public;
 revoke all on function public.push_changes(jsonb) from public;
 revoke all on function public.pull_changes(timestamptz) from public;
@@ -742,6 +780,7 @@ revoke all on function public.pull_changes(timestamptz) from public;
 grant execute on function public.iso_z(timestamptz) to authenticated;
 grant execute on function public.sync_row(jsonb) to authenticated;
 grant execute on function public.sync_site(jsonb, extensions.geography) to authenticated;
+grant execute on function public.sync_json_array(jsonb) to authenticated;
 grant execute on function public.sync_reject_unknown_keys(text, jsonb, text[]) to authenticated;
 grant execute on function public.push_changes(jsonb) to authenticated;
 grant execute on function public.pull_changes(timestamptz) to authenticated;

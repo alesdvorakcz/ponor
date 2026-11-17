@@ -727,6 +727,15 @@ describe('suggest_site_edit and the review queue (DESIGN.md §5)', () => {
     expect(suggest.body).toMatch(/if v_unknown is not null then\s*raise exception/);
   });
 
+  it('lets a suggestion propose every fact #31 adds to a site', () => {
+    // #31: every new site fact is suggestible, and #54's correction flow builds on this list.
+    expect(
+      ['site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year'].filter(
+        (fact) => !allowed.includes(fact),
+      ),
+    ).toEqual([]);
+  });
+
   it('files a suggestion under its author and nobody else (§5)', () => {
     // The INSERT policy checks `suggested_by = auth.uid()`; writing `v_uid` here rather than
     // leaning on the column default means the value the policy checks and the value this

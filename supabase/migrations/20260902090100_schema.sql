@@ -34,8 +34,9 @@ set search_path = public, extensions;
 -- only that they dived today must still be able to save (§1). The exceptions are
 -- `id`, `user_id`, `date`, the two timestamps, and the columns whose empty value already
 -- means "not recorded": `tanks` and `equipment` (`'[]'`, §6's stated one exception),
--- `dives.status` (`'logged'`), `gear_presets.name`, and the community `status`
--- (`'active'`). Each of those five mirrors a NOT NULL that `src/db/schema.ts` already
+-- `series`, and #31's catalogue sets `site_types`, `alt_names`, `services` and `agencies`
+-- (`'[]'` likewise), `dives.status` (`'logged'`), `gear_presets.name`, and the community
+-- `status` (`'active'`). Each of those mirrors a NOT NULL that `src/db/schema.ts` already
 -- has, which is what "the same schema" means.
 --
 -- CALENDAR DATES AND CLOCK TIMES ARE `text`, NOT `date`/`time`, and this is the one
@@ -153,6 +154,12 @@ create table if not exists public.dive_sites (
   water_body text,
   entry text,
   max_depth_m double precision,
+  site_types jsonb not null default '[]'::jsonb,
+  suitable_for text,
+  alt_names jsonb not null default '[]'::jsonb,
+  description text,
+  wreck_name text,
+  wreck_sunk_year integer,
   created_by uuid default auth.uid() references auth.users (id) on delete set null,
   status text not null default 'active',
   merged_into uuid references public.dive_sites (id),
@@ -172,6 +179,13 @@ create table if not exists public.dive_centers (
   country text,
   location extensions.geography(Point, 4326),
   website text,
+  address text,
+  phone text,
+  email text,
+  opening_hours text,
+  services jsonb not null default '[]'::jsonb,
+  agencies jsonb not null default '[]'::jsonb,
+  description text,
   created_by uuid default auth.uid() references auth.users (id) on delete set null,
   status text not null default 'active',
   merged_into uuid references public.dive_centers (id),

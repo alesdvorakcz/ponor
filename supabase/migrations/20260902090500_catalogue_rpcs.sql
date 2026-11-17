@@ -577,8 +577,9 @@ $$;
 --
 -- WHAT A SUGGESTION MAY PROPOSE is an allow-list, not a deny-list, and that direction is the
 -- point: a column added to `dive_sites` in a later migration is NOT suggestible until someone
--- decides it should be. The list is the facts §5 names plus the two the site's identity needs
--- — and it deliberately excludes `status` and `merged_into` (§5 gives those to the admin, and
+-- decides it should be. The list is the facts §5 names, the two the site's identity needs and
+-- every fact issue #31 gave a site (#54's edit and suggestion pages build on it) — and it
+-- deliberately excludes `status` and `merged_into` (§5 gives those to the admin, and
 -- file 4 already refuses to let a client push them), `created_by` (ownership is never a
 -- client's to propose), and the three bookkeeping timestamps. `latitude`/`longitude` are on it
 -- although they are not columns of the table: §6 puts the pair on the wire and the point in
@@ -610,7 +611,8 @@ declare
   v_fields jsonb := coalesce(p_fields, '{}'::jsonb);
   v_note text := nullif(btrim(coalesce(p_note, '')), '');
   v_allowed constant text[] := array[
-    'name', 'country', 'latitude', 'longitude', 'salinity', 'water_body', 'entry', 'max_depth_m'
+    'name', 'country', 'latitude', 'longitude', 'salinity', 'water_body', 'entry', 'max_depth_m',
+    'site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year'
   ];
   v_unknown text;
   v_id uuid;

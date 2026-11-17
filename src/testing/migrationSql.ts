@@ -688,9 +688,13 @@ export function qualifiedReferences(text: string, qualifier: string): string[] {
   return [...text.matchAll(pattern)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
 }
 
-/** JSON keys read out of a raw payload row, as `payload->>'key'`. */
+/**
+ * JSON keys read out of a raw payload row, as `payload->>'key'` or `payload->'key'`. Both arrows,
+ * because #31's jsonb sets are read with `->` (which keeps them jsonb), and a reader that knew
+ * only `->>` would skip exactly those keys.
+ */
 export function payloadKeys(text: string): string[] {
-  return [...text.matchAll(/->>'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
+  return [...text.matchAll(/->>?'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
     match[1] === undefined ? [] : [match[1]],
   );
 }

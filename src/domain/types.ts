@@ -63,6 +63,15 @@ export const EQUIPMENT_VALUES = ['hood', 'gloves', 'boots', 'torch', 'camera'] a
  * because a device now stores it (M2d).
  */
 export const CATALOGUE_STATUS_VALUES = ['active', 'merged', 'hidden'] as const;
+/**
+ * The facts issue #31 gives a site and a centre (§6): what kind of site, who it suits, what a
+ * centre offers and which agencies it trains with. `openwater` and `sditdi` are one word each,
+ * by the rule above, where the issue spelled them with an underscore.
+ */
+export const SITE_TYPE_VALUES = ['wreck', 'reef', 'wall', 'pinnacle', 'drift', 'muck'] as const;
+export const SUITABLE_FOR_VALUES = ['openwater', 'advanced', 'experienced', 'technical'] as const;
+export const SERVICE_VALUES = ['air', 'nitrox', 'trimix', 'rental', 'courses', 'boat', 'shore', 'repair'] as const;
+export const AGENCY_VALUES = ['padi', 'ssi', 'cmas', 'naui', 'sditdi', 'raid', 'gue', 'bsac', 'iantd', 'other'] as const;
 
 /**
  * The 0–3 scale `waves`, `current` and `surge` are recorded on — **as chips to offer**, which
@@ -141,6 +150,10 @@ export type Suit = (typeof SUIT_VALUES)[number];
 export type WeightsFeel = (typeof WEIGHTS_FEEL_VALUES)[number];
 export type Equipment = (typeof EQUIPMENT_VALUES)[number];
 export type CatalogueStatus = (typeof CATALOGUE_STATUS_VALUES)[number];
+export type SiteType = (typeof SITE_TYPE_VALUES)[number];
+export type SuitableFor = (typeof SUITABLE_FOR_VALUES)[number];
+export type Service = (typeof SERVICE_VALUES)[number];
+export type Agency = (typeof AGENCY_VALUES)[number];
 
 /**
  * The one status under which a catalogue row may be **offered to a diver** — written once,
@@ -451,6 +464,15 @@ export interface DiveSite {
   entry: Entry | null;
   /** The site's own depth (§6), not any one dive's. */
   maxDepthM: number | null;
+  /** Issue #31's facts (§6): token sets are `[]` when unrecorded, never null, as `equipment`. */
+  siteTypes: SiteType[];
+  suitableFor: SuitableFor | null;
+  /** Other names the place goes by — *Stone Gate* for *Kamena vrata*. */
+  altNames: string[];
+  /** Public, multi-line — everyone can read it. */
+  description: string | null;
+  wreckName: string | null;
+  wreckSunkYear: number | null;
   /** The diver who contributed it — null once they delete their account (§5). */
   createdBy: string | null;
   status: CatalogueStatus;
@@ -465,7 +487,8 @@ export interface DiveSite {
 /**
  * A community dive centre as the device holds it — `DiveSite`'s sibling in every respect
  * (§5 covers "a site or center" in one sentence), differing only in the facts a centre has:
- * a `website` instead of the salinity/water body/entry/depth a site prefills a dive with.
+ * a `website` and #31's address, contacts, services and agencies instead of the salinity/water
+ * body/entry/depth a site prefills a dive with.
  */
 export interface DiveCenter {
   id: string;
@@ -474,6 +497,15 @@ export interface DiveCenter {
   latitude: number | null;
   longitude: number | null;
   website: string | null;
+  /** Issue #31's facts (§6): one free-text line each, and two token sets that are `[]` when unrecorded. */
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  openingHours: string | null;
+  services: Service[];
+  agencies: Agency[];
+  /** Public, multi-line — everyone can read it. */
+  description: string | null;
   createdBy: string | null;
   status: CatalogueStatus;
   mergedInto: string | null;
