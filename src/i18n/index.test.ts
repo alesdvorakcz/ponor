@@ -275,6 +275,21 @@ function allStrings(node: unknown): string[] {
 }
 
 // ---------------------------------------------------------------------------------------
+// #8: a failure the app cannot diagnose is not blamed on the diver's connection
+// ---------------------------------------------------------------------------------------
+
+/**
+ * **No sentence tells the diver to come back online** (#8). Each one that did fired on a failure
+ * the app cannot diagnose: a request that never completed fails the same way when the phone is
+ * offline and when the server is down. When the free Supabase project was paused, the owner went
+ * off checking his own connection. A sentence may name both causes, or none, but never claim one.
+ */
+it('never tells the diver to try again once they are online', () => {
+  expect(allStrings(en).filter((text) => /when you[’']re online/i.test(text))).toEqual([]);
+  expect(allStrings(cs).filter((text) => /až budete online/i.test(text))).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------------------
 // §1: never block
 // ---------------------------------------------------------------------------------------
 

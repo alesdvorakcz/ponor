@@ -189,6 +189,16 @@ describe('messageFor', () => {
     expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signUp')).toBe(serverUnreachable());
   });
 
+  // #8, in the owner's approved words: a request that never completed fails the same way when the
+  // phone is offline and when the server is down, so the sentence names both and claims neither.
+  // Deleting the account fails on any cause, so it names none.
+  it('names both causes of a request that never completed, and blames neither', () => {
+    expect(serverUnreachable()).toBe(
+      'Couldn’t reach the server — no connection here, or the server is down. Your logbook is safe on this phone; try again later.',
+    );
+    expect(deleteAccountFailed()).toBe('Couldn’t reach your account, so nothing was deleted. Try again later.');
+  });
+
   it('falls back to the sentence for the act that failed, not to one sentence for both', () => {
     const unknown = new AuthApiError('teapot', 418, 'a_code_from_a_newer_server');
     expect(messageFor(unknown, 'signIn')).toBe(signInFailed());
@@ -1054,5 +1064,13 @@ describe('in Czech', () => {
     // The two "anything else" sentences stay two, because they name what did not happen.
     expect(messageFor({ code: 'unheard_of' }, 'signIn')).toBe('Přihlášení se nezdařilo. Zkuste to znovu.');
     expect(messageFor({ code: 'unheard_of' }, 'signUp')).toBe('Účet se nepodařilo vytvořit. Zkuste to znovu.');
+  });
+
+  it('names both causes of a request that never completed, and blames neither, in Czech (#8)', () => {
+    setActiveLanguage('cs');
+    expect(serverUnreachable()).toBe(
+      'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
+    );
+    expect(deleteAccountFailed()).toBe('Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu později.');
   });
 });
