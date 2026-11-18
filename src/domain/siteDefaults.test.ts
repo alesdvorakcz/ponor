@@ -153,6 +153,21 @@ it.each([
   expect(suppliedBySite(fills)).toEqual([]);
 });
 
+// PR #72's review, finding 1: the site's page draws its ways in through `wordsOf`, so one word
+// among members that are not words is one tile there. Counting the raw members made the prefill
+// see two ways in and say nothing, and the page and the prefill disagreed.
+it.each([
+  ['blanks', ['', 'shore', '  ']],
+  ['a number and a null', ['shore', 3, null]],
+  ['spaces around it', [' shore ']],
+])('reads one way in among %s as the site’s one way in', (_what, stored) => {
+  expect(siteDefaultValue(says({ entry: stored as unknown as SiteDefaults['entry'] }), 'entry')).toBe('shore');
+});
+
+it('still says nothing for two ways in, whatever else the set holds', () => {
+  expect(siteDefaultValue(says({ entry: ['shore', '', 'boat'] as unknown as SiteDefaults['entry'] }), 'entry')).toBeNull();
+});
+
 // A value this build's vocabulary does not contain is NOT unreadable — §10 settles that such a
 // value is stored and flagged rather than refused, and `optionNote` is what says so beside the
 // chips. A site from a newer client naming an entry this one has never heard of therefore

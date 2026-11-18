@@ -1,5 +1,6 @@
 import { type NewSiteFacts } from './diveFormSchema';
 import { type DiveSite } from './types';
+import { wordsOf } from './words';
 
 /**
  * **What a site tells the dive logged at it** — DESIGN.md §2.1's *"picking a site prefills
@@ -119,16 +120,23 @@ function stated(value: unknown): string | null {
  * **A set answers only when it holds exactly one way in.** *"The site offers what is possible; the
  * dive logs which one was done"* (the owner, #31): a site entered from the shore and from a boat
  * cannot say which of the two this dive was, so it says nothing, as a site that knows nothing
- * does, and the row is left to the diver and to carry-over. A set of one is the site's answer,
- * read through `stated` like any column — so its one member may be a word this build does not
- * know, and a member that is not a word at all says nothing. Anything that is not a list says
- * nothing either: a pulled row is whatever the server sent. (Picking the dive's entry from the
- * site's options is #63's, not this rule's.)
+ * does, and the row is left to the diver and to carry-over. A set of one word is the site's answer.
+ *
+ * **What is counted is the set's words** (`wordsOf`, domain/words.ts), the reading the site's page
+ * draws its ways-in tiles from, so the page and the prefill cannot count the same set differently
+ * (PR #72's review): `['', 'shore']` is one way in on both, *Shore*. Its one word may be a word
+ * this build does not know; a member that is not a word (a number, a `null`, a blank) is not
+ * counted; and a set of no words, or anything that is not a list, says nothing — a pulled row is
+ * whatever the server sent. **A word stored twice counts twice** (`['shore', ' shore']`), as the
+ * page draws it twice (`siteTiles` keys its tiles by position, #6), so the two still agree: two
+ * tiles, no answer. No writer in this app stores one, since `TokenChips` toggles a set, so
+ * deduplicating here would answer for a page that does not (PR #72's re-review, left as is).
+ * (Picking the dive's entry from the site's options is #63's, not this rule's.)
  */
 export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): string | null {
   if (field !== 'entry') return stated(site[field]);
-  const offered: unknown = site.entry;
-  return Array.isArray(offered) && offered.length === 1 ? stated(offered[0]) : null;
+  const ways = wordsOf(site.entry);
+  return ways.length === 1 ? ways[0]! : null;
 }
 
 /**

@@ -613,6 +613,15 @@ it('reads a service this build does not know as a word, and skips what is not a 
   expect(lines.join(' ')).not.toContain('vocabulary.');
 });
 
+// #69: a blank token is a string and still not a word. It left `Nitrox · ` ending on a separator,
+// and a list of nothing else drew the *Agencies* label over an empty value.
+it('skips a blank service or agency, and drops a list left with none', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica({ services: ['nitrox', '', '  '] as never, agencies: [''] as never })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Nitrox');
+  expect(lines).not.toContain('Agencies');
+});
+
 it('words its links in Czech', async () => {
   setActiveLanguage('cs');
   try {

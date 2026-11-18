@@ -1,4 +1,5 @@
 import { type Dive } from './types';
+import { wordsOf } from './words';
 
 /**
  * The fields `searchDives` matches against, and no others. DESIGN.md §3
@@ -236,14 +237,12 @@ function otherNameContaining(list: unknown, needle: string): string | null {
  * a list that is not one, or from a member that is not text, which a row from another client's
  * build may hold (#31's review focus 1). The one reader of an `alt_names` list: search, the
  * duplicate check (`twinRelation`), Save (`cleanAltNames`) and the site page (`formatAltNames`)
- * all go through it, so none of them can disagree about what counts as a name.
+ * all go through it, so none of them can disagree about what counts as a name. Since #69 it is
+ * `wordsOf` (domain/words.ts), the guard every stored list a diver reads goes through, under the
+ * name its callers read best.
  */
 export function altNamesIn(list: unknown): string[] {
-  if (!Array.isArray(list)) return [];
-  return (list as readonly unknown[]).flatMap((name) => {
-    const kept = typeof name === 'string' ? name.trim() : '';
-    return kept === '' ? [] : [kept];
-  });
+  return wordsOf(list);
 }
 
 /**

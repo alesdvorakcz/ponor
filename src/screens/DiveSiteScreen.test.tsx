@@ -795,6 +795,30 @@ it('draws no tiles from a site type or way in that is not a list, and still draw
   expect(labelsIn(t)).toContain('Country');
 });
 
+// #69: a blank string is a string, so the guard above let it through, and it drew a tile with no
+// word. The page reads its lists through the guard `formatPlaceTokens` uses, so the two agree.
+it('draws no tile for a blank site type or way in', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([teti({ siteTypes: ['wreck', '', '  '] as never, entry: ['', 'shore', '  '] as never, waterBody: null })]),
+  );
+  const t = await show();
+  expect(tileWordsIn(t).map(([word]) => word)).toEqual(['Wreck', 'Shore']);
+  // PR #72's review, finding 5: one way in drawn means one way in to the prefill, and the note
+  // names it, so the page and the prefill read the same set.
+  expect(noteIn(t)).toBe('Entry fills in a new dive logged here, over anything carried from your last dive.');
+});
+
+// PR #72's review, finding 2: a word stored with spaces around it is still that word, with its
+// drawing, as the prefill reads it (`stated` trims), not an unknown word on an undrawn tile.
+it('draws a site type or way in stored with spaces around it as the word it is', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: [' wreck'] as never, entry: ['boat '] as never })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const tiles = allNodes(t).filter((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.conditionTile));
+  expect(tileWordsIn(t).map(([word]) => word)).toEqual(['Wreck', 'Boat']);
+  for (const tile of tiles) expect(tile.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+});
+
 it('keeps an unknown site type as a word on an undrawn tile', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wall', 'cavern'] as never })]));
   const t = await show();

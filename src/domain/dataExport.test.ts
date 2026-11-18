@@ -131,6 +131,15 @@ describe('csvExport — the header row', () => {
   });
 });
 
+// PR #72's review, finding 6: the equipment cell reads the list through `wordsOf`, the guard the
+// dive's page reads it through, so a list another client's build wrote with a blank, a number or
+// a null exports the words the diver sees, not `hood  3 `.
+it('exports only the words of an equipment list that holds a blank, a number or a null', () => {
+  const odd = dive({ date: '2026-08-18', equipment: ['hood', '', ' torch', 3, null] as never });
+  const [header, row] = records(csvExport(source({ dives: [odd] }), 'metric').text);
+  expect(row!.split(',')[header!.split(',').indexOf('equipment')]).toBe('hood torch');
+});
+
 describe('csvExport — a whole file, written out', () => {
   it('is exactly this, for a metric diver with 100 dives before Ponor', () => {
     const text = csvExport(
