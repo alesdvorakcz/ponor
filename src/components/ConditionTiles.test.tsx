@@ -36,9 +36,22 @@ it('draws one tile per condition, three to a row, each its icon, its value and i
   expect(tiles[0]!.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
 });
 
+// Found on the simulator: a tile's padding counts toward its width under `flex: 1`, so the empty
+// slot of a short row carries the same, or that row's tiles come out wider than a full row's.
+it('keeps a short row’s tiles the width of a full row’s', async () => {
+  const styles = makeStyles('dark');
+  const t = await render(<ConditionTiles tiles={TILES} scheme="dark" />);
+  const [spacer] = t.root!.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.conditionTileSpacer));
+  const slot = Object.assign({}, ...[spacer!.props.style].flat(3)) as Record<string, unknown>;
+  const tile = styles.conditionTile as Record<string, unknown>;
+  expect([slot.flex, slot.padding, slot.borderWidth ?? 0]).toEqual([tile.flex, tile.padding, tile.borderWidth ?? 0]);
+});
+
 it('follows the value with its extra, after a middot', async () => {
   const t = await render(<ConditionTiles tiles={TILES} scheme="dark" />);
-  expect(textIn(tilesOf(t)[2])).toEqual(['Wet', ' · 5 mm', 'Suit']);
+  // Joined by no-break spaces, so the extra wraps as one piece and a figure never leaves its unit
+  // (seen on the simulator in Czech: *Mokrý · 5* with *mm* alone on the next line).
+  expect(textIn(tilesOf(t)[2])).toEqual(['Wet', ' · 5 mm', 'Suit']);
 });
 
 it('keeps the icon’s room for a value with no drawing, and draws nothing in it', async () => {

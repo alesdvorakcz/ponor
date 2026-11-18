@@ -313,6 +313,18 @@ it('lets a long label wrap as far as it needs instead of clipping it', async () 
   expect(flat(word!.props.style).textAlign).toBe('center');
 });
 
+// Found on the simulator: a tile's padding and border count toward its width under `flex: 1`, so
+// the empty slot that pads a short row has to carry the same, or the short row's tiles come out
+// wider than a full row's (*Semidry* and *Dry* under *None · Shorty · Wet*).
+it('keeps a short row’s tiles the width of a full row’s', async () => {
+  const styles = makeStyles('dark');
+  const t = await renderChips({ layout: 'tiles' });
+  const [spacer] = t.root!.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.formTileSpacer));
+  const slot = flat(spacer!.props.style);
+  const tile = flat(tilesOf(t)[0]!.props.style);
+  expect([slot.flex, slot.paddingHorizontal, slot.borderWidth]).toEqual([tile.flex, tile.paddingHorizontal, tile.borderWidth]);
+});
+
 it('grows with the text instead of clipping it', async () => {
   const three = flat(tilesOf(await renderChips({ layout: 'tiles' }))[0]!.props.style);
   expect(three.minHeight).toBe(88);

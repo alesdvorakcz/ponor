@@ -2099,7 +2099,7 @@ describe('in Czech', () => {
     expect(said).toContain('Počasí');
     expect(said).toContain('Oblek');
     // The thickness rides on the suit's tile since issue #6 (*Mokrý · 5 mm*), not on a row of its own.
-    expect(said).toContain(' · 5 mm');
+    expect(said).toContain(' · 5 mm');
     expect(said).toContain('Vybavení');
     expect(said).toContain('Zátěž');
     expect(said).toContain('Vyvážení');

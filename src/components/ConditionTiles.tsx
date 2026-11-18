@@ -59,7 +59,11 @@ export function ConditionTiles({ tiles, scheme }: { tiles: ConditionTile[]; sche
                 <View style={styles.conditionTileWords}>
                   <Text style={styles.conditionTileValue}>
                     {tile.value}
-                    {tile.extra !== undefined && <Text style={styles.conditionTileExtra}>{` · ${tile.extra}`}</Text>}
+                    {/* No-break spaces inside the extra, so it wraps as one piece and a figure never
+                        leaves its unit (seen in Czech: *Mokrý · 5* above a lone *mm*). */}
+                    {tile.extra !== undefined && (
+                      <Text style={styles.conditionTileExtra}>{` · ${tile.extra.replace(/ /g, ' ')}`}</Text>
+                    )}
                   </Text>
                   {/* Wraps rather than truncates (§0.5): Czech field names in mono caps fill the tile. */}
                   <Text style={styles.conditionTileLabel}>{tile.label}</Text>

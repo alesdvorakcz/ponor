@@ -2985,8 +2985,11 @@ function build(scheme: ColorScheme) {
       borderRadius: 12,
       backgroundColor: theme.surface,
     },
+    // The empty slot of a short row, carrying the tile's padding: it counts toward a tile's width
+    // under `flex: 1`, so without it a short row's tiles come out wider (seen on the simulator).
     conditionTileSpacer: {
       flex: 1,
+      padding: 12,
     },
     // The drawing's room on a tile whose value has none, so the words sit at the same height.
     conditionTileIconSpace: {
@@ -4089,8 +4092,14 @@ function build(scheme: ColorScheme) {
       textAlign: 'center',
     },
     formTileTextSelected: selectedInk,
+    // The empty slot that pads a short row. A tile's padding and border count toward its width
+    // under `flex: 1`, so the slot carries the same (an invisible border), or a short row's tiles
+    // come out wider than a full row's — seen on the simulator, *Semidry* and *Dry*.
     formTileSpacer: {
       flex: 1,
+      paddingHorizontal: 6,
+      borderWidth: 1,
+      borderColor: 'transparent',
     },
     // M1h's chip marks had five styles here — a row that held N copies of one symbol, and the
     // visibility bars in three heights and two inks. They went out with the marks (M1i, §10):
