@@ -2292,7 +2292,6 @@ it('runs one sync cycle when the list is pulled down, through the app’s one en
  * is already the honest account of one — but a diver who pulled the list down and got nothing
  * back cannot tell a sync that found nothing from one that never happened.
  */
-
 it('says so when a sync the diver asked for could not run, and lets them dismiss it', async () => {
   aLogbook();
   mockSignedIn();
@@ -2316,14 +2315,6 @@ it('says so when a sync the diver asked for could not run, and lets them dismiss
 // connection and says only what is safe.
 it('says a failed sync is safe to retry later, without blaming the connection', () => {
   expect(syncFailedMessage()).toBe('Couldn’t sync just now. Your dives are safe on this phone — try again later.');
-  setActiveLanguage('cs');
-  try {
-    expect(syncFailedMessage()).toBe(
-      'Synchronizace se teď nezdařila. Vaše ponory jsou v bezpečí v telefonu — zkuste to znovu později.',
-    );
-  } finally {
-    setActiveLanguage('en');
-  }
 });
 
 it('says nothing when the sync worked', async () => {
@@ -2369,6 +2360,13 @@ describe('in Czech', () => {
     // update outside `act`.
     await cleanup();
     setActiveLanguage('en');
+  });
+
+  // #8, the owner's approved Czech: no connection blamed, only what is safe.
+  it('says a failed sync is safe to retry later, without blaming the connection', () => {
+    expect(syncFailedMessage()).toBe(
+      'Synchronizace se teď nezdařila. Vaše ponory jsou v bezpečí v telefonu — zkuste to znovu později.',
+    );
   });
 
   /**

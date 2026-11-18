@@ -189,9 +189,17 @@ describe('messageFor', () => {
     expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signUp')).toBe(serverUnreachable());
   });
 
-  // #8, in the owner's approved words: a request that never completed fails the same way when the
-  // phone is offline and when the server is down, so the sentence names both and claims neither.
-  // Deleting the account fails on any cause, so it names none.
+  // PR #73's review: auth-js throws the same error for a server that answered with a 5xx
+  // (`NETWORK_ERROR_CODES` in its fetch.ts), and that is the server-down case #8 is about. A
+  // check narrowed to status 0, "no answer at all", would send it to *Couldn't sign in*.
+  it('names the same two causes when the server answered with a 5xx', () => {
+    expect(messageFor(new AuthRetryableFetchError('Service Unavailable', 503), 'signIn')).toBe(serverUnreachable());
+    expect(messageFor(new AuthRetryableFetchError('HTTP 522', 522), 'signUp')).toBe(serverUnreachable());
+  });
+
+  // #8, in the owner's approved words: no answer at all, or a 5xx, comes back the same way when
+  // the phone is offline and when the server is down, so the sentence names both and claims
+  // neither. Deleting the account fails on any cause, so it names none.
   it('names both causes of a request that never completed, and blames neither', () => {
     expect(serverUnreachable()).toBe(
       'Couldn’t reach the server — no connection here, or the server is down. Your logbook is safe on this phone; try again later.',

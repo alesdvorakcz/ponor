@@ -279,14 +279,20 @@ function allStrings(node: unknown): string[] {
 // ---------------------------------------------------------------------------------------
 
 /**
- * **No sentence tells the diver to come back online** (#8). Each one that did fired on a failure
- * the app cannot diagnose: a request that never completed fails the same way when the phone is
- * offline and when the server is down. When the free Supabase project was paused, the owner went
- * off checking their own connection. A sentence may name both causes, or none, but never claim one.
+ * **No sentence tells the diver to wait until they are online** (#8). Each one that did fired on a
+ * failure the app cannot diagnose: no answer at all, or a 5xx from the server, comes back the same
+ * way when the phone is offline and when the server is down. When the free Supabase project was
+ * paused, the owner went off checking their own connection. A sentence may name both causes, or
+ * none, but never claim one.
+ *
+ * Swept by the word rather than the old phrase (PR #73's review), so *once you're online*, *when
+ * you're back online* or *až budete zase připojeni* cannot slip back in. No string in either
+ * language uses *online* for anything else; Czech's *připojení* is allowed as a noun, as the
+ * sign-in sentence names it as one cause of two, so only *až budete … připojeni* is caught there.
  */
-it('never tells the diver to try again once they are online', () => {
-  expect(allStrings(en).filter((text) => /when you[’']re online/i.test(text))).toEqual([]);
-  expect(allStrings(cs).filter((text) => /až budete online/i.test(text))).toEqual([]);
+it('never tells the diver to wait until they are online', () => {
+  expect(allStrings(en).filter((text) => /\bonline\b/i.test(text))).toEqual([]);
+  expect(allStrings(cs).filter((text) => /\bonline\b|až\s+budete[^.;—]*připojen/i.test(text))).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------------------

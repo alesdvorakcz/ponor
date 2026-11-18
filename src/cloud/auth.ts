@@ -227,11 +227,14 @@ export function confirmationRequired(): string {
  * a diver actually needs to know, which is that nothing is lost, rather than reporting a
  * failure as if something were at stake.
  *
- * **It names both causes and claims neither** (#8, in the owner's approved words). A request that
- * never completed (`AuthRetryableFetchError`) fails the same way when the phone is offline and
- * when the server is down, and this module cannot tell the two apart. The sentence used to end
- * *try again when you're online*, and when the free Supabase project was paused it sent the owner
- * off checking their own connection.
+ * **It names both causes and claims neither** (#8, in the owner's approved words). It answers
+ * `AuthRetryableFetchError`, which auth-js throws for two things (its `fetch.ts`): no answer came
+ * back at all (status 0), or the server answered with a 5xx (its `NETWORK_ERROR_CODES`, 500–504
+ * and Cloudflare's 520–530). The first is a phone that is offline or a server that cannot be
+ * reached; the second is a server that is down or failing. Those are the sentence's two causes,
+ * and this module cannot tell them apart. The sentence used to end *try again when you're
+ * online*, and when the free Supabase project was paused it sent the owner off checking their own
+ * connection.
  */
 export function serverUnreachable(): string {
   return t('auth.serverUnreachable');
@@ -421,9 +424,10 @@ export function messageFor(error: unknown, mode: AuthMode): string {
  * matches — "Couldn't sign in" is the wrong thing to say about a reset mail that was not sent.
  */
 function knownMessage(error: unknown): string | null {
-  // Checked before the code, because a fetch failure has no code to switch on: `AuthRetryableFetchError`
-  // is constructed client-side when the request never completed, which is the ordinary state
-  // of a phone on a boat.
+  // Checked before the code, because neither case has a code to switch on: auth-js throws
+  // `AuthRetryableFetchError` when no answer came back at all (a phone on a boat, or a server that
+  // cannot be reached) and when the server answered with a 5xx. Every status, not only 0: a 5xx
+  // is the server-down case `serverUnreachable` names (#8).
   if (isAuthRetryableFetchError(error)) return serverUnreachable();
 
   switch (codeOf(error)) {
