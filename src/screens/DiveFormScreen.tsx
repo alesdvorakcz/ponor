@@ -32,7 +32,7 @@ import { DateTimeField } from '../components/DateTimeField';
 import { FieldNote } from '../components/FieldNote';
 import { CarriedMark, clearedAnnouncement, clearedTag } from '../components/CarriedMark';
 import { ClearFieldControl } from '../components/ClearFieldControl';
-import { ConditionIcon, drawnIcon } from '../components/ConditionIcon';
+import { DepthGlyph, drawnIcon } from '../components/ConditionIcon';
 import { FocusChainProvider, useFocusChainStep } from '../components/FocusChain';
 import { RevealingScrollView } from '../components/FormReveal';
 import { FormField, type OfferedSuggestion } from '../components/FormField';
@@ -3679,7 +3679,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             unit={unitLabel('depth', units)}
             // Issue #6's figure glyphs: the two depths say which depth they are with a drawing as
             // well as a word, in the label's own muted ink (§0.6). Neither is ever a curve (§0.4).
-            leading={<ConditionIcon name="figure.maxDepth" ink={styles.formFieldLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />}
+            leading={<DepthGlyph depth="max" scheme={scheme} />}
           />
           <ControlledTextField
             control={control}
@@ -3690,7 +3690,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             keyboardType="decimal-pad"
             mono
             unit={unitLabel('depth', units)}
-            leading={<ConditionIcon name="figure.avgDepth" ink={styles.formFieldLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />}
+            leading={<DepthGlyph depth="avg" scheme={scheme} />}
           />
           <ControlledTextField
             control={control}

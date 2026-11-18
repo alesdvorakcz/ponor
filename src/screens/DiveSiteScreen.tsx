@@ -161,8 +161,13 @@ function salinityLine(site: DiveSite): string | null {
   return salinity === null ? null : formatSalinity(salinity as Salinity);
 }
 
-/** Words only: a list from another client's build may hold a number or a null (#31). */
+/**
+ * Words only: a list from another client's build may hold a number or a null (#31), and a value
+ * that is not a list at all is no words — `formatPlaceTokens`' own guard, re-checked here rather
+ * than trusting `$type<>`, as `toDive` does (db/schema.ts).
+ */
 function wordsOf(list: readonly unknown[]): string[] {
+  if (!Array.isArray(list)) return [];
   return list.filter((item): item is string => typeof item === 'string');
 }
 

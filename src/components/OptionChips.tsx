@@ -1,12 +1,12 @@
-import { Pressable, Text, View, type ColorValue } from 'react-native';
+import { Text, View, type ColorValue } from 'react-native';
 import { type ReactNode } from 'react';
 
 import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
+import { ChoiceGrid, type ChoiceBehaviour } from './ChoiceGrid';
 import { ClearFieldControl } from './ClearFieldControl';
-import { tileRows } from './tileRows';
 
 /**
  * What a chip's value may be: a member of a closed vocabulary (`Entry`, `Suit`, …) or **a
@@ -154,7 +154,6 @@ export interface OptionChipsProps<T extends string | number> {
  */
 export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, layout = 'chips', columns = 3, carried, cleared, onClear, caption, disabled }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
-  const tiles = layout === 'tiles';
   // The same guard `FormField` applies to its own tag, for the same reason and against the
   // same lie: `cleared` is a claim about a gesture, `— cleared` is a claim about what the row
   // holds, and a tag standing beside a chip the diver has since chosen would say the row is
@@ -164,43 +163,18 @@ export function OptionChips<T extends string | number>({ label, value, options, 
   const empty = value === null || value === undefined || value === '';
   const showCleared = cleared === true && empty;
 
-  // One option, as a chip or as a tile: the press, the announcement and the invert are the same
-  // either way, and only the styles and where the icon sits differ.
-  const renderOption = (option: T) => {
+  // One option, as a chip or as a tile: a press picks it or, already picked, clears it, and a
+  // screen reader hears a button. The look, the layout and the icon's ink are `ChoiceGrid`'s.
+  const behaviour = (option: T): ChoiceBehaviour => {
     const selected = value === option;
-    // The ink the chip's own label is about to wear, read off the style rather than
-    // from the theme directly — the same "take the colour from the style you are
-    // matching" move `DateTimeField` makes for the native picker's `textColor`. It is
-    // handed to `icon` so a symbol beside the label inverts with it (§0.6), instead of
-    // staying `fg` on an `action` ground where it would vanish — and the ground with it, for
-    // the knocks in a drawn icon (issue #6).
-    const textStyle = tiles ? styles.formTileText : styles.formChipText;
-    const textSelected = tiles ? styles.formTileTextSelected : styles.formChipTextSelected;
-    const box = tiles ? styles.formTile : styles.formChip;
-    const boxSelected = tiles ? styles.formTileSelected : styles.formChipSelected;
-    const ink = (selected ? textSelected.color : textStyle.color) as ColorValue;
-    const ground = (selected ? boxSelected.backgroundColor : box.backgroundColor) as ColorValue;
-    return (
-      <Pressable
-        key={option}
-        style={[box, tiles && columns === 4 && styles.formTileShort, selected && boxSelected]}
-        onPress={() => onChange(selected ? '' : option)}
-        accessibilityRole="button"
-        // Unchanged by the icon, deliberately: §0.6 makes the icon a supplement to the
-        // label, so what a screen reader hears is exactly what it heard before — the
-        // symbol adds nothing to say that the words do not already say.
-        accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-        // `disabled` joins the state only when it is set, so every row that never passes it
-        // announces exactly what it always did.
-        disabled={disabled}
-        accessibilityState={disabled === true ? { selected, disabled } : { selected }}
-      >
-        {icon?.(option, ink, ground)}
-        <Text style={[textStyle, selected && textSelected]}>
-          {displayLabel(option)}
-        </Text>
-      </Pressable>
-    );
+    return {
+      on: selected,
+      onPress: () => onChange(selected ? '' : option),
+      role: 'button',
+      // `disabled` joins the state only when it is set, so every row that never passes it
+      // announces exactly what it always did.
+      state: disabled === true ? { selected, disabled } : { selected },
+    };
   };
 
   return (
@@ -249,17 +223,17 @@ export function OptionChips<T extends string | number>({ label, value, options, 
           </View>
         )}
       </View>
-      {tiles ? (
-        <View style={styles.formTileGrid}>
-          {tileRows(options, columns).map((row, index) => (
-            <View key={index} style={styles.formTileRow}>
-              {row.map((option, slot) => (option === null ? <View key={`spacer-${slot}`} style={styles.formTileSpacer} /> : renderOption(option)))}
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.formChipRow}>{options.map(renderOption)}</View>
-      )}
+      <ChoiceGrid
+        label={label}
+        options={options}
+        displayLabel={displayLabel}
+        scheme={scheme}
+        layout={layout}
+        columns={columns}
+        icon={icon}
+        disabled={disabled}
+        behaviour={behaviour}
+      />
     </View>
   );
 }

@@ -74,14 +74,16 @@ it('lets the field name wrap instead of truncating it', async () => {
 });
 
 // Final review, Important #3: each tile is ONE thing to a screen reader, its field and its value,
-// as the row it replaced was — not two elements a VoiceOver sweep would read out of order.
+// as the row it replaced was — not two elements a VoiceOver sweep would read out of order. The
+// extra follows a comma, not the drawn middot (PR #66 review): a spoken sentence takes a comma, as
+// `formatDiveMarkLabel` (format/display.ts) records.
 it('announces each tile as its field and its value, as one element', async () => {
   const t = await render(<ConditionTiles tiles={TILES} scheme="dark" />);
   const tiles = tilesOf(t);
   expect(tiles.map((tile) => [tile.props.accessible, tile.props.accessibilityLabel])).toEqual([
     [true, 'Entry: Boat'],
     [true, 'Surge: None'],
-    [true, 'Suit: Wet · 5 mm'],
+    [true, 'Suit: Wet, 5 mm'],
     [true, 'Waves: 7'],
   ]);
 });

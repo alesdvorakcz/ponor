@@ -782,6 +782,19 @@ it('skips a site type that is not a word, and survives a repeated one', async ()
   expect(tiles.map((tile) => tile.queryAll((n) => n.type === 'Text').flatMap((n) => n.children)[0])).toEqual(['Wreck', 'Wreck']);
 });
 
+// PR #66 review, finding 1: `formatPlaceTokens` refused a value that is not a list at all, and the
+// tiles that replaced its rows must too. `jsonArray` degrades a bad column to `[]`, but the page
+// re-checks rather than trusting `$type<>`, as `toDive` does (db/schema.ts).
+it('draws no tiles from a site type or way in that is not a list, and still draws the page', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([teti({ siteTypes: null as never, entry: { boat: true } as never, salinity: 'salt', waterBody: 'ocean' })]),
+  );
+  const t = await show();
+  expect(tileWordsIn(t)).toEqual([['Ocean', 'Water body']]);
+  expect(labelsIn(t)).toContain('Salinity');
+  expect(labelsIn(t)).toContain('Country');
+});
+
 it('keeps an unknown site type as a word on an undrawn tile', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wall', 'cavern'] as never })]));
   const t = await show();
@@ -796,7 +809,7 @@ it('draws only the facts the site has', async () => {
   const lines = textIn(await show());
   expect(lines).toContain('Wreck');
   expect(lines).toContain('sunk 1930');
-  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Water', 'Entry', 'Other names', 'Country']) {
+  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Salinity', 'Water body', 'Entry', 'Other names', 'Country']) {
     expect(lines).not.toContain(label);
   }
 });

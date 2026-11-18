@@ -11,7 +11,8 @@ import {
   WEATHER_VALUES,
 } from '../domain/types';
 import { paint, paintOf } from '../testing/svgPaint';
-import { ConditionIcon, conditionIconFor, type IconField } from './ConditionIcon';
+import { makeStyles } from '../theme/styles';
+import { ConditionIcon, conditionIconFor, DepthGlyph, type IconField } from './ConditionIcon';
 import { CONDITION_ICONS } from './icons/conditionIconData';
 
 // react-native-svg's elements reach the test tree under their native names (see
@@ -103,6 +104,27 @@ it('draws the dashed None for current with the line dashed', async () => {
   for (const p of paths) expect(p.props.strokeDasharray).toBeTruthy();
   const solid = await render(<ConditionIcon name="current" ink={INK} ground={GROUND} />);
   for (const p of nodes(solid, 'RNSVGPath')) expect(p.props.strokeDasharray).toBeFalsy();
+});
+
+// PR #66 review, finding 7: the two depth rows on the form and the detail wired this glyph by hand
+// four times. `DepthGlyph` is its one owner — the size a style (`figureGlyph`), the ink the rows'
+// label ink, the ground the screen's.
+it.each([
+  ['max', 'figure.maxDepth'],
+  ['avg', 'figure.avgDepth'],
+] as const)('draws the %s depth glyph at the figure size, in the label ink on the screen ground', async (depth, name) => {
+  const styles = makeStyles('dark');
+  const glyph = await render(<DepthGlyph depth={depth} scheme="dark" />);
+  expect(glyph.root!.props.width).toBe(24);
+  expect(glyph.root!.props.width).toBe(styles.figureGlyph.width);
+  for (const p of nodes(glyph, 'RNSVGPath').filter((path) => paintOf(path, 'stroke') !== undefined)) {
+    expect(paintOf(p, 'stroke')).toEqual(paint(styles.detailLabel.color as string));
+    expect(paintOf(p, 'stroke')).toEqual(paint(styles.formFieldLabel.color as string));
+  }
+  const byHand = await render(
+    <ConditionIcon name={name} ink={styles.figureGlyph.color as string} ground={styles.screen.backgroundColor as string} size={24} />,
+  );
+  expect(glyph.toJSON()).toEqual(byHand.toJSON());
 });
 
 it('renders at the requested size on the 40-unit grid', async () => {

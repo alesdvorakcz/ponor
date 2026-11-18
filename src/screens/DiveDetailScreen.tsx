@@ -1,10 +1,10 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { Modal, Pressable, ScrollView, Text, View, useColorScheme, type ColorValue } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ConditionIcon, conditionIconFor, type IconField } from '../components/ConditionIcon';
+import { conditionIconFor, DepthGlyph, type IconField } from '../components/ConditionIcon';
 import { ConditionTiles, type ConditionTile } from '../components/ConditionTiles';
 import { RatingDots } from '../components/RatingDots';
 import { DepthProfile } from '../components/DepthProfile';
@@ -1216,7 +1216,7 @@ export default function DiveDetailScreen({
               {maxDepth !== null && (
                 <View style={styles.detailRow}>
                   <View style={styles.detailLabelLed}>
-                    <ConditionIcon name="figure.maxDepth" ink={styles.detailLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />
+                    <DepthGlyph depth="max" scheme={scheme} />
                     <Text style={styles.detailLabel}>{t('field.maxDepth')}</Text>
                   </View>
                   <DepthValue metres={dive.maxDepthM} scheme={scheme} units={units} />
@@ -1225,7 +1225,7 @@ export default function DiveDetailScreen({
               {avgDepth !== null && (
                 <View style={styles.detailRow}>
                   <View style={styles.detailLabelLed}>
-                    <ConditionIcon name="figure.avgDepth" ink={styles.detailLabel.color as ColorValue} ground={styles.screen.backgroundColor as ColorValue} size={24} />
+                    <DepthGlyph depth="avg" scheme={scheme} />
                     <Text style={styles.detailLabel}>{t('field.avgDepth')}</Text>
                   </View>
                   <DepthValue metres={dive.avgDepthM} scheme={scheme} units={units} />

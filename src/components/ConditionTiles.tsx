@@ -41,14 +41,16 @@ export function ConditionTiles({ tiles, scheme }: { tiles: ConditionTile[]; sche
               <View key={`spacer-${slot}`} style={styles.conditionTileSpacer} />
             ) : (
               // One element to a screen reader, its field and its value, as the row it replaced was:
-              // left ungrouped, VoiceOver reads a row's three values before their three fields.
+              // left ungrouped, VoiceOver reads a row's three values before their three fields. The
+              // extra follows a comma there and the middot only on screen: a spoken sentence takes a
+              // comma, as `formatDiveMarkLabel` (format/display.ts) records.
               <View
                 key={tile.key}
                 style={styles.conditionTile}
                 accessible
                 accessibilityLabel={t('field.labelValue', {
                   label: tile.label,
-                  value: tile.extra !== undefined ? `${tile.value} · ${tile.extra}` : tile.value,
+                  value: tile.extra !== undefined ? `${tile.value}, ${tile.extra}` : tile.value,
                 })}
               >
                 {tile.icon !== null ? (

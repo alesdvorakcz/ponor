@@ -1,10 +1,9 @@
 import { type ReactNode } from 'react';
-import { Pressable, Text, View, type ColorValue } from 'react-native';
+import { Text, View, type ColorValue } from 'react-native';
 
-import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-import { tileRows } from './tileRows';
+import { ChoiceGrid, type ChoiceBehaviour } from './ChoiceGrid';
 
 export interface TokenChipsProps<T extends string> {
   label: string;
@@ -55,35 +54,19 @@ export function TokenChips<T extends string>({
   icon,
 }: TokenChipsProps<T>) {
   const styles = makeStyles(scheme);
-  const tiles = layout === 'tiles';
   const toggle = (option: T) => {
     const next = values.includes(option) ? values.filter((value) => value !== option) : [...values, option];
     onChange([...options.filter((offered) => next.includes(offered)), ...next.filter((value) => !options.includes(value))]);
   };
-  const renderOption = (option: T) => {
+  // A press toggles one member, and a screen reader hears a checkbox; the look is `ChoiceGrid`'s.
+  const behaviour = (option: T): ChoiceBehaviour => {
     const checked = values.includes(option);
-    const textStyle = tiles ? styles.formTileText : styles.formChipText;
-    const textChecked = tiles ? styles.formTileTextSelected : styles.formChipTextSelected;
-    const box = tiles ? styles.formTile : styles.formChip;
-    const boxChecked = tiles ? styles.formTileSelected : styles.formChipSelected;
-    const ink = (checked ? textChecked.color : textStyle.color) as ColorValue;
-    const ground = (checked ? boxChecked.backgroundColor : box.backgroundColor) as ColorValue;
-    return (
-      <Pressable
-        key={option}
-        style={[box, tiles && columns === 4 && styles.formTileShort, checked && boxChecked]}
-        onPress={() => toggle(option)}
-        accessibilityRole="checkbox"
-        accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-        disabled={disabled}
-        accessibilityState={{ checked, disabled: disabled === true }}
-      >
-        {icon?.(option, ink, ground)}
-        <Text style={[textStyle, checked && textChecked]}>
-          {displayLabel(option)}
-        </Text>
-      </Pressable>
-    );
+    return {
+      on: checked,
+      onPress: () => toggle(option),
+      role: 'checkbox',
+      state: { checked, disabled: disabled === true },
+    };
   };
   return (
     <View style={styles.formField}>
@@ -95,17 +78,17 @@ export function TokenChips<T extends string>({
           </View>
         )}
       </View>
-      {tiles ? (
-        <View style={styles.formTileGrid}>
-          {tileRows(options, columns).map((row, index) => (
-            <View key={index} style={styles.formTileRow}>
-              {row.map((option, slot) => (option === null ? <View key={`spacer-${slot}`} style={styles.formTileSpacer} /> : renderOption(option)))}
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.formChipRow}>{options.map(renderOption)}</View>
-      )}
+      <ChoiceGrid
+        label={label}
+        options={options}
+        displayLabel={displayLabel}
+        scheme={scheme}
+        layout={layout}
+        columns={columns}
+        icon={icon}
+        disabled={disabled}
+        behaviour={behaviour}
+      />
     </View>
   );
 }

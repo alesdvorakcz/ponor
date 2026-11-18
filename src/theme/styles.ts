@@ -3015,6 +3015,14 @@ function build(scheme: ColorScheme) {
       fontSize: 10,
       letterSpacing: 1,
     },
+    // The figure glyph itself (issue #6, the canvas's 24 on the depth rows): its size, and the
+    // rows' own label ink, so the drawing never reads louder than the word beside it (§0.6).
+    // `DepthGlyph` (components/ConditionIcon.tsx) is its one reader.
+    figureGlyph: {
+      width: 24,
+      height: 24,
+      color: rowLabel.color,
+    },
     // A figure glyph before a depth row's label (issue #6): the glyph and the label as one unit.
     detailLabelLed: {
       flexDirection: 'row',

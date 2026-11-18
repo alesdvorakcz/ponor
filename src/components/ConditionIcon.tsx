@@ -12,6 +12,8 @@ import {
   WATER_BODY_VALUES,
   WEATHER_VALUES,
 } from '../domain/types';
+import { makeStyles } from '../theme/styles';
+import { type ColorScheme } from '../theme/tokens';
 import { CONDITION_ICONS, type ConditionIconName, type IconElement } from './icons/conditionIconData';
 
 export type { ConditionIconName } from './icons/conditionIconData';
@@ -86,6 +88,27 @@ export function ConditionIcon({ name, ink, ground, size = 40 }: ConditionIconPro
     <Svg width={size} height={size} viewBox="0 0 40 40" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       {draw(CONDITION_ICONS[name], ink, ground, 1)}
     </Svg>
+  );
+}
+
+/**
+ * **The figure glyph that leads a depth row's label** (issue #6), on the dive form and the dive
+ * detail alike: which depth a coloured number is, said with a drawing as well as a word. Never a
+ * curve (§0.4) — the figure is a mark for the field, not a profile.
+ *
+ * One owner of its size (`figureGlyph`, theme/styles.ts), its ink (the rows' label ink — never the
+ * depth band's, which belongs to the figure it labels, §0.1) and its ground (the screen it sits on),
+ * so the four depth rows cannot drift apart (PR #66 review).
+ */
+export function DepthGlyph({ depth, scheme }: { depth: 'max' | 'avg'; scheme: ColorScheme }) {
+  const styles = makeStyles(scheme);
+  return (
+    <ConditionIcon
+      name={depth === 'max' ? 'figure.maxDepth' : 'figure.avgDepth'}
+      ink={styles.figureGlyph.color as ColorValue}
+      ground={styles.screen.backgroundColor as ColorValue}
+      size={styles.figureGlyph.width}
+    />
   );
 }
 
