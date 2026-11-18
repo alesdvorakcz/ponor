@@ -17,6 +17,7 @@ import { pointOf, waterTempRange } from '../domain/mapSites';
 import { SITE_DEFAULT_FIELDS, siteDefaultValue, type SiteDefaultField } from '../domain/siteDefaults';
 import { divesAtSite } from '../domain/siteDives';
 import { type DiveSite, type Salinity, type WaterBody } from '../domain/types';
+import { wordsOf } from '../domain/words';
 import {
   formatAltNames,
   formatCoordinates,
@@ -29,7 +30,6 @@ import {
   formatWaterBody,
   formatWreck,
   unnamedSite,
-  wordsOf,
 } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToSites } from '../navigation/leaveScreen';

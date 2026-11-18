@@ -2120,6 +2120,12 @@ describe('formatPlaceTokens', () => {
     expect(formatPlaceTokens('services', [''])).toBeNull();
     expect(formatPlaceTokens('entry', ['  ', 'boat'])).toBe('Boat');
   });
+  // PR #72's review, finding 2: a word with spaces around it is that word, known and translated,
+  // not an unknown one read as ` nitrox`.
+  it('reads a token stored with spaces around it as the word it is', () => {
+    expect(formatPlaceTokens('services', [' nitrox', 'rental '])).toBe('Nitrox · Rental');
+    expect(formatEquipment([' torch'] as unknown as Equipment[])).toBe('Torch');
+  });
   it('reads in Czech', () => {
     setActiveLanguage('cs');
     try {

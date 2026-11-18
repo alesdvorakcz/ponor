@@ -10,6 +10,7 @@ import type {
   GearPreset,
   Tank,
 } from './types';
+import { wordsOf } from './words';
 
 /**
  * **What a data export contains, and what each of the two files is** (DESIGN.md §8's
@@ -340,8 +341,10 @@ function diveColumns(
     // Space-separated, and that is safe rather than lucky: `domain/types.ts` guarantees every
     // member of a closed vocabulary is lowercase words joined by `_`, so no token can
     // contain the separator. A comma would have been the natural list mark and is the one
-    // character this file may not spend on anything else.
-    { header: 'equipment', cell: (dive) => dive.equipment.join(' ') },
+    // character this file may not spend on anything else. Read through `wordsOf`, as the dive's
+    // page reads it (#69): a blank, a number or a `null` in a list another client's build wrote
+    // is no word, and exported raw it left `hood  3 ` where the page shows *Hood*.
+    { header: 'equipment', cell: (dive) => wordsOf(dive.equipment).join(' ') },
     measure('weights', 'weight', system, (dive) => dive.weightsKg),
     { header: 'weights_feel', cell: (dive) => textCell(dive.weightsFeel) },
     { header: 'buddy', cell: (dive) => textCell(dive.buddy) },
