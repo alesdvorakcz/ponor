@@ -1,9 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 
 import { importerFor } from '../domain/import/registry';
-import { hasDiveSamplesRow, putDiveSamples } from './diveSamples';
+import { putDiveSamples } from './diveSamples';
 import { createDive } from './dives';
-import { dives } from './schema';
+import { diveSamples, dives } from './schema';
 import { type Db } from './types';
 
 export interface ImportFile {
@@ -79,9 +79,13 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
         // re-import that silently resurrected it would be the overwrite this skip exists to
         // prevent (and would contradict the import spec's §6, "the file is immutable, the
         // diver's copy is not").
+        //
+        // The same statement asks whether the dive has a series row, **in any state**: the join
+        // is deliberately not `liveRows`-filtered (see the completion below).
         const [existing] = await db
-          .select({ id: dives.id, deletedAt: dives.deletedAt })
+          .select({ id: dives.id, deletedAt: dives.deletedAt, seriesId: diveSamples.id })
           .from(dives)
+          .leftJoin(diveSamples, eq(diveSamples.id, dives.id))
           .where(and(eq(dives.importSource, importer.source), eq(dives.importId, importId)));
         if (existing) {
           // **The one thing a re-import still writes: a profile that failed to save** (#9).
@@ -94,10 +98,11 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
           //
           // Only for a live dive, and only when no series row exists at all. A deleted dive
           // stays deleted with nothing written behind it, and a tombstoned series is a deletion
-          // §7 is carrying, which `putDiveSamples`' un-tombstoning would undo
-          // (`hasDiveSamplesRow`). Counted as imported: the earlier run did not count this dive,
-          // so this is the run that reports it.
-          if (series && existing.deletedAt === null && !(await hasDiveSamplesRow(db, existing.id))) {
+          // §7 is carrying, which `putDiveSamples`' un-tombstoning would undo. Counted as
+          // imported: the earlier run did not count this dive, so this is the run that reports
+          // it. DESIGN.md §10 records the one case this cannot see: the dive deleted on another
+          // device whose deletion has not reached this one yet.
+          if (series && existing.deletedAt === null && existing.seriesId === null) {
             await putDiveSamples(db, existing.id, series);
             outcome.imported += 1;
           } else {

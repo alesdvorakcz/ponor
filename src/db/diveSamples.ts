@@ -30,9 +30,12 @@ const liveSeries = liveRows(diveSamples);
 /**
  * Writes a dive's profile, replacing whatever was there.
  *
- * An upsert on the dive's own id rather than an insert: re-importing the same file must not
- * produce a second series, and the import flow's dedupe (db/importDives.ts) is about *dives*,
- * not about this row. Un-tombstones on write, so a re-import after a delete restores the curve.
+ * An upsert on the dive's own id rather than an insert: a second write must not produce a second
+ * series. The upsert clears `deletedAt`, so writing over a tombstoned series brings it back.
+ * **The import never does that** (db/importDives.ts, #9): it writes a profile onto a dive it
+ * already has only when that dive has no series row at all, because a tombstoned row is a
+ * deletion §7 is carrying to other devices. That guard is deliberate; this function's
+ * un-tombstoning is not a promise that a re-import restores a deleted curve.
  */
 export async function putDiveSamples(db: Db, diveId: string, series: readonly DiveSample[]): Promise<void> {
   const stamp = stampLocalWrite();
@@ -43,21 +46,6 @@ export async function putDiveSamples(db: Db, diveId: string, series: readonly Di
       target: diveSamples.id,
       set: { series: [...series], deletedAt: null, ...stamp },
     });
-}
-
-/**
- * Whether a dive has a series row in **any** state, live or tombstoned — deliberately not
- * `liveSeries`-filtered, unlike every read below.
- *
- * The one caller is the import's completion of a dive whose profile failed to save
- * (db/importDives.ts, #9), and the question it asks is "was this series ever written", not "is
- * there one to draw". A tombstoned row is a deletion §7 is carrying to other devices, and
- * `putDiveSamples` above would un-tombstone it; only a dive with no row at all is missing its
- * profile because a write did not happen.
- */
-export async function hasDiveSamplesRow(db: Db, diveId: string): Promise<boolean> {
-  const rows = await db.select({ id: diveSamples.id }).from(diveSamples).where(eq(diveSamples.id, diveId)).limit(1);
-  return rows.length > 0;
 }
 
 /**

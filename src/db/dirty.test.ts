@@ -586,10 +586,6 @@ const DIVE_SAMPLES: Record<keyof typeof diveSamplesModule, WritePath> = {
   },
   getDiveSamples: { reads: 'A read.' },
   listDiveSamples: { reads: 'A read \u2014 every live series at once, for \u00a78\u2019s JSON export.' },
-  hasDiveSamplesRow: {
-    reads: 'A read \u2014 whether a dive has a series row in any state, for the import\u2019s completion '
-      + 'of a profile that failed to save (#9).',
-  },
   pendingDiveSamples: { reads: 'The push set \u2014 reads the flag, never moves it.' },
   countPendingDiveSamples: { reads: 'Counts the push set \u2014 reads the flag, never moves it.' },
 };

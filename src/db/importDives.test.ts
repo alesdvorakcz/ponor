@@ -212,3 +212,23 @@ it('does not bring back a profile that was removed from a dive the diver still h
   expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
   expect(await getDiveSamples(db, dive!.id)).toBeNull();
 });
+
+it('leaves a dive it already has untouched when the file holds no profile to complete it with', async () => {
+  // The completion needs a profile to write. A file without one (here a fake importer, since
+  // both Suunto fixtures carry a series) finds its dive as already there and writes nothing.
+  const fakeImporter: DiveImporter = {
+    source: 'fake-format',
+    label: () => 'Fake',
+    recognises: () => true,
+    parse: () => [{ importId: 'fixed-id-1', series: null, dive: { date: '2026-01-01' } }],
+  };
+  jest.spyOn(registryModule, 'importerFor').mockReturnValue(fakeImporter);
+  await importFiles(db, [file('fake.bin', new Uint8Array())]);
+  const samplesWrite = jest.spyOn(diveSamplesModule, 'putDiveSamples');
+
+  const out = await importFiles(db, [file('fake.bin', new Uint8Array())]);
+
+  expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(samplesWrite).not.toHaveBeenCalled();
+  expect(await diveSamplesModule.listDiveSamples(db)).toEqual([]);
+});
