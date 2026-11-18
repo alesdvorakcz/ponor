@@ -21,7 +21,7 @@ Dashboard → **SQL Editor** → paste one file → Run. In this order:
 | 3 | `migrations/20260902090200_rls.sql` | Row-Level Security on every table, and every policy |
 | 4 | `migrations/20260902090300_sync_rpcs.sql` | `push_changes` and `pull_changes` — §7's whole protocol |
 | 5 | `migrations/20260902090400_site_edits.sql` | The review queue §5 requires and §6 never listed, and its policies |
-| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `name_fold`, `search_sites`, `search_centers`, `similar_sites`, `suggest_site_edit`, `delete_account`, and the two trigram indexes |
+| 6 | `migrations/20260902090500_catalogue_rpcs.sql` | `name_fold`, the four helpers that fold a site's other names (#31), `search_sites`, `search_centers`, `similar_sites`, `suggest_site_edit`, `delete_account`, and the three trigram indexes |
 | 7 | `migrations/20260902090600_site_duplicates.sql` | `site_duplicate_suspicions` — where §5's "flags likely duplicates" puts the flag — and its policies |
 
 Order matters six times: file 2 uses the PostGIS type file 1 installs, file 3 alters the
@@ -37,6 +37,97 @@ one whole — file 2 begins with a `set search_path` that the statements after i
 still applies on its own — but a push before file 7 exists would find the table missing,
 which the recheck's `exception` block would swallow into a server-log warning rather than a
 failed sync. On a fresh project the numbered order handles it; on the owner's, see below.
+
+### Applying #31 to a project that already has files 1–7
+
+Issue #31 puts fourteen columns into file 2's `dive_sites` and `dive_centers`, and makes a site's
+`entry` a set — `jsonb`, NOT NULL, `'[]'` — in place, under its old name. `create table if not
+exists` does not alter a table that already exists, so on the owner's project they go in by hand.
+**The order is these lines, then file 6, then file 4, then install the build.** The server
+refuses a pushed key its table has no column for (`sync_reject_unknown_keys`), so a build that
+sends the new columns before they exist fails every sync until they do.
+
+```sql
+alter table public.dive_sites
+  add column if not exists site_types jsonb not null default '[]'::jsonb,
+  add column if not exists suitable_for text,
+  add column if not exists alt_names jsonb not null default '[]'::jsonb,
+  add column if not exists description text,
+  add column if not exists wreck_name text,
+  add column if not exists wreck_sunk_year integer,
+  add column if not exists altitude_m double precision;
+alter table public.dive_centers
+  add column if not exists address text,
+  add column if not exists phone text,
+  add column if not exists email text,
+  add column if not exists opening_hours text,
+  add column if not exists services jsonb not null default '[]'::jsonb,
+  add column if not exists agencies jsonb not null default '[]'::jsonb,
+  add column if not exists description text;
+alter table public.dive_sites
+  alter column entry drop default,
+  alter column entry type jsonb using (case when entry is null or entry = '' then '[]'::jsonb else jsonb_build_array(entry) end),
+  alter column entry set default '[]'::jsonb,
+  alter column entry set not null;
+```
+
+**The last statement runs once.** Unlike the `add column if not exists` lines it is not written to
+be repeated: it converts the `text` column, each value becoming the one member of its set and a
+null or a blank the empty set. **A second run errors and changes nothing** (confirmed on the throwaway): on a column that is
+already `jsonb`, `entry = ''` fails when Postgres parses the statement (`''` is not JSON), before
+any row is touched.
+
+It wraps every text value as it stands, so a value that already spells a JSON array would be
+wrapped again (confirmed on the throwaway) — `["boat"]` becoming a set holding the string `["boat"]`. Only a new build pushing
+before these lines ran could have stored one, which the order above forbids. Guarding against it
+needs `pg_input_is_valid`, which is Postgres 16's, so the statement is left as written.
+
+**File 6** then brings everything that reads a site's other names: `folded_names`,
+`alt_names_fold` and `alt_name_similarity` — one fold for the index and for every reader — the
+trigram index `dive_sites_alt_names_fold_trgm_idx`, a `search_sites` that matches an other name as
+well as the name, and a `similar_sites` that also takes the new site's other names, `p_alt_names`.
+That is a new signature, so the file **drops the old `similar_sites` and creates the new one** (see
+[Re-running](#re-running)). **File 6 changed again after that** (the owner's call, 2026-11-17): a
+fourth helper, `best_alt_name`, and a `similar_sites` that adds a `matched_name` key to each row —
+the other name a match came through, or null — so the create page can ask *Did you mean “Stone
+Gate” (also called Kamena vrata)?*. A key in the returned JSON is not a signature change, so this
+adds no drop, and `push_changes` reads each row's `id` alone; the order is unchanged — these
+lines, then file 6, then file 4. File 6 also replaces `suggest_site_edit`, so a suggestion may
+propose every fact a site gained. **File 4** adds `public.sync_json_array` and replaces `push_changes`,
+which writes the fourteen columns and a site's `entry` as a set, stores a set that arrives as
+anything but an array as `[]`, and hands an arriving site's other names to the recheck
+(`p_alt_names => arrived.alt_names`).
+
+**Each step needs the one before it.** File 6's new index is built over `alt_names`, which the
+`alter table` lines create. File 4's recheck names `p_alt_names`, which only file 6's
+`similar_sites` takes: the other way round, every recheck fails until file 6 lands — swallowed by
+its `exception` block into a server-log warning, and every site arriving in that window goes
+unflagged. Between file 6 and file 4 the old recheck still works, since it names only arguments
+the new function also takes and `p_alt_names` has a default; so does the `similar_sites` call of a
+build from before #31. And the build comes last, because before the columns exist the server
+refuses its keys.
+
+**Between these lines and file 4, every push from every device fails** (confirmed on the throwaway), whatever build it runs,
+and stores nothing until file 4 is applied. The old `push_changes`' `dive_sites` insert puts
+`->>'entry'` — text — into a column that is `jsonb` by then, which Postgres rejects when it parses
+the statement, and that insert runs on every push, with or without a site in it. It is the safe
+direction: a failed push keeps the device's dirty flags (§7), and the window lasts as long as
+pasting files 6 and 4 does.
+
+No compatibility with a build from before #31 is kept — its push of a site or centre would
+blank that row's new facts, and a site's entry with them — because the project holds test data
+only. **A build from before the entry became a set does not keep syncing either**: its device
+column for a site's `entry` is still `text`, a list arriving in a pull does not fit it, and the
+pull fails on the first site it carries until the new build is installed.
+**None of this is applied to the project yet.** It has run twice on a throwaway Postgres 16 +
+PostGIS 3.4 on 2026-11-17 — as a fresh project and by exactly these steps from the files before
+#31, and again after a site's entry became a set and gained its altitude (the `alter column`
+statement above included) — and passed both times; what that showed, and what it still cannot,
+is at the end of [Applied](#applied). **File 6's later change — `best_alt_name` and
+`matched_name` — ran a third time on that throwaway (Postgres 16.4 + PostGIS 3.4.3, 2026-11-17)
+and passed with no defects, and a fourth time after `similar_sites`' filter was made to read its
+scores from `scores` (the SQL as it stands now), with results identical to the third; it has still
+not run on the project.**
 
 <a id="applying-m2q-to-a-project-that-already-has-files-16"></a>
 **Applying M2q to a project that already has files 1–6 is file 7 and then file 4, in that
@@ -62,13 +153,18 @@ The filenames are already in the CLI's `<timestamp>_name.sql` form and sort into
 ### Re-running
 
 Every statement is `create … if not exists`, `enable row level security` (idempotent), a
-`drop policy if exists` immediately followed by its `create policy`, or a `create or replace
-function`. **Pasting any file a second time is a no-op and cannot half-apply.**
+`drop policy if exists` immediately followed by its `create policy`, a `create or replace
+function`, or — once, in file 6 — a `drop function if exists` of a signature that no longer
+exists after the first paste. **Pasting any file a second time is a no-op and cannot half-apply.**
 
 The one thing `create or replace function` cannot do is change a **signature**: it refuses a
-new argument name or type. If an argument is ever added to either RPC — the country scope
-`pull_changes` is shaped for is the likely one — that migration has to `drop function` the old
-signature and create the new one in the same file, which is atomic in a single transaction.
+new argument name or type. When an argument is added, the migration has to `drop function` the old
+signature and create the new one in the same file, which is atomic in a single transaction. **#31
+did it first**, to give `similar_sites` the new site's other names: file 6 drops
+`similar_sites(text, double precision, double precision, double precision, uuid, integer)`
+immediately before it creates the version with `p_alt_names`, and grants and revokes only the new one
+(`catalogueRpcParity` pins all three). The country scope `pull_changes` is shaped for is the
+likely next one.
 
 The one thing to know, because it is the opposite of what "idempotent" suggests: `create
 table if not exists` does **not** alter a table that already exists. If you edit file 2
@@ -188,6 +284,13 @@ dropping it. That is deliberate: a field silently discarded would have the clien
 dirty flag and lose the value permanently, while a refused push costs a diver nothing (§7:
 sync failures never block logging) and tells the owner a migration is missing.
 
+**A set that arrives as anything but an array is stored as `[]`, not refused** (#31). The
+catalogue sets — `site_types`, `alt_names`, `services`, `agencies`, and a site's `entry` — are NOT
+NULL, and the community tables are read key by key out of the payload, so nothing else would stand
+between another client's JSON `null` and that constraint; `public.sync_json_array` does. The
+paragraph above is about a column, which a migration fixes; this is one malformed value, which no
+migration would, and refusing it would refuse that diver's whole push every time it was retried.
+
 ## What file 6 assumes about the client
 
 - **A search result is a catalogue row, not a search artefact.** `search_sites` and
@@ -203,6 +306,19 @@ sync failures never block logging) and tells the owner a migration is missing.
   was not, on the grounds that there was no column to write a flag into, and file 7 is now that
   somewhere. The client calls this function once, before saving; the server calls it again on
   arrival, which is the only moment either side can tell a new site from a re-push.
+- **A site's other names go with its name, raw, and the answer is rows, not reasons** (#31).
+  `similar_sites` takes `p_alt_names`, a JSON list: the other names Save will write, which the
+  device has already cleaned (`cleanAltNames` — trimmed, no blank, no repeat, none that folds to
+  the name) but not folded, for the reason the next bullet but one gives. `folded_names` folds them
+  here, as `name_fold` folds the name: a list keeps its strings and skips anything else in it,
+  and a value that is not a list is no names. The check runs both ways — the name against
+  existing names and other names, the other names against existing names — and never other name
+  against other name. `search_sites` matches an other name as it matches a name. Neither
+  function says *which* of a row's names matched, or whether the match is the same name, another
+  name or a near one: that is the client's to work out from the row it gets back (`twinRelation`
+  for the duplicate check, `alsoCalled` for search, both in `src/domain/`), and a duplicate
+  check's near match on another name is one it cannot word (DESIGN.md §10 leaves that open for
+  the owner).
 - **A short query gets nothing back, by design.** Trigram similarity is near zero for two or
   three characters against a longer name. The device's own history and catalogue copy are §2.3's
   first answer; this one stays quiet until the query means something.
@@ -242,7 +358,9 @@ claim was previously checked by nobody.
 short exception list with a reason each), and the guarantees §7 depends on that nothing else
 could see — the ISO-Z timestamp spelling, `created_at` never restamped, `updated_at` never the
 client's, tombstones never filtered out, `ST_MakePoint` given longitude before latitude — are
-asserted by name. Both readers share `src/testing/migrationSql.ts`.
+asserted by name. Both readers share `src/testing/migrationSql.ts`, and since #31 both accept a
+`drop function`: it says nothing about a column or a function's body, so it is skipped, and kept
+among the statements for `catalogueRpcParity` to check which signature it drops and where.
 
 `src/db/syncRpcParity.test.ts` also covers M2q's recheck, and those assertions are the ones
 worth knowing about, because every one of them fails in silence on a server nobody here can
@@ -250,7 +368,11 @@ reach: that the arrival question is asked *before* the upsert makes its answer "
 conflict clause is `do nothing`, so a dismissed suspicion is never reopened; that the similarity
 rule is asked of `similar_sites` and not re-implemented in push; that the one `exception` block
 covers the recheck and no upsert; and that the table takes no part in §7's protocol although
-§7's own RPC writes it.
+§7's own RPC writes it. Since #31 it also pins that the recheck hands `similar_sites` the arriving
+site's other names (`p_alt_names => arrived.alt_names`), and that each of the catalogue sets — a
+site's `entry` among them — is written through `sync_json_array`, which is `immutable` and not
+`strict`. Its key reader takes `payload->'key'` as well as `payload->>'key'`, since the sets are
+read with `->` and a reader that knew only `->>` would have let the column sweep pass over them.
 
 `src/db/catalogueRpcParity.test.ts` does it for file 6 against files 2 and 5, and is weighted
 towards the three failures there that are silent: that `delete_account` writes exactly once
@@ -270,11 +392,33 @@ written out beside them, and the value side of every comparison is swept exhaust
 folded references per function, floored), because a fold applied to the query alone is the
 half that would ship.
 
-It also asserts the guarantees the SQL text carries that a column comparison cannot see:
-no serial or identity anywhere (ids are the client's UUIDv7), no trigger stamping
-`created_at` or `updated_at`, no enum or CHECK on a vocabulary column (§10: an unknown
-value is stored and flagged, never rejected), `tanks`/`equipment` NOT NULL with a `'[]'`
-default, RLS enabled on all six tables, and no client role granted DELETE.
+#31 carries both of those to a site's other names, and adds two of its own. **One fold for the
+list**: every read of `s.alt_names` in `search_sites` and `similar_sites` goes through
+`alt_names_fold` or `alt_name_similarity`, both of those through `folded_names` — or, in
+`similar_sites` alone and only for the rows it hands back, `best_alt_name`, which has to return the
+name as written and so reads the list itself, held phrase for phrase to `folded_names`' guards and
+fold. Of the four, only those two call `name_fold`; the new index's expression is derived from
+the very one the `%>` pre-filter applies; and `similar_sites` makes six folded references where the searches
+make three, since it asks again about the proposed other names. **The operators are counted
+apart** — four `%` and two `%>`, each written the long way. **The word-similarity cut-off is set
+from the floor** in both functions, once, after their guards and before the query that reads it.
+**The signature change** is one `drop function if exists` of the old `similar_sites`, immediately
+before the new one is created, with no grant or revoke left naming it. The four helpers are
+`immutable` and `parallel safe`, and `suggest_site_edit` allows every fact #31 gave a site.
+**`matched_name` is decided off the rank's own scores**: `similar_sites` writes its three scores
+once, in `scores`, and its filter, its rank and its answer all read them there, so none of them
+can drift from the others (each filter arm keeps its trigram operator, which is what reaches the
+index). It ranks by their best, and reports an other name only when that score beats both of
+the site's own-name scores outright, as a key beside `sync_site`'s rendering — never a column of
+`dive_sites`, and never looked up inside the ranking CTE.
+
+`src/db/schemaParity.test.ts` also asserts the guarantees the SQL text carries that a column
+comparison cannot see: no serial or identity anywhere (ids are the client's UUIDv7), no trigger
+stamping `created_at` or `updated_at`, no enum or CHECK on a vocabulary column (§10: an unknown
+value is stored and flagged, never rejected), every JSON-array column (`tanks`, `equipment`,
+`series`, #31's four catalogue sets and a site's `entry`) NOT NULL with a `'[]'` default — and
+every `jsonb` column of a synced table one of them, so another set cannot arrive nullable by being
+left off the list — RLS enabled on all six tables, and no client role granted DELETE.
 
 **What neither proves:** that this SQL runs. **Nothing in this repository can establish that**
 — the readers are strict on purpose (they throw on anything they have not been taught rather
@@ -364,3 +508,48 @@ the `%` operator's cut-off is the session GUC
 `pg_trgm.similarity_threshold`, which `public.name_match_floor()` is written to equal. If that
 GUC is ever raised on this project, both search functions quietly return less, and the remedy
 is `alter role authenticated set pg_trgm.similarity_threshold = 0.3;`.
+
+**#31's SQL is not applied to the project yet, but it has run twice** on a throwaway Postgres 16 +
+PostGIS 3.4 with a small stand-in for Supabase's `auth` schema and roles (2026-11-17): first with
+the files as they were before a site's `entry` became a set, then again after the set and
+`altitude_m`. Each time as a fresh project, re-applied over itself, and by the upgrade path in
+[Applying #31](#applying-31-to-a-project-that-already-has-files-17) from the files as they were
+before #31; every step passed, with no defects. File 6 then changed — `best_alt_name` and
+`similar_sites`' `matched_name` — and a third run on the same kind of throwaway (Postgres 16.4 +
+PostGIS 3.4.3, 2026-11-17) covered it, as a fresh project and by the owner's upgrade path, again
+with no defects: `matched_name` names the other name a match came through and is null when the
+match came through the site's own name or tied; `best_alt_name` trims and returns the first-listed
+name on a tie; the arrival recheck still writes suspicions with no warning; and on 20,008
+synthetic sites `similar_sites` still plans as a BitmapOr over the three trigram arms, at the
+same speed as before. A fourth run, after the review made `similar_sites`' filter read its three
+scores from `scores` instead of writing them out again, repeated the third on a fresh container:
+every result identical to it (the same rows, the same `matched_name`s), the same BitmapOr plans
+with no sequential scan of `dive_sites`, and the same timings. None of the four runs was on the
+project itself. That settled two things this list
+used to call unprovable:
+
+- **pg_trgm takes up the cut-off `set_config` gives it.** `search_sites` and `similar_sites` set
+  `pg_trgm.word_similarity_threshold` from the floor as they run, and in a session where pg_trgm
+  had not loaded yet the setting read 0.3 inside the call and its default of 0.6 after it. It
+  matters: a query scoring 0.571 by word similarity against an other name (`stoen gate` against
+  *Stone Gate*) is found only because of it. Were a project ever to behave otherwise, the remedy
+  is the same shape as the one above:
+  `alter role authenticated set pg_trgm.word_similarity_threshold = 0.3;`.
+- **The planner uses the indexes for other names.** Over 20,000 synthetic sites, with
+  `auto_explain` showing the plans inside the plpgsql bodies, `search_sites` ran as a `BitmapOr`
+  over the name and other-names trigram indexes, and `similar_sites` as a `BitmapOr` over all
+  three arms — the third, a site's name against each proposed other name (`% any`), included.
+
+What a throwaway cannot settle, and still stands:
+
+- **What the push recheck costs once the catalogue is big.** `push_changes` asks `similar_sites`
+  once per arriving site, all inside the one push — cheap at today's size, unmeasured at the size
+  an OpenStreetMap import would make it, and largest for a push that carries many new sites at
+  once, as a guest's first sign-in can. (On the throwaway's 20,000 sites, under emulation, one
+  `similar_sites` call with an other name took about 140 ms: a figure about that machine, not
+  the project.) If a `statement_timeout` cuts the push short, Postgres raises `query_canceled`,
+  which the recheck's `when others` does **not** catch, so the whole push fails rather than the
+  recheck alone being skipped.
+- **That the project behaves as the throwaway did.** Anything that is Supabase's rather than
+  Postgres's — its own `auth` schema and roles, settings made on the project — is proven only by
+  applying the files there.

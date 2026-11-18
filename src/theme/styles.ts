@@ -479,7 +479,7 @@ function build(scheme: ColorScheme) {
   };
 
   // A sentence under a row or a heading, explaining what the thing IS — Settings'
-  // "Dives you logged before Ponor", a site's defaults, the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
+  // "Dives you logged before Ponor", the Stats screen's notes. §0.6's "a field error is text, not a field" turned around: that message trails, into
   // the column of the value it is about, because it names what went wrong with something the
   // diver typed; this one LEADS, under the label, because it is read before the value rather
   // than after it. Same absence of a box, for the reason `formFieldError` records — a
@@ -829,6 +829,32 @@ function build(scheme: ColorScheme) {
     color: theme.fgMuted,
   };
   /**
+   * **A 36 tall outlined pill inside §0.5's 48 dp box** — `mapAction`'s "small visible control,
+   * generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to. Two
+   * controls draw it: the site picker's *Near me* (issue #19) and the *New dive site* page's *+ Add
+   * a name* (issue #31), which the canvas draws as the same pill. Hoisted so they are one
+   * definition. Fully rounded with a hairline outline; the label is a control's, in Archivo Medium.
+   */
+  const outlinePillBox: ViewStyle = {
+    minHeight: 48,
+    minWidth: 48,
+    justifyContent: 'center',
+  };
+  const outlinePill: ViewStyle = {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+  const outlinePillLabel: TextStyle = {
+    fontFamily: fonts['sans-medium'],
+    fontSize: 13.5,
+    color: theme.fg,
+  };
+  /**
    * A dive's number as a label above its site (§0.6's table: "Plex Mono 11, muted, above the
    * site name — a label, not a headline"). One definition because two places say it: the dive
    * row, and since issue #3 the dive detail's hero, which the canvas draws as that row at detail
@@ -918,6 +944,9 @@ function build(scheme: ColorScheme) {
    * permission has been read, and an export row while its file is being prepared — so it is
    * one definition here rather than the same three properties written twice.
    */
+  // The value half of a catalogue fact row: it may shrink, takes the width the label leaves, and
+  // wraps onto more lines, still right-aligned (`rowValue`'s own `textAlign`).
+  const factValueFill: TextStyle = { flex: 1, flexShrink: 1 };
   const rowValueSansMuted: TextStyle = {
     ...rowValueSans,
     color: theme.fgMuted,
@@ -1072,8 +1101,20 @@ function build(scheme: ColorScheme) {
     paddingHorizontal: CONTENT_INSET,
     paddingBottom: 8,
   };
-  // A named group on any of the four — a page's *Centre*/*Site* cluster and its *Your dives*, and
-  // a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
+  // A place's description, first under its page's own lines (#31) — the canvas's 16/23 paragraph
+  // in full ink, a new value recorded in §0.6. Newlines are the diver's own and no line cap is
+  // set: the text is theirs to read whole.
+  const catalogueDescription: TextStyle = {
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    lineHeight: 23,
+    color: theme.fg,
+    paddingHorizontal: CONTENT_INSET,
+    paddingTop: 4,
+    paddingBottom: 16,
+  };
+  // A named group on any of the four — a centre page's *Contact* and *Services*, a site page's
+  // *The site*, either page's *Your dives*, and a directory's own heading. `settingsSectionTitle`'s composition of `clusterLabel`, which is
   // §0.6's one treatment for a group header wherever it appears. **`paddingTop` where
   // `settingsSectionTitle` has none, and it was found by looking.** On Settings a section heading
   // always follows a row, so the row's own hairline and height give it air; here the first
@@ -3787,6 +3828,16 @@ function build(scheme: ColorScheme) {
       ...clusterLabel,
       flex: 1,
     },
+    // What a closed group holds (`FormGroup`'s `hint`): the muted mono `newPlaceHeaderNote` is,
+    // one line, shrinking before the title does not.
+    formGroupHint: {
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      lineHeight: 17,
+      color: theme.fgMuted,
+      flexShrink: 1,
+      maxWidth: '60%',
+    },
     // §0.6: "**A collapsible group is marked by a chevron, not by the words 'Show'/'Hide'.**
     // **Drawn, not typed** — the same reason §0.6 already gives for rating marks: a glyph's
     // size varies by typeface, so a typed chevron looks broken somewhere. It rotates to show
@@ -4549,17 +4600,30 @@ function build(scheme: ColorScheme) {
     // not be read", "nothing matches". `settingsPresetEmpty`'s own definition, and the reason
     // is that key's: those are different sentences and must never be confused.
     centerEmpty: settingsSectionNote,
-    // What the catalogue knows that is not a figure — a country, a website. The form's own row
+    // What the catalogue knows that is not a figure — a country, a website, and since #31 an
+    // address, an email, opening hours, services and training agencies. The form's own row
     // is what draws them (`formField`/`formFieldRow`/`formFieldLabel`), so the only key here is
     // the value's face: `rowValueSans`, §0.6's "figures in mono, names in sans", read exactly as
     // `accountEmail` reads it — a web address is a name, however little it looks like one.
-    centerFactValue: rowValueSans,
+    centerFactValue: { ...rowValueSans, ...factValueFill },
+    // A centre's phone number — a figure, so mono (§0.6), where its address and email are names.
+    centerFactFigure: { ...rowValueMono, ...factValueFill },
+    // A catalogue fact's label — `formFieldLabel` with its shrink taken away, for the page that
+    // can put a long value beside it. `formFieldLabel` lets the label wrap so the form's value
+    // keeps its column (§0.5, Czech runs long); a fact row is the other way round — "Služby"
+    // against "Vzduch · Nitrox · Půjčovna · Kurzy · Ponory z lodi" wrapped as "Služb / y". The
+    // label keeps its own width and the value takes what is left and wraps. Shared by both
+    // pages; the dive form and every other screen keep `formFieldLabel` as it was.
+    factLabel: {
+      ...rowLabel,
+      flexShrink: 0,
+    },
+    centerDescription: catalogueDescription,
     // --- the same four keys again, for the sites pair (M3f) --------------------------------
     // Every one of them is the definition its centres twin above takes, under a name that says
     // which screen it is placed on. What a site's page has that a centre's does not is content:
     // §6 gives it `entry`, `salinity`, `water_body` and its own `max_depth_m`, three of which are
-    // §2.1's site defaults, and the caption that says so is `captionBlock`/`captionText` — the
-    // sentence-under-a-block Settings and the account screen already speak in.
+    // §2.1's site defaults, and the note that says which is `siteFactsNote` below.
     siteScroll: rowScroll,
     siteContent: rowScrollContent,
     siteHeading: {
@@ -4575,15 +4639,26 @@ function build(scheme: ColorScheme) {
     siteRowName: settingsRowInk,
     siteRowSummary: settingsRowMeta,
     siteEmpty: settingsSectionNote,
-    siteFactValue: rowValueSans,
-    // **What the three site-default rows are for**, said once under them rather than marked on
-    // each: §2.1 prefills a new dive's entry, salinity and water body from the site, and a page
-    // that showed those three beside a country and a depth would give a diver no way to tell the
-    // facts that *do something* from the facts that merely describe. A sentence rather than a
-    // per-row mark for §0.6's own reason about the carried-over return mark — a second symbol is
-    // new vocabulary for a single case, and this one has a sentence's worth to say.
-    siteDefaultsCaption: captionBlock,
-    siteDefaultsCaptionText: captionText,
+    siteFactValue: { ...rowValueSans, ...factValueFill },
+    siteDescription: catalogueDescription,
+    // **Which of *The site*'s rows fill in a new dive**, said once under the cluster by naming them
+    // (the owner's pick C, issue #31 round 4) rather than in a cluster of their own or a mark on
+    // each row: §2.1 prefills a new dive's entry, salinity and water body from the site, and a
+    // page that showed those beside a country and a depth with nothing said would give a diver no
+    // way to tell the facts that *do something* from the facts that merely describe. A sentence
+    // rather than a per-row mark for §0.6's own reason about the carried-over return mark. The
+    // canvas draws it as a note about the rows, not a sentence of the page — muted mono at 11.5,
+    // the *New dive site* header note's face — 2 under the last row and 10 above what follows.
+    siteFactsNote: {
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 2,
+      paddingBottom: 10,
+    },
+    // `nameMeta` is the muted mono 11.5 face; the 16 is the canvas's leading for this note.
+    siteFactsNoteText: {
+      ...nameMeta,
+      lineHeight: 16,
+    },
     // ------------------------------------------------------------------------------------
     // The site and centre picker (issue #19, `PlacePickerScreen`)
     // ------------------------------------------------------------------------------------
@@ -4661,35 +4736,17 @@ function build(scheme: ColorScheme) {
       paddingHorizontal: CONTENT_INSET,
       paddingTop: 4,
     },
-    // *Near me*: a 36 tall pill inside §0.5's 48 dp box — `mapAction`'s "small visible control,
-    // generous hidden target", which the pill sweep in styles.test.ts holds every `XPill` to.
-    pickerNearMe: {
-      minHeight: 48,
-      minWidth: 48,
-      justifyContent: 'center',
-    },
-    // Fully rounded, a hairline outline; while on, the inverted ink of every chosen thing in the
-    // app (`selectedFill`/`selectedInk` — the form's chips, the Map's switched-on glyph).
-    pickerNearMePill: {
-      minHeight: 36,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: theme.border,
-      paddingHorizontal: 14,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
+    // *Near me*: the outlined pill in its 48 dp box (`outlinePill`); while on, the inverted ink of
+    // every chosen thing in the app (`selectedFill`/`selectedInk` — the form's chips, the Map's
+    // switched-on glyph).
+    pickerNearMe: outlinePillBox,
+    pickerNearMePill: outlinePill,
     pickerNearMePillOn: selectedFill,
-    pickerNearMeLabel: {
-      fontFamily: fonts['sans-medium'],
-      fontSize: 13.5,
-      color: theme.fg,
-    },
+    pickerNearMeLabel: outlinePillLabel,
     pickerNearMeLabelOn: selectedInk,
     // A sentence where rows would be or under the pills — Near me's refusal, *Nothing within 50
     // km*, the unreadable catalogue, and the prompt a page with nothing to list opens on.
-    // `captionBlock`/`captionText`, the sentence-under-a-block Settings and a site's page already
-    // speak in.
+    // `captionBlock`/`captionText`, the sentence-under-a-block Settings already speaks in.
     pickerNote: {
       ...captionBlock,
       paddingBottom: 6,
@@ -4820,6 +4877,11 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       color: theme.fgMuted,
     },
+    // *· from the address*, trailing a country the address gave: the canvas's value, inheriting the
+    // code's ink — it takes no colour of its own.
+    newPlaceCountrySource: {
+      opacity: 0.6,
+    },
     // A failed write, above the button: the sentence-under-a-block the picker's notes speak in.
     newPlaceNote: {
       ...captionBlock,
@@ -4831,6 +4893,29 @@ function build(scheme: ColorScheme) {
     newPlaceSaveUnavailable: {
       opacity: 0.35,
     },
+    // *+ Add a name*, under a site's *Other names* rows (issue #31): the picker's *Near me* pill
+    // (`outlinePill`), as the canvas draws it, on a row of its own on the column.
+    newPlaceAddNames: {
+      flexDirection: 'row',
+      paddingHorizontal: CONTENT_INSET,
+      paddingTop: 4,
+      paddingBottom: 12,
+    },
+    newPlaceAddName: outlinePillBox,
+    newPlaceAddNamePill: outlinePill,
+    newPlaceAddNameLabel: outlinePillLabel,
+    // *Use GPS altitude · 12 m*, under the *Altitude* row once a fix carried one (issue #31, round
+    // 4): the same quiet pill, at the row's trailing end as the canvas draws it, over the value it
+    // would fill. No air above it — it belongs to the row it sits under; 12 below, the canvas's.
+    newPlaceAltitudeOffers: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 12,
+    },
+    newPlaceAltitudeOffer: outlinePillBox,
+    newPlaceAltitudeOfferPill: outlinePill,
+    newPlaceAltitudeOfferLabel: outlinePillLabel,
     // ------------------------------------------------------------------------------------
     // The tab bar (DESIGN.md §3's note — "Tabs go to the bottom")
     // ------------------------------------------------------------------------------------

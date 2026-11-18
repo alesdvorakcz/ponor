@@ -1,4 +1,8 @@
 import type {
+  Agency,
+  Service,
+  SiteType,
+  SuitableFor,
   Configuration,
   ConditionLevel,
   DiveStatus,
@@ -98,6 +102,46 @@ export const cs = {
         torch: 'Svítilna',
         camera: 'Fotoaparát',
       } satisfies Record<Equipment, string>,
+      siteTypes: {
+        wreck: 'Vrak',
+        reef: 'Útes',
+        wall: 'Stěna',
+        pinnacle: 'Skalní věž',
+        canyon: 'Kaňon',
+        swim_through: 'Průplav',
+        muck: 'Muck',
+        drift: 'Drift',
+        blue_water: 'Modrá voda',
+      } satisfies Record<SiteType, string>,
+      /** Read after *Vhodné pro*. */
+      suitableFor: {
+        open_water: 'Open Water',
+        advanced: 'Pokročilé',
+        experienced: 'Zkušené',
+        technical: 'Technické',
+      } satisfies Record<SuitableFor, string>,
+      services: {
+        air: 'Vzduch',
+        nitrox: 'Nitrox',
+        trimix: 'Trimix',
+        rental: 'Půjčovna',
+        courses: 'Kurzy',
+        boat: 'Ponory z lodi',
+        shore: 'Ponory ze břehu',
+        repair: 'Servis',
+      } satisfies Record<Service, string>,
+      agencies: {
+        padi: 'PADI',
+        ssi: 'SSI',
+        cmas: 'CMAS',
+        naui: 'NAUI',
+        sdi_tdi: 'SDI/TDI',
+        raid: 'RAID',
+        gue: 'GUE',
+        bsac: 'BSAC',
+        iantd: 'IANTD',
+        other: 'Jiná',
+      } satisfies Record<Agency, string>,
       diveStatus: { logged: 'Zaznamenaný', planned: 'Plánovaný' } satisfies Record<DiveStatus, string>,
       unitSystem: { metric: 'Metrické', imperial: 'Imperiální' } satisfies Record<UnitSystem, string>,
       /** *Vlny* are feminine plural, *proud* masculine, *vlnobití* neuter — which is why the
@@ -192,6 +236,8 @@ export const cs = {
       siteMark: '{{name}}, potápěčská lokalita',
       centerMark: '{{name}}, potápěčské centrum',
       yourDives: 'Vaše ponory',
+      contact: 'Kontakt',
+      services: 'Služby',
     },
 
     certification: {
@@ -475,7 +521,24 @@ export const cs = {
       gps: 'GPS',
       country: 'Země',
       website: 'Web',
+      description: 'Popis',
+      address: 'Adresa',
+      phone: 'Telefon',
+      email: 'E-mail',
+      openingHours: 'Otevírací doba',
+      services: 'Služby',
+      agencies: 'Výcvikové agentury',
+      siteTypes: 'Typ lokality',
+      suitableFor: 'Vhodné pro',
+      wreckName: 'Název vraku',
+      wreckSunkYear: 'Rok potopení',
+      wreck: 'Vrak',
+      water: 'Voda',
+      agenciesShort: 'Agentury',
+      altName: 'Jiný název',
+      altNames: 'Jiné názvy',
       siteDepth: 'Hloubka lokality',
+      altitude: 'Nadmořská výška',
       status: 'Stav',
       /** *Čas vstupu* / *Čas výstupu*, agreeing with `field.entry` above — the water is what a
        * diver goes into and comes out of, and *Začátek* / *Konec* would name the clock instead. */
@@ -723,9 +786,14 @@ export const cs = {
       heading: 'Potápěčské lokality',
       notFound: 'Lokalita nenalezena.',
       facts: 'Lokalita',
-      defaults: 'Výchozí hodnoty lokality',
-      defaultsNote:
-        'Když tuto lokalitu vyberete u nového ponoru, tato pole se vyplní — a přepíšou cokoli převzatého z posledního ponoru.',
+      sunk: 'potopen roku {{year}}',
+      /** One sentence, not `_one`/`_few`/`_many`/`_other`: *vyplní* is the third person singular
+       * and plural alike, so *Voda se … vyplní* and *Voda a Vstup se … vyplní* both agree. English
+       * moves its verb (`prefillNote_one` / `_other` in en.ts); i18next tries the plural form first
+       * and finds this bare key in Czech before it would fall back to English —
+       * `figure.coverage`'s case the other way round. */
+      prefillNote: '{{rows}} se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+      prefillRows: '{{first}} a {{second}}',
       searchPlaceholder: 'Hledat lokality',
       close: 'Zavřít lokality',
       noneGuest:
@@ -739,7 +807,9 @@ export const cs = {
     centre: {
       heading: 'Potápěčská centra',
       notFound: 'Centrum nenalezeno.',
-      facts: 'Centrum',
+      showAddress: 'Ukázat {{address}} na mapě',
+      call: 'Zavolat na {{phone}}',
+      mail: 'Napsat na {{email}}',
       searchPlaceholder: 'Hledat centra',
       close: 'Zavřít centra',
       noneGuest:
@@ -788,6 +858,8 @@ export const cs = {
         phoneOnly: 'jen v tomto telefonu · zatím nesdíleno',
       } satisfies Record<Provenance, string>,
       dived: 'navštíveno',
+      /** *Jiným názvem*, not *také zvaná*: gender-neutral, so it never has to agree with *lokalita*. */
+      alsoCalled: 'jiným názvem {{name}}',
       nothingNearMatches: 'V okruhu {{distance}} nic neodpovídá „{{query}}“.',
       nothingNear: 'V okruhu {{distance}} nic není.',
       lookingNear: 'Hledám místa v okruhu {{distance}}…',
@@ -808,7 +880,9 @@ export const cs = {
       name: 'Název',
       position: 'Poloha',
       useCurrentPosition: 'Použít aktuální polohu',
+      useGpsAltitude: 'Použít výšku z GPS · {{value}}',
       asksThePhone: 'zeptá se telefonu, kde jste',
+      fromTheAddress: 'z adresy',
       fromThisDive: 'z tohoto ponoru',
       optional: 'nepovinné',
       saveSite: 'Uložit lokalitu',
@@ -817,7 +891,17 @@ export const cs = {
       saving: 'Ukládám…',
       saveFailed: 'Teď se to nepodařilo uložit. Na ponoru se nic nezměnilo.',
       sameName: 'Lokalita „{{name}}“ už existuje.',
+      otherName: '„{{alias}}“ je jiný název pro {{name}}.',
+      didYouMeanAlsoCalled: 'Nemysleli jste „{{name}}“ (jiným názvem {{alias}})?',
       away: '{{distance}} odtud',
+      everyoneCanRead: 'uvidí ho všichni',
+      anyThatApply: 'lze vybrat více',
+      addName: '+ Přidat název',
+      addNameLabel: 'Přidat další název',
+      siteHint: 'voda, vstup, typ, hloubka',
+      altNamesHint: 'jak se jí ještě říká',
+      contactHint: 'web, telefon, e-mail, hodiny',
+      servicesHint: 'služby, agentury',
     },
 
     accountOffer: {

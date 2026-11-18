@@ -7,6 +7,7 @@ import {
   SUGGESTION_LIMIT,
   suggestFrom,
   suggestionHistory,
+  twinRelation,
   type Suggestion,
 } from './suggest';
 import { type Dive, type DiveSite } from './types';
@@ -368,8 +369,14 @@ const site = (name: string | null, over: Partial<DiveSite> = {}): DiveSite =>
     longitude: null,
     salinity: null,
     waterBody: null,
-    entry: null,
+    entry: [],
     maxDepthM: null,
+    siteTypes: [],
+    suitableFor: null,
+    altNames: [],
+    description: null,
+    wreckName: null,
+    wreckSunkYear: null,
     createdBy: null,
     status: 'active',
     mergedInto: null,
@@ -387,7 +394,7 @@ const found = (value: string, id: string): Suggestion => ({ value, id });
 // gets, with no network anywhere in it.
 it('finds the catalogue row a typed name already names, with nothing from any server', () => {
   const catalogue = [site('Kotelna', { id: 'site-kotelna' }), site('Silfra')];
-  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'site-kotelna')]);
+  expect(nearMatches('Kotelna', [], catalogue, [])).toEqual([found('Kotelna', 'site-kotelna')]);
 });
 
 // The fold is `foldForMatching`'s, so every rule M2j settled applies here without being
@@ -395,8 +402,8 @@ it('finds the catalogue row a typed name already names, with nothing from any se
 // sentence, and this is the duplicate §5 asks the check to catch.
 it('folds both sides, so case and accents are the same site', () => {
   const catalogue = [site('Divoká Šárka', { id: 'site-sarka' })];
-  expect(nearMatches('divoka sarka', catalogue, [])).toEqual([found('Divoká Šárka', 'site-sarka')]);
-  expect(nearMatches('  KOTELNA  ', [site('Kotelna', { id: 'k' })], [])).toEqual([found('Kotelna', 'k')]);
+  expect(nearMatches('divoka sarka', [], catalogue, [])).toEqual([found('Divoká Šárka', 'site-sarka')]);
+  expect(nearMatches('  KOTELNA  ', [], [site('Kotelna', { id: 'k' })], [])).toEqual([found('Kotelna', 'k')]);
 });
 
 // **The line the device deliberately does not cross.** Equality, not substring: `Kotelna II`
@@ -406,20 +413,34 @@ it('folds both sides, so case and accents are the same site', () => {
 // approximation of `pg_trgm` would be the second implementation §4.1 exists to prevent.
 it('will not call a longer name or a misspelling a match on its own', () => {
   const catalogue = [site('Kotelna II', { id: 'k2' }), site('Shark Point', { id: 'sp' })];
-  expect(nearMatches('Kotelna', catalogue, [])).toEqual([]);
-  expect(nearMatches('Sharks Point', catalogue, [])).toEqual([]);
+  expect(nearMatches('Kotelna', [], catalogue, [])).toEqual([]);
+  expect(nearMatches('Sharks Point', [], catalogue, [])).toEqual([]);
+});
+
+// #31: a new site's name is checked against the names a row also goes by, and the other names
+// typed beside it against a row's own name — otherwise *Stone Gate*, typed with *Kamena vrata*
+// beside it, slips past an existing *Kamena vrata*. Still exact and folded: the device's only kind
+// of match, in both directions, and no third — other name against other name is not compared.
+it('finds a site on the device by its other name, and by the other name typed', () => {
+  const stoneGate = site('Stone Gate', { id: 'stone', altNames: ['Kamena Vrata'] });
+  const kamenaVrata = site('Kamena vrata', { id: 'kamena' });
+  expect(nearMatches('kamená vrata', [], [stoneGate, site('Silfra')], [])).toEqual([found('Stone Gate', 'stone')]);
+  expect(nearMatches('Stone Gate', ['Kamena vrata'], [kamenaVrata, site('Silfra')], [])).toEqual([
+    found('Kamena vrata', 'kamena'),
+  ]);
+  expect(nearMatches('Vrata', ['Kamena Vrata'], [stoneGate], [])).toEqual([]);
 });
 
 // ...and the server is what supplies exactly those, so the pair of tests is one decision.
 it('takes the fuzzy ones from the server, which is where fuzzy lives', () => {
-  expect(nearMatches('Sharks Point', [], [found('Shark Point', 'sp')])).toEqual([found('Shark Point', 'sp')]);
+  expect(nearMatches('Sharks Point', [], [], [found('Shark Point', 'sp')])).toEqual([found('Shark Point', 'sp')]);
 });
 
 // The device first: a row it holds is a row it can prove exists, and an exact name match is a
 // stronger claim than a trigram score. Asserted on the ORDER, because the order is the claim.
 it('puts the device’s own answer above the server’s', () => {
   const catalogue = [site('Kotelna', { id: 'k' })];
-  expect(nearMatches('Kotelna', catalogue, [found('Kotelna II', 'k2')])).toEqual([
+  expect(nearMatches('Kotelna', [], catalogue, [found('Kotelna II', 'k2')])).toEqual([
     found('Kotelna', 'k'),
     found('Kotelna II', 'k2'),
   ]);
@@ -429,7 +450,7 @@ it('puts the device’s own answer above the server’s', () => {
 // second ranking here would be a second answer to which near-match is nearest.
 it('keeps the server’s ranking as it arrived', () => {
   const fromServer = [found('Shark Point', 'a'), found('Shark Bay', 'b'), found('Sharp Point', 'c')];
-  expect(nearMatches('Sharks Point', [], fromServer)).toEqual(fromServer);
+  expect(nearMatches('Sharks Point', [], [], fromServer)).toEqual(fromServer);
 });
 
 // **The common case for a diver who is online**, and the one that would put the same site on
@@ -438,7 +459,7 @@ it('keeps the server’s ranking as it arrived', () => {
 it('asks about one site once, however many sources found it', () => {
   const catalogue = [site('Kotelna', { id: 'site-kotelna' })];
   const fromServer = [found('Kotelna', 'site-kotelna'), found('Kotelna II', 'site-kotelna-2')];
-  expect(nearMatches('Kotelna', catalogue, fromServer)).toEqual([
+  expect(nearMatches('Kotelna', [], catalogue, fromServer)).toEqual([
     found('Kotelna', 'site-kotelna'),
     found('Kotelna II', 'site-kotelna-2'),
   ]);
@@ -448,28 +469,28 @@ it('asks about one site once, however many sources found it', () => {
 // stop being made — so they are two questions, told apart by the id the tap will pair.
 it('asks about two rows spelled alike separately, because they are two rows', () => {
   const catalogue = [site('Kotelna', { id: 'one' }), site('kotelna', { id: 'two' })];
-  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'one'), found('kotelna', 'two')]);
+  expect(nearMatches('Kotelna', [], catalogue, [])).toEqual([found('Kotelna', 'one'), found('kotelna', 'two')]);
 });
 
 // The whole point of the one tap is §6's pair, so a candidate that cannot supply an id has
 // nothing to offer — picking it would leave the dive holding a name and no site.
 it('drops a candidate with no usable id, from either source', () => {
   const catalogue = [site('Kotelna', { id: '' as unknown as string })];
-  expect(nearMatches('Kotelna', catalogue, [])).toEqual([]);
-  expect(nearMatches('Kotelna', [], [{ value: 'Kotelna', id: null }])).toEqual([]);
+  expect(nearMatches('Kotelna', [], catalogue, [])).toEqual([]);
+  expect(nearMatches('Kotelna', [], [], [{ value: 'Kotelna', id: null }])).toEqual([]);
 });
 
 // An empty name names no site, and a fold of it would equal every empty stored name.
 it('answers nothing for an empty or whitespace-only name', () => {
   const catalogue = [site('Kotelna', { id: 'k' }), site('   ', { id: 'blank' })];
-  expect(nearMatches('', catalogue, [found('Kotelna', 'k')])).toEqual([]);
-  expect(nearMatches('   ', catalogue, [found('Kotelna', 'k')])).toEqual([]);
+  expect(nearMatches('', [], catalogue, [found('Kotelna', 'k')])).toEqual([]);
+  expect(nearMatches('   ', [], catalogue, [found('Kotelna', 'k')])).toEqual([]);
 });
 
 // A catalogue row with no name is not a site anybody can be asked about, and `String(null)` is
 // `"null"` — the trap `domain/search.ts` documents for these same columns.
 it('skips a catalogue row with no name at all', () => {
-  expect(nearMatches('null', [site(null), site('  ')], [])).toEqual([]);
+  expect(nearMatches('null', [], [site(null), site('  ')], [])).toEqual([]);
 });
 
 // These rows come out of the database during a gesture, so a hole or a column holding
@@ -481,15 +502,76 @@ it('survives a hole in the catalogue and a name that is not text', () => {
     site(42 as unknown as string),
     site('Kotelna', { id: 'k' }),
   ] as unknown as DiveSite[];
-  expect(nearMatches('Kotelna', catalogue, [])).toEqual([found('Kotelna', 'k')]);
+  expect(nearMatches('Kotelna', [], catalogue, [])).toEqual([found('Kotelna', 'k')]);
 });
 
 // The rows sit in the slot the suggestion list owns (§0.6), so how many fit under a focused
 // row is one layout judgement rather than two — `SUGGESTION_LIMIT`, not a number of its own.
 it('caps the question at the same number of rows a suggestion list gets', () => {
   const fromServer = Array.from({ length: SUGGESTION_LIMIT + 3 }, (_, i) => found(`Shark ${i}`, `id-${i}`));
-  expect(nearMatches('Sharks', [], fromServer)).toHaveLength(SUGGESTION_LIMIT);
-  expect(nearMatches('Sharks', [], fromServer, 2)).toEqual(fromServer.slice(0, 2));
+  expect(nearMatches('Sharks', [], [], fromServer)).toHaveLength(SUGGESTION_LIMIT);
+  expect(nearMatches('Sharks', [], [], fromServer, 2)).toEqual(fromServer.slice(0, 2));
+});
+
+// =========================================================================================
+// `twinRelation` — how a match relates to the site being made, so each gets its own sentence
+// =========================================================================================
+
+describe('twinRelation', () => {
+  // §2.3: the device's exact match is not a question — the name typed IS that site's name.
+  it('is one name when the two names fold alike', () => {
+    expect(twinRelation({ name: 'kotelna', altNames: [] }, site('Kotelna'))).toEqual({ kind: 'sameName' });
+  });
+
+  // #31's third sentence, both ways round: *"Kamena vrata" is another name for Stone Gate.*
+  it('names the other name the typed name is, and the site whose it is', () => {
+    expect(
+      twinRelation({ name: 'Kamena vrata', altNames: [] }, site('Stone Gate', { altNames: ['Kamena Vrata'] })),
+    ).toEqual({ kind: 'otherName', alias: 'Kamena Vrata', name: 'Stone Gate' });
+  });
+
+  it('names the site an other name typed beside the name already is', () => {
+    expect(twinRelation({ name: 'Stone Gate', altNames: ['Kamena vrata'] }, site('Kamena vrata'))).toEqual({
+      kind: 'otherName',
+      alias: 'Kamena vrata',
+      name: 'Stone Gate',
+    });
+  });
+
+  // Anything else the server found is its guess, and a guess is *Did you mean …?* — a misspelling,
+  // and an other name both happen to share, which the issue does not compare.
+  it('is only similar otherwise', () => {
+    expect(twinRelation({ name: 'Shark Point', altNames: [] }, site('Sharks Point'))).toEqual({ kind: 'similar' });
+    expect(twinRelation({ name: 'A', altNames: ['X'] }, site('B', { altNames: ['X'] }))).toEqual({ kind: 'similar' });
+  });
+
+  // The names come in that order: the site's other names before the ones typed.
+  it('asks whether the name is the site’s other name before whether an other name is the site’s', () => {
+    expect(twinRelation({ name: 'Kotelna', altNames: ['Lom'] }, site('Lom', { altNames: ['Kotelna'] }))).toEqual({
+      kind: 'otherName',
+      alias: 'Kotelna',
+      name: 'Lom',
+    });
+  });
+
+  // A row from another client's build may hold a list with a number or a `null` in it, or no list
+  // at all (#31's review focus 1): neither is a name, and what is quoted is trimmed, as shown.
+  it('quotes names trimmed, and reads past an other name that is not text', () => {
+    const odd = site('  Stone Gate ', { altNames: [3, null, '  Kamena Vrata  '] as unknown as string[] });
+    expect(twinRelation({ name: ' Kamena vrata ', altNames: [] }, odd)).toEqual({
+      kind: 'otherName',
+      alias: 'Kamena Vrata',
+      name: 'Stone Gate',
+    });
+    const none = site('Stone Gate', { altNames: null as unknown as string[] });
+    expect(twinRelation({ name: 'Kamena vrata', altNames: [] }, none)).toEqual({ kind: 'similar' });
+  });
+
+  // A blank names nothing, so two blanks are not one name — nor a blank other name a nameless row's.
+  it('relates a blank to nothing', () => {
+    expect(twinRelation({ name: '  ', altNames: [] }, site('  '))).toEqual({ kind: 'similar' });
+    expect(twinRelation({ name: 'Kotelna', altNames: [''] }, site(null))).toEqual({ kind: 'similar' });
+  });
 });
 
 // ---------------------------------------------------------------------------------------

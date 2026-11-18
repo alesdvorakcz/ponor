@@ -163,6 +163,23 @@ describe('pickerGroups', () => {
     expect(ids(groups[0])).toEqual(['n']);
   });
 
+  // #31: *Stone Gate* finds *Kamena vrata*, and the row says which name it was found by — the
+  // diver typed a name that is not the one on the row, and without a word the row looks like a
+  // wrong answer.
+  it('says which other name a typed row was found by', () => {
+    const places = [place({ id: 'k', name: 'Kamena vrata', altNames: ['Stone Gate'] }), place({ id: 'v', name: 'Vis' })];
+    const groups = pickerGroups(input({ places, query: 'stone' }));
+    expect(groups.map((g) => g.key)).toEqual(['other']);
+    expect(groups[0]?.rows).toEqual([expect.objectContaining({ id: 'k', alsoCalled: 'Stone Gate' })]);
+
+    // Nothing typed, nothing matched by another name: a dived row shows the name it has.
+    const dived = pickerGroups(input({ places, dives: [dive({ siteId: 'k' })] }));
+    expect(dived[0]?.rows[0]).toMatchObject({ id: 'k', alsoCalled: null });
+    // And a row found by its own name says nothing more, whatever else it is called.
+    const own = pickerGroups(input({ places, query: 'kamena' }));
+    expect(own[0]?.rows[0]).toMatchObject({ id: 'k', alsoCalled: null });
+  });
+
   it("an existing place's full name is listed", () => {
     const groups = pickerGroups(input({ places: [place({ id: 'n', name: 'Shark Point' })], query: ' Shark Point ' }));
     expect(ids(groups[0])).toEqual(['n']);

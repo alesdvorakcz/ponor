@@ -1,9 +1,9 @@
 import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites, type PulledSite } from '../db/catalogue';
 import { type Suggestion } from '../domain/suggest';
 import { type DiveSite } from '../domain/types';
-import { countryFor } from '../platform/geocode';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { addCenter, addSite, findSiteTwins, TWIN_CHECK_TIMEOUT_MS } from './addToCatalogue';
-import { similarSites } from './similarSites';
+import { similarSites, type SimilarSite } from './similarSites';
 
 // The collaborators are mocked at the boundaries the form's own test mocks them at, for the same
 // reasons: `db` and the network are not this file's. What is asserted here is the orchestration —
@@ -18,7 +18,7 @@ jest.mock('../db/catalogue', () => ({
   listDiveSites: jest.fn(),
 }));
 jest.mock('./similarSites', () => ({ similarSites: jest.fn() }));
-jest.mock('../platform/geocode', () => ({ countryFor: jest.fn() }));
+jest.mock('../platform/geocode', () => ({ countryFor: jest.fn(), countryForAddress: jest.fn() }));
 
 const listSites = jest.mocked(listDiveSites);
 const storeSites = jest.mocked(applyPulledDiveSites);
@@ -26,6 +26,7 @@ const askServer = jest.mocked(similarSites);
 const makeSite = jest.mocked(createDiveSite);
 const makeCenter = jest.mocked(createDiveCenter);
 const country = jest.mocked(countryFor);
+const addressCountry = jest.mocked(countryForAddress);
 
 function site(id: string, name: string, over: Partial<DiveSite> = {}): DiveSite {
   return {
@@ -45,18 +46,23 @@ function pulled(id: string, name: string): PulledSite {
   return { id, name } as unknown as PulledSite;
 }
 
+/** One of the server's matches — through the site's own name unless told otherwise. */
+type ServerMatch = Pick<SimilarSite, 'value' | 'id'> & Partial<Pick<SimilarSite, 'alsoCalled'>>;
+
 /** The server's answer: the matches, and the rows whole — every match storable unless told. */
-function answer(matches: Suggestion[], rows: PulledSite[] = matches.map((m) => pulled(m.id ?? '', m.value))) {
+function answer(found: ServerMatch[], rows: PulledSite[] = found.map((m) => pulled(m.id, m.value))) {
+  const matches: SimilarSite[] = found.map((m) => ({ alsoCalled: null, ...m }));
   return { matches, rows };
 }
 
-const NO_FACTS = { entry: null, salinity: null, waterBody: null };
+const NO_FACTS = { entry: [], salinity: null, waterBody: null };
 
 beforeEach(() => {
   jest.resetAllMocks();
   makeSite.mockResolvedValue({ id: 'new-site' } as unknown as DiveSite);
   makeCenter.mockResolvedValue({ id: 'new-center' } as never);
   country.mockResolvedValue(null);
+  addressCountry.mockResolvedValue(null);
 });
 
 describe('findSiteTwins', () => {
@@ -71,9 +77,9 @@ describe('findSiteTwins', () => {
       ]),
     );
 
-    const twins = await findSiteTwins('kotelna', { latitude: 49.75, longitude: 14.36 });
+    const twins = await findSiteTwins('kotelna', [], { latitude: 49.75, longitude: 14.36 });
 
-    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'kotelna', 49.75, 14.36);
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'kotelna', [], 49.75, 14.36);
     expect(twins.map((s) => s.id)).toEqual(['s-local', 's-far']);
   });
 
@@ -81,16 +87,16 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValue([]);
     askServer.mockResolvedValue(answer([]));
 
-    await findSiteTwins('Kotelna', null);
+    await findSiteTwins('Kotelna', [], null);
 
-    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Kotelna', null, null);
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Kotelna', [], null, null);
   });
 
   it('answers [] when the device read throws', async () => {
     listSites.mockRejectedValue(new Error('disk'));
     askServer.mockResolvedValue(answer([{ value: 'Kotelna', id: 's-far' }]));
 
-    await expect(findSiteTwins('Kotelna', null)).resolves.toEqual([]);
+    await expect(findSiteTwins('Kotelna', [], null)).resolves.toEqual([]);
   });
 
   // *Use this site* on a match's page pairs the dive with it, so the match has to be a site the
@@ -99,7 +105,7 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([site('s-far', 'Kotelna 2')]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).toHaveBeenCalledWith(expect.anything(), [pulled('s-far', 'Kotelna 2')]);
     // Read back after the write, so what is offered is what the phone holds.
@@ -114,7 +120,7 @@ describe('findSiteTwins', () => {
     listSites.mockResolvedValue([]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).toHaveBeenCalled();
     expect(twins).toEqual([]);
@@ -129,7 +135,7 @@ describe('findSiteTwins', () => {
       ]),
     );
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
   });
@@ -143,13 +149,103 @@ describe('findSiteTwins', () => {
       .mockResolvedValueOnce([local, site('s-far', 'Kotelna 2', { country: '', latitude: 49.8, longitude: null })]);
     askServer.mockResolvedValue(answer([{ value: 'Kotelna 2', id: 's-far' }]));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins).toEqual([
-      { value: 'Kotelna', id: 's-local', country: 'CZ', point: { latitude: 49.75, longitude: 14.36 } },
+      {
+        value: 'Kotelna',
+        id: 's-local',
+        country: 'CZ',
+        point: { latitude: 49.75, longitude: 14.36 },
+        relation: { kind: 'sameName' },
+        alsoCalled: null,
+      },
       // An empty country is none, and half a position is no position.
-      { value: 'Kotelna 2', id: 's-far', country: null, point: null },
+      { value: 'Kotelna 2', id: 's-far', country: null, point: null, relation: { kind: 'similar' }, alsoCalled: null },
     ]);
+  });
+
+  // #31: the device's exact check reads a row's other names too, and the match says how the two
+  // relate — read off the phone's own row, the one a tap opens — so the page can word it.
+  it('offers a site whose other name is the name typed, saying how they relate', async () => {
+    listSites.mockResolvedValue([
+      site('s-stone', 'Stone Gate', { altNames: ['Kamena Vrata'] }),
+      site('s-other', 'Silfra'),
+    ]);
+    askServer.mockResolvedValue(answer([]));
+
+    const twins = await findSiteTwins('Kamena vrata', [], null);
+
+    expect(twins).toEqual([
+      {
+        value: 'Stone Gate',
+        id: 's-stone',
+        country: null,
+        point: null,
+        relation: { kind: 'otherName', alias: 'Kamena Vrata', name: 'Stone Gate' },
+        alsoCalled: null,
+      },
+    ]);
+  });
+
+  // The other way round, at sea: an other name typed is the name of a site the phone holds, and no
+  // server answers — so it is the device's own check that has to be handed the other names.
+  it('offers a site the phone holds whose name is an other name typed', async () => {
+    listSites.mockResolvedValue([site('s-kamena', 'Kamena vrata'), site('s-other', 'Silfra')]);
+    askServer.mockResolvedValue(answer([]));
+
+    const twins = await findSiteTwins('Stone Gate', ['Kamena vrata'], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation])).toEqual([
+      ['s-kamena', { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' }],
+    ]);
+  });
+
+  // ...and on the server's half: the other names go with the question, and the row the server finds
+  // by one of them is offered once the phone holds it.
+  it('asks the server with the other names as well', async () => {
+    listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([site('s-kamena', 'Kamena vrata')]);
+    askServer.mockResolvedValue(answer([{ value: 'Kamena vrata', id: 's-kamena' }]));
+
+    const twins = await findSiteTwins('Stone Gate', ['Kamena vrata'], { latitude: 43.06, longitude: 16.18 });
+
+    expect(askServer).toHaveBeenCalledWith(expect.anything(), 'Stone Gate', ['Kamena vrata'], 43.06, 16.18);
+    expect(twins.map((twin) => [twin.id, twin.relation])).toEqual([
+      ['s-kamena', { kind: 'otherName', alias: 'Kamena vrata', name: 'Stone Gate' }],
+    ]);
+  });
+
+  // The owner's call of 2026-11-17: a fuzzy server match that came through one of the site's other
+  // names carries that name to the page, which asks *Did you mean “Stone Gate” (also called Kamena
+  // vrata)?*. The server's word, by id — the relation is still the phone's row's, and a guess.
+  it('carries the other name the server says a match came through', async () => {
+    const stone = site('s-stone', 'Stone Gate', { altNames: ['Kamena vrata'] });
+    listSites.mockResolvedValueOnce([]).mockResolvedValueOnce([stone, site('s-shark', 'Shark Point')]);
+    askServer.mockResolvedValue(
+      answer([
+        { value: 'Stone Gate', id: 's-stone', alsoCalled: 'Kamena vrata' },
+        { value: 'Shark Point', id: 's-shark' },
+      ]),
+    );
+
+    const twins = await findSiteTwins('Kamena vrat', [], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation, twin.alsoCalled])).toEqual([
+      ['s-stone', { kind: 'similar' }, 'Kamena vrata'],
+      ['s-shark', { kind: 'similar' }, null],
+    ]);
+  });
+
+  // `nearMatches` keeps the device's own finding where both lists name a site, so the server's word
+  // is looked up by id rather than read off whichever object survived.
+  it('carries the server’s other name to a match the device found too', async () => {
+    const stone = site('s-stone', 'Stone Gate', { altNames: ['Kamena vrata'] });
+    listSites.mockResolvedValue([stone]);
+    askServer.mockResolvedValue(answer([{ value: 'Stone Gate', id: 's-stone', alsoCalled: 'Kamena vrata' }]));
+
+    const twins = await findSiteTwins('Kamena vrata', [], null);
+
+    expect(twins.map((twin) => [twin.id, twin.relation.kind, twin.alsoCalled])).toEqual([['s-stone', 'otherName', 'Kamena vrata']]);
   });
 
   it('does not offer a server match whose row could not be stored, unless the phone already holds it', async () => {
@@ -164,7 +260,7 @@ describe('findSiteTwins', () => {
       ),
     );
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(storeSites).not.toHaveBeenCalled();
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
@@ -180,7 +276,7 @@ describe('findSiteTwins', () => {
     );
     storeSites.mockRejectedValue(new Error('disk full'));
 
-    const twins = await findSiteTwins('kotelna', null);
+    const twins = await findSiteTwins('kotelna', [], null);
 
     expect(twins.map((s) => s.id)).toEqual(['s-local']);
   });
@@ -197,7 +293,7 @@ describe('findSiteTwins', () => {
       askServer.mockReturnValue(new Promise(() => {}));
 
       let answer: Suggestion[] | undefined;
-      void findSiteTwins('kotelna', null).then((found) => {
+      void findSiteTwins('kotelna', [], null).then((found) => {
         answer = found;
       });
 
@@ -269,6 +365,37 @@ describe('addSite', () => {
     expect(country).toHaveBeenCalledWith(45.1, 14.2);
     expect(makeSite).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'SI' }));
   });
+
+  // Issue #31: what the create page asks beyond the three a dive hands on travels beside them
+  // (`NewSiteDetails` — `NewSiteFacts` stays the three site defaults) and lands in the row.
+  it('carries a site’s details into the row it makes', async () => {
+    await addSite({
+      name: 'Vrak Teti',
+      latitude: null,
+      longitude: null,
+      ...NO_FACTS,
+      description: 'A steamer on the southern spur.',
+      siteTypes: ['wreck'],
+      suitableFor: 'advanced',
+      maxDepthM: 34,
+      wreckName: 'Teti',
+      wreckSunkYear: 1930,
+      altNames: ['Teti wreck'],
+    });
+
+    expect(makeSite).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        description: 'A steamer on the southern spur.',
+        siteTypes: ['wreck'],
+        suitableFor: 'advanced',
+        maxDepthM: 34,
+        wreckName: 'Teti',
+        wreckSunkYear: 1930,
+        altNames: ['Teti wreck'],
+      }),
+    );
+  });
 });
 
 describe('addCenter', () => {
@@ -314,5 +441,73 @@ describe('addCenter', () => {
 
     expect(country).toHaveBeenCalledWith(28.57, 34.54);
     expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  // Issue #31: the address gives a country, never a pin; a pin's own country wins.
+  it('without a pin, takes the country from the address', async () => {
+    addressCountry.mockResolvedValue('HR');
+    await addCenter({ name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: ' Otok Vis, Kut 12 ' });
+    expect(addressCountry).toHaveBeenCalledWith('Otok Vis, Kut 12');
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ latitude: null, country: 'HR' }));
+  });
+
+  it('lets the pin’s country win over the address’s', async () => {
+    country.mockResolvedValue('EG');
+    addressCountry.mockResolvedValue('HR');
+    await addCenter({ name: 'Shop', latitude: 28.57, longitude: 34.54, website: null, address: 'Otok Vis, Kut 12' });
+    expect(addressCountry).not.toHaveBeenCalled();
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'EG' }));
+  });
+
+  it('takes an address answer already looked up for the same address, and asks nothing', async () => {
+    await addCenter(
+      { name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: ' Otok Vis, Kut 12 ' },
+      undefined,
+      { address: 'Otok Vis, Kut 12', country: 'HR' },
+    );
+    expect(addressCountry).not.toHaveBeenCalled();
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'HR' }));
+  });
+
+  it('asks for itself when the known answer is about another address', async () => {
+    addressCountry.mockResolvedValue('SI');
+    await addCenter(
+      { name: 'Nautica Vis', latitude: null, longitude: null, website: null, address: 'Piran 3' },
+      undefined,
+      { address: 'Otok Vis, Kut 12', country: 'HR' },
+    );
+    expect(addressCountry).toHaveBeenCalledWith('Piran 3');
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ country: 'SI' }));
+  });
+
+  it('carries a centre’s contact and services into the row it makes', async () => {
+    await addCenter({
+      name: 'Nautica Vis',
+      latitude: null,
+      longitude: null,
+      website: 'https://nautica-vis.example',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18, closed Nov–Mar',
+      description: 'Family centre in Kut bay.',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+    });
+
+    expect(makeCenter).toHaveBeenCalledWith(expect.anything(), {
+      name: 'Nautica Vis',
+      latitude: null,
+      longitude: null,
+      website: 'https://nautica-vis.example',
+      address: 'Otok Vis, Kut 12',
+      phone: '+385 21 555 0123',
+      email: 'dive@nautica-vis.example',
+      openingHours: 'Daily 8–18, closed Nov–Mar',
+      description: 'Family centre in Kut bay.',
+      services: ['air', 'nitrox'],
+      agencies: ['padi', 'other'],
+      country: null,
+    });
   });
 });

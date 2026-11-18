@@ -1,0 +1,1 @@
+ALTER TABLE `dive_sites` ADD `altitude_m` real;

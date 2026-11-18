@@ -12,16 +12,21 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { pointOf, waterTempRange } from '../domain/mapSites';
-import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaults';
+import { SITE_DEFAULT_FIELDS, siteDefaultValue, type SiteDefaultField } from '../domain/siteDefaults';
 import { divesAtSite } from '../domain/siteDives';
-import { type DiveSite } from '../domain/types';
+import { type DiveSite, type Salinity, type WaterBody } from '../domain/types';
 import {
+  formatAltNames,
   formatCoordinates,
+  formatAltitude,
   formatDepth,
-  formatEntry,
+  formatPlaceTokens,
   formatSalinity,
   formatSiteSummary,
+  formatSuitableFor,
   formatWaterBody,
+  formatWreck,
+  METADATA_SEPARATOR,
   unnamedSite,
 } from '../format/display';
 import { t, useT } from '../i18n';
@@ -52,12 +57,12 @@ import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset, type 
  * at this rock". `divesAtSite` (domain/siteDives.ts) owns which dives those are.
  *
  * **What the catalogue knows**, which for a site is §6's `country`, `entry`, `salinity`,
- * `water_body` and its own `max_depth_m` — where a centre has a `website`. Three of those five are
- * §2.1's **site defaults**, and the page is where a diver can see what picking this site will put
- * into a new dive; the other two describe the place and prefill nothing. **They are drawn as two
- * clusters for exactly that reason** — a single list would give a diver no way to tell the facts
- * that *do something* from the facts that merely describe, and §2.1's precedence is a rule worth
- * being able to see before it fires rather than only after it has.
+ * `water_body` and its own `max_depth_m` — where a centre has a `website` — and #31's facts. Three
+ * of them are §2.1's **site defaults**, and the page is where a diver can see what picking this site
+ * will put into a new dive. **They stand in one cluster with the rest, and a note under it names
+ * them** (the owner's pick C, 2026-11-17) — a list with nothing said would give a diver no way to
+ * tell the facts that *do something* from the facts that merely describe, and §2.1's precedence is
+ * a rule worth being able to see before it fires rather than only after it has.
  *
  * ── The site's own depth is not any dive's, and this page is where the two meet ────────────
  *
@@ -110,30 +115,70 @@ function siteLabel(site: Pick<DiveSite, 'name'>): string {
   return site.name ?? unnamedSite();
 }
 
+/** The rows of *The site* that §2.1's three defaults stand in, in the page's order. */
+const PREFILL_ROWS = ['water', 'entry'] as const;
+
+type PrefillRow = (typeof PREFILL_ROWS)[number];
+
 /**
- * **The three columns §2.1 prefills from, as rows** — derived from `SITE_DEFAULT_FIELDS`
+ * **Which row each of §2.1's three defaults stands in** — derived from `SITE_DEFAULT_FIELDS`
  * (domain/siteDefaults.ts) rather than listed again here.
  *
- * §4.1's *"derive, or tie at compile time"*, and it is the tie rather than the derivation: this is
- * a `Record` over the field union, so a fourth default added to that module does not compile until
- * this page decides what to call it and how to read it, and a field dropped from it stops being
- * drawn without anyone remembering to look here. A hand-written array of three labels would agree
- * today and go stale the day the list moves — which is the failure `siteDefaults.ts`' own type
- * assertion exists to have caught once already, in the other direction.
- *
- * The labels are the dive form's and the dive detail's own words for the same three fields, which
- * is §4.1's one recorded exception (roughly twenty-five duplicated field labels, unified when
- * i18next keys them and not before). The VALUES go through `format/display.ts`, so a site's entry
- * reads the same word here as on a dive logged at it.
+ * §4.1's *"derive, or tie at compile time"*, and it is the tie: this is a `Record` over the field
+ * union, so a fourth default added to that module does not compile until this page decides which row
+ * it fills and so whether the note names it. A hand-written list of rows would agree today and go
+ * stale the day the list moves — which is the failure `siteDefaults.ts`' own type assertion exists to
+ * have caught once already, in the other direction. Salinity and water body share *Water*, as the
+ * canvas draws them (`Salt · Ocean`).
  */
-const SITE_DEFAULT_ROWS: Record<
-  SiteDefaultField,
-  { label: () => string; read: (site: DiveSite) => string | null }
-> = {
-  entry: { label: () => t('field.entry'), read: (site) => formatEntry(site.entry) },
-  salinity: { label: () => t('field.salinity'), read: (site) => formatSalinity(site.salinity) },
-  waterBody: { label: () => t('field.waterBody'), read: (site) => formatWaterBody(site.waterBody) },
+const ROW_OF_DEFAULT: Record<SiteDefaultField, PrefillRow> = {
+  salinity: 'water',
+  waterBody: 'water',
+  entry: 'entry',
 };
+
+/** Each of those rows' label — the one the row is drawn with and the one the note names it by, so
+ * the two cannot read differently. */
+const PREFILL_ROW_LABEL: Record<PrefillRow, () => string> = {
+  water: () => t('field.water'),
+  entry: () => t('field.entry'),
+};
+
+/**
+ * A site's water on one line — its salinity, then its water body, `Salt · Ocean`, or the one it
+ * records — read through the prefill's own rule (`siteDefaultValue`), so the row stands exactly when
+ * the note names it. A value is a word this build may not know (§10's store-and-flag), which the
+ * formatters take as a word.
+ */
+function waterLine(site: DiveSite): string | null {
+  const salinity = siteDefaultValue(site, 'salinity');
+  const body = siteDefaultValue(site, 'waterBody');
+  const words = [
+    salinity === null ? null : formatSalinity(salinity as Salinity),
+    body === null ? null : formatWaterBody(body as WaterBody),
+  ].filter((word): word is string => word !== null);
+  return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
+}
+
+/**
+ * **The note under *The site*: which of its rows fill in a new dive**, or `null` when none does.
+ *
+ * Decided field by field by the prefill's own reading, `siteDefaultValue`, so the page and the
+ * prefill cannot disagree: *Water* when salinity or water body is a default, *Entry* only when the set
+ * holds exactly one way in — several are left to the diver (§2.1, #63), so the row draws them and the
+ * note does not promise them. It states the tier it can promise and not the one it cannot: §2.1 puts
+ * the site above carry-over and below anything the diver has typed, and a note claiming the rows are
+ * simply "filled in" would be wrong about the tier that matters most.
+ */
+function prefillNote(site: DiveSite): string | null {
+  const filled = new Set(
+    SITE_DEFAULT_FIELDS.filter((field) => siteDefaultValue(site, field) !== null).map((field) => ROW_OF_DEFAULT[field]),
+  );
+  const names = PREFILL_ROWS.filter((row) => filled.has(row)).map((row) => PREFILL_ROW_LABEL[row]());
+  if (names.length === 0) return null;
+  const rows = names.reduce((first, second) => t('site.prefillRows', { first, second }));
+  return t('site.prefillNote', { rows, count: names.length });
+}
 
 /**
  * The way out, in §0.6's one treatment for leaving — mono, muted, small, and never competing with
@@ -173,7 +218,7 @@ function FactRow({ label, value, styles }: { label: string; value: string; style
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
         <Text style={styles.siteFactValue}>{value}</Text>
       </View>
     </View>
@@ -255,6 +300,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
 
   const point = pointOf(site);
   const coordinates = formatCoordinates(site.latitude, site.longitude);
+  const description = site.description !== null && site.description.trim() !== '' ? site.description : null;
 
   const header = (
     <View>
@@ -264,7 +310,11 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence five other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.siteSummary}>{logbookUnreadable()}</Text>}
-      {/* **"Show on map"** (issue #21) — the dive detail's card, under the page's own lines where the
+      {/* The description (#31) comes first, under the page's own lines: what a diver opened the
+          page to read. Only when it says something; its newlines are the author's and nothing
+          cuts it short. */}
+      {description !== null && <Text style={styles.siteDescription}>{description}</Text>}
+      {/* **"Show on map"** (issue #21) — the dive detail's card, under the description where the
           design canvas draws it, and only for a site with a position a map can show (`pointOf`).
           It opens Ponor's map pointed at this site (`platform/showOnMap.ts`), selecting the diver's own mark where they have dived it — that is the mark
           standing there (`domain/mapFocus.ts`). */}
@@ -327,58 +377,59 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
 }
 
 /**
- * **What the catalogue knows, in two clusters, and the split is the point.**
+ * **What the catalogue knows, in one cluster, and a note under it saying which rows do something**
+ * (the owner's pick C on the board *#31 · Site defaults, altitude offer*, 2026-11-17).
  *
- * *Site* holds the facts that describe the place — its country and its own depth. *Site defaults*
- * holds §2.1's three, which are the ones that will **do something**: picking this site on a new
- * dive writes them into it, over anything carried from the diver's last dive. A page that listed
- * all five together would be showing a diver a rule they cannot see and cannot predict, on the one
- * screen that has room to explain it.
+ * *The site* holds every fact in the canvas's order — its type, the level it suits, its own depth,
+ * its altitude, its wreck, its water, its ways in, its other names and its country (#31) — each only
+ * when filled. Three of them are what §2.1's defaults will **do**: picking this site on a new dive
+ * writes them into it, over anything carried from the diver's last dive. The note names those rows
+ * (`prefillNote`), by the prefill's own rule, so a page that lists everything together still lets a
+ * diver see the rule before it fires. It replaced a *Site defaults* cluster of its own, which the
+ * canvas never drew.
  *
- * **Either cluster is absent when it holds nothing**, which is the shape §0.6 requires on the dive
- * detail and `DiveCenterScreen` already follows: a heading over zero rows is worse than no
- * heading. §5 asks a new site only for a name, so a row that draws neither cluster is the ordinary
- * shape rather than a degraded one (§1: a sparse row is normal, not broken) — and `null` in one of
- * these columns means *the catalogue does not know*, never *the answer is empty*
- * (`domain/siteDefaults.ts`), which is exactly why an absent row is the honest rendering of it and
- * an em dash would not be.
+ * **The cluster and the note are absent when they hold nothing**, which is the shape §0.6 requires on
+ * the dive detail and `DiveCenterScreen` already follows: a heading over zero rows is worse than no
+ * heading. §5 asks a new site only for a name, so a row that draws no cluster is the ordinary shape
+ * rather than a degraded one (§1: a sparse row is normal, not broken) — and `null` in one of these
+ * columns means *the catalogue does not know*, never *the answer is empty* (`domain/siteDefaults.ts`),
+ * which is exactly why an absent row is the honest rendering of it and an em dash would not be.
  */
 function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem; styles: Styles }) {
   const country = site.country !== null && site.country !== '' ? site.country : null;
-  const depth = formatDepth(site.maxDepthM, units);
-  const defaults = SITE_DEFAULT_FIELDS.map((field) => ({
-    label: SITE_DEFAULT_ROWS[field].label(),
-    value: SITE_DEFAULT_ROWS[field].read(site),
-  })).filter((row): row is { label: string; value: string } => row.value !== null);
+  // The canvas's order, each row only when it holds something (§1).
+  const facts = [
+    { label: t('field.siteTypes'), value: formatPlaceTokens('siteTypes', site.siteTypes) },
+    { label: t('field.suitableFor'), value: formatSuitableFor(site.suitableFor) },
+    // **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few points
+    // above is already showing the diver's deepest dive here. Two depths on one screen with one
+    // of them unlabelled is the confusion §2.3 refuses to create in the other direction when it
+    // declines to seed this column from a dive. Ink, as the page has always drawn it (§0.1).
+    { label: t('field.siteDepth'), value: formatDepth(site.maxDepthM, units) },
+    // A height above sea level, not a depth: whole units, signed, ink — no band colour (§0.1).
+    { label: t('field.altitude'), value: formatAltitude(site.altitudeM, units) },
+    { label: t('field.wreck'), value: formatWreck(site.wreckName, site.wreckSunkYear) },
+    { label: PREFILL_ROW_LABEL.water(), value: waterLine(site) },
+    // Every way in the site offers, one or several (`Shore · Boat`); the note says when it is a default.
+    { label: PREFILL_ROW_LABEL.entry(), value: formatPlaceTokens('entry', site.entry) },
+    { label: t('field.altNames'), value: formatAltNames(site.altNames) },
+    { label: t('field.country'), value: country },
+  ].filter((row): row is { label: string; value: string } => row.value !== null);
+  const note = prefillNote(site);
 
+  if (facts.length === 0) return null;
   return (
     <View>
-      {(country !== null || depth !== null) && (
-        <View>
-          <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
-          {country !== null && <FactRow label={t('field.country')} value={country} styles={styles} />}
-          {/* **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few
-              points above it is already showing the diver's deepest dive here. Two depths on one
-              screen with one of them unlabelled is the confusion §2.3 refuses to create in the
-              other direction when it declines to seed this column from a dive. */}
-          {depth !== null && <FactRow label={t('field.siteDepth')} value={depth} styles={styles} />}
-        </View>
-      )}
-      {defaults.length > 0 && (
-        <View>
-          <Text style={styles.siteSectionTitle}>{t('site.defaults')}</Text>
-          {defaults.map((row) => (
-            <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
-          ))}
-          {/* One sentence under the group rather than a mark on each row — §0.6's own reasoning
-              about the carried-over return mark applied one screen over: a second symbol is new
-              vocabulary for a single case, and this case has a sentence's worth to say. It states
-              the tier it can promise and not the one it cannot: §2.1 puts the site above
-              carry-over and below anything the diver has typed, and a caption claiming the rows
-              are simply "filled in" would be wrong about the tier that matters most. */}
-          <View style={styles.siteDefaultsCaption}>
-            <Text style={styles.siteDefaultsCaptionText}>{t('site.defaultsNote')}</Text>
-          </View>
+      <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
+      {facts.map((row) => (
+        <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
+      ))}
+      {/* One sentence under the cluster rather than a mark on each row — §0.6's own reasoning about
+          the carried-over return mark applied one screen over: a second symbol is new vocabulary
+          for a single case, and this case has a sentence's worth to say. */}
+      {note !== null && (
+        <View style={styles.siteFactsNote}>
+          <Text style={styles.siteFactsNoteText}>{note}</Text>
         </View>
       )}
     </View>

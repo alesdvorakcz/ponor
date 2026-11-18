@@ -309,6 +309,13 @@ describe('the SQL reader', () => {
     );
   });
 
+  // #31: file 6 drops `similar_sites`' old signature before creating the new one, and this reader
+  // runs over every file. A dropped function says nothing about a column set.
+  it('skips a drop function', () => {
+    expect(() => parseMigrationSql('drop function if exists public.g(text);')).not.toThrow();
+    expect(parseMigrationSql('drop function if exists public.g(text);').tables).toEqual([]);
+  });
+
   it('throws on a column definition it cannot read rather than dropping the column', () => {
     expect(() => parseMigrationSql('create table t (a text, 99bottles text);')).toThrow(
       /Unreadable column definition/,
@@ -510,23 +517,41 @@ describe('the guarantees the SQL text carries (DESIGN.md §5, §6, §10)', () =>
     expect(columnDefinitions.filter((column) => /\bcheck\s*\(/.test(column.definition))).toEqual([]);
   });
 
-  it('keeps tanks, equipment and series NOT NULL with an empty-array default (§6)', () => {
+  it('keeps every JSON-array column NOT NULL with an empty-array default (§6)', () => {
     // `series` (dive_samples) joined this list with the dive-import task: it is the same
     // JSON-array-on-a-row shape as `tanks`/`equipment`, and for the same reason needs the same
     // type — `jsonb`, not `text` — or `sync_row`'s `to_jsonb(row)` would round-trip the array
     // as a quoted string instead of an array (schema.sql's own comment on the table carries
-    // the full trace of what that breaks).
-    const arrays = columnDefinitions.filter((column) => ['tanks', 'equipment', 'series'].includes(column.name));
-    expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual([
+    // the full trace of what that breaks). #31's four catalogue sets joined it too, and then a
+    // site's `entry`, which became a set in place — named by table, because a dive's `entry` is
+    // the one way in it used and stays a single `text`.
+    const SETS = [
+      'dive_centers.agencies',
+      'dive_centers.services',
       'dive_samples.series',
+      'dive_sites.alt_names',
+      'dive_sites.entry',
+      'dive_sites.site_types',
       'dives.equipment',
       'dives.tanks',
       'gear_presets.tanks',
-    ]);
+    ];
+    const arrays = columnDefinitions.filter((column) => SETS.includes(`${column.table}.${column.name}`));
+    expect(arrays.map((column) => `${column.table}.${column.name}`).sort()).toEqual(SETS);
     for (const column of arrays) {
       expect(column.notNull).toBe(true);
       expect(column.definition).toMatch(/jsonb not null default '\[\]'::jsonb/);
     }
+    // And the list is every `jsonb` column a synced table has, so a fifth set cannot arrive
+    // nullable by being left off it. Synced tables only: `site_edits.fields` is a server-only
+    // JSON object (`'{}'`), which no device decodes as an array.
+    const synced: readonly string[] = SYNCED_TABLES;
+    expect(
+      columnDefinitions
+        .filter((column) => synced.includes(column.table) && /^jsonb\b/.test(column.definition))
+        .filter((column) => !arrays.includes(column))
+        .map((column) => `${column.table}.${column.name}`),
+    ).toEqual([]);
   });
 
   it('enables row-level security on every table, public ones included (§5, §8)', () => {

@@ -1,4 +1,5 @@
-import { siteDefaultFills, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
+import { siteDefaultFills, siteDefaultValue, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
+import { type Entry } from './types';
 
 /**
  * DESIGN.md §2.1's site defaults, as the rule rather than as the screen that applies it:
@@ -11,10 +12,10 @@ import { siteDefaultFills, SITE_DEFAULT_FIELDS, type SiteDefaults } from './site
  */
 
 /** A catalogue row's three columns, all silent unless a test says otherwise — which is the
- * ordinary state of `dive_sites` (§6: every column nullable) and the state this rule has the
- * most to say about. */
+ * ordinary state of `dive_sites` (§6: every column nullable, and the entry set empty) and the
+ * state this rule has the most to say about. */
 const says = (columns: Partial<SiteDefaults> = {}): SiteDefaults => ({
-  entry: null,
+  entry: [],
   salinity: null,
   waterBody: null,
   ...columns,
@@ -64,7 +65,7 @@ it('speaks for exactly the three columns §2.2 calls properties of the place', (
  */
 it('puts the diver above the site, the site above carry-over, and carry-over above nothing', () => {
   const fills = siteDefaultFills(
-    says({ entry: 'boat', salinity: 'salt' }),
+    says({ entry: ['boat'], salinity: 'salt' }),
     { entry: 'shore', salinity: 'fresh', waterBody: 'lake' },
     new Set(['entry']),
   );
@@ -113,12 +114,12 @@ it.each([
   ['whitespace', '   '],
 ])('reads %s column as the catalogue not knowing, not as an answer', (_what, stored) => {
   const fills = siteDefaultFills(
-    says({ entry: stored as SiteDefaults['entry'] }),
-    { entry: 'shore' },
+    says({ waterBody: stored as SiteDefaults['waterBody'], entry: [stored as Entry] }),
+    { entry: 'shore', waterBody: 'lake' },
     NOTHING_TYPED,
   );
 
-  expect(valuesOf(fills).entry).toBe('shore');
+  expect(valuesOf(fills)).toMatchObject({ entry: 'shore', waterBody: 'lake' });
   expect(suppliedBySite(fills)).toEqual([]);
 });
 
@@ -127,12 +128,29 @@ it.each([
 // tables, applied here because a pulled row is whatever the server sent.
 it('costs one column rather than the fill when a row holds something unreadable', () => {
   const fills = siteDefaultFills(
-    { entry: 7 as unknown as SiteDefaults['entry'], salinity: 'salt', waterBody: null },
+    { entry: [], salinity: 'salt', waterBody: 7 as unknown as SiteDefaults['waterBody'] },
     { entry: 'shore', waterBody: 'lake' },
     NOTHING_TYPED,
   );
 
   expect(valuesOf(fills)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
+});
+
+// The same for the set: a pulled row is whatever the server sent, and an entry that is not a
+// list at all, or a list whose one member is not a word, says nothing about the dive.
+it.each([
+  ['a string where a set belongs', 'boat'],
+  ['null', null],
+  ['a set whose one member is not a word', [7]],
+])('reads an entry that is %s as the catalogue not knowing', (_what, stored) => {
+  const fills = siteDefaultFills(
+    says({ entry: stored as unknown as SiteDefaults['entry'] }),
+    { entry: 'shore' },
+    NOTHING_TYPED,
+  );
+
+  expect(valuesOf(fills).entry).toBe('shore');
+  expect(suppliedBySite(fills)).toEqual([]);
 });
 
 // A value this build's vocabulary does not contain is NOT unreadable — §10 settles that such a
@@ -141,13 +159,64 @@ it('costs one column rather than the fill when a row holds something unreadable'
 // still answers for its own row.
 it('passes on an option this build does not know, rather than dropping it', () => {
   const fills = siteDefaultFills(
-    says({ entry: 'jetty' as SiteDefaults['entry'] }),
+    says({ entry: ['jetty' as Entry] }),
     { entry: 'shore' },
     NOTHING_TYPED,
   );
 
   expect(valuesOf(fills).entry).toBe('jetty');
   expect(suppliedBySite(fills)).toEqual(['entry']);
+});
+
+// --- A site's entry is a set, and a dive's is one value (#31) ---
+
+/**
+ * **The site answers for the dive's entry only when it offers exactly one way in.** A site
+ * entered from the shore and from a boat says what is possible, not which one this dive did —
+ * so with several it leaves the row to the diver and to carry-over, exactly as a site that
+ * knows nothing does. Salinity and water body are untouched by it. (Picking the dive's entry
+ * from the site's options is #63, not this rule.)
+ */
+it('prefills the entry from a site that offers exactly one way in', () => {
+  const fills = siteDefaultFills(says({ entry: ['boat'] }), { entry: 'shore' }, NOTHING_TYPED);
+
+  expect(valuesOf(fills).entry).toBe('boat');
+  expect(suppliedBySite(fills)).toEqual(['entry']);
+});
+
+it.each([
+  ['two ways in', ['shore', 'boat'] as Entry[]],
+  ['none recorded', [] as Entry[]],
+])('leaves the entry to carry-over when the site offers %s', (_what, offered) => {
+  const fills = siteDefaultFills(
+    says({ entry: offered, salinity: 'salt', waterBody: 'ocean' }),
+    { entry: 'other', salinity: 'fresh', waterBody: 'lake' },
+    NOTHING_TYPED,
+  );
+
+  expect(valuesOf(fills)).toEqual({ entry: 'other', salinity: 'salt', waterBody: 'ocean' });
+  expect(suppliedBySite(fills)).toEqual(['salinity', 'waterBody']);
+});
+
+// The site page's note names the rows that fill in a new dive through this same reading
+// (`DiveSiteScreen`), so the page and the prefill cannot disagree about what picking the site will write.
+it('says what a site will write into each row, and nothing for an entry with several ways in', () => {
+  const site = says({
+    entry: ['shore', 'boat'],
+    salinity: ' salt ' as SiteDefaults['salinity'],
+    waterBody: '' as SiteDefaults['waterBody'],
+  });
+  expect(siteDefaultValue(site, 'entry')).toBeNull();
+  expect(siteDefaultValue(site, 'salinity')).toBe('salt');
+  expect(siteDefaultValue(site, 'waterBody')).toBeNull();
+  expect(siteDefaultValue(says({ entry: ['boat'] }), 'entry')).toBe('boat');
+  expect(siteDefaultValue(says(), 'entry')).toBeNull();
+});
+
+it('leaves a typed entry alone even when the site offers exactly one way in', () => {
+  const fills = siteDefaultFills(says({ entry: ['boat'] }), { entry: 'shore' }, new Set(['entry']));
+
+  expect(fills.map((fill) => fill.field)).toEqual(['salinity', 'waterBody']);
 });
 
 // The unpaired dive, which is the same rule with tier 2 empty rather than a case of its own —
@@ -182,7 +251,7 @@ it('answers with a blank where neither the site nor carry-over knows', () => {
  */
 it('does not claim a row whose value the site and carry-over both give', () => {
   const fills = siteDefaultFills(
-    says({ entry: 'boat', salinity: 'salt' }),
+    says({ entry: ['boat'], salinity: 'salt' }),
     { entry: 'boat', salinity: 'fresh' },
     NOTHING_TYPED,
   );

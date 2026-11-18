@@ -34,6 +34,8 @@ import { readMigrations } from './migrationSql';
  *   un-shifted clock beside it.
  * · **Tombstones travel as rows.** Nothing filters `deleted_at`.
  * · **Every column is rendered, including the nulls**, because `to_jsonb(row)` does.
+ * · **A column the schema defaults to `'[]'::jsonb` starts as `[]`, not null** (#31): a row
+ *   written without one — by an admin, or before the column existed — holds the default.
  * · **`profiles` comes back too**, empty, because the real `pull_changes` returns seven keys
  *   and the device has tables for six of them.
  *
@@ -194,7 +196,14 @@ export class FakeSyncServer {
 
   private blank(table: string): WireRow {
     const row: WireRow = {};
-    for (const column of wireColumnsOf(table)) row[column] = null;
+    const defined = new Map(
+      (schema.tables.filter((candidate) => candidate.name === table).at(-1)?.columns ?? []).map(
+        (column) => [column.name, column.definition] as const,
+      ),
+    );
+    for (const column of wireColumnsOf(table)) {
+      row[column] = defined.get(column)?.includes("default '[]'::jsonb") === true ? [] : null;
+    }
     return row;
   }
 

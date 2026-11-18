@@ -91,7 +91,7 @@ const SI_SYSTEM: UnitSystem = 'metric';
  * `gasVolume` would render an 11.1 L cylinder as a 0.4 cu ft one, which is the exact confusion
  * this module's top docblock spends a paragraph keeping apart.
  */
-export type Quantity = 'depth' | 'pressure' | 'temperature' | 'weight' | 'gasVolume' | 'gasRate';
+export type Quantity = 'depth' | 'altitude' | 'pressure' | 'temperature' | 'weight' | 'gasVolume' | 'gasRate';
 
 /**
  * Exact defining constants, not rounded factors, so the arithmetic is as good as the
@@ -189,6 +189,18 @@ const identity = (value: number): number => value;
 const SPECS: Record<Quantity, Record<UnitSystem, UnitSpec>> = {
   depth: {
     metric: { unit: 'm', decimals: 1, fromSi: identity, toSi: identity },
+    imperial: {
+      unit: 'ft',
+      decimals: 0,
+      fromSi: (m) => m / METRES_PER_FOOT,
+      toSi: (ft) => ft * METRES_PER_FOOT,
+    },
+  },
+  // Not a depth (#31): a site's height above sea level is read to the whole metre or foot, and
+  // below sea level is a real answer — so it takes the same two words and none of `depth`'s
+  // one-decimal metric reading or its refusal of a negative.
+  altitude: {
+    metric: { unit: 'm', decimals: 0, fromSi: identity, toSi: identity },
     imperial: {
       unit: 'ft',
       decimals: 0,
@@ -390,6 +402,31 @@ export function storedValueFor(
     return stored;
   }
   return SPECS[quantity][system].toSi(entered);
+}
+
+/**
+ * **A typed altitude, read as whole stored metres** — or null for a blank or a non-number.
+ *
+ * An altitude is a whole number a diver groups by thousands (`3,812`, `12 500`, `1.234.567`), so
+ * it cannot go through `toFormNumber`, where a comma is a decimal point and `3,812` is 3.8. The
+ * rule: spaces (incl. no-break and narrow no-break) are dropped; a `,` or `.` followed by exactly
+ * three digits is grouping and may repeat; a `,` or `.` followed by one or two digits at the end
+ * is a decimal; a leading `-` or U+2212 is the sign, and a leading `+` is allowed, as `toFormNumber`
+ * allows it; anything else is no number. The figure is
+ * then converted from the diver's unit and rounded to whole metres.
+ */
+export function parseAltitudeMetres(text: string, system: UnitSystem): number | null {
+  const compact = text.trim().replace(/[\s  ]/g, '');
+  const match = /^([-−+]?)(\d+(?:[.,]\d{3})*)(?:[.,](\d{1,2}))?$/.exec(compact);
+  if (match === null) return null;
+  const [, sign, whole, fraction] = match;
+  // `1,234` alone reads as grouping (three digits), `1,23` as a decimal — the regex gave the
+  // grouped alternative first claim, so a lone `,ddd` never reaches `fraction`.
+  const negative = sign === '-' || sign === '−';
+  const entered = Number(`${negative ? '-' : ''}${(whole ?? '').replace(/[.,]/g, '')}${fraction === undefined ? '' : `.${fraction}`}`);
+  if (!Number.isFinite(entered)) return null;
+  const metres = storedValueFor('altitude', entered, null, system);
+  return metres === null ? null : Math.round(metres);
 }
 
 /**

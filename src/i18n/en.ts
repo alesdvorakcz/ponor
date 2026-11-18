@@ -1,4 +1,8 @@
 import type {
+  Agency,
+  Service,
+  SiteType,
+  SuitableFor,
   Configuration,
   ConditionLevel,
   DiveStatus,
@@ -108,6 +112,47 @@ export const en = {
         torch: 'Torch',
         camera: 'Camera',
       } satisfies Record<Equipment, string>,
+      /** A dive site's kind, what it suits (read after *Suitable for*), and a centre's services
+       * and agencies — the token sets of #31. Agency names are the agencies' own, in both languages. */
+      siteTypes: {
+        wreck: 'Wreck',
+        reef: 'Reef',
+        wall: 'Wall',
+        pinnacle: 'Pinnacle',
+        canyon: 'Canyon',
+        swim_through: 'Swim-through',
+        muck: 'Muck',
+        drift: 'Drift',
+        blue_water: 'Blue water',
+      } satisfies Record<SiteType, string>,
+      suitableFor: {
+        open_water: 'Open Water',
+        advanced: 'Advanced',
+        experienced: 'Experienced',
+        technical: 'Technical',
+      } satisfies Record<SuitableFor, string>,
+      services: {
+        air: 'Air',
+        nitrox: 'Nitrox',
+        trimix: 'Trimix',
+        rental: 'Rental',
+        courses: 'Courses',
+        boat: 'Boat dives',
+        shore: 'Shore dives',
+        repair: 'Repair',
+      } satisfies Record<Service, string>,
+      agencies: {
+        padi: 'PADI',
+        ssi: 'SSI',
+        cmas: 'CMAS',
+        naui: 'NAUI',
+        sdi_tdi: 'SDI/TDI',
+        raid: 'RAID',
+        gue: 'GUE',
+        bsac: 'BSAC',
+        iantd: 'IANTD',
+        other: 'Other',
+      } satisfies Record<Agency, string>,
       diveStatus: { logged: 'Logged', planned: 'Planned' } satisfies Record<DiveStatus, string>,
       unitSystem: { metric: 'Metric', imperial: 'Imperial' } satisfies Record<UnitSystem, string>,
       /** The three 0–3 condition scales. Three tables and not one: level 1 is a *Small* wave,
@@ -211,6 +256,9 @@ export const en = {
       /** The heading over the diver's own dives on a site's page and on a centre's — one
        * sentence about one relation, said on two screens about two tables. */
       yourDives: 'Your dives',
+      /** A centre's two groups of facts (#31): on the create page, and on its own page. */
+      contact: 'Contact',
+      services: 'Services',
     },
 
     /** §3's certification wallet — the card's own summary line, and the editor that writes it. */
@@ -591,9 +639,33 @@ export const en = {
       gps: 'GPS',
       country: 'Country',
       website: 'Website',
+      /** Issue #31's facts about a place — the create page's rows, and the place pages'. A
+       * description is public, so its row says *everyone can read it* (`newPlace`). */
+      description: 'Description',
+      address: 'Address',
+      phone: 'Phone',
+      email: 'Email',
+      openingHours: 'Opening hours',
+      services: 'Services',
+      agencies: 'Training agencies',
+      siteTypes: 'Site type',
+      suitableFor: 'Suitable for',
+      wreckName: 'Wreck name',
+      wreckSunkYear: 'Year sunk',
+      /** A site's wreck on its page, and a centre's agencies on its own — the short labels. */
+      wreck: 'Wreck',
+      /** A site's salinity and water body as one row on its page (`Salt · Ocean`), as the canvas
+       * draws it. */
+      water: 'Water',
+      agenciesShort: 'Agencies',
+      /** One row of a site's other names, and the group that holds them. */
+      altName: 'Other name',
+      altNames: 'Other names',
       /** **"Site depth", never "Depth"** — §6's own parenthesis, and a site's page shows the
        * rock's depth beside the diver's deepest dive there. */
       siteDepth: 'Site depth',
+      /** A site's height above sea level (#31) — not a depth, and so named apart from one. */
+      altitude: 'Altitude',
       status: 'Status',
       timeIn: 'Time in',
       timeOut: 'Time out',
@@ -874,10 +946,17 @@ export const en = {
     site: {
       heading: 'Dive sites',
       notFound: 'Site not found.',
-      facts: 'Site',
-      defaults: 'Site defaults',
-      defaultsNote:
-        'Picking this site on a new dive fills these in, over anything carried from your last dive.',
+      /** One name for the cluster on a site's page and the group on the create page (#31), as the
+       * canvas has it. */
+      facts: 'The site',
+      /** A wreck's year on its row — the year as typed, never grouped. */
+      sunk: 'sunk {{year}}',
+      /** The note under *The site* naming the rows that fill in a new dive (the owner's pick C,
+       * 2026-11-17): `rows` is the rows' own labels — one, or two joined by `prefillRows` — and
+       * `count` how many, for the verb. */
+      prefillNote_one: '{{rows}} fills in a new dive logged here, over anything carried from your last dive.',
+      prefillNote_other: '{{rows}} fill in a new dive logged here, over anything carried from your last dive.',
+      prefillRows: '{{first}} and {{second}}',
       searchPlaceholder: 'Search sites',
       close: 'Close sites',
       /** Both name the way a site is made since issue #19 — the dive form's *Site* row, then the
@@ -897,9 +976,10 @@ export const en = {
     centre: {
       heading: 'Dive centres',
       notFound: 'Centre not found.',
-      /** The catalogue-facts cluster on a centre's page — `site.facts`' sibling one table
-       * over, and named for its own noun because Czech declines both. */
-      facts: 'Centre',
+      /** What a press on a centre's address, number or email says it will do (#31). */
+      showAddress: 'Show {{address}} on a map',
+      call: 'Call {{phone}}',
+      mail: 'Write to {{email}}',
       searchPlaceholder: 'Search centres',
       close: 'Close centres',
       noneGuest:
@@ -954,6 +1034,10 @@ export const en = {
         phoneOnly: 'on this phone only · not shared yet',
       } satisfies Record<Provenance, string>,
       dived: 'dived',
+      /** The front of a row's meta line when the query found it by another name it goes by (#31):
+       * *also called Stone Gate · community · HR*. `format/display.ts`' `withAlsoCalled` places it,
+       * in the picker and the Sites directory alike. */
+      alsoCalled: 'also called {{name}}',
       nothingNearMatches: 'Nothing within {{distance}} matches “{{query}}”.',
       nothingNear: 'Nothing within {{distance}}.',
       /** In place of *Nothing within…* while the server is still being asked about the fix: nothing
@@ -987,7 +1071,12 @@ export const en = {
       name: 'Name',
       position: 'Position',
       useCurrentPosition: 'Use current position',
+      /** Under *Altitude* once a fix carried a height (#31): the offer, which fills the row only when
+       * tapped — a diver often logs a dive somewhere else than the site. `value` is the figure with
+       * its unit, `12 m`. */
+      useGpsAltitude: 'Use GPS altitude · {{value}}',
       asksThePhone: 'asks the phone where you are',
+      fromTheAddress: 'from the address',
       fromThisDive: 'from this dive',
       optional: 'optional',
       saveSite: 'Save site',
@@ -999,8 +1088,29 @@ export const en = {
       saveFailed: "Couldn't save that just now. Nothing on the dive has changed.",
       /** §2.3's exact device match, which is not a question: the name typed IS a site's. */
       sameName: '“{{name}}” is already a site.',
+      /** #31's third finding, not a question either: one name is a name the other place goes by —
+       * the name typed is a site's other name, or an other name typed is a site's name. */
+      otherName: '“{{alias}}” is another name for {{name}}.',
+      /** `form.didYouMean` for a fuzzy server match that came through one of the site's other names
+       * (the owner's call, 2026-11-17): *Kamena vrat* typed finds *Stone Gate* by *Kamena vrata*, and
+       * the sentence says so. */
+      didYouMeanAlsoCalled: 'Did you mean “{{name}}” (also called {{alias}})?',
       /** How far a near-match is from the position on the page, after its country: `HR · 120 m away`. */
       away: '{{distance}} away',
+      /** Beside *Description* (#31): it is published with the place, so nobody writes a private
+       * note there. */
+      everyoneCanRead: 'everyone can read it',
+      /** Beside *Site type*, a set: more than one may be chosen. */
+      anyThatApply: 'any that apply',
+      addName: '+ Add a name',
+      /** What a screen reader says for it: the act, without the glyph, which VoiceOver reads as "plus"
+       * (the precedent is `back.anyLabel`). */
+      addNameLabel: 'Add another name',
+      /** What each closed group holds, between its title and its chevron. */
+      siteHint: 'water, entry, type, depth',
+      altNamesHint: 'names it also goes by',
+      contactHint: 'website, phone, email, hours',
+      servicesHint: 'services, agencies',
     },
 
     /** Issue #24's offer — the card on the empty logbook and at the top of Settings while nobody

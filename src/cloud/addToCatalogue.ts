@@ -2,9 +2,9 @@ import { applyPulledDiveSites, createDiveCenter, createDiveSite, listDiveSites }
 import { db } from '../db/client';
 import { type NewSiteFacts } from '../domain/diveFormSchema';
 import { pointOf, type MapPoint } from '../domain/mapSites';
-import { nearMatches, type Suggestion } from '../domain/suggest';
-import { type DiveSite } from '../domain/types';
-import { countryFor } from '../platform/geocode';
+import { nearMatches, twinRelation, type Suggestion, type TwinRelation } from '../domain/suggest';
+import { type Agency, type DiveSite, type Service } from '../domain/types';
+import { countryFor, countryForAddress } from '../platform/geocode';
 import { withTimeout } from '../platform/withTimeout';
 import { similarSites } from './similarSites';
 import { cloud } from './supabase';
@@ -39,19 +39,56 @@ export const TWIN_CHECK_TIMEOUT_MS = 4_000;
  * the two facts that let a diver judge it without leaving the page: its country and where it is
  * (owner's call on PR #35, *"so he can check if it's really a duplicate"*). Both are the phone's own
  * row's, because the phone's row is what a tap opens and what the dive is then paired with.
+ *
+ * `relation` is how the match relates to the site being made (`twinRelation`, #31) — the same name,
+ * another name for it, or only similar — read off that same row, so the page words each finding as
+ * what it is and folds no name itself.
+ *
+ * `alsoCalled` is the one fact here that is the server's and not the phone's row's: which of the
+ * site's other names a fuzzy server match came through (`similar_sites`' `matched_name`, the
+ * owner's call of 2026-11-17), so a guess can say why it is one — *Did you mean “Stone Gate” (also
+ * called Kamena vrata)?*. `null` for a match through the site's own name, a match only the device
+ * made, and a server that did not answer. The device's own finding on an other name is `relation`'s
+ * `otherName`, which has a sentence of its own.
  */
 export interface SiteTwin extends Suggestion {
   id: string;
   country: string | null;
   point: MapPoint | null;
+  relation: TwinRelation;
+  alsoCalled: string | null;
 }
 
+/**
+ * What a new centre holds. Issue #31's facts are optional, so a caller that has none — the create
+ * page always has them, blank or not — writes the row as before; the table's own defaults (`null`,
+ * `[]`) stand in for what is left out.
+ */
 export interface NewCenterInput {
   name: string;
   latitude: number | null;
   longitude: number | null;
   website: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  openingHours?: string | null;
+  description?: string | null;
+  services?: Service[];
+  agencies?: Agency[];
 }
+
+/**
+ * **What a new site holds beyond the three a dive hands it** (issue #31) — the create page's
+ * description, its *The site* group's type, level, depth and wreck, and its other names.
+ *
+ * Its own type rather than more keys on `NewSiteFacts`, which cannot grow: `domain/siteDefaults.ts`
+ * ties that type's keys, less the name and the pin, to exactly the three site defaults a site hands
+ * a dive (§2.1), and none of these is one. So `addSite` takes the two together.
+ */
+export type NewSiteDetails = Partial<
+  Pick<DiveSite, 'description' | 'siteTypes' | 'suitableFor' | 'maxDepthM' | 'altitudeM' | 'wreckName' | 'wreckSunkYear' | 'altNames'>
+>;
 
 /**
  * **§2.3's fuzzy check, run between the diver asking and the row existing** — *"before saving a
@@ -59,9 +96,11 @@ export interface NewCenterInput {
  *
  * Both sources, asked together (§5's "offline dedupe" and §2.3's fuzzy check are the same
  * question asked of two catalogues). `nearMatches` (domain/suggest.ts) owns what counts as one
- * and in what order; this owns only that both are asked and that the row's own pin goes with the
- * question — a name check across the whole world and a name check within the function's own
- * radius are different questions.
+ * and in what order; this owns only that both are asked and that the row's own pin and other
+ * names go with the question — a name check across the whole world and a name check within the
+ * function's own radius are different questions, and since #31 the check runs both ways: the name
+ * against existing other names, and the other names (`altNames`, the list Save will write) against
+ * existing names.
  *
  * `Promise.all`, so a device that is online pays one round trip rather than a round trip after a
  * database read; and `listDiveSites` reads the same `pickable` rows autocomplete would offer, so
@@ -86,14 +125,18 @@ export interface NewCenterInput {
  * when its row is on the phone in that read. A write — or a read back — that refuses leaves the
  * matches the phone already held.
  *
- * **Each match carries the phone's row's country and position** (`SiteTwin`), from that same read:
- * the row a tap on it opens, and the one the dive is paired with.
+ * **Each match carries the phone's row's country, position and relation** (`SiteTwin`), from that
+ * same read: the row a tap on it opens, and the one the dive is paired with — and the server's word
+ * on which other name it came through, by id, whichever list `nearMatches` kept it from.
  */
-export async function findSiteTwins(name: string, at: MapPoint | null): Promise<SiteTwin[]> {
+export async function findSiteTwins(name: string, altNames: readonly string[], at: MapPoint | null): Promise<SiteTwin[]> {
   try {
     const [onDevice, answer] = await Promise.all([
       listDiveSites(db),
-      withTimeout(similarSites(cloud, name, at?.latitude ?? null, at?.longitude ?? null), TWIN_CHECK_TIMEOUT_MS),
+      withTimeout(
+        similarSites(cloud, name, altNames, at?.latitude ?? null, at?.longitude ?? null),
+        TWIN_CHECK_TIMEOUT_MS,
+      ),
     ]);
     let onPhone: readonly DiveSite[] = onDevice;
     if (answer !== null && answer.rows.length > 0) {
@@ -105,12 +148,14 @@ export async function findSiteTwins(name: string, at: MapPoint | null): Promise<
       }
     }
     const held = new Map(onPhone.map((site) => [site.id, site]));
-    const fromServer = (answer?.matches ?? []).filter((match) => match.id !== null && held.has(match.id));
-    return nearMatches(name, onDevice, fromServer).flatMap((match) => {
+    const fromServer = (answer?.matches ?? []).filter((match) => held.has(match.id));
+    const alsoCalled = new Map(fromServer.map((match) => [match.id, match.alsoCalled]));
+    return nearMatches(name, altNames, onDevice, fromServer).flatMap((match) => {
       const site = match.id === null ? undefined : held.get(match.id);
       if (site === undefined) return [];
       const country = site.country !== null && site.country !== '' ? site.country : null;
-      return [{ value: match.value, id: site.id, country, point: pointOf(site) }];
+      const relation = twinRelation({ name, altNames }, site);
+      return [{ value: match.value, id: site.id, country, point: pointOf(site), relation, alsoCalled: alsoCalled.get(site.id) ?? null }];
     });
   } catch {
     return [];
@@ -145,8 +190,10 @@ function countryAt(latitude: number | null, longitude: number | null, known: Kno
 /**
  * Makes the site and answers with its id — what a dive's `site_id` is then set to (§6's
  * pairing). A write failure **rejects**: the caller is the one that can say so on screen.
+ * `NewSiteDetails` lands in the row as handed over; `createDiveSite` rounds the wreck's year, an
+ * INTEGER column, as it rounds every one.
  */
-export async function addSite(facts: NewSiteFacts, known?: KnownCountry): Promise<string> {
+export async function addSite(facts: NewSiteFacts & NewSiteDetails, known?: KnownCountry): Promise<string> {
   // Country is inferred from the row's own pin (§2.3), so this is awaited before the insert
   // rather than patched in afterwards: a second write would restamp `updated_at` on a row the
   // first one just created, which §7's last-push-wins is keyed on. It is bounded and it answers
@@ -155,6 +202,23 @@ export async function addSite(facts: NewSiteFacts, known?: KnownCountry): Promis
   const country = await countryAt(facts.latitude, facts.longitude, known);
   const created = await createDiveSite(db, { ...facts, country });
   return created.id;
+}
+
+/**
+ * **A country already looked up from an address, and the address it is the answer for** — the
+ * centre's create page asks `countryForAddress` when the diver leaves the Address box. Checked
+ * against the trimmed address at Save, so an answer about text since edited is never written.
+ */
+export interface KnownAddressCountry {
+  address: string;
+  country: string | null;
+}
+
+function countryAtAddress(address: string | null | undefined, known: KnownAddressCountry | undefined): Promise<string | null> {
+  const trimmed = address?.trim() ?? '';
+  if (trimmed === '') return Promise.resolve(null);
+  if (known !== undefined && known.address === trimmed) return Promise.resolve(known.country);
+  return countryForAddress(trimmed);
 }
 
 function hasPin(input: NewCenterInput): boolean {
@@ -169,9 +233,14 @@ function hasPin(input: NewCenterInput): boolean {
  * where the diver entered the water, not the shop, so a centre's position starts empty
  * (`NewPlaceScreen`). A missing pin skips the geocoder altogether rather than asking it a
  * question with no point.
+ *
+ * **The one exception is the address** (issue #31, §10): a centre with an address and no pin takes
+ * the country of the address — `fromAddress`'s answer when it is about this very address, the
+ * geocoder's otherwise. A pin, when there is one, wins and the address is not asked; no pin is
+ * ever made from an address.
  */
-export async function addCenter(input: NewCenterInput, known?: KnownCountry): Promise<string> {
-  const country = hasPin(input) ? await countryAt(input.latitude, input.longitude, known) : null;
+export async function addCenter(input: NewCenterInput, known?: KnownCountry, fromAddress?: KnownAddressCountry): Promise<string> {
+  const country = hasPin(input) ? await countryAt(input.latitude, input.longitude, known) : await countryAtAddress(input.address, fromAddress);
   const created = await createDiveCenter(db, { ...input, country });
   return created.id;
 }

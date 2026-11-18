@@ -40,3 +40,21 @@ export function mapsUrl(point: MapPoint, label: string, os: typeof Platform.OS):
 export function openInMaps(point: MapPoint, label: string): void {
   void Linking.openURL(mapsUrl(point, label, Platform.OS)).catch(() => undefined);
 }
+
+/**
+ * **A search for an address**, for the one place with text and no position — a centre's address
+ * (#31), which a pin is never made from (the geocoder only ever names a country). One URL per
+ * platform, as `mapsUrl` above: Apple Maps' `q`, Android's `geo:0,0?q=`, OpenStreetMap's search.
+ * The text is the community's and goes through `encodeURIComponent`.
+ */
+export function mapsSearchUrl(query: string, os: typeof Platform.OS): string {
+  const encoded = encodeURIComponent(query.trim());
+  if (os === 'android') return `geo:0,0?q=${encoded}`;
+  if (os === 'web') return `https://www.openstreetmap.org/search?query=${encoded}`;
+  return `https://maps.apple.com/?q=${encoded}`;
+}
+
+/** Opens a search for `address` in the device's maps; a refusal is swallowed as `openInMaps`'. */
+export function openAddressInMaps(address: string): void {
+  void Linking.openURL(mapsSearchUrl(address, Platform.OS)).catch(() => undefined);
+}

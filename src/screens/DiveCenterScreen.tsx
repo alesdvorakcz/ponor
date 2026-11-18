@@ -12,9 +12,11 @@ import { divesWithCenter } from '../domain/centerDives';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { pointOf, waterTempRange } from '../domain/mapSites';
-import { formatCoordinates, formatSiteSummary, unnamedCenter } from '../format/display';
+import { formatCoordinates, formatPlaceTokens, formatSiteSummary, unnamedCenter } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToCenters } from '../navigation/leaveScreen';
+import { openAddressInMaps } from '../platform/mapsLink';
+import { mailtoUrl, openContactUrl, telUrl } from '../platform/openContact';
 import { isOpenableWebsite, openWebsite } from '../platform/openWebsite';
 import { showOnMap } from '../platform/showOnMap';
 import { resolveScheme } from '../theme/resolve';
@@ -115,12 +117,22 @@ function BackButton({ styles }: { styles: Styles }) {
 /** One catalogue fact, in the row grammar §0.6 gives every label-and-value pair in the app
  * (`formField`/`formFieldRow`/`formFieldLabel`, read exactly as Settings and the Stats tab read
  * them). Not a new vocabulary for one screen. */
-function FactRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
+function FactRow({
+  label,
+  value,
+  mono = false,
+  styles,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  styles: Styles;
+}) {
   return (
     <View style={styles.formField}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{label}</Text>
-        <Text style={styles.centerFactValue}>{value}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
+        <Text style={mono ? styles.centerFactFigure : styles.centerFactValue}>{value}</Text>
       </View>
     </View>
   );
@@ -172,10 +184,25 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
 
   const myDives = divesWithCenter(dives, center);
   const website = center.website;
-  // Both facts are absent on every centre this app creates (§2.3), so the cluster is drawn only
-  // when the catalogue actually knows something — the same rule the dive detail applies to its
-  // own clusters, rather than a heading standing over nothing.
-  const hasFacts = (center.country !== null && center.country !== '') || (website !== null && website !== '');
+  // Every fact is absent on most centres this app creates (§2.3), so a cluster is drawn only when
+  // the catalogue actually knows something for it — the same rule the dive detail applies to its
+  // own clusters, rather than a heading standing over nothing. Text is shown as it was typed and
+  // blank text is nothing.
+  const filled = (value: string | null): string | null => (value !== null && value.trim() !== '' ? value : null);
+  const description = filled(center.description);
+  const address = filled(center.address);
+  const phone = filled(center.phone);
+  const email = filled(center.email);
+  const hours = filled(center.openingHours);
+  const siteWeb = filled(website);
+  const country = filled(center.country);
+  // What a press may hand to the outside world is decided by `platform/openContact.ts` and
+  // `openWebsite.ts` alone; a value they refuse is shown as text with nothing to press.
+  const telHref = telUrl(phone);
+  const mailHref = mailtoUrl(email);
+  const hasContact = [address, phone, email, hours, siteWeb, country].some((value) => value !== null);
+  const services = formatPlaceTokens('services', center.services);
+  const agencies = formatPlaceTokens('agencies', center.agencies);
 
   /**
    * What the page says about the diver's own dives with this centre, or nothing at all while
@@ -207,7 +234,9 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           is the logbook underneath it that could not be opened — `logbookUnreadable()`
           (domain/logbook.ts), the same sentence four other screens say about the same event. */}
       {logbookError !== undefined && <Text style={styles.centerSummary}>{logbookUnreadable()}</Text>}
-      {/* **"Show on map"** (issue #21) — the dive detail's card, under the page's own lines where the
+      {/* The description (#31) comes first, under the page's own lines; newlines kept, no cut. */}
+      {description !== null && <Text style={styles.centerDescription}>{description}</Text>}
+      {/* **"Show on map"** (issue #21) — the dive detail's card, under the description where the
           design canvas draws it, and only for a centre with a position a map can show (`pointOf`).
           It opens Ponor's map pointed at this centre (`platform/showOnMap.ts`), its outlined mark inverted. */}
       {point !== null && coordinates !== null && (
@@ -218,15 +247,58 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
           onPress={() => showOnMap({ kind: 'center', id: center.id, overItsPage: true }, point, centerLabel(center))}
         />
       )}
-      {hasFacts && (
+      {hasContact && (
         <View>
-          <Text style={styles.centerSectionTitle}>{t('centre.facts')}</Text>
-          {center.country !== null && center.country !== '' && (
-            <FactRow label={t('field.country')} value={center.country} styles={styles} />
+          <Text style={styles.centerSectionTitle}>{t('place.contact')}</Text>
+          {/* Each of the three links is a press only when its text passed its owner's test; a
+              phone of "ask at the bar" is a fact to read, and nothing is handed to `openURL`
+              that was built from text that failed. */}
+          {address !== null && (
+            <LinkRow
+              label={t('field.address')}
+              value={address}
+              onOpen={() => openAddressInMaps(address)}
+              announce={t('centre.showAddress', { address })}
+              styles={styles}
+            />
           )}
-          {website !== null && website !== '' && (
-            <WebsiteRow website={website} styles={styles} />
+          {phone !== null && (
+            <LinkRow
+              label={t('field.phone')}
+              value={phone}
+              onOpen={telHref === null ? null : () => void openContactUrl(telHref)}
+              announce={t('centre.call', { phone })}
+              mono
+              styles={styles}
+            />
           )}
+          {email !== null && (
+            <LinkRow
+              label={t('field.email')}
+              value={email}
+              onOpen={mailHref === null ? null : () => void openContactUrl(mailHref)}
+              announce={t('centre.mail', { email })}
+              styles={styles}
+            />
+          )}
+          {hours !== null && <FactRow label={t('field.openingHours')} value={hours} styles={styles} />}
+          {siteWeb !== null && (
+            <LinkRow
+              label={t('field.website')}
+              value={siteWeb}
+              onOpen={isOpenableWebsite(siteWeb) ? () => void openWebsite(siteWeb) : null}
+              announce={t('common.open', { name: siteWeb })}
+              styles={styles}
+            />
+          )}
+          {country !== null && <FactRow label={t('field.country')} value={country} styles={styles} />}
+        </View>
+      )}
+      {(services !== null || agencies !== null) && (
+        <View>
+          <Text style={styles.centerSectionTitle}>{t('place.services')}</Text>
+          {services !== null && <FactRow label={t('field.services')} value={services} styles={styles} />}
+          {agencies !== null && <FactRow label={t('field.agenciesShort')} value={agencies} styles={styles} />}
         </View>
       )}
       {myDives.length > 0 && <Text style={styles.centerSectionTitle}>{t('place.yourDives')}</Text>}
@@ -261,30 +333,41 @@ export default function DiveCenterScreen({ id: idProp }: DiveCenterScreenProps =
 }
 
 /**
- * The website row — a fact when it is text, and a control when it is an address.
+ * A fact that may also be a control — the website, the address, the number, the email.
  *
- * `isOpenableWebsite` (platform/openWebsite.ts, §4.1's owner of what this app will hand to the
- * outside world) decides which. A bare `aquasplit.hr` is shown and not pressable, because
- * guessing a scheme on another diver's behalf is inventing a fact about somebody else's shop —
- * and a row that looked pressable and did nothing is the dead control §0.6 objects to four
- * separate times.
+ * The caller decides whether the text is something the app will hand to the outside world
+ * (`platform/openWebsite.ts`, `openContact.ts`, `mapsLink.ts`: §4.1's owners of that) and passes
+ * `onOpen` only if it is. **`null` is a plain `FactRow`**: a bare `aquasplit.hr`, a phone of
+ * "ask at the bar" is shown and not pressable, because a row that looked pressable and did
+ * nothing is the dead control §0.6 objects to four separate times, and guessing a scheme on
+ * another diver's behalf invents a fact about somebody else's shop.
  *
- * The pressable half announces `Open <address>` rather than the address alone: §0.6's rule for
- * every navigation row on Settings, where "a row announced as a bare name says nothing about
- * where a tap would land".
+ * A pressable row carries no extra mark: how a row says it can be pressed is open issue #5, and
+ * the website row never had one. It announces what a press will do (`Call +385 21 555 0123`,
+ * `Open <address>`) rather than the text alone — §0.6's rule for every navigation row on
+ * Settings, where "a row announced as a bare name says nothing about where a tap would land".
  */
-function WebsiteRow({ website, styles }: { website: string; styles: Styles }) {
-  if (!isOpenableWebsite(website)) return <FactRow label={t('field.website')} value={website} styles={styles} />;
+function LinkRow({
+  label,
+  value,
+  onOpen,
+  announce,
+  mono = false,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onOpen: (() => void) | null;
+  announce: string;
+  mono?: boolean;
+  styles: Styles;
+}) {
+  if (onOpen === null) return <FactRow label={label} value={value} mono={mono} styles={styles} />;
   return (
-    <Pressable
-      style={styles.formField}
-      onPress={() => void openWebsite(website)}
-      accessibilityRole="link"
-      accessibilityLabel={t('common.open', { name: website })}
-    >
+    <Pressable style={styles.formField} onPress={onOpen} accessibilityRole="link" accessibilityLabel={announce}>
       <View style={styles.formFieldRow}>
-        <Text style={styles.formFieldLabel}>{t('field.website')}</Text>
-        <Text style={styles.centerFactValue}>{website}</Text>
+        <Text style={styles.factLabel}>{label}</Text>
+        <Text style={mono ? styles.centerFactFigure : styles.centerFactValue}>{value}</Text>
       </View>
     </Pressable>
   );

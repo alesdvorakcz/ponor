@@ -269,3 +269,24 @@ it('wears the detail screen’s own cluster label, not a heading of its own', as
   expect(worn.color).toBe(styles.formFieldLabel.color);
   expect(worn.fontFamily).not.toBe(styles.formStatusLabel.fontFamily);
 });
+
+it('says what a closed group holds, and stops once it is open', async () => {
+  const styles = makeStyles('light');
+  const hintsOf = (t: RenderResult) =>
+    (t.root ? t.root.queryAll((n) => n.type === 'Text' && [n.props.style].flat(3).includes(styles.formGroupHint)) : []).flatMap(
+      (n) => n.children,
+    );
+  const closed = await render(
+    <FormGroup title="Contact" scheme="light" expanded={false} onToggle={() => {}} hint="Open daily · Nitrox">
+      <Text>{CHILD}</Text>
+    </FormGroup>,
+  );
+  expect(hintsOf(closed)).toEqual(['Open daily · Nitrox']);
+  const open = await render(
+    <FormGroup title="Contact" scheme="light" expanded onToggle={() => {}} hint="Open daily · Nitrox">
+      <Text>{CHILD}</Text>
+    </FormGroup>,
+  );
+  expect(hintsOf(open)).toEqual([]);
+  expect(hintsOf(await renderGroup())).toEqual([]);
+});

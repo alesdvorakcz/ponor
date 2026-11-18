@@ -15,7 +15,7 @@ import { assignDiveNumbers } from '../domain/diveNumber';
 import { dive } from '../domain/diveFixture';
 import { type ProfilePoint } from '../domain/profile';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
-import { SITE_DEFAULT_FIELDS } from '../domain/siteDefaults';
+import { SITE_DEFAULT_FIELDS, type SiteDefaultField } from '../domain/siteDefaults';
 import { type Dive, type DiveSite } from '../domain/types';
 import { setActiveLanguage } from '../i18n';
 import { completePlacePick, placePickRequest, type PlacePickRequest } from '../navigation/placePick';
@@ -69,8 +69,15 @@ const rock = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -156,44 +163,49 @@ it('is worth opening for a site that has nothing but a name', async () => {
   expect(text).toContain('18.2');
 });
 
-// A heading with nothing under it is the shape §0.6 refuses on the dive detail, and it is the one
-// both branches would produce: a cluster over zero rows.
-it('draws neither cluster for a site the catalogue knows nothing else about', async () => {
+// A heading with nothing under it is the shape §0.6 refuses on the dive detail: a cluster over zero
+// rows, and a note about rows that are not there.
+it('draws no cluster and no note for a site the catalogue knows nothing else about', async () => {
   mockUseDives.mockReturnValue(divesState([atKotelna()]));
   const text = textIn(await show());
-  expect(text).not.toContain('Site');
-  expect(text).not.toContain('Site defaults');
+  expect(text).not.toContain('The site');
   expect(text).not.toContain('Country');
   expect(text).not.toContain('Site depth');
+  expect(text.join(' ')).not.toContain('a new dive logged here');
 });
 
-// --- What the catalogue knows, in two clusters (§6, §2.1) ------------------------------------
+// --- What the catalogue knows, in one cluster with a note (§6, §2.1; the owner's pick C) ------
+
+/** The note under *The site*, or `undefined` when the page draws none. */
+function noteIn(t: RenderResult): string | undefined {
+  return textIn(t).find((line) => line.includes('a new dive logged here'));
+}
 
 /**
- * **The split is the substance of this page.** *Site* describes the place; *Site defaults* is
- * §2.1's three columns, the ones that will do something when the diver picks this site on a new
- * dive. A single list of five would show a diver a rule they cannot see and cannot predict.
+ * **One *The site* cluster, and a note under it naming the rows that do something** — the owner's
+ * pick C on the board *#31 · Site defaults, altitude offer* (2026-11-17). The water and the ways in
+ * stand among the place's other facts, in the canvas's order; what picking the site will write into
+ * a new dive is said once, under the cluster, by naming those rows.
  */
-it('separates what the site is from what the site gives a new dive', async () => {
+it('puts what a site gives a new dive among its facts, and says which rows those are', async () => {
   mockUseDiveSites.mockReturnValue(
-    catalogueState([
-      rock({ country: 'CZ', maxDepthM: 42, entry: 'shore', salinity: 'fresh', waterBody: 'quarry' }),
-    ]),
+    catalogueState([rock({ country: 'CZ', maxDepthM: 42, entry: ['shore'], salinity: 'fresh', waterBody: 'quarry' })]),
   );
-  const text = textIn(await show());
-  expect(text).toContain('Site');
-  expect(text).toContain('Country');
-  expect(text).toContain('CZ');
-  expect(text).toContain('Site depth');
-  expect(text).toContain('42.0 m');
-
-  expect(text).toContain('Site defaults');
-  expect(text).toContain('Entry');
-  expect(text).toContain('Shore');
-  expect(text).toContain('Salinity');
-  expect(text).toContain('Fresh');
-  expect(text).toContain('Water body');
-  expect(text).toContain('Quarry');
+  const t = await show();
+  const lines = textIn(t);
+  expect(lines).toContain('The site');
+  expect(lines).not.toContain('Site defaults');
+  expect(lines).toContain('42.0 m');
+  // Salinity and water body as one line, in that order; the ways in as the set.
+  expect(lines).toContain('Water');
+  expect(lines).toContain('Fresh · Quarry');
+  expect(lines).toContain('Entry');
+  expect(lines).toContain('Shore');
+  expect(lines).not.toContain('Salinity');
+  expect(lines).not.toContain('Water body');
+  expect(noteIn(t)).toBe('Water and Entry fill in a new dive logged here, over anything carried from your last dive.');
+  // The note closes the cluster: under its last row.
+  expect(lines.indexOf(noteIn(t)!)).toBeGreaterThan(lines.indexOf('Country'));
 });
 
 /**
@@ -216,65 +228,120 @@ it('says the site’s own depth and the diver’s deepest dive here as two diffe
 });
 
 /**
- * **The three default rows are derived from `SITE_DEFAULT_FIELDS`**, not listed a second time on
- * this screen — §4.1's "derive, or tie at compile time", so a fourth default added to
- * `domain/siteDefaults.ts` cannot appear in the prefill and be missing from the page.
- *
- * The assertion is over that list rather than over three hand-written labels, which is what makes
- * it able to fail when the list moves: a page drawing two of the three would satisfy any test
- * naming only the two.
+ * **The note is decided by the prefill's own reading** (`siteDefaultValue`), field by field — so
+ * each of `SITE_DEFAULT_FIELDS` on its own must put its row in the note, and the page and the prefill
+ * cannot disagree. Iterated over that list rather than over hand-written fields, so a fourth default
+ * added to `domain/siteDefaults.ts` is asked about here too (and fails to compile below until it is
+ * given a site that holds it).
  */
-it('draws a row for every field §2.1 prefills from, and no more', async () => {
-  mockUseDiveSites.mockReturnValue(
-    catalogueState([rock({ entry: 'boat', salinity: 'salt', waterBody: 'ocean' })]),
+it.each(SITE_DEFAULT_FIELDS)('names the row a site’s %s fills in, and only that row', async (field) => {
+  const only: Record<SiteDefaultField, { site: Partial<DiveSite>; row: string }> = {
+    entry: { site: { entry: ['boat'] }, row: 'Entry' },
+    salinity: { site: { salinity: 'salt' }, row: 'Water' },
+    waterBody: { site: { waterBody: 'ocean' }, row: 'Water' },
+  };
+  mockUseDiveSites.mockReturnValue(catalogueState([rock(only[field].site)]));
+  expect(noteIn(await show())).toBe(
+    `${only[field].row} fills in a new dive logged here, over anything carried from your last dive.`,
   );
-  const t = await show();
-  // Every labelled row actually on screen, read off the label style rather than off the text —
-  // so "and no more" is a claim the assertion can make: this fixture carries no country and no
-  // site depth, so the three defaults are the only rows there are.
-  const styles = makeStyles('light');
-  const labels = allNodes(t)
-    .filter((n) => [n.props?.style].flat(5).includes(styles.formFieldLabel))
-    .flatMap((n) => n.children)
-    .filter((c): c is string => typeof c === 'string');
-  expect(labels).toEqual(['Entry', 'Salinity', 'Water body']);
-  expect(labels).toHaveLength(SITE_DEFAULT_FIELDS.length);
 });
 
-/**
- * **The caption says which tier §2.1 actually promises.** The site beats carry-over and loses to
- * anything the diver has typed, so a sentence claiming the rows are simply filled in would be
- * wrong about the tier that matters most (`domain/siteDefaults.ts`: "overwriting a hand-entered
- * value because someone then picked a site is the worst outcome available here").
- */
-it('says what picking the site will do, and only over carry-over', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: 'shore' })]));
-  const said = textIn(await show()).join(' ');
-  expect(said).toContain('Picking this site on a new dive fills these in');
-  expect(said).toContain('carried from your last dive');
+/** Every labelled row on screen, read off the label style rather than off the text. */
+function labelsIn(t: RenderResult): string[] {
+  const styles = makeStyles('light');
+  return allNodes(t)
+    .filter((n) => [n.props?.style].flat(5).includes(styles.factLabel))
+    .flatMap((n) => n.children)
+    .filter((c): c is string => typeof c === 'string');
+}
+
+it('draws the water and the way in as two rows, and no more', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]));
+  const t = await show();
+  expect(labelsIn(t)).toEqual(['Water', 'Entry']);
+  expect(textIn(t)).toContain('Salt · Ocean');
+  expect(textIn(t)).toContain('Boat');
+});
+
+it('draws the water as whichever half the site records', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ waterBody: 'lake' })]));
+  const t = await show();
+  expect(labelsIn(t)).toEqual(['Water']);
+  expect(textIn(t)).toContain('Lake');
 });
 
 /**
  * **A `null` column means the catalogue does not know, not that the answer is empty** — that
- * module's own rule — so the row is absent rather than drawn as a dash, and a site that supplies
- * nothing draws no defaults cluster at all while still drawing what it does know.
+ * module's own rule — so the row is absent rather than drawn as a dash, and the note names only the
+ * rows that are there.
  */
-it('omits a default the catalogue has no opinion about', async () => {
-  mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ', entry: 'shore' })]));
-  const text = textIn(await show());
-  expect(text).toContain('Site defaults');
-  expect(text).toContain('Entry');
-  expect(text).not.toContain('Salinity');
-  expect(text).not.toContain('Water body');
-  expect(text).not.toContain('—');
+it('omits a row the catalogue has no opinion about, and leaves it out of the note', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ', entry: ['shore'] })]));
+  const t = await show();
+  const lines = textIn(t);
+  expect(lines).toContain('Entry');
+  expect(lines).not.toContain('Water');
+  expect(lines).not.toContain('—');
+  expect(noteIn(t)).toBe('Entry fills in a new dive logged here, over anything carried from your last dive.');
 });
 
-it('draws the facts cluster without the defaults one when it knows only the place', async () => {
+/**
+ * **A site's entry is a set** (#31). The page draws it whatever its size; the note names it only
+ * when the prefill would write it — exactly one way in (`siteDefaultValue`, §2.1). Several ways in
+ * are left to the diver (#63), so the note must not promise them.
+ */
+it('names one way in in the note', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]));
+  const t = await show();
+  expect(textIn(t)).toContain('Boat');
+  expect(noteIn(t)).toBe('Water and Entry fill in a new dive logged here, over anything carried from your last dive.');
+});
+
+it('draws two ways in as the Entry row, and names only the water in the note', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt', waterBody: 'ocean' })]),
+  );
+  const t = await show();
+  const lines = textIn(t);
+  expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('The site'));
+  expect(lines).toContain('Shore · Boat');
+  expect(lines.filter((line) => line === 'Entry')).toHaveLength(1);
+  expect(noteIn(t)).toBe('Water fills in a new dive logged here, over anything carried from your last dive.');
+});
+
+it('draws several ways in with no note when nothing else fills in a dive', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'] })]));
+  const t = await show();
+  expect(textIn(t)).toContain('Shore · Boat');
+  expect(noteIn(t)).toBeUndefined();
+});
+
+it('draws no entry row for a site that records none', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: [], salinity: 'salt' })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Salt');
+  expect(lines).not.toContain('Entry');
+});
+
+it('draws the cluster with no note when it knows only the place', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ country: 'CZ' })]));
-  const text = textIn(await show());
-  expect(text).toContain('Site');
-  expect(text).toContain('CZ');
-  expect(text).not.toContain('Site defaults');
+  const t = await show();
+  expect(textIn(t)).toContain('The site');
+  expect(textIn(t)).toContain('CZ');
+  expect(noteIn(t)).toBeUndefined();
+});
+
+/** The canvas draws the note as a note about the rows, not a sentence of the page: muted mono. */
+it('draws the note in its own muted mono', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'] })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const note = noteIn(t);
+  expect(note).toBeDefined();
+  const node = allNodes(t).find((n) => n.type === 'Text' && n.children[0] === note);
+  expect(node).toBeDefined();
+  expect(styles.siteFactsNoteText).toBeDefined();
+  expect([node?.props.style].flat(5)).toContain(styles.siteFactsNoteText);
 });
 
 // --- Which dives the page claims -------------------------------------------------------------
@@ -470,7 +537,7 @@ it('reads both depths in the diver’s own units', async () => {
 // on a `DiveRow`'s own depth, beside its own number — and nothing else is painted.
 it('paints nothing of its own', async () => {
   mockUseDiveSites.mockReturnValue(
-    catalogueState([rock({ country: 'CZ', maxDepthM: 42, entry: 'shore', salinity: 'fresh' })]),
+    catalogueState([rock({ country: 'CZ', maxDepthM: 42, entry: ['shore'], salinity: 'fresh' })]),
   );
   mockUseDives.mockReturnValue(divesState([atKotelna()]));
   expect(unexpectedGraphics(await show(), 'light')).toEqual([]);
@@ -518,23 +585,30 @@ describe('in Czech', () => {
     setActiveLanguage('en');
   });
 
-  /** The page's two clusters and the caption under the second, which is the one sentence §2.1
-   * has to say here — that picking this site OUTRANKS carry-over rather than merely filling in. */
-  it('names its clusters, its rows and its own caption in Czech', async () => {
+  /** The page's cluster and the note under it, which is the one sentence §2.1 has to say here —
+   * that picking this site OUTRANKS carry-over rather than merely filling in. Czech conjugates the
+   * reflexive verb alike for one row and two, so one sentence serves both. */
+  it('names its cluster, its rows and its note in Czech', async () => {
     mockUseDiveSites.mockReturnValue(
-      catalogueState([rock({ country: 'HR', maxDepthM: 42, entry: 'shore', salinity: 'salt', waterBody: 'ocean' })]),
+      catalogueState([rock({ country: 'HR', maxDepthM: 42, entry: ['shore'], salinity: 'salt', waterBody: 'ocean' })]),
     );
     const said = textIn(await show());
     expect(said).toContain('Lokalita');
     expect(said).toContain('Země');
     expect(said).toContain('Hloubka lokality');
-    expect(said).toContain('Výchozí hodnoty lokality');
+    expect(said).toContain('Voda');
+    expect(said).toContain('Slaná · Oceán');
     expect(said).toContain('Vstup');
-    expect(said).toContain('Slanost');
-    expect(said).toContain('Vodní plocha');
     expect(said).toContain('‹ Zpět');
-    expect(said.join(' ')).toContain('Když tuto lokalitu vyberete u nového ponoru');
+    expect(said).toContain('Voda a Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
     expect(said).not.toContain('Site depth');
+  });
+
+  it('names one row in the note in Czech', async () => {
+    mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt' })]));
+    const said = textIn(await show());
+    expect(said).toContain('Břeh · Loď');
+    expect(said).toContain('Voda se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
   });
 
   it('says a site it cannot find is not there, in Czech', async () => {
@@ -603,7 +677,138 @@ it('puts the card under the page’s own lines and above the site’s facts', as
   );
   const lines = textIn(await show());
   expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Kotelna'));
-  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Site'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('The site'));
+});
+
+// --- What a site says about itself (#31) -------------------------------------------------------
+
+const teti = (over: Partial<DiveSite> = {}) =>
+  rock({
+    name: 'Kamena vrata',
+    siteTypes: ['wreck', 'wall'],
+    suitableFor: 'advanced',
+    maxDepthM: 34,
+    altitudeM: 312.6,
+    wreckName: 'Teti',
+    wreckSunkYear: 1930,
+    altNames: ['Teti wreck'],
+    country: 'HR',
+    description: 'A wreck on a wall.\n\nCurrent on the east side.',
+    ...over,
+  });
+
+it('puts the description under the page’s own lines and above the map card', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ latitude: 43.0611, longitude: 16.1834 })]));
+  mockUseDives.mockReturnValue(divesState([atKotelna({ siteName: 'Kamena vrata', siteId: 's1' })]));
+  const t = await show();
+  const lines = textIn(t);
+  const description = 'A wreck on a wall.\n\nCurrent on the east side.';
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.indexOf('Kamena vrata'));
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.findIndex((line) => line.startsWith('1 dive')));
+  expect(lines.indexOf(description)).toBeLessThan(lines.indexOf('Show on map'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('The site'));
+});
+
+it('shows the site’s facts in the canvas’s order, each only when filled', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([teti({ entry: ['shore', 'boat'], salinity: 'salt', waterBody: 'ocean' })]),
+  );
+  const t = await show();
+  const labels = ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Water', 'Entry', 'Other names', 'Country'];
+  // The rows as drawn, label by label, so the order is the cluster's and not the text's at large.
+  expect(labelsIn(t)).toEqual(labels);
+  const lines = textIn(t);
+  for (const value of ['Wreck · Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Salt · Ocean', 'Shore · Boat', 'Teti wreck', 'HR']) {
+    expect(lines).toContain(value);
+  }
+});
+
+it('draws only the facts the site has', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ wreckSunkYear: 1930 })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Wreck');
+  expect(lines).toContain('sunk 1930');
+  for (const label of ['Site type', 'Suitable for', 'Site depth', 'Altitude', 'Water', 'Entry', 'Other names', 'Country']) {
+    expect(lines).not.toContain(label);
+  }
+});
+
+it('shows an altitude in the diver’s unit, signed below sea level, and in ink like the depth', async () => {
+  mockUseUnitSystem.mockReturnValue('imperial');
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ altitudeM: -430 })]));
+  const t = await show();
+  expect(textIn(t)).toContain('-1411 ft');
+  const value = allNodes(t).find((n) => n.type === 'Text' && n.children[0] === '-1411 ft');
+  const depth = allNodes(t).find((n) => n.type === 'Text' && n.children[0] === '112 ft');
+  // No band colour: it is drawn exactly as the site depth beside it is.
+  expect(value).toBeDefined();
+  expect(value?.props.style).toEqual(depth?.props.style);
+});
+
+it('shows an altitude of sea level, which is an answer and not an absence', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ altitudeM: 0 })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Altitude');
+  expect(lines).toContain('0 m');
+});
+
+it('shows a type this build does not know as a word', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ siteTypes: ['wall', 'cavern'] as never })]));
+  const lines = textIn(await show());
+  expect(lines).toContain('Wall · Cavern');
+  expect(lines.join(' ')).not.toContain('vocabulary.');
+});
+
+it('draws a long description whole', async () => {
+  const long = Array.from({ length: 40 }, (_, i) => `Line ${i} of what a diver wrote.`).join('\n');
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ description: long })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const node = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.siteDescription));
+  expect(node?.children).toEqual([long]);
+  expect(node?.props.numberOfLines).toBeUndefined();
+});
+
+it('draws no description for blank text', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ description: ' \n ' })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  expect(allNodes(t).some((n) => [n.props?.style].flat(5).includes(styles.siteDescription))).toBe(false);
+});
+
+it('puts the note under the whole cluster and above the diver’s own dives', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti({ entry: ['shore'], salinity: 'salt', waterBody: 'ocean' })]));
+  mockUseDives.mockReturnValue(divesState([atKotelna()]));
+  const t = await show();
+  const lines = textIn(t);
+  const note = lines.indexOf(noteIn(t)!);
+  expect(lines.indexOf('Country')).toBeLessThan(note);
+  expect(lines.indexOf('Your dives')).toBeGreaterThan(note);
+  expect(lines.filter((line) => line === 'The site')).toHaveLength(1);
+});
+
+it('says a site depth in ink, as the page always has', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+  expect(unexpectedGraphics(await show(), 'light')).toEqual([]);
+});
+
+describe('the new facts in Czech', () => {
+  beforeEach(() => {
+    setActiveLanguage('cs');
+  });
+  afterEach(async () => {
+    await cleanup();
+    setActiveLanguage('en');
+  });
+
+  it('names its labels and says the year as a year', async () => {
+    mockUseDiveSites.mockReturnValue(catalogueState([teti()]));
+    const lines = textIn(await show());
+    for (const label of ['Typ lokality', 'Vhodné pro', 'Hloubka lokality', 'Vrak', 'Jiné názvy', 'Země']) {
+      expect(lines).toContain(label);
+    }
+    expect(lines).toContain('Teti · potopen roku 1930');
+  });
 });
 
 // --- Opened from a near-match on *New dive site* (owner's call, PR #35) -------------------------
@@ -612,7 +817,7 @@ describe('opened from a near-match', () => {
   const pickRequest: PlacePickRequest = {
     kind: 'site',
     selected: null,
-    dive: { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null },
+    dive: { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null },
     onPick: jest.fn(),
   };
   const labelled = (t: RenderResult, label: string) => allNodes(t).find((n) => n.props?.accessibilityLabel === label);

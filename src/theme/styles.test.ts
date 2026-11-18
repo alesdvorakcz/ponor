@@ -1233,6 +1233,12 @@ describe('the app content column', () => {
     // The site picker's *Near me* pill (issue #19): the label's air inside the pill. The row of
     // pills it sits in is `pickerPills`, which is in the column and asserted below.
     'pickerNearMePill',
+    // The same pill as *+ Add a name* on the *New dive site* page (issue #31); its row,
+    // `newPlaceAddNames`, is on the column.
+    'newPlaceAddNamePill',
+    // ...and as the GPS altitude offer under *Altitude* (issue #31, round 4); its row,
+    // `newPlaceAltitudeOffers`, is on the column.
+    'newPlaceAltitudeOfferPill',
     // The *New dive site* page's position card (issue #19): `detailMapCard`'s own frame, whose
     // padding is a distance inside the card and whose margin is the column.
     'newPlacePositionCard',
@@ -1313,7 +1319,7 @@ describe('the app content column', () => {
     'siteSectionTitle',
     'siteEmpty',
     'sitesHeading',
-    'siteDefaultsCaption',
+    'siteFactsNote',
     // The site and centre picker (issue #19): a pushed page of rows over the dive form, on the
     // form's own column — its way out, its title, the *Selected* line, the pill row, its notes,
     // its group headers and its rows.
@@ -1325,11 +1331,13 @@ describe('the app content column', () => {
     'pickerGroupTitle',
     'pickerRow',
     // The *New dive site / New dive centre* page it pushes: its way out, its header, the
-    // *POSITION* label and the failed-write note. Its rows are the form's own, asserted above.
+    // *POSITION* label, the failed-write note and the row the altitude offer stands in. Its rows are
+    // the form's own, asserted above.
     'newPlaceBack',
     'newPlaceHeader',
     'newPlaceSectionHeader',
     'newPlaceNote',
+    'newPlaceAltitudeOffers',
     // The account screen (issue #24): its head and everything under it, on the form's column.
     'accountHead',
     'accountBody',
@@ -1613,6 +1621,40 @@ describe('the account screen', () => {
  * covering the indicator, so the control floats a whole inset above where it belongs. On an
  * island phone that is 34 pt of nothing between a button and the keys under it.
  */
+describe('the New dive site page', () => {
+  // Issue #31: the canvas draws *+ Add a name* as the same 36 pill as the picker's *Near me*.
+  it.each(['dark', 'light'] as const)('draws + Add a name as the picker’s Near me pill, not a copy of it (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.newPlaceAddName).toBe(styles.pickerNearMe);
+    expect(styles.newPlaceAddNamePill).toBe(styles.pickerNearMePill);
+    expect(styles.newPlaceAddNameLabel).toBe(styles.pickerNearMeLabel);
+  });
+
+  // Issue #31, round 4: the GPS altitude offer is the same quiet pill again, right-aligned under
+  // the *Altitude* row as the canvas draws it.
+  it.each(['dark', 'light'] as const)('draws the altitude offer as the same pill, at the row’s end (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.newPlaceAltitudeOffer).toBe(styles.pickerNearMe);
+    expect(styles.newPlaceAltitudeOfferPill).toBe(styles.pickerNearMePill);
+    expect(styles.newPlaceAltitudeOfferLabel).toBe(styles.pickerNearMeLabel);
+    expect(styles.newPlaceAltitudeOffers).toMatchObject({ flexDirection: 'row', justifyContent: 'flex-end' });
+  });
+});
+
+// Issue #31, round 4 (the owner's pick C): the note under a site's *The site* cluster naming the rows
+// that fill in a new dive — the canvas draws it in muted mono, a note about the rows rather than a
+// sentence of the page.
+describe('a site page’s note', () => {
+  it.each(['dark', 'light'] as const)('is muted mono at the canvas’s 11.5 (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    expect(styles.siteFactsNoteText).toMatchObject({
+      fontFamily: fonts.mono,
+      fontSize: 11.5,
+      color: themeFor(scheme).fgMuted,
+    });
+  });
+});
+
 describe('liftedBottomInset', () => {
   it('spends the device inset only while the keyboard is not covering it', () => {
     // Keyboard down on an island phone: the indicator is real and has to be cleared, and the
@@ -1725,4 +1767,21 @@ describe('the depth axis column and the gridlines its labels name', () => {
       expect(styles.profileGasAxisLabel).toBeUndefined();
     },
   );
+});
+
+// A catalogue fact row (a centre's or a site's page): the label keeps its natural width and the
+// value takes what is left, wrapping and right-aligned. `formFieldLabel` shrinks so the dive
+// form's value keeps its column — on a fact row that wrapped "Služby" as "Služb / y".
+describe('catalogue fact rows', () => {
+  it.each(['dark', 'light'] as const)('keep the label whole and let the value wrap (%s)', (scheme) => {
+    const styles = makeStyles(scheme);
+    const label = styles.factLabel as Record<string, unknown>;
+    expect(label.flexShrink).toBe(0);
+    expect((styles.formFieldLabel as Record<string, unknown>).flexShrink).toBe(1);
+    for (const key of ['centerFactValue', 'centerFactFigure', 'siteFactValue'] as const) {
+      const value = styles[key] as Record<string, unknown>;
+      expect(value.flexShrink).toBe(1);
+      expect(value.textAlign).toBe('right');
+    }
+  });
 });

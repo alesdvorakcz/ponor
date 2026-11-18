@@ -101,6 +101,13 @@ const centre = (over: Partial<DiveCenter> = {}): DiveCenter => ({
   latitude: null,
   longitude: null,
   website: null,
+  address: null,
+  phone: null,
+  email: null,
+  openingHours: null,
+  services: [],
+  agencies: [],
+  description: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -120,8 +127,15 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -716,7 +730,7 @@ it('says the catalogue failed once, however many of its tables did', async () =>
 it('draws the community sites that carry a position, and names them', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      site({ id: 's-vis', name: 'Vis', country: 'Croatia', entry: 'boat', maxDepthM: 34, latitude: 43.06, longitude: 16.18 }),
+      site({ id: 's-vis', name: 'Vis', country: 'Croatia', entry: ['boat'], maxDepthM: 34, latitude: 43.06, longitude: 16.18 }),
       site({ name: 'Nowhere in particular' }),
     ]),
   );
@@ -787,7 +801,7 @@ it('draws the catalogue’s own mark for that place once your dives are switched
 it('gives a dived catalogue site’s facts to the sheet its own mark opens', async () => {
   mockUseDives.mockReturnValue(divesState([pinned({ maxDepthM: 18.2 })]));
   mockUseDiveSites.mockReturnValue(
-    catalogueState([site({ id: 's1', name: 'Blue Hole', country: 'Croatia', entry: 'boat', maxDepthM: 34 })]),
+    catalogueState([site({ id: 's1', name: 'Blue Hole', country: 'Croatia', entry: ['boat'], maxDepthM: 34 })]),
   );
   const t = await show();
   await tapMark(t, 'Blue Hole, 1 dive');

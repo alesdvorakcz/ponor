@@ -7,6 +7,7 @@ import {
   displayValueFor,
   diveFieldQuantity,
   isUnitSystem,
+  parseAltitudeMetres,
   storedValueFor,
   tankFieldQuantity,
   unitLabel,
@@ -23,6 +24,11 @@ describe('unitLabel', () => {
     expect(unitLabel('temperature', 'imperial')).toBe('°F');
     expect(unitLabel('weight', 'metric')).toBe('kg');
     expect(unitLabel('weight', 'imperial')).toBe('lb');
+  });
+
+  it('gives an altitude the metre and the foot, as a depth has them', () => {
+    expect(unitLabel('altitude', 'metric')).toBe('m');
+    expect(unitLabel('altitude', 'imperial')).toBe('ft');
   });
 
   // The fifth and sixth, added in M3 for the two figures `domain/derived.ts` computes. The rate
@@ -205,6 +211,42 @@ describe('displayValueFor and storedValueFor are inverses over an untouched fiel
   it('hands a metric diver the raw stored value rather than a rounded one', () => {
     expect(displayValueFor('depth', 24.63, 'metric')).toBe(24.63);
     expect(displayValueFor('depth', 24.63, 'imperial')).toBe(81);
+  });
+});
+
+describe('an altitude as a quantity of its own', () => {
+  it('is whole units in both systems and keeps its sign', () => {
+    expect(displayFigure('altitude', 312.6, 'metric')).toEqual({ value: '313', unit: 'm' });
+    expect(displayFigure('altitude', -430, 'imperial')).toEqual({ value: '-1411', unit: 'ft' });
+  });
+
+  it('reads back in metres from what an imperial diver typed', () => {
+    expect(storedValueFor('altitude', 1027, null, 'imperial')).toBeCloseTo(313.03, 2);
+    expect(storedValueFor('altitude', 313, null, 'metric')).toBe(313);
+  });
+});
+
+describe('parseAltitudeMetres', () => {
+  it.each([
+    ['3,812', 'metric', 3812],
+    ['1 200', 'metric', 1200],
+    ['1\u00a0200', 'metric', 1200],
+    ['12.500', 'metric', 12500],
+    ['1,234,567', 'metric', 1234567],
+    ['12,500', 'imperial', 3810],
+    ['-430', 'metric', -430],
+    ['\u2212430', 'metric', -430],
+    // A leading `+` says "above sea level" out loud, as `toFormNumber` reads it on the dive form.
+    ['+300', 'metric', 300],
+    ['312.6', 'metric', 313],
+    ['312,6', 'metric', 313],
+    ['  250 ', 'metric', 250],
+  ] as const)('reads %j (%s) as %d m', (text, system, metres) => {
+    expect(parseAltitudeMetres(text, system)).toBe(metres);
+  });
+
+  it.each(['abc', '', '   ', '1,2,3', '1,2345', '-', '+', '+-5', '1.2.3'])('reads %j as no number', (text) => {
+    expect(parseAltitudeMetres(text, 'metric')).toBeNull();
   });
 });
 

@@ -60,8 +60,15 @@ const rock = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -147,7 +154,7 @@ it('opens on every site the device holds, in a stable order', async () => {
 it('says what the catalogue knows and how many dives the diver has there', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([
-      rock({ id: 's-kot', name: 'Kotelna', country: 'CZ', entry: 'shore', salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 }),
+      rock({ id: 's-kot', name: 'Kotelna', country: 'CZ', entry: ['shore'], salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 }),
     ]),
   );
   // A logbook with dives that are NOT this site's in it, deliberately: a row counting
@@ -214,6 +221,41 @@ it('filters the list as the diver types, accents folded', async () => {
   await type(t, 'zelez');
   expect(rowNames(t)).toEqual(['Železná']);
   expect(textIn(t)).toContain('1 site');
+});
+
+/**
+ * #31: `browseCatalogue` finds a site by any name it goes by, so this list does too — and a row
+ * named nothing like what was typed says which of its names matched, in the picker's own words
+ * (`picker.alsoCalled`, through `alsoCalled` and `withAlsoCalled`: one owner of the sentence).
+ */
+it('says which other name a searched site was found by', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([
+      rock({ name: 'Kamena vrata', altNames: ['Stone Gate'], country: 'HR', entry: ['boat'] }),
+      rock({ name: 'Kotelna' }),
+    ]),
+  );
+  const t = await show();
+  // Nothing typed: the line is the catalogue's facts, as it always was.
+  expect(textIn(t)).toContain('HR · Boat');
+  expect(textIn(t).join(' ')).not.toContain('also called');
+
+  await type(t, 'stone');
+  expect(rowNames(t)).toEqual(['Kamena vrata']);
+  expect(textIn(t)).toContain('also called Stone Gate · HR · Boat');
+
+  // Found by its own name, the row needs no explanation.
+  await type(t, 'kamena');
+  expect(textIn(t)).toContain('HR · Boat');
+  expect(textIn(t).join(' ')).not.toContain('also called');
+});
+
+/** With nothing else to say, the other name is the whole line rather than a line with a gap. */
+it('lets the other name stand alone on a row with nothing else to say', async () => {
+  mockUseDiveSites.mockReturnValue(catalogueState([rock({ name: 'Kamena vrata', altNames: ['Stone Gate'] })]));
+  const t = await show();
+  await type(t, 'gate');
+  expect(textIn(t)).toContain('also called Stone Gate');
 });
 
 it('says when nothing matches, which is not the same as having none', async () => {

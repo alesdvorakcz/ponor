@@ -1,5 +1,5 @@
 import { dive } from './diveFixture';
-import { browseCatalogue, foldForMatching, searchDives } from './search';
+import { alsoCalled, altNamesIn, browseCatalogue, cleanAltNames, foldForMatching, searchDives } from './search';
 
 describe('searchDives', () => {
   // Review task 7, cannot-fail #1: `toHaveLength(2)` can't tell "returned `dives` itself,
@@ -171,13 +171,13 @@ describe('foldForMatching — §10\'s diacritic fold, and exactly where it stops
  * one (M3f), which are one function because `dive_sites` and `dive_centers` are one table shape.
  *
  * `searchDives`' sibling above, differing on two axes and stating both: it reads community rows
- * with one column worth matching, and it ORDERS them, because a directory has no order of its own
+ * by their names alone, and it ORDERS them, because a directory has no order of its own
  * to preserve and leaving it to whatever SQLite returned would make the same list read
  * differently on two devices.
  *
- * The rows below are built as `{ id, name }` and nothing else, which is the whole of what this
- * function may read — a fixture carrying a `website` or a `max_depth_m` would let a rule about
- * one table's columns pass here unnoticed.
+ * The rows below are built as `{ id, name }` — plus a site's `altNames` where a test is about them
+ * (#31) — and nothing else, which is the whole of what this function may read: a fixture carrying
+ * a `website` or a `max_depth_m` would let a rule about one table's columns pass here unnoticed.
  */
 describe('browseCatalogue', () => {
   const centre = (id: string, name: string | null) => ({ id, name });
@@ -229,5 +229,85 @@ describe('browseCatalogue', () => {
     const rows = [centre('a', 'Ponorka'), centre('b', 'Aqua')];
     browseCatalogue(rows, '');
     expect(rows.map((c) => c.id)).toEqual(['a', 'b']);
+  });
+
+  /**
+   * #31: a site goes by other names too — *Stone Gate* for *Kamena vrata* — and a diver who knows
+   * it by one of them must find it. The order is still the row's own name's, so a row found by
+   * another name sits where its name puts it, not where the name that found it would.
+   */
+  it('finds a place by another name it goes by', () => {
+    const rows = [
+      { id: 'k', name: 'Kamena vrata', altNames: ['Stone Gate'] },
+      { id: 'a', name: 'Aqua', altNames: [] },
+      { id: 'z', name: 'Zubatá', altNames: ['Kamená brána'] },
+    ];
+    expect(browseCatalogue(rows, 'stone gate').map((c) => c.id)).toEqual(['k']);
+    expect(browseCatalogue(rows, 'kamena').map((c) => c.id)).toEqual(['k', 'z']);
+    // A centre has no other names; a row without the list is matched by its name alone.
+    expect(browseCatalogue([centre('c', 'Ponorka')], 'stone')).toEqual([]);
+  });
+});
+
+/**
+ * `alsoCalled` — which other name a row was found by, so the picker and the Sites directory can
+ * say so (*also called Stone Gate*). Nothing when the row's own name already matches: a row found
+ * by the name it shows needs no explanation.
+ */
+describe('alsoCalled', () => {
+  it('names the other name a query found the place by, as stored', () => {
+    expect(alsoCalled({ name: 'Kamena vrata', altNames: ['Stone Gate'] }, 'stone gate')).toBe('Stone Gate');
+  });
+
+  it('says nothing when the place’s own name matched', () => {
+    expect(alsoCalled({ name: 'Stone Gate', altNames: ['Stone Gate Reef'] }, 'stone')).toBeNull();
+  });
+
+  it('folds accents on both sides, as every other match does', () => {
+    expect(alsoCalled({ name: 'Vis', altNames: ['Kamená brána'] }, 'kamena')).toBe('Kamená brána');
+  });
+
+  // A list from another client's build can hold anything (#31's review focus 1): what is not a
+  // string is skipped, and the name that matched is shown trimmed.
+  it('skips what is not a name and trims the one it shows', () => {
+    expect(alsoCalled({ name: 'Vis', altNames: [7, null, ' Teti wreck '] }, 'teti')).toBe('Teti wreck');
+    expect(alsoCalled({ name: 'Vis', altNames: ['   ', 7] }, '7')).toBeNull();
+    expect(alsoCalled({ name: 'Vis', altNames: null }, 'teti')).toBeNull();
+    expect(alsoCalled({ name: 'Vis' }, 'teti')).toBeNull();
+  });
+
+  it('says nothing for a blank query, and nothing when no name matches', () => {
+    expect(alsoCalled({ name: 'Kamena vrata', altNames: ['Stone Gate'] }, '   ')).toBeNull();
+    // The case that needs the check of its own: with no name to match `''`, every other name
+    // would — and an unnamed site in the unsearched directory would read *also called Stone Gate*.
+    expect(alsoCalled({ name: null, altNames: ['Stone Gate'] }, '')).toBeNull();
+    expect(alsoCalled({ name: 'Kamena vrata', altNames: ['Stone Gate'] }, 'blue hole')).toBeNull();
+  });
+
+  it('reads a place with no name of its own by its other names', () => {
+    expect(alsoCalled({ name: null, altNames: ['Stone Gate'] }, 'stone')).toBe('Stone Gate');
+  });
+
+  it('names the first other name that matches, in the order the list holds them', () => {
+    expect(alsoCalled({ name: 'Vis', altNames: ['Stone Arch', 'Stone Gate'] }, 'stone')).toBe('Stone Arch');
+  });
+});
+
+// The one reader of an `alt_names` list, which search, the duplicate check, Save and the site page
+// share: a list from another client's build may hold anything (#31's review focus 1).
+describe('altNamesIn', () => {
+  it('keeps text trimmed, drops blanks and what is not text, and reads a non-list as no names', () => {
+    expect(altNamesIn([' Stone Gate ', '', '   ', 7, null, 'Vrata'])).toEqual(['Stone Gate', 'Vrata']);
+    expect(altNamesIn(null)).toEqual([]);
+    expect(altNamesIn('Stone Gate')).toEqual([]);
+  });
+});
+
+describe('cleanAltNames', () => {
+  it('trims, drops blanks, the site’s own name and repeats by fold, keeping the first spelling', () => {
+    expect(cleanAltNames('Kamena vrata', ['  Stone Gate ', '', 'stone gate', 'Kamená Vrata', 'Vrata'])).toEqual([
+      'Stone Gate',
+      'Vrata',
+    ]);
   });
 });

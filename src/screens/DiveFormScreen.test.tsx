@@ -6662,8 +6662,15 @@ const catalogued = (name: string, id: string): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -6694,7 +6701,8 @@ it("an empty Site row reads Choose a site and opens the site picker with the div
   expect(site.selected).toBeNull();
   expect(site.dive).toEqual({
     pin: { latitude: FOUND_HERE.latitude, longitude: FOUND_HERE.longitude },
-    entry: 'boat',
+    // As a new site would inherit it: a set of the dive's one way in (#31, `siteFactsFrom`).
+    entry: ['boat'],
     salinity: 'salt',
     waterBody: WATER_BODY_VALUES[0],
     siteId: null,
@@ -6727,7 +6735,7 @@ it('an edited dive tells both pickers which dive it is', async () => {
 // so a form that kept carry-over's id under the picked name fails on provenance.
 it("a pick sets the name and id and the site's defaults", async () => {
   stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Silfra', siteId: 'site-silfra', entry: 'shore' })] });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat' }) });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'] }) });
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
 
@@ -6891,6 +6899,13 @@ it('shows a paired centre’s country under its name', async () => {
     latitude: null,
     longitude: null,
     website: null,
+    address: null,
+    phone: null,
+    email: null,
+    openingHours: null,
+    services: [],
+    agencies: [],
+    description: null,
     createdBy: null,
     status: 'active',
     mergedInto: null,
@@ -7022,7 +7037,7 @@ const carriedFromAQuarry = () => [
  */
 it('puts the diver above the site, the site above carry-over, and carry-over above nothing', async () => {
   stubDives({ dives: carriedFromAQuarry() });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt' }) });
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
@@ -7073,7 +7088,7 @@ it('falls back to carry-over, not to the site the diver has left', async () => {
     ],
   });
   stubCatalogueRows({
-    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }),
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt' }),
     'site-kotelna': siteSaying('Kotelna', 'site-kotelna', { salinity: 'fresh', waterBody: 'quarry' }),
   });
   const t = await render(<DiveFormScreen mode="create" />);
@@ -7093,7 +7108,7 @@ it('falls back to carry-over, not to the site the diver has left', async () => {
 // is no longer at it — and would hand them to whatever site the diver creates next.
 it('hands the rows back to carry-over when the diver empties the site', async () => {
   stubDives({ dives: carriedFromAQuarry() });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
 
@@ -7140,7 +7155,7 @@ it('does not put a value back into a row the diver cleared', async () => {
  */
 it('keeps the site’s answers when carry-over resolves again afterwards', async () => {
   stubDives({ dives: carriedFromAQuarry() });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt' }) });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
   await pickSite(t, 'Blue Hole', 'site-blue');
@@ -7178,7 +7193,7 @@ it('keeps the site’s answers when carry-over resolves again afterwards', async
  */
 it('takes the carried mark off a row the site replaced, and leaves it on one the site merely agrees with', async () => {
   stubDives({ dives: carriedFromAQuarry() });
-  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'shore', salinity: 'salt' }) });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['shore'], salinity: 'salt' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
   expect(findClearCarried(t, 'Entry')).toBeDefined();
@@ -7227,7 +7242,7 @@ it('gives the carried mark back to a row the next site says nothing about', asyn
 it('leaves the marks alone when the diver creates the site this dive is at', async () => {
   stubDives({ dives: [dive({ date: '2026-08-20', entry: 'shore', salinity: 'fresh', waterBody: 'lake' })] });
   stubCatalogueRows({
-    'new-site': siteSaying('Kotelna', 'new-site', { entry: 'shore', salinity: 'fresh', waterBody: 'lake' }),
+    'new-site': siteSaying('Kotelna', 'new-site', { entry: ['shore'], salinity: 'fresh', waterBody: 'lake' }),
   });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
@@ -7260,7 +7275,7 @@ it('never prefills a dive it is editing, whatever site the diver moves it to', a
   });
   stubDives({ dives: [target, dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' })] });
   stubCatalogueRows({
-    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt', waterBody: 'ocean' }),
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt', waterBody: 'ocean' }),
   });
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
@@ -7366,7 +7381,7 @@ it('keeps a chip the diver pressed while the site was being read', async () => {
   await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
 
   await act(async () => {
-    answer(siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'fresh' }));
+    answer(siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'fresh' }));
   });
 
   // The site's `entry` landed; its `salinity` did not, because that row is the diver's now.
@@ -7402,7 +7417,7 @@ it('applies the site the diver ended on, not the one they passed through', async
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });
 
   await act(async () => {
-    answerBlue(siteSaying('Blue Hole', 'site-blue', { entry: 'boat', salinity: 'salt', waterBody: 'ocean' }));
+    answerBlue(siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt', waterBody: 'ocean' }));
   });
 
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'quarry' });

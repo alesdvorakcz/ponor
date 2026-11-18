@@ -160,6 +160,8 @@ const IGNORED_STATEMENT_HEADS = [
   // this list rather than absent from it, so that the day one appears naming a table's only
   // index it is a line somebody wrote on purpose.
   'drop index ',
+  // #31: a signature change is a `drop function` and a new `create` (supabase/README.md).
+  'drop function ',
   'create policy ',
   'drop policy ',
   // Two heads are ignored here **so that the assertions in schemaParity.test.ts can be the
@@ -523,7 +525,8 @@ export function splitTopLevel(text: string): string[] {
 
 /**
  * Reads a migration made of `create or replace function` statements, plus the `grant` and
- * `revoke` lines that decide who may call them, plus the index DDL below. Anything else throws.
+ * `revoke` lines that decide who may call them, plus the index DDL and the `drop function` below.
+ * Anything else throws.
  *
  * **Indexes are on the list only because M2j put two of them in an RPC file, and the reason is
  * worth keeping.** They index `public.name_fold(name)` — a function that file defines — and an
@@ -539,6 +542,8 @@ const IGNORED_FUNCTION_FILE_HEADS = [
   'create index',
   'create unique index',
   'drop index',
+  // #31: a signature change is a drop and a create (supabase/README.md); catalogueRpcParity pins which.
+  'drop function',
 ];
 
 export interface ParsedFunctionSql {
@@ -688,9 +693,13 @@ export function qualifiedReferences(text: string, qualifier: string): string[] {
   return [...text.matchAll(pattern)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
 }
 
-/** JSON keys read out of a raw payload row, as `payload->>'key'`. */
+/**
+ * JSON keys read out of a raw payload row, as `payload->>'key'` or `payload->'key'`. Both arrows,
+ * because #31's jsonb sets are read with `->` (which keeps them jsonb), and a reader that knew
+ * only `->>` would skip exactly those keys.
+ */
 export function payloadKeys(text: string): string[] {
-  return [...text.matchAll(/->>'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
+  return [...text.matchAll(/->>?'([a-z_][a-z0-9_]*)'/g)].flatMap((match) =>
     match[1] === undefined ? [] : [match[1]],
   );
 }

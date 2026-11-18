@@ -34,6 +34,7 @@ import {
   formatCylinders,
   HE_LABEL,
   O2_LABEL,
+  formatAltitude,
   formatDepth,
   formatDepthBandRange,
   formatDepthParts,
@@ -55,6 +56,11 @@ import {
   formatDiveStatus,
   formatUnitSystem,
   formatEntry,
+  formatPlaceToken,
+  formatPlaceTokens,
+  formatSuitableFor,
+  formatWreck,
+  formatAltNames,
   formatGasUsed,
   formatPercent,
   formatPressure,
@@ -85,10 +91,30 @@ import {
   formatWeight,
   diveSiteLabel,
   unnamedSite,
+  withAlsoCalled,
 } from './display';
 import { UNIT_SYSTEMS } from './units';
 import { setActiveLanguage } from '../i18n';
 import { type PickerRow } from '../domain/placePicker';
+
+describe('formatAltitude', () => {
+  // An altitude is not a depth (#31): it reads to the whole metre in both systems, and below sea
+  // level is a real answer where a negative depth is not.
+  it('reads to the whole metre, or the whole foot', () => {
+    expect(formatAltitude(312.6, 'metric')).toBe('313 m');
+    expect(formatAltitude(313, 'imperial')).toBe('1027 ft');
+  });
+  it('keeps a site below sea level signed', () => {
+    expect(formatAltitude(-430, 'metric')).toBe('-430 m');
+  });
+  it('shows sea level as 0, never as -0', () => {
+    expect(formatAltitude(-0.2, 'metric')).toBe('0 m');
+  });
+  it('returns null for nothing recorded and for what is not a number', () => {
+    expect(formatAltitude(null, 'metric')).toBeNull();
+    expect(formatAltitude(Number.NaN, 'metric')).toBeNull();
+  });
+});
 
 describe('formatDepth', () => {
   it('shows one decimal place', () => {
@@ -1516,32 +1542,43 @@ describe('formatSiteFacts', () => {
   it('reads country, entry, salinity, water body and the site’s own depth', () => {
     expect(
       formatSiteFacts(
-        { country: 'Croatia', entry: 'boat', salinity: 'salt', waterBody: 'ocean', maxDepthM: 34 },
+        { country: 'Croatia', entry: ['boat'], salinity: 'salt', waterBody: 'ocean', maxDepthM: 34 },
         'metric',
       ),
     ).toBe('Croatia · Boat · Salt · Ocean · 34.0 m');
+  });
+
+  // A site's entry is a set (#31): every way in it offers, each as the word a dive logged there
+  // reads, and none when it records none.
+  it('reads every way into the site', () => {
+    expect(
+      formatSiteFacts(
+        { country: 'Croatia', entry: ['shore', 'boat'], salinity: 'salt', waterBody: null, maxDepthM: null },
+        'metric',
+      ),
+    ).toBe('Croatia · Shore · Boat · Salt');
   });
 
   // §5 asks a new site only for a name, so a row with nothing else is the expected shape rather
   // than a degraded one — null, so a caller draws no line at all rather than an empty one.
   it('says nothing at all about a site that carries nothing but a name', () => {
     expect(
-      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+      formatSiteFacts({ country: null, entry: [], salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
     ).toBeNull();
     expect(
-      formatSiteFacts({ country: '', entry: null, salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
+      formatSiteFacts({ country: '', entry: [], salinity: null, waterBody: null, maxDepthM: null }, 'metric'),
     ).toBeNull();
   });
 
   it('omits whichever facts are missing rather than reserving a slot for them', () => {
     expect(
-      formatSiteFacts({ country: 'Croatia', entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'metric'),
+      formatSiteFacts({ country: 'Croatia', entry: [], salinity: null, waterBody: null, maxDepthM: 34 }, 'metric'),
     ).toBe('Croatia · 34.0 m');
   });
 
   it('converts the site depth to the diver’s own system', () => {
     expect(
-      formatSiteFacts({ country: null, entry: null, salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
+      formatSiteFacts({ country: null, entry: [], salinity: null, waterBody: null, maxDepthM: 34 }, 'imperial'),
     ).toBe('112 ft');
   });
 });
@@ -1555,8 +1592,20 @@ describe('formatSiteFacts', () => {
  * *that* line and not a second listing of the same columns, and that the dive count joins it in
  * the same middot list.
  */
-const KOTELNA = { country: 'CZ', entry: 'shore', salinity: 'fresh', waterBody: 'quarry', maxDepthM: 42 } as const;
-const NAMELESS = { country: null, entry: null, salinity: null, waterBody: null, maxDepthM: null } as const;
+const KOTELNA: Parameters<typeof formatSiteRow>[0] = {
+  country: 'CZ',
+  entry: ['shore'],
+  salinity: 'fresh',
+  waterBody: 'quarry',
+  maxDepthM: 42,
+};
+const NAMELESS: Parameters<typeof formatSiteRow>[0] = {
+  country: null,
+  entry: [],
+  salinity: null,
+  waterBody: null,
+  maxDepthM: null,
+};
 
 describe('formatSiteRow', () => {
   it('joins what the catalogue knows to how many dives the diver has there', () => {
@@ -1893,6 +1942,7 @@ describe('the place picker', () => {
     dived: null,
     distanceKm: null,
     selected: false,
+    alsoCalled: null,
     ...over,
   });
   const visited = { dives: 4, lastDate: '2026-05-18', deepestM: 34.6, sites: 2 };
@@ -1985,6 +2035,37 @@ describe('the place picker', () => {
     );
   });
 
+  // #31: a row found by another name says so first, whatever its group would have said after it.
+  it('says which other name a row was found by, ahead of whatever the group says', () => {
+    const stone = { alsoCalled: 'Stone Gate' };
+    expect(formatPickerMeta(row({ ...stone, country: 'HR' }), 'other', 'site', wording)).toBe(
+      'also called Stone Gate · community · HR',
+    );
+    // A dived group with nothing to count has no line of its own; the other name stands alone.
+    expect(formatPickerMeta(row({ ...stone, dived: null }), 'dived', 'site', wording)).toBe('also called Stone Gate');
+    expect(formatPickerMeta(row({ ...stone, dived: visited }), 'dived', 'site', wording)).toBe(
+      `also called Stone Gate · 4 dives · last ${formatDiveDate('2026-05-18')}`,
+    );
+    expect(formatPickerMeta(row({ ...stone, distanceKm: 3 }), 'near', 'site', wording)).toBe(
+      'also called Stone Gate · community',
+    );
+    setActiveLanguage('cs');
+    try {
+      expect(formatPickerMeta(row({ ...stone, country: 'HR' }), 'other', 'site', wording)).toBe(
+        'jiným názvem Stone Gate · komunitní · HR',
+      );
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+
+  it('prefixes a line with the other name, or lets the other name stand alone', () => {
+    expect(withAlsoCalled('Stone Gate', 'HR · Shore')).toBe('also called Stone Gate · HR · Shore');
+    expect(withAlsoCalled('Stone Gate', null)).toBe('also called Stone Gate');
+    expect(withAlsoCalled(null, 'HR · Shore')).toBe('HR · Shore');
+    expect(withAlsoCalled(null, null)).toBeNull();
+  });
+
   // Deepest in the diver's units for a dived site, nothing for a centre (its heading says it),
   // a distance on either near list, and nothing on a row that is only a match.
   it('trails a dived site with its deepest dive and a near row with its distance', () => {
@@ -2001,5 +2082,64 @@ describe('the place picker', () => {
     expect(formatCreatePlaceMeta('center', true)).toBe('new centre · details next');
     expect(formatCreatePlaceMeta('site', false)).toBe('new site · kept on this phone until you sign in');
     expect(formatCreatePlaceMeta('center', false)).toBe('new centre · kept on this phone until you sign in');
+  });
+});
+
+describe('formatPlaceTokens', () => {
+  it('reads each token as its word, in stored order, and keeps one this build does not know', () => {
+    expect(formatPlaceTokens('services', ['nitrox', 'freediving'])).toBe('Nitrox · Freediving');
+    expect(formatPlaceTokens('agencies', ['sdi_tdi', 'other'])).toBe('SDI/TDI · Other');
+    expect(formatPlaceTokens('siteTypes', ['canyon', 'swim_through'])).toBe('Canyon · Swim-through');
+    // A site's ways in (#31): the words a dive's entry reads, one owner for both.
+    expect(formatPlaceTokens('entry', ['shore', 'boat', 'jetty'])).toBe('Shore · Boat · Jetty');
+    expect(formatPlaceToken('entry', 'boat')).toBe(formatEntry('boat'));
+  });
+  it('skips what is not a string, and is null when nothing is left', () => {
+    expect(formatPlaceTokens('siteTypes', [3, null, 'wall'])).toBe('Wall');
+    expect(formatPlaceTokens('siteTypes', [])).toBeNull();
+    expect(formatPlaceTokens('siteTypes', [3, null])).toBeNull();
+  });
+  it('reads in Czech', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatPlaceTokens('services', ['boat', 'repair'])).toBe('Ponory z lodi · Servis');
+      expect(formatPlaceTokens('siteTypes', ['swim_through'])).toBe('Průplav');
+      expect(formatPlaceTokens('entry', ['shore', 'boat'])).toBe('Břeh · Loď');
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+});
+
+describe('formatSuitableFor', () => {
+  it('names a level, capitalises one it does not know, and is null for none', () => {
+    expect(formatSuitableFor('open_water')).toBe('Open Water');
+    expect(formatSuitableFor('extreme' as never)).toBe('Extreme');
+    expect(formatSuitableFor(null)).toBeNull();
+  });
+});
+
+describe('formatWreck', () => {
+  it('says the name and the year it sank, either alone, or nothing', () => {
+    expect(formatWreck('Teti', 1930)).toBe('Teti · sunk 1930');
+    expect(formatWreck('Teti', null)).toBe('Teti');
+    expect(formatWreck(null, 1930)).toBe('sunk 1930');
+    expect(formatWreck(null, null)).toBeNull();
+  });
+  it('reads in Czech, and never groups the year', () => {
+    setActiveLanguage('cs');
+    try {
+      expect(formatWreck('Teti', 1930)).toBe('Teti · potopen roku 1930');
+    } finally {
+      setActiveLanguage('en');
+    }
+  });
+});
+
+describe('formatAltNames', () => {
+  it('lists the names it can read, trimmed', () => {
+    expect(formatAltNames(['Teti wreck', ' ', 4, 'Vrak Teti'])).toBe('Teti wreck · Vrak Teti');
+    expect(formatAltNames([])).toBeNull();
+    expect(formatAltNames([' ', null])).toBeNull();
   });
 });

@@ -18,6 +18,8 @@ import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { type Dive, type DiveCenter } from '../domain/types';
 import { setActiveLanguage } from '../i18n';
 import { unnamedCenter } from '../format/display';
+import { openAddressInMaps } from '../platform/mapsLink';
+import { openContactUrl } from '../platform/openContact';
 import { openWebsite } from '../platform/openWebsite';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
@@ -42,12 +44,26 @@ jest.mock('../platform/openWebsite', () => ({
   openWebsite: jest.fn(async () => {}),
 }));
 
+// The same seam for what a phone number, an email and an address hand to the device: the rules
+// are `openContact.test.ts`'s and `mapsLink.test.ts`'s, and this file asserts which string the
+// screen hands over.
+jest.mock('../platform/openContact', () => ({
+  ...jest.requireActual('../platform/openContact'),
+  openContactUrl: jest.fn(async () => {}),
+}));
+jest.mock('../platform/mapsLink', () => ({
+  ...jest.requireActual('../platform/mapsLink'),
+  openAddressInMaps: jest.fn(),
+}));
+
 const mockUseDiveCenters = useDiveCenters as jest.MockedFunction<typeof useDiveCenters>;
 const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
 const mockUseDiveSampleShapes = useDiveSampleShapes as jest.MockedFunction<typeof useDiveSampleShapes>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
 const mockParams = useLocalSearchParams as jest.MockedFunction<typeof useLocalSearchParams>;
 const mockOpenWebsite = openWebsite as jest.MockedFunction<typeof openWebsite>;
+const mockOpenContactUrl = openContactUrl as jest.MockedFunction<typeof openContactUrl>;
+const mockOpenAddressInMaps = openAddressInMaps as jest.MockedFunction<typeof openAddressInMaps>;
 
 /**
  * **A centre in the shape M2o actually writes: a name and nothing else.**
@@ -66,6 +82,13 @@ const centre = (over: Partial<DiveCenter> = {}): DiveCenter => ({
   latitude: null,
   longitude: null,
   website: null,
+  address: null,
+  phone: null,
+  email: null,
+  openingHours: null,
+  services: [],
+  agencies: [],
+  description: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -98,6 +121,8 @@ beforeEach(() => {
   mockUseUnitSystem.mockReturnValue('metric');
   mockParams.mockReturnValue({ id: 'c1' });
   mockOpenWebsite.mockClear();
+  mockOpenContactUrl.mockClear();
+  mockOpenAddressInMaps.mockClear();
   (router.push as jest.Mock).mockClear();
 });
 
@@ -175,11 +200,11 @@ it('is worth opening for a centre that has nothing but a name', async () => {
 });
 
 // A heading with nothing under it is the shape §0.6 refuses on the dive detail, and it is the
-// one this branch would produce: a "Centre" cluster over zero rows.
+// one this branch would produce: a "Contact" cluster over zero rows.
 it('draws no catalogue cluster for a centre with no catalogue facts', async () => {
   mockUseDives.mockReturnValue(divesState([withPonorka()]));
   const text = textIn(await show());
-  expect(text).not.toContain('Centre');
+  expect(text).not.toContain('Contact');
   expect(text).not.toContain('Country');
   expect(text).not.toContain('Website');
 });
@@ -191,7 +216,7 @@ it('shows the country and the website when the row carries them', async () => {
     catalogueState([centre({ country: 'HR', website: 'https://ponorka.example' })]),
   );
   const text = textIn(await show());
-  expect(text).toContain('Centre');
+  expect(text).toContain('Contact');
   expect(text).toContain('Country');
   expect(text).toContain('HR');
   expect(text).toContain('Website');
@@ -396,7 +421,7 @@ describe('in Czech', () => {
       catalogueState([centre({ country: 'CZ', website: 'https://ponorka.example' })]),
     );
     const said = textIn(await show());
-    expect(said).toContain('Centrum');
+    expect(said).toContain('Kontakt');
     expect(said).toContain('Země');
     expect(said).toContain('Web');
     expect(said).toContain('‹ Zpět');
@@ -462,5 +487,143 @@ it('puts the card under the page’s own lines and above the centre’s facts', 
   );
   const lines = textIn(await show());
   expect(lines.indexOf('Show on map')).toBeGreaterThan(lines.indexOf('Ponorka'));
-  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Centre'));
+  expect(lines.indexOf('Show on map')).toBeLessThan(lines.indexOf('Contact'));
+});
+
+// --- What a centre says about itself (#31) -----------------------------------------------------
+
+const nautica = (over: Partial<DiveCenter> = {}) =>
+  centre({
+    name: 'Nautica Vis',
+    address: 'Otok Vis, Kut 12',
+    phone: '+385 21 555 0123',
+    email: 'dive@nautica-vis.example',
+    openingHours: 'Mon–Sat 8–18',
+    website: 'https://nautica-vis.example',
+    country: 'HR',
+    services: ['air', 'nitrox'],
+    agencies: ['padi', 'other'],
+    description: 'A small shop on the quay.\nBoats leave at nine.',
+    ...over,
+  });
+
+it('puts the description under the page’s own lines and above the map card', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica({ latitude: 43.0611, longitude: 16.1834 })]));
+  mockUseDives.mockReturnValue(divesState([withPonorka({ centerName: 'Nautica Vis', centerId: 'c1' })]));
+  const t = await show();
+  const lines = textIn(t);
+  const description = 'A small shop on the quay.\nBoats leave at nine.';
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.indexOf('Nautica Vis'));
+  expect(lines.indexOf(description)).toBeGreaterThan(lines.findIndex((line) => line.startsWith('1 dive')));
+  expect(lines.indexOf(description)).toBeLessThan(lines.indexOf('Show on map'));
+  // Whole, with its newline, and in the description's own style.
+  const styles = makeStyles('light');
+  const node = allNodes(t).find((n) => [n.props?.style].flat(5).includes(styles.centerDescription));
+  expect(node).toBeDefined();
+  expect(node?.props.numberOfLines).toBeUndefined();
+});
+
+it('draws no description for blank text', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica({ description: '  \n ' })]));
+  const t = await show();
+  const styles = makeStyles('light');
+  expect(allNodes(t).some((n) => [n.props?.style].flat(5).includes(styles.centerDescription))).toBe(false);
+});
+
+it('opens the address in the device’s maps', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+  const t = await show();
+  await fireEvent.press(labelled(t, 'Show Otok Vis, Kut 12 on a map'));
+  expect(mockOpenAddressInMaps).toHaveBeenCalledWith('Otok Vis, Kut 12');
+});
+
+it('calls the number', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+  const t = await show();
+  await fireEvent.press(labelled(t, 'Call +385 21 555 0123'));
+  expect(mockOpenContactUrl).toHaveBeenCalledWith('tel:+385215550123');
+});
+
+it('writes to the email address', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+  const t = await show();
+  await fireEvent.press(labelled(t, 'Write to dive@nautica-vis.example'));
+  expect(mockOpenContactUrl).toHaveBeenCalledWith('mailto:dive@nautica-vis.example');
+});
+
+it('shows a number or an address it cannot open as text, with nothing to press', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    catalogueState([nautica({ phone: 'ask at the bar', email: 'x@y.example?bcc=z@w.example' })]),
+  );
+  const t = await show();
+  expect(textIn(t)).toContain('ask at the bar');
+  expect(textIn(t)).toContain('x@y.example?bcc=z@w.example');
+  const links = allNodes(t).filter((n) => n.props?.accessibilityRole === 'link');
+  const labels = links.map((n) => n.props.accessibilityLabel);
+  expect(labels.some((label) => String(label).startsWith('Call'))).toBe(false);
+  expect(labels.some((label) => String(label).startsWith('Write to'))).toBe(false);
+  // Pressing the text itself opens nothing: no ancestor of it is a handler that reaches `openURL`.
+  for (const text of ['ask at the bar', 'x@y.example?bcc=z@w.example']) {
+    const node = allNodes(t).find((n) => n.type === 'Text' && n.children.includes(text));
+    expect(node).toBeDefined();
+    await fireEvent.press(node!);
+  }
+  expect(mockOpenContactUrl).not.toHaveBeenCalled();
+});
+
+it('shows the number in the figure face and the address, email and hours in the name face', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+  const t = await show();
+  const styles = makeStyles('light');
+  const withStyle = (key: 'centerFactFigure' | 'centerFactValue') =>
+    allNodes(t)
+      .filter((n) => n.type === 'Text' && [n.props?.style].flat(5).includes(styles[key]))
+      .flatMap((n) => n.children);
+  expect(withStyle('centerFactFigure')).toEqual(['+385 21 555 0123']);
+  expect(withStyle('centerFactValue')).toEqual(
+    expect.arrayContaining(['Otok Vis, Kut 12', 'dive@nautica-vis.example', 'Mon–Sat 8–18']),
+  );
+});
+
+it('lists contact, then services and agencies as lines of text', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+  mockUseDives.mockReturnValue(divesState([withPonorka({ centerName: 'Nautica Vis' })]));
+  const lines = textIn(await show());
+  const order = ['Contact', 'Services', 'Your dives'].map((heading) => lines.indexOf(heading));
+  expect(order.every((i) => i >= 0)).toBe(true);
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+  expect(lines).toEqual(expect.arrayContaining(['Air · Nitrox', 'PADI · Other', 'Agencies']));
+  // Contact rows in the canvas's order.
+  const rows = ['Address', 'Phone', 'Email', 'Opening hours', 'Website', 'Country'].map((l) => lines.indexOf(l));
+  expect(rows.every((i) => i >= 0)).toBe(true);
+  expect(rows).toEqual([...rows].sort((a, b) => a - b));
+});
+
+it('draws no services cluster for a centre with none', async () => {
+  mockUseDiveCenters.mockReturnValue(catalogueState([nautica({ services: [], agencies: [] })]));
+  expect(textIn(await show())).not.toContain('Services');
+});
+
+it('reads a service this build does not know as a word, and skips what is not a string', async () => {
+  mockUseDiveCenters.mockReturnValue(
+    catalogueState([nautica({ services: ['freediving', 3, null] as never, agencies: [] })]),
+  );
+  const lines = textIn(await show());
+  expect(lines).toContain('Freediving');
+  expect(lines.join(' ')).not.toContain('vocabulary.');
+});
+
+it('words its links in Czech', async () => {
+  setActiveLanguage('cs');
+  try {
+    mockUseDiveCenters.mockReturnValue(catalogueState([nautica()]));
+    const t = await show();
+    labelled(t, 'Zavolat na +385 21 555 0123');
+    labelled(t, 'Napsat na dive@nautica-vis.example');
+    labelled(t, 'Ukázat Otok Vis, Kut 12 na mapě');
+    expect(textIn(t)).toContain('Agentury');
+  } finally {
+    await cleanup();
+    setActiveLanguage('en');
+  }
 });

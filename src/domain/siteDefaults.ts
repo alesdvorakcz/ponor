@@ -39,8 +39,10 @@ export const SITE_DEFAULT_FIELDS = ['entry', 'salinity', 'waterBody'] as const;
 export type SiteDefaultField = (typeof SITE_DEFAULT_FIELDS)[number];
 
 /** The part of a catalogue row this rule reads, and the whole of it. `Pick`ed off `DiveSite`,
- * so a column that changes type breaks the build here rather than being read as the wrong
- * thing — the same tie `NewSiteFacts` draws for the opposite direction. */
+ * the same tie `NewSiteFacts` draws for the opposite direction. **It does not by itself break the
+ * build when a column changes type**: `stated` reads every value as `unknown`, so when #31 made a
+ * site's entry a set this compiled unchanged and read the list as silence. The entry is read by
+ * `siteDefaultValue` below, by name, for that reason. */
 export type SiteDefaults = Pick<DiveSite, SiteDefaultField>;
 
 /**
@@ -106,6 +108,30 @@ function stated(value: unknown): string | null {
 }
 
 /**
+ * **What a site says about one of the dive's three rows** — the column through `stated`, except
+ * the entry, which on a site is a set (#31, §6): every way in it offers, where the dive's entry is
+ * the one way it used.
+ *
+ * **Exported because the site's own page reads it too** (`DiveSiteScreen`'s note under *The site*):
+ * the note names a row only when this answers for it, so it can never say picking the site fills in
+ * a row the prefill below leaves alone.
+ *
+ * **A set answers only when it holds exactly one way in.** *"The site offers what is possible; the
+ * dive logs which one was done"* (the owner, #31): a site entered from the shore and from a boat
+ * cannot say which of the two this dive was, so it says nothing, as a site that knows nothing
+ * does, and the row is left to the diver and to carry-over. A set of one is the site's answer,
+ * read through `stated` like any column — so its one member may be a word this build does not
+ * know, and a member that is not a word at all says nothing. Anything that is not a list says
+ * nothing either: a pulled row is whatever the server sent. (Picking the dive's entry from the
+ * site's options is #63's, not this rule's.)
+ */
+export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): string | null {
+  if (field !== 'entry') return stated(site[field]);
+  const offered: unknown = site.entry;
+  return Array.isArray(offered) && offered.length === 1 ? stated(offered[0]) : null;
+}
+
+/**
  * **§2.1's precedence, in the three tiers it really has**, for a dive that has just been
  * paired to `site` (or unpaired from one, which is `site === null`).
  *
@@ -142,7 +168,7 @@ export function siteDefaultFills(
   for (const field of SITE_DEFAULT_FIELDS) {
     if (typed.has(field)) continue;
     const carried = stated(inherited[field]);
-    const supplied = site === null || site === undefined ? null : stated(site[field]);
+    const supplied = site === null || site === undefined ? null : siteDefaultValue(site, field);
     fills.push({ field, value: supplied ?? carried, fromSite: supplied !== null && supplied !== carried });
   }
   return fills;

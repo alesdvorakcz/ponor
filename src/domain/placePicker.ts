@@ -2,7 +2,7 @@ import { divesWithCenter } from './centerDives';
 import { compareDiveOrder } from './diveNumber';
 import { distanceKm } from './geo';
 import { pointOf, type MapPoint } from './mapSites';
-import { browseCatalogue, foldForMatching } from './search';
+import { alsoCalled, browseCatalogue, foldForMatching } from './search';
 import { divesAtSite } from './siteDives';
 import { historyOf, type SuggestionHistory } from './suggest';
 import { type Dive, type DiveSite } from './types';
@@ -63,11 +63,13 @@ export const NEAR_SITE_RADIUS_KM = 10;
 /**
  * The columns the picker reads. Sites and centres share them (§5 covers "a site or center" in
  * one sentence), and the `Pick` of `DiveSite` is what a `DiveCenter` row satisfies structurally.
+ * `altNames` is a site's alone (#31) — a centre goes by one name — so it is optional, and a row
+ * without it is matched by its name as before.
  */
 export type PickerPlace = Pick<
   DiveSite,
   'id' | 'name' | 'country' | 'latitude' | 'longitude' | 'createdBy' | 'dirty'
->;
+> & { altNames?: readonly string[] };
 
 /** One line of the list, as far as the rules go; wording and formatting belong to the screen. */
 export interface PickerRow {
@@ -82,6 +84,11 @@ export interface PickerRow {
   distanceKm: number | null;
   /** Whether this is the place the field already holds. */
   selected: boolean;
+  /**
+   * The other name the typed query found this row by (`alsoCalled`, #31), so the row can say
+   * *also called Stone Gate*; null when nothing is typed or the row's own name matched.
+   */
+  alsoCalled: string | null;
 }
 
 export type PickerGroupKey = 'dived' | 'other' | 'near' | 'nearSite';
@@ -182,6 +189,10 @@ function latestOf(paired: readonly Dive[]): Dive | null {
  * `selected` is a mark on whichever row is the field's value wherever it already qualifies. The
  * selected place is never added to a group it does not belong to — a site created a moment ago
  * has no dives, so with nothing typed it is in no group, and the screen's *Selected* line shows it.
+ *
+ * A row *matches* by its name or by any other name it goes by (`browseCatalogue`, #31), and one
+ * found only by another name carries that name in `alsoCalled` for its meta line to say. It is
+ * never a name-prefix match, since the row shows its own name, so it follows those under `'other'`.
  */
 export function pickerGroups(input: PickerInput): PickerGroup[] {
   const { kind, query, selectedId, viewer } = input;
@@ -193,7 +204,8 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
   const logged = Array.isArray(input.dives)
     ? input.dives.filter((d) => !!d && d.status === 'logged')
     : [];
-  const needle = foldForMatching(typeof query === 'string' ? query : '');
+  const text = typeof query === 'string' ? query : '';
+  const needle = foldForMatching(text);
   const typed = needle !== '';
   const near = input.near ? pointOf(input.near) : null;
   const nearSite = input.nearSite ? pointOf(input.nearSite) : null;
@@ -210,9 +222,10 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
     dived: divedOf(paired),
     distanceKm: distance,
     selected: selectedId !== null && place.id === selectedId,
+    alsoCalled: alsoCalled(place, text),
   });
 
-  const matching = browseCatalogue(places, query);
+  const matching = browseCatalogue(places, text);
   const pairedOf = new Map<string, Dive[]>();
   for (const place of matching)
     pairedOf.set(place.id, divesFor(kind, logged, place));

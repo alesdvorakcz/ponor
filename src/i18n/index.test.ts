@@ -225,16 +225,30 @@ it('leaves the browser map’s English count on its own two forms', () => {
 /**
  * **A key Czech declines and English does not, resolved in English.**
  *
- * `figure.coverage` is the one place this app relies on i18next falling back from a missing
- * `_one`/`_other` to the bare key: Czech needs four forms of it (the `z`/`ze` alternation) and
+ * Two places rely on i18next falling back from a missing `_one`/`_other` to the bare key, one
+ * each way round. `figure.coverage`: Czech needs four forms of it (the `z`/`ze` alternation) and
  * English needs none, and adding two identical English forms would have invented a plural the
- * app never had. If that fallback ever stops working the English map summary renders the key
- * itself, which nothing else here would catch.
+ * app never had. Czech `site.prefillNote`: English moves its verb with the count
+ * (`_one`/`_other`), Czech has only the bare key. If that fallback ever stops working the
+ * English map summary (or the Czech site note) renders the key itself, which nothing else here
+ * would catch.
  */
 it('resolves an English key that only Czech declines', () => {
   const rendered = t('figure.coverage', { onMap: 7, total: '24 dives', count: 24 });
   expect(rendered).toBe('7 of 24 dives');
   expect(rendered).not.toContain('figure.coverage');
+});
+
+it('resolves Czech site.prefillNote, which has only the bare key, at one and many', () => {
+  setActiveLanguage('cs');
+  for (const count of [1, 2]) {
+    const rendered = t('site.prefillNote', { rows: 'Vstup', count });
+    expect(rendered).toBe(
+      'Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+    );
+    expect(rendered).not.toBe(t('site.prefillNote', { rows: 'Vstup', count, lng: 'en' }));
+    expect(rendered).not.toContain('site.prefillNote');
+  }
 });
 
 /**
@@ -340,4 +354,20 @@ it('changes the active language, and reports it', () => {
   setActiveLanguage('cs');
   expect(activeLanguage()).toBe('cs');
   expect(t('dives.title')).toBe('Ponory');
+});
+
+// A closed group on the New site / New centre page says what it holds between its title and its
+// chevron, on one line at 402 pt; a longer one is cut with an ellipsis (the Czech *Kontakt* hint
+// was). 28 characters is the longest that fits there beside the widest title.
+describe('closed-group hints', () => {
+  const keys = ['siteHint', 'altNamesHint', 'contactHint', 'servicesHint'] as const;
+  it.each([
+    ['en', en],
+    ['cs', cs],
+  ] as const)('are short enough to fit (%s)', (_name, resource) => {
+    const newPlace = resource.translation.newPlace as Record<string, string>;
+    for (const key of keys) {
+      expect(newPlace[key]?.length).toBeLessThanOrEqual(28);
+    }
+  });
 });

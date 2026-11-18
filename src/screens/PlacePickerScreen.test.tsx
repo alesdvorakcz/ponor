@@ -99,8 +99,15 @@ const site = (over: Partial<DiveSite> = {}): DiveSite => ({
   longitude: null,
   salinity: null,
   waterBody: null,
-  entry: null,
+  entry: [],
   maxDepthM: null,
+  siteTypes: [],
+  suitableFor: null,
+  altNames: [],
+  description: null,
+  wreckName: null,
+  wreckSunkYear: null,
+  altitudeM: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -118,6 +125,13 @@ const center = (over: Partial<DiveCenter> = {}): DiveCenter => ({
   latitude: null,
   longitude: null,
   website: null,
+  address: null,
+  phone: null,
+  email: null,
+  openingHours: null,
+  services: [],
+  agencies: [],
+  description: null,
   createdBy: null,
   status: 'active',
   mergedInto: null,
@@ -140,7 +154,7 @@ function divesState(dives: Dive[]): DiveListState {
   return { dives, numbers: assignDiveNumbers(dives, 0), resolved: true, error: undefined, settingsError: undefined };
 }
 
-const noDive = { pin: null, entry: null, salinity: null, waterBody: null, siteId: null, diveId: null };
+const noDive = { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null };
 
 const request = (over: Partial<PlacePickRequest> = {}): PlacePickRequest => ({
   kind: 'site',
@@ -431,6 +445,19 @@ it('typing an existing site’s full name lists it above Create, and picking it 
   await press(t, 'Vis');
   expect(mockComplete).toHaveBeenCalledWith('tok', { id: 's-vis', name: 'Vis' }, 1);
   expect(router.push).not.toHaveBeenCalled();
+});
+
+// #31: a diver who knows the place as *Stone Gate* finds *Kamena vrata*, and the row says why —
+// otherwise a row named nothing like what was typed reads as a wrong answer.
+it('shows a site found by its other name, saying so', async () => {
+  mockUseDiveSites.mockReturnValue(
+    sitesState([site({ id: 's-kv', name: 'Kamena vrata', altNames: ['Stone Gate'] }), site({ name: 'Vis' })]),
+  );
+  const t = await showSite();
+  await type(t, 'stone');
+  expect(groupTitles(t)).toEqual(['Other sites · 1']);
+  expect(rowNames(t)).toEqual(['Kamena vrata', 'Create “stone”']);
+  expect(metaOf(rowFor(t, 'Kamena vrata'))).toBe('also called Stone Gate · community');
 });
 
 it('a site created on this phone moments ago is found and reads added by you', async () => {

@@ -66,7 +66,7 @@ function manualOrderKey(value: unknown): number {
 
 /**
  * The storage half of this field's rules used to live here, next to the
- * ordering half above. It has moved to `storedInteger` (db/dives.ts), which is
+ * ordering half above. It has moved to `storedInteger` (db/integers.ts), which is
  * the same rule — DESIGN.md §10's "non-integers are rounded rather than
  * rejected, per §1" — applied to every INTEGER column rather than to this one
  * alone: `duration_min`, `rating` and the three condition scales have the exact

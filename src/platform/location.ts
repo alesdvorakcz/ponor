@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import { Platform } from 'react-native';
 
 import { locationPermission, requestLocationPermission, type LocationPermissionState } from './locationPermission';
 import { withTimeout } from './withTimeout';
@@ -38,7 +39,16 @@ export type PositionRefusal = (typeof POSITION_REFUSALS)[number];
  * or neither, and `formatCoordinates` already refuses to draw half of one.
  */
 export type PositionOutcome =
-  | { readonly found: true; readonly latitude: number; readonly longitude: number }
+  | {
+      readonly found: true;
+      readonly latitude: number;
+      readonly longitude: number;
+      /** Metres above mean sea level — only on iOS (Android's is height above the WGS 84 ellipsoid,
+       * about 45 m off on the Adriatic) and only when the phone vouches for it (`altitudeAccuracy`
+       * above 0 and at most `COARSEST_USABLE_ALTITUDE_ACCURACY_M`; §6, #31). Absent otherwise —
+       * and from `roughPosition`, which sorts a list and stores nothing. */
+      readonly altitude?: number;
+    }
   | { readonly found: false; readonly reason: PositionRefusal };
 
 /**
@@ -108,6 +118,12 @@ export const POSITION_TIMEOUT_MS = 20_000;
 export const COARSEST_USABLE_FIX_M = 100;
 
 /**
+ * The widest vertical accuracy at which a fix's altitude is kept: altitude diving's first step is
+ * 300 m, so a figure good to ±50 m still says which side of it a site is.
+ */
+export const COARSEST_USABLE_ALTITUDE_ACCURACY_M = 50;
+
+/**
  * **The one owner of "ask the device where this dive is."**
  *
  * §2.3's *"a GPS pin can be set from the map or 'use my location' — pressed right on the
@@ -127,19 +143,22 @@ export const COARSEST_USABLE_FIX_M = 100;
  * time, because on Android and the web the next tap really can be granted and a remembered
  * refusal is what makes a control dead.
  *
+ * **A site's altitude rides along on iOS only, and only when vouched for** (#31): see the comment
+ * at the return. `os` is a parameter so a test can be either platform, as `countryForAddress`'s is.
+ *
  * **`getLastKnownPositionAsync` is deliberately not a fallback.** A cached position is where
  * the phone was, which on a dive boat is the harbour it left an hour ago — §2.1 makes the pin
  * fresh every dive precisely because "a carried-over pressure or pin looks like data and is
  * not", and a last-known fix is that same stale claim arriving from the device instead of
  * from the previous dive.
  */
-export async function currentPosition(): Promise<PositionOutcome> {
+export async function currentPosition(os: typeof Platform.OS = Platform.OS): Promise<PositionOutcome> {
   try {
     const refused = await permissionRefusal();
     if (refused) return refused;
     const fix = await withTimeout(Location.getCurrentPositionAsync({ accuracy: POSITION_ACCURACY }), POSITION_TIMEOUT_MS);
     if (fix === null) return { found: false, reason: 'timedOut' };
-    const { latitude, longitude, accuracy } = fix.coords;
+    const { latitude, longitude, accuracy, altitude, altitudeAccuracy } = fix.coords;
     // A pair that is not two numbers is not a point. It should be unreachable — the native
     // side types both as `number` — but this value is about to be written to a dive and read
     // back as a place, and catching it in `formatCoordinates` at the far end would leave a
@@ -148,7 +167,23 @@ export async function currentPosition(): Promise<PositionOutcome> {
     if (typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > COARSEST_USABLE_FIX_M) {
       return { found: false, reason: 'imprecise' };
     }
-    return { found: true, latitude, longitude };
+    // The altitude rides on the same fix rather than a second call, and only when it is trustworthy
+    // as a site's height above sea level. iOS's `CLLocation.altitude` is above mean sea level;
+    // expo-location on Android passes height above the WGS 84 ellipsoid (about +45 m on the
+    // Adriatic), so Android never offers it and the diver types it (#64 would convert it). And
+    // only with a vouched-for vertical accuracy, 0 < accuracy <= 50 m: iOS reports an altitude it
+    // cannot measure (the simulator's flat 0) with a negative accuracy, and a mountain lake is not
+    // at sea level because a receiver shrugged. A real 0 with a real accuracy is sea level, and is
+    // kept.
+    return os === 'ios' &&
+      typeof altitude === 'number' &&
+      Number.isFinite(altitude) &&
+      typeof altitudeAccuracy === 'number' &&
+      Number.isFinite(altitudeAccuracy) &&
+      altitudeAccuracy > 0 &&
+      altitudeAccuracy <= COARSEST_USABLE_ALTITUDE_ACCURACY_M
+      ? { found: true, latitude, longitude, altitude }
+      : { found: true, latitude, longitude };
   } catch {
     // `getCurrentPositionAsync` is the one call left that can reject here — the permission
     // module answers `unknown` rather than throwing — and a receiver that gives up means the

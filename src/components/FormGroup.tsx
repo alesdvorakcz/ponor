@@ -14,6 +14,10 @@ export interface FormGroupProps {
   /** Called with the state the header press asks for — `true` to open, `false` to close. The
    * caller decides whether that happens; this component draws whatever `expanded` then says. */
   onToggle: (expanded: boolean) => void;
+  /** What the group holds, in a line, drawn between the title and the chevron while it is
+   * closed — so a closed *Contact* says what is inside without being opened. Gone once open,
+   * when the fields say it themselves. */
+  hint?: string;
 }
 
 /**
@@ -61,7 +65,7 @@ export interface FormGroupProps {
  * are what a screen reader has always actually read here: "Show"/"Hide" was never part of
  * the announcement, so a diver using VoiceOver hears exactly what they heard before.
  */
-export function FormGroup({ title, scheme, children, expanded, onToggle }: FormGroupProps) {
+export function FormGroup({ title, scheme, children, expanded, onToggle, hint }: FormGroupProps) {
   const styles = makeStyles(scheme);
 
   return (
@@ -74,6 +78,11 @@ export function FormGroup({ title, scheme, children, expanded, onToggle }: FormG
         accessibilityState={{ expanded }}
       >
         <Text style={styles.formGroupTitle}>{title}</Text>
+        {!expanded && hint !== undefined && (
+          <Text style={styles.formGroupHint} numberOfLines={1}>
+            {hint}
+          </Text>
+        )}
         {/* No `accessibilityLabel` and no role of its own: the whole 48 dp row is the
             control and already announces itself, and a mark that announced "chevron" beside
             it would have a screen reader read one button twice. */}

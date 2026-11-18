@@ -64,6 +64,10 @@ function fn(name: string): ParsedFunction {
 
 const nameFold = fn('public.name_fold');
 const floor = fn('public.name_match_floor');
+const foldedNames = fn('public.folded_names');
+const altNamesFold = fn('public.alt_names_fold');
+const altNameSimilarity = fn('public.alt_name_similarity');
+const bestAltName = fn('public.best_alt_name');
 const search = fn('public.search_sites');
 const searchCenters = fn('public.search_centers');
 const similar = fn('public.similar_sites');
@@ -118,6 +122,10 @@ const COMMUNITY_TABLES = schema.tables
 const TABLE_ALIASES: Record<string, Record<string, string>> = {
   'public.name_fold': {},
   'public.name_match_floor': {},
+  'public.folded_names': {},
+  'public.alt_names_fold': {},
+  'public.alt_name_similarity': {},
+  'public.best_alt_name': {},
   'public.search_sites': { s: 'dive_sites' },
   'public.search_centers': { c: 'dive_centers' },
   'public.similar_sites': { s: 'dive_sites' },
@@ -128,13 +136,21 @@ const TABLE_ALIASES: Record<string, Record<string, string>> = {
 const OTHER_ALIASES: Record<string, Record<string, string>> = {
   'public.name_fold': {},
   'public.name_match_floor': {},
+  'public.folded_names': {},
+  'public.alt_names_fold': {},
+  'public.alt_name_similarity': {},
+  'public.best_alt_name': {},
   'public.search_sites': {
     m: 'the `matches` CTE, whose columns are site_id/score/distance_m — a ranking, not a row.',
   },
   'public.search_centers': {
     m: 'the `matches` CTE, as in search_sites, keyed center_id rather than site_id.',
   },
-  'public.similar_sites': { m: 'the `matches` CTE, as in search_sites.' },
+  'public.similar_sites': {
+    m: 'the `matches` CTE, as in search_sites, with through_other_name beside the score — still a ranking, not a row.',
+    scores: 'the three scores of one row, taken once in a `cross join lateral` so the rank and ' +
+      '`matched_name` are read off the same numbers — no table.',
+  },
   'public.suggest_site_edit': {
     k: '`jsonb_object_keys(v_fields) as k(key)` — the payload\'s own keys, checked against the ' +
       'allow-list rather than against a table.',
@@ -202,8 +218,18 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // have one owner), and `search_centers` because §2.3 promises live search for "a site or
     // center" while §5's list named only the first — a gap M2c recorded in §5 and this task
     // closes.
+    //
+    // #31 adds three, for the reason `name_fold` is here: a site's other names are read by an
+    // index and by search (and, from Task 5, by the duplicate check), so how a list of names is
+    // folded, joined for the index, and scored has one owner each rather than a copy per reader.
+    // And a fourth, `best_alt_name`, for the owner's call of 2026-11-17: which of a site's other
+    // names the duplicate check came near through, so the page can say so.
     expect(rpc.functions.map((declared) => declared.name).sort()).toEqual([
+      'public.alt_name_similarity',
+      'public.alt_names_fold',
+      'public.best_alt_name',
       'public.delete_account',
+      'public.folded_names',
       'public.name_fold',
       'public.name_match_floor',
       'public.search_centers',
@@ -232,7 +258,7 @@ describe('§5\'s six RPCs, and which of them run as whom', () => {
     // does not apply, and the catalogue is then readable by anyone who can call the function —
     // which is the decision M2a deliberately took the other way, on the grounds that opening it
     // later is two statements and closing it after a scrape is not possible at all.
-    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold]) {
+    for (const declared of [...CATALOGUE_READS, suggest, floor, nameFold, foldedNames, altNamesFold, altNameSimilarity, bestAltName]) {
       expect(`${declared.name}: ${declared.attributes}`).toContain('security invoker');
       expect(`${declared.name}: ${declared.attributes}`).not.toContain('security definer');
     }
@@ -442,9 +468,15 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     // `raise exception 'suggest_site_edit: % is not a fact…'` puts a `%` in a body that must
     // contain no bare one, and a stripper that stopped stripping would fail here rather than
     // leaving this assertion quietly true of nothing (mutation-found).
+    //
+    // #31 adds pg_trgm's word-similarity operator, `%>`, for a site's other names (the only one a
+    // trigram index over the joined names can serve), written the same long way and counted apart:
+    // once in `search_sites` and once in `similar_sites`, whose own other names add a second `%`
+    // (a site's name against each of them).
     const whole = withoutLiterals(rpc.functions.map((declared) => declared.body).join('\n'));
-    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(3);
-    expect(whole.replace(/operator\(extensions\.%\)/g, '')).not.toContain('%');
+    expect([...whole.matchAll(/operator\(extensions\.%\)/g)].length).toBe(4);
+    expect([...whole.matchAll(/operator\(extensions\.%>\)/g)].length).toBe(2);
+    expect(whole.replace(/operator\(extensions\.%>?\)/g, '')).not.toContain('%');
 
     // Every PostGIS and pg_trgm name is schema-qualified, everywhere in the file.
     for (const name of EXTENSION_FUNCTIONS) {
@@ -517,6 +549,62 @@ describe('search_sites and similar_sites (DESIGN.md §2.3, §5)', () => {
     const pushFile = readMigrationFile(SYNC_FILE);
     expect(pushFile).toContain('public.similar_sites(');
     expect(pushFile).toContain('p_exclude_id => arrived.id');
+    // #31: and with the arriving site's other names, so the recheck runs both ways as the
+    // pre-save check does — a site pushed as *Stone Gate* / *Kamena vrata* meets *Kamena vrata*.
+    expect(pushFile).toContain('p_alt_names => arrived.alt_names');
+  });
+
+  it('drops the old signature once, right before it creates the new one', () => {
+    // #31 gives `similar_sites` the proposed site's other names, and `create or replace function`
+    // refuses a changed signature — so the file drops the one it replaces and creates the new one,
+    // in the same file, as supabase/README.md's *Re-running* says a signature change must. `if
+    // exists` keeps a second paste a no-op; the order is what makes the first one work.
+    expect(similar.args).toContain("p_alt_names jsonb default '[]'::jsonb");
+    const OLD = 'public.similar_sites(text, double precision, double precision, double precision, uuid, integer)';
+    const statements = rpc.statements.map((statement) => statement.toLowerCase());
+    const drops = statements.filter((statement) => statement.startsWith('drop function'));
+    expect(drops).toEqual([`drop function if exists ${OLD}`]);
+    const created = statements.findIndex((statement) =>
+      statement.startsWith('create or replace function public.similar_sites('),
+    );
+    expect(created).toBeGreaterThan(0);
+    expect(statements.indexOf(`drop function if exists ${OLD}`)).toBe(created - 1);
+    // Nothing is granted on, or revoked from, a function that no longer exists.
+    expect(statements.filter((statement) => /^(grant|revoke) /.test(statement) && statement.includes(OLD))).toEqual([]);
+  });
+
+  it('says beside each row which other name a match came through, off the rank\'s own scores', () => {
+    // The owner's call (2026-11-17): *Kamena vrat* finds *Stone Gate* through its other name
+    // *Kamena vrata*, and the page asks *Did you mean “Stone Gate” (also called Kamena vrata)?*.
+    // Only this side knows which name came near, so each row carries it — a KEY beside
+    // `sync_site`'s rendering, not a column: the function still returns one jsonb, so its
+    // signature is unchanged and nothing more is dropped (the test above pins the one drop).
+    expect(similar.attributes).toMatch(/^returns jsonb /);
+    expect(similar.body).toContain(
+      "public.sync_site(to_jsonb(s), s.location) || jsonb_build_object('matched_name', " +
+        'case when m.through_other_name then public.best_alt_name(s.alt_names, v_name) end)',
+    );
+    // A key that were a column would overwrite the row the client stores.
+    expect(schemaColumns('dive_sites')).not.toContain('matched_name');
+
+    // The rank and the answer are read off the same three scores, taken once: the site's name, its
+    // other names, and its name against the proposed other names. An other name is reported only
+    // when it beats both of the site's own-name scores outright — a tie is the site's own name,
+    // which needs no "also called"; a site with no name at all is beaten by any other name.
+    for (const score of [
+      'extensions.similarity(public.name_fold(s.name), v_name) as by_name',
+      'public.alt_name_similarity(s.alt_names, v_name) as by_other_name',
+      '(select max(extensions.similarity(public.name_fold(s.name), mine)) from unnest(v_mine) as mine) as by_new_other_name',
+      'greatest(scores.by_name, scores.by_other_name, scores.by_new_other_name)::double precision as score',
+      'scores.by_other_name > coalesce(greatest(scores.by_name, scores.by_new_other_name), 0) as through_other_name',
+    ]) {
+      expect(similar.body).toContain(score);
+    }
+    // And the name is looked up for the rows handed back, not for every candidate the CTE ranks.
+    const ranking = similar.body.slice(similar.body.indexOf('with matches'), similar.body.indexOf('select coalesce('));
+    expect(ranking).toContain('through_other_name');
+    expect(ranking).not.toContain('best_alt_name');
+    expect(similar.body.split('public.best_alt_name(').length).toBe(2);
   });
 
   it('caps what one call can ask for, in both directions (§5)', () => {
@@ -555,12 +643,24 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     // on ten sites. That is the failure this file exists to catch: not wrong, just quietly
     // unusable at the size the community is supposed to reach.
     expect(nameFold.attributes).toContain('immutable');
+    // #31's four are immutable for the same reason: `alt_names_fold` is an index expression and
+    // the other three are what it, and the score beside it, are made of — and which name that is.
     expect(
       rpc.functions
         .filter((declared) => declared.attributes.includes('immutable'))
         .map((declared) => declared.name)
         .sort(),
-    ).toEqual(['public.name_fold', 'public.name_match_floor']);
+    ).toEqual([
+      'public.alt_name_similarity',
+      'public.alt_names_fold',
+      'public.best_alt_name',
+      'public.folded_names',
+      'public.name_fold',
+      'public.name_match_floor',
+    ]);
+    for (const declared of [foldedNames, altNamesFold, altNameSimilarity, bestAltName]) {
+      expect(`${declared.name}: ${declared.attributes}`).toContain('parallel safe');
+    }
   });
 
   it('names its dictionary outright, which is what makes that marking honest', () => {
@@ -589,6 +689,14 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
     expect(args[1]).toBe('normalize(btrim(p_text), nfc)');
     expect(nameFold.body).toMatch(/select\s+lower\(\s*extensions\.unaccent\(/);
   });
+
+  const FOLDED_NAME_REFERENCES: Record<string, number> = {
+    'public.search_sites': 3,
+    'public.search_centers': 3,
+    // Two in `scores` (the name against the name typed and against the other names typed) and two
+    // in the filter's trigram operators; the filter's floor comparisons read `scores` (#31 review).
+    'public.similar_sites': 4,
+  };
 
   it('folds BOTH sides of every name comparison, in all three readers (§4.1)', () => {
     // §4.1's rule about `foldForMatching` stated in SQL: "a query folded one way and a value
@@ -626,9 +734,11 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
       }
       expect(unfolded).toEqual([]);
       // A sweep that found nothing to sweep would pass for the wrong reason. Three folded
-      // references each: the score, the `%` pre-filter and the floor comparison.
+      // references in each search: the score, the `%` pre-filter and the floor comparison. Six in
+      // `similar_sites` (#31): those three against the proposed name, and again against the
+      // proposed site's other names.
       expect(`${declared.name} folded references: ${folded}`).toBe(
-        `${declared.name} folded references: 3`,
+        `${declared.name} folded references: ${FOLDED_NAME_REFERENCES[declared.name]}`,
       );
     }
   });
@@ -650,6 +760,95 @@ describe('the accent fold, on both sides and in the index (DESIGN.md §10, §2.3
         `create index if not exists ${table}_name_fold_trgm_idx ` +
           `on public.${table} using gin (${indexed} extensions.gin_trgm_ops)`,
       );
+    }
+  });
+
+  it('folds every other name through one owner, in the index, in search and in the duplicate check', () => {
+    // #31: a site's other names are a jsonb list read three times by `search_sites` — the score,
+    // the `%>` pre-filter and the floor comparison — twice by `similar_sites` (the score in
+    // `scores`, which its floor comparison reads, and the `%>` pre-filter), and once by the index. A list folded one way in the index and another in the query is
+    // the name fold's silent failure again: no wrong answer, only a scan. So every read goes through
+    // one of the helpers: the two that score go through `folded_names`, and only `folded_names`
+    // folds a list — but for `best_alt_name`, which `similar_sites` asks once more, about the rows
+    // it hands back, which name came near (the owner's call, 2026-11-17), and which is held to
+    // `folded_names`' reading below.
+    const OWNERS: Record<string, string> = {
+      'public.search_sites': 'alt_name_similarity, alt_name_similarity, alt_names_fold',
+      'public.similar_sites': 'alt_name_similarity, alt_names_fold, best_alt_name',
+    };
+    for (const declared of [search, similar]) {
+      const body = withoutLiterals(declared.body);
+      const owners: string[] = [];
+      const strays: string[] = [];
+      for (const match of body.matchAll(/(?<![\w.])s\.alt_names\b/g)) {
+        const owner = /public\.(alt_names_fold|alt_name_similarity|best_alt_name)\($/.exec(body.slice(0, match.index))?.[1];
+        if (owner === undefined) strays.push(`${declared.name}: ...${body.slice(Math.max(0, match.index - 40), match.index + 40)}...`);
+        else owners.push(owner);
+      }
+      expect(strays).toEqual([]);
+      expect(`${declared.name}: ${owners.sort().join(', ')}`).toBe(`${declared.name}: ${OWNERS[declared.name]}`);
+    }
+    // The proposed site's own other names, which `similar_sites` takes as a jsonb list too, are
+    // folded by the same owner, which also reads anything that is not a list of strings as no names.
+    expect(similar.body).toContain('public.folded_names(p_alt_names)');
+
+    for (const declared of [altNamesFold, altNameSimilarity]) {
+      expect(`${declared.name}: ${declared.body}`).toContain('public.folded_names(p_alt_names)');
+      expect(`${declared.name}: ${declared.body}`).not.toContain('name_fold(');
+    }
+    expect(foldedNames.body).toContain('public.name_fold(');
+    // A list from another client's build can be anything (#31's review focus 1). A non-array would
+    // make `jsonb_array_elements` raise and fail every search that reached the row, and a number or
+    // a `null` inside one is no name — the device's `alsoCalled` skips both, so the server does too.
+    const NOT_A_LIST = "case when jsonb_typeof(p_names) = 'array' then p_names else '[]'::jsonb end";
+    const NOT_A_STRING = "jsonb_typeof(value) = 'string'";
+    const FOLD = "public.name_fold(value #>> '{}')";
+    expect(foldedNames.body).toContain(NOT_A_LIST);
+    expect(foldedNames.body).toContain(`where ${NOT_A_STRING}`);
+    expect(foldedNames.body).toContain(`select ${FOLD} as folded`);
+    expect(foldedNames.body).toContain("where folded <> ''");
+
+    // `best_alt_name` has to hand back the name as written, which `folded_names` does not keep, so
+    // it reads the list itself — and is held here to `folded_names`' reading, phrase for phrase:
+    // the same guard for a value that is not a list, strings only, the same fold, blanks dropped.
+    // Then it scores each name as `alt_name_similarity` scores the folds, so the name it names is
+    // the one that score's best is; a tie goes to the name listed first. Trimmed, as stored.
+    expect(bestAltName.body).toContain(NOT_A_LIST.replace(/p_names/g, 'p_alt_names'));
+    expect(bestAltName.body).toContain(`and ${NOT_A_STRING}`);
+    expect(bestAltName.body).toContain(`and ${FOLD} <> ''`);
+    expect(altNameSimilarity.body).toContain('extensions.similarity(name, p_folded)');
+    expect(bestAltName.body).toContain(`order by extensions.similarity(${FOLD}, p_folded) desc, ordinal`);
+    expect(bestAltName.body).toContain('with ordinality as names(value, ordinal)');
+    expect(bestAltName.body).toMatch(/^select btrim\(value #>> '\{\}'\)/);
+    expect(bestAltName.body).toMatch(/limit 1;$/);
+    // No query, no name — as `alt_name_similarity` answers null for one.
+    expect(bestAltName.body).toContain('where p_folded is not null');
+
+    // The index is over the very expression the pre-filter applies, derived from it exactly as the
+    // name index is derived above.
+    const applied = 'public.alt_names_fold(s.alt_names)';
+    expect(search.body).toContain(`${applied} operator(extensions.%>) v_query`);
+    expect(similar.body).toContain(`${applied} operator(extensions.%>) v_name`);
+    expect(rpc.statements.map((statement) => statement.toLowerCase())).toContain(
+      'create index if not exists dive_sites_alt_names_fold_trgm_idx ' +
+        `on public.dive_sites using gin (${applied.replace('(s.', '(')} extensions.gin_trgm_ops)`,
+    );
+  });
+
+  it('sets the word-similarity cut-off from the floor before it filters by it', () => {
+    // `%>`'s own cut-off is the GUC `pg_trgm.word_similarity_threshold`, 0.6 by default — twice the
+    // floor — so left alone the pre-filter would drop an other name the floor keeps, and *Stone*
+    // would stop finding *Kamena vrata* online while still finding it offline. Set from the floor,
+    // it cannot: word similarity against the joined names is never below similarity against one
+    // of them. Set after the guards and before the query that reads it, and `true` (local), so it
+    // ends with the call's transaction rather than staying on a pooled connection.
+    const set = "perform set_config('pg_trgm.word_similarity_threshold', public.name_match_floor()::text, true)";
+    // Both readers of `%>`: search, and since #31's two-way check the duplicate check.
+    for (const declared of [search, similar]) {
+      const at = declared.body.indexOf(set);
+      expect(`${declared.name}: ${at > declared.body.lastIndexOf('raise exception')}`).toBe(`${declared.name}: true`);
+      expect(`${declared.name}: ${at < declared.body.indexOf('with matches')}`).toBe(`${declared.name}: true`);
+      expect(`${declared.name}: ${declared.body.split(set).length}`).toBe(`${declared.name}: 2`);
     }
   });
 
@@ -725,6 +924,15 @@ describe('suggest_site_edit and the review queue (DESIGN.md §5)', () => {
     // And the list is enforced rather than decorative.
     expect(suggest.body).toContain('where k.key <> all (v_allowed)');
     expect(suggest.body).toMatch(/if v_unknown is not null then\s*raise exception/);
+  });
+
+  it('lets a suggestion propose every fact #31 adds to a site', () => {
+    // #31: every new site fact is suggestible, and #54's correction flow builds on this list.
+    expect(
+      ['site_types', 'suitable_for', 'alt_names', 'description', 'wreck_name', 'wreck_sunk_year', 'altitude_m'].filter(
+        (fact) => !allowed.includes(fact),
+      ),
+    ).toEqual([]);
   });
 
   it('files a suggestion under its author and nobody else (§5)', () => {

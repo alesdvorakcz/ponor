@@ -13,6 +13,7 @@ import type { LogbookStats, RmvTrend } from '../domain/logbookStats';
 import type { MapPoint, WaterTempRange } from '../domain/mapSites';
 // A value this time, and safe as one: `domain/geo.ts` imports nothing from the app but a type.
 import { distanceKm } from '../domain/geo';
+import { altNamesIn } from '../domain/search';
 // Types again, and for the same reason: `domain/placePicker.ts` reaches this module through
 // `logbookStats`, so only the shape of a picker row may come back.
 import type { PickerGroupKey, PickerRow, PlaceKind, Provenance } from '../domain/placePicker';
@@ -22,7 +23,11 @@ import {
   CONFIGURATION_VALUES,
   ENTRY_VALUES,
   EQUIPMENT_VALUES,
+  AGENCY_VALUES,
   SALINITY_VALUES,
+  SERVICE_VALUES,
+  SITE_TYPE_VALUES,
+  SUITABLE_FOR_VALUES,
   SUIT_VALUES,
   TANK_MATERIAL_VALUES,
   VISIBILITY_VALUES,
@@ -39,6 +44,7 @@ import {
   type Entry,
   type Equipment,
   type Salinity,
+  type SuitableFor,
   type Suit,
   type Tank,
   type TankMaterial,
@@ -182,6 +188,17 @@ export function isDisplayableDepth(metres: number | null | undefined): metres is
 export function formatDepth(metres: number | null, system: UnitSystem): string | null {
   const parts = formatDepthParts(metres, system);
   return parts === null ? null : `${parts.value} ${parts.unit}`;
+}
+
+/**
+ * A site's altitude as one string, e.g. `313 m` or `1027 ft` — whole units, signed below sea
+ * level, and `null` when nothing is recorded. Not `formatDepth`: an altitude is no depth, so it
+ * refuses no negative and reads to no decimal, and it takes no band colour (§0.1).
+ */
+export function formatAltitude(metres: number | null, system: UnitSystem): string | null {
+  if (!isFiniteNumber(metres)) return null;
+  const { value, unit } = displayFigure('altitude', metres, system);
+  return `${value} ${unit}`;
 }
 
 /**
@@ -496,6 +513,22 @@ export function formatPickerGroupTitle(
 }
 
 /**
+ * **A row found by another name says so first** (#31) — `also called Stone Gate · HR · Boat` — and
+ * the other name stands alone when the row had nothing else to say. `name` is `alsoCalled`'s
+ * answer (domain/search.ts), so `null` leaves `line` as it was.
+ *
+ * The one owner of that sentence and of where it goes: the picker's rows (`formatPickerMeta`) and
+ * the Sites directory's both read it, so a site found by *Stone Gate* reads the same wherever it
+ * was searched for. The copy is the picker's (`picker.alsoCalled`) because the picker said it
+ * first; the Czech *jiným názvem* is gender-neutral, so it never has to agree with *lokalita*.
+ */
+export function withAlsoCalled(name: string | null, line: string | null): string | null {
+  if (name === null) return line;
+  const said = t('picker.alsoCalled', { name });
+  return line === null ? said : `${said}${METADATA_SEPARATOR}${line}`;
+}
+
+/**
  * **The muted line under a picker row's name**, by the group it is drawn in — the same row reads
  * differently under *Dived here* and under *Near you*, because each group answers a different
  * question about it.
@@ -507,6 +540,8 @@ export function formatPickerGroupTitle(
  * - `near`: `dived · 4 dives`, or where it came from — the distance trails, so no country.
  * - `nearSite`: where it came from. The distance trails the row and the heading names the site, so
  *   `3.4 km from Vrak Teti` said both a second time (owner's call, PR #35).
+ *
+ * In every group, a row the query found by another name says which first (`withAlsoCalled`).
  */
 export function formatPickerMeta(
   row: PickerRow,
@@ -514,21 +549,24 @@ export function formatPickerMeta(
   kind: PlaceKind,
   wording: PickerWording,
 ): string | null {
-  switch (group) {
-    case 'dived':
-      return row.dived === null ? null : formatSuggestionMeta(row.dived, kind === 'site' ? 'siteName' : 'centerName');
-    case 'other': {
-      const parts = [formatPlaceProvenance(row.provenance)];
-      if (row.country !== null && row.country !== '') parts.push(row.country);
-      return parts.join(METADATA_SEPARATOR);
+  const line = ((): string | null => {
+    switch (group) {
+      case 'dived':
+        return row.dived === null ? null : formatSuggestionMeta(row.dived, kind === 'site' ? 'siteName' : 'centerName');
+      case 'other': {
+        const parts = [formatPlaceProvenance(row.provenance)];
+        if (row.country !== null && row.country !== '') parts.push(row.country);
+        return parts.join(METADATA_SEPARATOR);
+      }
+      case 'near':
+        return row.dived === null
+          ? formatPlaceProvenance(row.provenance)
+          : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
+      case 'nearSite':
+        return formatPlaceProvenance(row.provenance);
     }
-    case 'near':
-      return row.dived === null
-        ? formatPlaceProvenance(row.provenance)
-        : `${t('picker.dived')}${METADATA_SEPARATOR}${formatDiveCount(row.dived.dives)}`;
-    case 'nearSite':
-      return formatPlaceProvenance(row.provenance);
-  }
+  })();
+  return withAlsoCalled(row.alsoCalled, line);
 }
 
 /**
@@ -603,7 +641,8 @@ export function formatSiteFacts(
   const parts: string[] = [];
   if (site.country !== null && site.country !== '') parts.push(site.country);
 
-  const entry = formatEntry(site.entry);
+  // Every way in the site offers (#31: a set), each in the word a dive logged there reads.
+  const entry = formatPlaceTokens('entry', site.entry);
   if (entry !== null) parts.push(entry);
 
   const salinity = formatSalinity(site.salinity);
@@ -1875,10 +1914,66 @@ function known<T extends string>(values: readonly T[], value: T): boolean {
   return (values as readonly string[]).includes(value);
 }
 
-/** How the diver entered the water, e.g. "Shore". */
+/** How the diver entered the water, e.g. "Shore" — a dive's one way in. A site's are a set, and
+ * `formatPlaceTokens('entry', …)` reads them through the same word (`formatPlaceToken`). */
 export function formatEntry(entry: Entry | null): string | null {
   if (entry === null) return null;
-  return known(ENTRY_VALUES, entry) ? t(`vocabulary.entry.${entry}`) : capitalize(entry);
+  return formatPlaceToken('entry', entry);
+}
+
+/** The vocabularies a place's token sets are drawn from, as `en.ts`/`cs.ts` name them — a site's
+ * `entry` among them since #31 made it a set, read in the words a dive's one entry reads. */
+export type PlaceTokenSet = 'services' | 'agencies' | 'siteTypes' | 'entry';
+
+const PLACE_TOKEN_VALUES: Record<PlaceTokenSet, readonly string[]> = {
+  services: SERVICE_VALUES,
+  agencies: AGENCY_VALUES,
+  siteTypes: SITE_TYPE_VALUES,
+  entry: ENTRY_VALUES,
+};
+
+/** One token of a place's set as its word, e.g. "SDI/TDI" — or `capitalize`'s guess for a token a
+ * newer client wrote, never the literal key (`known`'s note). */
+export function formatPlaceToken(set: PlaceTokenSet, token: string): string {
+  return known(PLACE_TOKEN_VALUES[set], token)
+    ? t(`vocabulary.${set}.${token}` as TranslationKey)
+    : capitalize(token);
+}
+
+/**
+ * A place's token set on one line, e.g. "Nitrox · Rental", in the array's own order. Only strings
+ * are read: a list from another client's build may hold a number or a `null` (#31's review focus
+ * 1), and neither is a word. `null` when none is left, as `formatEquipment` is for `[]`.
+ */
+export function formatPlaceTokens(set: PlaceTokenSet, tokens: readonly unknown[]): string | null {
+  if (!Array.isArray(tokens)) return null;
+  const words = tokens.filter((token): token is string => typeof token === 'string').map((token) => formatPlaceToken(set, token));
+  return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
+}
+
+/**
+ * A wreck's name and the year it sank on one line, e.g. "Teti · sunk 1930" — either half alone
+ * when the other is missing, `null` when both are. The year goes in as `String(year)`, never
+ * through `figure`: Czech groups a four-digit number (`1 930`), and a year is not a quantity.
+ */
+export function formatWreck(name: string | null, year: number | null): string | null {
+  const parts: string[] = [];
+  if (name !== null && name.trim() !== '') parts.push(name.trim());
+  if (year !== null) parts.push(t('site.sunk', { year: String(year) }));
+  return parts.length === 0 ? null : parts.join(METADATA_SEPARATOR);
+}
+
+/** A site's other names on one line, e.g. "Teti wreck · Vrak Teti", read through `altNamesIn` (a
+ * list from another client's build may hold anything); `null` when none is left. */
+export function formatAltNames(names: readonly unknown[]): string | null {
+  const clean = altNamesIn(names);
+  return clean.length === 0 ? null : clean.join(METADATA_SEPARATOR);
+}
+
+/** The level a site suits, e.g. "Open Water". */
+export function formatSuitableFor(value: SuitableFor | null): string | null {
+  if (value === null) return null;
+  return known(SUITABLE_FOR_VALUES, value) ? t(`vocabulary.suitableFor.${value}`) : capitalize(value);
 }
 
 /** The water's salinity, e.g. "Fresh". Two values since M1h — `brackish` went (§10). */
