@@ -231,7 +231,7 @@ export function confirmationRequired(): string {
  * never completed (`AuthRetryableFetchError`) fails the same way when the phone is offline and
  * when the server is down, and this module cannot tell the two apart. The sentence used to end
  * *try again when you're online*, and when the free Supabase project was paused it sent the owner
- * off checking his own connection.
+ * off checking their own connection.
  */
 export function serverUnreachable(): string {
   return t('auth.serverUnreachable');
