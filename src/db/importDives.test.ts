@@ -4,7 +4,8 @@ import { join } from 'node:path';
 
 import * as registryModule from '../domain/import/registry';
 import { type DiveImporter } from '../domain/import/types';
-import { getDiveSamples } from './diveSamples';
+import * as diveSamplesModule from './diveSamples';
+import { getDiveSamples, tombstoneDiveSamples } from './diveSamples';
 import * as divesModule from './dives';
 import { listDives, softDeleteDive, updateDive } from './dives';
 import { importFiles, type ImportFile } from './importDives';
@@ -29,8 +30,9 @@ beforeEach(() => {
   db = createTestDb();
 });
 
-// Only the write-failure test below spies on `./dives`; restored here rather than inline so a
-// failed assertion can never skip the restore and leak a rejecting mock into the next test.
+// Only the write-failure tests below spy on `./dives` and `./diveSamples`; restored here rather
+// than inline so a failed assertion can never skip the restore and leak a rejecting mock into
+// the next test.
 afterEach(() => {
   jest.restoreAllMocks();
 });
@@ -150,4 +152,83 @@ it('leaves a previously-imported dive deleted when re-importing after the diver 
   // importer found it when scanning for duplicates and skipped it rather than restoring it.
   expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
   expect(await listDives(db)).toEqual([]);
+});
+
+// #9: `createDive` and `putDiveSamples` are two writes. When the second throws, the dive is kept
+// without its curve and the file is named as `unwritable` ("Try again"). Trying again has to
+// work: the re-import finds the dive by its import key and writes the profile it is missing,
+// and nothing else about the dive, so the diver's edits made in between survive.
+it('completes a dive whose profile failed to save when the same file is imported again', async () => {
+  const samplesWrite = jest
+    .spyOn(diveSamplesModule, 'putDiveSamples')
+    .mockRejectedValueOnce(new Error('disk full'));
+
+  const first = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+  expect(first).toMatchObject({ imported: 0, alreadyThere: 0, failed: [{ name: 'a.json', reason: 'unwritable' }] });
+  const [kept] = await listDives(db);
+  expect(await getDiveSamples(db, kept!.id)).toBeNull();
+  await updateDive(db, kept!.id, { siteName: 'Kotelna' });
+
+  const second = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+
+  expect(second).toMatchObject({ imported: 1, alreadyThere: 0, failed: [] });
+  const after = await listDives(db);
+  expect(after).toHaveLength(1);
+  expect(after[0]?.id).toBe(kept!.id);
+  expect(after[0]?.siteName).toBe('Kotelna');
+  expect(await getDiveSamples(db, kept!.id)).not.toBeNull();
+
+  // Once whole, the dive is simply already there: a third run writes nothing.
+  const callsBefore = samplesWrite.mock.calls.length;
+  const third = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+  expect(third).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(samplesWrite.mock.calls.length).toBe(callsBefore);
+});
+
+it('leaves a dive deleted when its profile had failed to save and the file comes again', async () => {
+  // The completion is for a dive the diver still has. One they deleted stays deleted, with no
+  // profile written behind it (the soft-delete test above, for a dive that never got its curve).
+  jest.spyOn(diveSamplesModule, 'putDiveSamples').mockRejectedValueOnce(new Error('disk full'));
+  await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+  const [kept] = await listDives(db);
+  await softDeleteDive(db, kept!.id);
+
+  const out = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+
+  expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(await listDives(db)).toEqual([]);
+  expect(await diveSamplesModule.listDiveSamples(db)).toEqual([]);
+});
+
+it('does not bring back a profile that was removed from a dive the diver still has', async () => {
+  // A tombstoned series is a deletion that travels by sync, not a write that failed: only a dive
+  // with no series row at all is missing its profile. `putDiveSamples` would un-tombstone it.
+  await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+  const [dive] = await listDives(db);
+  await tombstoneDiveSamples(db, dive!.id);
+
+  const out = await importFiles(db, [file('a.json', fixtureBytes('suunto-d5'))]);
+
+  expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(await getDiveSamples(db, dive!.id)).toBeNull();
+});
+
+it('leaves a dive it already has untouched when the file holds no profile to complete it with', async () => {
+  // The completion needs a profile to write. A file without one (here a fake importer, since
+  // both Suunto fixtures carry a series) finds its dive as already there and writes nothing.
+  const fakeImporter: DiveImporter = {
+    source: 'fake-format',
+    label: () => 'Fake',
+    recognises: () => true,
+    parse: () => [{ importId: 'fixed-id-1', series: null, dive: { date: '2026-01-01' } }],
+  };
+  jest.spyOn(registryModule, 'importerFor').mockReturnValue(fakeImporter);
+  await importFiles(db, [file('fake.bin', new Uint8Array())]);
+  const samplesWrite = jest.spyOn(diveSamplesModule, 'putDiveSamples');
+
+  const out = await importFiles(db, [file('fake.bin', new Uint8Array())]);
+
+  expect(out).toMatchObject({ imported: 0, alreadyThere: 1, failed: [] });
+  expect(samplesWrite).not.toHaveBeenCalled();
+  expect(await diveSamplesModule.listDiveSamples(db)).toEqual([]);
 });

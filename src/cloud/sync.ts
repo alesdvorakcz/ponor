@@ -32,6 +32,7 @@ import {
   countPendingDiveSamples,
   pendingDiveSamples,
   tombstoneAllDiveSamples,
+  tombstoneSamplesOfDeletedDives,
 } from '../db/diveSamples';
 import {
   applyPulledDives,
@@ -584,6 +585,14 @@ export async function followCatalogueMerges(db: Db): Promise<number> {
  * of every soft-deleted table already applies — is what removes it from the diver's logbook.
  * Deleting it outright would throw away the fact that it was deleted, which is the only thing
  * standing between a re-created row and the next device that has not heard yet.
+ *
+ * **A deleted dive's live profile is deleted in the same place** (#9,
+ * `tombstoneSamplesOfDeletedDives`), and for the merge's reasons: after the whole change set,
+ * because `SYNCED_TABLES` applies `dives` before `dive_samples`, and a sweep between them would
+ * stamp its own tombstone over the one the same pull was about to deliver, leaving a redundant
+ * push and a pending change after every ordinary remote delete; and on every pull, so a profile
+ * an interrupted pull or an older build left live is still caught. Like the merge repair, what
+ * it writes is this device's own and goes up with the next push.
  */
 export async function pullChanges(db: Db, client: SupabaseClient): Promise<number> {
   const lastPulledAt = await getLastPulledAt(db);
@@ -591,6 +600,7 @@ export async function pullChanges(db: Db, client: SupabaseClient): Promise<numbe
 
   const written = await applyChanges(db, readChangeSet(envelope.changes));
   await followCatalogueMerges(db);
+  await tombstoneSamplesOfDeletedDives(db);
 
   const watermark = envelope.last_pulled_at;
   if (typeof watermark !== 'string') {

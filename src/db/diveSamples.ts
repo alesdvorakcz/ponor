@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, not } from 'drizzle-orm';
 
 import { isSparkDrawable, sparklinePoints, SPARK_BUCKETS, type ProfilePoint } from '../domain/profile';
 import {
@@ -12,7 +12,7 @@ import {
   type LocalWriteStamp,
   type PushedRow,
 } from './dirty';
-import { diveSamples, type DiveSample } from './schema';
+import { diveSamples, dives, type DiveSample } from './schema';
 import { liveRows } from './tombstone';
 import type { Db } from './types';
 import { EVERY_ROW } from './wipe';
@@ -30,9 +30,12 @@ const liveSeries = liveRows(diveSamples);
 /**
  * Writes a dive's profile, replacing whatever was there.
  *
- * An upsert on the dive's own id rather than an insert: re-importing the same file must not
- * produce a second series, and the import flow's dedupe (db/importDives.ts) is about *dives*,
- * not about this row. Un-tombstones on write, so a re-import after a delete restores the curve.
+ * An upsert on the dive's own id rather than an insert: a second write must not produce a second
+ * series. The upsert clears `deletedAt`, so writing over a tombstoned series brings it back.
+ * **The import never does that** (db/importDives.ts, #9): it writes a profile onto a dive it
+ * already has only when that dive has no series row at all, because a tombstoned row is a
+ * deletion §7 is carrying to other devices. That guard is deliberate; this function's
+ * un-tombstoning is not a promise that a re-import restores a deleted curve.
  */
 export async function putDiveSamples(db: Db, diveId: string, series: readonly DiveSample[]): Promise<void> {
   const stamp = stampLocalWrite();
@@ -207,6 +210,41 @@ export async function tombstoneDiveSamples(db: Db, diveId: string): Promise<void
     .update(diveSamples)
     .set({ deletedAt: stamp.updatedAt, ...stamp })
     .where(and(eq(diveSamples.id, diveId), liveSeries));
+}
+
+/**
+ * **Tombstones every live series whose dive is deleted**, and returns their ids: the sweep
+ * `pullChanges` (cloud/sync.ts) runs after every pull (#9).
+ *
+ * `softDeleteDive` keeps "a deleted dive has no live profile" on the device that deletes, by
+ * tombstoning the series in the same act. A series can still sit live beside a deleted dive
+ * that arrived by sync: the import completes a profile that failed to save (db/importDives.ts)
+ * on a device that has not yet heard the dive was deleted on another, and a build before this
+ * one could leave the same pair on the server. Nothing in `applyPulledRows` crosses tables, so
+ * the dive's tombstone lands and the series stays live: never drawn, but on every device and in
+ * §8's export. This restores the rule.
+ *
+ * - **It goes up.** The write is stamped through `stampLocalWrite`, so the series is dirty and
+ *   the next push deletes the live copy the server holds.
+ * - **It stamps nothing when nothing matches.** It reads first, and only a match takes a stamp.
+ *   `stampLocalWrite` announces a write (§7.5's trigger), and a sweep that announced on every
+ *   pull would schedule a sync after every sync. In an ordinary remote delete both tombstones
+ *   arrive in one pull and the sweep runs after the whole change set, so it finds nothing.
+ * - **Only a dive this device holds as deleted.** A series whose dive is not on this device at
+ *   all is left alone: a later pull may bring the dive, and absence is not a deletion.
+ */
+export async function tombstoneSamplesOfDeletedDives(db: Db): Promise<string[]> {
+  const ofDeletedDives = () =>
+    and(liveSeries, inArray(diveSamples.id, db.select({ id: dives.id }).from(dives).where(not(liveRows(dives)))));
+  const found = await db.select({ id: diveSamples.id }).from(diveSamples).where(ofDeletedDives());
+  if (found.length === 0) return [];
+  const stamp = stampLocalWrite();
+  const written = await db
+    .update(diveSamples)
+    .set({ deletedAt: stamp.updatedAt, ...stamp })
+    .where(ofDeletedDives())
+    .returning({ id: diveSamples.id });
+  return written.map((row) => row.id);
 }
 
 /**
