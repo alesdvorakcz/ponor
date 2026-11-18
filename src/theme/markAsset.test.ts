@@ -51,6 +51,8 @@ describe('the mark the first-run screen draws', () => {
     // colour" vacuously, and would render as a 120 pt hole above the label.
     expect(visible).toBeGreaterThan(1000);
     expect([...inks]).toEqual(['255,255,255']);
+    const pixels = info.width * info.height;
+    expect(pixels - visible).toBeGreaterThan(pixels / 2);
   });
 
   // **The wave stays behind the profile, and in a monochrome mark that has to be alpha.**
