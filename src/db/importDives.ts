@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
 import { importerFor } from '../domain/import/registry';
-import { putDiveSamples } from './diveSamples';
+import { hasDiveSamplesRow, putDiveSamples } from './diveSamples';
 import { createDive } from './dives';
 import { dives } from './schema';
 import { type Db } from './types';
@@ -34,8 +34,9 @@ export interface ImportOutcome {
 /**
  * **Writes whatever an importer read, whichever importer read it.**
  *
- * Dedupe, transactions and counting live here and nowhere else, so adding §9's UDDF or FIT
- * touches `domain/import/` alone. Nothing in this file knows what a Suunto file looks like.
+ * Dedupe, completing a dive whose profile failed to save (#9) and counting live here and
+ * nowhere else, so adding §9's UDDF or FIT touches `domain/import/` alone. Nothing in this file
+ * knows what a Suunto file looks like.
  */
 export async function importFiles(db: Db, files: readonly ImportFile[]): Promise<ImportOutcome> {
   const outcome: ImportOutcome = { imported: 0, alreadyThere: 0, failed: [] };
@@ -78,15 +79,30 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
         // re-import that silently resurrected it would be the overwrite this skip exists to
         // prevent (and would contradict the import spec's §6, "the file is immutable, the
         // diver's copy is not").
-        // A skipped dive never reaches putDiveSamples, so the inconsistency with that function's
-        // un-tombstoning does not bite: deleted-then-re-imported stays deleted; only a dive
-        // whose *series* is deleted has the curve restored on re-import.
         const [existing] = await db
-          .select({ id: dives.id })
+          .select({ id: dives.id, deletedAt: dives.deletedAt })
           .from(dives)
           .where(and(eq(dives.importSource, importer.source), eq(dives.importId, importId)));
         if (existing) {
-          outcome.alreadyThere += 1;
+          // **The one thing a re-import still writes: a profile that failed to save** (#9).
+          // `createDive` and `putDiveSamples` below are two writes, not one transaction —
+          // Drizzle's transactions are synchronous on both drivers and these writers are not —
+          // so a throw between them keeps the dive without its curve and names the file as
+          // `unwritable`, whose sentence tells the diver to try again. This is what makes trying
+          // again work. Only the profile is written, never the dive, so the skip above still
+          // holds for everything the diver may have changed.
+          //
+          // Only for a live dive, and only when no series row exists at all. A deleted dive
+          // stays deleted with nothing written behind it, and a tombstoned series is a deletion
+          // §7 is carrying, which `putDiveSamples`' un-tombstoning would undo
+          // (`hasDiveSamplesRow`). Counted as imported: the earlier run did not count this dive,
+          // so this is the run that reports it.
+          if (series && existing.deletedAt === null && !(await hasDiveSamplesRow(db, existing.id))) {
+            await putDiveSamples(db, existing.id, series);
+            outcome.imported += 1;
+          } else {
+            outcome.alreadyThere += 1;
+          }
           continue;
         }
 

@@ -46,6 +46,21 @@ export async function putDiveSamples(db: Db, diveId: string, series: readonly Di
 }
 
 /**
+ * Whether a dive has a series row in **any** state, live or tombstoned — deliberately not
+ * `liveSeries`-filtered, unlike every read below.
+ *
+ * The one caller is the import's completion of a dive whose profile failed to save
+ * (db/importDives.ts, #9), and the question it asks is "was this series ever written", not "is
+ * there one to draw". A tombstoned row is a deletion §7 is carrying to other devices, and
+ * `putDiveSamples` above would un-tombstone it; only a dive with no row at all is missing its
+ * profile because a write did not happen.
+ */
+export async function hasDiveSamplesRow(db: Db, diveId: string): Promise<boolean> {
+  const rows = await db.select({ id: diveSamples.id }).from(diveSamples).where(eq(diveSamples.id, diveId)).limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Every live series' row query, unfiltered by dive — `gearPresetRowsQuery`'s shape
  * (db/gearPresets.ts): a query BUILDER, not an executed read, so `useDiveSampleShapes`
  * (db/useDiveSampleShapes.ts, Task 6's row sparkline) can hand it to `useLiveQuery` directly
