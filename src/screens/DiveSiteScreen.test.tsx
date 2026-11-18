@@ -183,9 +183,9 @@ function noteIn(t: RenderResult): string | undefined {
 
 /**
  * **One *The site* cluster, and a note under it naming the rows that do something** — the owner's
- * pick C on the board *#31 · Site defaults, altitude offer* (2026-11-17). The water and the ways in
- * stand among the place's other facts, in the canvas's order; what picking the site will write into
- * a new dive is said once, under the cluster, by naming those rows.
+ * pick C on the board *#31 · Site defaults, altitude offer* (2026-11-17). What picking the site
+ * will write into a new dive is said once, under the cluster, by naming the things it fills — since
+ * issue #6 the salinity row and the water body and ways in tiles, each by the label it is drawn with.
  */
 it('puts what a site gives a new dive among its facts, and says which rows those are', async () => {
   mockUseDiveSites.mockReturnValue(
@@ -196,14 +196,18 @@ it('puts what a site gives a new dive among its facts, and says which rows those
   expect(lines).toContain('The site');
   expect(lines).not.toContain('Site defaults');
   expect(lines).toContain('42.0 m');
-  // Salinity and water body as one line, in that order; the ways in as the set.
-  expect(lines).toContain('Water');
-  expect(lines).toContain('Fresh · Quarry');
-  expect(lines).toContain('Entry');
-  expect(lines).toContain('Shore');
-  expect(lines).not.toContain('Salinity');
-  expect(lines).not.toContain('Water body');
-  expect(noteIn(t)).toBe('Water and Entry fill in a new dive logged here, over anything carried from your last dive.');
+  // The salinity as its own row; the water body and the way in as tiles; no shared *Water* row.
+  expect(labelsIn(t)).toContain('Salinity');
+  expect(lines).toContain('Fresh');
+  expect(lines).not.toContain('Water');
+  expect(lines).not.toContain('Fresh · Quarry');
+  expect(tileWordsIn(t)).toEqual([
+    ['Quarry', 'Water body'],
+    ['Shore', 'Entry'],
+  ]);
+  expect(noteIn(t)).toBe(
+    'Salinity, Water body and Entry fill in a new dive logged here, over anything carried from your last dive.',
+  );
   // The note closes the cluster: under its last row.
   expect(lines.indexOf(noteIn(t)!)).toBeGreaterThan(lines.indexOf('Country'));
 });
@@ -237,8 +241,8 @@ it('says the site’s own depth and the diver’s deepest dive here as two diffe
 it.each(SITE_DEFAULT_FIELDS)('names the row a site’s %s fills in, and only that row', async (field) => {
   const only: Record<SiteDefaultField, { site: Partial<DiveSite>; row: string }> = {
     entry: { site: { entry: ['boat'] }, row: 'Entry' },
-    salinity: { site: { salinity: 'salt' }, row: 'Water' },
-    waterBody: { site: { waterBody: 'ocean' }, row: 'Water' },
+    salinity: { site: { salinity: 'salt' }, row: 'Salinity' },
+    waterBody: { site: { waterBody: 'ocean' }, row: 'Water body' },
   };
   mockUseDiveSites.mockReturnValue(catalogueState([rock(only[field].site)]));
   expect(noteIn(await show())).toBe(
@@ -255,19 +259,32 @@ function labelsIn(t: RenderResult): string[] {
     .filter((c): c is string => typeof c === 'string');
 }
 
-it('draws the water and the way in as two rows, and no more', async () => {
+/** The words on each tile of *The site*, value first (issue #6). */
+function tileWordsIn(t: RenderResult): string[][] {
+  const styles = makeStyles('light');
+  return allNodes(t)
+    .filter((n) => n.type === 'View' && [n.props?.style].flat(5).includes(styles.conditionTile))
+    .map((tile) => tile.queryAll((n) => n.type === 'Text').flatMap((n) => n.children).filter((c): c is string => typeof c === 'string'));
+}
+
+// Issue #6, the owner's call: the water body and the ways in are tiles with their drawings, as the
+// site's types are; salinity has no shape to draw and is the one row left of the three.
+it('draws the water body and the ways in as tiles, and the salinity as the one row', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]));
   const t = await show();
-  expect(labelsIn(t)).toEqual(['Water', 'Entry']);
-  expect(textIn(t)).toContain('Salt · Ocean');
-  expect(textIn(t)).toContain('Boat');
+  expect(labelsIn(t)).toEqual(['Salinity']);
+  expect(textIn(t)).toContain('Salt');
+  expect(tileWordsIn(t)).toEqual([
+    ['Ocean', 'Water body'],
+    ['Boat', 'Entry'],
+  ]);
 });
 
-it('draws the water as whichever half the site records', async () => {
+it('draws the water body as a tile with no salinity row when the site records only the body', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ waterBody: 'lake' })]));
   const t = await show();
-  expect(labelsIn(t)).toEqual(['Water']);
-  expect(textIn(t)).toContain('Lake');
+  expect(labelsIn(t)).toEqual([]);
+  expect(tileWordsIn(t)).toEqual([['Lake', 'Water body']]);
 });
 
 /**
@@ -294,25 +311,31 @@ it('names one way in in the note', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]));
   const t = await show();
   expect(textIn(t)).toContain('Boat');
-  expect(noteIn(t)).toBe('Water and Entry fill in a new dive logged here, over anything carried from your last dive.');
+  expect(noteIn(t)).toBe('Salinity, Water body and Entry fill in a new dive logged here, over anything carried from your last dive.');
 });
 
-it('draws two ways in as the Entry row, and names only the water in the note', async () => {
+it('draws two ways in as two Entry tiles, and names only the water in the note', async () => {
   mockUseDiveSites.mockReturnValue(
     catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt', waterBody: 'ocean' })]),
   );
   const t = await show();
   const lines = textIn(t);
   expect(lines.indexOf('Entry')).toBeGreaterThan(lines.indexOf('The site'));
-  expect(lines).toContain('Shore · Boat');
-  expect(lines.filter((line) => line === 'Entry')).toHaveLength(1);
-  expect(noteIn(t)).toBe('Water fills in a new dive logged here, over anything carried from your last dive.');
+  expect(tileWordsIn(t)).toEqual([
+    ['Ocean', 'Water body'],
+    ['Shore', 'Entry'],
+    ['Boat', 'Entry'],
+  ]);
+  expect(noteIn(t)).toBe('Salinity and Water body fill in a new dive logged here, over anything carried from your last dive.');
 });
 
 it('draws several ways in with no note when nothing else fills in a dive', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'] })]));
   const t = await show();
-  expect(textIn(t)).toContain('Shore · Boat');
+  expect(tileWordsIn(t)).toEqual([
+    ['Shore', 'Entry'],
+    ['Boat', 'Entry'],
+  ]);
   expect(noteIn(t)).toBeUndefined();
 });
 
@@ -592,23 +615,32 @@ describe('in Czech', () => {
     mockUseDiveSites.mockReturnValue(
       catalogueState([rock({ country: 'HR', maxDepthM: 42, entry: ['shore'], salinity: 'salt', waterBody: 'ocean' })]),
     );
-    const said = textIn(await show());
+    const t = await show();
+    const said = textIn(t);
     expect(said).toContain('Lokalita');
     expect(said).toContain('Země');
     expect(said).toContain('Hloubka lokality');
-    expect(said).toContain('Voda');
-    expect(said).toContain('Slaná · Oceán');
-    expect(said).toContain('Vstup');
+    expect(said).toContain('Slanost');
+    expect(said).toContain('Slaná');
     expect(said).toContain('‹ Zpět');
-    expect(said).toContain('Voda a Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
+    expect(tileWordsIn(t)).toEqual([
+      ['Oceán', 'Vodní plocha'],
+      ['Břeh', 'Vstup'],
+    ]);
+    expect(said).toContain(
+      'Slanost, Vodní plocha a Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+    );
     expect(said).not.toContain('Site depth');
   });
 
   it('names one row in the note in Czech', async () => {
     mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['shore', 'boat'], salinity: 'salt' })]));
-    const said = textIn(await show());
-    expect(said).toContain('Břeh · Loď');
-    expect(said).toContain('Voda se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
+    const t = await show();
+    expect(tileWordsIn(t)).toEqual([
+      ['Břeh', 'Vstup'],
+      ['Loď', 'Vstup'],
+    ]);
+    expect(textIn(t)).toContain('Slanost se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
   });
 
   it('says a site it cannot find is not there, in Czech', async () => {
@@ -715,11 +747,11 @@ it('shows the site’s facts in the canvas’s order, each only when filled', as
   );
   const t = await show();
   // The site's types lead the cluster as tiles since issue #6, so they are no longer a labelled row.
-  const labels = ['Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Water', 'Entry', 'Other names', 'Country'];
+  const labels = ['Suitable for', 'Site depth', 'Altitude', 'Wreck', 'Salinity', 'Other names', 'Country'];
   // The rows as drawn, label by label, so the order is the cluster's and not the text's at large.
   expect(labelsIn(t)).toEqual(labels);
   const lines = textIn(t);
-  for (const value of ['Wreck', 'Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Salt · Ocean', 'Shore · Boat', 'Teti wreck', 'HR']) {
+  for (const value of ['Wreck', 'Wall', 'Advanced', '34.0 m', '313 m', 'Teti · sunk 1930', 'Salt', 'Ocean', 'Shore', 'Boat', 'Teti wreck', 'HR']) {
     expect(lines).toContain(value);
   }
 });
