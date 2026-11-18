@@ -200,7 +200,7 @@ describe('messageFor', () => {
   // #8, in the owner's approved words: no answer at all, or a 5xx, comes back the same way when
   // the phone is offline and when the server is down, so the sentence names both and claims
   // neither. Deleting the account fails on any cause, so it names none.
-  it('names both causes of a request that never completed, and blames neither', () => {
+  it('names both causes of a request that got no answer or a 5xx, and blames neither', () => {
     expect(serverUnreachable()).toBe(
       'Couldn’t reach the server — no connection here, or the server is down. Your logbook is safe on this phone; try again later.',
     );
@@ -1074,7 +1074,7 @@ describe('in Czech', () => {
     expect(messageFor({ code: 'unheard_of' }, 'signUp')).toBe('Účet se nepodařilo vytvořit. Zkuste to znovu.');
   });
 
-  it('names both causes of a request that never completed, and blames neither, in Czech (#8)', () => {
+  it('names both causes of a request that got no answer or a 5xx, and blames neither, in Czech (#8)', () => {
     setActiveLanguage('cs');
     expect(serverUnreachable()).toBe(
       'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
