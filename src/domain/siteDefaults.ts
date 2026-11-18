@@ -127,8 +127,11 @@ function stated(value: unknown): string | null {
  * (PR #72's review): `['', 'shore']` is one way in on both, *Shore*. Its one word may be a word
  * this build does not know; a member that is not a word (a number, a `null`, a blank) is not
  * counted; and a set of no words, or anything that is not a list, says nothing — a pulled row is
- * whatever the server sent. (Picking the dive's entry from the site's options is #63's, not this
- * rule's.)
+ * whatever the server sent. **A word stored twice counts twice** (`['shore', ' shore']`), as the
+ * page draws it twice (`siteTiles` keys its tiles by position, #6), so the two still agree: two
+ * tiles, no answer. No writer in this app stores one, since `TokenChips` toggles a set, so
+ * deduplicating here would answer for a page that does not (PR #72's re-review, left as is).
+ * (Picking the dive's entry from the site's options is #63's, not this rule's.)
  */
 export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): string | null {
   if (field !== 'entry') return stated(site[field]);

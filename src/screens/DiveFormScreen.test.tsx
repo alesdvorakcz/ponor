@@ -2417,6 +2417,38 @@ describe('a value the form itself could not have produced, in a field that is no
     expect(writtenPatch().equipment).toEqual(['hood', 'gloves', 'rebreather-bailout']);
   });
 
+  // PR #72's re-review, finding 1: the detail reads a stored ` hood` as *Hood* (`wordsOf` trims),
+  // so the form reads it so too. Matched raw, the Hood row read No for a dive the detail says
+  // carried one, and turning it on saved a second hood beside the first (*Hood · Hood*).
+  it('reads a stored accessory with spaces around it as that accessory, and switches it off whole', async () => {
+    const target = fromANewerClient({ equipment: [' hood', 'rebreather-bailout', 3, ''] as never });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Equipment');
+    expect(findEquipmentToken(t, 'Hood')?.props?.accessibilityState?.checked).toBe(true);
+
+    await pressEquipmentToken(t, 'Hood');
+    expect(findEquipmentToken(t, 'Hood')?.props?.accessibilityState?.checked).toBe(false);
+    await pressSave(t);
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    // The hood is gone, its padded copy with it. What is no accessory this build knows, a word
+    // or not, is kept exactly as stored: §10's store-and-flag is not this control's to clean.
+    expect(writtenPatch().equipment).toEqual(['rebreather-bailout', 3, '']);
+  });
+
+  it('writes a padded accessory back as its own token when another row is switched', async () => {
+    const target = fromANewerClient({ equipment: [' hood'] as never });
+    stubLogbookFor(target);
+    mockUpdate.mockResolvedValue(target);
+    const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+    await openGroup(t, 'Equipment');
+    await pressEquipmentToken(t, 'Gloves');
+    await pressSave(t);
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(writtenPatch().equipment).toEqual(['hood', 'gloves']);
+  });
+
   it('carries an unknown option into a NEW dive rather than dropping it on the way', async () => {
     // Carry-over is the path that turns one synced row into a value on a form the diver is
     // filling in now, and `toNewDiveInput` writes every non-null field — so this is where

@@ -103,6 +103,7 @@ import {
   type Equipment,
   type GearPreset,
 } from '../domain/types';
+import { wordsOf } from '../domain/words';
 import {
   formatConfiguration,
   formatCoordinates,
@@ -1921,14 +1922,25 @@ function EquipmentTokenField({ label, worn, onChange, scheme }: EquipmentTokenFi
  * kept, in its own order, after them. Order is not a difference `toDivePatch` can see
  * (`sameEquipment` compares sets), so this is about what the value READS like, not about
  * what gets written.
+ *
+ * **A member is the accessory its word is** (`wordsOf`, PR #72's re-review): a stored ` hood`
+ * is the hood, as the dive's page reads it, so its row reads Yes here too, switching it off
+ * takes the padded copy with it, and a press on another row writes it back as `hood`. Only a
+ * member that reads as a known accessory is rewritten. Anything else, a word this build does
+ * not know or a member that is no word at all, is kept exactly as stored.
  */
 function withEquipmentToken(current: readonly Equipment[], token: Equipment, worn: boolean): Equipment[] {
-  const held = new Set<string>(current);
+  const held = new Set<string>(wordsOf(current));
   if (worn) held.add(token);
   else held.delete(token);
   const known = EQUIPMENT_VALUES.filter((value) => held.has(value));
-  const foreign = current.filter((value) => !(EQUIPMENT_VALUES as readonly string[]).includes(value) && held.has(value));
+  const foreign = current.filter((member) => !wordsOf([member]).some((word) => isEquipmentToken(word)));
   return [...known, ...foreign];
+}
+
+/** Whether a word is one of the accessories this build has a row for. */
+function isEquipmentToken(word: string): boolean {
+  return (EQUIPMENT_VALUES as readonly string[]).includes(word);
 }
 
 /**
@@ -1955,7 +1967,8 @@ function ControlledEquipmentField({ control, scheme }: { control: FormControl; s
       name="equipment"
       render={({ field, fieldState }) => {
         const current = Array.isArray(field.value) ? (field.value as Equipment[]) : [];
-        const held = new Set<string>(current);
+        // Read as the dive's page reads it (`wordsOf`): a stored ` hood` is the hood.
+        const held = new Set<string>(wordsOf(current));
         return (
           <>
             {EQUIPMENT_VALUES.map((token) => (
