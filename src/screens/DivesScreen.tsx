@@ -185,11 +185,13 @@ export const LOG_DIVE_GLYPH = { ios: 'plus', android: 'add' } as const;
  * the list down and got nothing back has no way to tell a sync that found nothing from one
  * that never happened, and an app that answers a deliberate act with silence reads as broken.
  *
- * It says what is *safe* rather than what *failed*, which is the register `SERVER_UNREACHABLE`
+ * It says what is *safe* rather than what *failed*, which is the register `serverUnreachable`
  * (cloud/auth.ts) already sets for the same situation one screen over: the only thing at stake
  * is whether the account has the dives yet, and the answer is that nothing was lost. It names
  * no cause, because this screen cannot know one — the engine reports `failed` and deliberately
- * carries no server text (§9's Sentry, and `cloud/sync.ts`'s rule about error messages).
+ * carries no server text (§9's Sentry, and `cloud/sync.ts`'s rule about error messages). Until #8
+ * it still ended *try again when you're online*, which blamed the connection all the same; it now
+ * says *later*.
  *
  * Exported so its test asserts the same string a diver reads. A function rather than a
  * constant since M3g, for the reason `unnamedSite` (format/display.ts) records: a constant's

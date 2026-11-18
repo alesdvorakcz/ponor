@@ -334,7 +334,7 @@ export const cs = {
       settingsUnreadable:
         'Nastavení se nepodařilo přečíst — v číslech ponorů může chybět počet před Ponorem.',
       syncFailed:
-        'Synchronizace se teď nezdařila. Vaše ponory jsou v bezpečí v telefonu — zkuste to znovu, až budete online.',
+        'Synchronizace se teď nezdařila. Vaše ponory jsou v bezpečí v telefonu — zkuste to znovu později.',
       dayStrip: '{{date}} · {{dives}}, bez časů',
       reorder: 'Seřadit',
       reorderDay: 'Seřadit {{date}}',
@@ -976,7 +976,7 @@ export const cs = {
       confirmationRequired:
         'Tento účet zatím není potvrzený. Otevřete odkaz v e-mailu, který na tu adresu přišel, a pak se přihlaste.',
       serverUnreachable:
-        'Server se nepodařilo kontaktovat. Váš deník je v bezpečí v telefonu — zkuste to znovu, až budete online.',
+        'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
       signInFailed: 'Přihlášení se nezdařilo. Zkuste to znovu.',
       signUpFailed: 'Účet se nepodařilo vytvořit. Zkuste to znovu.',
       resetFailed: 'E-mail pro obnovení hesla se nepodařilo odeslat. Zkuste to znovu.',
@@ -997,7 +997,7 @@ export const cs = {
       deleteAccountUnavailable:
         'Tento build neumí vyčistit zařízení, takže se nesmazal ani váš účet.',
       deleteAccountFailed:
-        'Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu, až budete online.',
+        'Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu později.',
       accountDeletedDeviceKept:
         'Váš účet je smazaný, ale deník v tomto zařízení se nepodařilo vymazat. Odstraněním aplikace ho smažete.',
     },

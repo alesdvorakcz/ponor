@@ -372,7 +372,7 @@ export const en = {
       settingsUnreadable:
         "Couldn't read your settings — dive numbers may be missing your pre-Ponor count.",
       syncFailed:
-        'Couldn’t sync just now. Your dives are safe on this phone — try again when you’re online.',
+        'Couldn’t sync just now. Your dives are safe on this phone — try again later.',
       /** The day strip's sentence (§0.6). `{{dives}}` is `formatDiveCount`'s own phrase, which
        * stays nominative in Czech here and so composes. */
       dayStrip: '{{date}} · {{dives}}, no times',
@@ -1192,7 +1192,7 @@ export const en = {
       confirmationRequired:
         'This account isn’t confirmed yet. Open the link in the email sent to that address, then sign in.',
       serverUnreachable:
-        'Couldn’t reach the server. Your logbook is safe on this phone — try again when you’re online.',
+        'Couldn’t reach the server — no connection here, or the server is down. Your logbook is safe on this phone; try again later.',
       signInFailed: 'Couldn’t sign in. Try again.',
       signUpFailed: 'Couldn’t create the account. Try again.',
       resetFailed: 'Couldn’t send the reset email. Try again.',
@@ -1215,7 +1215,7 @@ export const en = {
       deleteAccountUnavailable:
         'This build can’t clear the device, so your account wasn’t deleted either.',
       deleteAccountFailed:
-        'Couldn’t reach your account, so nothing was deleted. Try again when you’re online.',
+        'Couldn’t reach your account, so nothing was deleted. Try again later.',
       accountDeletedDeviceKept:
         'Your account is deleted, but this device’s logbook couldn’t be cleared. Deleting the app removes it.',
     },

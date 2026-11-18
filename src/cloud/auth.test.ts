@@ -189,6 +189,24 @@ describe('messageFor', () => {
     expect(messageFor(new AuthRetryableFetchError('Failed to fetch', 0), 'signUp')).toBe(serverUnreachable());
   });
 
+  // PR #73's review: auth-js throws the same error for a server that answered with a 5xx
+  // (`NETWORK_ERROR_CODES` in its fetch.ts), and that is the server-down case #8 is about. A
+  // check narrowed to status 0, "no answer at all", would send it to *Couldn't sign in*.
+  it('names the same two causes when the server answered with a 5xx', () => {
+    expect(messageFor(new AuthRetryableFetchError('Service Unavailable', 503), 'signIn')).toBe(serverUnreachable());
+    expect(messageFor(new AuthRetryableFetchError('HTTP 522', 522), 'signUp')).toBe(serverUnreachable());
+  });
+
+  // #8, in the owner's approved words: no answer at all, or a 5xx, comes back the same way when
+  // the phone is offline and when the server is down, so the sentence names both and claims
+  // neither. Deleting the account fails on any cause, so it names none.
+  it('names both causes of a request that got no answer or a 5xx, and blames neither', () => {
+    expect(serverUnreachable()).toBe(
+      'Couldn’t reach the server — no connection here, or the server is down. Your logbook is safe on this phone; try again later.',
+    );
+    expect(deleteAccountFailed()).toBe('Couldn’t reach your account, so nothing was deleted. Try again later.');
+  });
+
   it('falls back to the sentence for the act that failed, not to one sentence for both', () => {
     const unknown = new AuthApiError('teapot', 418, 'a_code_from_a_newer_server');
     expect(messageFor(unknown, 'signIn')).toBe(signInFailed());
@@ -1054,5 +1072,13 @@ describe('in Czech', () => {
     // The two "anything else" sentences stay two, because they name what did not happen.
     expect(messageFor({ code: 'unheard_of' }, 'signIn')).toBe('Přihlášení se nezdařilo. Zkuste to znovu.');
     expect(messageFor({ code: 'unheard_of' }, 'signUp')).toBe('Účet se nepodařilo vytvořit. Zkuste to znovu.');
+  });
+
+  it('names both causes of a request that got no answer or a 5xx, and blames neither, in Czech (#8)', () => {
+    setActiveLanguage('cs');
+    expect(serverUnreachable()).toBe(
+      'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
+    );
+    expect(deleteAccountFailed()).toBe('Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu později.');
   });
 });

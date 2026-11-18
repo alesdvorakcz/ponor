@@ -2310,6 +2310,13 @@ it('says so when a sync the diver asked for could not run, and lets them dismiss
   expect(textIn(t)).not.toContain(syncFailedMessage());
 });
 
+// #8, in the owner's approved words: a sync fails the same way when the phone is offline and
+// when the server is down, and this screen is told neither, so the sentence blames no
+// connection and says only what is safe.
+it('says a failed sync is safe to retry later, without blaming the connection', () => {
+  expect(syncFailedMessage()).toBe('Couldn’t sync just now. Your dives are safe on this phone — try again later.');
+});
+
 it('says nothing when the sync worked', async () => {
   aLogbook();
   mockSignedIn();
@@ -2353,6 +2360,13 @@ describe('in Czech', () => {
     // update outside `act`.
     await cleanup();
     setActiveLanguage('en');
+  });
+
+  // #8, the owner's approved Czech: no connection blamed, only what is safe.
+  it('says a failed sync is safe to retry later, without blaming the connection', () => {
+    expect(syncFailedMessage()).toBe(
+      'Synchronizace se teď nezdařila. Vaše ponory jsou v bezpečí v telefonu — zkuste to znovu později.',
+    );
   });
 
   /**
