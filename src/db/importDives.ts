@@ -100,8 +100,9 @@ export async function importFiles(db: Db, files: readonly ImportFile[]): Promise
           // stays deleted with nothing written behind it, and a tombstoned series is a deletion
           // §7 is carrying, which `putDiveSamples`' un-tombstoning would undo. Counted as
           // imported: the earlier run did not count this dive, so this is the run that reports
-          // it. DESIGN.md §10 records the one case this cannot see: the dive deleted on another
-          // device whose deletion has not reached this one yet.
+          // it. The one case this cannot see, a dive deleted on another device whose deletion
+          // has not reached this one yet, is caught when that deletion is pulled:
+          // `tombstoneSamplesOfDeletedDives` (db/diveSamples.ts) runs after every pull.
           if (series && existing.deletedAt === null && existing.seriesId === null) {
             await putDiveSamples(db, existing.id, series);
             outcome.imported += 1;

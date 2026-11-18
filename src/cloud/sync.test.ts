@@ -21,12 +21,12 @@ import {
   listCertifications,
   softDeleteCertification,
 } from '../db/certifications';
-import type { PushableTable } from '../db/dirty';
+import { onLocalWrite, type PushableTable } from '../db/dirty';
 import { getDiveSamples, putDiveSamples } from '../db/diveSamples';
 import { createDive, getDive, listDives, pendingDives, softDeleteDive, updateDive } from '../db/dives';
 import { createGearPreset, listGearPresets } from '../db/gearPresets';
 import * as localSchema from '../db/schema';
-import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets } from '../db/schema';
+import { certifications, diveCenters, diveSamples, diveSites, dives, gearPresets, type DiveSample } from '../db/schema';
 import { getLastPulledAt, recordPull } from '../db/syncState';
 import { createTestDb, type TestDb } from '../db/testDb';
 import { groupDivesByPlace } from '../domain/mapSites';
@@ -1435,6 +1435,83 @@ describe('a merge arriving in a pull (§5, M2r)', () => {
     await syncNow(db, client);
 
     expect(await storedRow(dives, dive.id)).toEqual(settled);
+    expect(await countUnsyncedRows(db)).toBe(0);
+  });
+});
+
+/**
+ * **A dive deleted on another device takes its profile with it here** (#9, PR #70's review).
+ *
+ * `softDeleteDive` tombstones a profile on the device that deletes the dive, so the ordinary
+ * case arrives as two tombstones and needs nothing more. The other cases need the sweep after
+ * the pull (`tombstoneSamplesOfDeletedDives`): a profile this device wrote after the dive was
+ * deleted elsewhere (the import's completion of a profile that failed to save), and a live
+ * profile an older build left beside a deleted dive. Without it the server keeps a live profile
+ * for a dive nobody has: never drawn, but on every device and in §8's export.
+ */
+describe('a dive deleted on another device, and its profile here (#9)', () => {
+  const series: DiveSample[] = [[0, 1.27, 27.7, 188.9]];
+  const seriesRow = (overrides: WireRow) => wireRow('dive_samples', { series, ...overrides });
+
+  it('deletes a profile written here after the dive was deleted elsewhere, and carries that up', async () => {
+    // This device has the dive and never had its profile. Another device deletes the dive, and
+    // before this one hears, the import's completion writes the profile here.
+    server.seed('dives', wireRow('dives', { id: 'd1' }));
+    await syncNow(db, client);
+    server.tick();
+    server.seed('dives', wireRow('dives', { id: 'd1', updated_at: server.now(), deleted_at: server.now() }));
+    await putDiveSamples(db, 'd1', series);
+
+    await syncNow(db, client);
+
+    // The push went first and took the live profile up; the pull brought the dive's tombstone,
+    // and the sweep after it deleted the profile and owes that to the server.
+    expect((await storedRow(diveSamples, 'd1')).deletedAt).not.toBeNull();
+    expect(await isDirty(diveSamples, 'd1')).toBe(true);
+
+    await syncNow(db, client);
+
+    expect(server.row('dive_samples', 'd1')?.deleted_at).not.toBeNull();
+    expect(await countUnsyncedRows(db)).toBe(0);
+  });
+
+  it('takes an ordinary remote delete as it arrives: no write of its own, nothing owed back', async () => {
+    server.seed('dives', wireRow('dives', { id: 'd1' }));
+    server.seed('dive_samples', seriesRow({ id: 'd1' }));
+    await syncNow(db, client);
+    expect(await getDiveSamples(db, 'd1')).not.toBeNull();
+
+    server.tick();
+    const deletedAt = server.now();
+    server.seed('dives', wireRow('dives', { id: 'd1', updated_at: deletedAt, deleted_at: deletedAt }));
+    server.seed('dive_samples', seriesRow({ id: 'd1', updated_at: deletedAt, deleted_at: deletedAt }));
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+    try {
+      await syncNow(db, client);
+    } finally {
+      stop();
+    }
+
+    // The profile's tombstone is the server's own, not one stamped here, and nothing is owed:
+    // the sweep runs after every table is applied, so it finds nothing left to delete.
+    expect((await storedRow(diveSamples, 'd1')).updatedAt).toBe(deletedAt);
+    expect(await countUnsyncedRows(db)).toBe(0);
+    expect(heard).toEqual([]);
+  });
+
+  it('deletes a profile an older build left live beside a deleted dive, here and on the server', async () => {
+    server.seed('dives', wireRow('dives', { id: 'd1', deleted_at: '2026-09-02T09:00:00.000Z' }));
+    server.seed('dive_samples', seriesRow({ id: 'd1' }));
+
+    await syncNow(db, client);
+
+    expect(await getDiveSamples(db, 'd1')).toBeNull();
+    expect(await isDirty(diveSamples, 'd1')).toBe(true);
+
+    await syncNow(db, client);
+
+    expect(server.row('dive_samples', 'd1')?.deleted_at).not.toBeNull();
     expect(await countUnsyncedRows(db)).toBe(0);
   });
 });

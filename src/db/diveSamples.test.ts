@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+
 import {
   applyPulledDiveSamples,
   clearDiveSampleDirtyFlags,
@@ -9,8 +11,11 @@ import {
   putDiveSamples,
   toDiveSampleShapes,
   tombstoneDiveSamples,
+  tombstoneSamplesOfDeletedDives,
 } from './diveSamples';
-import type { DiveSample } from './schema';
+import { onLocalWrite } from './dirty';
+import { createDive, softDeleteDive } from './dives';
+import { dives, type DiveSample } from './schema';
 import { createTestDb, type TestDb } from './testDb';
 
 /**
@@ -29,9 +34,11 @@ import { createTestDb, type TestDb } from './testDb';
  *   without a real sample series).
  * · **A re-import replaces rather than appends**, because `putDiveSamples` is the one write
  *   path an importer calls on every run, including a second run over the same file.
- * · **A re-import after a delete restores the curve**, because that same write path un-tombstones
- *   on write — a diver who deleted a profile and then re-ran the same import must see it again,
- *   not a silently empty chart.
+ * · **A write over a tombstoned series brings it back**, because that same write path
+ *   un-tombstones. No caller relies on it: since #9 the import writes onto a dive it already has
+ *   only when that dive has no series row at all, so a deleted profile stays deleted.
+ * · **A dive's deletion takes its profile with it, even one that arrived by sync**
+ *   (`tombstoneSamplesOfDeletedDives`, run after every pull).
  */
 
 let db: TestDb;
@@ -72,15 +79,15 @@ it('reads a tombstoned series as absent rather than as data', async () => {
 });
 
 /**
- * **A re-import after a delete restores the curve.** `putDiveSamples`'s own docblock says it
- * un-tombstones on write (`deletedAt: null` in the `onConflictDoUpdate` set) — this is that
- * behaviour exercised, which until now had no test of its own, unlike its sibling "replaces
- * rather than appends" a few lines up. Without it, a diver who deleted a dive's profile and
- * then re-imported the same file would see no curve at all, silently: `getDiveSamples` filters
- * through `liveSeries`, so a row still carrying its old `deletedAt` would read as absent even
- * though `putDiveSamples` had just written a fresh series into it.
+ * **A write over a tombstoned series brings it back.** `putDiveSamples`'s own docblock says it
+ * un-tombstones on write (`deletedAt: null` in the `onConflictDoUpdate` set), and this is that
+ * behaviour exercised: `getDiveSamples` filters through `liveSeries`, so a row still carrying
+ * its old `deletedAt` would read as absent even though a fresh series had just been written
+ * into it. **The import does not use this** (#9): it writes onto a dive it already has only
+ * when that dive has no series row at all, so a profile the diver deleted is not restored by
+ * re-importing the file (`importDives.test.ts`).
  */
-it('restores a tombstoned series on re-import, rather than leaving it hidden', async () => {
+it('restores a tombstoned series it writes over, rather than leaving it hidden', async () => {
   await putDiveSamples(db, 'dive-1', [[0, 1, null, null]]);
   await tombstoneDiveSamples(db, 'dive-1');
   expect(await getDiveSamples(db, 'dive-1')).toBeNull();
@@ -144,6 +151,55 @@ it('reads every live series across dives, and nothing a diver has deleted', asyn
 
   // The same rows, through the wrapper §8's export actually calls — one query, not two.
   expect((await listDiveSamples(db)).map((row) => row.id).sort()).toEqual(['dive-1', 'dive-2']);
+});
+
+/**
+ * **A deleted dive's profile goes with it, whichever device deleted it** (#9, review round 2 of
+ * PR #70). `softDeleteDive` tombstones the profile on the device that deletes. A profile that
+ * reached this device another way (written here after the import's completion, or pulled) is
+ * still live when the dive's tombstone arrives, and this is what catches it. The test marks the
+ * dive deleted directly, as a pulled tombstone leaves it.
+ */
+describe('tombstoneSamplesOfDeletedDives', () => {
+  const deleteDiveRow = async (id: string) => {
+    await db.update(dives).set({ deletedAt: '2026-09-02T09:00:00.000Z' }).where(eq(dives.id, id));
+  };
+
+  it('tombstones a live series whose dive is deleted, and owes that deletion to the server', async () => {
+    const dive = await createDive(db, { date: '2026-08-16' });
+    await putDiveSamples(db, dive.id, [[0, 1.27, 27.7, 188.9]]);
+    await clearDiveSampleDirtyFlags(db, await pendingDiveSamples(db));
+    await deleteDiveRow(dive.id);
+
+    expect(await tombstoneSamplesOfDeletedDives(db)).toEqual([dive.id]);
+
+    expect(await getDiveSamples(db, dive.id)).toBeNull();
+    expect((await pendingDiveSamples(db)).map((row) => row.id)).toEqual([dive.id]);
+  });
+
+  it('leaves every other series alone, and writes and announces nothing when nothing matches', async () => {
+    const live = await createDive(db, { date: '2026-08-16' });
+    await putDiveSamples(db, live.id, [[0, 1, null, null]]);
+    // A series with no dive on this device: never assumed deleted, since a pull may yet bring it.
+    await putDiveSamples(db, 'no-dive-here', [[0, 2, null, null]]);
+    // A deleted dive whose series is already tombstoned: nothing left to do.
+    const gone = await createDive(db, { date: '2026-08-17' });
+    await putDiveSamples(db, gone.id, [[0, 3, null, null]]);
+    await softDeleteDive(db, gone.id);
+    await clearDiveSampleDirtyFlags(db, await pendingDiveSamples(db));
+    const heard: number[] = [];
+    const stop = onLocalWrite(() => heard.push(1));
+
+    try {
+      expect(await tombstoneSamplesOfDeletedDives(db)).toEqual([]);
+      // No stamp: a sweep that announced on every pull would schedule a sync after every sync.
+      expect(heard).toEqual([]);
+    } finally {
+      stop();
+    }
+    expect(await pendingDiveSamples(db)).toEqual([]);
+    expect((await listDiveSamples(db)).map((row) => row.id).sort()).toEqual([live.id, 'no-dive-here'].sort());
+  });
 });
 
 /**

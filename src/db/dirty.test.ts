@@ -37,6 +37,7 @@ import {
   putDiveSamples,
   tombstoneAllDiveSamples,
   tombstoneDiveSamples,
+  tombstoneSamplesOfDeletedDives,
   wipeDiveSamples,
 } from './diveSamples';
 import * as divesModule from './dives';
@@ -520,6 +521,24 @@ const DIVE_SAMPLES: Record<keyof typeof diveSamplesModule, WritePath> = {
       return subject;
     },
   },
+  tombstoneSamplesOfDeletedDives: {
+    // #9's sweep after every pull: a live profile beside a dive this device holds as deleted.
+    // Dirty, because the server may still hold the live copy and has to hear of the delete.
+    leaves: 'dirty',
+    given: async (database) => {
+      const dive = await createDive(database, { date: '2026-08-16' });
+      await putDiveSamples(database, dive.id, [[0, 1.27, 27.7, 188.9]]);
+      await database.update(dives).set({ deletedAt: '2026-09-02T09:00:00.000Z' }).where(eq(dives.id, dive.id));
+      const [row] = await database.select().from(diveSamples).where(eq(diveSamples.id, dive.id));
+      if (row === undefined) throw new Error('putDiveSamples did not create a row');
+      return { table: diveSamples, id: row.id, updatedAt: row.updatedAt };
+    },
+    when: async (database, given) => {
+      const subject = required(given);
+      await tombstoneSamplesOfDeletedDives(database);
+      return subject;
+    },
+  },
   clearDiveSampleDirtyFlags: {
     leaves: 'clean',
     given: aSeries,
@@ -785,8 +804,9 @@ describe('every write path is classified, and the classification is exhaustive (
       'db/gearPresets.ts': 7,
       // create · update · soft-delete · clear · adopt · apply-pulled (M3b) · tombstone-all
       'db/certifications.ts': 7,
-      // put (create+update in one) · tombstone · clear · adopt · apply-pulled · tombstone-all
-      'db/diveSamples.ts': 6,
+      // put (create+update in one) · tombstone · clear · adopt · apply-pulled · tombstone-all ·
+      // tombstone the profiles of deleted dives (#9)
+      'db/diveSamples.ts': 7,
       // create ×2 · apply-pulled ×2 · clear ×2 · adopt ×2
       'db/catalogue.ts': 8,
     };
@@ -796,7 +816,7 @@ describe('every write path is classified, and the classification is exhaustive (
         `${owner}: ${floor}`,
       );
     }
-    expect(writePaths.length).toBe(37);
+    expect(writePaths.length).toBe(38);
 
     // §7.4's erases, counted the same way and for the same reason: one filed as a read would
     // never be run, and a sign-out that quietly left a table behind is a device holding one
