@@ -1180,12 +1180,16 @@ it('reads a recorded equipment set back in the diver\'s own words, and omits the
   expect(none).not.toContain('Equipment');
 });
 
-// #65: a list from another client's build may hold a number or a null. The dive still opens, and
-// the row reads the words it holds; with no word left, the row goes as it does for `[]`.
-it('opens a dive whose equipment list holds a number or a null, reading only its words', async () => {
-  const mixed = (await renderDetail(dive({ date: '2026-08-16', equipment: ['hood', 3, null, 'torch'] as never }))).join(' ');
+// #65: a list from another client's build may hold a number, a null or a blank string. The dive
+// still opens, and the row reads the words it holds; with no word left, the row goes as it does
+// for `[]` while the rest of the dive is still drawn (an absence alone would also pass on a
+// blank screen).
+it('opens a dive whose equipment list holds a number, a null or a blank, reading only its words', async () => {
+  const mixed = (await renderDetail(dive({ date: '2026-08-16', equipment: ['hood', 3, null, '', 'torch'] as never }))).join(' ');
   expect(mixed).toContain('Hood · Torch');
-  const noWords = (await renderDetail(dive({ date: '2026-08-16', equipment: [3, null] as never }))).join(' ');
+  expect(mixed).not.toContain('Torch · ');
+  const noWords = (await renderDetail(dive({ date: '2026-08-16', siteName: 'Shark Reef', equipment: [3, null, ''] as never }))).join(' ');
+  expect(noWords).toContain('Shark Reef');
   expect(noWords).not.toContain('Equipment');
 });
 
