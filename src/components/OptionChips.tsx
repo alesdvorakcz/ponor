@@ -1,10 +1,11 @@
-import { Pressable, Text, View, type ColorValue } from 'react-native';
+import { Text, View, type ColorValue } from 'react-native';
 import { type ReactNode } from 'react';
 
 import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
 import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
+import { ChoiceGrid, type ChoiceBehaviour } from './ChoiceGrid';
 import { ClearFieldControl } from './ClearFieldControl';
 
 /**
@@ -62,8 +63,20 @@ export interface OptionChipsProps<T extends string | number> {
    * on whether that chip is selected, and this component is the only thing that knows. A
    * call site choosing the colour itself would have to be told the selection state, and
    * would then own a rule ("the icon matches the label beside it") that belongs here.
+   *
+   * `ground` is handed out for the same reason (issue #6): Ponor's drawn icons knock shapes out in
+   * the colour they sit on, so a chosen tile's icon needs the chosen tile's ground, not the screen's.
    */
-  icon?: (option: T, tintColor: ColorValue) => ReactNode;
+  icon?: (option: T, tintColor: ColorValue, ground: ColorValue) => ReactNode;
+  /**
+   * `'tiles'` draws the same choice as a grid of tiles, the icon over the word (issue #6, §0.6's
+   * table of fields whose values have a shape). A second LAYOUT, not a second behaviour: pressing,
+   * deselecting, the carried mark and clear, and what a screen reader hears are this component's
+   * either way, on the precedent `RatingDot`'s `variant` set — same rule, two scales, one owner.
+   */
+  layout?: 'chips' | 'tiles';
+  /** Tiles to a row: 3, or 4 for the shorter waves row. Ignored for chips. */
+  columns?: 3 | 4;
   /**
    * DESIGN.md §0.6 as M1h's design sheet redrew it: this field's value came from the previous
    * dive, so the row shows the return mark and offers a way to throw it away.
@@ -139,7 +152,7 @@ export interface OptionChipsProps<T extends string | number> {
  * react-hook-form's `handleSubmit` would refuse to call `onValid` for the WHOLE form —
  * exactly the "never block a save" (§1) failure that screen exists to avoid.
  */
-export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, carried, cleared, onClear, caption, disabled }: OptionChipsProps<T>) {
+export function OptionChips<T extends string | number>({ label, value, options, displayLabel, onChange, scheme, icon, layout = 'chips', columns = 3, carried, cleared, onClear, caption, disabled }: OptionChipsProps<T>) {
   const styles = makeStyles(scheme);
   // The same guard `FormField` applies to its own tag, for the same reason and against the
   // same lie: `cleared` is a claim about a gesture, `— cleared` is a claim about what the row
@@ -149,6 +162,21 @@ export function OptionChips<T extends string | number>({ label, value, options, 
   // all three count as empty here.
   const empty = value === null || value === undefined || value === '';
   const showCleared = cleared === true && empty;
+
+  // One option, as a chip or as a tile: a press picks it or, already picked, clears it, and a
+  // screen reader hears a button. The look, the layout and the icon's ink are `ChoiceGrid`'s.
+  const behaviour = (option: T): ChoiceBehaviour => {
+    const selected = value === option;
+    return {
+      on: selected,
+      onPress: () => onChange(selected ? '' : option),
+      role: 'button',
+      // `disabled` joins the state only when it is set, so every row that never passes it
+      // announces exactly what it always did.
+      state: disabled === true ? { selected, disabled } : { selected },
+    };
+  };
+
   return (
     // The same `formField` row as every other field (§0.6), with the chips in the slot §0.6
     // gives a field's second line rather than in the row's trailing value slot: five suit
@@ -195,36 +223,17 @@ export function OptionChips<T extends string | number>({ label, value, options, 
           </View>
         )}
       </View>
-      <View style={styles.formChipRow}>
-        {options.map((option) => {
-          const selected = value === option;
-          // The ink the chip's own label is about to wear, read off the style rather than
-          // from the theme directly — the same "take the colour from the style you are
-          // matching" move `DateTimeField` makes for the native picker's `textColor`. It is
-          // handed to `icon` so a symbol beside the label inverts with it (§0.6), instead of
-          // staying `fg` on an `action` ground where it would vanish.
-          const ink = (selected ? styles.formChipTextSelected.color : styles.formChipText.color) as ColorValue;
-          return (
-            <Pressable
-              key={option}
-              style={[styles.formChip, selected && styles.formChipSelected]}
-              onPress={() => onChange(selected ? '' : option)}
-              accessibilityRole="button"
-              // Unchanged by the icon, deliberately: §0.6 makes the icon a supplement to the
-              // label, so what a screen reader hears is exactly what it heard before — the
-              // symbol adds nothing to say that the words do not already say.
-              accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-              // `disabled` joins the state only when it is set, so every row that never passes it
-              // announces exactly what it always did.
-              disabled={disabled}
-              accessibilityState={disabled === true ? { selected, disabled } : { selected }}
-            >
-              {icon?.(option, ink)}
-              <Text style={[styles.formChipText, selected && styles.formChipTextSelected]}>{displayLabel(option)}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <ChoiceGrid
+        label={label}
+        options={options}
+        displayLabel={displayLabel}
+        scheme={scheme}
+        layout={layout}
+        columns={columns}
+        icon={icon}
+        disabled={disabled}
+        behaviour={behaviour}
+      />
     </View>
   );
 }

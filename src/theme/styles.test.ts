@@ -1208,6 +1208,10 @@ describe('the app content column', () => {
     'formStatus',
     'formStatusPill',
     'formChip',
+    // A tile is the same control drawn as a tile (issue #6): its padding is inside the tile.
+    'formTile',
+    // ...and the empty slot of a short tile row, which carries the tile's padding to keep its width.
+    'formTileSpacer',
     'formPresetAction',
     'formSaveError',
     'reorderNotice',

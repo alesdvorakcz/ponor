@@ -44,7 +44,7 @@ import { fonts } from '../theme/fonts';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
-import DiveDetailScreen from './DiveDetailScreen';
+import DiveDetailScreen, { conditionTiles } from './DiveDetailScreen';
 
 // Same two mocks every test in this file needs: the one read (useDives, per db/useDives.ts's
 // own docblock: "the one read every screen uses") and the route param expo-router hands the
@@ -843,7 +843,15 @@ it('shows GPS, condition scale, weight and rating fields when they are real read
   ).join(' ');
   expect(text).toContain('50.12345, 14.56789');
   expect(text).toContain('6.5 kg');
-  expect(text).toContain('4 / 5');
+  // The rating is the drawn dots since issue #6, so its figure is no longer printed — the row
+  // announces it instead (the dots test below reads the dots themselves).
+  expect(text).not.toContain('4 / 5');
+});
+
+it('announces the rating as its figure, since the dots say nothing to a screen reader', async () => {
+  const t = await renderDetailTree(dive({ rating: 4 }));
+  const announced = (t.root?.queryAll((n) => n.props?.accessible === true) ?? []).map((n) => String(n.props.accessibilityLabel ?? ''));
+  expect(announced).toContain('Rating: 4 / 5');
 });
 
 // Important #1 fallout: "Gas & cylinders" used to gate on raw `dive.tanks.length > 0`, the
@@ -1235,10 +1243,10 @@ it('reads each 0–3 scale back through the formatter that scale owns', async ()
     // The row exists at all — deleting it is otherwise indistinguishable from a dive that
     // simply recorded nothing for it.
     expect(row).toBeGreaterThanOrEqual(0);
-    // ...and the value beside that label is its own scale's word. `Row` renders the label
-    // and the value as adjacent `Text`s (no `=` mark here — these are recorded, not
-    // computed), which is what makes the next string the value rather than a coincidence.
-    expect(texts[row + 1]).toBe(format(1));
+    // ...and the value beside that label is its own scale's word. Since issue #6 these are
+    // tiles, which put the value ABOVE the field's name as adjacent `Text`s, so the word just
+    // before the label is the value rather than a coincidence.
+    expect(texts[row - 1]).toBe(format(1));
   }
 });
 
@@ -2090,7 +2098,8 @@ describe('in Czech', () => {
     expect(said).toContain('Vlnobití');
     expect(said).toContain('Počasí');
     expect(said).toContain('Oblek');
-    expect(said).toContain('Tloušťka obleku');
+    // The thickness rides on the suit's tile since issue #6 (*Mokrý · 5 mm*), not on a row of its own.
+    expect(said).toContain(' · 5 mm');
     expect(said).toContain('Vybavení');
     expect(said).toContain('Zátěž');
     expect(said).toContain('Vyvážení');
@@ -2188,7 +2197,11 @@ describe('brought to the design canvas', () => {
 
   /** The row a label sits in: the label's own parent, which is the row's View or Pressable. */
   const rowOf = (screen: RenderResult, label: string) => {
-    const row = textNode(screen, label)?.parent;
+    // The label's own row: its parent, or — for a depth row, whose label leads with a figure glyph
+    // since issue #6 — the parent of the glyph-and-label unit.
+    const sheet = makeStyles('light');
+    let row = textNode(screen, label)?.parent;
+    if (row && [row.props.style].flat(3).includes(sheet.detailLabelLed)) row = row.parent;
     if (!row) throw new Error(`no row labelled ${label}`);
     return row;
   };
@@ -2279,7 +2292,9 @@ describe('brought to the design canvas', () => {
 
     it('starts the first cluster flush under what is above it, and every later one 22 below its rows', async () => {
       const screen = await renderNumbered(full);
-      const headers = [t('group.dateTime'), t('group.depthDuration'), t('group.conditions'), t('group.gas')].map(
+      // Conditions first since issue #6 (the canvas's whole *Dive detail*): it is the cluster flush
+      // under the hero, and Date & time takes the ordinary 22 below it.
+      const headers = [t('group.conditions'), t('group.dateTime'), t('group.depthDuration'), t('group.gas')].map(
         (title) => worn(textNode(screen, title)?.parent),
       );
       expect(headers.map((header) => header.paddingTop)).toEqual([0, 22, 22, 22]);
@@ -2479,5 +2494,111 @@ describe('brought to the design canvas', () => {
       expect([sheet.left, sheet.right, sheet.borderRadius]).toEqual([8, 8, 22]);
       expect(sheet.backgroundColor).toBe(themeFor('light').sheet);
     });
+  });
+});
+
+// --- Issue #6: the conditions as tiles, the depth glyphs, the rating as dots ---
+
+describe('the conditions as tiles', () => {
+  const FULL = dive({
+    entry: 'boat',
+    waterBody: 'ocean',
+    weather: 'sunny',
+    waves: 1,
+    visibility: 'high',
+    current: 2,
+    surge: 0,
+    suit: 'wet',
+    suitThicknessMm: 5,
+    waterTempC: 19,
+  });
+
+  it('builds the tiles in the canvas’s order, each with its drawing, value and field', () => {
+    const tiles = conditionTiles(FULL);
+    expect(tiles.map((tile) => tile.key)).toEqual(['entry', 'waterBody', 'weather', 'waves', 'visibility', 'current', 'surge', 'suit']);
+    expect(tiles.map((tile) => tile.icon)).toEqual([
+      'entry.boat',
+      'waterBody.ocean',
+      'weather.sunny',
+      'waves.1',
+      'visibility',
+      'current',
+      'surge.none',
+      'suit.wet',
+    ]);
+    const surge = tiles.find((tile) => tile.key === 'surge')!;
+    expect(surge.value).toBe('None');
+    expect(surge.label).toBe('Surge');
+    // The suit carries its thickness on its own tile (the owner, 2026-11-17).
+    expect(tiles.find((tile) => tile.key === 'suit')!.extra).toBe('5 mm');
+  });
+
+  it('leaves out a condition the dive does not record', () => {
+    expect(conditionTiles(dive({ weather: 'rainy' })).map((tile) => tile.key)).toEqual(['weather']);
+    expect(conditionTiles(dive({}))).toEqual([]);
+  });
+
+  it('shows a scale it cannot draw as its word, with no icon', () => {
+    const [waves] = conditionTiles(dive({ waves: 7 }));
+    expect(waves!.icon).toBeNull();
+    expect(waves!.value.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a thickness without a suit as a row', async () => {
+    const said = await renderDetail(dive({ suitThicknessMm: 7 }));
+    expect(said).toContain('Suit thickness');
+    expect(conditionTiles(dive({ suitThicknessMm: 7 }))).toEqual([]);
+  });
+
+  it('draws the tiles on the screen and no longer repeats them as rows', async () => {
+    const t = await renderDetailTree(FULL);
+    const styles = makeStyles('light');
+    const rowLabels = (t.root?.queryAll((n) => n.type === 'Text' && [n.props.style].flat(3).includes(styles.detailLabel)) ?? []).map(
+      (n) => n.children.join(''),
+    );
+    for (const label of ['Entry', 'Water body', 'Weather', 'Waves', 'Visibility', 'Current', 'Surge', 'Suit', 'Suit thickness']) {
+      expect(rowLabels).not.toContain(label);
+    }
+    // Eight drawings: one per tile.
+    const tiles = t.root?.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.conditionTile)) ?? [];
+    expect(tiles).toHaveLength(8);
+    // The water temperature, which has no drawing, is still a row of the same cluster.
+    expect(rowLabels).toContain('Water temp');
+  });
+
+  it('draws no tiles and no Conditions heading for a dive without conditions', async () => {
+    const said = await renderDetail(dive({}));
+    expect(said).not.toContain('Conditions');
+  });
+
+  it('leads the max and average depth rows with their glyphs', async () => {
+    const t = await renderDetailTree(dive({ maxDepthM: 28.4, avgDepthM: 17.6, durationMin: 47 }));
+    const styles = makeStyles('light');
+    const rowOf = (label: string) =>
+      t.root?.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.detailRow)).find((row) =>
+        row.queryAll((n) => n.type === 'Text').some((n) => n.children.join('') === label),
+      );
+    expect(rowOf('Max depth')?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+    expect(rowOf('Avg depth')?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(1);
+    expect(rowOf('Duration')?.queryAll((n) => n.type === 'RNSVGSvgView')).toHaveLength(0);
+  });
+
+  // Final review, Important #4: a rating outside the scale (§10 keeps the column unclamped) must not
+  // be dressed as five filled dots — `RatingDots` refuses to let dots stand in for a number that is
+  // not on the scale — so it keeps the figure, as a scale level out of range keeps its word.
+  it('prints a rating outside the scale as its figure, not as five dots', async () => {
+    const t = await renderDetailTree(dive({ rating: 9 }));
+    const styles = makeStyles('light');
+    expect(t.root?.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.ratingDot)) ?? []).toHaveLength(0);
+    expect(textIn(t)).toContain('9 / 5');
+  });
+
+  it('draws the rating as the five dots the list and the form use, four filled for a 4', async () => {
+    const t = await renderDetailTree(dive({ rating: 4 }));
+    const styles = makeStyles('light');
+    const dots = t.root?.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.ratingDot)) ?? [];
+    expect(dots).toHaveLength(5);
+    expect(dots.filter((n) => [n.props.style].flat(3).includes(styles.ratingDotFilled))).toHaveLength(4);
+    expect(textIn(t)).not.toContain('4 / 5');
   });
 });

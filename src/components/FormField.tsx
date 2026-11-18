@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useRef, useState } from 'react';
+import { forwardRef, useCallback, useRef, useState, type ReactNode } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
@@ -25,6 +25,11 @@ export interface FormFieldProps {
    * §0.5: Czech runs 20-30% longer than English, so a label that fit in English must still
    * be free to grow to a second line rather than clip). */
   label: string;
+  /**
+   * A mark drawn before the label: one of issue #6's figure glyphs, saying which depth a row holds
+   * (§0.6). It supplements the label and is not announced; the input still announces `label`.
+   */
+  leading?: ReactNode;
   /**
    * Always a string. `diveFormSchema.ts`'s coercion contract already owns turning an
    * empty string into `null` at the write boundary (`optionalNumber`/`optionalText`), so
@@ -312,7 +317,7 @@ export interface FormFieldProps {
  * and typecheck gates.
  */
 export const FormField = forwardRef<TextInput, FormFieldProps>(function FormField(
-  { label, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, caption, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, importantForAutofill, editable, grouped },
+  { label, leading, value, onChange, onBlur, scheme, keyboardType, multiline, secureTextEntry, autoCapitalize, autoCorrect, spellCheck, placeholder, mono, unit, caption, carried, cleared, onClear, suggestions, suggestionsTitle, onPickSuggestion, returnKeyType, onSubmitEditing, textContentType, autoComplete, importantForAutofill, editable, grouped },
   ref,
 ) {
   const styles = makeStyles(scheme);
@@ -455,7 +460,14 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(function FormFiel
         accessible={false}
       >
         <View style={styles.formFieldRow}>
-          <Text style={styles.formFieldLabel}>{label}</Text>
+          {leading !== undefined ? (
+            <View style={styles.formFieldLabelLed}>
+              {leading}
+              <Text style={styles.formFieldLabel}>{label}</Text>
+            </View>
+          ) : (
+            <Text style={styles.formFieldLabel}>{label}</Text>
+          )}
           {!stacked ? (
             <View style={styles.formFieldValue}>
               {input}

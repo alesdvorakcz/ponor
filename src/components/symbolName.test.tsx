@@ -13,7 +13,6 @@ import { ActionCapsule } from './ActionCapsule';
 import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
 import { CarriedMark } from './CarriedMark';
 import { ClearFieldControl } from './ClearFieldControl';
-import { EntryIcon } from './EntryIcon';
 import { SearchCapsule } from './SearchCapsule';
 import { symbolName } from './symbolName';
 
@@ -111,15 +110,6 @@ it('gives the search capsule’s magnifier a web name, not just an iOS and an An
   expect(name?.web).toBe(name?.android);
 });
 
-it.each([
-  ['shore', 'directions_walk'],
-  ['boat', 'directions_boat_filled'],
-] as const)('gives the %s chip’s icon a web name, not just an iOS and an Android one', async (entry, material) => {
-  await render(<EntryIcon entry={entry} tintColor="#000000" />);
-  const name = nameProp();
-  expect(name?.web).toBe(material);
-  expect(name?.web).toBe(name?.android);
-});
 
 // --- The two marks M1h's carried treatment added, on the same boundary ---
 //
@@ -340,10 +330,3 @@ it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank s
   }
 });
 
-// §0.6: "*other* does not [have a symbol]" — and the fix for the web gap must not have
-// quietly turned "no icon" into "an icon with an empty name", which on the browser's
-// SymbolView would render its (absent) fallback and on iOS a blank box.
-it('still renders no symbol at all for an entry that has none', async () => {
-  await render(<EntryIcon entry="other" tintColor="#000000" />);
-  expect(mockSymbolView).not.toHaveBeenCalled();
-});

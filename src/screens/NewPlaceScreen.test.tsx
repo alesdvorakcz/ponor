@@ -955,6 +955,25 @@ it('keeps a group closed while it holds nothing, saying what it holds', async ()
 
 // The canvas rule (§0.6): an optional text field with no unit says `optional`, never a blank that
 // looks like it forgot something; one with a unit shows the unit instead.
+// Issue #6: the place's water body, its ways in and its types are tiles with their drawings, as on
+// the dive form; salinity and suitable-for have no shape to draw and stay word chips.
+it('draws water body, entry and site types as tiles with their drawings, and the rest as chips', async () => {
+  const t = await showSite();
+  await expand(t, 'The site');
+  const drawings = (label: string) => labelled(t, label).queryAll((n) => n.type === 'RNSVGSvgView').length;
+  for (const label of ['Water body: Ocean', 'Water body: Cave', 'Entry: Shore', 'Entry: Boat', 'Site type: Wreck', 'Site type: Blue water']) {
+    expect([label, drawings(label)]).toEqual([label, 1]);
+  }
+  expect(drawings('Entry: Other')).toBe(0);
+  expect(drawings('Salinity: Salt')).toBe(0);
+  const styles = makeStyles('light');
+  const worn = (label: string) => [labelled(t, label).props.style].flat(5);
+  expect(worn('Site type: Wreck')).toContain(styles.formTile);
+  expect(worn('Entry: Shore')).toContain(styles.formTile);
+  expect(worn('Water body: Ocean')).toContain(styles.formTile);
+  expect(worn('Salinity: Salt')).toContain(styles.formChip);
+});
+
 it('says optional on every optional text field of a site, and shows the unit on the depth', async () => {
   const t = await showSite();
   await expand(t, 'The site');

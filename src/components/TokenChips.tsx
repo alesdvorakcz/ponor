@@ -1,8 +1,9 @@
-import { Pressable, Text, View } from 'react-native';
+import { type ReactNode } from 'react';
+import { Text, View, type ColorValue } from 'react-native';
 
-import { t } from '../i18n';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
+import { ChoiceGrid, type ChoiceBehaviour } from './ChoiceGrid';
 
 export interface TokenChipsProps<T extends string> {
   label: string;
@@ -19,6 +20,10 @@ export interface TokenChipsProps<T extends string> {
   caption?: string;
   /** Every chip shut, and said so to a screen reader, while the value is being saved. */
   disabled?: boolean;
+  /** `OptionChips`' `layout`, `columns` and `icon`, for the same reasons (issue #6). */
+  layout?: 'chips' | 'tiles';
+  columns?: 3 | 4;
+  icon?: (option: T, ink: ColorValue, ground: ColorValue) => ReactNode;
 }
 
 /**
@@ -44,11 +49,24 @@ export function TokenChips<T extends string>({
   scheme,
   caption,
   disabled,
+  layout = 'chips',
+  columns = 3,
+  icon,
 }: TokenChipsProps<T>) {
   const styles = makeStyles(scheme);
   const toggle = (option: T) => {
     const next = values.includes(option) ? values.filter((value) => value !== option) : [...values, option];
     onChange([...options.filter((offered) => next.includes(offered)), ...next.filter((value) => !options.includes(value))]);
+  };
+  // A press toggles one member, and a screen reader hears a checkbox; the look is `ChoiceGrid`'s.
+  const behaviour = (option: T): ChoiceBehaviour => {
+    const checked = values.includes(option);
+    return {
+      on: checked,
+      onPress: () => toggle(option),
+      role: 'checkbox',
+      state: { checked, disabled: disabled === true },
+    };
   };
   return (
     <View style={styles.formField}>
@@ -60,24 +78,17 @@ export function TokenChips<T extends string>({
           </View>
         )}
       </View>
-      <View style={styles.formChipRow}>
-        {options.map((option) => {
-          const checked = values.includes(option);
-          return (
-            <Pressable
-              key={option}
-              style={[styles.formChip, checked && styles.formChipSelected]}
-              onPress={() => toggle(option)}
-              accessibilityRole="checkbox"
-              accessibilityLabel={t('field.labelValue', { label, value: displayLabel(option) })}
-              disabled={disabled}
-              accessibilityState={{ checked, disabled: disabled === true }}
-            >
-              <Text style={[styles.formChipText, checked && styles.formChipTextSelected]}>{displayLabel(option)}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <ChoiceGrid
+        label={label}
+        options={options}
+        displayLabel={displayLabel}
+        scheme={scheme}
+        layout={layout}
+        columns={columns}
+        icon={icon}
+        disabled={disabled}
+        behaviour={behaviour}
+      />
     </View>
   );
 }

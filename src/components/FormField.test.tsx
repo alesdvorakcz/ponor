@@ -1,6 +1,6 @@
 import { fireEvent, render, type RenderResult } from '@testing-library/react-native';
 import { createRef } from 'react';
-import { Platform, StyleSheet, type TextInput, View } from 'react-native';
+import { Platform, StyleSheet, Text, type TextInput, View } from 'react-native';
 
 import { type Suggestion } from '../domain/suggest';
 import { themeFor } from '../theme/resolve';
@@ -53,6 +53,18 @@ it('shows the label and the current value, and labels its input for typeInto hel
   // Task 6's own `typeInto` helper (m1d-task-6-brief.md) finds a field by exact
   // `accessibilityLabel` match against the field's label — this is what makes that work.
   expect(input?.props.accessibilityLabel).toBe('Site');
+});
+
+// Issue #6's figure glyphs lead a depth row's label; the label is still the row's name, and still
+// what the input announces, since a glyph supplements the word and never replaces it (§0.6).
+it('draws a leading mark before the label and announces the label unchanged', async () => {
+  const t = await render(
+    <FormField label="Max depth" value="28" onChange={() => {}} scheme="light" leading={<Text>glyph</Text>} />,
+  );
+  const words = textIn(t);
+  expect(words.indexOf('glyph')).toBeGreaterThanOrEqual(0);
+  expect(words.indexOf('glyph')).toBeLessThan(words.indexOf('Max depth'));
+  expect(inputsOf(t)[0]?.props.accessibilityLabel).toBe('Max depth');
 });
 
 it("calls onChange with what the diver typed, not a stale value it already held", async () => {

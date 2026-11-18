@@ -3,6 +3,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { conditionIconFor } from '../components/ConditionIcon';
+import { ConditionTiles, type ConditionTile } from '../components/ConditionTiles';
 import { DiveRow } from '../components/DiveRow';
 import { MapCard } from '../components/MapCard';
 import { useDives } from '../db/useDives';
@@ -20,13 +22,12 @@ import {
   formatCoordinates,
   formatAltitude,
   formatDepth,
-  formatPlaceTokens,
+  formatPlaceToken,
   formatSalinity,
   formatSiteSummary,
   formatSuitableFor,
   formatWaterBody,
   formatWreck,
-  METADATA_SEPARATOR,
   unnamedSite,
 } from '../format/display';
 import { t, useT } from '../i18n';
@@ -36,6 +37,7 @@ import { showOnMap } from '../platform/showOnMap';
 import { type UnitSystem } from '../format/units';
 import { resolveScheme } from '../theme/resolve';
 import { liftedBottomInset, makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
+import { type ColorScheme } from '../theme/tokens';
 
 /**
  * **One dive site's own page** (`/site/[id]`, M3f) — the screen `dive_sites` never had, and the
@@ -115,58 +117,101 @@ function siteLabel(site: Pick<DiveSite, 'name'>): string {
   return site.name ?? unnamedSite();
 }
 
-/** The rows of *The site* that §2.1's three defaults stand in, in the page's order. */
-const PREFILL_ROWS = ['water', 'entry'] as const;
+/**
+ * What on *The site* each of §2.1's three defaults stands in, in the page's order: since issue #6 the
+ * water body and the ways in are tiles and the salinity a row (the owner's call), so each default
+ * names its own thing, by the label it is drawn with.
+ */
+const PREFILL_ROWS = ['salinity', 'waterBody', 'entry'] as const;
 
 type PrefillRow = (typeof PREFILL_ROWS)[number];
 
 /**
- * **Which row each of §2.1's three defaults stands in** — derived from `SITE_DEFAULT_FIELDS`
+ * **Which thing each of §2.1's three defaults stands in** — derived from `SITE_DEFAULT_FIELDS`
  * (domain/siteDefaults.ts) rather than listed again here.
  *
  * §4.1's *"derive, or tie at compile time"*, and it is the tie: this is a `Record` over the field
- * union, so a fourth default added to that module does not compile until this page decides which row
- * it fills and so whether the note names it. A hand-written list of rows would agree today and go
- * stale the day the list moves — which is the failure `siteDefaults.ts`' own type assertion exists to
- * have caught once already, in the other direction. Salinity and water body share *Water*, as the
- * canvas draws them (`Salt · Ocean`).
+ * union, so a fourth default added to that module does not compile until this page decides what it
+ * fills and so whether the note names it. A hand-written list would agree today and go stale the day
+ * the list moves — which is the failure `siteDefaults.ts`' own type assertion exists to have caught
+ * once already, in the other direction. Salinity and water body shared one *Water* row (`Salt ·
+ * Ocean`) until issue #6 made the water body a tile.
  */
 const ROW_OF_DEFAULT: Record<SiteDefaultField, PrefillRow> = {
-  salinity: 'water',
-  waterBody: 'water',
+  salinity: 'salinity',
+  waterBody: 'waterBody',
   entry: 'entry',
 };
 
-/** Each of those rows' label — the one the row is drawn with and the one the note names it by, so
+/** Each one's label — the one its row or tiles are drawn with and the one the note names it by, so
  * the two cannot read differently. */
 const PREFILL_ROW_LABEL: Record<PrefillRow, () => string> = {
-  water: () => t('field.water'),
+  salinity: () => t('field.salinity'),
+  waterBody: () => t('field.waterBody'),
   entry: () => t('field.entry'),
 };
 
 /**
- * A site's water on one line — its salinity, then its water body, `Salt · Ocean`, or the one it
- * records — read through the prefill's own rule (`siteDefaultValue`), so the row stands exactly when
- * the note names it. A value is a word this build may not know (§10's store-and-flag), which the
- * formatters take as a word.
+ * A site's salinity, read through the prefill's own rule (`siteDefaultValue`), so the row stands
+ * exactly when the note names it. A value is a word this build may not know (§10's store-and-flag),
+ * which the formatter takes as a word.
  */
-function waterLine(site: DiveSite): string | null {
+function salinityLine(site: DiveSite): string | null {
   const salinity = siteDefaultValue(site, 'salinity');
+  return salinity === null ? null : formatSalinity(salinity as Salinity);
+}
+
+/**
+ * Words only: a list from another client's build may hold a number or a null (#31), and a value
+ * that is not a list at all is no words — `formatPlaceTokens`' own guard, re-checked here rather
+ * than trusting `$type<>`, as `toDive` does (db/schema.ts).
+ */
+function wordsOf(list: readonly unknown[]): string[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is string => typeof item === 'string');
+}
+
+/**
+ * **The site's tiles** (issue #6): its types, its water body and its ways in, each its drawing, its
+ * word and its field, as the dive detail's conditions are. The water body by the prefill's own rule
+ * (`siteDefaultValue`), so a tile stands exactly when the note can name it; every way in, as the set
+ * holds them. Keyed by position, so a token stored twice cannot collide. A word this build does not
+ * know keeps its word on an undrawn tile (§10's store-and-flag).
+ */
+function siteTiles(site: DiveSite): ConditionTile[] {
+  const tiles: ConditionTile[] = wordsOf(site.siteTypes).map((type, index) => ({
+    key: `type-${index}-${type}`,
+    icon: conditionIconFor('siteType', type),
+    value: formatPlaceToken('siteTypes', type),
+    label: t('field.siteTypes'),
+  }));
   const body = siteDefaultValue(site, 'waterBody');
-  const words = [
-    salinity === null ? null : formatSalinity(salinity as Salinity),
-    body === null ? null : formatWaterBody(body as WaterBody),
-  ].filter((word): word is string => word !== null);
-  return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
+  if (body !== null) {
+    tiles.push({
+      key: `body-${body}`,
+      icon: conditionIconFor('waterBody', body),
+      value: formatWaterBody(body as WaterBody) ?? body,
+      label: PREFILL_ROW_LABEL.waterBody(),
+    });
+  }
+  wordsOf(site.entry).forEach((way, index) =>
+    tiles.push({
+      key: `entry-${index}-${way}`,
+      icon: conditionIconFor('entry', way),
+      value: formatPlaceToken('entry', way),
+      label: PREFILL_ROW_LABEL.entry(),
+    }),
+  );
+  return tiles;
 }
 
 /**
  * **The note under *The site*: which of its rows fill in a new dive**, or `null` when none does.
  *
  * Decided field by field by the prefill's own reading, `siteDefaultValue`, so the page and the
- * prefill cannot disagree: *Water* when salinity or water body is a default, *Entry* only when the set
- * holds exactly one way in — several are left to the diver (§2.1, #63), so the row draws them and the
- * note does not promise them. It states the tier it can promise and not the one it cannot: §2.1 puts
+ * prefill cannot disagree: *Salinity* and *Water body* when each is a default, *Entry* only when the
+ * set holds exactly one way in — several are left to the diver (§2.1, #63), so the tiles draw them and
+ * the note does not promise them. It states the tier it can promise and not the one it cannot: §2.1 puts
  * the site above carry-over and below anything the diver has typed, and a note claiming the rows are
  * simply "filled in" would be wrong about the tier that matters most.
  */
@@ -175,9 +220,12 @@ function prefillNote(site: DiveSite): string | null {
     SITE_DEFAULT_FIELDS.filter((field) => siteDefaultValue(site, field) !== null).map((field) => ROW_OF_DEFAULT[field]),
   );
   const names = PREFILL_ROWS.filter((row) => filled.has(row)).map((row) => PREFILL_ROW_LABEL[row]());
-  if (names.length === 0) return null;
-  const rows = names.reduce((first, second) => t('site.prefillRows', { first, second }));
-  return t('site.prefillNote', { rows, count: names.length });
+  const count = names.length;
+  const last = names.pop();
+  if (last === undefined) return null;
+  // "A", "A and B", and for three "A, B and C": the last joined by the language's own *and*.
+  const rows = names.length === 0 ? last : t('site.prefillRows', { first: names.join(', '), second: last });
+  return t('site.prefillNote', { rows, count });
 }
 
 /**
@@ -326,7 +374,7 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
           onPress={() => showOnMap({ kind: 'site', id: site.id, overItsPage: true }, point, siteLabel(site))}
         />
       )}
-      <SiteFacts site={site} units={units} styles={styles} />
+      <SiteFacts site={site} units={units} styles={styles} scheme={scheme} />
       {myDives.length > 0 && <Text style={styles.siteSectionTitle}>{t('place.yourDives')}</Text>}
     </View>
   );
@@ -395,11 +443,13 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
  * columns means *the catalogue does not know*, never *the answer is empty* (`domain/siteDefaults.ts`),
  * which is exactly why an absent row is the honest rendering of it and an em dash would not be.
  */
-function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem; styles: Styles }) {
+function SiteFacts({ site, units, styles, scheme }: { site: DiveSite; units: UnitSystem; styles: Styles; scheme: ColorScheme }) {
   const country = site.country !== null && site.country !== '' ? site.country : null;
+  // **The site's types, water body and ways in lead as tiles** (issue #6, the owner's call), each
+  // its drawing and its word, as the dive detail's conditions are; see `siteTiles`.
+  const tiles = siteTiles(site);
   // The canvas's order, each row only when it holds something (§1).
   const facts = [
-    { label: t('field.siteTypes'), value: formatPlaceTokens('siteTypes', site.siteTypes) },
     { label: t('field.suitableFor'), value: formatSuitableFor(site.suitableFor) },
     // **"Site depth", never "Depth"** — §6's own parenthesis, and the summary line a few points
     // above is already showing the diver's deepest dive here. Two depths on one screen with one
@@ -409,18 +459,19 @@ function SiteFacts({ site, units, styles }: { site: DiveSite; units: UnitSystem;
     // A height above sea level, not a depth: whole units, signed, ink — no band colour (§0.1).
     { label: t('field.altitude'), value: formatAltitude(site.altitudeM, units) },
     { label: t('field.wreck'), value: formatWreck(site.wreckName, site.wreckSunkYear) },
-    { label: PREFILL_ROW_LABEL.water(), value: waterLine(site) },
-    // Every way in the site offers, one or several (`Shore · Boat`); the note says when it is a default.
-    { label: PREFILL_ROW_LABEL.entry(), value: formatPlaceTokens('entry', site.entry) },
+    // The salinity, the one of the three with no shape to draw; the water body and the ways in are
+    // tiles above (issue #6), and the note says when any of them is a default.
+    { label: PREFILL_ROW_LABEL.salinity(), value: salinityLine(site) },
     { label: t('field.altNames'), value: formatAltNames(site.altNames) },
     { label: t('field.country'), value: country },
   ].filter((row): row is { label: string; value: string } => row.value !== null);
   const note = prefillNote(site);
 
-  if (facts.length === 0) return null;
+  if (facts.length === 0 && tiles.length === 0) return null;
   return (
     <View>
       <Text style={styles.siteSectionTitle}>{t('site.facts')}</Text>
+      <ConditionTiles tiles={tiles} scheme={scheme} />
       {facts.map((row) => (
         <FactRow key={row.label} label={row.label} value={row.value} styles={styles} />
       ))}

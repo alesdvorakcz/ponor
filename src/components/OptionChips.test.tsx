@@ -259,3 +259,93 @@ it('draws a caption at the label row’s trailing edge, and not over a cleared r
   expect(captioned(await renderChips({ value: null, cleared: true, caption: 'from this dive' }))).toEqual([]);
   expect(captioned(await renderChips({ value: 'salt' }))).toEqual([]);
 });
+
+// --- §0.6, issue #6: the same choice, laid out as tiles with Ponor's drawn icon over the word ---
+
+function tilesOf(t: RenderResult) {
+  return t.root
+    ? t.root.queryAll((n) => typeof n.props?.accessibilityLabel === 'string' && n.props.accessibilityLabel.startsWith('Water: '))
+    : [];
+}
+const flat = (style: unknown) => Object.assign({}, ...([style].flat(5).filter(Boolean) as object[])) as Record<string, unknown>;
+
+it('lays the options out as tiles, three to a row, with the icon above the word', async () => {
+  const styles = makeStyles('dark');
+  const t = await renderChips({ layout: 'tiles', icon: (option) => <Text>{`icon-${option}`}</Text> });
+  // One row of three slots for two options: the empty slot keeps both tiles a third wide.
+  const rows = t.root!.queryAll((n) => [n.props?.style].flat().includes(styles.formTileRow));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.children).toHaveLength(3);
+  for (const tile of tilesOf(t)) {
+    expect([tile.props.style].flat(5)).toContain(styles.formTile);
+    const words = tile.queryAll((n) => n.type === 'Text').map((n) => n.children.join(''));
+    // The icon first, then the word: §0.6's icon supplements the label, never replaces it.
+    expect(words).toHaveLength(2);
+    expect(words[0]).toMatch(/^icon-/);
+  }
+});
+
+it('hands the icon the ink AND the ground the chosen tile wears', async () => {
+  const styles = makeStyles('light');
+  const seen: Record<string, [unknown, unknown]> = {};
+  await renderChips({
+    scheme: 'light',
+    layout: 'tiles',
+    value: 'salt',
+    icon: (option, ink, ground) => {
+      seen[option] = [ink, ground];
+      return null;
+    },
+  });
+  // A knock in the drawing is filled with the ground, so the chosen tile's icon must get the
+  // inverted ground, or its knocks would leave pale patches on the dark tile.
+  expect(seen.salt).toEqual([styles.formTileTextSelected.color, styles.formTileSelected.backgroundColor]);
+  expect(seen.fresh).toEqual([styles.formTileText.color, styles.formTile.backgroundColor]);
+});
+
+// §0.5: labels wrap rather than truncate. A two-line cap held at the default size and ellipsized
+// *Jedna láhev* at the largest accessibility sizes (final review), so the label wraps as far as
+// it needs and the tile, which only has a `minHeight`, grows with it.
+it('lets a long label wrap as far as it needs instead of clipping it', async () => {
+  const t = await renderChips({ layout: 'tiles' });
+  const [word] = tilesOf(t)[0]!.queryAll((n) => n.type === 'Text');
+  expect(word!.props.numberOfLines).toBeUndefined();
+  expect(flat(word!.props.style).textAlign).toBe('center');
+});
+
+// Found on the simulator: a tile's padding and border count toward its width under `flex: 1`, so
+// the empty slot that pads a short row has to carry the same, or the short row's tiles come out
+// wider than a full row's (*Semidry* and *Dry* under *None · Shorty · Wet*).
+it('keeps a short row’s tiles the width of a full row’s', async () => {
+  const styles = makeStyles('dark');
+  const t = await renderChips({ layout: 'tiles' });
+  const [spacer] = t.root!.queryAll((n) => n.type === 'View' && [n.props.style].flat(3).includes(styles.formTileSpacer));
+  const slot = flat(spacer!.props.style);
+  const tile = flat(tilesOf(t)[0]!.props.style);
+  expect([slot.flex, slot.paddingHorizontal, slot.borderWidth]).toEqual([tile.flex, tile.paddingHorizontal, tile.borderWidth]);
+});
+
+it('grows with the text instead of clipping it', async () => {
+  const three = flat(tilesOf(await renderChips({ layout: 'tiles' }))[0]!.props.style);
+  expect(three.minHeight).toBe(88);
+  expect(three.height).toBeUndefined();
+  const four = flat(tilesOf(await renderChips({ layout: 'tiles', columns: 4 }))[0]!.props.style);
+  expect(four.minHeight).toBe(80);
+  expect(four.height).toBeUndefined();
+});
+
+it('selects, deselects, announces and carries exactly as chips do', async () => {
+  const onChange = jest.fn();
+  const onClear = jest.fn();
+  const t = await renderChips({ layout: 'tiles', value: 'salt', carried: true, onChange, onClear });
+  await fireEvent.press(findChip(t, 'Fresh'));
+  expect(onChange).toHaveBeenLastCalledWith('fresh');
+  await fireEvent.press(findChip(t, 'Salt'));
+  expect(onChange).toHaveBeenLastCalledWith('');
+  expect(findChip(t, 'Salt').props.accessibilityRole).toBe('button');
+  expect(findChip(t, 'Salt').props.accessibilityState).toEqual({ selected: true });
+  expect(findChip(t, 'Fresh').props.accessibilityState).toEqual({ selected: false });
+  expect(marksIn(t).map((n) => n.props.name)).toEqual(['return', 'xmark.circle']);
+  await fireEvent.press(clearOf(t)!);
+  expect(onClear).toHaveBeenCalledTimes(1);
+});

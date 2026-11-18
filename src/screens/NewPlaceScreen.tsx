@@ -11,6 +11,7 @@ import { RevealingScrollView } from '../components/FormReveal';
 import { OptionChips } from '../components/OptionChips';
 import { symbolName, type PlatformSymbol } from '../components/symbolName';
 import { TokenChips } from '../components/TokenChips';
+import { drawnIcon } from '../components/ConditionIcon';
 import { addCenter, addSite, findSiteTwins, type KnownAddressCountry, type KnownCountry, type SiteTwin } from '../cloud/addToCatalogue';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useUnitSystem } from '../db/useUnitSystem';
@@ -615,9 +616,11 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 scheme={scheme}
                 caption={fromDive(waterBody, dive?.waterBody)}
                 disabled={saving}
+                layout="tiles"
+                icon={drawnIcon('waterBody')}
               />
-              {/* Every way in the site offers (#31): a set, as *Site type* is. Words only —
-                  `TokenChips` draws no icon, where the dive form's single entry shows `EntryIcon`. */}
+              {/* Every way in the site offers (#31): a set, as *Site type* is. Tiles with their
+                  drawings since issue #6, as the dive form's single entry is; *other* is a word. */}
               <TokenChips
                 label={t('field.entry')}
                 values={entry}
@@ -627,6 +630,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 scheme={scheme}
                 caption={entryCaption(entry, dive?.entry)}
                 disabled={saving}
+                layout="tiles"
+                icon={drawnIcon('entry')}
               />
               <TokenChips
                 label={t('field.siteTypes')}
@@ -637,6 +642,8 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
                 scheme={scheme}
                 caption={t('newPlace.anyThatApply')}
                 disabled={saving}
+                layout="tiles"
+                icon={drawnIcon('siteType')}
               />
               <OptionChips
                 label={t('field.suitableFor')}

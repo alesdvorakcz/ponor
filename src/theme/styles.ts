@@ -2965,6 +2965,71 @@ function build(scheme: ColorScheme) {
       ...rowValueMono,
       flexShrink: 1,
     },
+    // The dive detail's conditions as tiles (issue #6, the canvas's whole *Dive detail*): three to
+    // a row on the content column, each a `surface` card holding the drawing, the value and the
+    // field's name in the cluster label's small caps. Read-only, so no border: a tile here is a
+    // fact, not a control, and only the form's tiles carry the chip's edge.
+    conditionTileGrid: {
+      gap: 8,
+      paddingHorizontal: CONTENT_INSET,
+      paddingBottom: 12,
+    },
+    conditionTileRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    conditionTile: {
+      flex: 1,
+      gap: 8,
+      padding: 12,
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+    },
+    // The empty slot of a short row, carrying the tile's padding: it counts toward a tile's width
+    // under `flex: 1`, so without it a short row's tiles come out wider (seen on the simulator).
+    conditionTileSpacer: {
+      flex: 1,
+      padding: 12,
+    },
+    // The drawing's room on a tile whose value has none, so the words sit at the same height.
+    conditionTileIconSpace: {
+      width: 40,
+      height: 40,
+    },
+    conditionTileWords: {
+      gap: 2,
+    },
+    conditionTileValue: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 15,
+      lineHeight: 19,
+      color: theme.fg,
+    },
+    conditionTileExtra: {
+      fontFamily: fonts.mono,
+      fontSize: 13,
+      color: theme.fgMuted,
+    },
+    conditionTileLabel: {
+      ...clusterLabel,
+      fontSize: 10,
+      letterSpacing: 1,
+    },
+    // The figure glyph itself (issue #6, the canvas's 24 on the depth rows): its size, and the
+    // rows' own label ink, so the drawing never reads louder than the word beside it (§0.6).
+    // `DepthGlyph` (components/ConditionIcon.tsx) is its one reader.
+    figureGlyph: {
+      width: 24,
+      height: 24,
+      color: rowLabel.color,
+    },
+    // A figure glyph before a depth row's label (issue #6): the glyph and the label as one unit.
+    detailLabelLed: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flexShrink: 1,
+    },
     detailValueText: {
       ...rowValueSans,
       flexShrink: 1,
@@ -3578,6 +3643,14 @@ function build(scheme: ColorScheme) {
       ...rowLabel,
       flexShrink: 1,
     },
+    // A label led by a figure glyph (issue #6): the glyph and the word as one unit that shrinks
+    // like the bare label does, so a long Czech label still wraps rather than pushing the value.
+    formFieldLabelLed: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flexShrink: 1,
+    },
     // A row's trailing half: the input, and the unit that follows it. `flex: 1` (basis 0) so
     // it takes whatever the label leaves and the value lands hard against the row's trailing
     // edge, the same place `detailValue`'s own `textAlign: 'right'` puts it one screen over.
@@ -3986,6 +4059,56 @@ function build(scheme: ColorScheme) {
       color: theme.fg,
     },
     formChipTextSelected: selectedInk,
+    // The same choice laid out as tiles (issue #6): Ponor's drawn icon over the word, for the fields
+    // whose values have a shape (§0.6's table). The chip's border, ground and invert, so a tile and a
+    // chip are one control drawn two ways; rows of equal-width tiles, the last row padded with
+    // spacers so a short row does not stretch its tiles. `minHeight`, never `height`: a large
+    // accessibility text size grows the tile instead of clipping its word, and a long Czech word
+    // wraps onto as many lines as it needs (the label has no `numberOfLines`) rather than being cut.
+    formTileGrid: {
+      gap: 8,
+      paddingBottom: FIELD_EXTRA_CLEARANCE,
+    },
+    formTileRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    formTile: {
+      flex: 1,
+      minHeight: 88,
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingHorizontal: 6,
+      paddingVertical: 10,
+      backgroundColor: theme.surface,
+    },
+    // Four to a row (waves) is shorter, as the canvas draws it.
+    formTileShort: {
+      minHeight: 80,
+    },
+    formTileSelected: selectedFill,
+    formTileText: {
+      fontFamily: fonts['sans-medium'],
+      fontSize: 13.5,
+      lineHeight: 17,
+      color: theme.fg,
+      textAlign: 'center',
+    },
+    formTileTextSelected: selectedInk,
+    // The empty slot that pads a short row. A tile's padding and border count toward its width
+    // under `flex: 1`, so the slot carries the same (an invisible border), or a short row's tiles
+    // come out wider than a full row's — seen on the simulator, *Semidry* and *Dry*.
+    formTileSpacer: {
+      flex: 1,
+      paddingHorizontal: 6,
+      borderWidth: 1,
+      borderColor: 'transparent',
+    },
     // M1h's chip marks had five styles here — a row that held N copies of one symbol, and the
     // visibility bars in three heights and two inks. They went out with the marks (M1i, §10):
     // the bars cost *Visibility low* a glyph that read as punctuation, and the repeated arrows
