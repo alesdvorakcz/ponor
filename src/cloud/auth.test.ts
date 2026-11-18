@@ -207,6 +207,18 @@ describe('messageFor', () => {
     expect(deleteAccountFailed()).toBe('Couldn’t reach your account, so nothing was deleted. Try again later.');
   });
 
+  // #74, in the owner's approved words: both fire whenever the last push did not reach the
+  // account, so the phone being offline, the server being down and the server refusing a row all
+  // land here. They name no cause and keep what is true.
+  it('names no cause when the account has not received what this phone holds', () => {
+    expect(unpushedChanges()).toBe(
+      'This phone has dives your account hasn’t received yet. Nothing was cleared, and you’re still signed in — try again later.',
+    );
+    expect(startOverUnpushed()).toBe(
+      'Deleted on this device. Your account hasn’t received the deletion yet — it goes up on the next sync.',
+    );
+  });
+
   it('falls back to the sentence for the act that failed, not to one sentence for both', () => {
     const unknown = new AuthApiError('teapot', 418, 'a_code_from_a_newer_server');
     expect(messageFor(unknown, 'signIn')).toBe(signInFailed());
@@ -1080,5 +1092,13 @@ describe('in Czech', () => {
       'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
     );
     expect(deleteAccountFailed()).toBe('Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu později.');
+  });
+
+  it('names no cause when the account has not received what this phone holds, in Czech (#74)', () => {
+    setActiveLanguage('cs');
+    expect(unpushedChanges()).toBe(
+      'Tento telefon má ponory, které váš účet ještě nedostal. Nic se nevymazalo a jste stále přihlášeni — zkuste to znovu později.',
+    );
+    expect(startOverUnpushed()).toBe('V tomto zařízení smazáno. Váš účet zatím smazání nedostal — odejde při příští synchronizaci.');
   });
 });

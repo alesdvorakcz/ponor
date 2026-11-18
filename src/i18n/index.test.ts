@@ -289,10 +289,17 @@ function allStrings(node: unknown): string[] {
  * you're back online* or *až budete zase připojeni* cannot slip back in. No string in either
  * language uses *online* for anything else; Czech's *připojení* is allowed as a noun, as the
  * sign-in sentence names it as one cause of two, so only *až budete … připojeni* is caught there.
+ *
+ * **Nor to connect** (#74): *Connect and try again* and *connect, and it goes up on the next
+ * sync* made the same claim in other words, on refusals that fire whatever stopped the push. The
+ * verb is caught (*connect*, *reconnect*, *připojte se*); the noun *connection* / *připojení* is
+ * not, for the same reason as above.
  */
-it('never tells the diver to wait until they are online', () => {
-  expect(allStrings(en).filter((text) => /\bonline\b/i.test(text))).toEqual([]);
-  expect(allStrings(cs).filter((text) => /\bonline\b|až\s+budete[^.;—]*připojen/i.test(text))).toEqual([]);
+it('never tells the diver to wait until they are online, or to connect', () => {
+  expect(allStrings(en).filter((text) => /\bonline\b|\b(re)?connect\b/i.test(text))).toEqual([]);
+  expect(
+    allStrings(cs).filter((text) => /\bonline\b|až\s+budete[^.;—]*připojen|připojte\s+se/i.test(text)),
+  ).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------------------

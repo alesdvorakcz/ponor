@@ -1203,13 +1203,13 @@ export const en = {
       signOutUnavailable: 'Sign-out can’t clear this device yet, so nothing was signed out.',
       wipeFailed: 'Couldn’t clear this device’s logbook, so nothing was signed out.',
       unpushedChanges:
-        'This phone has dives your account hasn’t received yet. Connect and try again — nothing was cleared, and you’re still signed in.',
+        'This phone has dives your account hasn’t received yet. Nothing was cleared, and you’re still signed in — try again later.',
       signOutFailed: 'This device’s logbook was cleared, but signing out didn’t finish. Try again.',
       /* §7.4's other two destructive acts (M3j). Each names a state sign-out cannot be in —
        * see the functions in `cloud/auth.ts` for why none of them reuses a sentence above. */
       startOverUnavailable: 'This build can’t clear the device, so nothing was deleted.',
       startOverUnpushed:
-        'Deleted on this device. Your account hasn’t received the deletion yet — connect, and it goes up on the next sync.',
+        'Deleted on this device. Your account hasn’t received the deletion yet — it goes up on the next sync.',
       startOverFailed:
         'Your account is empty, but this device’s logbook couldn’t be cleared. Try again.',
       deleteAccountUnavailable:

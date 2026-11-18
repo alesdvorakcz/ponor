@@ -299,6 +299,11 @@ export function wipeFailed(): string {
  *
  * It quotes no number. §0.6 wants error text that names an action, and "3 changes" invites a
  * diver to go looking for three things no screen can point at.
+ *
+ * **It names no cause** (#74, in the owner's approved words). Until then it said *Connect and try
+ * again*, but the refusal fires whenever the push did not reach the account: the phone offline,
+ * the server down, or the server refusing a row all land here, and this module cannot tell which.
+ * The action it names is the one true of all three: try again later.
  */
 export function unpushedChanges(): string {
   return t('auth.unpushedChanges');
@@ -333,6 +338,10 @@ export function startOverUnavailable(): string {
  * what is not true yet in the account, and what will finish it — rather than `unpushedChanges`'
  * "nothing was cleared", which would be a plain lie about a logbook the diver can already see
  * is empty.
+ *
+ * **What finishes it is the next sync, and nothing the diver must do first** (#74, in the owner's
+ * approved words). It said *connect, and it goes up on the next sync*, which named one of three
+ * reasons the push can fall short (offline, a server that is down, a refused row) as the only one.
  */
 export function startOverUnpushed(): string {
   return t('auth.startOverUnpushed');

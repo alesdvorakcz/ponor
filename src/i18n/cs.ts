@@ -987,11 +987,11 @@ export const cs = {
       signOutUnavailable: 'Odhlášení zatím neumí toto zařízení vyčistit, takže se nic neodhlásilo.',
       wipeFailed: 'Deník v tomto zařízení se nepodařilo vymazat, takže se nic neodhlásilo.',
       unpushedChanges:
-        'Tento telefon má ponory, které váš účet ještě nedostal. Připojte se a zkuste to znovu — nic se nevymazalo a jste stále přihlášeni.',
+        'Tento telefon má ponory, které váš účet ještě nedostal. Nic se nevymazalo a jste stále přihlášeni — zkuste to znovu později.',
       signOutFailed: 'Deník tohoto zařízení byl vymazán, ale odhlášení se nedokončilo. Zkuste to znovu.',
       startOverUnavailable: 'Tento build neumí vyčistit zařízení, takže se nic nesmazalo.',
       startOverUnpushed:
-        'V tomto zařízení smazáno. Váš účet zatím smazání nedostal — připojte se a odejde při příští synchronizaci.',
+        'V tomto zařízení smazáno. Váš účet zatím smazání nedostal — odejde při příští synchronizaci.',
       startOverFailed:
         'Váš účet je prázdný, ale deník v tomto zařízení se nepodařilo vymazat. Zkuste to znovu.',
       deleteAccountUnavailable:
