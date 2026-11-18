@@ -985,6 +985,19 @@ describe('formatEquipment', () => {
     expect(formatEquipment('hood' as unknown as Equipment[])).toBeNull();
   });
 
+  it('skips what is not a string, and is null when nothing is left (#65)', () => {
+    // `equipment` is a JSON list, and the decoder guarantees only the list: one written by
+    // another client's build may hold a number or a `null`, as a place's sets may
+    // (`formatPlaceTokens`, below). Neither is a word, and neither may take the detail down.
+    expect(formatEquipment(['torch', 3, null] as unknown as Equipment[])).toBe('Torch');
+    expect(formatEquipment([3, null] as unknown as Equipment[])).toBeNull();
+  });
+
+  it('skips a blank string, which would read as nothing between two separators (#65)', () => {
+    expect(formatEquipment(['torch', '', '  '] as unknown as Equipment[])).toBe('Torch');
+    expect(formatEquipment([''] as unknown as Equipment[])).toBeNull();
+  });
+
   it('spells one token the same way the form\'s own chip does', () => {
     // The `Steel`/`steel` drift, one field over: the chip label and the detail row are the
     // same string by construction rather than by two authors agreeing.

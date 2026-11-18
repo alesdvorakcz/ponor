@@ -2064,10 +2064,20 @@ export function formatWeightsFeel(weightsFeel: WeightsFeel | null): string | nul
  * `null` for an empty set, exactly as every formatter above returns `null` for an absent
  * value — `[]` means "no accessories recorded" (§6), and a caller that got `''` would draw
  * a labelled row with nothing in it.
+ *
+ * **Only strings are read** (#65), as `formatPlaceTokens` reads a place's sets: the column is a
+ * JSON list and its decoder guarantees the list, not its members, so one written by another
+ * client's build may hold a number or a `null`. Neither is a word, and nor is a blank string,
+ * which would read as `''` and leave a dangling separator or an empty row: each is skipped, and
+ * a set with no word left is `null` like `[]`. A word this build does not know is still kept
+ * (§10's store-and-flag).
  */
-export function formatEquipment(equipment: readonly Equipment[]): string | null {
-  if (!Array.isArray(equipment) || equipment.length === 0) return null;
-  return equipment.map((token) => formatEquipmentToken(token)).join(METADATA_SEPARATOR);
+export function formatEquipment(equipment: readonly unknown[]): string | null {
+  if (!Array.isArray(equipment)) return null;
+  const words = equipment
+    .filter((token): token is Equipment => typeof token === 'string' && token.trim() !== '')
+    .map((token) => formatEquipmentToken(token));
+  return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
 }
 
 /**
