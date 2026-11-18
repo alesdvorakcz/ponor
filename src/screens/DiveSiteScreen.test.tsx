@@ -795,6 +795,16 @@ it('draws no tiles from a site type or way in that is not a list, and still draw
   expect(labelsIn(t)).toContain('Country');
 });
 
+// #69: a blank string is a string, so the guard above let it through, and it drew a tile with no
+// word. The page reads its lists through the guard `formatPlaceTokens` uses, so the two agree.
+it('draws no tile for a blank site type or way in', async () => {
+  mockUseDiveSites.mockReturnValue(
+    catalogueState([teti({ siteTypes: ['wreck', '', '  '] as never, entry: ['', 'shore', '  '] as never, waterBody: null })]),
+  );
+  const t = await show();
+  expect(tileWordsIn(t).map(([word]) => word)).toEqual(['Wreck', 'Shore']);
+});
+
 it('keeps an unknown site type as a word on an undrawn tile', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([teti({ siteTypes: ['wall', 'cavern'] as never })]));
   const t = await show();

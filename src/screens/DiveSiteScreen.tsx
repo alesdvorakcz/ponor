@@ -29,6 +29,7 @@ import {
   formatWaterBody,
   formatWreck,
   unnamedSite,
+  wordsOf,
 } from '../format/display';
 import { t, useT } from '../i18n';
 import { backToSites } from '../navigation/leaveScreen';
@@ -159,16 +160,6 @@ const PREFILL_ROW_LABEL: Record<PrefillRow, () => string> = {
 function salinityLine(site: DiveSite): string | null {
   const salinity = siteDefaultValue(site, 'salinity');
   return salinity === null ? null : formatSalinity(salinity as Salinity);
-}
-
-/**
- * Words only: a list from another client's build may hold a number or a null (#31), and a value
- * that is not a list at all is no words — `formatPlaceTokens`' own guard, re-checked here rather
- * than trusting `$type<>`, as `toDive` does (db/schema.ts).
- */
-function wordsOf(list: readonly unknown[]): string[] {
-  if (!Array.isArray(list)) return [];
-  return list.filter((item): item is string => typeof item === 'string');
 }
 
 /**

@@ -1941,13 +1941,32 @@ export function formatPlaceToken(set: PlaceTokenSet, token: string): string {
 }
 
 /**
- * A place's token set on one line, e.g. "Nitrox · Rental", in the array's own order. Only strings
- * are read: a list from another client's build may hold a number or a `null` (#31's review focus
- * 1), and neither is a word. `null` when none is left, as `formatEquipment` is for `[]`.
+ * **The words in a stored list of tokens**, in the list's own order: its strings that are not
+ * blank, and nothing from a value that is not a list at all.
+ *
+ * These lists are JSON arrays, and the `jsonArray` decoder (db/schema.ts) guarantees the array,
+ * not what is in it. A row from another client's build may hold a number or a `null` (#31's review
+ * focus 1), or a blank string, which passes a string check and is still no word: it read as `''`,
+ * leaving a trailing separator, an empty labelled row or a tile with no word (#69). Each is
+ * skipped. A word this build does not know is kept (§10's store-and-flag), so the members are
+ * plain strings and each reader decides what its vocabulary makes of them.
+ *
+ * **The one guard for every such list on screen**: a place's sets (`formatPlaceTokens`, the site
+ * page's tiles) and a dive's equipment (`formatEquipment`). It was three copies, and they had
+ * drifted: #68 taught the equipment's to skip blanks and the places' two did not learn it.
+ * A place's other names are text, not tokens, and have their own reader (`altNamesIn`).
+ */
+export function wordsOf(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  return (list as readonly unknown[]).filter((token): token is string => typeof token === 'string' && token.trim() !== '');
+}
+
+/**
+ * A place's token set on one line, e.g. "Nitrox · Rental", in the array's own order, read through
+ * `wordsOf`. `null` when no word is left, as `formatEquipment` is for `[]`.
  */
 export function formatPlaceTokens(set: PlaceTokenSet, tokens: readonly unknown[]): string | null {
-  if (!Array.isArray(tokens)) return null;
-  const words = tokens.filter((token): token is string => typeof token === 'string').map((token) => formatPlaceToken(set, token));
+  const words = wordsOf(tokens).map((token) => formatPlaceToken(set, token));
   return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
 }
 
@@ -2065,18 +2084,14 @@ export function formatWeightsFeel(weightsFeel: WeightsFeel | null): string | nul
  * value — `[]` means "no accessories recorded" (§6), and a caller that got `''` would draw
  * a labelled row with nothing in it.
  *
- * **Only strings are read** (#65), as `formatPlaceTokens` reads a place's sets: the column is a
- * JSON list and its decoder guarantees the list, not its members, so one written by another
- * client's build may hold a number or a `null`. Neither is a word, and nor is a blank string,
- * which would read as `''` and leave a dangling separator or an empty row: each is skipped, and
- * a set with no word left is `null` like `[]`. A word this build does not know is still kept
- * (§10's store-and-flag).
+ * **Only words are read** (#65), through `wordsOf`, the guard a place's sets go through too: the
+ * column is a JSON list and its decoder guarantees the list, not its members, so one written by
+ * another client's build may hold a number, a `null` or a blank string. None is a word: each is
+ * skipped, and a set with no word left is `null` like `[]`. A word this build does not know is
+ * still kept (§10's store-and-flag).
  */
 export function formatEquipment(equipment: readonly unknown[]): string | null {
-  if (!Array.isArray(equipment)) return null;
-  const words = equipment
-    .filter((token): token is Equipment => typeof token === 'string' && token.trim() !== '')
-    .map((token) => formatEquipmentToken(token));
+  const words = wordsOf(equipment).map((token) => formatEquipmentToken(token as Equipment));
   return words.length === 0 ? null : words.join(METADATA_SEPARATOR);
 }
 

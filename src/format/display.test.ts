@@ -2112,6 +2112,14 @@ describe('formatPlaceTokens', () => {
     expect(formatPlaceTokens('siteTypes', [])).toBeNull();
     expect(formatPlaceTokens('siteTypes', [3, null])).toBeNull();
   });
+  // #69: a blank string passes a string check and is still not a word. It read as `''`, so
+  // `Nitrox · ` ended on a separator and `['']` drew a labelled row with nothing in it, the
+  // same blank `formatEquipment` skips since #68.
+  it('skips a blank token, which is not a word either', () => {
+    expect(formatPlaceTokens('services', ['nitrox', '', '  '])).toBe('Nitrox');
+    expect(formatPlaceTokens('services', [''])).toBeNull();
+    expect(formatPlaceTokens('entry', ['  ', 'boat'])).toBe('Boat');
+  });
   it('reads in Czech', () => {
     setActiveLanguage('cs');
     try {
