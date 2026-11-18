@@ -6,13 +6,13 @@ A free, offline-first dive log that *fills itself in*: after the first dive of a
 
 | Dives | New dive | Choose a site | A dive |
 |---|---|---|---|
-| <img src="docs/screenshots/dives-dark-en.png" width="200" alt="The Dives tab in dark mode: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-light-en.png" width="200" alt="A new dive in light mode, with the site carried over from dive 7"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site in dark mode: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-light-en.png" width="200" alt="An imported dive's detail page in light mode: its depth profile drawn in the depth colours, with gas consumption beneath"> |
+| <img src="docs/screenshots/dives-dark-en.png" width="200" alt="The Dives tab: dives grouped into trips, each with its depth in the colour of its depth band"> | <img src="docs/screenshots/new-dive-dark-en.png" width="200" alt="A new dive, with the site and the centre carried over from dive 126, each easy to clear"> | <img src="docs/screenshots/site-picker-dark-en.png" width="200" alt="Choose a site: a search field, a Near me button and the sites dived before"> | <img src="docs/screenshots/dive-dark-en.png" width="200" alt="A dive's detail page: its depth profile drawn in the depth colours with gas consumption, then the conditions as drawn tiles"> |
 
-| Map | Dives (light) | New dive (dark) | Settings |
+| Water and suit | A dive site | Map | Settings |
 |---|---|---|---|
-| <img src="docs/screenshots/map-light-en.jpg" width="200" alt="The Map tab in light mode: your dives counted per site"> | <img src="docs/screenshots/dives-light-en.png" width="200" alt="The Dives tab in light mode"> | <img src="docs/screenshots/new-dive-dark-en.png" width="200" alt="A new dive in dark mode, with the site carried over"> | <img src="docs/screenshots/settings-dark-en.png" width="200" alt="Settings in dark mode: units, language, earlier dives and location access"> |
+| <img src="docs/screenshots/new-dive-tiles-dark-en.png" width="200" alt="The new dive's water body and suit, picked from drawn tiles, the carried choices inverted"> | <img src="docs/screenshots/site-dark-en.png" width="200" alt="A dive site's page: its description, its types, water body and way in as tiles, then its facts"> | <img src="docs/screenshots/map-dark-en.jpg" width="200" alt="The Map tab: your dives counted per site"> | <img src="docs/screenshots/settings-dark-en.png" width="200" alt="Settings: units, language, earlier dives and location access"> |
 
-<sub>iPhone simulator, invented demo dives.</sub>
+<sub>iPhone simulator, dark theme (light ships too), invented demo dives.</sub>
 
 ## What it does
 
