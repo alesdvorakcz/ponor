@@ -147,7 +147,7 @@ type TestNode = NonNullable<RenderResult['root']>;
 
 /** Every drawn mark under one node, of either kind this component uses — the return mark and
  * the clear control's ring. Matched on the host node a real `SymbolView` renders down to, the
- * same `SymbolModule` match `EntryIcon.test.tsx` and `SearchCapsule.test.tsx` use, so a drawn
+ * same `SymbolModule` match `SearchCapsule.test.tsx` and `CarriedMark.test.tsx` use, so a drawn
  * approximation or a typed glyph standing in for either would not answer to it.
  *
  * Takes a NODE rather than the whole render, because the placement test below asks which

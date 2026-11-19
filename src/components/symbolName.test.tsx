@@ -1,35 +1,45 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
+import { type ReactElement } from 'react';
+import * as ts from 'typescript';
 
 import { jsTabItems, nativeTabItems, TAB_ROUTES } from '../navigation/tabs';
+import { DELETE_DIVE_GLYPH } from '../screens/DiveDetailScreen';
 import { LOG_DIVE_GLYPH, SEARCH_GLYPH } from '../screens/DivesScreen';
 import { CLOSE_CENTERS_GLYPH } from '../screens/DiveCentersScreen';
 import { CLOSE_SITES_GLYPH } from '../screens/DiveSitesScreen';
 import { CURRENT_POSITION_GLYPH } from '../screens/NewPlaceScreen';
 import { CREATE_PLACE_GLYPH, PICKED_PLACE_GLYPH, PICKER_SEARCH_GLYPH } from '../screens/PlacePickerScreen';
 import { CLOSE_SEARCH_GLYPH } from '../screens/SearchScreen';
+import { makeStyles } from '../theme/styles';
 import { ACCOUNT_PERK_GLYPHS } from './AccountPerks';
 import { ActionCapsule } from './ActionCapsule';
 import { CENTERS_GLYPH, DiveMap, EXPLORE_GLYPH, MY_DIVES_GLYPH } from './DiveMap';
-import { CarriedMark } from './CarriedMark';
-import { ClearFieldControl } from './ClearFieldControl';
-import { SearchCapsule } from './SearchCapsule';
-import { symbolName } from './symbolName';
+import { CARRIED_MARK_SYMBOL, CarriedMark } from './CarriedMark';
+import { CLEAR_FIELD_SYMBOL, ClearFieldControl } from './ClearFieldControl';
+import { MapCard, SHOW_ON_MAP_GLYPH } from './MapCard';
+import { SEARCH_CAPSULE_GLYPH, SearchCapsule } from './SearchCapsule';
+import { symbolName, type PlatformSymbol } from './symbolName';
 
-// The one thing `SearchCapsule.test.tsx` and `EntryIcon.test.tsx` structurally cannot see.
+// The one thing the suites that render a real `SymbolView` structurally cannot see
+// (`SearchCapsule.test.tsx`, `CarriedMark.test.tsx`, `ClearFieldControl.test.tsx`).
 //
-// Those two suites assert against the HOST node a real `SymbolView` renders down to, which is
+// Those suites assert against the HOST node a real `SymbolView` renders down to, which is
 // the right check for "this is a genuine SF Symbol and not a drawn approximation" — but
 // `SymbolView.ios.tsx` overwrites `name` with `props.name.ios` before handing it to the native
 // view, so by the time it reaches a host node the object the component actually passed is
 // gone. A missing `web` key is therefore invisible from there, which is exactly how it stayed
-// missing: every icon test was green while neither icon drew anything at all in a browser.
+// missing: every icon test was green while the app's first two icons drew nothing at all in a
+// browser.
 //
 // So this file mocks `SymbolView` and reads the props the app HANDS the library. That is the
-// boundary the defect lives on. It is a separate file rather than three more tests in the two
-// existing suites because `jest.mock` is hoisted per module and applies to the whole file —
-// mocking `expo-symbols` inside either of those would destroy the native-module resolution
-// they exist to pin.
+// boundary the defect lives on. It is a separate file rather than more tests in those suites
+// because `jest.mock` is hoisted per module and applies to the whole file — mocking
+// `expo-symbols` inside any of them would destroy the native-module resolution they exist to
+// pin.
 //
 // It cannot, and does not pretend to, observe a browser: Jest's one platform here is iOS
 // (jest-expo's stock preset), so `SymbolView.tsx` — the non-iOS implementation that reads
@@ -69,96 +79,106 @@ it('derives the browser’s symbol from the Android one, and leaves both other k
 // still builds the object itself — which is the state this repo was in, twice over, before
 // symbolName.ts. DESIGN.md §4.1: "a second implementation is a defect, not a style preference."
 //
-// **Every `PlatformSymbol` the app ships is pinned below, and that completeness is the point
-// rather than a nicety.** The hole this file exists to close is invisible by construction —
-// the test environment is iOS, `SymbolView.ios.tsx` discards every key but `ios`, and the
-// simulator is iOS too — so "which call sites are checked" cannot be inferred from anything;
-// it can only be listed. **The places, in this file's order**: the search capsule's magnifier,
-// the two `entry` chips, M1h's carried treatment — the return mark and the clear control's ring
-// — the capsule glyphs the screens hand to `ActionCapsule` (the dive list, search, the map and
-// the two directories' closes), since M3e **the glyph inside a dive centre's map
-// mark**, #19's picker and create page, and `navigation/tabs.ts`' two (Map and Stats). Each
-// block below is its own list; this note no longer keeps a running total, which had drifted
-// from those lists before issue #2 and is not issue #2's to recount.
+// **Every `PlatformSymbol` the app ships is pinned below, and the census at the end of this
+// file is what makes that sentence a check rather than a claim** (#49). The hole this file
+// closes is invisible by construction — the test environment is iOS, `SymbolView.ios.tsx`
+// discards every key but `ios`, and the simulator is iOS too — so nothing else notices a symbol
+// nobody pinned. This note used to list the places by hand, with running totals, and both
+// drifted: the *Show on map* card's map and the record sheet's trash shipped unpinned while the
+// note said every symbol was pinned, and its totals disagreed with its own blocks.
 //
-// It was ten in six until M2n, and the three that joined are §3's Map tab: its own tab glyph, and
-// BOTH states of the layer toggle in the capsule — one control that renders a different symbol
-// depending on which layer is showing, so a check of one state proves nothing about the other.
-// The fourteenth is M3a's Stats tab, and the tab block below is now tied to `TAB_ROUTES` so the
-// fifteenth cannot arrive without one. The Map's own count did not grow when M3e turned its
-// toggle into three switches — the same three symbols, drawn at once rather than one at a time —
-// but a **seventh place** did arrive, because one of those three is now also drawn on the map.
-// **Issue #2 took two symbols away**: Dives and Settings now draw Ponor's own glyphs rather than
-// symbols, so `navigation/tabs.ts` holds two (Map and Stats), and the tab block below lists the
-// other two with `null` (tabs.test.ts pins their glyphs).
-//
-// It was eighteen in eight until M1i, and the eight that went are not a gap: they were the two
-// condition marks and `WeatherIcon`'s six skies, and the components that drew them no longer
-// exist (§10 — the marks are out, and §9's shelf holds what replaces them). Coverage of what
-// remains is unchanged at every call site, which is the property M1h bought and this milestone
-// had to keep while deleting around it.
-//
-// If you add a symbol, add it here. One block below makes that failure loud rather than trusting
-// this sentence — the tab-route block asserts its own table against `TAB_ROUTES`, which is what
-// that sentence used to CLAIM it did and did not (M3a; see the note there). (The weather table
-// did the same job through a total `Record<Weather, …>`, and went with the skies.) The rest
-// cannot be derived and are listed by hand.
-it('gives the search capsule’s magnifier a web name, not just an iOS and an Android one', async () => {
-  await render(<SearchCapsule scheme="dark" value="" onChangeText={() => {}} />);
-  const name = nameProp();
-  expect(name?.web).toBe('search');
-  expect(name?.web).toBe(name?.android);
-});
+// So the note keeps no list and no count. Every pin is a row in one of four tables, and the
+// tests iterate those rows: symbols drawn by rendering their component, symbols handed to the
+// action capsule, symbols pinned as the constants their screens export, and the tab bar's. The
+// census reads the app's source for every symbol written in it and requires each one to be held
+// by a row, as the very object the app draws. It also requires every `<SymbolView>` the app
+// renders to take its `name` from `symbolName`. A symbol added anywhere is red there until its
+// row is written, whether it arrives with a call site of its own or is handed to one that
+// already exists (another capsule action, another picker glyph).
 
-
-// --- The two marks M1h's carried treatment added, on the same boundary ---
+// --- Symbols pinned by rendering the component that draws them ---
 //
-// Both replace something that was previously TEXT — the word "carried" and a mono `×` — so
-// neither had any Material name to be wrong before this milestone, and neither has a test
-// anywhere else that could see one: `CarriedMark.test.tsx` and `ClearFieldControl.test.tsx`
-// both render through the real `SymbolView.ios.tsx`, which overwrites `name` with
-// `props.name.ios` before the value reaches a host node. Every assertion in either file reads
-// one string, the SF name.
-//
-// What a wrong or missing Material name costs here is the whole treatment rather than a
-// nuance. On Android and in a browser the return mark simply would not draw, and a carried
-// row would be indistinguishable from an untouched one — which is the exact state §0.6 asked
-// M1h to end, restored silently on two of the three platforms. The clear control is worse: it
-// would be a 48 dp box with nothing in it, an invisible control on a row that still expects
-// one to be pressed.
-// Two tests rather than one `it.each`, because the two components take different props and a
-// table row that satisfied both would have to hand each of them the other's.
-it('gives the carried return mark an Android and a web name, not just an iOS one', async () => {
-  await render(<CarriedMark scheme="dark" />);
-  const name = nameProp();
-  expect(name?.android).toBe('keyboard_return');
-  expect(name?.web).toBe('keyboard_return');
-});
+// Rendered rather than read off the constant, so what is pinned is the value that actually
+// reaches the library: a component that stopped calling `symbolName`, or drew a different
+// symbol from the one it exports, is the defect, and asserting on the constant alone would sail
+// past both. Each row hands its own element, because the components take different props.
+const RENDERED_GLYPHS: readonly (readonly [
+  label: string,
+  symbol: PlatformSymbol,
+  material: string,
+  draw: () => ReactElement,
+])[] = [
+  ['search capsule’s magnifier', SEARCH_CAPSULE_GLYPH, 'search', () => <SearchCapsule scheme="dark" value="" onChangeText={() => {}} />],
+  // M1h's carried treatment. Both marks replace something that was TEXT — the word "carried"
+  // and a mono `×` — and a wrong Material name costs the whole treatment rather than a nuance.
+  // On Android and in a browser the return mark would not draw, and a carried row would be
+  // indistinguishable from an untouched one, which is the exact state §0.6 asked M1h to end.
+  // The clear control would be a 48 dp box with nothing in it, an invisible control on a row
+  // that still expects one to be pressed.
+  ['carried return mark', CARRIED_MARK_SYMBOL, 'keyboard_return', () => <CarriedMark scheme="dark" />],
+  [
+    'clear control’s ring',
+    CLEAR_FIELD_SYMBOL,
+    'highlight_off',
+    () => <ClearFieldControl accessibilityLabel="Clear carried Buddy" onPress={() => {}} scheme="dark" />,
+  ],
+  // M3e. The centres glyph is drawn twice on the Map: in the filter capsule, and **inside a dive
+  // centre's mark**, which is what lets the map do without a legend at all. The second drawing
+  // is a separate `symbolName` call in `DiveMap`, so the capsule's row below says nothing about
+  // it. A centre mark is the only kind that carries a symbol — a place carries a numeral and a
+  // community site carries nothing — so one mark is the whole render this needs
+  // (`react-native-maps` resolves through `__mocks__/react-native-maps.js`).
+  [
+    'centre’s map mark',
+    CENTERS_GLYPH,
+    'storefront',
+    () => (
+      <DiveMap
+        scheme="dark"
+        region={{ latitude: 43, longitude: 16, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
+        onRegionSettled={() => {}}
+        marks={[{ kind: 'centers', key: 'c1', label: 'Ponorka, dive centre', point: { latitude: 43, longitude: 16 } }]}
+        selected={null}
+        onSelect={() => {}}
+        showsUserLocation={false}
+      />
+    ),
+  ],
+  // Issue #3's *Show on map* card, on the dive detail and on a site's and a centre's page.
+  // Shipped unpinned until #49.
+  [
+    '*Show on map* card’s glyph',
+    SHOW_ON_MAP_GLYPH,
+    'map',
+    () => <MapCard styles={makeStyles('dark')} scheme="dark" coordinates="43.0000, 16.0000" onPress={() => {}} />,
+  ],
+];
 
-it('gives the clear control’s ring an Android and a web name, not just an iOS one', async () => {
-  await render(<ClearFieldControl accessibilityLabel="Clear carried Buddy" onPress={() => {}} scheme="dark" />);
-  const name = nameProp();
-  expect(name?.android).toBe('highlight_off');
-  expect(name?.web).toBe('highlight_off');
-});
+it.each(RENDERED_GLYPHS)(
+  'gives the %s an Android and a web name, not just an iOS one',
+  async (_label, symbol, material, draw) => {
+    await render(draw());
+    // The iOS half too, so a component that drew a symbol other than the one it exports is
+    // caught here rather than passing on a Material name the two happen to share.
+    expect(nameProp()).toEqual({ ios: symbol.ios, android: material, web: material });
+  },
+);
 
-// --- The three capsule glyphs ---
+// --- Symbols pinned in the action capsule ---
 //
-// These live in the two screens rather than in `ActionCapsule` — the component owns the
-// capsule's shape and material, its caller owns which glyphs go in it, which is what lets one
-// capsule serve two screens (`ActionCapsule.tsx`'s header). So the literals are the screens'
-// and they are exported for this, with each screen's own note saying why.
+// These live in the screens rather than in `ActionCapsule` — the component owns the capsule's
+// shape and material, its caller owns which glyphs go in it, which is what lets one capsule
+// serve several screens (`ActionCapsule.tsx`'s header). So the literals are the screens' and
+// they are exported for this, with each screen's own note saying why.
 //
 // Rendered through `ActionCapsule` rather than by calling `symbolName` on the constant, so
-// what is pinned is the value that actually reaches the library: a screen that stopped passing
-// its `symbol` through the capsule, or a capsule that stopped calling `symbolName`, is the
-// defect, and asserting on the constant alone would sail past both. One action per render,
+// what is pinned is the value that actually reaches the library. One action per render,
 // because `nameProp()` reads the first `SymbolView` call.
 //
 // `isLiquidGlassAvailable` is mocked false at the top of this file, so the capsule takes its
 // plain `View` branch; the glyphs are identical either way (`ActionCapsule.test.tsx` is what
 // pins that, shape for shape) and this suite has no opinion about the material.
-it.each([
+const CAPSULE_GLYPHS = [
   ['dive list’s magnifier', SEARCH_GLYPH, 'search'],
   ['dive list’s plus', LOG_DIVE_GLYPH, 'add'],
   ['search screen’s close', CLOSE_SEARCH_GLYPH, 'close'],
@@ -173,71 +193,42 @@ it.each([
   ['map screen’s centres switch', CENTERS_GLYPH, 'storefront'],
   ['centres directory’s close', CLOSE_CENTERS_GLYPH, 'close'],
   ['sites directory’s close', CLOSE_SITES_GLYPH, 'close'],
-] as const)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
-  await render(
-    <ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />,
-  );
-  const name = nameProp();
-  expect(name?.android).toBe(material);
-  expect(name?.web).toBe(material);
+] as const;
+
+it.each(CAPSULE_GLYPHS)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
+  await render(<ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />);
+  // The whole name, as the rendered rows above check it.
+  expect(nameProp()).toEqual({ ios: symbol.ios, android: material, web: material });
 });
 
-/**
- * **The seventh place, and the reason it is not covered by the capsule block above** (M3e).
- *
- * `MAP_KIND_GLYPH.centers` is drawn twice on one screen — in the filter capsule, and **inside a
- * dive centre's mark on the map** — and that second drawing is what lets the map do without a
- * legend at all. It is a separate `symbolName` call in a separate component, so the capsule's row
- * above says nothing about it: `DiveMap` could pass the raw `PlatformSymbol` and every check in
- * this file would stay green while the mark drew a blank disc in a browser and on Android, which
- * is the exact defect this whole file exists for.
- *
- * `react-native-maps` resolves through `__mocks__/react-native-maps.js` like everywhere else, and
- * a centre mark is the only kind that carries a symbol — a place carries a numeral and a
- * community site carries nothing — so one mark is the whole render this needs.
- */
-it('gives a centre’s map mark an Android and a web name, not just an iOS one', async () => {
-  await render(
-    <DiveMap
-      scheme="dark"
-      region={{ latitude: 43, longitude: 16, latitudeDelta: 0.1, longitudeDelta: 0.1 }}
-      onRegionSettled={() => {}}
-      marks={[{ kind: 'centers', key: 'c1', label: 'Ponorka, dive centre', point: { latitude: 43, longitude: 16 } }]}
-      selected={null}
-      onSelect={() => {}}
-      showsUserLocation={false}
-    />,
-  );
-  const name = nameProp();
-  expect(name?.android).toBe('storefront');
-  expect(name?.web).toBe('storefront');
-  expect(name?.ios).toBe(CENTERS_GLYPH.ios);
-});
-
-// --- The site and centre picker's three glyphs, and its create page's one (issue #19) ---
+// --- Symbols pinned as the constants their screens export ---
 //
-// Drawn by the page's own `Glyph`, which passes each through `symbolName`; asserted on the
-// constants here because rendering that page means mocking its catalogue, logbook and session
-// reads, which `PlacePickerScreen.test.tsx` already does and this file deliberately does not. A
-// missing Material name would leave the browser's and Android's picker with no magnifier, no
-// check on the chosen row and no `+` on *Create* — and the *New dive site* page's position card
-// with no arrow.
-it.each([
+// Drawn by screens whose render means mocking their catalogue, logbook and session reads, which
+// their own suites already do and this file deliberately does not. So a row here checks one
+// thing, the constant's Material name. The rest is held elsewhere: this file's first test pins
+// that `symbolName` makes the web name the Android one, and the census below that the screen
+// passes its symbol to a `SymbolView` through `symbolName`, and that any other symbol the screen
+// drew instead would be a literal no row holds.
+const NAMED_GLYPHS = [
+  // Issue #19's site and centre picker. A missing Material name would leave the browser's and
+  // Android's picker with no magnifier, no check on the chosen row and no `+` on *Create*.
   ['picker’s magnifier', PICKER_SEARCH_GLYPH, 'search'],
   ['picker’s chosen-row check', PICKED_PLACE_GLYPH, 'check'],
   ['picker’s create plus', CREATE_PLACE_GLYPH, 'add'],
   // The *New dive site* page's *Use current position* card.
   ['new place’s current-position arrow', CURRENT_POSITION_GLYPH, 'near_me'],
   // What an account adds (issue #24) — the first-run card, Settings' card and the account
-  // screen draw these three beside their words. One missing would leave a word with a hole
-  // beside it on Android and in a browser.
+  // screen draw these beside their words. One missing would leave a word with a hole beside it
+  // on Android and in a browser.
   ['account perk backup', ACCOUNT_PERK_GLYPHS[0], 'backup'],
   ['account perk devices', ACCOUNT_PERK_GLYPHS[1], 'devices'],
   ['account perk community', ACCOUNT_PERK_GLYPHS[2], 'map'],
-] as const)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
-  const name = symbolName(symbol);
-  expect(name.android).toBe(material);
-  expect(name.web).toBe(material);
+  // Issue #3's record sheet, the dive detail's one destructive act. Shipped unpinned until #49.
+  ['record sheet’s delete', DELETE_DIVE_GLYPH, 'delete'],
+] as const;
+
+it.each(NAMED_GLYPHS)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
+  expect(symbol.android).toBe(material);
 });
 
 // --- The tab glyphs, checked on the data both bars are handed ---
@@ -288,12 +279,12 @@ const TAB_MATERIAL_NAMES = [
   ['settings', null],
 ] as const;
 
-// **The half of "if you add a symbol, add it here" that was a sentence rather than a check**
-// (found in M3a, while adding the fourth tab). The header above claims this block "iterates
-// `TAB_ROUTES` itself"; it did not — the table below is written by hand, and `.find` on it
-// simply would not look at a tab nobody had listed. A fifth tab could therefore ship with no
-// Material name and no Android or browser glyph, exactly the defect this file exists to
-// prevent, and every test in it would stay green.
+// **A census that was a sentence rather than a check** (found in M3a, while adding the fourth
+// tab). This file's note then claimed this block "iterates `TAB_ROUTES` itself"; it did not —
+// the table above is written by hand, and `.find` on it simply would not look at a tab nobody
+// had listed. A fifth tab could therefore have shipped with no Material name and no Android or
+// browser glyph, exactly the defect this file exists to prevent, and every test in it would
+// have stayed green.
 //
 // So the table is tied to the bar instead: same routes, same order. A tab added to
 // `navigation/tabs.ts` is red here until somebody writes down what it draws on the two
@@ -330,3 +321,159 @@ it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank s
   }
 });
 
+// --- The census (#49) ---
+//
+// What makes "every symbol the app ships is pinned" a check (the note above says why it has to
+// be one). It reads the app's source rather than importing it, with TypeScript's own parser, so
+// a symbol quoted in a comment or a string is not taken for one. What it reads is every
+// `.ts`/`.tsx` under `src/` except the tests and three folders only they use: `src/testing/` and
+// any `__fixtures__` or `__mocks__` folder. A fixture may well hold an `ios` and an `android`
+// that are not symbols (two OS versions, say), and none of it ships. A test-only file outside
+// those folders is still read (`domain/diveFixture.ts` is one, and holds no symbol). That errs
+// the safe way: a pair in such a file would turn this red until moved, never let a symbol by.
+//
+// **What it can see, and what it cannot.** A symbol is found when it is written the way every
+// symbol in the app is written today: an object literal whose `ios` and `android` are both
+// string literals, keys quoted or not. One built any other way (spread from another, computed,
+// read from data) is not found, and neither is a `SymbolView` rendered other than as JSX under
+// that name. Neither exists. Either would need this census taught about it, not excused from it.
+//
+// **Platform files are the app too.** `DiveMap.web.tsx` and its kind are scanned, and a symbol
+// written only in one must be held by a row like any other. Jest runs as iOS, so an import of
+// `./DiveMap` here gets the native file; a row holds a web-only symbol by importing the platform
+// file by its full name (`./DiveMap.web`), as `theme/fonts.test.ts` does with `loadFonts.web`.
+
+const SOURCE_ROOT = join(__dirname, '..');
+
+/** Folders that only the tests use, at any depth under `src/`. */
+const TEST_ONLY_FOLDERS: ReadonlySet<string> = new Set(['testing', '__fixtures__', '__mocks__']);
+
+/** Every `.ts`/`.tsx` under `src/` but the tests and the folders above (see the note for the rest). */
+const appSources = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return TEST_ONLY_FOLDERS.has(entry.name) ? [] : appSources(path);
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [path] : [];
+  });
+
+const pairOf = (symbol: { ios: string; android: string }): string => `${symbol.ios} · ${symbol.android}`;
+
+/**
+ * The text of a `key: 'string'` property on an object literal, if it has one. The key may be
+ * quoted (`'ios':`) and the value a template with no substitutions (`` `delete` ``): both
+ * type-check as a `PlatformSymbol`, so both must be found.
+ */
+function stringProperty(literal: ts.ObjectLiteralExpression, key: string): string | undefined {
+  for (const property of literal.properties) {
+    if (
+      ts.isPropertyAssignment(property) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
+      property.name.text === key &&
+      ts.isStringLiteralLike(property.initializer)
+    ) {
+      return property.initializer.text;
+    }
+  }
+  return undefined;
+}
+
+/** A JSX element's `name` attribute, if it has one. */
+function nameAttribute(element: ts.JsxOpeningLikeElement): ts.JsxAttribute | undefined {
+  return element.attributes.properties.find(
+    (attribute): attribute is ts.JsxAttribute =>
+      ts.isJsxAttribute(attribute) && ts.isIdentifier(attribute.name) && attribute.name.text === 'name',
+  );
+}
+
+/** Whether a `name` attribute is `name={symbolName(…)}`. */
+function isResolved(attribute: ts.JsxAttribute | undefined, source: ts.SourceFile): boolean {
+  const value = attribute?.initializer;
+  return (
+    value !== undefined &&
+    ts.isJsxExpression(value) &&
+    value.expression !== undefined &&
+    ts.isCallExpression(value.expression) &&
+    value.expression.expression.getText(source) === 'symbolName'
+  );
+}
+
+interface Census {
+  /** Every symbol written in the app, with where: `ios · android` → `file:line` each time. */
+  symbols: ReadonlyMap<string, readonly string[]>;
+  /** Every `SymbolView` whose `name` is not a `symbolName(…)` call, as `file: name=…`. */
+  unresolvedNames: readonly string[];
+}
+
+function takeCensus(): Census {
+  const symbols = new Map<string, string[]>();
+  const unresolvedNames: string[] = [];
+  for (const file of appSources(SOURCE_ROOT)) {
+    // With `/` whatever the OS, so the exception pinned below reads the same on every machine.
+    const path = relative(SOURCE_ROOT, file).split(sep).join('/');
+    const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind);
+    const visit = (node: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(node)) {
+        const ios = stringProperty(node, 'ios');
+        const android = stringProperty(node, 'android');
+        if (ios !== undefined && android !== undefined) {
+          const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+          const pair = pairOf({ ios, android });
+          symbols.set(pair, [...(symbols.get(pair) ?? []), `${path}:${line}`]);
+        }
+      }
+      if ((ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && node.tagName.getText(source) === 'SymbolView') {
+        const name = nameAttribute(node);
+        if (!isResolved(name, source)) unresolvedNames.push(`${path}: ${name?.getText(source) ?? 'no name'}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return { symbols, unresolvedNames };
+}
+
+/**
+ * Every symbol a row above holds, as the object itself. A set, because one object can be held
+ * twice (the centres glyph is pinned in the capsule and in its map mark) and is still one symbol
+ * written once.
+ */
+const PINNED: ReadonlySet<PlatformSymbol> = new Set<PlatformSymbol>([
+  ...RENDERED_GLYPHS.map(([, symbol]) => symbol),
+  ...CAPSULE_GLYPHS.map(([, symbol]) => symbol),
+  ...NAMED_GLYPHS.map(([, symbol]) => symbol),
+  // The tab table is tied to `TAB_ROUTES` and pins every tab drawn by a symbol, so the routes'
+  // own symbols are what it holds.
+  ...TAB_ROUTES.flatMap(({ glyph }) => ('symbol' in glyph ? [glyph.symbol] : [])),
+]);
+
+describe('the census of the app’s source', () => {
+  let census: Census;
+  beforeAll(() => {
+    census = takeCensus();
+  });
+
+  // Compared per symbol, by count, because the same symbol is written in several places (the
+  // magnifier three times) and each of them is its own object a row has to hold. A mismatch
+  // names every place the symbol is written, since which of them is the unpinned one is not
+  // something a count can tell.
+  it('finds every symbol written in the app held by a row above, and every row’s symbol written in the app', () => {
+    const pinned = new Map<string, number>();
+    for (const symbol of PINNED) pinned.set(pairOf(symbol), (pinned.get(pairOf(symbol)) ?? 0) + 1);
+    const mismatches = [...new Set([...census.symbols.keys(), ...pinned.keys()])].sort().flatMap((pair) => {
+      const written = census.symbols.get(pair) ?? [];
+      const held = pinned.get(pair) ?? 0;
+      return written.length === held ? [] : [`${pair}: written ${written.length} (${written.join(', ')}), held ${held}`];
+    });
+    expect(mismatches).toEqual([]);
+  });
+
+  // `SymbolView`'s `name` also accepts a bare SF name or an object with no `web` key, and both
+  // type-check, so this is the only thing that would notice a call site drawing nothing off iOS.
+  // `TabBarGlyph` is the one exception, and not a hole: it is handed a name `navigation/tabs.ts`
+  // already resolved through `symbolName` (`JsTabIcon`'s `name` is typed as what `symbolName`
+  // returns), and the tab block above pins it.
+  it('finds every SymbolView in the app taking its name from symbolName, bar the tab bar’s pre-resolved one', () => {
+    expect(census.unresolvedNames).toEqual(['components/TabBarGlyph.tsx: name={icon.name}']);
+  });
+});

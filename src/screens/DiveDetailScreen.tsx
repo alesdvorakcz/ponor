@@ -10,7 +10,7 @@ import { RatingDots } from '../components/RatingDots';
 import { DepthProfile } from '../components/DepthProfile';
 import { DepthValue } from '../components/DepthValue';
 import { MapCard } from '../components/MapCard';
-import { symbolName } from '../components/symbolName';
+import { symbolName, type PlatformSymbol } from '../components/symbolName';
 import { db } from '../db/client';
 import { softDeleteDive } from '../db/dives';
 import { useDives } from '../db/useDives';
@@ -476,6 +476,12 @@ function MoreButton({ styles, onPress, disabled }: { styles: Styles; onPress: ()
 }
 
 /**
+ * The record sheet's *Delete dive* glyph. Exported for `symbolName.test.tsx`, whose census
+ * holds every symbol the app ships to a pin by the very object the app draws (#49).
+ */
+export const DELETE_DIVE_GLYPH: PlatformSymbol = { ios: 'trash', android: 'delete' };
+
+/**
  * **The record's actions, in a sheet** (issue #3; `recordSheet` in theme/styles.ts has the canvas's
  * geometry and why the destructive act is never coloured).
  *
@@ -532,7 +538,7 @@ function RecordActionsSheet({
           accessibilityLabel={t('detail.deleteLabel')}
           accessibilityHint={t('detail.deleteCost')}
         >
-          <SymbolView name={symbolName({ ios: 'trash', android: 'delete' })} size={20} tintColor={themeFor(scheme).fg} />
+          <SymbolView name={symbolName(DELETE_DIVE_GLYPH)} size={20} tintColor={themeFor(scheme).fg} />
           <View style={styles.recordSheetActionText}>
             <Text style={styles.recordSheetActionLabel}>{t('detail.deleteLabel')}</Text>
             <Text style={styles.recordSheetActionMeta}>{t('detail.deleteCost')}</Text>

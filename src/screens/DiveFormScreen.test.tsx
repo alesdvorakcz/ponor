@@ -3686,7 +3686,7 @@ describe('the fixed-option chips, against the vocabulary they come from', () => 
 // --- §0.6: "An icon appears only where the value has one" ---
 
 /** The SF Symbols drawn inside one chip. Same `SymbolModule` host-node match
- * SearchCapsule.test.tsx and EntryIcon.test.tsx use — see either for why that name, and not
+ * SearchCapsule.test.tsx and CarriedMark.test.tsx use — see either for why that name, and not
  * "some icon-shaped element", is what tells a real SF Symbol from a drawn approximation. */
 function symbolsInside(node: TestNode | undefined) {
   return node ? node.queryAll((n) => typeof n.type === 'string' && n.type.includes('SymbolModule')) : [];
@@ -3717,9 +3717,9 @@ function marksInside(node: TestNode | undefined) {
  *
  * The same kind of independent witness `FIELD_LABELS` above is, for the same reason and after
  * the same failure. An assertion built FROM the thing it checks stays perfectly self-consistent
- * while that thing is wrong — `EntryIcon.test.tsx` asks the component what it drew and cannot
- * see the *form* wiring it to Salinity. This table says what the SCREEN shows, so the two can
- * only agree by both being right.
+ * while that thing is wrong — `ConditionIcon.test.tsx` asks the component what it drew and
+ * cannot see which field the *form* wires it to (Salinity, say). This table says what the
+ * SCREEN shows, so the two can only agree by both being right.
  *
  * It is also the only place that states §0.6's boundary as a whole. The rule is a boundary and
  * either half alone is satisfiable by the wrong implementation: a mark on every chip passes

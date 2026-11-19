@@ -28,8 +28,8 @@ import { symbolName, type PlatformSymbol } from './symbolName';
  * **The word survives where it was actually load-bearing.** A screen reader never saw the
  * chip's `carried` as a label it could use — it saw a decorative `Text` beside a control — and
  * what it did hear, then and now, is the clear control's own announcement: `Clear carried
- * Buddy`. So the mark is silent here (no `accessibilityLabel`, exactly as `EntryIcon` and
- * `WeatherIcon` are silent beside the labels they supplement), and the fact it draws is spoken
+ * Buddy`. So the mark is silent here (no `accessibilityLabel`, exactly as the drawn condition
+ * icons are silent beside the labels they supplement), and the fact it draws is spoken
  * by the control next to it.
  */
 export const CARRIED_MARK_SYMBOL: PlatformSymbol = { ios: 'return', android: 'keyboard_return' };
@@ -48,8 +48,9 @@ export interface CarriedMarkProps {
  * One return mark, muted.
  *
  * **The ink comes from the sheet, not from the caller**, which is the one place this differs
- * from `EntryIcon`/`ConditionMarks` and the difference is not arbitrary: those sit *inside* a
- * chip, whose ink inverts with its selection, so only the chip knows what colour they must be.
+ * from the drawn condition icons (`ConditionIcon`), and the difference is not arbitrary: those
+ * sit *inside* a chip or tile, whose ink inverts with its selection, so only the chip knows what
+ * colour they must be.
  * This never sits on an inverted ground — it marks a row, and a row's metadata is `fgMuted` in
  * both themes — so a `tintColor` prop would be a value every call site got a chance to get
  * wrong for no gain. `carriedMarkInk` (theme/styles.ts) is where the token meets the property,
