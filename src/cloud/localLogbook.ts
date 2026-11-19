@@ -322,12 +322,13 @@ export function createLocalLogbook(deps: LocalLogbookDeps): LocalLogbook {
      *
      * **What a refusal leaves behind is deliberate.** The tombstones stay: written, flagged,
      * and invisible to every read (`liveRows`, §4.1). That is not a half-finished erase, it is
-     * the deletion recorded durably and waiting for a push to get through — §7.2's "a tombstone
-     * is applied, not deleted… deleting it would throw away the fact of the deletion". A diver who
-     * starts over on a boat gets exactly what they asked for on this device and the account
-     * catches up once a cycle gets through (#74: not necessarily the next one); undoing the tombstones instead would be the app second-guessing an act
-     * it had already asked them to confirm. What is deferred is the *hard* delete, which is the
-     * only step that could lose the deletion.
+     * the deletion recorded durably and waiting for a push to get through — §7.2's "a
+     * tombstone is applied, not deleted… deleting it would throw away the fact of the
+     * deletion". A diver who starts over on a boat gets exactly what they asked for on this
+     * device and the account catches up once a cycle gets through (#74: not necessarily the
+     * next one); undoing the tombstones instead would be the app second-guessing an act it had
+     * already asked them to confirm. What is deferred is the *hard* delete, which is the only
+     * step that could lose the deletion.
      *
      * **Community rows are not tombstoned** (§7.4, §5) — `tombstonePersonalRows` (cloud/sync.ts)
      * owns that exclusion and is required to state it per table. They are still *pushed* by the

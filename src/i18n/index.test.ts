@@ -288,7 +288,7 @@ function allStrings(node: unknown): string[] {
  * Swept by the word rather than the old phrase (PR #73's review), so *once you're online*, *when
  * you're back online* or *až budete zase připojeni* cannot slip back in. No string in either
  * language uses *online* for anything else; Czech's *připojení* is allowed as a noun, as the
- * sign-in sentence names it as one cause of two, so only *až budete … připojeni* is caught there.
+ * sign-in sentence names it as one cause of two, and the verb is caught in any form (below).
  *
  * **Nor to connect** (#74): *Connect and try again* and *connect, and it goes up on the next
  * sync* made the same claim in other words, on refusals that fire whatever stopped the push.
