@@ -1,4 +1,5 @@
 import { act, type RenderResult } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 
 type Node = NonNullable<RenderResult['root']>;
 
@@ -20,9 +21,12 @@ type Node = NonNullable<RenderResult['root']>;
  *
  * So both taps go through React Native's own press path instead, inside one `act()`: the host
  * view's `onClick`, which a screen reader's or keyboard's activation takes. Pressability hands
- * it to `onPress` unless the control is `disabled` in the configuration of its last render. A
- * control drawn disabled before the first tap is refused, and one the first tap is about to
- * disable is not yet, which is exactly a real second tap's position.
+ * it to `onPress` unless the control is `disabled` in the configuration of its last render, and
+ * the helper first refuses what `fireEvent.press` refuses for `pointerEvents` on the control or
+ * above it. A control drawn disabled before the first tap gets neither tap, and one the first
+ * tap is about to disable still takes the second: a real second tap's position, as far as
+ * `disabled` and `pointerEvents` go. No further: it fires no `onPressIn`, `onPressOut` or
+ * `onLongPress`, and, like `fireEvent`, it knows nothing of a sibling drawn over the control.
  *
  * Shared rather than copied per suite: this rule took a reading of two libraries to get right,
  * and the cost of a copy is finding a fix twice (`unexpectedGraphics.ts` has the same reason).
@@ -34,6 +38,7 @@ export async function doubleTap(control: Node): Promise<void> {
       `doubleTap: "${String(control.props.accessibilityLabel ?? control.type)}" is not a pressable control (no onClick)`,
     );
   }
+  if (!takesTouches(control)) return;
   // The fields Pressability's `onClick` reads: no `pointerType` (that marks a pointer event it
   // has already handled as a press), and the control as its own target (a click bubbling from
   // a nested pressable is not this control's).
@@ -42,4 +47,15 @@ export async function doubleTap(control: Node): Promise<void> {
     click(tap());
     click(tap());
   });
+}
+
+/**
+ * `pointerEvents` as Testing Library reads it before a press (its `isPointerEventEnabled`), as a
+ * prop or a style: `none` anywhere on the way up refuses, `box-none` refuses the control itself,
+ * and `box-only` refuses everything under the view that sets it.
+ */
+function takesTouches(node: Node, isAncestor = false): boolean {
+  const pointerEvents: unknown = node.props.pointerEvents ?? StyleSheet.flatten(node.props.style)?.pointerEvents;
+  if (pointerEvents === 'none' || pointerEvents === (isAncestor ? 'box-only' : 'box-none')) return false;
+  return node.parent === null ? true : takesTouches(node.parent, true);
 }

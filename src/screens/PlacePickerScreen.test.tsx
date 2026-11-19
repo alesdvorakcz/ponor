@@ -642,9 +642,9 @@ describe('Near me', () => {
 
   // Pins the OUTCOME, not the `alive` guard: under React 19 a state update after unmount is a
   // silent no-op, so this stays green with the guard removed (checked). The guard is kept for
-  // Review Focus 2 all the same; what this asserts is that nothing reaches the server or the form.
+  // Review Focus 2 all the same; what this asserts is that nothing reaches the server or the form,
+  // and that nothing is logged, which the suite-wide console check enforces (#61).
   it('a fix arriving after the page closed changes nothing', async () => {
-    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
     const located = deferred<PositionOutcome>();
     mockRough.mockReturnValue(located.promise);
     const t = await showSite();
@@ -653,8 +653,6 @@ describe('Near me', () => {
     await act(async () => located.resolve({ found: true, ...fix }));
     expect(mockSearchSitesNear).not.toHaveBeenCalled();
     expect(mockComplete).not.toHaveBeenCalled();
-    expect(errors).not.toHaveBeenCalled();
-    errors.mockRestore();
   });
 });
 
@@ -727,7 +725,9 @@ it('a first catalogue read that failed says so, never calls the catalogue empty,
   expect(rowNames(t)).toEqual([]);
   expect(textIn(t)).toContain(catalogueUnreadable());
   await press(t, 'Near me');
-  await act(async () => {});
+  // The fix starts the nearby search on a timer; settled here, as every test that turns Near me
+  // on does, rather than left to whichever later act() the timer happens to fire in (#61).
+  await settleNearMe();
   expect(nearMe(t).props.accessibilityState).toMatchObject({ selected: true });
   expect(textIn(t)).toContain(catalogueUnreadable());
   expect(textIn(t).join(' ')).not.toContain('Nothing within');

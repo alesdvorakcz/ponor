@@ -429,7 +429,8 @@ it('leaves the order alone when a mark is selected', async () => {
  * warning is what this asserts.
  */
 it('gives two marks of different kinds two identities, however they are keyed', async () => {
-  const warn = jest.spyOn(console, 'error').mockImplementation(() => {});
+  // Watched, not replaced: every other message still reaches the suite-wide console check (#61).
+  const warn = jest.spyOn(console, 'error');
   try {
     expect(SITE.key).toBe(CENTRE.key);
     const t = await draw({ marks: [SITE, CENTRE] });

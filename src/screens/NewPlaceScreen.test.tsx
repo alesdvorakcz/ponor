@@ -729,8 +729,8 @@ it('Save pressed twice while saving creates one row', async () => {
 
 // Review Focus 2. Under React 19 a state update after unmount is a silent no-op, so what this pins is
 // the outcome — nothing written, nothing delivered, nothing logged — rather than the guard itself.
+// "Nothing logged" here and in the next two is the suite-wide console check's to enforce (#61).
 it('closing the page while the check is out delivers nothing', async () => {
-  const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
   const checked = deferred<SiteTwin[]>();
   mockTwins.mockReturnValue(checked.promise);
   const t = await showSite();
@@ -740,12 +740,9 @@ it('closing the page while the check is out delivers nothing', async () => {
   expect(mockAddSite).not.toHaveBeenCalled();
   expect(mockComplete).not.toHaveBeenCalled();
   expect(router.back).not.toHaveBeenCalled();
-  expect(errors).not.toHaveBeenCalled();
-  errors.mockRestore();
 });
 
 it('closing the page while the write is out keeps the row and delivers nothing', async () => {
-  const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
   const written = deferred<string>();
   mockAddSite.mockReturnValue(written.promise);
   const t = await showSite();
@@ -755,8 +752,6 @@ it('closing the page while the write is out keeps the row and delivers nothing',
   await act(async () => written.resolve('new-id'));
   expect(mockComplete).not.toHaveBeenCalled();
   expect(router.back).not.toHaveBeenCalled();
-  expect(errors).not.toHaveBeenCalled();
-  errors.mockRestore();
 });
 
 // `‹ Back` while the write is out: the page is already leaving, so the write landing a moment later
@@ -1600,8 +1595,9 @@ it('forgets an answer about an address since changed', async () => {
   expect(rowValue(t, 'Country')).toBe('—');
 });
 
+// Nothing to see once the page has closed, so what this pins is that nothing is logged: the
+// suite-wide console check's to enforce (#61).
 it('drops an address answer that lands after the page has closed', async () => {
-  const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
   mockParams.mockReturnValue({ token: 'tok', name: 'Nautica Vis' });
   mockRequest.mockReturnValue(request({ kind: 'center' }));
   const answer = deferred<string | null>();
@@ -1610,8 +1606,6 @@ it('drops an address answer that lands after the page has closed', async () => {
   await enterAddress(t, 'Otok Vis, Kut 12');
   await t.unmount();
   await act(async () => answer.resolve('HR'));
-  expect(errors).not.toHaveBeenCalled();
-  errors.mockRestore();
 });
 
 it('keeps the answer for the address in the box when a slower one for an earlier address lands last', async () => {

@@ -58,7 +58,8 @@ it('lands both taps on the render before either, so a render flag cannot turn th
 });
 
 it('prints no "overlapping act()" error, which two presses fired inside one act() do', async () => {
-  const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+  // Watched, not replaced, so anything else logged still reaches the suite-wide console check.
+  const errors = jest.spyOn(console, 'error');
   try {
     const t = await render(<DisabledAfterOnePress seen={[]} />);
     await doubleTap(control(t, 'Go'));
@@ -75,6 +76,30 @@ it('is refused by a control drawn disabled before the first tap, as a thumb is',
       <Pressable accessibilityRole="button" accessibilityLabel="Go" disabled onPress={pressed}>
         <Text>Go</Text>
       </Pressable>
+    </View>,
+  );
+
+  await doubleTap(control(t, 'Go'));
+
+  expect(pressed).not.toHaveBeenCalled();
+});
+
+// What `fireEvent.press` refuses for `pointerEvents` (Testing Library's own reading of it, as a
+// prop or a style), so the helper is never more willing than the presses it stands in for.
+it.each([
+  ['an ancestor that takes no touches', { pointerEvents: 'none' }, {}],
+  ['an ancestor whose style takes no touches', { style: { pointerEvents: 'none' } }, {}],
+  ['an ancestor that keeps touches to itself', { pointerEvents: 'box-only' }, {}],
+  ['a control that passes touches to its children only', {}, { pointerEvents: 'box-none' }],
+] as const)('is refused under %s, as a press is', async (_, around, own) => {
+  const pressed = jest.fn();
+  const t = await render(
+    <View>
+      <View {...around}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go" onPress={pressed} {...own}>
+          <Text>Go</Text>
+        </Pressable>
+      </View>
     </View>,
   );
 
