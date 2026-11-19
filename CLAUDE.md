@@ -4,7 +4,7 @@ Personal hobby project of Aleš (free dive-logging app). **Not a work repo** —
 
 ## Before implementing anything
 
-Read [DESIGN.md](DESIGN.md) — it is the authoritative plan (scope, data model, sync protocol, milestones, decision log). The v1 field set and scope are frozen there; new ideas go to the post-release shelf (§9), not into v1. §10 is a decision log — don't relitigate settled decisions without new information. §0 holds the name, depth palette, and theme tokens; build against those token names, never colour literals.
+Read [DESIGN.md](DESIGN.md) — it is the authoritative plan (scope, data model, sync protocol, milestones, decision log). v1's scope is the **v1** GitHub milestone, and issue #22 says what is in it and why: whatever changes the shape of stored data, plus the core logging flow, goes in before release; other new ideas go to the post-release shelf (§9), not into v1. §10 is a decision log — don't relitigate settled decisions without new information. §0 holds the name, depth palette, and theme tokens; build against those token names, never colour literals.
 
 ## Quick facts
 
