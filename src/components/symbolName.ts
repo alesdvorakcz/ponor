@@ -4,7 +4,7 @@ import { type AndroidSymbol, type SFSymbol } from 'expo-symbols';
  * One symbol, named in each platform's own vocabulary: an SF Symbol on iOS, a Material
  * Symbol everywhere else. Both halves are typed against `expo-symbols`' own unions, so a
  * name neither library actually has fails `tsc` rather than rendering an empty box on a
- * device — the guarantee `EntryIcon.tsx` and `SearchCapsule.tsx` already relied on.
+ * device — the guarantee the app's first symbols already relied on.
  */
 export interface PlatformSymbol {
   ios: SFSymbol;
@@ -45,14 +45,15 @@ export interface PlatformSymbol {
  * **Nothing changes on iOS.** `SymbolView.ios.tsx` spreads the props it was given and then
  * overwrites `name` with `props.name.ios`, so the extra key never reaches the native view:
  * the host node's `name` is the same plain string it always was, which is what
- * `SearchCapsule.test.tsx` and `EntryIcon.test.tsx` assert against.
+ * `SearchCapsule.test.tsx`, `CarriedMark.test.tsx` and `ClearFieldControl.test.tsx` assert
+ * against.
  *
  * **No `fallback`.** §0.6 makes the icon a companion to a label that is always present ("it
  * supplements the label rather than replacing it — never an icon alone"), so an absent
  * symbol degrades to the label, which is a valid state and not a broken one — that is
- * already how `EntryIcon` treats `other`. A `fallback` would also be spread straight into
- * the iOS native view's props, which is a React node arriving at a native view manager for
- * no gain.
+ * also how `drawnIcon` (ConditionIcon.tsx) treats entry *other*. A `fallback` would also be
+ * spread straight into the iOS native view's props, which is a React node arriving at a
+ * native view manager for no gain.
  */
 export function symbolName(symbol: PlatformSymbol): PlatformSymbol & { web: AndroidSymbol } {
   return { ...symbol, web: symbol.android };

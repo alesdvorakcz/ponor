@@ -9,10 +9,9 @@ import { CarriedMark, clearedAnnouncement, clearedTag } from './CarriedMark';
 // `root` is a test-renderer `TestInstance` exposing `queryAll(predicate)` over HOST elements
 // only — a composite component (`SymbolView` itself) never appears as its own node.
 //
-// `t.root` is INCLUDED in the sweep, as `EntryIcon.test.tsx`'s own copy is and for the reason
-// it records: `queryAll` walks descendants and never returns the instance it is called on, and
-// this component renders the symbol as its own outermost element — so the one node that
-// matters would be the one node the query could never see.
+// `t.root` is INCLUDED in the sweep: `queryAll` walks descendants and never returns the
+// instance it is called on, and this component renders the symbol as its own outermost element
+// — so the one node that matters would be the one node the query could never see.
 //
 // The `SymbolModule` match is what separates "a real platform symbol" from "some drawn
 // approximation of one": a hand-rolled glyph, a PNG or a `Text` character would never produce

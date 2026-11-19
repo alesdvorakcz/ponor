@@ -5,7 +5,7 @@ import { jsTabItems } from '../navigation/tabs';
 import { themeFor } from '../theme/resolve';
 import { TabBarGlyph } from './TabBarGlyph';
 
-// Host nodes only, `t.root` included (EntryIcon.test.tsx records why): the glyph is this
+// Host nodes only, `t.root` included (CarriedMark.test.tsx records why): the glyph is this
 // component's outermost element, so a sweep of descendants alone would never see it.
 function hostNodes(t: RenderResult) {
   if (!t.root) return [];
@@ -29,7 +29,7 @@ function tab(name: string) {
 // The navigator hands each glyph the ink for its state — resting or selected — and its own
 // size. Two of each, from the theme, so a glyph that hard-coded either one (or ignored the
 // value it was given) fails here: with a single ink, a constant `fgMuted` would pass, and the
-// browser's selected tab would never change ink. EntryIcon.test.tsx makes the same point.
+// browser's selected tab would never change ink.
 const RESTING = themeFor('dark').fgMuted;
 const SELECTED = themeFor('dark').fg;
 
