@@ -30,6 +30,7 @@ import { localLogbook } from '../cloud/localLogbook';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { setActiveLanguage } from '../i18n';
+import { doubleTap } from '../testing/doubleTap';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
 import AccountScreen, { adoptionSentence, signOutBody, signOutTitle } from './AccountScreen';
@@ -511,14 +512,16 @@ describe('signed out', () => {
   /**
    * §10's in-flight guard, in the half that actually enforces anything.
    *
-   * **The two presses are fired inside ONE act, deliberately.** Written as two awaited presses
-   * this test passes with the `busyRef` deleted — the first press re-renders with
-   * `disabled={busy}` and `fireEvent.press` then refuses a disabled control, so the assertion
-   * is satisfied by the render flag and never touches the ref. That is the guard-that-cannot-
-   * fail shape this project keeps finding, and it was found here by deleting the ref and
-   * watching the suite stay green. Fired back to back with no render in between, the second
-   * press meets a control still announcing itself enabled, which is exactly the double-tap a
-   * thumb produces and exactly what only the synchronous ref can turn away.
+   * **The two presses land with no render between them, deliberately** (`doubleTap`). Written
+   * as two awaited presses this test passes with the `busyRef` deleted — the first press
+   * re-renders with `disabled={busy}` and `fireEvent.press` then refuses a disabled control, so
+   * the assertion is satisfied by the render flag and never touches the ref. That is the
+   * guard-that-cannot-fail shape this project keeps finding, and it was found here by deleting
+   * the ref and watching the suite stay green. Back to back with no render in between, the
+   * second press meets a control still announcing itself enabled, which is exactly the
+   * double-tap a thumb produces and exactly what only the synchronous ref can turn away. (It
+   * used to fire two `fireEvent.press` inside one `act()`, which made React print
+   * "overlapping act() calls" — #61, and `doubleTap`'s docblock says why.)
    */
   it('sends one request for a double tap, before any re-render could disable the control', async () => {
     let settle: ((outcome: AuthOutcome) => void) | undefined;
@@ -535,10 +538,7 @@ describe('signed out', () => {
     // The premise: the control is enabled at the moment BOTH presses land.
     expect(action.props.accessibilityState).toEqual({ disabled: false });
 
-    await act(async () => {
-      fireEvent.press(action);
-      fireEvent.press(action);
-    });
+    await doubleTap(action);
 
     expect(mockAuthenticate).toHaveBeenCalledTimes(1);
     // ...and the flag has since done its own, different job: saying so on screen.
@@ -1151,6 +1151,10 @@ describe('a link from one of the mails', () => {
     await pressControl(t, 'Create an account');
     expect(screenText(t)).not.toContain('That link has expired');
 
+    // The first screen leaves before the link state changes again. Still mounted, it would
+    // re-render on that news outside any act() (#61), and the second half is about a fresh
+    // screen, not that one.
+    await t.unmount();
     setAuthLinkState({ kind: 'failed', message: 'That link has expired. Ask for a new one.' });
     const typed = await render(<AccountScreen />);
     await fireEvent.changeText(findField(typed, 'Email'), 'a');

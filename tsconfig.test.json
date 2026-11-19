@@ -12,7 +12,9 @@
     "src/testing/fakeSyncServer.ts",
     "src/testing/migrationSql.ts",
     "src/testing/suuntoFixture.ts",
-    "src/testing/unexpectedGraphics.ts"
+    "src/testing/unexpectedGraphics.ts",
+    "src/testing/doubleTap.ts",
+    "src/testing/failOnConsoleError.ts"
   ],
   // Un-excludes the test files tsconfig.json excludes ("exclude" replaces rather than merges
   // across extends); node_modules must still be listed once any "exclude" is set at all,

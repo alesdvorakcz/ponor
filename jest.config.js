@@ -20,4 +20,7 @@ module.exports = {
   // an unhandled 'error' event. Not in the brief; added because Jest is
   // otherwise unusable here.
   watchman: false,
+  // A test that prints to console.error fails (#61); see the file for why and how a test that
+  // means to provoke one says so.
+  setupFilesAfterEnv: ['<rootDir>/src/testing/failOnConsoleError.ts'],
 };
