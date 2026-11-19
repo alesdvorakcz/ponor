@@ -582,15 +582,18 @@ describe('endSession', () => {
     const { client, auth } = fakeClient();
     const { logbook } = wiredLogbook({ wipe: jest.fn().mockResolvedValue({ done: false, pending: 3 }) });
 
+    // #74, in the owner's approved words, asserted as words: the push fell short for a reason this
+    // module cannot see (offline, a server that is down, a refused row), so no cause is named.
     await expect(endSession(client, logbook)).resolves.toEqual({
       ok: false,
-      message: unpushedChanges(),
+      message:
+        'This phone has dives your account hasn’t received yet. Nothing was cleared, and you’re still signed in — try again later.',
     });
     expect(auth.signOut).not.toHaveBeenCalled();
   });
 
   /** The two refusals are different sentences, because they ask the diver for different things:
-   * one is "connect and try again", the other is "this did not work". A single message for both
+   * one is "try again later" (#74), the other is "this did not work". A single message for both
    * would tell a diver at sea that their phone is broken. */
   it('tells a refusal apart from a failed erase', async () => {
     expect(unpushedChanges()).not.toBe(wipeFailed());
@@ -642,9 +645,12 @@ describe('startOver — §7.4’s second destructive act (M3j)', () => {
       startOver: jest.fn().mockResolvedValue({ done: false, pending: 3 }),
     });
 
+    // #74, in the owner's approved words, asserted as words: no cause named, and no promise a row
+    // the server keeps refusing could break (the deletion goes up once a sync gets through, not on
+    // the next one, which may be refused too).
     await expect(startOver(logbook)).resolves.toEqual({
       ok: false,
-      message: startOverUnpushed(),
+      message: 'Deleted on this device. Your account hasn’t received the deletion yet — it goes up once a sync gets through.',
     });
     expect(startOverUnpushed()).not.toBe(unpushedChanges());
   });
@@ -1080,5 +1086,13 @@ describe('in Czech', () => {
       'Server se nepodařilo kontaktovat — buď tu není připojení, nebo server nefunguje. Váš deník je v bezpečí v telefonu; zkuste to později.',
     );
     expect(deleteAccountFailed()).toBe('Váš účet se nepodařilo kontaktovat, takže se nic nesmazalo. Zkuste to znovu později.');
+  });
+
+  it('names no cause when the account has not received what this phone holds, in Czech (#74)', () => {
+    setActiveLanguage('cs');
+    expect(unpushedChanges()).toBe(
+      'Tento telefon má ponory, které váš účet ještě nedostal. Nic se nevymazalo a jste stále přihlášeni — zkuste to znovu později.',
+    );
+    expect(startOverUnpushed()).toBe('V tomto zařízení smazáno. Váš účet zatím smazání nedostal — odejde, jakmile se synchronizace podaří.');
   });
 });

@@ -299,6 +299,13 @@ export function wipeFailed(): string {
  *
  * It quotes no number. §0.6 wants error text that names an action, and "3 changes" invites a
  * diver to go looking for three things no screen can point at.
+ *
+ * **It names no cause** (#74, in the owner's approved words). Until then it said *Connect and try
+ * again*, but the refusal fires whenever the push did not reach the account: the phone offline,
+ * the server down, or the server refusing a row all land here, and this module cannot tell which.
+ * The action it names is the only one the diver has in all three: try again later. It does not
+ * promise that later works, since a row the server keeps refusing is refused again (the engine
+ * retries a refused push forever, `syncEngine.ts`), and it does not need to.
  */
 export function unpushedChanges(): string {
   return t('auth.unpushedChanges');
@@ -329,10 +336,17 @@ export function startOverUnavailable(): string {
  *
  * The one refusal in this app that reports a *partial* act, and it is partial by design
  * (`localLogbook.ts`'s `startOver`): what stopped is the hard delete, and what stands is the
- * deletion itself, flagged and waiting for a signal. So this says what is true on this device,
- * what is not true yet in the account, and what will finish it — rather than `unpushedChanges`'
- * "nothing was cleared", which would be a plain lie about a logbook the diver can already see
- * is empty.
+ * deletion itself, flagged and waiting for a push to get through. So this says what is true on
+ * this device, what is not true yet in the account, and what will finish it — rather than
+ * `unpushedChanges`' "nothing was cleared", which would be a plain lie about a logbook the diver
+ * can already see is empty.
+ *
+ * **What finishes it is a sync that gets through, and nothing the diver must do first** (#74, in
+ * the owner's approved words). It said *connect, and it goes up on the next sync*. *Connect* named
+ * one of three reasons the push can fall short (offline, a server that is down, a refused row) as
+ * the only one. *The next sync* was a promise a row the server keeps refusing would break, since
+ * the engine retries a refused push forever (`syncEngine.ts`), so it now says *once a sync gets
+ * through*, which is true in every case.
  */
 export function startOverUnpushed(): string {
   return t('auth.startOverUnpushed');
