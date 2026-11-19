@@ -725,8 +725,8 @@ it('a first catalogue read that failed says so, never calls the catalogue empty,
   expect(rowNames(t)).toEqual([]);
   expect(textIn(t)).toContain(catalogueUnreadable());
   await press(t, 'Near me');
-  // The fix starts the nearby search on a timer; settled here, as every test that turns Near me
-  // on does, rather than left to whichever later act() the timer happens to fire in (#61).
+  // The fix starts the nearby search on a timer; settled here, as every test that ends with Near
+  // me still on does, rather than left to whichever later act() the timer happens to fire in (#61).
   await settleNearMe();
   expect(nearMe(t).props.accessibilityState).toMatchObject({ selected: true });
   expect(textIn(t)).toContain(catalogueUnreadable());
