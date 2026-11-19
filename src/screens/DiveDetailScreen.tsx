@@ -476,8 +476,8 @@ function MoreButton({ styles, onPress, disabled }: { styles: Styles; onPress: ()
 }
 
 /**
- * The record sheet's *Delete dive* glyph. Exported for `symbolName.test.tsx`, whose census holds every symbol the app
- * ships to a pin by the very object the app draws (#49).
+ * The record sheet's *Delete dive* glyph. Exported for `symbolName.test.tsx`, whose census
+ * holds every symbol the app ships to a pin by the very object the app draws (#49).
  */
 export const DELETE_DIVE_GLYPH: PlatformSymbol = { ios: 'trash', android: 'delete' };
 

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 
 import { render } from '@testing-library/react-native';
 import { SymbolView } from 'expo-symbols';
@@ -197,18 +197,18 @@ const CAPSULE_GLYPHS = [
 
 it.each(CAPSULE_GLYPHS)('gives the %s an Android and a web name, not just an iOS one', async (label, symbol, material) => {
   await render(<ActionCapsule scheme="dark" actions={[{ key: 'only', symbol, label, onPress: () => {} }]} />);
-  const name = nameProp();
-  expect(name?.android).toBe(material);
-  expect(name?.web).toBe(material);
+  // The whole name, as the rendered rows above check it.
+  expect(nameProp()).toEqual({ ios: symbol.ios, android: material, web: material });
 });
 
 // --- Symbols pinned as the constants their screens export ---
 //
 // Drawn by screens whose render means mocking their catalogue, logbook and session reads, which
-// their own suites already do and this file deliberately does not. So the constant is pinned
-// here, through `symbolName`, and the census below covers the rest: the screen passes it to a
-// `SymbolView` through `symbolName`, and any other symbol the screen drew instead would be a
-// literal no row holds.
+// their own suites already do and this file deliberately does not. So a row here checks one
+// thing, the constant's Material name. The rest is held elsewhere: this file's first test pins
+// that `symbolName` makes the web name the Android one, and the census below that the screen
+// passes its symbol to a `SymbolView` through `symbolName`, and that any other symbol the screen
+// drew instead would be a literal no row holds.
 const NAMED_GLYPHS = [
   // Issue #19's site and centre picker. A missing Material name would leave the browser's and
   // Android's picker with no magnifier, no check on the chosen row and no `+` on *Create*.
@@ -228,9 +228,7 @@ const NAMED_GLYPHS = [
 ] as const;
 
 it.each(NAMED_GLYPHS)('gives the %s an Android and a web name, not just an iOS one', (_label, symbol, material) => {
-  const name = symbolName(symbol);
-  expect(name.android).toBe(material);
-  expect(name.web).toBe(material);
+  expect(symbol.android).toBe(material);
 });
 
 // --- The tab glyphs, checked on the data both bars are handed ---
@@ -328,34 +326,48 @@ it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank s
 // What makes "every symbol the app ships is pinned" a check (the note above says why it has to
 // be one). It reads the app's source rather than importing it, with TypeScript's own parser, so
 // a symbol quoted in a comment or a string is not taken for one. The app's source is every
-// `.ts`/`.tsx` under `src/` that is not a test.
+// `.ts`/`.tsx` under `src/` except the tests and what only they use: `src/testing/` and any
+// `__fixtures__` or `__mocks__` folder. A fixture may well hold an `ios` and an `android` that
+// are not symbols (two OS versions, say), and none of it ships.
 //
 // **What it can see, and what it cannot.** A symbol is found when it is written the way every
-// symbol in the app is written today: an object literal with a string `ios` and a string
-// `android`. One built any other way (spread from another, computed, read from data) is not
-// found, and neither is a `SymbolView` rendered other than as JSX under that name. Neither
-// exists. Either would need this census taught about it, not excused from it.
+// symbol in the app is written today: an object literal whose `ios` and `android` are both
+// string literals, keys quoted or not. One built any other way (spread from another, computed,
+// read from data) is not found, and neither is a `SymbolView` rendered other than as JSX under
+// that name. Neither exists. Either would need this census taught about it, not excused from it.
+//
+// **Platform files are the app too.** `DiveMap.web.tsx` and its kind are scanned, and a symbol
+// written only in one must be held by a row like any other. Jest runs as iOS, so an import of
+// `./DiveMap` here gets the native file; a row holds a web-only symbol by importing the platform
+// file by its full name (`./DiveMap.web`), as `theme/fonts.test.ts` does with `loadFonts.web`.
 
 const SOURCE_ROOT = join(__dirname, '..');
 
-/** Every file under `src/` the app ships: everything but the tests. */
+/** Folders that only the tests use, at any depth under `src/`. */
+const TEST_ONLY_FOLDERS: ReadonlySet<string> = new Set(['testing', '__fixtures__', '__mocks__']);
+
+/** Every file under `src/` the app ships: everything but the tests and what only they use. */
 const appSources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) return appSources(path);
+    if (entry.isDirectory()) return TEST_ONLY_FOLDERS.has(entry.name) ? [] : appSources(path);
     return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [path] : [];
   });
 
 const pairOf = (symbol: { ios: string; android: string }): string => `${symbol.ios} · ${symbol.android}`;
 
-/** The text of a `key: 'string'` property on an object literal, if it has one. */
+/**
+ * The text of a `key: 'string'` property on an object literal, if it has one. The key may be
+ * quoted (`'ios':`) and the value a template with no substitutions (`` `delete` ``): both
+ * type-check as a `PlatformSymbol`, so both must be found.
+ */
 function stringProperty(literal: ts.ObjectLiteralExpression, key: string): string | undefined {
   for (const property of literal.properties) {
     if (
       ts.isPropertyAssignment(property) &&
-      ts.isIdentifier(property.name) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
       property.name.text === key &&
-      ts.isStringLiteral(property.initializer)
+      ts.isStringLiteralLike(property.initializer)
     ) {
       return property.initializer.text;
     }
@@ -394,7 +406,8 @@ function takeCensus(): Census {
   const symbols = new Map<string, string[]>();
   const unresolvedNames: string[] = [];
   for (const file of appSources(SOURCE_ROOT)) {
-    const path = relative(SOURCE_ROOT, file);
+    // With `/` whatever the OS, so the exception pinned below reads the same on every machine.
+    const path = relative(SOURCE_ROOT, file).split(sep).join('/');
     const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, kind);
     const visit = (node: ts.Node): void => {

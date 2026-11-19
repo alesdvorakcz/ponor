@@ -56,9 +56,8 @@ export interface OptionChipsProps<T extends string | number> {
    * `drawnIcon(field)` (ConditionIcon.tsx), which owns which values have one and returns
    * nothing for the rest, entry *other* among them. A render prop rather than a `Record` this
    * component looks values up in, because the mapping is per FIELD, not per chip row: a table
-   * here would have to be keyed
-   * by both field and value, which is a second hand-maintained list of exactly the shape
-   * §4.1 warns about, one call site away from the file that already owns it.
+   * here would have to be keyed by both field and value, which is a second hand-maintained list
+   * of exactly the shape §4.1 warns about, one call site away from the file that already owns it.
    *
    * `tintColor` is handed OUT rather than taken in: which ink a chip's contents wear depends
    * on whether that chip is selected, and this component is the only thing that knows. A
