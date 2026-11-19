@@ -18,8 +18,9 @@ export interface PlatformSymbol {
  * it was written and false by the time the weather glyphs, the action capsule and M1h's
  * condition marks had been added. A list of callers in the callee's own docblock is a second
  * copy of something the call graph already knows, and it goes stale the same way §4.1's
- * duplicated rules do. `symbolName.test.tsx` names the ones it actually renders, because
- * *that* list is a claim about coverage and has to be exact.)
+ * duplicated rules do. `symbolName.test.tsx` does not keep a list either: it takes a census
+ * of the source, since coverage is a claim that has to be exact and its hand-kept list was
+ * not (#49).)
  *
  * It exists because of a specific hole. `expo-symbols` ships two implementations:
  * `SymbolView.ios.tsx`, which reads `name.ios`, and `SymbolView.tsx`, used by **both Android

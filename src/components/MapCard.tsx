@@ -5,7 +5,13 @@ import { t } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { type Styles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-import { symbolName } from './symbolName';
+import { symbolName, type PlatformSymbol } from './symbolName';
+
+/**
+ * The card's map glyph. Exported for `symbolName.test.tsx`, whose census holds every symbol the app
+ * ships to a pin by the very object the app draws (#49).
+ */
+export const SHOW_ON_MAP_GLYPH: PlatformSymbol = { ios: 'map', android: 'map' };
 
 /**
  * **"Show on map"** — a place's position as a card: the map glyph, the words, and the coordinates
@@ -42,7 +48,7 @@ export function MapCard({
       accessibilityLabel={t('detail.showOnMap')}
       accessibilityHint={coordinates}
     >
-      <SymbolView name={symbolName({ ios: 'map', android: 'map' })} size={22} tintColor={themeFor(scheme).fg} />
+      <SymbolView name={symbolName(SHOW_ON_MAP_GLYPH)} size={22} tintColor={themeFor(scheme).fg} />
       <View style={styles.detailMapCardText}>
         <Text style={styles.detailMapCardTitle}>{t('detail.showOnMap')}</Text>
         <Text style={styles.detailMapCardMeta}>{coordinates}</Text>

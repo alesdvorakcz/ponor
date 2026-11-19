@@ -6,7 +6,13 @@ import { t } from '../i18n';
 import { themeFor } from '../theme/resolve';
 import { makeStyles } from '../theme/styles';
 import { type ColorScheme } from '../theme/tokens';
-import { symbolName } from './symbolName';
+import { symbolName, type PlatformSymbol } from './symbolName';
+
+/**
+ * The field's magnifier. Exported for `symbolName.test.tsx`, whose census holds every symbol the app
+ * ships to a pin by the very object the app draws (#49).
+ */
+export const SEARCH_CAPSULE_GLYPH: PlatformSymbol = { ios: 'magnifyingglass', android: 'search' };
 
 interface SearchCapsuleProps {
   scheme: ColorScheme;
@@ -80,7 +86,7 @@ export function SearchCapsule({
   // `android` rather than named again, and why nothing about the iOS render changes.
   const icon = (
     <SymbolView
-      name={symbolName({ ios: 'magnifyingglass', android: 'search' })}
+      name={symbolName(SEARCH_CAPSULE_GLYPH)}
       size={18}
       tintColor={theme.fg}
     />
