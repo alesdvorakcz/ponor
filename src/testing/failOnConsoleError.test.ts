@@ -25,17 +25,36 @@ it('names the first frame in the project, past its own wrapper and the libraries
   ).toBe('src/hooks/useCatalogueSupplement.ts:146:31');
 });
 
-it('falls back to the first frame past its wrapper when only libraries are on the stack', () => {
+// The stack a FlatList's own render batch logs from, as a run printed it: nothing of the
+// project's, and React's frames first. The library that set the state is the one to name.
+it('names the first library past React itself when only libraries are on the stack', () => {
   expect(
     callerOf(
       stack(
         `console.error (${wrapper}:30:3)`,
-        'Timeout._updateCellsToRender [as _onTimeout] (/repo/node_modules/@react-native/virtualized-lists/Lists/VirtualizedList.js:1806:16)',
+        '/repo/node_modules/react-reconciler/cjs/react-reconciler.development.js:16307:19',
+        'warnIfUpdatesNotWrappedWithActDEV (/repo/node_modules/react-reconciler/cjs/react-reconciler.development.js:16306:9)',
+        'Component.setState (/repo/node_modules/react/cjs/react.development.js:655:20)',
+        '/repo/node_modules/@babel/runtime/helpers/superPropGet.js:6:14',
+        'VirtualizedList.setState (/repo/node_modules/@react-native/virtualized-lists/Lists/StateSafePureComponent.js:40:7)',
         'listOnTimeout (node:internal/timers:588:17)',
       ),
       root,
     ),
-  ).toBe('node_modules/@react-native/virtualized-lists/Lists/VirtualizedList.js:1806:16');
+  ).toBe('node_modules/@react-native/virtualized-lists/Lists/StateSafePureComponent.js:40:7');
+});
+
+it('falls back to the first frame past its wrapper when React alone is on the stack', () => {
+  expect(
+    callerOf(
+      stack(
+        `console.error (${wrapper}:30:3)`,
+        'popActScope (/repo/node_modules/react/cjs/react.development.js:800:13)',
+        'listOnTimeout (node:internal/timers:588:17)',
+      ),
+      root,
+    ),
+  ).toBe('node_modules/react/cjs/react.development.js:800:13');
 });
 
 it('reads a frame with no function name, and a path with a space in it', () => {
