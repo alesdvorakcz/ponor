@@ -991,7 +991,7 @@ export const cs = {
       signOutFailed: 'Deník tohoto zařízení byl vymazán, ale odhlášení se nedokončilo. Zkuste to znovu.',
       startOverUnavailable: 'Tento build neumí vyčistit zařízení, takže se nic nesmazalo.',
       startOverUnpushed:
-        'V tomto zařízení smazáno. Váš účet zatím smazání nedostal — odejde při příští synchronizaci.',
+        'V tomto zařízení smazáno. Váš účet zatím smazání nedostal — odejde, jakmile se synchronizace podaří.',
       startOverFailed:
         'Váš účet je prázdný, ale deník v tomto zařízení se nepodařilo vymazat. Zkuste to znovu.',
       deleteAccountUnavailable:

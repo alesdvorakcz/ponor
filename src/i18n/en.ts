@@ -1209,7 +1209,7 @@ export const en = {
        * see the functions in `cloud/auth.ts` for why none of them reuses a sentence above. */
       startOverUnavailable: 'This build can’t clear the device, so nothing was deleted.',
       startOverUnpushed:
-        'Deleted on this device. Your account hasn’t received the deletion yet — it goes up on the next sync.',
+        'Deleted on this device. Your account hasn’t received the deletion yet — it goes up once a sync gets through.',
       startOverFailed:
         'Your account is empty, but this device’s logbook couldn’t be cleared. Try again.',
       deleteAccountUnavailable:

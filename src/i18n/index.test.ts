@@ -291,15 +291,17 @@ function allStrings(node: unknown): string[] {
  * sign-in sentence names it as one cause of two, so only *až budete … připojeni* is caught there.
  *
  * **Nor to connect** (#74): *Connect and try again* and *connect, and it goes up on the next
- * sync* made the same claim in other words, on refusals that fire whatever stopped the push. The
- * verb is caught (*connect*, *reconnect*, *připojte se*); the noun *connection* / *připojení* is
- * not, for the same reason as above.
+ * sync* made the same claim in other words, on refusals that fire whatever stopped the push.
+ * Every form of the verb is caught. In English that is *connect*, *connects*, *connected*,
+ * *connecting* and each with *re-*; the noun *connection* is not caught, since the sign-in
+ * sentence names it as one cause of two. In Czech it is any word on the stem *připoj-* (*připojte
+ * se*, *až se připojíte*, *připojit*, *připoj se*, *až budete připojeni*) except the noun
+ * *připojení*, in any case, for the same reason. Matched with the `u` flag, since `\w` stops at
+ * a diacritic.
  */
 it('never tells the diver to wait until they are online, or to connect', () => {
-  expect(allStrings(en).filter((text) => /\bonline\b|\b(re)?connect\b/i.test(text))).toEqual([]);
-  expect(
-    allStrings(cs).filter((text) => /\bonline\b|až\s+budete[^.;—]*připojen|připojte\s+se/i.test(text)),
-  ).toEqual([]);
+  expect(allStrings(en).filter((text) => /\bonline\b|\b(re)?connect(s|ed|ing)?\b/i.test(text))).toEqual([]);
+  expect(allStrings(cs).filter((text) => /\bonline\b|připoj(?!ení)\p{L}*/iu.test(text))).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------------------
