@@ -325,10 +325,12 @@ it('draws the tabs with no Material name as Ponor’s own glyphs, not as blank s
 //
 // What makes "every symbol the app ships is pinned" a check (the note above says why it has to
 // be one). It reads the app's source rather than importing it, with TypeScript's own parser, so
-// a symbol quoted in a comment or a string is not taken for one. The app's source is every
-// `.ts`/`.tsx` under `src/` except the tests and what only they use: `src/testing/` and any
-// `__fixtures__` or `__mocks__` folder. A fixture may well hold an `ios` and an `android` that
-// are not symbols (two OS versions, say), and none of it ships.
+// a symbol quoted in a comment or a string is not taken for one. What it reads is every
+// `.ts`/`.tsx` under `src/` except the tests and three folders only they use: `src/testing/` and
+// any `__fixtures__` or `__mocks__` folder. A fixture may well hold an `ios` and an `android`
+// that are not symbols (two OS versions, say), and none of it ships. A test-only file outside
+// those folders is still read (`domain/diveFixture.ts` is one, and holds no symbol). That errs
+// the safe way: a pair in such a file would turn this red until moved, never let a symbol by.
 //
 // **What it can see, and what it cannot.** A symbol is found when it is written the way every
 // symbol in the app is written today: an object literal whose `ios` and `android` are both
@@ -346,7 +348,7 @@ const SOURCE_ROOT = join(__dirname, '..');
 /** Folders that only the tests use, at any depth under `src/`. */
 const TEST_ONLY_FOLDERS: ReadonlySet<string> = new Set(['testing', '__fixtures__', '__mocks__']);
 
-/** Every file under `src/` the app ships: everything but the tests and what only they use. */
+/** Every `.ts`/`.tsx` under `src/` but the tests and the folders above (see the note for the rest). */
 const appSources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
