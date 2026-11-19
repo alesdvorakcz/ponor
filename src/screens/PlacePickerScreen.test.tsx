@@ -633,6 +633,10 @@ describe('Near me', () => {
     await fireEvent.press(nearMe(t));
     expect(mockRough).toHaveBeenCalledTimes(1);
     await act(async () => located.resolve({ found: true, ...fix }));
+    // The fix starts the nearby search on a timer, and its answer sets state. Settled here, inside
+    // act(); left in flight, it landed after the test's last act() whenever the run was busy, and
+    // React said so (#61).
+    await settleNearMe();
     expect(mockRough).toHaveBeenCalledTimes(1);
   });
 

@@ -1948,10 +1948,12 @@ describe('data export', () => {
 
     // A second press — on either row — while one is in flight. Two exports at once is not a
     // state this screen has: they read the same tables and would race each other's file.
-    await act(async () => {
-      fireEvent.press(findExportRow(t, 'Export as JSON'));
-      fireEvent.press(findExportRow(t, 'Export as CSV'));
-    });
+    // The rows only announce themselves disabled (`accessibilityState`, no `disabled` prop),
+    // so both presses reach `runExport`, and its own guard is what refuses them: the first
+    // press has rendered `exporting` by now. Awaited one at a time, since two `fireEvent.press`
+    // inside one `act()` make React print "overlapping act() calls" (#61).
+    await fireEvent.press(findExportRow(t, 'Export as JSON'));
+    await fireEvent.press(findExportRow(t, 'Export as CSV'));
     expect(mockShareTextFile).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -2529,8 +2531,8 @@ describe('data import', () => {
    * a render lands between the two: by the second one, `disabled={importing}` on the row has
    * *already* refused the press before `runImport` is ever called, which is why `mockPick`
    * below stays at one even with the guard deleted. Proving the guard itself needs the shape
-   * `AccountScreen.test.tsx`'s "sends one request for a double tap" spells out and uses: both
-   * presses fired inside ONE `act()`, no render between them, so the second reaches a control
+   * `AccountScreen.test.tsx`'s "sends one request for a double tap" spells out and uses
+   * (`doubleTap`): both presses with no render between them, so the second reaches a control
    * still reporting itself enabled — and even then, a `useState` guard (unlike that test's
    * `busyRef`) would not turn it away, because `importing` inside `runImport` is read from the
    * closure the last render captured, the same closure both presses would share, not a mutable

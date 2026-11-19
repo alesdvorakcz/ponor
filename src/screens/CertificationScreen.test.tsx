@@ -19,6 +19,7 @@ import { confirmDestructive, type DestructiveConfirmation } from '../platform/co
 import { emptyCertificationNote } from '../domain/certifications';
 import { type Certification } from '../domain/types';
 import { setActiveLanguage } from '../i18n';
+import { doubleTap } from '../testing/doubleTap';
 import { unexpectedGraphics } from '../testing/unexpectedGraphics';
 import { makeStyles } from '../theme/styles';
 import CertificationScreen from './CertificationScreen';
@@ -372,7 +373,9 @@ it('says so when the write rejects, and stays put', async () => {
 });
 
 /** §10's in-flight guard: without the synchronous ref a double-tap writes twice — two cards in
- * create mode — and pops the navigation stack twice. */
+ * create mode — and pops the navigation stack twice. The taps land with no render between them
+ * (`doubleTap`), so the second meets the control as the first found it, and only the ref can
+ * turn it away. */
 it('writes once for a double tap', async () => {
   let resolve = () => {};
   mockCreate.mockImplementation(() => new Promise<Certification>((r) => { resolve = () => { r(card()); }; }));
@@ -381,10 +384,7 @@ it('writes once for a double tap', async () => {
 
   const control = findControl(t, 'Save certification');
   if (!control) throw new Error('no save control');
-  await act(async () => {
-    fireEvent.press(control);
-    fireEvent.press(control);
-  });
+  await doubleTap(control);
   await act(async () => {
     resolve();
   });
