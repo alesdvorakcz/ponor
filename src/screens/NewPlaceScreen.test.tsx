@@ -64,7 +64,8 @@ const styles = makeStyles('light');
 
 const pin = { latitude: 43.06, longitude: 16.18 };
 // The dive's entry as a new site inherits it — a set of its one way in (#31, `siteFactsFrom`).
-const diveAt: DiveContext = { pin, entry: ['boat'], salinity: 'salt', waterBody: 'ocean', siteId: null, diveId: null };
+// A salt lake (#53): a dive in the ocean hides the Salinity row, and most tests here need the row.
+const diveAt: DiveContext = { pin, entry: ['boat'], salinity: 'salt', waterBody: 'lake', siteId: null, diveId: null };
 const noDive: DiveContext = { pin: null, entry: [], salinity: null, waterBody: null, siteId: null, diveId: null };
 
 /** One of §2.3's near-matches as `findSiteTwins` answers it — no country and no position unless
@@ -251,7 +252,7 @@ it('prefills the typed name, the dive’s pin, salinity, water body and entry', 
   expect(rowValue(t, 'Country')).toBe('HR');
   // The water and the entry, as the dive has them — each one marked as the dive's, and the pin too.
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
-  expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Water body: Lake').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
   expect(count(t, 'from this dive')).toBe(4);
   // Never the phone's position unasked (the spec's anti-goal).
@@ -422,7 +423,7 @@ it('Save with no near match creates the site and returns its id and name to the 
       longitude: 16.18,
       entry: ['boat'],
       salinity: 'salt',
-      waterBody: 'ocean',
+      waterBody: 'lake',
       ...NO_SITE_DETAILS,
     },
     // The *Country* row's answer for this very pin (`—`, here), so Save asks the geocoder nothing.
@@ -907,7 +908,7 @@ it('opens The site when the dive handed it a value, with the dive’s marks', as
   expect(labelled(t, 'Collapse The site').props.accessibilityState).toMatchObject({ expanded: true });
   expect(textIn(t)).not.toContain('water, entry, type, depth');
   expect(labelled(t, 'Salinity: Salt').props.accessibilityState).toMatchObject({ selected: true });
-  expect(labelled(t, 'Water body: Ocean').props.accessibilityState).toMatchObject({ selected: true });
+  expect(labelled(t, 'Water body: Lake').props.accessibilityState).toMatchObject({ selected: true });
   expect(labelled(t, 'Entry: Boat').props.accessibilityState).toMatchObject({ checked: true });
   expect(count(t, 'from this dive')).toBe(4);
   // *Other names* holds nothing, so it stays shut.
@@ -917,7 +918,7 @@ it('opens The site when the dive handed it a value, with the dive’s marks', as
   await press(t, 'Collapse The site');
   expect(has(t, 'Salinity: Salt')).toBe(false);
   await press(t, 'Save site');
-  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'ocean', entry: ['boat'] }), {
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'lake', entry: ['boat'] }), {
     ...pin,
     country: null,
   });
@@ -1704,6 +1705,52 @@ it('paints nothing of its own', async () => {
   expect(unexpectedGraphics(t, 'light')).toEqual([]);
 });
 
+// --- #53: the water body sets the salinity, here as on the dive form ---
+
+const diveInTheOcean: DiveContext = { ...diveAt, salinity: 'salt', waterBody: 'ocean' };
+
+it('draws Water body before Salinity before Entry', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveAt }));
+  const t = await showSite();
+  const lines = textIn(t);
+
+  expect(lines.indexOf('Water body')).toBeLessThan(lines.indexOf('Salinity'));
+  expect(lines.indexOf('Salinity')).toBeLessThan(lines.indexOf('Entry'));
+});
+
+it('hides Salinity for an ocean dive and saves salt', async () => {
+  // Stored before #53 with a fresh nobody could see past an ocean: the site does not inherit it.
+  mockRequest.mockReturnValue(request({ dive: { ...diveInTheOcean, salinity: 'fresh' } }));
+  const t = await showSite();
+
+  expect(has(t, 'Salinity: Salt')).toBe(false);
+  expect(textIn(t)).not.toContain('Salinity');
+  await press(t, 'Save site');
+  expect(mockAddSite).toHaveBeenCalledWith(expect.objectContaining({ salinity: 'salt', waterBody: 'ocean' }), expect.anything());
+});
+
+it('brings Fresh, from the water body, when the diver taps Lake on an ocean dive’s site', async () => {
+  mockRequest.mockReturnValue(request({ dive: diveInTheOcean }));
+  const t = await showSite();
+
+  await press(t, 'Water body: Lake');
+
+  expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).toMatchObject({ selected: true });
+  expect(count(t, 'from the water body')).toBe(1);
+});
+
+it('starts on Fresh, from the water body, for a dive that named a lake and no salinity', async () => {
+  mockRequest.mockReturnValue(request({ dive: { ...diveAt, salinity: null } }));
+  const t = await showSite();
+
+  expect(labelled(t, 'Salinity: Fresh').props.accessibilityState).toMatchObject({ selected: true });
+  expect(count(t, 'from the water body')).toBe(1);
+
+  // A salinity the diver chooses is theirs, and says so by saying nothing.
+  await press(t, 'Salinity: Salt');
+  expect(count(t, 'from the water body')).toBe(0);
+});
+
 describe('in Czech', () => {
   beforeEach(() => {
     setActiveLanguage('cs');
@@ -1711,6 +1758,15 @@ describe('in Czech', () => {
   afterEach(async () => {
     await cleanup();
     setActiveLanguage('en');
+  });
+
+  it('says from the water body in Czech', async () => {
+    mockRequest.mockReturnValue(request({ dive: diveInTheOcean }));
+    const t = await showSite();
+
+    await press(t, 'Vodní plocha: Jezero');
+
+    expect(count(t, 'podle vodní plochy')).toBe(1);
   });
 
   it('titles the page and words the save button in Czech', async () => {
