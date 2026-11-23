@@ -432,3 +432,11 @@ it('saves salt when the site answers ocean, even over a salinity tapped while th
   expect(valuesOf(answer)).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
   expect(answer.released).toEqual(['salinity']);
 });
+
+// The final review's finding 7: a row in `keep` is the diver's even before the form's own state
+// has counted it as typed — the two are updated together, but the read can land in between.
+it('treats a kept row as the diver’s even before it is counted as typed', () => {
+  const answer = siteDefaultFills(says({ entry: ['boat'] }), { waterBody: 'lake' }, NOTHING_TYPED, { waterBody: 'river' }, new Set(['waterBody']));
+
+  expect(filled(answer)).not.toContain('waterBody');
+});

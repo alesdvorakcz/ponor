@@ -481,13 +481,12 @@ interface SeedState {
    * expire — and this is *revisable*: switching sites recomputes it wholesale, and unpairing
    * empties it. A site fill recorded as "typed" would make the second site pick refuse to
    * overwrite the first site's answer, which is §2.1's rule failing at exactly the moment it
-   * is named for. The two can never overlap either, by construction rather than by policing:
-   * `siteDefaultFills` skips every typed field, so a field the site answers for is one the
-   * diver has not touched, and `noteTouched` takes a field back out of here the moment they do.
+   * is named for. The two can never overlap either: a pick that answers for a typed field
+   * releases it (`SiteDefaultAnswer.released`, #53) and the form takes it out of `typed` in the
+   * same update, and `noteTouched` takes a field back out of here the moment the diver touches it.
    *
-   * Empty in edit mode, and by decree rather than consequence — see `applySiteDefaults`, which
-   * is where §2.1's *prefill* is kept away from a dive that already holds the diver's own
-   * record of the water it was dived in.
+   * In edit mode it fills only when the diver moves the dive to another site (#53): opening a
+   * stored dive asks the catalogue nothing — see `applySiteDefaults`.
    */
   fromSite: ReadonlySet<string>;
   /**
@@ -534,6 +533,14 @@ interface SeedState {
    * every gesture that decides the salinity again rewrites it, and a diver's own tap removes it.
    */
   fromWaterBody: ReadonlySet<string>;
+  /**
+   * **The salinity a gesture last wrote** — a water-body tap or a site pick (#53) — or `undefined`
+   * when none did, or the diver has since chosen one by hand. Pinned into the seed on a reseed,
+   * the way `pairedNames` pins a site's name: `keepDirtyValues` keeps only a value react-hook-form
+   * RECORDED as changed, and a gesture's salinity that equals the seed's never is, so without
+   * this a newer dive landing (or the unit preference arriving) swapped it for the new seed's.
+   */
+  salinityPin: string | null | undefined;
 }
 
 /**
@@ -555,6 +562,21 @@ function pinPairedNames(values: DiveFormInput, pairedNames: ReadonlyMap<Suggeste
   const pinned = { ...values } as Record<string, unknown>;
   for (const [field, name] of pairedNames) pinned[field] = name;
   return pinned as DiveFormInput;
+}
+
+/**
+ * **An ocean dive is saved salt** (#53), whatever the hidden Salinity row holds — the one place a
+ * gesture could not reach it: a salinity chosen by hand before carry-over landed an ocean
+ * underneath it (the final review's third finding). New dives only: a stored dive is saved as the
+ * diver left it, so one stored before the rule with *fresh* keeps it until its water is changed.
+ */
+function oceanIsSalt(values: DiveFormValues): DiveFormValues {
+  return typeof values.waterBody === 'string' && values.waterBody.trim() === 'ocean' ? { ...values, salinity: 'salt' } : values;
+}
+
+/** The three rows a site speaks for, as a form holds them — what `inherited` keeps. */
+function placeColumns(values: DiveFormInput): InheritedValues {
+  return { entry: values.entry, salinity: values.salinity, waterBody: values.waterBody };
 }
 
 /**
@@ -580,19 +602,17 @@ function pinPairedNames(values: DiveFormInput, pairedNames: ReadonlyMap<Suggeste
  * are subtracted from the marks on the way: see `SeedState.typed` for the race that closes,
  * `SeedState.cleared` for why the third state has to outlive a reseed too, and
  * `SeedState.fromSite` for the row the catalogue is answering for. A reseed re-derives
- * everything the SEED decides and nothing the DIVER or the SITE decided.
+ * everything the SEED decides and nothing the DIVER or the SITE decided. `fromWaterBody` is
+ * carried in too, and is the one the seed itself adds to (#53): while no gesture has decided the
+ * water body or the salinity, the seed re-derives the salinity from its own water body.
  *
- * `pairedNames` is the one of the four that changes a VALUE rather than a mark, and it is the
- * same sentence said about §6's snapshot pair: the name a diver's own gesture paired to an id
+ * `pairedNames` and `salinityPin` are the two that change a VALUE rather than a mark — the
+ * salinity a gesture wrote, pinned the same way (#53). For `pairedNames` it is the same
+ * sentence said about §6's snapshot pair: the name a diver's own gesture paired to an id
  * is not the seed's to re-decide either. `pinPairedNames` below owns what it does; see
  * `SeedState.pairedNames` for why it cannot be a `shouldDirty` flag like everything else the
  * diver moves.
  */
-/** The three rows a site speaks for, as a form holds them — what `inherited` keeps. */
-function placeColumns(values: DiveFormInput): InheritedValues {
-  return { entry: values.entry, salinity: values.salinity, waterBody: values.waterBody };
-}
-
 function seedStateFor(
   mode: 'create' | 'edit',
   seed: Dive | null,
@@ -603,6 +623,7 @@ function seedStateFor(
   fromSite: ReadonlySet<string> = new Set<string>(),
   pairedNames: ReadonlyMap<SuggestedField, string> = new Map<SuggestedField, string>(),
   fromWaterBody: ReadonlySet<string> = new Set<string>(),
+  salinityPin: string | null | undefined = undefined,
 ): SeedState {
   const sourceId = seed?.id ?? null;
   // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
@@ -645,6 +666,7 @@ function seedStateFor(
       pairedNames,
       inherited: placeColumns(seed === null ? blankFormValues() : diveToFormValues(seed)),
       fromWaterBody,
+      salinityPin,
     };
   }
   const seeded = seedValues(initialFormValues(seed));
@@ -659,19 +681,28 @@ function seedStateFor(
   let values = pinPairedNames(seeded, pairedNames);
   // **The water body sets the salinity** (#53): a last dive that named a lake and no salinity
   // seeds fresh, *from the water body*, and one in the ocean seeds salt behind a hidden row, even
-  // over a fresh stored before the rule existed. Only while no gesture has decided either row:
-  // a reseed under a diver who tapped a water body, or a site that answered for one, keeps their
-  // answer — the value through `keepDirtyValues`, the caption through `fromWaterBody`.
+  // over a fresh stored before the rule existed.
+  //
+  // **Re-derived on every seed while no gesture has decided either row** — so the unit preference
+  // arriving late, or a newer dive landing, answers from the seed it brings rather than keeping
+  // the last one's answer. Once a gesture has decided one (a water body tapped, a site that
+  // answered, a salinity chosen), the salinity that gesture wrote is pinned into the seed instead
+  // (`salinityPin`), and its caption survives through `fromWaterBody`. Trusting `keepDirtyValues`
+  // for either was the final review's first finding: it keeps only what react-hook-form RECORDED
+  // as changed, and the rule's value often equals the seed's.
   const waterAnswered = new Set(fromWaterBody);
   const decided = ['salinity', 'waterBody'].some((field) => typed.has(field) || fromSite.has(field));
-  if (waterAnswered.has('salinity')) marked.delete('salinity');
-  else if (!decided) {
+  if (!decided) {
     const answer = salinityFor({ waterBody: seeded.waterBody, typed: undefined, site: null, inherited: placeColumns(seeded) });
+    waterAnswered.delete('salinity');
     if (answer.source === 'waterBody') {
       values = { ...values, salinity: answer.value };
       marked.delete('salinity');
       waterAnswered.add('salinity');
     }
+  } else {
+    if (salinityPin !== undefined) values = { ...values, salinity: salinityPin };
+    if (waterAnswered.has('salinity')) marked.delete('salinity');
   }
   return {
     sourceId,
@@ -684,6 +715,7 @@ function seedStateFor(
     pairedNames,
     inherited: placeColumns(seeded),
     fromWaterBody: waterAnswered,
+    salinityPin,
   };
 }
 
@@ -2742,7 +2774,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   //
   // **The gate still compares two scalars and must go on doing so** (§10): `sourceId` is a
   // string or null and `units` is a string, so both settle by value on the render after they
-  // change. None of the four collections is in it, and adding one would be the object-identity
+  // change. None of the collections is in it, and adding one would be the object-identity
   // comparison this gate was rewritten to stop being — a fresh `Set` every render, never equal
   // to the last, and "Too many re-renders." on mount.
   const [carried, setCarried] = useState<SeedState>(() => seedStateFor(mode, seedDive, units, initialStatus));
@@ -2750,7 +2782,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     setCarried(
       seedStateFor(
         mode, seedDive, units, initialStatus,
-        carried.typed, carried.cleared, carried.fromSite, carried.pairedNames, carried.fromWaterBody,
+        carried.typed, carried.cleared, carried.fromSite, carried.pairedNames, carried.fromWaterBody, carried.salinityPin,
       ),
     );
   }
@@ -3073,7 +3105,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // `cleared` is there nothing left to change, so a second keystroke returns the same
   // reference and re-renders nothing. **It needs no fourth condition for `fromSite`**, and
   // that is an invariant rather than an oversight: a typed field is never one the site is
-  // answering for (`siteDefaultFills` skips them), so the two sets cannot both hold `name`,
+  // answering for (a pick that answers for a typed field releases it from `typed`, #53), so the
+  // two sets cannot both hold `name`,
   // and the delete below is what keeps it that way from the other side.
   const noteTouched = useCallback((name: FieldPath<DiveFormInput>, emptied: boolean) => {
     setCarried((prev) => {
@@ -3085,13 +3118,14 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       const cleared = new Set(prev.cleared);
       if (emptied) cleared.add(name);
       else cleared.delete(name);
-      // §2.1 puts the diver above the site as well as above carry-over: a value they typed
-      // over the catalogue's is theirs, so the next site they pick must not overwrite it.
+      // A value the diver typed over the catalogue's is theirs until they pick a site that knows
+      // that row (#53: a site sets what it knows), or touch it again.
       const fromSite = new Set(prev.fromSite);
       fromSite.delete(name);
       const fromWaterBody = new Set(prev.fromWaterBody);
       fromWaterBody.delete(name);
-      return { ...prev, paths, cleared, typed, fromSite, fromWaterBody };
+      const salinityPin = name === 'salinity' ? undefined : prev.salinityPin;
+      return { ...prev, paths, cleared, typed, fromSite, fromWaterBody, salinityPin };
     });
     touchedSincePickRef.current.add(name);
   }, []);
@@ -3144,7 +3178,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         if (answer.source === 'site') fromSite.add('salinity');
         else if (answer.source === 'waterBody') fromWaterBody.add('salinity');
         else if (answer.source === 'inherited' && mode === 'create' && hasCarriedValue(answer.value)) paths.add('salinity');
-        return { ...prev, typed, cleared, paths, fromSite, fromWaterBody };
+        return { ...prev, typed, cleared, paths, fromSite, fromWaterBody, salinityPin: answer.value };
       });
     },
     [mode, setValue],
@@ -3267,11 +3301,12 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * the gesture that pairs a dive to a site — a pick on the *Site* row — rather than to the
    * field's value.
    *
-   * **Create mode only.** Edit mode shows a dive's OWN stored data (`seedStateFor`), and those
-   * three columns are then the diver's record of the water they were actually in. Filling them
-   * from a catalogue row because the diver came back to correct a site name would be the
-   * overwrite-what-someone-entered failure this rule's first tier exists to prevent, arriving
-   * through the one mode with no carry-over to outrank in the first place.
+   * **On a stored dive too, but only when the diver moves it** (#53, the owner's call). Opening a
+   * stored dive never runs this: its three columns are the diver's record of the water they were
+   * in, and the catalogue's later opinion is not a reason to rewrite them. Moving the dive to
+   * another site is the diver saying where it was, so the site sets what it knows there as on a
+   * new dive, with the stored values standing in for carry-over (and no carried marks, which edit
+   * mode never shows).
    *
    * ── Which row ────────────────────────────────────────────────────────────────────────────
    *
@@ -3313,7 +3348,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    * a token, because that field is the whole of what "which site is this dive at" means. And
    * the diver can touch one of the three rows, which is why `typed` is read from
    * `carriedRef` **after** the await: a chip pressed while the read was out is the diver's, and
-   * a value someone entered by hand is the one thing this rule may never overwrite.
+   * a row the diver touches while the read is out is theirs (`touchedSincePickRef`, passed as
+   * `keep`), however the site would override a value set before the pick.
    */
   const applySiteDefaults = useCallback(
     async (id: string | null) => {
@@ -3380,7 +3416,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           // its "carry-over" is the dive's own stored value.
           else if (mode === 'create' && hasCarriedValue(fill.value)) paths.add(fill.field);
         }
-        return { ...prev, paths, fromSite, fromWaterBody, typed: typedNow, cleared };
+        const salinityFill = fills.find((fill) => fill.field === 'salinity');
+        const salinityPin = salinityFill === undefined ? prev.salinityPin : salinityFill.value;
+        return { ...prev, paths, fromSite, fromWaterBody, typed: typedNow, cleared, salinityPin };
       });
     },
     [mode, getValues, setValue],
@@ -3598,7 +3636,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
         const patch = toDivePatch(target, values, units);
         await updateDive(db, target.id, patch);
       } else {
-        await createDive(db, toNewDiveInput(values, units));
+        await createDive(db, toNewDiveInput(oceanIsSalt(values), units));
       }
       // Set before leaving, and this is the whole of what M3m's discard guard needs from the
       // save: the form is at its dirtiest right now, and without this the guard would meet a
@@ -4162,7 +4200,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           {/* **Salinity after the water body, and not at all for the ocean** (#53, the owner's
               call): the water body sets the salinity, so the answer sits under the question that
               decides it. The ocean's is salt and nothing to ask — the value is still the form's,
-              written by `onWaterBodyPicked` or the seed, and saved. Any other water body shows the
+              written by `onWaterBodyPicked` or the seed, and a new dive is saved salt whatever it
+              holds (`oceanIsSalt`). Any other water body shows the
               row, with *from the water body* at its end while the rule is what chose it. */}
           {waterBodyNow !== 'ocean' && (
             <ControlledOptionField

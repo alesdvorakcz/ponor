@@ -239,7 +239,7 @@ export interface SiteDefaultAnswer {
  * 3. **Carry-over fills what is left** (`inherited`: the previous dive in create mode, the stored
  *    dive in edit mode). A value the previous site filled falls back to it, never to that site's
  *    leftovers — the M2s property, unchanged.
- * 4. **The salinity follows the water body that leaves** (`salinityFor`). A salinity set by hand
+ * 4. **The salinity follows the water body the pick leaves the dive with** (`salinityFor`). A salinity set by hand
  *    lasts only while the water body is the one it was set for.
  *
  * `current` is what the form holds now, for the rows the diver set (it defaults to `inherited`,
@@ -265,20 +265,23 @@ export function siteDefaultFills(
 ): SiteDefaultAnswer {
   const fills: SiteDefaultFill[] = [];
   const released: SiteDefaultField[] = [];
+  // A kept row is the diver's whether or not `typed` has caught up with it yet: the form records
+  // the touch in both at once, but the read can land between the two.
+  const handSet = (field: string) => typed.has(field) || keep.has(field);
   for (const field of ['entry', 'waterBody'] as const) {
     const supplied = site === null || site === undefined || keep.has(field) ? null : siteDefaultValue(site, field);
     const carried = stated(inherited[field]);
     if (supplied !== null) {
       if (typed.has(field)) released.push(field);
       fills.push({ field, value: supplied, fromSite: supplied !== carried, fromWaterBody: false });
-    } else if (!typed.has(field)) {
+    } else if (!handSet(field)) {
       fills.push({ field, value: carried, fromSite: false, fromWaterBody: false });
     }
   }
   const waterFill = fills.find((fill) => fill.field === 'waterBody');
   const water = waterFill === undefined ? stated(current.waterBody) : waterFill.value;
-  const handSet = typed.has('salinity');
-  const inForce = handSet && (keep.has('salinity') || water === stated(current.waterBody));
+  const salinityHandSet = handSet('salinity');
+  const inForce = salinityHandSet && (keep.has('salinity') || water === stated(current.waterBody));
   // A salinity tapped while the read was out is the latest gesture and outranks the site — but not
   // the ocean, which `salinityFor` answers before anything else.
   const answer =
@@ -286,7 +289,7 @@ export function siteDefaultFills(
       ? { value: stated(current.salinity), source: 'typed' as const, shown: true }
       : salinityFor({ waterBody: water, typed: inForce ? current.salinity : undefined, site, inherited });
   if (answer.source !== 'typed') {
-    if (handSet) released.push('salinity');
+    if (typed.has('salinity')) released.push('salinity');
     fills.push({
       field: 'salinity',
       value: answer.value,

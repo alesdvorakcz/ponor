@@ -135,8 +135,9 @@ function twinHref(id: string, token: string): Href {
  *
  * ── What a new row starts with ────────────────────────────────────────────────────────────
  *
- * The typed name; for a site, the dive's own pin, salinity, water body and entry, each marked *from
- * this dive* until the diver changes it (§2.3: a site inherits them, never `max_depth_m`) — the
+ * The typed name; for a site, the dive's own pin, water body, salinity and entry, each marked *from
+ * this dive* until the diver changes it — the salinity following its water body (#53): not drawn
+ * for the ocean, and *from the water body* when the rule chose it (§2.3: a site inherits them, never `max_depth_m`) — the
  * entry as a set holding the dive's one way in, since a site's entry is every way it offers (#31),
  * so the diver adds the others rather than replacing it; for a
  * centre, the name alone and an empty position — the dive's pin is where the diver entered the

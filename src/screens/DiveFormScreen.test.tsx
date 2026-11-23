@@ -8184,3 +8184,76 @@ it('leaves a stored ocean dive’s fresh alone when it is saved untouched', asyn
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
   expect(writtenPatch()).not.toHaveProperty('salinity');
 });
+
+// --- #53, the final review: the rule's salinity across a reseed ---
+//
+// `keepDirtyValues` keeps only what react-hook-form RECORDED as changed, and a value the rule
+// wrote that equals the seed's — or one the seed itself wrote — is never recorded. These are the
+// reseeds that used to lose it: the unit preference arriving late, and a newer dive landing.
+
+it('keeps the rule’s Fresh and its caption when the unit preference arrives late', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'lake', salinity: 'fresh' });
+});
+
+it('keeps the ocean’s salt when the unit preference arrives late', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'fresh' })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+it('keeps the rule’s Fresh when a newer dive lands, even where it equals the old carry-over', async () => {
+  // Carry-over says Lake · Fresh, so the River's fresh equals the seed and is never recorded.
+  stubDives({ dives: carriedFromAQuarry() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-21', siteName: 'Silfra', siteId: 'site-silfra', entry: 'shore', salinity: 'salt', waterBody: 'lake' }),
+      ...carriedFromAQuarry(),
+    ],
+  });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBe('river');
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+});
+
+it('saves salt for an ocean that carry-over brings after the diver chose a salinity', async () => {
+  stubDives({ dives: [] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('fresh'));
+
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'salt' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
