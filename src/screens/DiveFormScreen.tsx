@@ -76,7 +76,7 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/presets';
-import { siteDefaultFills, type SiteDefaults } from '../domain/siteDefaults';
+import { siteDefaultFills, type InheritedValues, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asInlineSuggestedField,
   pairedIdField,
@@ -520,6 +520,20 @@ interface SeedState {
    * appear — they have no id column to pair with (`pairedIdField`).
    */
   pairedNames: ReadonlyMap<SuggestedField, string>;
+  /**
+   * **What the dive inherited for the three rows a site speaks for** — the previous dive's values
+   * in create mode, the stored dive's in edit mode — exactly as the source said them, before the
+   * water body's rule (#53) wrote anything. `siteDefaultFills` and `salinityFor` read this as
+   * their `inherited`, never `values`: a salinity the rule filled in would otherwise come back as
+   * one the last dive carried, and earn a carried mark it has no right to.
+   */
+  inherited: InheritedValues;
+  /**
+   * The rows whose value the **water body** supplied (#53): only ever `salinity`, drawn with
+   * *from the water body* at the row's end rather than a carried mark. Revisable like `fromSite`:
+   * every gesture that decides the salinity again rewrites it, and a diver's own tap removes it.
+   */
+  fromWaterBody: ReadonlySet<string>;
 }
 
 /**
@@ -574,6 +588,11 @@ function pinPairedNames(values: DiveFormInput, pairedNames: ReadonlyMap<Suggeste
  * `SeedState.pairedNames` for why it cannot be a `shouldDirty` flag like everything else the
  * diver moves.
  */
+/** The three rows a site speaks for, as a form holds them — what `inherited` keeps. */
+function placeColumns(values: DiveFormInput): InheritedValues {
+  return { entry: values.entry, salinity: values.salinity, waterBody: values.waterBody };
+}
+
 function seedStateFor(
   mode: 'create' | 'edit',
   seed: Dive | null,
@@ -583,6 +602,7 @@ function seedStateFor(
   cleared: ReadonlySet<string> = new Set<string>(),
   fromSite: ReadonlySet<string> = new Set<string>(),
   pairedNames: ReadonlyMap<SuggestedField, string> = new Map<SuggestedField, string>(),
+  fromWaterBody: ReadonlySet<string> = new Set<string>(),
 ): SeedState {
   const sourceId = seed?.id ?? null;
   // Every seed goes through `toDisplayUnits` (diveFormSchema.ts) on its way in, and only
@@ -623,6 +643,8 @@ function seedStateFor(
       typed,
       fromSite,
       pairedNames,
+      inherited: placeColumns(seed === null ? blankFormValues() : diveToFormValues(seed)),
+      fromWaterBody,
     };
   }
   const seeded = seedValues(initialFormValues(seed));
@@ -635,7 +657,18 @@ function seedStateFor(
   // §6's pair outranks carry-over's name for the same reason. Its row is already unmarked: the
   // pick that pinned it is in `typed`.
   const values = pinPairedNames(seeded, pairedNames);
-  return { sourceId, units, values, paths: marked, cleared, typed, fromSite, pairedNames };
+  return {
+    sourceId,
+    units,
+    values,
+    paths: marked,
+    cleared,
+    typed,
+    fromSite,
+    pairedNames,
+    inherited: placeColumns(seeded),
+    fromWaterBody,
+  };
 }
 
 /**
@@ -2690,7 +2723,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     setCarried(
       seedStateFor(
         mode, seedDive, units, initialStatus,
-        carried.typed, carried.cleared, carried.fromSite, carried.pairedNames,
+        carried.typed, carried.cleared, carried.fromSite, carried.pairedNames, carried.fromWaterBody,
       ),
     );
   }
@@ -2714,6 +2747,20 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   useEffect(() => {
     carriedRef.current = carried;
   });
+
+  /**
+   * The site the last pick answered with (#53), or `null` when the dive is unpaired or the
+   * catalogue had nothing — what a water-body tap asks for the site's own salinity. Set only by
+   * `applySiteDefaults`, so a site carry-over brought (never read, by design) counts as none.
+   */
+  const pairedSiteRef = useRef<SiteDefaults | null>(null);
+
+  /**
+   * The rows the diver touched since the last site pick began (#53). The pick reads its site
+   * asynchronously, and a gesture made while that read is out is the latest one: the site's answer
+   * must not override it, however it would override a value set before the pick.
+   */
+  const touchedSincePickRef = useRef<Set<string>>(new Set<string>());
 
   // §2.3's "your own history", out of the one read every screen uses — never a second query
   // (useDives.ts's own docblock, and this screen's for `dives` above).
@@ -3013,8 +3060,11 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // over the catalogue's is theirs, so the next site they pick must not overwrite it.
       const fromSite = new Set(prev.fromSite);
       fromSite.delete(name);
-      return { ...prev, paths, cleared, typed, fromSite };
+      const fromWaterBody = new Set(prev.fromWaterBody);
+      fromWaterBody.delete(name);
+      return { ...prev, paths, cleared, typed, fromSite, fromWaterBody };
     });
+    touchedSincePickRef.current.add(name);
   }, []);
 
   /** The diver put a value in this field — typed it, picked it, applied a preset over it, or
@@ -3204,19 +3254,30 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
    */
   const applySiteDefaults = useCallback(
     async (id: string | null) => {
-      if (mode !== 'create') return;
-      // Unpairing is the same rule with nothing in tier 2, so it needs no branch of its own —
-      // but there is nothing to recompute once no site is answering for anything, which is the
-      // case whenever the ring empties a site carry-over brought. A narrowing, not a rule:
+      // Unpairing is the same rule with nothing in the site's tier, so it needs no branch of its
+      // own — but there is nothing to recompute once no site is answering for anything, which is
+      // the case whenever the ring empties a site carry-over brought. A narrowing, not a rule:
       // removing it writes the same values.
-      if (id === null && carriedRef.current.fromSite.size === 0) return;
+      if (id === null && carriedRef.current.fromSite.size === 0) {
+        pairedSiteRef.current = null;
+        return;
+      }
+      touchedSincePickRef.current = new Set<string>();
       const site = id === null ? null : await pairedSite(id);
       // The diver moved on while the read was out — picked another site, or emptied the row,
       // which is `siteId` back to null. Either way this answer is about a site the dive is no
       // longer at.
       if (toInputString(getValues('siteId')).trim() !== (id ?? '')) return;
-      const { typed, values } = carriedRef.current;
-      const fills = siteDefaultFills(site, values, typed);
+      pairedSiteRef.current = site;
+      const { typed, inherited } = carriedRef.current;
+      // What the form holds NOW, read after the await: a water body tapped while the read was out
+      // is the one the salinity has to follow (#53).
+      const current: InheritedValues = {
+        entry: getValues('entry'),
+        salinity: getValues('salinity'),
+        waterBody: getValues('waterBody'),
+      };
+      const { fills, released } = siteDefaultFills(site, inherited, typed, current, touchedSincePickRef.current);
       // `shouldDirty`, the same declaration `setPairedId` and `applyPreset` make: this write is
       // the gesture's, not the seed's, so `resetOptions.keepDirtyValues` must keep it when
       // `useDives()` or `useUnitSystem()` resolves underneath it.
@@ -3234,21 +3295,29 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       setCarried((prev) => {
         const paths = new Set(prev.paths);
         const fromSite = new Set(prev.fromSite);
-        for (const fill of fills) {
-          if (fill.fromSite) {
-            fromSite.add(fill.field);
-            paths.delete(fill.field);
-          } else {
-            // Carry-over is answering again, so §0.6's mark is right again — and it is
-            // recomputed from the value rather than restored from a memory of having been
-            // there, which is the same expression `seedStateFor` uses and therefore cannot
-            // disagree with it about what counts as a carried value.
-            fromSite.delete(fill.field);
-            if (hasCarriedValue(fill.value)) paths.add(fill.field);
-            else paths.delete(fill.field);
-          }
+        const fromWaterBody = new Set(prev.fromWaterBody);
+        const typedNow = new Set(prev.typed);
+        const cleared = new Set(prev.cleared);
+        // The diver's values this pick overrode (#53) are the site's now, and the next pick
+        // reads them as it reads any other.
+        for (const field of released) {
+          typedNow.delete(field);
+          cleared.delete(field);
         }
-        return { ...prev, paths, fromSite };
+        for (const fill of fills) {
+          fromSite.delete(fill.field);
+          fromWaterBody.delete(fill.field);
+          paths.delete(fill.field);
+          if (fill.fromSite) fromSite.add(fill.field);
+          else if (fill.fromWaterBody) fromWaterBody.add(fill.field);
+          // Carry-over is answering again, so §0.6's mark is right again — and it is recomputed
+          // from the value rather than restored from a memory of having been there, which is the
+          // same expression `seedStateFor` uses and therefore cannot disagree with it about what
+          // counts as a carried value. Never in edit mode, which shows no carried marks at all:
+          // its "carry-over" is the dive's own stored value.
+          else if (mode === 'create' && hasCarriedValue(fill.value)) paths.add(fill.field);
+        }
+        return { ...prev, paths, fromSite, fromWaterBody, typed: typedNow, cleared };
       });
     },
     [mode, getValues, setValue],
