@@ -147,6 +147,12 @@ export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): s
   return ways.length === 1 ? ways[0]! : null;
 }
 
+/** **Whether a water body is the ocean** (#53), read as `salinityFor` reads it — trimmed, and only
+ * a string — so the row a screen hides and the salt a save writes can never disagree. */
+export function isOcean(waterBody: unknown): boolean {
+  return stated(waterBody) === 'ocean';
+}
+
 /** Where a salinity came from: the diver's own hand, the site, what the dive inherited
  * (carry-over, the stored dive, or the dive handed to *New dive site*), or the water body. */
 export type SalinitySource = 'typed' | 'site' | 'inherited' | 'waterBody';
@@ -199,7 +205,7 @@ export function salinityFor({
   inherited: InheritedValues;
 }): SalinityAnswer {
   const water = stated(waterBody);
-  if (water === 'ocean') return { value: 'salt', source: 'waterBody', shown: false };
+  if (isOcean(water)) return { value: 'salt', source: 'waterBody', shown: false };
   const siteSalinity = site === null || site === undefined ? null : stated(site.salinity);
   const siteWater = site === null || site === undefined ? null : stated(site.waterBody);
   if (siteSalinity !== null && (siteWater === null || siteWater === water)) {

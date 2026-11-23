@@ -19,7 +19,7 @@ import { toFormNumber } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
 import { cleanAltNames } from '../domain/search';
-import { salinityFor, type InheritedValues } from '../domain/siteDefaults';
+import { isOcean, salinityFor, type InheritedValues } from '../domain/siteDefaults';
 import {
   AGENCY_VALUES,
   ENTRY_VALUES,
@@ -628,7 +628,7 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
               />
               {/* After the water body, and not at all for the ocean, whose salinity is salt
                   (#53, as on the dive form): the value is still the page's, and saved. */}
-              {waterBody !== 'ocean' && (
+              {!isOcean(waterBody) && (
                 <OptionChips
                   label={t('field.salinity')}
                   value={salinity}

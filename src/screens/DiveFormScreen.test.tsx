@@ -6801,7 +6801,9 @@ it("an empty Site row reads Choose a site and opens the site picker with the div
     pin: { latitude: FOUND_HERE.latitude, longitude: FOUND_HERE.longitude },
     // As a new site would inherit it: a set of the dive's one way in (#31, `siteFactsFrom`).
     entry: ['boat'],
-    salinity: 'salt',
+    // The ocean's salt is the water body's answer, not a fact the dive recorded (#53): the
+    // New dive site page re-derives it from the water body it is handed.
+    salinity: null,
     waterBody: WATER_BODY_VALUES[0],
     siteId: null,
     // A new dive is not in the logbook yet, so the picker leaves nothing out of Dived here.
@@ -8256,4 +8258,80 @@ it('saves salt for an ocean that carry-over brings after the diver chose a salin
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
   expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+// --- #53, review round 1 on PR #80 ---
+
+it('keeps a salinity the diver chose when the form reseeds, even one equal to the rule’s', async () => {
+  // The seed's Fresh is the rule's; Salt then Fresh by hand leaves a value react-hook-form does
+  // not record as changed, so only the pin can carry it across the reseed.
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('fresh'));
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'lake', salinity: 'fresh' });
+});
+
+it('leaves a stored dive alone when the diver re-picks the site it is already at', async () => {
+  const target = dive({
+    id: 'target', date: '2026-08-16',
+    siteName: 'Silfra', siteId: 'site-silfra',
+    entry: 'shore', salinity: 'salt', waterBody: 'lake',
+  });
+  stubDives({ dives: [target] });
+  stubCatalogueRows({ 'site-silfra': siteSaying('Silfra', 'site-silfra', { entry: ['boat'], salinity: 'fresh', waterBody: 'quarry' }) });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Water & entry');
+
+  await pickSite(t, 'Silfra', 'site-silfra');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  expect(writtenPatch()).not.toHaveProperty('entry');
+  expect(writtenPatch()).not.toHaveProperty('salinity');
+  expect(writtenPatch()).not.toHaveProperty('waterBody');
+});
+
+it('leaves a new dive’s rows alone when the diver re-picks the site carry-over brought', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-silfra': siteSaying('Silfra', 'site-silfra', { entry: ['shore'], waterBody: 'quarry' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('boat'));
+
+  // Changing the site sets what it knows; picking the one the dive is already at changes nothing.
+  await pickSite(t, 'Silfra', 'site-silfra');
+
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'fresh', waterBody: 'lake' });
+});
+
+it('hands New dive site no salinity the water body chose, so it says so itself', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  expect(fromTheWaterBody(t)).toBe(1);
+
+  const site = await openPlace(t, 'Site');
+
+  expect(site.dive).toMatchObject({ waterBody: 'lake', salinity: null });
+  await regainFocus();
+});
+
+it('hides Salinity for an ocean stored with stray spaces', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean ' as Dive['waterBody'], salinity: 'salt' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
 });

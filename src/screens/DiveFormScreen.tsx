@@ -76,7 +76,7 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/presets';
-import { salinityFor, siteDefaultFills, type InheritedValues, type SiteDefaults } from '../domain/siteDefaults';
+import { isOcean, salinityFor, siteDefaultFills, type InheritedValues, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asInlineSuggestedField,
   pairedIdField,
@@ -534,8 +534,8 @@ interface SeedState {
    */
   fromWaterBody: ReadonlySet<string>;
   /**
-   * **The salinity a gesture last wrote** — a water-body tap or a site pick (#53) — or `undefined`
-   * when none did, or the diver has since chosen one by hand. Pinned into the seed on a reseed,
+   * **The salinity a gesture last wrote** — a water-body tap, a site pick, or the diver's own
+   * choice (#53) — or `undefined` when none did. Pinned into the seed on a reseed,
    * the way `pairedNames` pins a site's name: `keepDirtyValues` keeps only a value react-hook-form
    * RECORDED as changed, and a gesture's salinity that equals the seed's never is, so without
    * this a newer dive landing (or the unit preference arriving) swapped it for the new seed's.
@@ -571,7 +571,7 @@ function pinPairedNames(values: DiveFormInput, pairedNames: ReadonlyMap<Suggeste
  * diver left it, so one stored before the rule with *fresh* keeps it until its water is changed.
  */
 function oceanIsSalt(values: DiveFormValues): DiveFormValues {
-  return typeof values.waterBody === 'string' && values.waterBody.trim() === 'ocean' ? { ...values, salinity: 'salt' } : values;
+  return isOcean(values.waterBody) ? { ...values, salinity: 'salt' } : values;
 }
 
 /** The three rows a site speaks for, as a form holds them — what `inherited` keeps. */
@@ -3184,6 +3184,17 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     [mode, setValue],
   );
 
+  /**
+   * **A salinity the diver chose is pinned too** (PR #80's review): a choice equal to the seed's
+   * value is never recorded as changed, so `keepDirtyValues` would let a reseed drop it — the
+   * diver who tapped Salt and then Fresh over a lake's Fresh would have watched the row empty.
+   * Runs after `noteTouched`, which clears the pin for the touch, so this is the value that stays.
+   */
+  const pinSalinity = useCallback((_previous: unknown, chosen: unknown) => {
+    const value = typeof chosen === 'string' && chosen.trim() !== '' ? chosen : null;
+    setCarried((prev) => (prev.salinityPin === value ? prev : { ...prev, salinityPin: value }));
+  }, []);
+
   const carryOver: CarryOverControls = {
     paths: carried.paths,
     cleared: carried.cleared,
@@ -3274,7 +3285,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
     return {
       pin: pointOf({ latitude, longitude }),
       entry,
-      salinity,
+      // A salinity the water body chose is not a fact this dive recorded (#53): the New dive site
+      // page re-derives it from the water body it is handed, and captions it as the rule's.
+      salinity: carried.fromWaterBody.has('salinity') ? null : salinity,
       waterBody,
       siteId: siteId === '' ? null : siteId,
       diveId: mode === 'edit' && diveId !== undefined ? diveId : null,
@@ -3430,6 +3443,10 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // `buddy` and `guide` have no id column at all (§2.3: "they stay private text, not
       // user accounts"), so there is nothing to pair and nothing to clear.
       if (idField === null) return;
+      // **Changing the site sets what it knows; re-picking the one the dive is at changes
+      // nothing** (#53, PR #80's review) — a stored dive opened and paired to its own site again
+      // keeps its record of the water, and a new dive keeps what the diver set by hand.
+      const sameSite = idField === 'siteId' && toInputString(getValues('siteId')).trim() === (id ?? '');
       setValue(idField, id, { shouldDirty: true });
       dropCarried(idField);
       setCarried((prev) => {
@@ -3451,9 +3468,9 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
       // **Only the site half**, and the asymmetry is §2.3's own, read backwards: a dive knows a
       // great deal about the site it happened at and nothing about the shop on shore, so a new
       // centre inherits its name alone and a centre has nothing to give back.
-      if (idField === 'siteId') void applySiteDefaults(id);
+      if (idField === 'siteId' && !sameSite) void applySiteDefaults(id);
     },
-    [setValue, dropCarried, applySiteDefaults],
+    [getValues, setValue, dropCarried, applySiteDefaults],
   );
 
   /**
@@ -4203,7 +4220,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               written by `onWaterBodyPicked` or the seed, and a new dive is saved salt whatever it
               holds (`oceanIsSalt`). Any other water body shows the
               row, with *from the water body* at its end while the rule is what chose it. */}
-          {waterBodyNow !== 'ocean' && (
+          {!isOcean(waterBodyNow) && (
             <ControlledOptionField
               control={control}
               carryOver={carryOver}
@@ -4213,6 +4230,7 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
               displayLabel={(option) => formatSalinity(option) ?? option}
               scheme={scheme}
               caption={carried.fromWaterBody.has('salinity') ? t('field.fromWaterBody') : undefined}
+              onPicked={pinSalinity}
             />
           )}
           {/* No `carryOver` prop, and that is the one call site on this form where its absence

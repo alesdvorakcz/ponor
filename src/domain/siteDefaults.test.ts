@@ -1,4 +1,4 @@
-import { salinityFor, siteDefaultFills, siteDefaultValue, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
+import { isOcean, salinityFor, siteDefaultFills, siteDefaultValue, SITE_DEFAULT_FIELDS, type SiteDefaults } from './siteDefaults';
 import { type Entry } from './types';
 
 /**
@@ -439,4 +439,14 @@ it('treats a kept row as the diver’s even before it is counted as typed', () =
   const answer = siteDefaultFills(says({ entry: ['boat'] }), { waterBody: 'lake' }, NOTHING_TYPED, { waterBody: 'river' }, new Set(['waterBody']));
 
   expect(filled(answer)).not.toContain('waterBody');
+});
+
+// PR #80's review: every screen asks "is this the ocean?" through one reading, trimmed as
+// `salinityFor` reads it, so a row and the save cannot disagree about a stray space.
+it('reads an ocean with stray spaces as the ocean, and nothing else as one', () => {
+  expect(isOcean(' ocean ')).toBe(true);
+  expect(isOcean('ocean')).toBe(true);
+  expect(isOcean('lake')).toBe(false);
+  expect(isOcean(null)).toBe(false);
+  expect(isOcean(7)).toBe(false);
 });
