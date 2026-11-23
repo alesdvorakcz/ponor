@@ -775,7 +775,7 @@ const SECTION_ORDER: readonly (readonly [string, readonly string[]])[] = [
   // §2.2 gives this group "where you are", and M2l's GPS row is exactly that — last, because
   // the three above it come from the site and carry over while a pin is taken on the spot. The
   // pair shares one row: see `PAIRED_ON_ONE_ROW` below.
-  ['Water & entry', ['entry', 'salinity', 'waterBody', 'latitude', 'longitude']],
+  ['Water & entry', ['entry', 'waterBody', 'salinity', 'latitude', 'longitude']],
   ['Equipment', ['suit', 'suitThicknessMm', 'equipment', 'weightsKg', 'weightsFeel']],
   ['People', ['buddy', 'guide']],
   ['Notes & rating', ['title', 'notes', 'rating']],
@@ -3041,7 +3041,9 @@ const FULLY_CARRIED = () =>
   dive({
     date: '2026-08-10',
     siteName: 'Nautica Vis', centerName: 'Nautica',
-    entry: 'shore', salinity: 'salt', waterBody: 'ocean',
+    // A salt lake rather than an ocean (#53): an ocean's Salinity row is not drawn, and this
+    // fixture has to carry every row there is.
+    entry: 'shore', salinity: 'salt', waterBody: 'lake',
     // `hePct` explicitly, where `tank()`'s own default leaves it null: it is a carried field
     // like the rest, and a fixture that left it empty would sweep past its row reporting
     // "not carried" as a pass.
@@ -6799,7 +6801,9 @@ it("an empty Site row reads Choose a site and opens the site picker with the div
     pin: { latitude: FOUND_HERE.latitude, longitude: FOUND_HERE.longitude },
     // As a new site would inherit it: a set of the dive's one way in (#31, `siteFactsFrom`).
     entry: ['boat'],
-    salinity: 'salt',
+    // The ocean's salt is the water body's answer, not a fact the dive recorded (#53): the
+    // New dive site page re-derives it from the water body it is handed.
+    salinity: null,
     waterBody: WATER_BODY_VALUES[0],
     siteId: null,
     // A new dive is not in the logbook yet, so the picker leaves nothing out of Dived here.
@@ -7131,23 +7135,95 @@ const carriedFromAQuarry = () => [
  * still read `boat` here, and one that let carry-over win over the site would still read
  * `fresh`.
  */
-it('puts the diver above the site, the site above carry-over, and carry-over above nothing', async () => {
+it('lets the site set what it knows over the diver, and keeps the diver’s value where it says nothing', async () => {
   stubDives({ dives: carriedFromAQuarry() });
   stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt' }) });
   mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
-  // The diver answers this one themselves, BEFORE picking — which is the order that matters:
-  // the site arrives afterwards and still may not overwrite it.
   await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('other'));
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
 
   await pickSite(t, 'Blue Hole', 'site-blue');
 
-  expect(waterRows(t)).toEqual({ entry: 'other', salinity: 'salt', waterBody: 'lake' });
-  // ...and it is the dive that gets saved, not only the form that looks right.
+  // #53: the site's one way in replaces the diver's *Other*; it names no water body, so the
+  // diver's *River* stands; and its salt, said for no water body in particular, is the salinity.
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'salt', waterBody: 'river' });
   await pressSave(t);
   await waitFor(() => expect(mockCreate).toHaveBeenCalled());
-  expect(writtenInput()).toMatchObject({ entry: 'other', salinity: 'salt', waterBody: 'lake', siteId: 'site-blue' });
+  expect(writtenInput()).toMatchObject({ entry: 'boat', salinity: 'salt', waterBody: 'river', siteId: 'site-blue' });
+});
+
+/** The last dive was in a salt lake: Lake · Salt, the pair #53's carry-over keeps together. */
+const carriedFromASaltLake = () => [
+  dive({
+    date: '2026-08-20',
+    siteName: 'Silfra', siteId: 'site-silfra',
+    entry: 'shore', salinity: 'salt', waterBody: 'lake',
+  }),
+  dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+];
+
+it('lets a picked site replace a water body and entry the diver tapped', async () => {
+  stubDives({ dives: carriedFromASaltLake() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['shore'], waterBody: 'ocean' }) });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('boat'));
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('lake'));
+
+  await pickSite(t, 'Blue Hole', 'site-blue');
+
+  expect(chosenChip(t, 'Entry', ENTRY_VALUES)).toBe('shore');
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBe('ocean');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ entry: 'shore', waterBody: 'ocean', salinity: 'salt' });
+});
+
+it('keeps the diver’s entry when the picked site knows only its water body', async () => {
+  stubDives({ dives: carriedFromASaltLake() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { waterBody: 'river' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('boat'));
+
+  await pickSite(t, 'Blue Hole', 'site-blue');
+
+  // The carried salt was the lake's; the river the site names brings fresh.
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'fresh', waterBody: 'river' });
+});
+
+it('gives a site’s own pair, Lake · Salt', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { waterBody: 'lake', salinity: 'salt' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await pickSite(t, 'Blue Hole', 'site-blue');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
+});
+
+it.each([
+  ['a salinity for no water body in particular', { salinity: 'salt' as const }, 'salt'],
+  ['a salt lake', { waterBody: 'lake' as const, salinity: 'salt' as const }, 'fresh'],
+])('derives the salinity from the water body the diver tapped while %s was being read', async (_what, says, salinity) => {
+  stubDives({ dives: carriedFromAQuarry() });
+  let answer: (site: DiveSite | null) => void = () => {};
+  mockGetSite.mockReturnValue(new Promise<DiveSite | null>((resolve) => { answer = resolve; }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await pickPlace(t, 'Site', { id: 'site-blue', name: 'Blue Hole' });
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
+  await act(async () => {
+    answer(siteSaying('Blue Hole', 'site-blue', says));
+  });
+
+  // The tap came after the pick, so the river is the diver's and the site does not override it.
+  expect(waterRows(t)).toMatchObject({ waterBody: 'river', salinity });
 });
 
 // **"A site that says nothing must not say something."** A `null` column means the catalogue
@@ -7216,17 +7292,32 @@ it('hands the rows back to carry-over when the diver empties the site', async ()
   expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
 });
 
-// §0.6's third state is a diver's gesture, and `SeedState.typed` records it as one — so a water
-// body somebody deliberately threw away stays thrown away, and the row goes on saying so. The
-// site here answers for that very column, which is what makes the assertion about the rule
-// rather than about a site with nothing to offer.
-it('does not put a value back into a row the diver cleared', async () => {
+// §0.6's third state is a diver's gesture, and `SeedState.typed` records it as one. Under #53's
+// hierarchy a site that knows the water body sets it all the same — the diver who threw the last
+// dive's lake away and then picked an ocean site has said where they are — and the cleared tag
+// goes with the value it was about. The site answers for that very column, which is what makes
+// the assertion about the rule rather than about a site with nothing to offer.
+it('puts a cleared row back when the picked site knows it, and drops the cleared tag', async () => {
   stubDives({ dives: carriedFromAQuarry() });
   stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { waterBody: 'ocean' }) });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
   await pressClear(t, 'Water body');
   expect(clearedRowLabels(t)).toEqual(['Water body']);
+
+  await pickSite(t, 'Blue Hole', 'site-blue');
+
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBe('ocean');
+  expect(clearedRowLabels(t)).toEqual([]);
+});
+
+// The other half: a site with nothing to say about the cleared row leaves it cleared.
+it('leaves a cleared row cleared when the picked site says nothing about it', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'] }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressClear(t, 'Water body');
 
   await pickSite(t, 'Blue Hole', 'site-blue');
 
@@ -7312,7 +7403,10 @@ it('gives the carried mark back to a row the next site says nothing about', asyn
   stubDives({ dives: carriedFromAQuarry() });
   stubCatalogueRows({
     'site-blue': siteSaying('Blue Hole', 'site-blue', { salinity: 'salt' }),
-    'site-kotelna': siteSaying('Kotelna', 'site-kotelna', { waterBody: 'quarry' }),
+    // #53: a site that leaves the water body alone. One naming another water body would hand the
+    // salinity to that water body instead, and carry-over's fresh (the lake's) would not be the
+    // answer coming back.
+    'site-kotelna': siteSaying('Kotelna', 'site-kotelna', { entry: ['boat'] }),
   });
   const t = await render(<DiveFormScreen mode="create" />);
   await openGroup(t, 'Water & entry');
@@ -7363,7 +7457,7 @@ it('leaves the marks alone when the diver creates the site this dive is at', asy
  * overwrite-what-someone-entered failure the first tier exists to prevent — arriving through
  * the one mode with nothing to outrank.
  */
-it('never prefills a dive it is editing, whatever site the diver moves it to', async () => {
+it('prefills a dive it is editing when the diver moves it to another site', async () => {
   const target = dive({
     id: 'target', date: '2026-08-16',
     siteName: 'Silfra', siteId: 'site-silfra',
@@ -7371,7 +7465,7 @@ it('never prefills a dive it is editing, whatever site the diver moves it to', a
   });
   stubDives({ dives: [target, dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' })] });
   stubCatalogueRows({
-    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt', waterBody: 'ocean' }),
+    'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat', 'shore'], salinity: 'salt', waterBody: 'ocean' }),
   });
   mockUpdate.mockResolvedValue(target);
   const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
@@ -7379,11 +7473,31 @@ it('never prefills a dive it is editing, whatever site the diver moves it to', a
 
   await pickSite(t, 'Blue Hole', 'site-blue');
 
-  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'fresh', waterBody: 'lake' });
+  // #53: the diver moved the dive, so the site sets what it knows — its water body and its salt —
+  // and its two ways in say nothing, so the stored entry stands.
+  expect(chosenChip(t, 'Entry', ENTRY_VALUES)).toBe('shore');
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBe('ocean');
   await pressSave(t);
   await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
-  // The patch names the site and nothing else about the water — §6's `undefined` = don't touch.
-  expect(writtenPatch()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue' });
+  expect(writtenPatch()).toMatchObject({ siteName: 'Blue Hole', siteId: 'site-blue', waterBody: 'ocean', salinity: 'salt' });
+  expect(writtenPatch()).not.toHaveProperty('entry');
+});
+
+// Opening is not a gesture: a dive the diver only looks at and saves keeps its own water, even
+// at a site whose catalogue row now says something else.
+it('opens a dive it is editing without touching its water', async () => {
+  const target = dive({
+    id: 'target', date: '2026-08-16',
+    siteName: 'Blue Hole', siteId: 'site-blue',
+    entry: 'shore', salinity: 'fresh', waterBody: 'lake',
+  });
+  stubDives({ dives: [target] });
+  stubCatalogueRows({ 'site-blue': siteSaying('Blue Hole', 'site-blue', { entry: ['boat'], salinity: 'salt', waterBody: 'ocean' }) });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
   expect(writtenPatch()).not.toHaveProperty('entry');
   expect(writtenPatch()).not.toHaveProperty('salinity');
   expect(writtenPatch()).not.toHaveProperty('waterBody');
@@ -7938,4 +8052,286 @@ describe('the two name fields', () => {
       expect(findTextInput(t, label)?.props.autoCapitalize).toBe('words');
     }
   });
+});
+
+// --- #53: the water body sets the salinity ---
+//
+// Whatever sets the water body sets the salinity with it. The ocean is salt and its Salinity row
+// is not drawn; any other water body brings fresh, *from the water body*, unless the last dive or
+// the site said otherwise for that same water; a salinity set by hand lasts until the water body
+// changes. The site's half is under M2s above.
+
+/** How many rows say *from the water body* — only ever the Salinity row. */
+const fromTheWaterBody = (t: RenderResult) => t.queryAllByText('from the water body').length;
+
+it('hides Salinity for an ocean and saves salt', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-16' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('ocean'));
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+it('brings Fresh, from the water body, when the diver taps Lake', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'salt' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('lake'));
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+});
+
+it('keeps a salt carried with its lake, marked as carried', async () => {
+  stubDives({ dives: carriedFromASaltLake() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('salt');
+  expect(findClearCarried(t, 'Salinity')).toBeDefined();
+  expect(fromTheWaterBody(t)).toBe(0);
+});
+
+it('seeds Fresh from the water body when the last dive named a lake and no salinity', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+});
+
+it('seeds salt and no row when the last dive was in the ocean', async () => {
+  // Stored before #53, with a fresh nobody could see past an ocean: the new dive does not carry it.
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'fresh' })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+it('drops a Salt set by hand when the water body changes', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('salt');
+
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+});
+
+it('keeps the rule’s salinity when carry-over resolves again', async () => {
+  stubDives({ dives: carriedFromASaltLake() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+
+  stubDives({
+    dives: [
+      dive({
+        date: '2026-08-21',
+        siteName: 'Silfra', siteId: 'site-silfra',
+        entry: 'shore', salinity: 'salt', waterBody: 'lake',
+        buddy: 'Ondra',
+      }),
+      dive({ date: '2026-08-10', siteName: 'Blue Hole', siteId: 'site-blue' }),
+    ],
+  });
+  await t.rerender(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'People');
+  expect(findTextInput(t, 'Buddy')?.props?.value).toBe('Ondra');
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+});
+
+it('lets the salinity fall back when the diver clears a carried water body', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  expect(fromTheWaterBody(t)).toBe(1);
+
+  await pressClear(t, 'Water body');
+
+  // No water body is today's rule: the last dive said no salinity, so the row holds none.
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBeUndefined();
+  expect(fromTheWaterBody(t)).toBe(0);
+});
+
+it('leaves a stored ocean dive’s fresh alone when it is saved untouched', async () => {
+  const target = dive({ id: 'target', date: '2026-08-16', waterBody: 'ocean', salinity: 'fresh' });
+  stubDives({ dives: [target] });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  expect(writtenPatch()).not.toHaveProperty('salinity');
+});
+
+// --- #53, the final review: the rule's salinity across a reseed ---
+//
+// `keepDirtyValues` keeps only what react-hook-form RECORDED as changed, and a value the rule
+// wrote that equals the seed's — or one the seed itself wrote — is never recorded. These are the
+// reseeds that used to lose it: the unit preference arriving late, and a newer dive landing.
+
+it('keeps the rule’s Fresh and its caption when the unit preference arrives late', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'lake', salinity: 'fresh' });
+});
+
+it('keeps the ocean’s salt when the unit preference arrives late', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'fresh' })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+it('keeps the rule’s Fresh when a newer dive lands, even where it equals the old carry-over', async () => {
+  // Carry-over says Lake · Fresh, so the River's fresh equals the seed and is never recorded.
+  stubDives({ dives: carriedFromAQuarry() });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Water body', WATER_BODY_VALUES.indexOf('river'));
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+
+  stubDives({
+    dives: [
+      dive({ date: '2026-08-21', siteName: 'Silfra', siteId: 'site-silfra', entry: 'shore', salinity: 'salt', waterBody: 'lake' }),
+      ...carriedFromAQuarry(),
+    ],
+  });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Water body', WATER_BODY_VALUES)).toBe('river');
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  expect(fromTheWaterBody(t)).toBe(1);
+  expect(findClearCarried(t, 'Salinity')).toBeUndefined();
+});
+
+it('saves salt for an ocean that carry-over brings after the diver chose a salinity', async () => {
+  stubDives({ dives: [] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('fresh'));
+
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean', salinity: 'salt' })] });
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'ocean', salinity: 'salt' });
+});
+
+// --- #53, review round 1 on PR #80 ---
+
+it('keeps a salinity the diver chose when the form reseeds, even one equal to the rule’s', async () => {
+  // The seed's Fresh is the rule's; Salt then Fresh by hand leaves a value react-hook-form does
+  // not record as changed, so only the pin can carry it across the reseed.
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  mockCreate.mockResolvedValue(dive({ date: '2026-08-21' }));
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('salt'));
+  await pressChip(t, 'Salinity', SALINITY_VALUES.indexOf('fresh'));
+
+  mockUseUnitSystem.mockReturnValue('imperial');
+  await t.rerender(<DiveFormScreen mode="create" />);
+
+  expect(chosenChip(t, 'Salinity', SALINITY_VALUES)).toBe('fresh');
+  await pressSave(t);
+  await waitFor(() => expect(mockCreate).toHaveBeenCalled());
+  expect(writtenInput()).toMatchObject({ waterBody: 'lake', salinity: 'fresh' });
+});
+
+it('leaves a stored dive alone when the diver re-picks the site it is already at', async () => {
+  const target = dive({
+    id: 'target', date: '2026-08-16',
+    siteName: 'Silfra', siteId: 'site-silfra',
+    entry: 'shore', salinity: 'salt', waterBody: 'lake',
+  });
+  stubDives({ dives: [target] });
+  stubCatalogueRows({ 'site-silfra': siteSaying('Silfra', 'site-silfra', { entry: ['boat'], salinity: 'fresh', waterBody: 'quarry' }) });
+  mockUpdate.mockResolvedValue(target);
+  const t = await render(<DiveFormScreen mode="edit" diveId="target" />);
+  await openGroup(t, 'Water & entry');
+
+  await pickSite(t, 'Silfra', 'site-silfra');
+
+  expect(waterRows(t)).toEqual({ entry: 'shore', salinity: 'salt', waterBody: 'lake' });
+  await pressSave(t);
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+  expect(writtenPatch()).not.toHaveProperty('entry');
+  expect(writtenPatch()).not.toHaveProperty('salinity');
+  expect(writtenPatch()).not.toHaveProperty('waterBody');
+});
+
+it('leaves a new dive’s rows alone when the diver re-picks the site carry-over brought', async () => {
+  stubDives({ dives: carriedFromAQuarry() });
+  stubCatalogueRows({ 'site-silfra': siteSaying('Silfra', 'site-silfra', { entry: ['shore'], waterBody: 'quarry' }) });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  await pressChip(t, 'Entry', ENTRY_VALUES.indexOf('boat'));
+
+  // Changing the site sets what it knows; picking the one the dive is already at changes nothing.
+  await pickSite(t, 'Silfra', 'site-silfra');
+
+  expect(waterRows(t)).toEqual({ entry: 'boat', salinity: 'fresh', waterBody: 'lake' });
+});
+
+it('hands New dive site no salinity the water body chose, so it says so itself', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'lake', salinity: null })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+  expect(fromTheWaterBody(t)).toBe(1);
+
+  const site = await openPlace(t, 'Site');
+
+  expect(site.dive).toMatchObject({ waterBody: 'lake', salinity: null });
+  await regainFocus();
+});
+
+it('hides Salinity for an ocean stored with stray spaces', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', waterBody: 'ocean ' as Dive['waterBody'], salinity: 'salt' })] });
+  const t = await render(<DiveFormScreen mode="create" />);
+  await openGroup(t, 'Water & entry');
+
+  expect(findChip(t, 'Salinity', 0)).toBeUndefined();
 });

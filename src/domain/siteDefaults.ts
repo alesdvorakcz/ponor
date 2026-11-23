@@ -80,6 +80,14 @@ export interface SiteDefaultFill {
    * the row is still right to say so.
    */
   readonly fromSite: boolean;
+  /**
+   * Whether the **water body** is what put it there (#53): the salinity a water body implies when
+   * nothing said otherwise for that same water — fresh for every water body but the ocean. The
+   * form says so at the row's end (*from the water body*) rather than with a carried mark, because
+   * the value is not the last dive's. Only ever true for `salinity`, and never together with
+   * `fromSite`.
+   */
+  readonly fromWaterBody: boolean;
 }
 
 /** Everything carry-over put in these three rows, as the form holds it — `unknown` because
@@ -139,45 +147,162 @@ export function siteDefaultValue(site: SiteDefaults, field: SiteDefaultField): s
   return ways.length === 1 ? ways[0]! : null;
 }
 
+/** **Whether a water body is the ocean** (#53), read as `salinityFor` reads it — trimmed, and only
+ * a string — so the row a screen hides and the salt a save writes can never disagree. */
+export function isOcean(waterBody: unknown): boolean {
+  return stated(waterBody) === 'ocean';
+}
+
+/** Where a salinity came from: the diver's own hand, the site, what the dive inherited
+ * (carry-over, the stored dive, or the dive handed to *New dive site*), or the water body. */
+export type SalinitySource = 'typed' | 'site' | 'inherited' | 'waterBody';
+
+/** What the Salinity row holds, where it came from, and whether it is drawn at all. */
+export interface SalinityAnswer {
+  /** The salinity, or `null` for a row that holds nothing. */
+  readonly value: string | null;
+  /** Where it came from; `null` exactly when `value` is. */
+  readonly source: SalinitySource | null;
+  /** `false` for the ocean, whose row is not drawn: its salinity is salt and nothing to ask. */
+  readonly shown: boolean;
+}
+
 /**
- * **§2.1's precedence, in the three tiers it really has**, for a dive that has just been
- * paired to `site` (or unpaired from one, which is `site === null`).
+ * **The water body sets the salinity** (#53, the owner's call of 2026-11-19): whatever sets the
+ * water body — the diver tapping one, a site, or carry-over — sets the salinity with it.
  *
- * 1. **What the diver typed wins over everything**, so a typed field gets no fill at all — it
- *    is absent from the answer rather than present and unchanged, because "leave this alone"
- *    and "write this same value again" are different instructions to the form. `typed` is
- *    `SeedState.typed` (DiveFormScreen.tsx), which counts *clearing* as a gesture too: a diver
- *    who threw the water body away on purpose does not get it back by picking a site.
- * 2. **A site default beats a carried value** — §2.1's own sentence, and the reason the rule
- *    exists: the site is a better authority on its own water than last week's dive somewhere
- *    else.
- * 3. **Carry-over fills what is left.**
+ * Decided in this order, and the first that answers wins:
  *
- * **The answer is a function of those three and of nothing else** — not of which sites the
- * diver visited on the way here. That is what makes switching sites work: a value the first
- * site supplied and the second does not falls back to *carry-over*, never to the first site's
- * leftovers. A rule that accumulated would make the form depend on the order sites were
- * picked in — picking A then B would give a different dive from picking B — and it would seed
- * a site created afterwards (§2.3, `siteFactsFrom`) with a *neighbouring catalogue row's*
- * defaults under the diver's name, which is a worse thing to publish than a stale one.
+ * 1. **The ocean is salt**, and its row is not drawn. Nothing outranks it, not even a value set by
+ *    hand: a hidden row holding *fresh* would be a fact the diver can neither see nor change.
+ * 2. **The site's own salinity**, when it states one for this water body or names no water body at
+ *    all. A site that says *Lake · Salt* is a salt lake, and the dive logged there is in one. Above
+ *    a value set by hand, because a site sets what it knows (the owner's call of 2026-11-23); a
+ *    site that says salt about a lake says nothing about the river the diver tapped instead.
+ * 3. **A salinity the diver set by hand and still in force** — `typed` is `undefined` when none
+ *    is. The caller decides whether it is still in force: it lasts until the water body changes.
+ *    A cleared one is in force too, as an empty row.
+ * 4. **What the dive inherited**, when it was for this same water body: a salt lake carries over as
+ *    Lake · Salt, and the same salt does not follow the diver into a river.
+ * 5. **Fresh**, for any water body nothing above spoke for — every one but the ocean is fresh
+ *    unless somebody says otherwise (a sea cave, a salt lake).
+ * 6. **No water body is today's rule**: the inherited salinity, whatever water it was for, or
+ *    nothing.
  *
- * A `site` of `null` is therefore not a special case but the same rule with tier 2 empty: the
- * dive has no site, so carry-over answers. It covers both the diver typing over the name and
- * every way the row cannot be read at all — never pulled, tombstoned, merged or hidden — which
- * is what §1 needs of it (*"never block a save"*): there is no arrangement of catalogue rows
- * that makes this fail rather than answer.
+ * Pure, and a function of its four inputs alone — the same shape `siteDefaultFills` keeps, for
+ * the same reason (M2s): a rule that remembered which water bodies the form had passed through
+ * would answer differently for the same dive depending on the order of taps.
+ */
+export function salinityFor({
+  waterBody,
+  typed,
+  site,
+  inherited,
+}: {
+  waterBody: unknown;
+  typed: unknown;
+  site: SiteDefaults | null;
+  inherited: InheritedValues;
+}): SalinityAnswer {
+  const water = stated(waterBody);
+  if (isOcean(water)) return { value: 'salt', source: 'waterBody', shown: false };
+  const siteSalinity = site === null || site === undefined ? null : stated(site.salinity);
+  const siteWater = site === null || site === undefined ? null : stated(site.waterBody);
+  if (siteSalinity !== null && (siteWater === null || siteWater === water)) {
+    return { value: siteSalinity, source: 'site', shown: true };
+  }
+  if (typed !== undefined) return { value: stated(typed), source: 'typed', shown: true };
+  const inheritedSalinity = stated(inherited.salinity);
+  if (inheritedSalinity !== null && stated(inherited.waterBody) === water) {
+    return { value: inheritedSalinity, source: 'inherited', shown: true };
+  }
+  if (water !== null) return { value: 'fresh', source: 'waterBody', shown: true };
+  return inheritedSalinity === null
+    ? { value: null, source: null, shown: true }
+    : { value: inheritedSalinity, source: 'inherited', shown: true };
+}
+
+/** What a site pick writes, and which of the diver's own values it overrode. */
+export interface SiteDefaultAnswer {
+  /** One per row the pick writes. A row it leaves to the diver is absent, not present and unchanged. */
+  readonly fills: SiteDefaultFill[];
+  /** The rows the diver had set by hand that this pick overrode — the caller stops counting them as
+   * the diver's, so the next pick reads them as the site's or carry-over's like any other. */
+  readonly released: SiteDefaultField[];
+}
+
+/**
+ * **Site, water body and salinity are a hierarchy, and setting a parent sets its children** — the
+ * owner's call on #53 (2026-11-19, and widened to the site on 2026-11-23), for a dive that has just
+ * been paired to `site` (or unpaired from one, which is `site === null`).
+ *
+ * 1. **A site sets what it knows** — its water body, its entry when it offers exactly one way in,
+ *    its salinity — over a value the diver set by hand. This reverses §2.1's tier one, which kept
+ *    every typed value whatever the site said, and §10 records why: the diver who picks a site has
+ *    said where they are, and a value set for the place they were before belongs to that place.
+ * 2. **What the site doesn't know, the diver's value keeps.** A site that says nothing about a row
+ *    leaves a value set by hand where it is.
+ * 3. **Carry-over fills what is left** (`inherited`: the previous dive in create mode, the stored
+ *    dive in edit mode). A value the previous site filled falls back to it, never to that site's
+ *    leftovers — the M2s property, unchanged.
+ * 4. **The salinity follows the water body the pick leaves the dive with** (`salinityFor`). A salinity set by hand
+ *    lasts only while the water body is the one it was set for.
+ *
+ * `current` is what the form holds now, for the rows the diver set (it defaults to `inherited`,
+ * which is what an untouched form holds). `keep` names the rows the diver touched after the pick
+ * began, while the site read was out: the latest gesture wins, so the site overrides none of them,
+ * and a kept salinity stays in force whatever the water body.
+ *
+ * **The answer is a function of these inputs and of nothing else** — not of which sites the diver
+ * visited on the way here — which is what makes switching sites work and what keeps a site created
+ * afterwards (§2.3, `siteFactsFrom`) from being seeded with a neighbouring catalogue row's
+ * defaults under the diver's name.
+ *
+ * A `site` of `null` is not a special case but the same rule with the site's tier empty: it covers
+ * the diver typing over the name and every way the row cannot be read at all — never pulled,
+ * tombstoned, merged or hidden — which is what §1 needs of it (*"never block a save"*).
  */
 export function siteDefaultFills(
   site: SiteDefaults | null,
   inherited: InheritedValues,
   typed: ReadonlySet<string>,
-): SiteDefaultFill[] {
+  current: InheritedValues = inherited,
+  keep: ReadonlySet<string> = new Set<string>(),
+): SiteDefaultAnswer {
   const fills: SiteDefaultFill[] = [];
-  for (const field of SITE_DEFAULT_FIELDS) {
-    if (typed.has(field)) continue;
+  const released: SiteDefaultField[] = [];
+  // A kept row is the diver's whether or not `typed` has caught up with it yet: the form records
+  // the touch in both at once, but the read can land between the two.
+  const handSet = (field: string) => typed.has(field) || keep.has(field);
+  for (const field of ['entry', 'waterBody'] as const) {
+    const supplied = site === null || site === undefined || keep.has(field) ? null : siteDefaultValue(site, field);
     const carried = stated(inherited[field]);
-    const supplied = site === null || site === undefined ? null : siteDefaultValue(site, field);
-    fills.push({ field, value: supplied ?? carried, fromSite: supplied !== null && supplied !== carried });
+    if (supplied !== null) {
+      if (typed.has(field)) released.push(field);
+      fills.push({ field, value: supplied, fromSite: supplied !== carried, fromWaterBody: false });
+    } else if (!handSet(field)) {
+      fills.push({ field, value: carried, fromSite: false, fromWaterBody: false });
+    }
   }
-  return fills;
+  const waterFill = fills.find((fill) => fill.field === 'waterBody');
+  const water = waterFill === undefined ? stated(current.waterBody) : waterFill.value;
+  const salinityHandSet = handSet('salinity');
+  const inForce = salinityHandSet && (keep.has('salinity') || water === stated(current.waterBody));
+  // A salinity tapped while the read was out is the latest gesture and outranks the site — but not
+  // the ocean, which `salinityFor` answers before anything else.
+  const answer =
+    keep.has('salinity') && water !== 'ocean'
+      ? { value: stated(current.salinity), source: 'typed' as const, shown: true }
+      : salinityFor({ waterBody: water, typed: inForce ? current.salinity : undefined, site, inherited });
+  if (answer.source !== 'typed') {
+    if (typed.has('salinity')) released.push('salinity');
+    fills.push({
+      field: 'salinity',
+      value: answer.value,
+      fromSite: answer.source === 'site' && answer.value !== stated(inherited.salinity),
+      fromWaterBody: answer.source === 'waterBody',
+    });
+  }
+  released.sort();
+  return { fills, released };
 }

@@ -19,6 +19,7 @@ import { toFormNumber } from '../domain/diveFormSchema';
 import { type MapPoint } from '../domain/mapSites';
 import { type PlaceKind } from '../domain/placePicker';
 import { cleanAltNames } from '../domain/search';
+import { isOcean, salinityFor, type InheritedValues } from '../domain/siteDefaults';
 import {
   AGENCY_VALUES,
   ENTRY_VALUES,
@@ -134,8 +135,9 @@ function twinHref(id: string, token: string): Href {
  *
  * ── What a new row starts with ────────────────────────────────────────────────────────────
  *
- * The typed name; for a site, the dive's own pin, salinity, water body and entry, each marked *from
- * this dive* until the diver changes it (§2.3: a site inherits them, never `max_depth_m`) — the
+ * The typed name; for a site, the dive's own pin, water body, salinity and entry, each marked *from
+ * this dive* until the diver changes it — the salinity following its water body (#53): not drawn
+ * for the ocean, and *from the water body* when the rule chose it (§2.3: a site inherits them, never `max_depth_m`) — the
  * entry as a set holding the dive's one way in, since a site's entry is every way it offers (#31),
  * so the diver adds the others rather than replacing it; for a
  * centre, the name alone and an empty position — the dive's pin is where the diver entered the
@@ -210,7 +212,14 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
   const [position, setPosition] = useState<Position | null>(() =>
     kind === 'site' && dive !== null && dive.pin !== null ? { ...dive.pin, from: 'dive' } : null,
   );
-  const [salinity, setSalinity] = useState<Salinity | null>(dive?.salinity ?? null);
+  // **The water body sets the salinity** (#53), here as on the dive form: the dive's own pair
+  // when it handed one over, salt for the ocean, and otherwise fresh *from the water body*.
+  const handed: InheritedValues = { waterBody: dive?.waterBody ?? null, salinity: dive?.salinity ?? null };
+  const [startingSalinity] = useState(() =>
+    salinityFor({ waterBody: dive?.waterBody ?? null, typed: undefined, site: null, inherited: handed }),
+  );
+  const [salinity, setSalinity] = useState<Salinity | null>(startingSalinity.value as Salinity | null);
+  const [salinityFromWaterBody, setSalinityFromWaterBody] = useState(startingSalinity.source === 'waterBody');
   const [waterBody, setWaterBody] = useState<WaterBody | null>(dive?.waterBody ?? null);
   // A set (#31): every way in the site offers, seeded with the dive's one (`siteFactsFrom`).
   const [entry, setEntry] = useState<Entry[]>(dive?.entry ?? []);
@@ -598,27 +607,42 @@ export default function NewPlaceScreen({ kind }: { kind: PlaceKind }) {
           <>
             <FormGroup title={t('site.facts')} hint={t('newPlace.siteHint')} {...groupProps('site')}>
               <OptionChips
-                label={t('field.salinity')}
-                value={salinity}
-                options={SALINITY_VALUES}
-                displayLabel={(option) => formatSalinity(option) ?? option}
-                onChange={(chosen) => setSalinity(chosen === '' ? null : chosen)}
-                scheme={scheme}
-                caption={fromDive(salinity, dive?.salinity)}
-                disabled={saving}
-              />
-              <OptionChips
                 label={t('field.waterBody')}
                 value={waterBody}
                 options={WATER_BODY_VALUES}
                 displayLabel={(option) => formatWaterBody(option) ?? option}
-                onChange={(chosen) => setWaterBody(chosen === '' ? null : chosen)}
+                onChange={(chosen) => {
+                  const next = chosen === '' ? null : chosen;
+                  setWaterBody(next);
+                  if (next === waterBody) return;
+                  // A new water body sets the salinity with it, over one the diver chose (#53).
+                  const answer = salinityFor({ waterBody: next, typed: undefined, site: null, inherited: handed });
+                  setSalinity(answer.value as Salinity | null);
+                  setSalinityFromWaterBody(answer.source === 'waterBody');
+                }}
                 scheme={scheme}
                 caption={fromDive(waterBody, dive?.waterBody)}
                 disabled={saving}
                 layout="tiles"
                 icon={drawnIcon('waterBody')}
               />
+              {/* After the water body, and not at all for the ocean, whose salinity is salt
+                  (#53, as on the dive form): the value is still the page's, and saved. */}
+              {!isOcean(waterBody) && (
+                <OptionChips
+                  label={t('field.salinity')}
+                  value={salinity}
+                  options={SALINITY_VALUES}
+                  displayLabel={(option) => formatSalinity(option) ?? option}
+                  onChange={(chosen) => {
+                    setSalinity(chosen === '' ? null : chosen);
+                    setSalinityFromWaterBody(false);
+                  }}
+                  scheme={scheme}
+                  caption={salinityFromWaterBody ? t('field.fromWaterBody') : fromDive(salinity, dive?.salinity)}
+                  disabled={saving}
+                />
+              )}
               {/* Every way in the site offers (#31): a set, as *Site type* is. Tiles with their
                   drawings since issue #6, as the dive form's single entry is; *other* is a word. */}
               <TokenChips

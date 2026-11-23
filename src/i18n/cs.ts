@@ -518,6 +518,7 @@ export const cs = {
       entry: 'Vstup',
       salinity: 'Slanost',
       waterBody: 'Vodní plocha',
+      fromWaterBody: 'podle vodní plochy',
       gps: 'GPS',
       country: 'Země',
       website: 'Web',
