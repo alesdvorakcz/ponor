@@ -636,6 +636,8 @@ export const en = {
       entry: 'Entry',
       salinity: 'Salinity',
       waterBody: 'Water body',
+      /** At the Salinity row's end when the water body chose it (#53): fresh for any water but the ocean. */
+      fromWaterBody: 'from the water body',
       gps: 'GPS',
       country: 'Country',
       website: 'Website',

@@ -76,7 +76,7 @@ import {
   type TankFormInput,
 } from '../domain/diveFormSchema';
 import { presetMatching, presetRefusal, presetSaveFailed } from '../domain/presets';
-import { siteDefaultFills, type InheritedValues, type SiteDefaults } from '../domain/siteDefaults';
+import { salinityFor, siteDefaultFills, type InheritedValues, type SiteDefaults } from '../domain/siteDefaults';
 import {
   asInlineSuggestedField,
   pairedIdField,
@@ -656,7 +656,23 @@ function seedStateFor(
   for (const field of fromSite) marked.delete(field);
   // §6's pair outranks carry-over's name for the same reason. Its row is already unmarked: the
   // pick that pinned it is in `typed`.
-  const values = pinPairedNames(seeded, pairedNames);
+  let values = pinPairedNames(seeded, pairedNames);
+  // **The water body sets the salinity** (#53): a last dive that named a lake and no salinity
+  // seeds fresh, *from the water body*, and one in the ocean seeds salt behind a hidden row, even
+  // over a fresh stored before the rule existed. Only while no gesture has decided either row:
+  // a reseed under a diver who tapped a water body, or a site that answered for one, keeps their
+  // answer — the value through `keepDirtyValues`, the caption through `fromWaterBody`.
+  const waterAnswered = new Set(fromWaterBody);
+  const decided = ['salinity', 'waterBody'].some((field) => typed.has(field) || fromSite.has(field));
+  if (waterAnswered.has('salinity')) marked.delete('salinity');
+  else if (!decided) {
+    const answer = salinityFor({ waterBody: seeded.waterBody, typed: undefined, site: null, inherited: placeColumns(seeded) });
+    if (answer.source === 'waterBody') {
+      values = { ...values, salinity: answer.value };
+      marked.delete('salinity');
+      waterAnswered.add('salinity');
+    }
+  }
   return {
     sourceId,
     units,
@@ -667,7 +683,7 @@ function seedStateFor(
     fromSite,
     pairedNames,
     inherited: placeColumns(seeded),
-    fromWaterBody,
+    fromWaterBody: waterAnswered,
   };
 }
 
@@ -810,7 +826,7 @@ export const FORM_GROUPS: Record<FormGroupId, FormGroupSpec> = {
   // dive that has nothing in it but a pin.
   water: {
     titleKey: 'group.waterEntry',
-    fields: ['entry', 'salinity', 'waterBody', 'latitude', 'longitude'],
+    fields: ['entry', 'waterBody', 'salinity', 'latitude', 'longitude'],
     startsOpen: false,
   },
   equipment: {
@@ -1520,6 +1536,12 @@ interface ControlledOptionFieldProps<T extends string | number> {
   /** Forwarded to `OptionChips`: `'tiles'` for the fields whose values have drawings (§0.6). */
   layout?: 'chips' | 'tiles';
   columns?: 3 | 4;
+  /** Forwarded to `OptionChips`: a muted word at the row's end about where the value came from —
+   * *from the water body* on Salinity (#53). */
+  caption?: string;
+  /** Told after the field takes a new value — a chip, a deselect or the clear ring — with the value
+   * it held before. The water body's call site hands it the salinity rule (#53). */
+  onPicked?: (previous: unknown, chosen: T | '') => void;
   /** The same `CarryOverControls` a text field takes, at every call site for the same reason.
    * Six of this form's twelve chip rows are in §2.1's carried half (`entry`, `salinity`,
    * `waterBody`, `suit`, and the cylinder's `material` and `configuration`) and the other six
@@ -1554,7 +1576,7 @@ interface ControlledOptionFieldProps<T extends string | number> {
  * `fieldState.error` is still read first, and is not dead: a field that grows a blocking
  * rule later is covered without this screen keeping a second list of which fields can fail.
  */
-function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon, layout, columns, carryOver }: ControlledOptionFieldProps<T>) {
+function ControlledOptionField<T extends string | number>({ control, name, label, options, displayLabel, scheme, icon, layout, columns, caption, onPicked, carryOver }: ControlledOptionFieldProps<T>) {
   return (
     <Controller
       control={control}
@@ -1573,8 +1595,10 @@ function ControlledOptionField<T extends string | number>({ control, name, label
             // `onDrop` path and leaves no `— cleared` behind. Only the ring says "this value
             // was not mine".
             onChange={(chosen) => {
+              const previous: unknown = field.value;
               carryOver?.onDrop(name);
               field.onChange(chosen);
+              onPicked?.(previous, chosen);
             }}
             scheme={scheme}
             icon={icon}
@@ -1587,9 +1611,12 @@ function ControlledOptionField<T extends string | number>({ control, name, label
             // deselect press already reports, which is why the two gestures have to be told
             // apart here rather than by what they write.
             onClear={() => {
+              const previous: unknown = field.value;
               carryOver?.onClear(name);
               field.onChange('');
+              onPicked?.(previous, '');
             }}
+            caption={caption}
           />
           <FieldNote message={fieldState.error?.message ?? optionNote(options, field.value)} scheme={scheme} />
         </>
@@ -2904,6 +2931,8 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // button with it — reading `getValues('status')` during render would produce the right
   // string once and then never change, which is the "says one thing, does another" defect
   // this whole control exists to end, reintroduced one layer down.
+  /** The water body as the form holds it now — whether the Salinity row is drawn (#53). */
+  const waterBodyNow = useWatch({ control, name: 'waterBody' });
   const chosenStatus: DiveStatus = useWatch({ control, name: 'status' }) === 'planned' ? 'planned' : 'logged';
 
   // The date the form currently holds, watched for the same reason `chosenStatus` above is:
@@ -3087,6 +3116,40 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
   // `CarryOverControls` for why it is one prop and why it goes to fresh rows too. Rebuilt each
   // render, which costs nothing: these are plain props on components nothing memoises, and the
   // two sets inside it are the very values a re-render exists to deliver.
+  /**
+   * **The water body sets the salinity** (#53, the owner's call): the diver tapped, deselected or
+   * cleared the water body, so the salinity follows it — salt behind a hidden row for the ocean;
+   * the paired site's or the inherited salinity when it was for this same water; otherwise fresh,
+   * *from the water body*. A salinity set by hand was about the water the dive was in before, so it
+   * goes too. `salinityFor` owns the order; this owns the write and the marks.
+   */
+  const onWaterBodyPicked = useCallback(
+    (previous: unknown, chosen: unknown) => {
+      const word = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+      if (word(previous) === word(chosen)) return;
+      const answer = salinityFor({
+        waterBody: chosen,
+        typed: undefined,
+        site: pairedSiteRef.current,
+        inherited: carriedRef.current.inherited,
+      });
+      setValue('salinity', answer.value, { shouldDirty: true });
+      setCarried((prev) => {
+        const typed = new Set(prev.typed);
+        const cleared = new Set(prev.cleared);
+        const paths = new Set(prev.paths);
+        const fromSite = new Set(prev.fromSite);
+        const fromWaterBody = new Set(prev.fromWaterBody);
+        for (const set of [typed, cleared, paths, fromSite, fromWaterBody]) set.delete('salinity');
+        if (answer.source === 'site') fromSite.add('salinity');
+        else if (answer.source === 'waterBody') fromWaterBody.add('salinity');
+        else if (answer.source === 'inherited' && mode === 'create' && hasCarriedValue(answer.value)) paths.add('salinity');
+        return { ...prev, typed, cleared, paths, fromSite, fromWaterBody };
+      });
+    },
+    [mode, setValue],
+  );
+
   const carryOver: CarryOverControls = {
     paths: carried.paths,
     cleared: carried.cleared,
@@ -4087,15 +4150,6 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
           <ControlledOptionField
             control={control}
             carryOver={carryOver}
-            name="salinity"
-            label={t('field.salinity')}
-            options={SALINITY_VALUES}
-            displayLabel={(option) => formatSalinity(option) ?? option}
-            scheme={scheme}
-          />
-          <ControlledOptionField
-            control={control}
-            carryOver={carryOver}
             name="waterBody"
             label={t('field.waterBody')}
             options={WATER_BODY_VALUES}
@@ -4103,7 +4157,25 @@ export default function DiveFormScreen({ mode, diveId, initialStatus }: DiveForm
             scheme={scheme}
             layout="tiles"
             icon={drawnIcon('waterBody')}
+            onPicked={onWaterBodyPicked}
           />
+          {/* **Salinity after the water body, and not at all for the ocean** (#53, the owner's
+              call): the water body sets the salinity, so the answer sits under the question that
+              decides it. The ocean's is salt and nothing to ask — the value is still the form's,
+              written by `onWaterBodyPicked` or the seed, and saved. Any other water body shows the
+              row, with *from the water body* at its end while the rule is what chose it. */}
+          {waterBodyNow !== 'ocean' && (
+            <ControlledOptionField
+              control={control}
+              carryOver={carryOver}
+              name="salinity"
+              label={t('field.salinity')}
+              options={SALINITY_VALUES}
+              displayLabel={(option) => formatSalinity(option) ?? option}
+              scheme={scheme}
+              caption={carried.fromWaterBody.has('salinity') ? t('field.fromWaterBody') : undefined}
+            />
+          )}
           {/* No `carryOver` prop, and that is the one call site on this form where its absence
               is the point rather than an oversight: §2.1 puts the exact GPS point in the fresh
               half, so there is never a mark to show or a carried value to clear. The row has
