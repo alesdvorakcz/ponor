@@ -1646,7 +1646,7 @@ describe('the New dive site page', () => {
 });
 
 // Issue #31, round 4 (the owner's pick C): the note under a site's *The site* cluster naming the rows
-// that fill in a new dive — the canvas draws it in muted mono, a note about the rows rather than a
+// that picking the site fills in — the canvas draws it in muted mono, a note about the rows rather than a
 // sentence of the page.
 describe('a site page’s note', () => {
   it.each(['dark', 'light'] as const)('is muted mono at the canvas’s 11.5 (%s)', (scheme) => {

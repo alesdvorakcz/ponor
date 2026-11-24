@@ -197,14 +197,15 @@ function siteTiles(site: DiveSite): ConditionTile[] {
 }
 
 /**
- * **The note under *The site*: which of its rows fill in a new dive**, or `null` when none does.
+ * **The note under *The site*: which of its rows picking it fills in**, or `null` when none does.
  *
  * Decided field by field by the prefill's own reading, `siteDefaultValue`, so the page and the
  * prefill cannot disagree: *Salinity* and *Water body* when each is a default, *Entry* only when the
  * set holds exactly one way in — several are left to the diver (§2.1, #63), so the tiles draw them and
- * the note does not promise them. It states the tier it can promise and not the one it cannot: §2.1 puts
- * the site above carry-over and below anything the diver has typed, and a note claiming the rows are
- * simply "filled in" would be wrong about the tier that matters most.
+ * the note does not promise them. Since #53 the site sets what it knows over anything the rows held,
+ * a value the diver typed included, on a new dive and on a stored one moved here, so the note says
+ * *over anything already there*. It names the pick as the moment, because opening a dive already
+ * logged here never refills it.
  */
 function prefillNote(site: DiveSite): string | null {
   const filled = new Set(
@@ -421,8 +422,8 @@ export default function DiveSiteScreen({ id: idProp }: DiveSiteScreenProps = {})
  *
  * *The site* holds every fact in the canvas's order — its type, the level it suits, its own depth,
  * its altitude, its wreck, its water, its ways in, its other names and its country (#31) — each only
- * when filled. Three of them are what §2.1's defaults will **do**: picking this site on a new dive
- * writes them into it, over anything carried from the diver's last dive. The note names those rows
+ * when filled. Three of them are what §2.1's defaults will **do**: picking this site for a dive
+ * writes them into it, over anything its rows already held (#53). The note names those rows
  * (`prefillNote`), by the prefill's own rule, so a page that lists everything together still lets a
  * diver see the rule before it fires. It replaced a *Site defaults* cluster of its own, which the
  * canvas never drew.

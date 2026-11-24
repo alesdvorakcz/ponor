@@ -171,14 +171,14 @@ it('draws no cluster and no note for a site the catalogue knows nothing else abo
   expect(text).not.toContain('The site');
   expect(text).not.toContain('Country');
   expect(text).not.toContain('Site depth');
-  expect(text.join(' ')).not.toContain('a new dive logged here');
+  expect(text.join(' ')).not.toContain('when you pick this site for a dive');
 });
 
 // --- What the catalogue knows, in one cluster with a note (§6, §2.1; the owner's pick C) ------
 
 /** The note under *The site*, or `undefined` when the page draws none. */
 function noteIn(t: RenderResult): string | undefined {
-  return textIn(t).find((line) => line.includes('a new dive logged here'));
+  return textIn(t).find((line) => line.includes('when you pick this site for a dive'));
 }
 
 /**
@@ -206,7 +206,7 @@ it('puts what a site gives a new dive among its facts, and says which rows those
     ['Shore', 'Entry'],
   ]);
   expect(noteIn(t)).toBe(
-    'Salinity, Water body and Entry fill in a new dive logged here, over anything carried from your last dive.',
+    'Salinity, Water body and Entry fill in when you pick this site for a dive, over anything already there.',
   );
   // The note closes the cluster: under its last row.
   expect(lines.indexOf(noteIn(t)!)).toBeGreaterThan(lines.indexOf('Country'));
@@ -246,7 +246,7 @@ it.each(SITE_DEFAULT_FIELDS)('names the row a site’s %s fills in, and only tha
   };
   mockUseDiveSites.mockReturnValue(catalogueState([rock(only[field].site)]));
   expect(noteIn(await show())).toBe(
-    `${only[field].row} fills in a new dive logged here, over anything carried from your last dive.`,
+    `${only[field].row} fills in when you pick this site for a dive, over anything already there.`,
   );
 });
 
@@ -299,7 +299,7 @@ it('omits a row the catalogue has no opinion about, and leaves it out of the not
   expect(lines).toContain('Entry');
   expect(lines).not.toContain('Water');
   expect(lines).not.toContain('—');
-  expect(noteIn(t)).toBe('Entry fills in a new dive logged here, over anything carried from your last dive.');
+  expect(noteIn(t)).toBe('Entry fills in when you pick this site for a dive, over anything already there.');
 });
 
 /**
@@ -311,7 +311,7 @@ it('names one way in in the note', async () => {
   mockUseDiveSites.mockReturnValue(catalogueState([rock({ entry: ['boat'], salinity: 'salt', waterBody: 'ocean' })]));
   const t = await show();
   expect(textIn(t)).toContain('Boat');
-  expect(noteIn(t)).toBe('Salinity, Water body and Entry fill in a new dive logged here, over anything carried from your last dive.');
+  expect(noteIn(t)).toBe('Salinity, Water body and Entry fill in when you pick this site for a dive, over anything already there.');
 });
 
 it('draws two ways in as two Entry tiles, and names only the water in the note', async () => {
@@ -326,7 +326,7 @@ it('draws two ways in as two Entry tiles, and names only the water in the note',
     ['Shore', 'Entry'],
     ['Boat', 'Entry'],
   ]);
-  expect(noteIn(t)).toBe('Salinity and Water body fill in a new dive logged here, over anything carried from your last dive.');
+  expect(noteIn(t)).toBe('Salinity and Water body fill in when you pick this site for a dive, over anything already there.');
 });
 
 it('draws several ways in with no note when nothing else fills in a dive', async () => {
@@ -628,7 +628,7 @@ describe('in Czech', () => {
       ['Břeh', 'Vstup'],
     ]);
     expect(said).toContain(
-      'Slanost, Vodní plocha a Vstup se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.',
+      'Slanost, Vodní plocha a Vstup se vyplní, když tuto lokalitu vyberete u ponoru, místo toho, co tam už bylo.',
     );
     expect(said).not.toContain('Site depth');
   });
@@ -640,7 +640,7 @@ describe('in Czech', () => {
       ['Břeh', 'Vstup'],
       ['Loď', 'Vstup'],
     ]);
-    expect(textIn(t)).toContain('Slanost se u nového ponoru zde vyplní místo toho, co se převzalo z minulého ponoru.');
+    expect(textIn(t)).toContain('Slanost se vyplní, když tuto lokalitu vyberete u ponoru, místo toho, co tam už bylo.');
   });
 
   it('says a site it cannot find is not there, in Czech', async () => {
@@ -805,7 +805,7 @@ it('draws no tile for a blank site type or way in', async () => {
   expect(tileWordsIn(t).map(([word]) => word)).toEqual(['Wreck', 'Shore']);
   // PR #72's review, finding 5: one way in drawn means one way in to the prefill, and the note
   // names it, so the page and the prefill read the same set.
-  expect(noteIn(t)).toBe('Entry fills in a new dive logged here, over anything carried from your last dive.');
+  expect(noteIn(t)).toBe('Entry fills in when you pick this site for a dive, over anything already there.');
 });
 
 // PR #72's review, finding 2: a word stored with spaces around it is still that word, with its
