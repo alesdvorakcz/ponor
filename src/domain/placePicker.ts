@@ -1,9 +1,10 @@
-import { divesWithCenter } from './centerDives';
+import { divesOfRow, type CatalogueDiveLookup } from './catalogueDives';
+import { centerDiveLookup } from './centerDives';
 import { compareDiveOrder } from './diveNumber';
 import { distanceKm } from './geo';
 import { pointOf, type MapPoint } from './mapSites';
 import { alsoCalled, browseCatalogue, foldForMatching } from './search';
-import { divesAtSite } from './siteDives';
+import { siteDiveLookup } from './siteDives';
 import { historyOf, type SuggestionHistory } from './suggest';
 import { type Dive, type DiveSite } from './types';
 
@@ -29,8 +30,9 @@ import { type Dive, type DiveSite } from './types';
  *
  * ── Which dives count, and why this does not match ids itself ─────────────────────────────
  *
- * A row is *dived* when `divesAtSite` / `divesWithCenter` pairs at least one **logged** dive to
- * it. Those helpers are the rule the site and centre pages already use — an id decides on its
+ * A row is *dived* when the rule `divesAtSite` / `divesWithCenter` apply pairs at least one
+ * **logged** dive to it — read through `siteDiveLookup` / `centerDiveLookup` (#36), which sort the
+ * logbook once rather than walking it per row. That rule is the one the site and centre pages use — an id decides on its
  * own, a dive without an id belongs by its folded name, a plan is not a visit, and a merge's
  * repointed dives already point at the survivor — so the picker shows a diver the same history
  * the row's own page would. A hand-rolled `siteId === id` here would list a site the diver has
@@ -140,15 +142,28 @@ function isReadable(
   return !!place && typeof place.id === 'string' && place.id !== '';
 }
 
-/** The dive pairing for one row, by the rule the row's own page uses. */
-function divesFor(
-  kind: PlaceKind,
-  dives: readonly Dive[],
-  place: PickerPlace,
-): Dive[] {
-  return kind === 'site'
-    ? divesAtSite(dives, place)
-    : divesWithCenter(dives, place);
+/**
+ * **The logbook sorted once per logbook, not once per keystroke** (#36). The screen hands
+ * `pickerGroups` the same dives array until the logbook changes (`PlacePickerScreen`'s `history`,
+ * memoised on the live read), so the lookup is kept against that array: typing reuses it, and a
+ * dive saved while the picker is open arrives as a new array and gets a new lookup. One cache per
+ * kind, because a site's lookup and a centre's read different columns of the same dives. A
+ * `WeakMap`, so a logbook nobody holds any more takes its lookup with it.
+ */
+const lookups: Record<PlaceKind, WeakMap<readonly Dive[], CatalogueDiveLookup<Dive>>> = {
+  site: new WeakMap(),
+  center: new WeakMap(),
+};
+
+/** What a logbook the picker cannot read is paired against: one shared array, so one lookup. */
+const NO_DIVES: readonly Dive[] = [];
+
+function lookupFor(kind: PlaceKind, dives: readonly Dive[]): CatalogueDiveLookup<Dive> {
+  const cached = lookups[kind].get(dives);
+  if (cached !== undefined) return cached;
+  const built = kind === 'site' ? siteDiveLookup(dives) : centerDiveLookup(dives);
+  lookups[kind].set(dives, built);
+  return built;
 }
 
 /** The counts a dived row shows, or null when no logged dive is paired to it. */
@@ -199,11 +214,8 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
   const places = Array.isArray(input.places)
     ? input.places.filter(isReadable)
     : [];
-  // Prefiltering to logged dives is the same answer the helpers give (they refuse a plan), it
-  // only spares them walking plans once per catalogue row.
-  const logged = Array.isArray(input.dives)
-    ? input.dives.filter((d) => !!d && d.status === 'logged')
-    : [];
+  // The lookup files only logged dives, so plans need no filter of their own here.
+  const lookup = lookupFor(kind, Array.isArray(input.dives) ? input.dives : NO_DIVES);
   const text = typeof query === 'string' ? query : '';
   const needle = foldForMatching(text);
   const typed = needle !== '';
@@ -228,7 +240,7 @@ export function pickerGroups(input: PickerInput): PickerGroup[] {
   const matching = browseCatalogue(places, text);
   const pairedOf = new Map<string, Dive[]>();
   for (const place of matching)
-    pairedOf.set(place.id, divesFor(kind, logged, place));
+    pairedOf.set(place.id, divesOfRow(lookup, place));
 
   const distanceTo = (from: MapPoint, place: PickerPlace): number | null => {
     const at = pointOf(place);
