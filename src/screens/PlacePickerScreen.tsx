@@ -25,6 +25,7 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { applyPulledDiveCenters, applyPulledDiveSites } from '../db/catalogue';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
+import { useDiveSite } from '../db/useDiveSite';
 import { useDiveSites } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable } from '../domain/logbook';
@@ -37,6 +38,7 @@ import {
   type PickerRow,
   type PlaceKind,
 } from '../domain/placePicker';
+import { type DiveSite } from '../domain/types';
 import {
   formatCreatePlaceMeta,
   formatDistance,
@@ -50,7 +52,13 @@ import {
 } from '../format/display';
 import { useCatalogueSupplement, useNearbySupplement } from '../hooks/useCatalogueSupplement';
 import { t, useT } from '../i18n';
-import { completePlacePick, firstParam, forgetPlacePick, placePickRequest } from '../navigation/placePick';
+import {
+  completePlacePick,
+  firstParam,
+  forgetPlacePick,
+  placePickRequest,
+  type PlacePickRequest,
+} from '../navigation/placePick';
 import { roughPosition, type PositionOutcome, type PositionRefusal } from '../platform/location';
 import { themeFor, resolveScheme } from '../theme/resolve';
 import { makeStyles, screenBottomInset, screenTopInset, type Styles } from '../theme/styles';
@@ -119,9 +127,17 @@ function refusalSentence(reason: PositionRefusal): string {
  * Which rows, under which heading, in what order, which one is checked — all of that is
  * `domain/placePicker.ts`, run over the device's catalogue (live, so a row the supplement or the
  * create page writes appears as it lands) and the diver's dives, less the one being edited. The
- * call is memoised here on its inputs, because it pairs every place with the logbook each time it
- * runs. What this page owns is the wording (`format/display.ts`), the three ways off it, and *Near
- * me*.
+ * call is memoised here on its inputs, and the dives it is handed stay the same array until the
+ * logbook changes, which is what lets it sort the logbook once and reuse that while the diver
+ * types (#36). What this page owns is the wording (`format/display.ts`), the three ways off it,
+ * and *Near me*.
+ *
+ * ── Each page reads the one table it lists (#36) ──────────────────────────────────────────
+ *
+ * `SitePicker` reads the sites table; `CentrePicker` the centres table and, by id, the one site the
+ * dive is paired to, which *Near [site]* is measured from. Neither reads the other's whole table, so
+ * a pull landing in the table a page does not list costs it nothing. The kind is fixed per route
+ * (`/pick/site`, `/pick/center`), so the choice between them never flips under mounted hooks.
  *
  * ── Three ways off, and the form hears about one ────────────────────────────────────────────
  *
@@ -139,20 +155,71 @@ function refusalSentence(reason: PositionRefusal): string {
  * the page closed is dropped.
  */
 export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
+  const params = useLocalSearchParams<{ token?: string | string[] }>();
+  const token = firstParam(params.token) ?? '';
+  // Read once: completing the request forgets it, and the page should not lose its *Selected*
+  // line in the moment between the pick and the page closing.
+  const [request] = useState(() => placePickRequest(token));
+  return kind === 'site' ? (
+    <SitePicker token={token} request={request} />
+  ) : (
+    <CentrePicker token={token} request={request} />
+  );
+}
+
+interface PickerSource {
+  token: string;
+  request: PlacePickRequest | null;
+}
+
+/** The site page's reads: the sites table, and nothing of the centres' (#36). */
+function SitePicker({ token, request }: PickerSource) {
+  const { sites, resolved, error } = useDiveSites();
+  return (
+    <PickerPage
+      kind="site"
+      token={token}
+      request={request}
+      places={sites}
+      catalogue={{ resolved, error }}
+      pairedSite={null}
+    />
+  );
+}
+
+/** The centre page's reads: the centres table, and the dive's one site by id for *Near [site]* (#36). */
+function CentrePicker({ token, request }: PickerSource) {
+  const { centers, resolved, error } = useDiveCenters();
+  const pairedSite = useDiveSite(request?.dive.siteId ?? null);
+  return (
+    <PickerPage
+      kind="center"
+      token={token}
+      request={request}
+      places={centers}
+      catalogue={{ resolved, error }}
+      pairedSite={pairedSite}
+    />
+  );
+}
+
+interface PickerPageProps extends PickerSource {
+  kind: PlaceKind;
+  /** The table this page lists, live. */
+  places: readonly PickerPlace[];
+  /** That table's read state (`useDiveSites` / `useDiveCenters`' own two fields). */
+  catalogue: { resolved: boolean; error: Error | undefined };
+  /** The centre picker's *Near [site]* anchor: the site the dive is paired to, or null. */
+  pairedSite: DiveSite | null;
+}
+
+function PickerPage({ kind, token, request, places, catalogue, pairedSite }: PickerPageProps) {
   // The subscription that repaints this screen when the diver changes the language (src/i18n).
   useT();
   const scheme = resolveScheme(useColorScheme());
   const styles = makeStyles(scheme);
   const insets = useSafeAreaInsets();
   const units = useUnitSystem();
-  const params = useLocalSearchParams<{ token?: string | string[] }>();
-  const token = firstParam(params.token) ?? '';
-  // Read once: completing the request forgets it, and the page should not lose its *Selected*
-  // line in the moment between the pick and the page closing.
-  const [request] = useState(() => placePickRequest(token));
-
-  const siteCatalogue = useDiveSites();
-  const centerCatalogue = useDiveCenters();
   const { dives, resolved: divesResolved } = useDives();
   const { session } = useAuthSession();
   const [query, setQuery] = useState('');
@@ -171,13 +238,7 @@ export default function PlacePickerScreen({ kind }: { kind: PlaceKind }) {
   );
   const askingNear = askingSitesNear || askingCentersNear;
 
-  const catalogue = kind === 'site' ? siteCatalogue : centerCatalogue;
-  const places: readonly PickerPlace[] = kind === 'site' ? siteCatalogue.sites : centerCatalogue.centers;
-
   // The centre picker's *Near [site]*: the site the dive is paired to, when it has a position.
-  const siteId = request?.dive.siteId ?? null;
-  const pairedSite =
-    kind === 'center' && siteId !== null ? (siteCatalogue.sites.find((s) => s.id === siteId) ?? null) : null;
   const nearSite = useMemo(() => (pairedSite === null ? null : pointOf(pairedSite)), [pairedSite]);
 
   // **The dive under edit is not history**, the form's rule (DiveFormScreen.tsx's `history`)
