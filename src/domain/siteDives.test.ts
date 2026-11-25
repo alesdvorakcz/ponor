@@ -1,5 +1,6 @@
 import { dive } from './diveFixture';
-import { divesAtSite, isDiveAtSite } from './siteDives';
+import { divesOfRow } from './catalogueDives';
+import { divesAtSite, isDiveAtSite, siteDiveLookup } from './siteDives';
 
 /**
  * `domain/siteDives.ts` — "which of my dives were at this site" (DESIGN.md §4.1, M3f).
@@ -75,5 +76,24 @@ describe('divesAtSite', () => {
 
   it('has nothing to say about an empty logbook', () => {
     expect(divesAtSite([], rock())).toEqual([]);
+  });
+});
+
+// #36: the picker's lookup reads the same pair `divesAtSite` reads, and never the centre's.
+describe('siteDiveLookup', () => {
+  it('gives each site what divesAtSite gives it', () => {
+    const logbook = [
+      dive({ siteId: 's1', siteName: 'Kotelna' }),
+      dive({ siteName: 'Divoká Šárka' }),
+      dive({ siteName: 'kotelna' }),
+      dive({ status: 'planned', siteId: 's1' }),
+      dive({ centerName: 'Kotelna', siteName: null }),
+      dive({ centerId: 's1', siteId: null, siteName: null }),
+      dive({ siteName: 'Kotelna', centerName: 'Ponorka' }),
+    ];
+    const lookup = siteDiveLookup(logbook);
+    for (const site of [rock(), rock({ id: 's2', name: 'Divoká Šárka' }), rock({ id: 's3', name: 'Ponorka' })]) {
+      expect(divesOfRow(lookup, site)).toEqual(divesAtSite(logbook, site));
+    }
   });
 });
