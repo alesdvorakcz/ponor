@@ -741,6 +741,7 @@ const CATALOGUE: Record<keyof typeof catalogueModule, WritePath> = {
   diveSiteRowsQuery: { reads: 'A query builder for useLiveQuery.' },
   diveCenterRowsQuery: { reads: 'A query builder for useLiveQuery.' },
   diveSiteRowQuery: { reads: 'A query builder for useLiveQuery — one row by id.' },
+  diveCenterRowQuery: { reads: 'A query builder for useLiveQuery — one row by id.' },
   listDiveSites: { reads: 'A read.' },
   listDiveCenters: { reads: 'A read.' },
   getDiveSite: { reads: 'A read.' },

@@ -153,9 +153,11 @@ describe('catalogueDiveLookup', () => {
     { label: 'no pairing at all', pairing: null },
   ];
   const pairingOf = (e: NonNullable<Entry>) => e.pairing as DiveCataloguePairing;
+  const r1: CatalogueRowIdentity = { id: 'r1', name: 'Železná' };
+  const r2: CatalogueRowIdentity = { id: 'r2', name: 'Zelezna' };
   const rows: CatalogueRowIdentity[] = [
-    { id: 'r1', name: 'Železná' },
-    { id: 'r2', name: 'Zelezna' },
+    r1,
+    r2,
     { id: 'r3', name: 'Kotelna' },
     { id: 'r4', name: null },
     { id: 'r5', name: '   ' },
@@ -177,13 +179,13 @@ describe('catalogueDiveLookup', () => {
 
   it('gives r1 its paired dive and every unpaired dive of its folded name, and r2 the same names', () => {
     const lookup = catalogueDiveLookup(logbook, (e) => (e ? pairingOf(e) : (null as never)));
-    expect(divesOfRow(lookup, rows[0]).map((e) => e?.label)).toEqual([
+    expect(divesOfRow(lookup, r1).map((e) => e?.label)).toEqual([
       'paired to r1',
       'unpaired, accented',
       'unpaired, folded with spaces',
       'unpaired, shouted',
     ]);
-    expect(divesOfRow(lookup, rows[1]).map((e) => e?.label)).toEqual([
+    expect(divesOfRow(lookup, r2).map((e) => e?.label)).toEqual([
       'paired to r2, named like r1',
       'unpaired, accented',
       'unpaired, folded with spaces',
@@ -192,6 +194,6 @@ describe('catalogueDiveLookup', () => {
   });
 
   it('has nothing to say about an empty logbook', () => {
-    expect(divesOfRow(catalogueDiveLookup([], pairingOf), rows[0])).toEqual([]);
+    expect(divesOfRow(catalogueDiveLookup([], pairingOf), r1)).toEqual([]);
   });
 });
