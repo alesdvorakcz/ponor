@@ -204,12 +204,18 @@ export async function getDiveSite(db: Db, id: string): Promise<DiveSite | null> 
   return rows.at(0) ?? null;
 }
 
-export async function getDiveCenter(db: Db, id: string): Promise<DiveCenter | null> {
-  const rows = await db
+/** One centre by id, under the same `pickable` filter as the list — `getDiveCenter` awaits it and
+ * `useDiveCenter` subscribes to it (#36), so the two cannot read one row two ways. */
+export function diveCenterRowQuery(db: Db, id: string) {
+  return db
     .select()
     .from(diveCenters)
     .where(and(eq(diveCenters.id, id), pickable(diveCenters)))
     .limit(1);
+}
+
+export async function getDiveCenter(db: Db, id: string): Promise<DiveCenter | null> {
+  const rows = await diveCenterRowQuery(db, id);
   return rows.at(0) ?? null;
 }
 

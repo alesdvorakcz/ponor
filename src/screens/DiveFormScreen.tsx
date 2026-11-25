@@ -44,9 +44,9 @@ import { getDiveSite } from '../db/catalogue';
 import { db } from '../db/client';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
-import { useDiveCenters } from '../db/useDiveCenters';
+import { useDiveCenter } from '../db/useDiveCenter';
 import { useDives } from '../db/useDives';
-import { useDiveSites } from '../db/useDiveSites';
+import { useDiveSite } from '../db/useDiveSite';
 import { useGearPresets } from '../db/useGearPresets';
 import { setOpenFormGroups } from '../db/settings';
 import { useOpenFormGroups } from '../db/useOpenFormGroups';
@@ -1278,8 +1278,8 @@ type CaptionedPlace = { id: string; country: string | null; dirty: boolean };
  * A signed-in diver's unpushed row reads its country like any other: it is on its way to the
  * community, and a pending push is §7.5's indicator's to show rather than this row's.
  */
-function placeCaption(place: CaptionedPlace | undefined, signedIn: boolean): string | null {
-  if (place === undefined) return null;
+function placeCaption(place: CaptionedPlace | null, signedIn: boolean): string | null {
+  if (place === null) return null;
   if (place.dirty && !signedIn) return t('form.onThisPhoneOnly');
   return place.country !== null && place.country !== '' ? place.country : null;
 }
@@ -1345,21 +1345,35 @@ interface ControlledPlaceFieldProps {
  * a second tap, on this row or the other, before the page has covered the form would push a
  * second picker over the first.
  *
- * Each row reads its own catalogue table for the caption and never the other's — hence one small
- * component per table in front of `PlaceField`, rather than both hooks in every row.
+ * **Each row reads the one catalogue row it holds, by id, for the caption** (#36) — never a whole
+ * table, and never the other row's: hence one small component per table in front of `PlaceField`.
+ * Reading the table, as the rows did until #36, re-rendered the form for every pull of rows it
+ * would never caption. The read follows the id, so a pick or a carry-over re-captions the row.
  */
 function ControlledPlaceField(props: ControlledPlaceFieldProps) {
   return props.name === 'siteName' ? <SitePlaceField {...props} /> : <CentrePlaceField {...props} />;
 }
 
+/**
+ * The id half of the row's pair, watched rather than read once: a pick, the ring and carry-over's
+ * reseed all move it, and the caption has to follow. `toInputString` is the one owner of reading a
+ * raw form value as text; a blank id is no id.
+ */
+function useHeldPlaceId(control: FormControl, idField: 'siteId' | 'centerId'): string | null {
+  const held = toInputString(useWatch({ control, name: idField })).trim();
+  return held === '' ? null : held;
+}
+
 function SitePlaceField(props: ControlledPlaceFieldProps) {
-  const { sites } = useDiveSites();
-  return <PlaceField {...props} kind="site" places={sites} />;
+  const id = useHeldPlaceId(props.control, 'siteId');
+  const place = useDiveSite(id);
+  return <PlaceField {...props} kind="site" id={id} place={place} />;
 }
 
 function CentrePlaceField(props: ControlledPlaceFieldProps) {
-  const { centers } = useDiveCenters();
-  return <PlaceField {...props} kind="center" places={centers} />;
+  const id = useHeldPlaceId(props.control, 'centerId');
+  const place = useDiveCenter(id);
+  return <PlaceField {...props} kind="center" id={id} place={place} />;
 }
 
 function PlaceField({
@@ -1373,16 +1387,12 @@ function PlaceField({
   signedIn,
   pickerOpenRef,
   kind,
-  places,
-}: ControlledPlaceFieldProps & { kind: PlaceKind; places: readonly CaptionedPlace[] }) {
+  id,
+  place,
+}: ControlledPlaceFieldProps & { kind: PlaceKind; id: string | null; place: CaptionedPlace | null }) {
   const styles = makeStyles(scheme);
-  // The id half of the pair, watched rather than read once: a pick, the ring and carry-over's
-  // reseed all move it, and the caption has to follow. `toInputString` is the one owner of
-  // reading a raw form value as text.
-  const heldId = toInputString(useWatch({ control, name: kind === 'site' ? 'siteId' : 'centerId' })).trim();
-  const id = heldId === '' ? null : heldId;
   // Nothing for a name without an id — a carried value from old data names no row.
-  const caption = id === null ? null : placeCaption(places.find((row) => row.id === id), signedIn);
+  const caption = id === null ? null : placeCaption(place, signedIn);
   // §0.6's carried state as it stands when a gesture LANDS, not as it stood when the row was last
   // drawn: *No centre* arrives from a page that can stay open across a reseed, and a value that
   // carry-over has since taken away is no longer a carried value to leave `— cleared` for.
