@@ -135,9 +135,12 @@ function refusalSentence(reason: PositionRefusal): string {
  * ── Each page reads the one table it lists (#36) ──────────────────────────────────────────
  *
  * `SitePicker` reads the sites table; `CentrePicker` the centres table and, by id, the one site the
- * dive is paired to, which *Near [site]* is measured from. Neither reads the other's whole table, so
- * a pull landing in the table a page does not list costs it nothing. The kind is fixed per route
- * (`/pick/site`, `/pick/center`), so the choice between them never flips under mounted hooks.
+ * dive is paired to, which *Near [site]* is measured from. Neither reads the other's whole table.
+ * So a pull into the centres costs the site page nothing; a pull into the sites still re-runs the
+ * centre page's one-row read (`useLiveQuery` re-queries on any change to its table) and, with it, a
+ * grouping pass — one row read and a few milliseconds, where it used to be the whole sites table.
+ * The kind is fixed per route (`/pick/site`, `/pick/center`), so the choice between them never
+ * flips under mounted hooks.
  *
  * ── Three ways off, and the form hears about one ────────────────────────────────────────────
  *

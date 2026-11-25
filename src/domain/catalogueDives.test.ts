@@ -132,6 +132,9 @@ describe('catalogueDiveLookup', () => {
     pairing: { pairedId: null, snapshot: null, status: 'logged', ...over },
   });
   const logbook: Entry[] = [
+    // Found by name and logged before the paired dives, so a row's two runs must be merged by
+    // position rather than laid end to end (paired first) — the order the rule's filter returns.
+    entry('unpaired, logged first', { snapshot: 'Železná' }),
     entry('paired to r1', { pairedId: 'r1', snapshot: 'Something else' }),
     entry('paired to r2, named like r1', { pairedId: 'r2', snapshot: 'Železná' }),
     entry('paired to a row the catalogue lacks', { pairedId: 'gone', snapshot: 'Železná' }),
@@ -180,12 +183,14 @@ describe('catalogueDiveLookup', () => {
   it('gives r1 its paired dive and every unpaired dive of its folded name, and r2 the same names', () => {
     const lookup = catalogueDiveLookup(logbook, (e) => (e ? pairingOf(e) : (null as never)));
     expect(divesOfRow(lookup, r1).map((e) => e?.label)).toEqual([
+      'unpaired, logged first',
       'paired to r1',
       'unpaired, accented',
       'unpaired, folded with spaces',
       'unpaired, shouted',
     ]);
     expect(divesOfRow(lookup, r2).map((e) => e?.label)).toEqual([
+      'unpaired, logged first',
       'paired to r2, named like r1',
       'unpaired, accented',
       'unpaired, folded with spaces',

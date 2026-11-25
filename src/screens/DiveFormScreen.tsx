@@ -1347,8 +1347,15 @@ interface ControlledPlaceFieldProps {
  *
  * **Each row reads the one catalogue row it holds, by id, for the caption** (#36) — never a whole
  * table, and never the other row's: hence one small component per table in front of `PlaceField`.
- * Reading the table, as the rows did until #36, re-rendered the form for every pull of rows it
- * would never caption. The read follows the id, so a pick or a carry-over re-captions the row.
+ * A write to the table still re-runs the read (`useLiveQuery` re-queries on any change to its
+ * table, even for one row), so what #36 saves is the size of each re-read — one row by its key
+ * rather than the whole catalogue handed over and searched for one id — not how often it happens.
+ *
+ * The read follows the id, so a pick or a carry-over re-captions the row. **For a frame or two
+ * after the id moves, the row has no caption**: the read refuses the previous id's row
+ * (`useDiveSite`'s guard) until the new id's answers, where the whole table used to hold the new
+ * row already. After a pick that falls behind the picker's own closing animation; it is accepted
+ * rather than covered, because the only row in hand during that moment is the wrong place's.
  */
 function ControlledPlaceField(props: ControlledPlaceFieldProps) {
   return props.name === 'siteName' ? <SitePlaceField {...props} /> : <CentrePlaceField {...props} />;

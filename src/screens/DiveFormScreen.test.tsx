@@ -7040,7 +7040,7 @@ it('shows a paired centre’s country under its name', async () => {
 });
 
 // #36: each row reads its one catalogue row by id, never the table it comes from — a pull of
-// thousands of sites would otherwise re-render the form for a caption.
+// thousands of sites would otherwise hand the form the whole table, on every write, for a caption.
 it('reads the Site and Centre rows’ own catalogue rows by id, never a whole table', async () => {
   stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', siteId: 'site-k', centerName: 'Aqua', centerId: 'centre-a' })] });
   await render(<DiveFormScreen mode="create" />);

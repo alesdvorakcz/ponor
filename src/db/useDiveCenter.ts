@@ -9,9 +9,11 @@ import { db } from './client';
  * screen that needs a single row rather than the catalogue: the dive form's *Centre* row, which
  * captions the centre it holds with its country or *on this phone only*.
  *
- * Reading `useDiveCenters` for that, as the row did until #36, re-rendered the form for every pull
- * into a table it reads one row of. Live rather than fetched once, so the caption follows a push
- * (a guest's row loses *on this phone only* the moment it goes up) and a new pick.
+ * Reading `useDiveCenters` for that, as the row did until #36, handed the form the whole table on
+ * every write to it, to find one row. A write still re-runs this read — `useLiveQuery` re-queries
+ * on any change to its table — but each re-run is one row by its key. Live rather than fetched
+ * once, so the caption follows a push (a guest's row loses *on this phone only* the moment it goes
+ * up) and a new pick.
  *
  * Everything `useDiveSite` says about its answer holds here, for the same reasons: `null` for no
  * id, a row this device does not hold (not pulled, deleted, merged away, outside `pickable`), a

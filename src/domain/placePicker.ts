@@ -32,14 +32,14 @@ import { type Dive, type DiveSite } from './types';
  *
  * A row is *dived* when the rule `divesAtSite` / `divesWithCenter` apply pairs at least one
  * **logged** dive to it — read through `siteDiveLookup` / `centerDiveLookup` (#36), which sort the
- * logbook once rather than walking it per row. That rule is the one the site and centre pages use — an id decides on its
- * own, a dive without an id belongs by its folded name, a plan is not a visit, and a merge's
- * repointed dives already point at the survivor — so the picker shows a diver the same history
- * the row's own page would. A hand-rolled `siteId === id` here would list a site the diver has
- * dived forty times, from before the catalogue, as never visited. The counts are `historyOf`'s
- * (domain/suggest.ts), the recipe the form's buddy and guide suggestions count with too:
- * `logbookStats` for the number and the deepest, the latest logged date, `sitesVisited` for the
- * distinct places.
+ * logbook once rather than walking it per row. That rule is the one the site and centre pages
+ * use — an id decides on its own, a dive without an id belongs by its folded name, a plan is not a
+ * visit, and a merge's repointed dives already point at the survivor — so the picker shows a diver
+ * the same history the row's own page would. A hand-rolled `siteId === id` here would list a site
+ * the diver has dived forty times, from before the catalogue, as never visited. The counts are
+ * `historyOf`'s (domain/suggest.ts), the recipe the form's buddy and guide suggestions count with
+ * too: `logbookStats` for the number and the deepest, the latest logged date, `sitesVisited` for
+ * the distinct places.
  *
  * Nothing here throws on a malformed row. The picker is built during render over whatever the
  * database handed back, and the stance everywhere in `domain/` is that a row it cannot read
@@ -103,6 +103,11 @@ export interface PickerInput {
   kind: PlaceKind;
   /** The device's catalogue, live — including rows created here and not yet pushed. */
   places: readonly PickerPlace[];
+  /**
+   * The logbook, **treated as immutable** (#36): `pickerGroups` keeps its pairing lookup against
+   * this array, so a changed logbook must arrive as a new array — as every live read hands one
+   * over — and never as this one edited in place, or *Dived here* would answer for the old one.
+   */
   dives: readonly Dive[];
   query: string;
   selectedId: string | null;
