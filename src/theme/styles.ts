@@ -4764,9 +4764,9 @@ function build(scheme: ColorScheme) {
     siteEmpty: settingsSectionNote,
     siteFactValue: { ...rowValueSans, ...factValueFill },
     siteDescription: catalogueDescription,
-    // **Which of *The site*'s rows fill in a new dive**, said once under the cluster by naming them
+    // **Which of *The site*'s rows picking it fills in**, said once under the cluster by naming them
     // (the owner's pick C, issue #31 round 4) rather than in a cluster of their own or a mark on
-    // each row: §2.1 prefills a new dive's entry, salinity and water body from the site, and a
+    // each row: §2.1 fills a dive's entry, salinity and water body from the site when it is picked, and a
     // page that showed those beside a country and a depth with nothing said would give a diver no
     // way to tell the facts that *do something* from the facts that merely describe. A sentence
     // rather than a per-row mark for §0.6's own reason about the carried-over return mark. The

@@ -950,12 +950,14 @@ export const en = {
       facts: 'The site',
       /** A wreck's year on its row — the year as typed, never grouped. */
       sunk: 'sunk {{year}}',
-      /** The note under *The site* naming what fills in a new dive (the owner's pick C,
-       * 2026-11-17; since #6 a row and tiles): `rows` is their own labels — one; two joined by
+      /** The note under *The site* naming what moving a dive here fills in (the owner's pick C,
+       * 2026-11-17; since #6 a row and tiles; worded for #53's rule, where the site's values replace
+       * whatever the rows held, typed ones included, and only a change of site counts — the
+       * owner's wording, 2026-11-27): `rows` is their own labels — one; two joined by
        * `prefillRows`; or three, *Salinity, Water body and Entry*, the last joined by
        * `prefillRows` — and `count` how many, for the verb. */
-      prefillNote_one: '{{rows}} fills in a new dive logged here, over anything carried from your last dive.',
-      prefillNote_other: '{{rows}} fill in a new dive logged here, over anything carried from your last dive.',
+      prefillNote_one: '{{rows}} fills in when you change a dive’s site to this one, over anything already there.',
+      prefillNote_other: '{{rows}} fill in when you change a dive’s site to this one, over anything already there.',
       prefillRows: '{{first}} and {{second}}',
       searchPlaceholder: 'Search sites',
       close: 'Close sites',
