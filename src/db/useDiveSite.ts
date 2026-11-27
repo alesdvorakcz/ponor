@@ -23,10 +23,11 @@ import { db } from './client';
  * would point the map at the place the plan no longer goes. A row is this id's answer only if it
  * says so.
  *
- * No `resolved` beside it, unlike the other live reads: the one caller treats "not read yet" and
- * "not there" alike (the device's maps), and keeping such a flag true after an id change would need
- * bookkeeping of its own — `updatedAt` is just as stale as `data` until the new query returns, and
- * an empty answer carries no id to check.
+ * No `resolved` beside it, unlike the other live reads: every caller treats "not read yet" and
+ * "not there" alike — the dive detail (the device's maps), and since #36 the dive form's *Site* row
+ * (no caption) and the centre picker (no *Near [site]*) — and keeping such a flag true after an id
+ * change would need bookkeeping of its own: `updatedAt` is just as stale as `data` until the new
+ * query returns, and an empty answer carries no id to check.
  *
  * `null` reads no row (an id that cannot match), so a caller can pass "no site" without a hook
  * that comes and goes. **Keyed on the id** (`useLiveQuery`'s deps), for the reason

@@ -1,4 +1,9 @@
-import { diveBelongsToCatalogueRow } from './catalogueDives';
+import {
+  catalogueDiveLookup,
+  diveBelongsToCatalogueRow,
+  type CatalogueDiveLookup,
+  type DiveCataloguePairing,
+} from './catalogueDives';
 import { type Dive, type DiveSite } from './types';
 
 /**
@@ -67,10 +72,21 @@ export type DiveSitePair = Pick<Dive, 'siteId' | 'siteName' | 'status'>;
  * logbook once per rock.
  */
 export function isDiveAtSite(dive: DiveSitePair | null | undefined, site: SiteIdentity): boolean {
-  return diveBelongsToCatalogueRow(
-    dive ? { pairedId: dive.siteId, snapshot: dive.siteName, status: dive.status } : null,
-    site,
-  );
+  return diveBelongsToCatalogueRow(dive ? sitePairingOf(dive) : null, site);
+}
+
+/** §6's site pair, read off a dive — the one place this module names the columns. */
+function sitePairingOf(dive: DiveSitePair): DiveCataloguePairing {
+  return { pairedId: dive.siteId, snapshot: dive.siteName, status: dive.status };
+}
+
+/**
+ * The logbook sorted once by its site pair (`catalogueDiveLookup`, #36), for a caller that asks
+ * of many sites at once which dives are each one's — the site picker, per keystroke. A site's
+ * dives are then `divesOfRow(lookup, site)`: `divesAtSite`'s answer, in its order.
+ */
+export function siteDiveLookup<T extends DiveSitePair>(dives: readonly T[]): CatalogueDiveLookup<T> {
+  return catalogueDiveLookup(dives, sitePairingOf);
 }
 
 /**

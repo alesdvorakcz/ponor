@@ -1,4 +1,9 @@
-import { diveBelongsToCatalogueRow } from './catalogueDives';
+import {
+  catalogueDiveLookup,
+  diveBelongsToCatalogueRow,
+  type CatalogueDiveLookup,
+  type DiveCataloguePairing,
+} from './catalogueDives';
 import { type Dive, type DiveCenter } from './types';
 
 /**
@@ -55,10 +60,21 @@ export type DiveCenterPair = Pick<Dive, 'centerId' | 'centerName' | 'status'>;
  * once per shop.
  */
 export function isDiveWithCenter(dive: DiveCenterPair | null | undefined, center: CenterIdentity): boolean {
-  return diveBelongsToCatalogueRow(
-    dive ? { pairedId: dive.centerId, snapshot: dive.centerName, status: dive.status } : null,
-    center,
-  );
+  return diveBelongsToCatalogueRow(dive ? centerPairingOf(dive) : null, center);
+}
+
+/** §6's centre pair, read off a dive — the one place this module names the columns. */
+function centerPairingOf(dive: DiveCenterPair): DiveCataloguePairing {
+  return { pairedId: dive.centerId, snapshot: dive.centerName, status: dive.status };
+}
+
+/**
+ * The logbook sorted once by its centre pair (`catalogueDiveLookup`, #36), for a caller that asks
+ * of many centres at once which dives are each one's — the centre picker, per keystroke. A
+ * centre's dives are then `divesOfRow(lookup, centre)`: `divesWithCenter`'s answer, in its order.
+ */
+export function centerDiveLookup<T extends DiveCenterPair>(dives: readonly T[]): CatalogueDiveLookup<T> {
+  return catalogueDiveLookup(dives, centerPairingOf);
 }
 
 /**

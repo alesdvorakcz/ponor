@@ -18,8 +18,10 @@ import { useAuthSession } from '../cloud/useAuthSession';
 import { getDiveSite } from '../db/catalogue';
 import { createDive, updateDive } from '../db/dives';
 import { createGearPreset } from '../db/gearPresets';
+import { useDiveCenter } from '../db/useDiveCenter';
 import { useDiveCenters } from '../db/useDiveCenters';
 import { useDives } from '../db/useDives';
+import { useDiveSite } from '../db/useDiveSite';
 import { useDiveSites } from '../db/useDiveSites';
 import { useKeyboardShown } from '../hooks/useKeyboardShown';
 import { useGearPresets } from '../db/useGearPresets';
@@ -152,6 +154,11 @@ jest.mock('../navigation/placePick', () => ({ openPlacePicker: jest.fn() }));
 // `useDives`' reason. Both default to an empty catalogue in `beforeEach`.
 jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
 jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));
+// Since #36 each row reads its one catalogue row by id. A test still says what the device holds
+// through the two table mocks above; the by-id reads answer from those rows (`beforeEach`), read
+// without calling them, so a test can also say the form never reads a whole table.
+jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn() }));
+jest.mock('../db/useDiveCenter', () => ({ useDiveCenter: jest.fn() }));
 // A successful save calls router.back()/canGoBack() (returnToList, DiveFormScreen.tsx) —
 // the identical shape DiveDetailScreen.test.tsx's own mock already uses for the same
 // canGoBack()-guarded pattern in that screen's BackButton.
@@ -236,6 +243,8 @@ const mockOpenPicker = openPlacePicker as jest.Mock;
 const mockUseFocusEffect = useFocusEffect as jest.Mock;
 const mockUseDiveSites = useDiveSites as jest.Mock;
 const mockUseDiveCenters = useDiveCenters as jest.Mock;
+const mockUseDiveSite = useDiveSite as jest.Mock;
+const mockUseDiveCenter = useDiveCenter as jest.Mock;
 
 /**
  * The one place this file stubs `useDives()`, and deliberately `mockImplementation`
@@ -382,6 +391,14 @@ beforeEach(() => {
   // until a pull brings rows down. A test whose subject IS the caption says what the row holds.
   mockUseDiveSites.mockReturnValue({ sites: [], resolved: true, error: undefined });
   mockUseDiveCenters.mockReturnValue({ centers: [], resolved: true, error: undefined });
+  mockUseDiveSite.mockImplementation(
+    (id: string | null) =>
+      (mockUseDiveSites.getMockImplementation()?.().sites as DiveSite[]).find((row) => row.id === id) ?? null,
+  );
+  mockUseDiveCenter.mockImplementation(
+    (id: string | null) =>
+      (mockUseDiveCenters.getMockImplementation()?.().centers as DiveCenter[]).find((row) => row.id === id) ?? null,
+  );
 });
 
 // `nonCanonicalSource` (below) pins `Date` so the carry-over window can be reasoned about;
@@ -7020,6 +7037,37 @@ it('shows a paired centre’s country under its name', async () => {
   expect(shownIn(t, 'Centre')).toBe('Aqua Divers');
   expect(textIn(t)).toContain('EG');
   expect(findPickerField(t, 'Centre')?.props.accessibilityHint).toBe('EG');
+});
+
+// #36: each row reads its one catalogue row by id, never the table it comes from — a pull of
+// thousands of sites would otherwise hand the form the whole table, on every write, for a caption.
+it('reads the Site and Centre rows’ own catalogue rows by id, never a whole table', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', siteId: 'site-k', centerName: 'Aqua', centerId: 'centre-a' })] });
+  await render(<DiveFormScreen mode="create" />);
+  expect(mockUseDiveSite).toHaveBeenCalledWith('site-k');
+  expect(mockUseDiveCenter).toHaveBeenCalledWith('centre-a');
+  expect(mockUseDiveSites).not.toHaveBeenCalled();
+  expect(mockUseDiveCenters).not.toHaveBeenCalled();
+});
+
+// Review Focus 3: the read follows the id, so a pick re-captions the row from the new site's row.
+it('captions the newly picked site after a pick', async () => {
+  stubDives({ dives: [dive({ date: '2026-08-20', siteName: 'Kotelna', siteId: 'site-k' })] });
+  signedIn();
+  mockUseDiveSites.mockReturnValue({
+    sites: [
+      { ...catalogued('Kotelna', 'site-k'), country: 'CZ' },
+      { ...catalogued('Blue Hole', 'site-b'), country: 'MT' },
+    ],
+    resolved: true,
+    error: undefined,
+  });
+  const t = await render(<DiveFormScreen mode="create" />);
+  expect(textIn(t)).toContain('CZ');
+  await pickPlace(t, 'Site', { id: 'site-b', name: 'Blue Hole' });
+  expect(mockUseDiveSite).toHaveBeenLastCalledWith('site-b');
+  expect(textIn(t)).toContain('MT');
+  expect(textIn(t)).not.toContain('CZ');
 });
 
 // *No centre* is the empty pick, and it is the ring's gesture: name and id go together, and the

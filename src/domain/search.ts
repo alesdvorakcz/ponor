@@ -183,19 +183,22 @@ export function browseCatalogue<
   // reason: it hands back the caller's own array, unfiltered, so a caller composing it with
   // `groupIntoTrips` gets the same reference.)
   // The query is folded once, here, not once per row: the other names are read against the same
-  // `needle`, and only for a row whose own name missed.
-  const matching = centers.filter((center) => {
-    if (center === null || center === undefined) return false;
-    const name = typeof center.name === 'string' ? center.name : '';
-    return foldForMatching(name).includes(needle) || otherNameContaining(center.altNames, needle) !== null;
-  });
+  // `needle`, and only for a row whose own name missed. **Each row's own name is folded once too**
+  // (#36), and the sort compares those folds rather than folding both names on every comparison —
+  // which, over a catalogue of thousands, was a fold per comparison on every keystroke.
+  const matching: { row: T; folded: string }[] = [];
+  for (const center of centers) {
+    if (center === null || center === undefined) continue;
+    const folded = foldForMatching(typeof center.name === 'string' ? center.name : '');
+    if (folded.includes(needle) || otherNameContaining(center.altNames, needle) !== null) matching.push({ row: center, folded });
+  }
 
-  return matching.sort((a, b) => {
-    const left = foldForMatching(typeof a.name === 'string' ? a.name : '');
-    const right = foldForMatching(typeof b.name === 'string' ? b.name : '');
-    if (left !== right) return left < right ? -1 : 1;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+  return matching
+    .sort((a, b) => {
+      if (a.folded !== b.folded) return a.folded < b.folded ? -1 : 1;
+      return a.row.id < b.row.id ? -1 : a.row.id > b.row.id ? 1 : 0;
+    })
+    .map((entry) => entry.row);
 }
 
 /**

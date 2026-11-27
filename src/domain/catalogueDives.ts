@@ -129,3 +129,86 @@ export function diveBelongsToCatalogueRow(
   const recorded = typeof pairing.snapshot === 'string' ? foldForMatching(pairing.snapshot) : '';
   return recorded !== '' && recorded === wanted;
 }
+
+/**
+ * **Every row's dives from one pass over the logbook** (#36): the logged dives sorted once by the
+ * id they carry, and those without one by their folded snapshot, so a row's dives are two map
+ * reads rather than a walk of the whole logbook.
+ *
+ * The picker asks "which dives are this row's?" of every catalogue row it can show, on every
+ * keystroke. Asked through `diveBelongsToCatalogueRow` that is catalogue × logbook — and a dive
+ * paired by name folds both names on every comparison — which measured seconds per keystroke on a
+ * simulator holding 5,000 sites and 1,000 dives.
+ *
+ * **It is a second reading of the rule above, never a second rule.** The tiers are that
+ * function's, in its words: a dive that carries a non-empty id is filed under that id alone, so it
+ * can never also be found by name; one without is filed under its folded snapshot when that is
+ * not blank; a plan, an unreadable dive and an unreadable pairing are filed nowhere. A row with no
+ * readable id gets nothing, and a row's name is folded the way the rule folds it. `divesOfRow`
+ * hands the dives back in the order they were given — what filtering through the rule returns —
+ * and `catalogueDives.test.ts` asks every row both ways on a logbook built to reach each tier.
+ * `divesAtSite` / `divesWithCenter` stay what a single page asks, where one walk is the cheaper.
+ */
+export interface CatalogueDiveLookup<T> {
+  readonly dives: readonly T[];
+  /** Positions in `dives`, ascending, by the id a dive carries. */
+  readonly byId: ReadonlyMap<string, readonly number[]>;
+  /** Positions in `dives`, ascending, by the folded snapshot of a dive that carries no id. */
+  readonly byName: ReadonlyMap<string, readonly number[]>;
+}
+
+const NONE: readonly number[] = [];
+
+function file(map: Map<string, number[]>, key: string, position: number): void {
+  const positions = map.get(key);
+  if (positions === undefined) map.set(key, [position]);
+  else positions.push(position);
+}
+
+/** Sorts `dives` once by the pairing `pairingOf` reads off each (see `CatalogueDiveLookup`). */
+export function catalogueDiveLookup<T>(
+  dives: readonly T[],
+  pairingOf: (dive: T) => DiveCataloguePairing | null | undefined,
+): CatalogueDiveLookup<T> {
+  const byId = new Map<string, number[]>();
+  const byName = new Map<string, number[]>();
+  dives.forEach((dive, position) => {
+    if (!dive) return;
+    const pairing = pairingOf(dive);
+    if (!pairing || pairing.status !== 'logged') return;
+    const paired = typeof pairing.pairedId === 'string' ? pairing.pairedId : '';
+    if (paired !== '') {
+      file(byId, paired, position);
+      return;
+    }
+    const recorded = typeof pairing.snapshot === 'string' ? foldForMatching(pairing.snapshot) : '';
+    if (recorded !== '') file(byName, recorded, position);
+  });
+  return { dives, byId, byName };
+}
+
+/** The dives `lookup` holds for `row`, in the order they were handed to `catalogueDiveLookup`. */
+export function divesOfRow<T>(lookup: CatalogueDiveLookup<T>, row: CatalogueRowIdentity): T[] {
+  const rowId = typeof row.id === 'string' ? row.id : '';
+  if (rowId === '') return [];
+  const paired = lookup.byId.get(rowId) ?? NONE;
+  const wanted = typeof row.name === 'string' ? foldForMatching(row.name) : '';
+  const named = wanted === '' ? NONE : (lookup.byName.get(wanted) ?? NONE);
+  // Two ascending runs of positions, merged so the dives come back in the logbook's own order.
+  const out: T[] = [];
+  let i = 0;
+  let j = 0;
+  for (;;) {
+    const a = paired.at(i);
+    const b = named.at(j);
+    if (a !== undefined && (b === undefined || a < b)) {
+      out.push(lookup.dives[a] as T);
+      i += 1;
+    } else if (b !== undefined) {
+      out.push(lookup.dives[b] as T);
+      j += 1;
+    } else {
+      return out;
+    }
+  }
+}

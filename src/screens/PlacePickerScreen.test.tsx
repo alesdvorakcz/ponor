@@ -8,6 +8,7 @@ import { searchSites, searchSitesNear } from '../cloud/searchSites';
 import { useAuthSession } from '../cloud/useAuthSession';
 import { useDiveCenters, type DiveCenterListState } from '../db/useDiveCenters';
 import { useDives, type DiveListState } from '../db/useDives';
+import { useDiveSite } from '../db/useDiveSite';
 import { useDiveSites, type DiveSiteListState } from '../db/useDiveSites';
 import { useUnitSystem } from '../db/useUnitSystem';
 import { assignDiveNumbers } from '../domain/diveNumber';
@@ -30,6 +31,7 @@ import PlacePickerScreen from './PlacePickerScreen';
 
 jest.mock('react-native-safe-area-context', () => mockSafeAreaContext);
 jest.mock('../db/useDiveSites', () => ({ useDiveSites: jest.fn() }));
+jest.mock('../db/useDiveSite', () => ({ useDiveSite: jest.fn() }));
 jest.mock('../db/useDiveCenters', () => ({ useDiveCenters: jest.fn() }));
 jest.mock('../db/useDives', () => ({ useDives: jest.fn() }));
 jest.mock('../db/useUnitSystem', () => ({ useUnitSystem: jest.fn(() => 'metric') }));
@@ -71,6 +73,7 @@ jest.mock('../db/client', () => ({ db: {} }));
 jest.mock('../cloud/supabase', () => ({ cloud: { configured: false, missing: [] } }));
 
 const mockUseDiveSites = useDiveSites as jest.MockedFunction<typeof useDiveSites>;
+const mockUseDiveSite = useDiveSite as jest.MockedFunction<typeof useDiveSite>;
 const mockUseDiveCenters = useDiveCenters as jest.MockedFunction<typeof useDiveCenters>;
 const mockUseDives = useDives as jest.MockedFunction<typeof useDives>;
 const mockUseUnitSystem = useUnitSystem as jest.MockedFunction<typeof useUnitSystem>;
@@ -187,6 +190,12 @@ async function settleNearMe() {
 beforeEach(() => {
   jest.clearAllMocks();
   mockUseDiveSites.mockReturnValue(sitesState([]));
+  // The centre picker reads the dive's one site by id (#36). It answers from whatever sites the
+  // test handed `mockUseDiveSites`, read without calling it, so a test can still say the centre
+  // page never reads the sites table.
+  mockUseDiveSite.mockImplementation(
+    (id) => mockUseDiveSites.getMockImplementation()?.().sites.find((s) => s.id === id) ?? null,
+  );
   mockUseDiveCenters.mockReturnValue(centersState([]));
   mockUseDives.mockReturnValue(divesState([]));
   mockUseUnitSystem.mockReturnValue('metric');
@@ -463,8 +472,10 @@ it('shows a site found by its other name, saying so', async () => {
 it('a site created on this phone moments ago is found and reads added by you', async () => {
   signedIn();
   const t = await showSite();
-  // The live read after the create page's write: the row is local and waiting to go up.
+  // The live read after the create page's write: the row is local and waiting to go up. A live
+  // read re-renders the component that holds it, so the swapped mock is delivered by a re-render.
   mockUseDiveSites.mockReturnValue(sitesState([site({ id: 's-new', name: 'Nová stěna', dirty: true, createdBy: 'me' })]));
+  await t.rerender(<PlacePickerScreen kind="site" />);
   await type(t, 'nova');
   expect(rowNames(t)).toEqual(['Nová stěna', 'Create “nova”']);
   expect(metaOf(rowFor(t, 'Nová stěna'))).toBe('added by you');
@@ -657,6 +668,32 @@ describe('Near me', () => {
 });
 
 // --- The centre picker ------------------------------------------------------------------------------
+
+// #36: each page reads the table it chooses from, and the centre page the one site *Near [site]*
+// is measured from — never a whole table it does not list.
+it('reads only the sites table on the site picker', async () => {
+  await showSite();
+  expect(mockUseDiveSites).toHaveBeenCalled();
+  expect(mockUseDiveCenters).not.toHaveBeenCalled();
+  expect(mockUseDiveSite).not.toHaveBeenCalled();
+});
+
+it('reads only the centres table and the dive’s one site on the centre picker', async () => {
+  mockRequest.mockReturnValue(request({ kind: 'center', dive: { ...noDive, siteId: 's-teti' } }));
+  await showCenter();
+  expect(mockUseDiveCenters).toHaveBeenCalled();
+  expect(mockUseDiveSites).not.toHaveBeenCalled();
+  expect(mockUseDiveSite).toHaveBeenCalledWith('s-teti');
+});
+
+// Review Focus 4: the dive names a site the catalogue does not hold (merged away, or never pulled).
+it('offers no Near [site] when the dive’s site is not in the catalogue', async () => {
+  mockRequest.mockReturnValue(request({ kind: 'center', dive: { ...noDive, siteId: 's-gone' } }));
+  mockUseDiveCenters.mockReturnValue(centersState([center({ id: 'c-near', name: 'Near Shop', latitude: 43.03, longitude: 16 })]));
+  const t = await showCenter();
+  expect(groupTitles(t)).toEqual(['Or']);
+  expect(rowNames(t)).toEqual(['No centre']);
+});
 
 it('centre: Near Vrak Teti leaves out centres already under Dived with; No centre completes with an empty pick', async () => {
   mockRequest.mockReturnValue(request({ kind: 'center', dive: { ...noDive, siteId: 's-teti' } }));

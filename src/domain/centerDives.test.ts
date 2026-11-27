@@ -1,4 +1,5 @@
-import { divesWithCenter, isDiveWithCenter } from './centerDives';
+import { divesOfRow } from './catalogueDives';
+import { centerDiveLookup, divesWithCenter, isDiveWithCenter } from './centerDives';
 import { dive } from './diveFixture';
 
 /**
@@ -114,5 +115,24 @@ describe('divesWithCenter', () => {
 
   it('has nothing to say about an empty logbook', () => {
     expect(divesWithCenter([], centre())).toEqual([]);
+  });
+});
+
+// #36: the picker's lookup reads the same pair `divesWithCenter` reads, and never the site's.
+describe('centerDiveLookup', () => {
+  it('gives each centre what divesWithCenter gives it', () => {
+    const logbook = [
+      dive({ centerId: 'c1', centerName: 'Ponorka' }),
+      dive({ centerName: 'Aqua Split' }),
+      dive({ centerName: 'ponorka' }),
+      dive({ status: 'planned', centerId: 'c1' }),
+      dive({ siteName: 'Ponorka', centerName: null }),
+      dive({ siteId: 'c1', centerId: null, centerName: null }),
+      dive({ centerId: 'c2', centerName: 'Ponorka' }),
+    ];
+    const lookup = centerDiveLookup(logbook);
+    for (const c of [centre(), centre({ id: 'c2', name: 'Ponorka' }), centre({ id: 'c3', name: 'Aqua Split' })]) {
+      expect(divesOfRow(lookup, c)).toEqual(divesWithCenter(logbook, c));
+    }
   });
 });

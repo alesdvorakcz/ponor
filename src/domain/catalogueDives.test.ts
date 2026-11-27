@@ -1,4 +1,10 @@
-import { diveBelongsToCatalogueRow, type DiveCataloguePairing } from './catalogueDives';
+import {
+  catalogueDiveLookup,
+  diveBelongsToCatalogueRow,
+  divesOfRow,
+  type CatalogueRowIdentity,
+  type DiveCataloguePairing,
+} from './catalogueDives';
 
 /**
  * `domain/catalogueDives.ts` — "does this dive belong to that catalogue row" (DESIGN.md §4.1),
@@ -109,4 +115,90 @@ it('survives a row it cannot read', () => {
   expect(
     diveBelongsToCatalogueRow(pairing({ snapshot: 'Kotelna' }), { id: 9, name: 4 } as unknown as { id: string; name: null }),
   ).toBe(false);
+});
+
+/**
+ * **The lookup is a second reading of the rule above, so it is checked against the rule itself**
+ * (#36). The picker asks "which dives are this row's?" of thousands of rows per keystroke; asked
+ * through `diveBelongsToCatalogueRow` that is rows × dives, and the lookup sorts the logbook once
+ * instead. What it must never do is answer differently — a dive missing from *Dived here*, or one
+ * shown under a row the rule keeps it from — so every row below is asked both ways, on a logbook
+ * built to hit each tier and each way a row or a dive can be unreadable.
+ */
+describe('catalogueDiveLookup', () => {
+  type Entry = { label: string; pairing: unknown } | null | undefined;
+  const entry = (label: string, over: Partial<Record<keyof DiveCataloguePairing, unknown>>): Entry => ({
+    label,
+    pairing: { pairedId: null, snapshot: null, status: 'logged', ...over },
+  });
+  const logbook: Entry[] = [
+    // Found by name and logged before the paired dives, so a row's two runs must be merged by
+    // position rather than laid end to end (paired first) — the order the rule's filter returns.
+    entry('unpaired, logged first', { snapshot: 'Železná' }),
+    entry('paired to r1', { pairedId: 'r1', snapshot: 'Something else' }),
+    entry('paired to r2, named like r1', { pairedId: 'r2', snapshot: 'Železná' }),
+    entry('paired to a row the catalogue lacks', { pairedId: 'gone', snapshot: 'Železná' }),
+    entry('unpaired, accented', { snapshot: 'Železná' }),
+    entry('unpaired, folded with spaces', { snapshot: '  zelezna ' }),
+    entry('unpaired, shouted', { snapshot: 'ZELEZNA' }),
+    entry('unpaired, a different place', { snapshot: 'Kotelna' }),
+    entry('unpaired, a name containing another', { snapshot: 'Železná hora' }),
+    entry('unpaired, blank', { snapshot: '   ' }),
+    entry('unpaired, no name', { snapshot: null }),
+    entry('empty id, named', { pairedId: '', snapshot: 'Kotelna' }),
+    entry('numeric id, named', { pairedId: 7, snapshot: 'Kotelna' }),
+    entry('numeric name', { snapshot: 42 }),
+    entry('a plan paired to r1', { pairedId: 'r1', status: 'planned' }),
+    entry('a plan by name', { snapshot: 'Železná', status: 'planned' }),
+    entry('no status', { snapshot: 'Kotelna', status: undefined }),
+    null,
+    undefined,
+    { label: 'no pairing at all', pairing: null },
+  ];
+  const pairingOf = (e: NonNullable<Entry>) => e.pairing as DiveCataloguePairing;
+  const r1: CatalogueRowIdentity = { id: 'r1', name: 'Železná' };
+  const r2: CatalogueRowIdentity = { id: 'r2', name: 'Zelezna' };
+  const rows: CatalogueRowIdentity[] = [
+    r1,
+    r2,
+    { id: 'r3', name: 'Kotelna' },
+    { id: 'r4', name: null },
+    { id: 'r5', name: '   ' },
+    { id: '', name: 'Kotelna' },
+    { id: 7 as unknown as string, name: 'Kotelna' },
+    { id: 'r6', name: 42 as unknown as string },
+  ];
+
+  it.each(rows.map((r) => [JSON.stringify(r), r] as const))(
+    'answers what the rule answers for the row %s, with the same dives in the same order',
+    (_label, row) => {
+      const lookup = catalogueDiveLookup(logbook, (e) => (e ? pairingOf(e) : (null as never)));
+      const expected = logbook.filter((e) => diveBelongsToCatalogueRow(e ? pairingOf(e) : null, row));
+      const answer = divesOfRow(lookup, row);
+      expect(answer.map((e) => e?.label)).toEqual(expected.map((e) => e?.label));
+      answer.forEach((e, i) => expect(e).toBe(expected[i]));
+    },
+  );
+
+  it('gives r1 its paired dive and every unpaired dive of its folded name, and r2 the same names', () => {
+    const lookup = catalogueDiveLookup(logbook, (e) => (e ? pairingOf(e) : (null as never)));
+    expect(divesOfRow(lookup, r1).map((e) => e?.label)).toEqual([
+      'unpaired, logged first',
+      'paired to r1',
+      'unpaired, accented',
+      'unpaired, folded with spaces',
+      'unpaired, shouted',
+    ]);
+    expect(divesOfRow(lookup, r2).map((e) => e?.label)).toEqual([
+      'unpaired, logged first',
+      'paired to r2, named like r1',
+      'unpaired, accented',
+      'unpaired, folded with spaces',
+      'unpaired, shouted',
+    ]);
+  });
+
+  it('has nothing to say about an empty logbook', () => {
+    expect(divesOfRow(catalogueDiveLookup([], pairingOf), r1)).toEqual([]);
+  });
 });
