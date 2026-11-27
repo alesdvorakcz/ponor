@@ -14,7 +14,7 @@ import { useUnitSystem } from '../db/useUnitSystem';
 import { catalogueUnreadable, logbookUnreadable } from '../domain/logbook';
 import { logbookStats } from '../domain/logbookStats';
 import { pointOf, waterTempRange } from '../domain/mapSites';
-import { SITE_DEFAULT_FIELDS, siteDefaultValue, type SiteDefaultField } from '../domain/siteDefaults';
+import { salinityFor, SITE_DEFAULT_FIELDS, siteDefaultValue, type SiteDefaultField } from '../domain/siteDefaults';
 import { divesAtSite } from '../domain/siteDives';
 import { type DiveSite, type Salinity, type WaterBody } from '../domain/types';
 import { wordsOf } from '../domain/words';
@@ -197,20 +197,34 @@ function siteTiles(site: DiveSite): ConditionTile[] {
 }
 
 /**
- * **The note under *The site*: which of its rows picking it fills in**, or `null` when none does.
+ * **Whether moving a dive to `site` writes `field`** — `siteDefaultValue`, the prefill's reading, and
+ * for *Salinity* the rule's own answer for a dive in the site's water (`salinityFor`, #53). That
+ * answers the ocean first: an ocean's salt is the ocean's, and the form draws no Salinity row for
+ * it, so an ocean site never promises one, whatever salinity it records (PR #81's review). A site
+ * with a salinity and no water body names it: it fills every dive except one in the ocean, where the
+ * ocean decides.
+ */
+function fillsIn(site: DiveSite, field: SiteDefaultField): boolean {
+  if (siteDefaultValue(site, field) === null) return false;
+  if (field !== 'salinity') return true;
+  return salinityFor({ waterBody: site.waterBody, typed: undefined, site, inherited: {} }).source === 'site';
+}
+
+/**
+ * **The note under *The site*: which of its rows moving a dive here fills in**, or `null` when none
+ * does.
  *
- * Decided field by field by the prefill's own reading, `siteDefaultValue`, so the page and the
- * prefill cannot disagree: *Salinity* and *Water body* when each is a default, *Entry* only when the
- * set holds exactly one way in — several are left to the diver (§2.1, #63), so the tiles draw them and
- * the note does not promise them. Since #53 the site sets what it knows over anything the rows held,
- * a value the diver typed included, on a new dive and on a stored one moved here, so the note says
- * *over anything already there*. It names the pick as the moment, because opening a dive already
- * logged here never refills it.
+ * Decided field by field by the prefill's own reading (`fillsIn`), so the page and the prefill
+ * cannot disagree: *Water body* when the site states one, *Entry* only when the set holds exactly
+ * one way in — several are left to the diver (§2.1, #63), so the tiles draw them and the note does
+ * not promise them — and *Salinity* when the site's own salinity is what a dive moved here gets.
+ * Since #53 the site sets what it knows over anything the rows held, a value the diver typed
+ * included, on a new dive and on a stored one moved here, so the note says *over anything already
+ * there*. It names a change of site as the moment (the owner's wording, 2026-11-27): re-picking
+ * the site a dive already has writes nothing (§2.1), and opening a dive logged here never refills it.
  */
 function prefillNote(site: DiveSite): string | null {
-  const filled = new Set(
-    SITE_DEFAULT_FIELDS.filter((field) => siteDefaultValue(site, field) !== null).map((field) => ROW_OF_DEFAULT[field]),
-  );
+  const filled = new Set(SITE_DEFAULT_FIELDS.filter((field) => fillsIn(site, field)).map((field) => ROW_OF_DEFAULT[field]));
   const names = PREFILL_ROWS.filter((row) => filled.has(row)).map((row) => PREFILL_ROW_LABEL[row]());
   const count = names.length;
   const last = names.pop();

@@ -795,7 +795,7 @@ export const cs = {
        * moves its verb (`prefillNote_one` / `_other` in en.ts); i18next tries the plural form first
        * and finds this bare key in Czech before it would fall back to English —
        * `figure.coverage`'s case the other way round. */
-      prefillNote: '{{rows}} se vyplní, když tuto lokalitu vyberete u ponoru, místo toho, co tam už bylo.',
+      prefillNote: '{{rows}} se vyplní, když u ponoru změníte lokalitu na tuto, místo toho, co tam už bylo.',
       prefillRows: '{{first}} a {{second}}',
       searchPlaceholder: 'Hledat lokality',
       close: 'Zavřít lokality',

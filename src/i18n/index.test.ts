@@ -244,7 +244,7 @@ it('resolves Czech site.prefillNote, which has only the bare key, at one and man
   for (const count of [1, 2]) {
     const rendered = t('site.prefillNote', { rows: 'Vstup', count });
     expect(rendered).toBe(
-      'Vstup se vyplní, když tuto lokalitu vyberete u ponoru, místo toho, co tam už bylo.',
+      'Vstup se vyplní, když u ponoru změníte lokalitu na tuto, místo toho, co tam už bylo.',
     );
     expect(rendered).not.toBe(t('site.prefillNote', { rows: 'Vstup', count, lng: 'en' }));
     expect(rendered).not.toContain('site.prefillNote');
