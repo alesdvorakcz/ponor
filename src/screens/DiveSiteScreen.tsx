@@ -153,9 +153,13 @@ const PREFILL_ROW_LABEL: Record<PrefillRow, () => string> = {
 };
 
 /**
- * A site's salinity, read through the prefill's own rule (`siteDefaultValue`), so the row stands
- * exactly when the note names it. A value is a word this build may not know (§10's store-and-flag),
- * which the formatter takes as a word.
+ * A site's salinity as the catalogue records it, read through `siteDefaultValue` so a blank or
+ * unreadable value draws no row. **The row is the recorded fact; the note is what a dive gets**: the
+ * note names Salinity only when `salinityFor` gives the site's own answer (`fillsIn`), so an ocean
+ * site draws *Salinity · Salt* while its note names only the water body — the ocean's salt is the
+ * ocean's, and the form draws no Salinity row for it (PR #81's review; the canvas draws the row
+ * too). A value is a word this build may not know (§10's store-and-flag), which the formatter takes
+ * as a word.
  */
 function salinityLine(site: DiveSite): string | null {
   const salinity = siteDefaultValue(site, 'salinity');

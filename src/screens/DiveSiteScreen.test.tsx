@@ -183,8 +183,8 @@ function noteIn(t: RenderResult): string | undefined {
 
 /**
  * **One *The site* cluster, and a note under it naming the rows that do something** — the owner's
- * pick C on the board *#31 · Site defaults, altitude offer* (2026-11-17). What picking the site
- * will write into a new dive is said once, under the cluster, by naming the things it fills — since
+ * pick C on the board *#31 · Site defaults, altitude offer* (2026-11-17). What changing a dive's
+ * site to this one will write is said once, under the cluster, by naming the things it fills — since
  * issue #6 the salinity row and the water body and ways in tiles, each by the label it is drawn with.
  */
 it('puts what a site gives a new dive among its facts, and says which rows those are', async () => {
@@ -232,9 +232,10 @@ it('says the site’s own depth and the diver’s deepest dive here as two diffe
 });
 
 /**
- * **The note is decided by the prefill's own reading** (`siteDefaultValue`), field by field — so
- * each of `SITE_DEFAULT_FIELDS` on its own must put its row in the note, and the page and the prefill
- * cannot disagree. Iterated over that list rather than over hand-written fields, so a fourth default
+ * **The note is decided by the prefill's own reading** (`fillsIn`: `siteDefaultValue`, and for
+ * salinity `salinityFor`), field by field — so each of `SITE_DEFAULT_FIELDS` on its own must put its
+ * row in the note, and the page and the prefill cannot disagree. (A salinity with no water body is
+ * the site's own answer, so it is named here; an ocean site's is not — see the ocean tests below.) Iterated over that list rather than over hand-written fields, so a fourth default
  * added to `domain/siteDefaults.ts` is asked about here too (and fails to compile below until it is
  * given a site that holds it).
  */
